@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "gpu/device.h"
 #include "metalfx.h"
 #include "render_features.h"

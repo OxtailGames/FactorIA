@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "frame_graph.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"

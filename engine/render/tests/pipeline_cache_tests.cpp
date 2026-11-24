@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "gpu/sokol_device.h"  // sg_query_pixelformat: the formats the cases can draw into, before any Gpu
 #include "render_internal.h"
 
 using namespace fa;
@@ -91,11 +92,11 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
     const render::TargetFormat f8{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
     const render::TargetFormat f16{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::DepthStencil, 1};
-    sg_pipeline q8 = gpu.quad_pipeline(f8, false, false);
-    CHECK(sg_query_pipeline_state(q8) == SG_RESOURCESTATE_VALID);
+    gpu::Pipeline q8 = gpu.quad_pipeline(f8, false, false);
+    CHECK(gpu.device().state(q8) == gpu::ResourceState::Valid);
     const std::size_t one = gpu.pipeline_count();
-    sg_pipeline q16 = gpu.quad_pipeline(f16, false, false);
-    CHECK(sg_query_pipeline_state(q16) == SG_RESOURCESTATE_VALID);
+    gpu::Pipeline q16 = gpu.quad_pipeline(f16, false, false);
+    CHECK(gpu.device().state(q16) == gpu::ResourceState::Valid);
     CHECK(q16.id != q8.id);
     CHECK(gpu.pipeline_count() == one + 1);
     // Both are still there, the first one is the same object, and the wrapper picks the scene format.
@@ -108,7 +109,7 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
     CHECK(gpu.scene_format() == gpu::PixelFormat::Rgba8);
     CHECK(gpu.quad_pipeline(false, false).id == q8.id);
     CHECK(gpu.pipeline_count() == one + 1);
-    CHECK(sg_query_pipeline_state(q16) == SG_RESOURCESTATE_VALID);
+    CHECK(gpu.device().state(q16) == gpu::ResourceState::Valid);
 }
 
 TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
@@ -124,10 +125,10 @@ TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
     const render::TargetFormat one{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
     const render::TargetFormat four{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 4};
-    sg_pipeline m1 = gpu.mesh_pipeline(one, false, false);
-    sg_pipeline m4 = gpu.mesh_pipeline(four, false, false);
-    CHECK(sg_query_pipeline_state(m1) == SG_RESOURCESTATE_VALID);
-    CHECK(sg_query_pipeline_state(m4) == SG_RESOURCESTATE_VALID);
+    gpu::Pipeline m1 = gpu.mesh_pipeline(one, false, false);
+    gpu::Pipeline m4 = gpu.mesh_pipeline(four, false, false);
+    CHECK(gpu.device().state(m1) == gpu::ResourceState::Valid);
+    CHECK(gpu.device().state(m4) == gpu::ResourceState::Valid);
     CHECK(m1.id != m4.id);
     CHECK(gpu.mesh_pipeline(one, false, false).id == m1.id);
     CHECK(gpu.mesh_pipeline(four, false, false).id == m4.id);
@@ -153,7 +154,7 @@ TEST_CASE("pipeline cache: a pipeline idle for too long is destroyed once the ca
     REQUIRE(formats.size() >= 2);                          // eviction needs one pipeline to keep and one to lose
     gpu.set_pipeline_cache_limits(formats.size() - 1, 4);  // the cap is under what is made, whatever the GPU supports
     const render::TargetFormat keep = formats[0];
-    sg_pipeline kept = gpu.colorfilter_pipeline(keep);
+    gpu::Pipeline kept = gpu.colorfilter_pipeline(keep);
     for (std::size_t i = 1; i < formats.size(); ++i) gpu.colorfilter_pipeline(formats[i]);
     const std::size_t made = gpu.pipeline_count();
     REQUIRE(made == formats.size());
@@ -169,7 +170,7 @@ TEST_CASE("pipeline cache: a pipeline idle for too long is destroyed once the ca
     CHECK(gpu.colorfilter_pipeline(keep).id == kept.id);  // one in use is never destroyed
     // An evicted one is made again when it is asked for.
     const std::uint64_t madeBefore = gpu.pipelines_made();
-    CHECK(sg_query_pipeline_state(gpu.colorfilter_pipeline(formats[1])) == SG_RESOURCESTATE_VALID);
+    CHECK(gpu.device().state(gpu.colorfilter_pipeline(formats[1])) == gpu::ResourceState::Valid);
     CHECK(gpu.pipelines_made() == madeBefore + 1);
 }
 
@@ -185,9 +186,9 @@ TEST_CASE("pipeline cache: a pipeline made by the warm-up is never evicted, an i
         return;
     }
     gpu.set_pipeline_cache_limits(1, 4);
-    const sg_pipeline used = gpu.colorfilter_pipeline(formats[0]);
+    const gpu::Pipeline used = gpu.colorfilter_pipeline(formats[0]);
     gpu.set_warming(true);
-    const sg_pipeline warmed = gpu.colorfilter_pipeline(formats[1]);
+    const gpu::Pipeline warmed = gpu.colorfilter_pipeline(formats[1]);
     gpu.set_warming(false);
     gpu.colorfilter_pipeline(formats[2]);
     for (int i = 0; i < 40; ++i) {

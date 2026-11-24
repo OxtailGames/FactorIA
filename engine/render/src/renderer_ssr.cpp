@@ -10,6 +10,7 @@
 #include "postprocess_resolve.h"
 #include "fullscreen_gpu.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/ssr.glsl.h"
 
 namespace fa::render {

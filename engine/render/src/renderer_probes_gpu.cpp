@@ -9,6 +9,7 @@
 #include "renderer_env.h"
 #include "renderer_probes.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/probe.glsl.h"
 
 namespace fa::render {
@@ -306,7 +307,7 @@ void ProbeGpu::pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w,
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::face_to_cube(Gpu& gpu, int slot, int face, gpu::bridged::View picture, int* drawCalls) {
+void ProbeGpu::face_to_cube(Gpu& gpu, int slot, int face, gpu::View picture, int* drawCalls) {
     Scratch& s = scratch_[slot];
     const ProbeFace c = probe_face(face);
     const float camera[12] = {c.right.x, c.right.y, c.right.z, 0.0f,    c.up.x,  c.up.y,
@@ -341,8 +342,8 @@ void ProbeGpu::filter(Gpu& gpu, Atlas& atlas, int slot, const ProbeTile& tile, f
               sampler_, region, p, q, nullptr, drawCalls);
 }
 
-void ProbeGpu::write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::bridged::View envCube,
-                         gpu::bridged::Sampler envSampler, bool envRgba8, int* drawCalls) {
+void ProbeGpu::write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::View envCube, gpu::Sampler envSampler,
+                         bool envRgba8, int* drawCalls) {
     const ProbeLayout lay = probe_layout(tile.resolution);
     const float rgba8 = this->rgba8() ? 1.0f : 0.0f;
     for (int k = 0; k < lay.levels; ++k) {

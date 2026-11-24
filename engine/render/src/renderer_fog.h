@@ -90,13 +90,13 @@ public:
     // BloomTarget), `prepass` the camera's prepass (invalid: nothing is drawn). Each pass adds one to *drawCalls when it runs. Returns the
     // number of passes declared (0: nothing is drawn: no shafts, no prepass, shaders or targets the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rect,
-                   int picW, int picH, ResourceId game, gpu::bridged::View srcTex, const BloomTarget& dst,
+                   int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
     // Draws the fog of `plan` over the pass being drawn, whose target has `format` (the game image, multisampled or not): one full-screen
     // triangle that reads the prepass `prepassTex`. The caller has set the viewport and the scissor to the camera's rectangle. False (nothing
     // drawn) when the program cannot be made.
-    bool draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::bridged::View prepassTex, const TargetFormat& format);
+    bool draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::View prepassTex, const TargetFormat& format);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();

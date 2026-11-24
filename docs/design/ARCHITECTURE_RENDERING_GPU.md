@@ -4,8 +4,9 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 [ARCHITECTURE_RENDERING.md](ARCHITECTURE_RENDERING.md)). The engine's own GPU interface, `fa::gpu`, which the
 renderer moves onto during M77 so that the D3D12 and Vulkan backends can sit next to sokol_gfx. Its code is in
 `engine/render/src/gpu/` (private to `fa_render`); its tests are `engine/render/tests/gpu_interface_tests.cpp`
-(ctest `render_gpu_interface_core`, no GPU needed); the backends' own tests are `d3d12_device_tests.cpp` and
-`vulkan_device_tests.cpp` (ctests `render_d3d12_device`, `render_vulkan_device`).
+(ctest `render_gpu_interface_core`, no GPU needed). The Vulkan backend has a page of its own,
+[ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md); the backends' own tests are
+`d3d12_device_tests.cpp` and `vulkan_device_tests.cpp` (ctests `render_d3d12_device`, `render_vulkan_device`).
 
 ## Layers
 
@@ -125,11 +126,11 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
   value-initialised desc means what a zeroed sokol desc means.
 - Descs convert field by field (`to_sg(const BufferDesc&)` and the rest). Labels, shader sources and data ranges are
   borrowed for the call, never kept.
-- The generated shader headers return `sg_shader_desc`: `from_sg(*name_shader_desc(sg_query_backend()))` gives the
-  `ShaderDesc` for `Device::make_shader`.
-- `from_sg(const sg_pipeline_desc&)` converts the pipeline descs `Gpu::find_or_make` builds today.
-- `to_sg(const PassDesc&)` gives the `sg_pass` of a pass (the swapchain case included); `swapchain_pass(sc)` is
-  `PassDesc::for_swapchain` with the defaults of the open sokol context (a test checks every field).
+- The generated shader headers return `sg_shader_desc`: `generated_shader_desc(name_shader_desc)` (gpu/sokol_shaders.h)
+  gives the `ShaderDesc` for `Device::make_shader`.
+- `to_sg(const PassDesc&)` gives the `sg_pass` of a pass (the swapchain case included); a window pass is
+  `PassDesc::for_swapchain(sc, device.environment_defaults())` (a test checks every field).
+- The conversions are declared in gpu/sokol_device.h, which only the sokol backend's files and the tests include.
 - `SokolDevice::create` adopts the sokol context that is open (the renderer's; left open at destruction) or opens one
   from `DeviceInit` (and shuts it down at destruction). `frame_index()` counts commits through a commit listener.
 - Timers forward to the renderer's `GpuTimer`. Readbacks, `storage_image_loadable`, the asynchronous reads' rings
@@ -235,13 +236,13 @@ sokol call:
 - **A frame-graph pass**: `PassContext::commands()` is the list `FrameGraph::execute(pool, &gpu.commands())` was
   given, valid while the pass runs (null in the CPU-only graph tests). This is where a later backend hands each pass
   (or each thread) its own list: the pass code does not change.
-- **`Gpu::begin_pass` / `end_pass`**: non-static members that record on this Gpu's own list (`commands()`) and remember
-  the pass's `TargetFormat` for the debug check of the pipeline cache (a pipeline fetched inside the pass must be for its
-  format). Converted code mostly begins its passes straight on its list (`gpu::CommandList& cl = gpu.commands();
-  begin_list_pass(cl, pass)`, `cl.end_pass()`); such a pass does not set the Gpu's `inPass_` flag, so that check is skipped
-  for it, while `Gpu::in_pass()` and `begin_transient_writes` also ask `list.pass_state()`. A window pass
-  (`Renderer::begin_window_pass`, `present_clear`) is a pass on the sokol context itself (`gpu::begin_context_pass`),
-  because it runs with no renderer.
+- **Passes begin on a list** (`gpu::CommandList& cl = gpu.commands(); begin_list_pass(cl, pass)`, `cl.end_pass()`).
+  The list checks that every pipeline set in a render pass was made for the pass's `PassDesc::format`, and that the
+  format is what the attachments are: a debug assertion in `SokolCommandList::begin_pass` / `set_pipeline` (GL and
+  D3D11 validation reject a mismatch, Metal draws wrong), an `errors()` entry on RecordingDevice. `Gpu::in_pass()` asks
+  `list.pass_state()`. A window pass (`Renderer::begin_window_pass`, `present_clear`) is a pass on the sokol context
+  itself (`gpu::begin_context_pass`, gpu/sokol_context.h), because it runs with no renderer; the list does not check
+  the pipelines set in it (the UI painter's), since it did not begin it.
 - **The Target helpers take the device** (`make_target(gpu.device(), desc)`, `destroy_target(gpu.device(), t)`,
   `Target::valid(device)`); there is no overload that asks a global device (P5a, P5d1).
 
@@ -272,17 +273,9 @@ gpu.commands().write_buffer(w);
 gpu.commit_frame();
 ```
 
-While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the last sg_* call site, M77-P5):
-
-- `to_sg` / `from_sg` convert handles (the same id), enums (the same value) and descs (field by field);
-- `gpu::bridged::*` is a handle that also converts to and from its sokol twin: Gpu's getters return one (pipelines,
-  samplers, buffers) so the passes that still call `sg_apply_pipeline` take it unchanged. Never put one in a ternary
-  next to an `sg_*` value (`t ? t->view : sg_view{}`): each side converts to the other and the compiler cannot
-  choose; write `to_sg()` or `from_sg()` on one side;
-- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`.
-
-A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
-sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target helpers
+During the move (P2 to P5d2) gpu/sg_bridge.h connected the two sides (`to_sg` / `from_sg`, and `gpu::bridged::*`
+handles that converted to their sokol twins); P5d3 deleted it (see "P5d3: no sokol in the renderer"). The packages
+converted, in order: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target helpers
 (target.cpp), shader_cache.cpp and render_features.cpp; assets.cpp, custom_shader.cpp, water2d.cpp, gi2d.cpp,
 renderer_lights2d.cpp, fonts.cpp, gradient_ramp.cpp, postprocess.cpp and bloom.cpp (P3: their passes open on
 `gpu.commands()` or `PassContext::commands()`; a class with no Gpu member (WaterFx, GradientRamps, Gi2dSystem,
@@ -294,9 +287,8 @@ uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp,
 renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
 `note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
 `begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
-those files: the context lifecycle (before any device exists), the readbacks (P5d2 moved them behind the Device). A pass opened on its
-own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
-state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
+those files: the context lifecycle (before any device exists), the readbacks (P5d2 moved them behind the Device).
+gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
 the sokol backend's own timer (the D3D11 device calls). The 3D light and environment passes
 (M77-P4b): renderer_env (the sky cube and its prefilter), renderer_sky_phys, renderer_subsurface, renderer_fog,
 renderer_volumetric, renderer_xmit (transmission), renderer_hdri and the read-back commits of renderer_probes. Each of
@@ -313,9 +305,9 @@ P5c, see "P5c: native_metal and the 2D painter" below.
 P5a: the render targets and formats are interface types. `Target` holds `gpu::Image` / `gpu::View` made on the Gpu's
 device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
 `velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
-(`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
-`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges until P5d2: the readbacks and the
-storage-image helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+(`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `PassDesc::for_swapchain` over the
+`gpu::Swapchain` of the platform's swapchain (`gpu::swapchain_of`). The readbacks and storage-image helpers, still on
+sokol types at their edges after P5a, moved behind the Device in P5d2 (done).
 P5b: the asset and material types are interface types. `TextureAsset` and `LutAsset` hold a `gpu::Image` / `gpu::View`
 and a `gpu::PixelFormat`, `SubMesh` its `gpu::Buffer`s, `MaterialProgram` a `gpu::Shader`; ktx2.cpp picks the target
 format from the device's pixel-format caps (`ktx2_target_format(device)`) and `transcode_ktx2` takes the device.
@@ -363,8 +355,9 @@ bindings per texture change, a scissor and a draw per command, commands outside 
 Metal capture in tools/editor/src/backbuffer_apple.mm is a blit on that queue, which has no portable form, and the editor's
 imgui_backend.cpp holds no `sg_` or `simgui_` call (its input still comes from `sapp_event`).
 
-Still on sokol after P5c: `Gpu::begin_pass`, the window pass of `Renderer::begin_window_pass` (P5d), and the context lifecycle
-(`open_context`, `close_context`, `commit_context`).
+Still on sokol after P5c: `Gpu::begin_pass`, the window pass of `Renderer::begin_window_pass` and the context lifecycle
+(`open_context`, `close_context`, `commit_context`). Done in P5d: `Gpu::begin_pass` went (passes begin on a list), and
+the window pass and the lifecycle call gpu/sokol_context.h, a sokol backend file (P5d3).
 
 **P5d1: no global device.** `Gpu::active()` and `Gpu::active_device()` (and the list of live Gpus behind them) are gone,
 with every overload that asked them: `TaaFx::ready()`, `FogFx::ready(Prog)`, `VolumetricFx::can_draw(targets, plan)`,
@@ -372,8 +365,8 @@ with every overload that asked them: `TaaFx::ready()`, `FogFx::ready(Prog)`, `Vo
 `Ssao::draw_apply(Gpu&, ...)`. A pass gets its device from the `Gpu&` (or `gpu::Device&`) its caller holds: the renderer's
 passes pass `gpu` (or `gpu.device()`) down from `Renderer::Impl`, and a caller that can run before the Gpu has a device
 (`Impl::jitter_phases`, `upscaler_caps`) checks `gpu.has_device()` first and treats "no device" as "not ready". The
-`Gpu::begin_pass` / `end_pass` / `in_pass` / `pass_format` functions are members of the Gpu that owns the list they
-record on; `begin_compute_pass` / `end_compute_pass` had no caller and went. `Renderer::begin_window_pass` and
+`Gpu::begin_pass` / `end_pass` / `in_pass` / `pass_format` functions became members of the Gpu that owns the list they
+record on (P5d3 removed all but `in_pass`); `begin_compute_pass` / `end_compute_pass` had no caller and went. `Renderer::begin_window_pass` and
 `end_window_pass` use `gpu::begin_context_pass` / `end_context_pass`, which need no Gpu. Still on sokol after P5d1: the
 readbacks, the storage-image helpers (P5d2), `sg_bridge.h` (P5d3), and the context lifecycle (`open_context`,
 `close_context`, `commit_context`).
@@ -395,21 +388,37 @@ reads deterministically (see "RecordingDevice"). Still on sokol after P5d2: `sg_
 context lifecycle (renderer.cpp), gpu_timer.cpp (the sokol backend's own timer) and `native_window_handles` /
 `UiPainter::create` (ui_painter.cpp: `sg_isvalid` and the context's native queue and device).
 
+**P5d3: no sokol in the renderer.** gpu/sg_bridge.h and `gpu::bridged::*` are gone: Gpu's getters return the
+interface's handles, and the conversions (`to_sg` / `from_sg`) are declared in gpu/sokol_device.h. No renderer file
+calls sokol: only gpu/sokol_device.cpp and gpu/sokol_context.cpp do (`grep -rln "sg_\|SG_" engine/render/src
+--include=*.cpp` also lists renderer.cpp, renderer_present.cpp, shader_cache.cpp and gpu/types.cpp, for comments and the
+"sg_setup failed" message). The files that may include sokol: gpu/sokol_device.h (the two above, gpu/device.cpp, which
+makes a SokolDevice, and the tests that check the GPU directly) and gpu/sokol_shaders.h (see below). The readbacks,
+image_gl.cpp and gpu_timer.cpp work on the natives (`native()`, `native_image()`, `context_native()`). The code that runs while no Device exists uses gpu/sokol_context.h
+(sokol-free): `open_context` / `close_context` / `commit_context` / `context_open` (Renderer's context lifecycle),
+`begin_context_pass` (the window pass), `context_native` / `context_backend` / `swapchain_of` (`native_window_handles`,
+`UiPainter::create`, `Renderer::backend_name`). The generated shader headers still need sokol's declarations (their
+desc functions take an `sg_backend`); a file that includes one includes gpu/sokol_shaders.h first, which brings the
+types and `generated_shader_desc` and nothing to call. `Gpu::begin_pass` / `end_pass` / `pass_format` went with the
+format check of `find_or_make`, which only their tests used: the check is now in the command list (see "How the
+renderer reaches the device"), so it covers every pass. The MSAA fallback of `Renderer::init` is in `Gpu::init`
+(`device.pixel_format_caps(Rgba8).msaa`).
+
 ## How to convert an sg_* call site
 
 | sokol | gpu interface |
 |---|---|
 | `sg_make_buffer(&desc)` | `device.make_buffer(BufferDesc)` (`usage.writeTransient` for a buffer rewritten each frame) |
 | `sg_make_image`, `sg_make_view`, `sg_make_sampler` | `make_image(ImageDesc)`, `make_view(ViewDesc)`, `make_sampler(SamplerDesc)` |
-| `sg_make_shader(name_shader_desc(backend))` | `make_shader(from_sg(*name_shader_desc(backend)))` |
-| `sg_make_pipeline(&desc)` | `make_pipeline(PipelineDesc)` (or `from_sg(desc)` while the desc is still built as sokol's) |
+| `sg_make_shader(name_shader_desc(backend))` | `make_shader(generated_shader_desc(name_shader_desc))` |
+| `sg_make_pipeline(&desc)` | `make_pipeline(PipelineDesc)` |
 | `sg_destroy_*(h)` | `destroy_*(h)` |
 | `sg_query_*_state(h)` | `state(h)` |
 | `sg_query_features()`, `sg_query_limits()`, `sg_query_pixelformat(f)` | `features()`, `limits()`, `pixel_format_caps(f)` |
 | `sg_query_backend()` | `backend()` / `info().metalTarget` |
 | `sg_query_desc().environment.defaults` | `environment_defaults()` |
 | `sg_mtl_device()`, `sg_d3d11_device()`, `sg_*_query_image_info`, `sg_*_query_buffer_info` | `native()`, `native_image(h)`, `native_buffer(h)` |
-| `sg_begin_pass(&pass.to_sg())` | `list.begin_pass(PassDesc)` (`gpu::swapchain_pass(sc)` for a window pass) |
+| `sg_begin_pass(&pass.to_sg())` | `list.begin_pass(PassDesc)` (`PassDesc::for_swapchain(sc, device.environment_defaults())` for a window pass) |
 | `sg_begin_pass` with `compute = true` | `list.begin_compute_pass(label)` |
 | `sg_end_pass()`, `sg_query_pass_state()` | `list.end_pass()`, `list.pass_state()` |
 | `sg_apply_pipeline`, `sg_apply_bindings`, `sg_apply_uniforms(slot, &SG_RANGE(u))` | `set_pipeline`, `set_bindings(Bindings)`, `set_uniforms(slot, Range{&u, sizeof u})` |
@@ -593,99 +602,5 @@ checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_ro
 
 ## Vulkan backend
 
-The engine's own Vulkan device (M77-P8a: the core; pipelines, passes and draws are M77-P8c). Its code is
-`engine/render/src/gpu/vulkan_device.h` and `vulkan_*.cpp` (loader, device, memory, resources, commands, readback).
-CMake builds it where `FA_VULKAN_BACKEND` is on: Linux, Windows and Android, and macOS for its tests only (through
-MoltenVK; Vulkan is never a macOS product backend, games there use Metal); never on the web or iOS, where
-`make_vulkan_device` returns a teaching error. The sources compile with `VK_NO_PROTOTYPES` against the vendored
-Khronos headers (`external/vulkan_headers`) and link no Vulkan library: the loader is opened at run time
-(`libvulkan.so.1`, `vulkan-1.dll`, `libvulkan.1.dylib` with the Homebrew prefixes on macOS, or
-`VulkanOptions::loaderPath`), so a binary on a system without Vulkan starts and the error says what to install. There is
-no volk and no VMA. `make_device(Backend::Vulkan)` still answers "not built yet" until the renderer can run on it;
-tests and tools make it with `make_vulkan_device(VulkanOptions)`.
-
-**Options and start-up.** `VulkanOptions` picks a CPU device (`cpuDevice`: lavapipe) or the best GPU (discrete, then
-integrated), the validation layer, the frames in flight (1 to 3), the upload ring's size, the suballocator's block size
-and dedicated threshold, the per-frame descriptor pools, the bindless table and `synchronization2`. Contradictions are
-errors before any Vulkan call. The instance asks for Vulkan 1.3 where the loader has it (1.2 at least), with
-`VK_EXT_debug_utils` and portability enumeration when present; the device needs Vulkan 1.2, timeline semaphores and a
-graphics + compute queue, and enables `VK_KHR_portability_subset` where the driver lists it (MoltenVK:
-`portability_subset()`). A GPU with a transfer-only queue family also gets that queue (`transfer_queue()`, for
-M77-P8c's uploads). Without the validation layer installed, or with a layer the loader lists but cannot open, the
-device is made without it, warns, and `validation_active()` is false. On macOS, Homebrew's layer manifest names its
-library by a bare file name dyld does not find; once per process the device writes a copy of the manifest with the
-absolute path into the temporary directory and adds it through `VK_ADD_LAYER_PATH` (unless `VK_LAYER_PATH` or
-`VK_ADD_LAYER_PATH` is set already), so the user sets nothing.
-
-**Errors.** Every failed `VkResult` becomes a message with its name (`result_text`). With the validation layer, a
-debug messenger (also chained into `vkCreateInstance`) sends ERROR messages to `errors()` and WARNING ones to
-`warnings()`, prefixed `gpu vulkan validation:`, and to the log. A misuse the backend catches itself (a write past a
-buffer's end, a destroyed handle, an image used with a usage it was not made with) is reported the same way and
-records nothing.
-
-**Frames, the timeline, deferred destruction.** One graphics + compute queue and one timeline semaphore: each submit
-signals the next value. `commit()` signals the frame's value, and once more frames than `framesInFlight` were committed
-it waits (up to 120 s, then an error) for the oldest one, whose descriptor pool and ring room the new frame reuses.
-`destroy_*` frees the handle at once and keeps the Vulkan object, its memory and its bindless slot in a deferred list
-tagged with the current frame; they are released once the semaphore passed that frame's value
-(`counters().pendingReleases`).
-`wait_idle()` drains the queue and releases everything pending, the current frame's destroyed objects included (the
-frame's upload ring room waits for its `commit()`: lists still open may have written into it).
-
-**Memory.** The engine's own suballocator: a pool of blocks (`memoryBlockBytes`) per memory type and per linear or
-optimal resource (so `bufferImageGranularity` never matters), first fit with coalescing free ranges; a resource of
-`dedicatedThreshold` bytes or more, and every readback buffer, takes an allocation of its own. Host-visible blocks stay
-mapped; upload memory is host-coherent, and readback memory that is not is invalidated before the CPU reads it. `counters().memory` counts blocks, dedicated
-allocations, live pieces and bytes.
-
-**Resources.** Buffers; 2D, array, cube and 3D images with mips and MSAA; every `ViewDesc` kind (a sampled view, a
-storage image, a storage buffer range, colour, depth and resolve attachments: their Vulkan image views); samplers. A
-format table maps each `PixelFormat` to its `VkFormat`, texel or block size and aspect, and `caps()` asks the driver
-what each format can do. A 2D view of a 3D image needs `imageView2DOn3DImage`, which the portability subset may lack.
-
-**Uploads.** `write_buffer`, `write_image` and the initial data of `make_buffer` / `make_image` copy through one
-persistently mapped upload ring shared by the frames in flight (rounded up to whole 64 KiB). An upload that does not
-fit takes a buffer of its own, released with its frame (`counters().dedicatedUploads`, `uploadRingWraps`). Initial
-data is recorded into an internal prelude list that runs before the next submitted list, commit, readback or
-`wait_idle`.
-
-**Barriers.** Each image keeps one layout and access per subresource (mip x layer; images start `UNDEFINED`), each
-buffer one access. A list tracks, per resource it touches, the state it needs first and the state it leaves; its
-barriers are merged over neighbouring mips and layers, batched and flushed before each copy, through
-`vkCmdPipelineBarrier2` where the device has synchronization2 (core in 1.3) and the Vulkan 1.0
-`vkCmdPipelineBarrier` otherwise (`synchronization2 = false` forces it, for its tests). Lists may be recorded on
-several threads and submitted in any order, so at submit a fix-up command buffer moves every subresource from the
-state the queue left it in to the one the list starts with, executed just before it (`counters().barriers`).
-
-**Copies.** `copy_buffer_to_image` copies straight from the buffer when its offset and row pitch are whole texels (or
-blocks) and the slice pitch is whole rows; otherwise it repacks the rows into a scratch buffer on the GPU first, one
-buffer copy per row (`features().copyBufferToImageRelaxedBytesPerRow`). Zero `bytesPerRow` / `bytesPerSlice` mean a
-whole mip's pitch and zero sizes the rest of the mip, as in sokol. `push_debug_group` / `pop_debug_group` are
-`VK_EXT_debug_utils` labels, and every object carries its label as its debug name.
-
-**Descriptors.** One descriptor pool per frame in flight (`frameDescriptorSets` sets, `frameDescriptors` of each kind),
-reset when the frame's slot comes round again; the device counts the room itself, so a full pool is refused with the
-same error on every driver, naming the option to raise. The bindless table is one update-after-bind set of
-`bindlessDescriptors` sampled images (descriptor indexing, partially bound): `bindless_add(view)` writes a free slot,
-`bindless_remove(slot)` frees it once the frames that may read it are finished. A count over what the device binds in
-one stage or puts in one set (MoltenVK: 1212) is lowered with a warning; a device without descriptor indexing has no
-table.
-
-**Readbacks.** `read_buffer`, `read_image_rgba8` (BGRA is swizzled to RGBA), `read_image_rgba16f`,
-`read_storage_image` and, for tests, `read_image_region(image, mip, layer, x, y, w, h)` copy into a host buffer of
-their own on an internal command buffer, wait for the timeline, invalidate non-coherent memory and unpack the rows. They
-block.
-
-**Not yet (M77-P8c).** `make_shader`, `make_pipeline`, `begin_pass` and everything inside a pass, `dispatch`, the GPU
-timers and the asynchronous buffer reads report "not built yet (M77-P8c)" and record nothing (a `CommandList` method
-reports once per device, `make_shader` / `make_pipeline` on every call).
-
-**Tests.** `engine/render/tests/vulkan_device_tests.cpp` (ctest `render_vulkan_device`): each case makes a device on
-the machine's Vulkan driver with the validation layer and ends by checking that the layer reported no error (buffer
-and image round trips with mips, RGBA8, RGBA16F, BGRA, arrays, cubes and 3D images, every view kind, both
-`copy_buffer_to_image` paths, deferred destruction, the ring's wrap and the dedicated uploads, descriptor-pool
-exhaustion and reuse, the bindless table, the Vulkan 1.0 barriers, the "not yet" errors, a CPU device on request); a
-machine with no loader or no Vulkan device says so with a MESSAGE and passes, and one case checks the factory's
-errors (bad options, a missing loader). They run on macOS through MoltenVK (`brew install vulkan-loader molten-vk
-vulkan-validationlayers`) and on Windows where a Vulkan driver is installed; Linux CI has no Vulkan driver until M77-P8b brings
-lavapipe, so there they skip. `VulkanDevice::counters()`, `fn()` and `read_image_region` exist for these tests.
+The engine's own Vulkan device (M77-P8a, M77-P8c) has a page of its own:
+[ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md).

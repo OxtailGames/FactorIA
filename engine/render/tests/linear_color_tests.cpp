@@ -12,6 +12,7 @@
 #include <string>
 #include <tuple>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "color_space.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"

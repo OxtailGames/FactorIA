@@ -12,7 +12,6 @@
 #include <string_view>
 
 #include "gpu/types.h"
-#include "sokol_gfx.h"
 
 namespace fa::render {
 

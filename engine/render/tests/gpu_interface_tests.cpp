@@ -13,7 +13,10 @@
 
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
+#include "fa/platform/app.h"
+#include "gpu/sokol_context.h"
 #include "gpu/sokol_device.h"
+#include "gpu/sokol_shaders.h"
 #include "gpu_types.h"
 #include "render_internal.h"
 #include "render_features.h"
@@ -1142,6 +1145,57 @@ TEST_CASE("SokolDevice: a buffer, an image, a pipeline and a cleared pass on the
     CHECK(dev.state(target) == ResourceState::Invalid);
     CHECK(dev.total_stats().images.alive + 1 == before.images.alive);
     dev.reset_state_cache();  // the renderer's next frame starts from a clean sokol state
+}
+
+// gpu/sokol_context.h: what the renderer asks while no Device exists (the context lifecycle, the window pass,
+// native_window_handles) answers the same as the SokolDevice made on that context.
+TEST_CASE(
+    "sokol context: the open context answers like a SokolDevice; swapchain_of and generated_shader_desc convert") {
+    // swapchain_of reads the opaque copy the platform layer hands over.
+    sg_swapchain raw{};
+    raw.width = 64;
+    raw.height = 32;
+    raw.sample_count = 4;
+    raw.color_format = SG_PIXELFORMAT_BGRA8;
+    raw.depth_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+    fa::GfxSwapchain opaque{};
+    static_assert(sizeof(raw) <= sizeof(opaque.storage));
+    std::memcpy(opaque.storage, &raw, sizeof(raw));
+    const Swapchain sc = swapchain_of(opaque);
+    CHECK(sc.width == 64);
+    CHECK(sc.height == 32);
+    CHECK(sc.sampleCount == 4);
+    CHECK(sc.colorFormat == PixelFormat::Bgra8);
+    CHECK(sc.depthFormat == PixelFormat::DepthStencil);
+
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the open-context half is skipped");
+        return;
+    }
+    REQUIRE(context_open());
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    CHECK(context_backend() == dev.backend());
+    CHECK(context_backend() == built_sokol_backend());
+    const NativeDevice a = context_native();
+    const NativeDevice b = dev.native();
+    CHECK(a.device == b.device);
+    CHECK(a.context == b.context);
+    CHECK(a.commandQueue == b.commandQueue);
+    if (context_backend() == Backend::Metal || context_backend() == Backend::D3d11) CHECK(a.device != nullptr);
+    const EnvironmentDefaults d = context_defaults();
+    CHECK(d.colorFormat == dev.environment_defaults().colorFormat);
+    CHECK(d.depthFormat == dev.environment_defaults().depthFormat);
+    CHECK(d.sampleCount == dev.environment_defaults().sampleCount);
+    CHECK(d.colorFormat != PixelFormat::Default);
+
+    // The generated header's desc for this backend, in the interface's types: a shader the device makes.
+    const ShaderDesc desc = generated_shader_desc(&blit_blit_shader_desc);
+    const Shader shader = dev.make_shader(desc);
+    CHECK(dev.state(shader) == ResourceState::Valid);
+    dev.destroy_shader(shader);
 }
 
 TEST_CASE("SokolDevice: a read ticket names one read: offset, a stale ticket, a reused slot") {

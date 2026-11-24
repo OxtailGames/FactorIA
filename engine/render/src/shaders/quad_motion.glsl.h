@@ -6088,7 +6088,7 @@ static const uint8_t quad_motion_fs_react_source_wgsl[3420] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t quad_motion_vs_bytecode_spirv_vk[2784] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x57,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -6413,7 +6413,7 @@ static const uint8_t quad_motion_vs_bytecode_spirv_vk[2784] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t quad_motion_fs_vel_bytecode_spirv_vk[7076] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x3b,0x01,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -6988,7 +6988,7 @@ static const uint8_t quad_motion_fs_vel_bytecode_spirv_vk[7076] = {
     }
 
 */
-#if defined(SOKOL_VULKAN)
+#if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
 static const uint8_t quad_motion_fs_react_bytecode_spirv_vk[6052] = {
     0x03,0x02,0x23,0x07,0x00,0x04,0x01,0x00,0x0b,0x00,0x08,0x00,0x0a,0x01,0x00,0x00,
     0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00,
@@ -7748,7 +7748,7 @@ static inline const sg_shader_desc* quad_motion_quad_react_shader_desc(sg_backen
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -7799,7 +7799,7 @@ static inline const sg_shader_desc* quad_motion_quad_react_shader_desc(sg_backen
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
 static inline const sg_shader_desc* quad_motion_quad_vel_shader_desc(sg_backend backend) {
@@ -8179,7 +8179,7 @@ static inline const sg_shader_desc* quad_motion_quad_vel_shader_desc(sg_backend 
         return &desc;
     }
     #endif /* SOKOL_WGPU */
-    #if defined(SOKOL_VULKAN)
+    #if defined(SOKOL_VULKAN) || defined(FA_SHADERS_SPIRV)
     if (backend == SG_BACKEND_VULKAN) {
         static sg_shader_desc desc;
         static bool valid;
@@ -8230,6 +8230,6 @@ static inline const sg_shader_desc* quad_motion_quad_vel_shader_desc(sg_backend 
         }
         return &desc;
     }
-    #endif /* SOKOL_VULKAN */
+    #endif /* SOKOL_VULKAN || FA_SHADERS_SPIRV */
     return 0;
 }
