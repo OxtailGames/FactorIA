@@ -371,9 +371,14 @@ bool TaaFx::output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, 
     return true;
 }
 
-bool TaaFx::reserve_upscale(int outW, int outH) {
+bool TaaFx::reserve_upscale(int outW, int outH, std::uint64_t serial) {
     if (outW < 1 || outH < 1 || !ready() || upscaleRefused_) return false;
-    return slot_for(kUpscaleCamKey, outW, outH, pick_format(), "upscale") != nullptr;
+    const std::shared_ptr<Slot> slot = slot_for(kUpscaleCamKey, outW, outH, pick_format(), "upscale");
+    if (!slot) return false;
+    // A history made now counts as planned in the frame that is about to be drawn: a sweep between this call and the resolve (the frame's end
+    // when no job resolved) must not free what was just reserved. `serial` is the postSerial of the frame before; the resolve sets its own.
+    slot->planned = std::max(slot->planned, serial);
+    return true;
 }
 
 bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {

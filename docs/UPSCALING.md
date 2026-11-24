@@ -133,7 +133,7 @@ If they cannot compile on a backend (logged once) the stage scales up with the p
 
 A history that the GPU cannot make (the memory budget of the temporal histories, a window too large for it) draws the frames with the spatial
 upscaler instead, from the first one (the history is asked for before the camera is jittered), with one log line that names the size;
-`effectiveMode` says `spatial` until the window's size changes. The camera's own `TemporalAA` is not affected by that refusal.
+`effectiveMode` says `spatial` until the window size or the render scale changes. The camera's own `TemporalAA` is not affected by that refusal.
 
 ## MetalFX (Apple GPUs)
 

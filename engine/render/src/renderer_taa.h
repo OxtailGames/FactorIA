@@ -142,8 +142,8 @@ public:
 
     // Makes (or keeps) the upscaler's history for an output of outW x outH now, before the frame is jittered for it: false when the budget or
     // the GPU refuse it (logged once, upscale_unavailable() is then true), so the frame is drawn without the jitter and goes through the
-    // spatial upscaler instead of being drawn jittered and never resolved. Cheap when the history exists.
-    bool reserve_upscale(int outW, int outH);
+    // spatial upscaler instead of being drawn jittered and never resolved. `serial`: the renderer's postSerial before this frame counts. Cheap when the history exists.
+    bool reserve_upscale(int outW, int outH, std::uint64_t serial);
     // Tests: the bytes the histories of all the cameras and of the upscaler may take together (0: the default, 1 GB; 256 MB on wasm32).
     void set_budget(std::uint64_t bytes) { budgetOverride_ = bytes; }
 

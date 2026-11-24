@@ -254,7 +254,7 @@ public:
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
     // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
     // A held scale is a size: it replaces the player's option (window.renderScale, Engine::set_render_scale) and the upscaler's quality,
-    // and has no upscale stage, until set_render_scale sets the player's option again.
+    // and has no upscale stage (except the sharpening at scale 1), until set_render_scale sets the player's option again.
     bool hold_render_scale(double scale, std::string* error);
     // JSON dump of the world for AIs: entities, components, physics, logs, errors.
     Json state(const Json& query = Json::object());
@@ -386,6 +386,9 @@ public:
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)
 
 private:
+    // hold_render_scale (player false) and set_render_scale (player true): validate, set the held scale and the player flag, and apply once;
+    // nothing happens when both are as they were.
+    bool hold(double scale, bool player, std::string* error);
     std::unique_ptr<Impl> impl_;
 };
 

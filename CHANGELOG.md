@@ -27,8 +27,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   upscaler from the first frame (one log line) without turning off the `TemporalAA` of the cameras. `Engine::hold_render_scale` (the CLI's
   `--render-scale`, the video recorder) is a size again after the player set `window.renderScale`: the quality no longer multiplies into
   it. A temporal or MetalFX mode at `native` quality keeps the stage flag on so that a frame with several cameras (which draws `spatial`)
-  gets its sharpen. A headless run also takes the project's `display.scaleMode` now (it was only set at the first present of a window), so
-  an `expand` project's camera has the same shape in a test as in the window.
+  gets its sharpen.
 
 - Polish: an Occluder whose mesh could not be read is tried again after 600 frames (it was never read again until the game restarted), and the error for an unknown mesh name no longer says "collider mesh" when an Occluder asked for it.
 

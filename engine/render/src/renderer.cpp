@@ -1452,7 +1452,7 @@ void Renderer::Impl::render(World& world, float dt) {
     const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
     // The history of the output size is made before the cameras are jittered: a budget or a GPU that refuses it decides this frame (no jitter,
     // the spatial upscaler), not the frame after a jittered picture that nothing resolves.
-    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH)) {
+    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH, postSerial)) {
         wantedPhases = 0;
         mfxFrame = false;
     }
