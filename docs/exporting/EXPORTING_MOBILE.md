@@ -156,6 +156,12 @@ FA_IOS_DEVELOPMENT_TEAM=ABCDE12345 ./build_ios.sh --run  # the same on the conne
 ./build_ios.sh --simulator     # or without flag for a device; opens build/FactorIA.xcodeproj
 ```
 
+**MetalFX (`render.upscaler` mode `metalfx`).** Nothing to set in the export: the player loads Apple's MetalFX framework at run time (no entitlement,
+no `Info.plist` key, no link step), so one build runs on every iOS the engine supports. It draws on a device with iOS 16 or later and a GPU with the
+MetalFX scalers; its reactive mask (bright particles and additive sprites that must not trail) needs iOS 17.4, an older iOS draws without the mask. The
+iOS Simulator and Android do not have it: the mode draws as `temporal` (then `spatial`) and `render.supports {"feature":"metalfx"}` says why. A game
+that sets `mode` `auto` gets the best mode on each device ([UPSCALING.md](../UPSCALING.md), "MetalFX (Apple GPUs)").
+
 A device build registers the connected device with the team on the first build (Developer Mode must be on); see
 [MOBILE.md](../mobile/MOBILE_IOS.md#ios).
 

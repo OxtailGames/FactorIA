@@ -1,6 +1,6 @@
 # AI guide: recipes for the world, part 2
 
-Part of [AI guide](../AI_GUIDE.md): recipes 9.19 to 9.21.2: 3D ground checks and raycasts, glow and tonemap, colour-blind players, sweeps, 2D water and glass, terrain. Recipes 9.9 to 9.18 are on [recipes for the world](AI_GUIDE_RECIPES_WORLD.md).
+Part of [AI guide](../AI_GUIDE.md): recipes 9.19 to 9.21.2: 3D ground checks and raycasts, glow and tonemap, colour-blind players, antialiasing and upscaling, sweeps, 2D water and glass, terrain. Recipes 9.9 to 9.18 are on [recipes for the world](AI_GUIDE_RECIPES_WORLD.md).
 
 ### 9.19 3D ground checks and raycasts
 
@@ -55,6 +55,23 @@ Roughly one player in twelve men and one in two hundred women cannot tell some c
 - **Give it to the player.** The colour filter of the camera's `PostProcess` (`colorFilterEnabled: true`, `colorFilterMode`) is the last post-process of the frame (after bloom, HUD included), so screenshots, `--screenshot-at` and `--record-video` show it: `none` (default, no cost), `greyscale`, `highContrast` (contrast x1.8 around mid grey) and `protanopia`, `deuteranopia`, `tritanopia`, which are daltonize corrections for a player who lacks that cone: the loss is estimated with the same Machado matrix and the lost information is shifted into the channels the player still sees (Fidaner's method), so red and green end up differing in brightness and blue. The engine never saves the choice: put an option in the game's options screen that sets `colorFilterEnabled = true` and `colorFilterMode = "deuteranopia"` on the camera's `PostProcess` and keeps it in `storage` (the menu kit in [MENUS.md](../MENUS.md) has the button), and set it again in every scene, as every scene has its own camera.
 
 Prefer designs that work without any filter (shapes, outlines, patterns); the filter is the safety net, the check is how you know.
+
+### 9.20.2 Antialiasing, upscaling, presets
+
+Reach for these when the user asks for smoother edges, a faster game on weak or mobile hardware, or an options menu with a quality setting. Every one is off or neutral by default, changes only the picture (never the simulation) and is documented in [UPSCALING.md](../UPSCALING.md) (`docs_read {"name":"upscaling"}`).
+
+| The user wants | Set | Notes |
+|---|---|---|
+| Smooth edges, no shimmer on thin lines | `"temporalAAEnabled": true` on the camera's `PostProcess` (`temporalAAFeedback`, `temporalAASharpen`, `temporalAAMipBias` tune it) | Every GPU backend; the camera is shaken by a sub-pixel amount and each camera keeps a history (a cut or a resize starts it again). Textures read slightly sharper (`temporalAAMipBias`, -0.5). |
+| A faster frame by drawing fewer pixels | `render.upscaler` `{mode, quality, sharpness}` (command, `"render": {"upscaler": {...}}` in `factoria.json`, script `window.upscaler`) | `mode`: `spatial` (always works), `temporal` (sharper, one full-window camera), `metalfx` (Apple GPUs), `auto` (the best that exists); `quality`: `native`, `quality`, `balanced`, `performance`, `ultraPerformance`. A pixel-art game (`display.scaleMode` `pixelPerfect`) always stretches. The HUD and the UI are drawn at the window's size, so text stays sharp. |
+| The frame rate to hold itself | `render.dynamic_resolution` `{enabled, targetMs, minScale, maxScale}` (`window.dynamicResolution`, `"render": {"dynamicResolution": ...}`) | The render scale follows the frame time; brought up by the upscaler. Off by default. |
+| Moving things to blur along their own motion | `"motionBlurEnabled": true`, `motionBlurMode` `"object"` (the default; `"camera"` is the old whole-picture blur) | Off by default. Costs the velocity image and 3 passes in `object` mode. See section 9.20 and docs/rendering/RENDERING_POSTPROCESS.md. |
+| Bright additive sparks that do not smear | `ParticleEmitter.reactive` / `Sprite.reactive` (0..1) | Only matters while a temporal effect draws; additive items already count as reactive. |
+| A Low / Medium / High / Ultra setting | `graphics.preset {"name": "high"}` (script `game.graphics.preset("high")`), `render.graphicsPreset` in `factoria.json`, saved with `project.graphics` | A preset only lowers what the scene asks for (shadows, SSAO, reflections, depth of field, motion blur, foliage, upscaler); `custom` is the game as written. |
+| The right preset for this machine | `game.graphics.detect()` (command `graphics.detect`) | Reads the GPU and runs a short benchmark that blocks its frame: call it once from a loading screen, never every frame; it answers `preset`, `reason`, `gpu`, `device`. |
+| A ready options screen | `project.add_menu_kit` (the menu kit) (docs/MENUS.md): the options panel's Graphics tab has a "Preset and upscaling" page and a Dynamic resolution row | Saves the player's choice in `settings.graphics` and applies it at start. Without the kit, save the choice yourself and apply it in `onStart`. |
+
+Check before you promise: `render.supports {"feature": "temporalAA"}` (also `temporalUpscaler`, `spatialUpscaler`, `metalfx`, `dynamicResolution`, `motionVectors`) says whether this GPU draws it and why not; `window.upscaler.effectiveMode` says which mode really draws (a mode the GPU cannot draw falls back to the next best one, never to nothing). A headless run (`graphics=false`) draws none of this: judge it from a windowed run or from `game.screenshot` with graphics, and tell the user the numbers (`game.renderStats()` has `width`, `height`, `dynamicScale`, `frameMs`) came from this machine. `render.debug_view {"view":"motionVectors"}` shows what the temporal passes read. Rendering reference: docs/RENDERING.md, "Temporal effects and upscaling at a glance".
 
 ### 9.21 Sweep a shape instead of a ray: will it fit, how far can it go
 
