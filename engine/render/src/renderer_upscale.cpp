@@ -66,7 +66,7 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     if (gpu.has_device() &&
         (upscaler.mode == render::UpscalerMode::Temporal || upscaler.mode == render::UpscalerMode::Auto ||
          upscaler.mode == render::UpscalerMode::MetalFx))
-        caps.temporal = taa.ready() && !taa.upscale_unavailable();
+        caps.temporal = taa.ready(gpu.device()) && !taa.upscale_unavailable();
     caps.multiCamera = temporalBlocked;
     if (gpu.has_device() && render::metalfx::on_metal(gpu.device()) && !mfxFailed) {
         const render::metalfx::Support& ms = metalfx_support();

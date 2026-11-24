@@ -123,7 +123,8 @@ int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     if (temporalPhases > 0 && mainFrameCamera) return std::min(temporalPhases, kJitterPhasesMax);
     if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
     const bool on = mainFrameCamera && ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
-                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && taa.ready() && !taa.unavailable();
+                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && gpu.has_device() &&
+                    taa.ready(gpu.device()) && !taa.unavailable();
     return on ? kJitterPhasesDefault : 0;
 }
 
@@ -304,10 +305,11 @@ void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
     pass.colorStore = gpu::StoreAction::Store;
     pass.depthLoad = gpu::LoadAction::Clear;  // what sokol did for the pass it was given (a default load action clears)
     pass.stencilLoad = gpu::LoadAction::Clear;
-    Gpu::begin_pass(pass);
+    // On the sokol context itself: the window pass runs without a renderer too (present_clear, before any Gpu exists).
+    gpu::begin_context_pass(pass);
 }
 
-void Renderer::end_window_pass() { Gpu::end_pass(); }
+void Renderer::end_window_pass() { gpu::end_context_pass(); }
 
 bool Renderer::present_clear(const GfxSwapchain& swapchain, Color color) {
     if (!sg_isvalid()) return false;
@@ -527,7 +529,7 @@ void Renderer::shutdown() {
         // submitted: Metal waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would
         // wait forever. Precondition: no pass is open (shutdown is never called between begin_frame and the frame's
         // end): sg_commit inside a pass is invalid in sokol.
-        FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
+        FA_ASSERT(!im.gpu.in_pass(), "Renderer::shutdown while a pass is open");
         if (!im.gpu.committed()) {
             im.gpu.commit_frame();
             im.gpu.note_commit();
@@ -1541,7 +1543,7 @@ void Renderer::Impl::render(World& world, float dt) {
     const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
     // The history of the output size is made before the cameras are jittered: a budget or a GPU that refuses it decides this frame (no jitter,
     // the spatial upscaler), not the frame after a jittered picture that nothing resolves.
-    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH, postSerial)) {
+    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(gpu.device(), targetW, targetH, postSerial)) {
         wantedPhases = 0;
         mfxFrame = false;
     }
@@ -1715,7 +1717,7 @@ void Renderer::Impl::render(World& world, float dt) {
     update_parallax(world, logic_camera_xy());
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
-    ramps.sync();
+    ramps.sync(gpu.device());
     stats.glyphAtlasSize = fonts->atlas_size();
     stats.glyphAtlasResets = int(fonts->atlas_epoch());
     // The screen-space job of a split frame is dropped when it has nothing to draw (a pass less).

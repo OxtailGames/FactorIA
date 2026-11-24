@@ -291,7 +291,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
         else
             update_parallax(world, logic_camera_xy());
         fonts->sync();
-        ramps.sync();
+        ramps.sync(gpu.device());
 
         TextureAsset* tex = view_image(kKey, w, h);
         if (!tex) {
