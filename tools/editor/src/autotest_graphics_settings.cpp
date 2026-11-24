@@ -42,7 +42,8 @@ void Editor::at_section_Q4(AtScript& at) {
     // Mode: the real combo, then its item.
     click("gfx:mode");
     step(4, [this] {
-        at_check(at_visible("gfx:mode:spatial") && at_visible("gfx:mode:metalfx"), "the mode combo lists the engine's modes");
+        at_check(at_visible("gfx:mode:spatial") && at_visible("gfx:mode:metalfx"),
+                 "the mode combo lists the engine's modes");
     });
     click("gfx:mode:spatial");
     step(4, [this] {
@@ -86,7 +87,8 @@ void Editor::at_section_Q4(AtScript& at) {
     });
     click("gfx:revert");
     step(4, [this] {
-        at_check(graphicsWork_.mode == "spatial" && graphicsWork_.preset == "low", "Revert reads the saved values again");
+        at_check(graphicsWork_.mode == "spatial" && graphicsWork_.preset == "low",
+                 "Revert reads the saved values again");
     });
 
     // Put the project back as it was.

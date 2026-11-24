@@ -33,7 +33,8 @@ struct Dir {
     }
 };
 
-const char* kBare = "{\n  \"format\": \"factoria.project/1\",\n  \"name\": \"G\",\n  \"physics\": { \"fixedHz\": 60 }\n}\n";
+const char* kBare =
+    "{\n  \"format\": \"factoria.project/1\",\n  \"name\": \"G\",\n  \"physics\": { \"fixedHz\": 60 }\n}\n";
 
 }  // namespace
 
@@ -98,7 +99,8 @@ TEST_CASE("graphics settings: other render keys stay when the window's keys come
     CHECK(text.find("upscaler") == std::string::npos);
 }
 
-TEST_CASE("graphics settings: wrong values are refused with a pointer and the engine's sentence, and nothing is written") {
+TEST_CASE(
+    "graphics settings: wrong values are refused with a pointer and the engine's sentence, and nothing is written") {
     Dir d;
     d.write(kBare);
     GraphicsSettings g;
@@ -123,7 +125,8 @@ TEST_CASE("graphics settings: wrong values are refused with a pointer and the en
     CHECK(check_graphics_settings(g).size() == 1);
 }
 
-TEST_CASE("graphics settings: a hand-written wrong file opens with the engine's error, a broken one is not overwritten") {
+TEST_CASE(
+    "graphics settings: a hand-written wrong file opens with the engine's error, a broken one is not overwritten") {
     Dir d;
     d.write("{\"name\":\"G\",\"render\":{\"upscaler\":{\"mode\":\"sharp\"}}}");
     auto s = read_graphics_settings(d.str());
@@ -143,4 +146,40 @@ TEST_CASE("graphics settings: the lists are the engine's names") {
     CHECK(upscaler_modes().size() == 5);
     CHECK(upscaler_qualities().size() == 5);
     CHECK(std::find(upscaler_modes().begin(), upscaler_modes().end(), "metalfx") != upscaler_modes().end());
+}
+
+TEST_CASE("graphics settings: a file with a UTF-8 BOM keeps it when saved") {
+    Dir d;
+    const std::string bom = "\xEF\xBB\xBF";
+    d.write(bom + kBare);
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    s->preset = "medium";
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    const std::string text = d.read();
+    REQUIRE(text.size() > 3);
+    CHECK(text.compare(0, 3, bom) == 0);
+    CHECK(text.compare(3, 3, bom) != 0);  // once, not twice
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(back->preset == "medium");
+    REQUIRE(write_graphics_settings(d.str(), GraphicsSettings{}).ok());
+    CHECK(d.read() == bom + kBare);
+}
+
+TEST_CASE("graphics settings: \"render\": null is the same as no render settings, on read and on write") {
+    Dir d;
+    d.write("{\n  \"name\": \"G\",\n  \"render\": null\n}\n");
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK(*s == GraphicsSettings{});
+    REQUIRE(write_graphics_settings(d.str(), GraphicsSettings{}).ok());  // nothing to write
+    s->mode = "spatial";
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(back->mode == "spatial");
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->upscaler.mode == render::UpscalerMode::Spatial);
 }
