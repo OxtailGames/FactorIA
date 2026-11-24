@@ -145,8 +145,9 @@ struct MonitorInfo {
     int x = 0, y = 0, width = 0, height = 0;
     bool primary = false;
     bool current = false;  // the window is on it
-    // Its refresh rate in Hz, the largest one of a variable-rate panel (ProMotion: 120). 0 = the OS does not say (a Windows
-    // driver that answers "the hardware's default", Linux without libXrandr).
+    // Its refresh rate in Hz: on macOS and iOS the top of a variable-rate panel (ProMotion: 120), on Windows the frequency of the
+    // monitor's current display mode (a panel with dynamic refresh rate reports the mode in force now), elsewhere the mode in use.
+    // 0 = the OS does not say (a Windows driver that answers "the hardware's default", Linux without libXrandr).
     double refreshHz = 0.0;
 };
 // The monitors, primary first. Empty: this platform cannot list them (phones, tablets, web).
