@@ -24,7 +24,7 @@ SyncToken Device::issue_token(QueueKind queue) {
     return SyncToken{QueueKind(i), issued_[i].fetch_add(1, std::memory_order_relaxed) + 1};
 }
 
-SyncToken Device::submit_token(CommandList& list) {
+SyncToken Device::submit_token(CommandList& list, std::span<const QueueHandoff>) {
     const QueueKind queue = list.queue();  // before submit(): the device may recycle the list
     submit(list);
     return issue_token(queue);

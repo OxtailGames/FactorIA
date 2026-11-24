@@ -3,6 +3,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <climits>
@@ -1698,9 +1699,9 @@ TEST_CASE("queues: a device without async compute runs every list on the graphic
     Device& base = dev;
     CommandList& l1 = base.Device::begin_commands("d1", QueueKind::Compute);
     CHECK(l1.queue() == QueueKind::Graphics);
-    const SyncToken t1 = base.Device::submit_token(l1);
+    const SyncToken t1 = base.Device::submit_token(l1, std::span<const QueueHandoff>{});
     CommandList& l2 = base.Device::begin_commands("d2", QueueKind::Transfer);
-    const SyncToken t2 = base.Device::submit_token(l2);
+    const SyncToken t2 = base.Device::submit_token(l2, std::span<const QueueHandoff>{});
     CHECK(t1.queue == QueueKind::Graphics);
     CHECK(t1.value == 1);
     CHECK(t2.value == 2);
@@ -1825,13 +1826,21 @@ TEST_CASE("threads: two threads begin and record a graphics and a compute list a
         CommandList* gfx = nullptr;
         CommandList* comp = nullptr;
         // begin_commands and the whole recording happen on the worker threads (Features::multiThreadRecording).
+        // Both threads start together (a gate), so that their begin_commands and recording overlap.
+        std::atomic<int> arrived{0};
+        auto gate = [&] {
+            arrived.fetch_add(1);
+            while (arrived.load() < 2) std::this_thread::yield();
+        };
         std::thread a([&] {
+            gate();
             gfx = &dev.begin_commands("main", QueueKind::Graphics);
             ready(*gfx, s);
             for (int i = 0; i < 40; ++i) gfx->draw(i, 3, 1);
             gfx->end_pass();
         });
         std::thread b([&] {
+            gate();
             comp = &dev.begin_commands("hiz", QueueKind::Compute);
             for (int i = 0; i < 10; ++i) empty_compute(*comp, "reduce");
         });
@@ -1920,4 +1929,179 @@ TEST_CASE("queues: SokolDevice has one queue, no async compute and no parallel r
     CommandList& plain = dev.begin_commands("plain");
     dev.submit(plain);
     CHECK(dev.bindless_index(View{1}) == kNoBindlessIndex);
+}
+
+namespace {
+
+Buffer make_transient_buffer(RecordingDevice& dev, const char* label) {
+    BufferDesc d;
+    d.size = 256;
+    d.usage.storageBuffer = true;
+    d.usage.writeTransient = true;
+    d.label = label;
+    return dev.make_buffer(d);
+}
+
+// A list "uses" a buffer or an image through the smallest command that names it.
+void poke(CommandList& cl, Buffer b) {
+    static const std::uint8_t bytes[16] = {};
+    BufferWrite w;
+    w.data = Range{bytes, sizeof(bytes)};
+    w.buffer = b;
+    w.size = sizeof(bytes);
+    cl.write_buffer(w);
+}
+
+void poke(CommandList& cl, Image img) {
+    static const std::uint8_t px[4] = {};
+    ImageWrite w;
+    w.data = Range{px, sizeof(px)};
+    w.dst.image = img;
+    w.size.width = 1;
+    w.size.height = 1;
+    cl.write_image(w);
+}
+
+}  // namespace
+
+TEST_CASE("queues: a handoff moves a resource to the queue that waits for its token, and back") {
+    RecordingDevice dev;
+    // A buffer and an image the compute queue writes (the HiZ reduce, say): new resources are the graphics queue's.
+    const Buffer buffer = make_transient_buffer(dev, "hiz args");
+    ImageDesc id;
+    id.width = id.height = 16;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.writeTransient = true;
+    id.label = "hiz";
+    const Image image = dev.make_image(id);
+    REQUIRE(dev.state(image) == ResourceState::Valid);
+
+    // 1. A graphics list hands both to the compute queue; the compute list waits for the token and uses them.
+    CommandList& give = dev.begin_commands("give", QueueKind::Graphics);
+    const QueueHandoff toCompute[] = {{image, {}, QueueKind::Compute}, {{}, buffer, QueueKind::Compute}};
+    const SyncToken handed = dev.submit_token(give, toCompute);
+    CHECK(handed.queue == QueueKind::Graphics);
+    CommandList& reduce = dev.begin_commands("reduce", QueueKind::Compute);
+    dev.wait_list(reduce, handed);
+    poke(reduce, image);
+    poke(reduce, buffer);
+    // 2. ... and back: the compute list hands the image to the graphics queue; the graphics list waits and uses it.
+    const QueueHandoff toGraphics[] = {{image, {}, QueueKind::Graphics}};
+    const SyncToken reduced = dev.submit_token(reduce, toGraphics);
+    CHECK(reduced.queue == QueueKind::Compute);
+    CommandList& use = dev.begin_commands("use", QueueKind::Graphics);
+    dev.wait_list(use, reduced);
+    poke(use, image);
+    dev.submit(use);
+    dev.commit();
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+
+    const std::string text = dev.stream_text();
+    CHECK(contains(text, "[give] handoff image 'hiz' graphics -> compute (token graphics 1)"));
+    CHECK(contains(text, "[give] handoff buffer 'hiz args' graphics -> compute (token graphics 1)"));
+    CHECK(contains(text, "[reduce] handoff image 'hiz' compute -> graphics (token compute 1)"));
+    bool seen = false;
+    for (const RecordedCommand& c : dev.commands())
+        if (c.kind == CommandKind::Handoff && c.list == "give" && c.id == image.id) {
+            seen = true;
+            CHECK(c.queue == QueueKind::Graphics);
+            CHECK(c.args[0] == int(QueueKind::Graphics));
+            CHECK(c.args[1] == int(QueueKind::Compute));
+            CHECK(c.args[2] == 1);
+        }
+    CHECK(seen);
+    // The handoffs come before the signal of the same submit.
+    const auto kinds = kinds_of(dev);
+    CHECK(std::find(kinds.begin(), kinds.end(), CommandKind::Handoff) <
+          std::find(kinds.begin(), kinds.end(), CommandKind::Signal));
+    // The compute list's second use of the buffer, in a later list of the same queue, needs no new wait.
+    CommandList& again = dev.begin_commands("again", QueueKind::Compute);
+    poke(again, buffer);
+    dev.submit(again);
+    CHECK(dev.errors().empty());
+}
+
+TEST_CASE("queues: using a resource on a queue that does not own it, or before waiting for its handoff, is reported") {
+    RecordingDevice dev;
+    const Buffer buffer = make_transient_buffer(dev, "counters");
+
+    // No handoff: a compute list that uses a new (graphics-owned) buffer.
+    CommandList& a = dev.begin_commands("no handoff", QueueKind::Compute);
+    poke(a, buffer);
+    dev.submit(a);
+    CHECK(has_error(dev.errors(), {"submit", "'no handoff'", "buffer 'counters' belongs to the graphics queue",
+                                   "runs on the compute queue", "QueueHandoff", "wait_list()"}));
+    dev.take_errors();
+
+    // Handed over, but the consumer does not wait for the token.
+    CommandList& give = dev.begin_commands("give");
+    const QueueHandoff h[] = {{{}, buffer, QueueKind::Compute}};
+    const SyncToken t = dev.submit_token(give, h);
+    CommandList& b = dev.begin_commands("no wait", QueueKind::Compute);
+    poke(b, buffer);
+    dev.submit(b);
+    CHECK(has_error(dev.errors(), {"'no wait'", "buffer 'counters' was handed to the compute queue by token",
+                                   "graphics 1", "did not wait"}));
+    dev.take_errors();
+
+    // A wait_queue() before the submit counts as the wait.
+    dev.wait_queue(QueueKind::Compute, t);
+    CommandList& c = dev.begin_commands("queue wait", QueueKind::Compute);
+    poke(c, buffer);
+    dev.submit(c);
+    CHECK(dev.errors().empty());
+
+    // The graphics queue no longer owns it: a graphics list that uses it is reported, a handoff from it too.
+    CommandList& d = dev.begin_commands("graphics again", QueueKind::Graphics);
+    poke(d, buffer);
+    dev.submit(d);
+    CHECK(has_error(dev.errors(), {"'graphics again'", "belongs to the compute queue", "graphics queue"}));
+    dev.take_errors();
+    CommandList& e = dev.begin_commands("wrong owner", QueueKind::Graphics);
+    const QueueHandoff wrong[] = {{{}, buffer, QueueKind::Transfer}, {Image{}, Buffer{}, QueueKind::Compute}};
+    dev.submit_token(e, wrong);
+    CHECK(has_error(dev.errors(),
+                    {"submit_token", "'wrong owner'", "belongs to the compute queue", "cannot hand it over"}));
+    CHECK(has_error(dev.errors(), {"exactly one image or one buffer"}));
+    dev.take_errors();
+
+    // A transfer list that writes a graphics-owned buffer is reported too.
+    const Buffer staging = make_transient_buffer(dev, "staging");
+    CommandList& f = dev.begin_commands("upload", QueueKind::Transfer);
+    poke(f, staging);
+    dev.submit(f);
+    CHECK(has_error(dev.errors(), {"'upload'", "buffer 'staging' belongs to the graphics queue", "transfer queue"}));
+    dev.take_errors();
+
+    // A device without async compute ignores handoffs and checks no owner.
+    RecordingDevice one(one_queue_init());
+    const Buffer ob = make_transient_buffer(one, "one");
+    CommandList& g = one.begin_commands("g", QueueKind::Compute);
+    poke(g, ob);
+    const QueueHandoff oh[] = {{{}, ob, QueueKind::Compute}};
+    one.submit_token(g, oh);
+    CHECK(one.errors().empty());
+    CHECK_FALSE(contains(one.stream_text(), "handoff"));
+}
+
+TEST_CASE("queues: a timed scope on a transfer list is recorded as ignored; the other queues time") {
+    RecordingDevice dev;
+    CommandList& x = dev.begin_commands("upload", QueueKind::Transfer);
+    x.begin_timed_scope("stream");
+    x.end_timed_scope();
+    CommandList& c = dev.begin_commands("hiz", QueueKind::Compute);
+    c.begin_timed_scope("reduce");
+    c.end_timed_scope();
+    dev.submit(x);
+    dev.submit(c);
+    CHECK(dev.errors().empty());
+    const auto cmds = dev.commands();
+    REQUIRE(cmds.size() == 4);
+    CHECK(cmds[0].kind == CommandKind::BeginTimedScope);
+    CHECK(cmds[0].args[0] == 1);
+    CHECK(contains(cmds[0].text, "(ignored: the transfer queue has no timestamps)"));
+    CHECK(contains(cmds[1].text, "end_timed_scope (ignored"));
+    CHECK(cmds[2].args[0] == 0);
+    CHECK(cmds[2].text == "begin_timed_scope 'reduce'");
 }

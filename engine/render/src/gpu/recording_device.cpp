@@ -37,6 +37,7 @@ const char* command_kind_name(CommandKind kind) {
         case CommandKind::Signal: return "signal";
         case CommandKind::WaitList: return "wait_list";
         case CommandKind::WaitQueue: return "wait_queue";
+        case CommandKind::Handoff: return "handoff";
     }
     return "?";
 }
@@ -141,6 +142,8 @@ Limits desktop_limits() {
 struct BufferInfo {
     std::size_t size = 0;
     BufferUsage usage{};
+    QueueKind owner = QueueKind::Graphics;  // the queue that may use it (QueueHandoff moves it)
+    SyncToken handed{};                     // the handoff token the new owner must still wait for (none: settled)
     bool vertex() const {
         return usage.vertexBuffer ||
                (!usage.indexBuffer && !usage.storageBuffer && !usage.stagingBuffer && !usage.stagingIndexBuffer);
@@ -152,6 +155,8 @@ struct ImageInfo {
     ImageUsage usage{};
     int width = 0, height = 0, slices = 1, mips = 1, samples = 1;
     PixelFormat format = PixelFormat::Rgba8;
+    QueueKind owner = QueueKind::Graphics;  // the queue that may use it (QueueHandoff moves it)
+    SyncToken handed{};                     // the handoff token the new owner must still wait for (none: settled)
 };
 
 struct ViewInfo {
@@ -233,6 +238,8 @@ struct Pool {
         return (std::uint32_t(e.generation) << 16) | slot;
     }
 
+    // The same, to change the owner of a resource.
+    Entry* live(std::uint32_t id) { return const_cast<Entry*>(std::as_const(*this).live(id)); }
     // The live resource `id` names, or nullptr (never made, destroyed, or 0).
     const Entry* live(std::uint32_t id) const {
         const std::uint32_t slot = slot_of(id);
@@ -300,6 +307,8 @@ struct RecordingDevice::State {
     std::optional<std::string> uncommitted;
     bool statsEnabled = false;
     std::uint64_t issued[kQueueKinds]{};  // the last token handed out per queue
+    std::uint64_t queueWaited[kQueueKinds]
+                             [kQueueKinds]{};  // [waiting queue][token's queue]: the newest wait_queue() value
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -820,15 +829,15 @@ CommandList& RecordingDevice::begin_commands(const char* label, QueueKind queue)
 
 void RecordingDevice::submit(CommandList& list) {
     std::lock_guard<std::mutex> lock(mutex_);
-    submit_locked(list, false);
+    submit_locked(list, false, {});
 }
 
-SyncToken RecordingDevice::submit_token(CommandList& list) {
+SyncToken RecordingDevice::submit_token(CommandList& list, std::span<const QueueHandoff> handoffs) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return submit_locked(list, true);
+    return submit_locked(list, true, handoffs);
 }
 
-SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal) {
+SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal, std::span<const QueueHandoff> handoffs) {
     RecordingCommandList* mine = nullptr;
     for (auto& l : lists_)
         if (l.get() == &list) mine = l.get();
@@ -852,6 +861,7 @@ SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal) {
     if (mine->timedScopeOpen_)
         fail_locked("submit", mine->label_.c_str(), "a timed scope is still open", "end_timed_scope() before submit()");
     if (!mine->commands_.empty()) state_->uncommitted = mine->label_;
+    if (features_.asyncCompute) check_uses_locked(*mine);
     for (RecordedCommand& c : mine->waits_) {
         c.frame = state_->frames;
         state_->stream.push_back(std::move(c));
@@ -864,6 +874,7 @@ SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal) {
     if (signal) {
         token.queue = mine->queue_;
         token.value = ++state_->issued[int(mine->queue_)];
+        if (features_.asyncCompute) apply_handoffs_locked(*mine, token, handoffs);
         RecordedCommand c;
         c.kind = CommandKind::Signal;
         c.frame = state_->frames;
@@ -876,8 +887,110 @@ SyncToken RecordingDevice::submit_locked(CommandList& list, bool signal) {
     }
     mine->commands_.clear();
     mine->waits_.clear();
+    mine->waitTokens_.clear();
+    mine->uses_.clear();
     mine->open_ = false;
     return token;
+}
+
+void RecordingDevice::check_uses_locked(RecordingCommandList& list) {
+    auto check = [&](const char* kind, QueueKind& owner, SyncToken& handed, const std::string& label) {
+        const std::string what = std::string(kind) + " " + quoted(label);
+        if (owner != list.queue_) {
+            fail_locked("submit", list.label_.c_str(),
+                        what + " belongs to the " + queue_name(owner) + " queue, but the list runs on the " +
+                            queue_name(list.queue_) + " queue",
+                        std::string("hand it over first: submit_token(<a list of the ") + queue_name(owner) +
+                            " queue>, {QueueHandoff{" + kind + ", to = QueueKind::" +
+                            (list.queue_ == QueueKind::Compute    ? "Compute"
+                             : list.queue_ == QueueKind::Transfer ? "Transfer"
+                                                                  : "Graphics") +
+                            "}}), then wait_list() for that token before this list uses it");
+            return;
+        }
+        if (!handed.valid()) return;
+        bool waited = state_->queueWaited[int(list.queue_)][int(handed.queue)] >= handed.value;
+        for (const SyncToken& t : list.waitTokens_)
+            waited = waited || (t.queue == handed.queue && t.value >= handed.value);
+        if (!waited) {
+            fail_locked("submit", list.label_.c_str(),
+                        what + " was handed to the " + queue_name(owner) + " queue by token (" +
+                            queue_name(handed.queue) + " " + std::to_string(handed.value) +
+                            ") and the list did not wait for it",
+                        "wait_list(list, token) with the token submit_token() returned for the handoff (or "
+                        "wait_queue() before this submit), then use the resource");
+            return;
+        }
+        handed = {};  // settled: the owner queue's order covers every later list
+    };
+    for (const RecordingCommandList::Use& u : list.uses_) {
+        if (u.image) {
+            if (auto* e = state_->images.live(u.id)) check("image", e->info.owner, e->info.handed, e->label);
+        } else if (auto* e = state_->buffers.live(u.id)) {
+            check("buffer", e->info.owner, e->info.handed, e->label);
+        }
+    }
+}
+
+void RecordingDevice::apply_handoffs_locked(RecordingCommandList& list, SyncToken token,
+                                            std::span<const QueueHandoff> handoffs) {
+    for (const QueueHandoff& h : handoffs) {
+        const char* call = "submit_token";
+        if ((h.image.id != 0) == (h.buffer.id != 0)) {
+            fail_locked(call, list.label_.c_str(), "a QueueHandoff must name exactly one image or one buffer",
+                        "set QueueHandoff::image or QueueHandoff::buffer, not both and not neither");
+            continue;
+        }
+        if (std::size_t(h.to) >= std::size_t(kQueueKinds)) {
+            fail_locked(call, list.label_.c_str(), "a QueueHandoff names a queue that does not exist",
+                        "set QueueHandoff::to to Graphics, Compute or Transfer");
+            continue;
+        }
+        const QueueKind to = resolve_queue(h.to);
+        QueueKind* owner = nullptr;
+        SyncToken* handed = nullptr;
+        std::string what;
+        std::uint32_t id = h.image.id ? h.image.id : h.buffer.id;
+        if (h.image.id) {
+            auto* e = state_->images.live(h.image.id);
+            if (e)
+                owner = &e->info.owner, handed = &e->info.handed, what = "image " + quoted(e->label);
+            else
+                what = state_->images.describe(h.image.id);
+        } else {
+            auto* e = state_->buffers.live(h.buffer.id);
+            if (e)
+                owner = &e->info.owner, handed = &e->info.handed, what = "buffer " + quoted(e->label);
+            else
+                what = state_->buffers.describe(h.buffer.id);
+        }
+        if (!owner) {
+            fail_locked(call, list.label_.c_str(), "the handoff names " + what, "hand over a live resource");
+            continue;
+        }
+        if (*owner != list.queue_) {
+            fail_locked(call, list.label_.c_str(),
+                        what + " belongs to the " + queue_name(*owner) + " queue, not to the " +
+                            queue_name(list.queue_) + " queue of this list, so this list cannot hand it over",
+                        "submit the handoff from a list of the queue that owns the resource");
+            continue;
+        }
+        if (to == *owner) continue;  // already there: nothing to hand over
+        RecordedCommand c;
+        c.kind = CommandKind::Handoff;
+        c.frame = state_->frames;
+        c.list = list.label_;
+        c.queue = list.queue_;
+        c.id = id;
+        c.args[0] = int(*owner);
+        c.args[1] = int(to);
+        c.args[2] = int(std::min<std::uint64_t>(token.value, INT_MAX));
+        c.text = "handoff " + what + " " + queue_name(*owner) + " -> " + queue_name(to) + " (token " +
+                 queue_name(token.queue) + " " + std::to_string(token.value) + ")";
+        state_->stream.push_back(std::move(c));
+        *owner = to;
+        *handed = token;
+    }
 }
 
 bool RecordingDevice::check_token_locked(const char* call, const char* label, SyncToken token) {
@@ -919,6 +1032,7 @@ void RecordingDevice::wait_list(CommandList& list, SyncToken token) {
     c.text = std::string("wait_list ") + queue_name(token.queue) + " " + std::to_string(token.value);
     if (token.queue == mine->queue_) c.text += " (same queue: no wait)";
     mine->waits_.push_back(std::move(c));
+    mine->waitTokens_.push_back(token);
 }
 
 void RecordingDevice::wait_queue(QueueKind queue, SyncToken token) {
@@ -935,6 +1049,8 @@ void RecordingDevice::wait_queue(QueueKind queue, SyncToken token) {
              std::to_string(token.value);
     if (token.queue == resolved) c.text += " (same queue: no wait)";
     state_->stream.push_back(std::move(c));
+    std::uint64_t& waited = state_->queueWaited[int(resolved)][int(token.queue)];
+    waited = std::max(waited, token.value);
 }
 
 std::uint32_t RecordingDevice::bindless_index(View view) const {
@@ -1220,12 +1336,14 @@ std::string format_text(const TargetFormat& f) {
 
 }  // namespace
 
-void RecordingCommandList::reset(const char* label, QueueKind queue) {
+void RecordingCommandList::reset(const char* label, QueueKind onQueue) {
     label_ = str(label);
     open_ = true;
-    queue_ = queue;
+    queue_ = onQueue;
     commands_.clear();
     waits_.clear();
+    waitTokens_.clear();
+    uses_.clear();
     passState_ = PassState::None;
     passLabel_.clear();
     passFormat_ = {};
@@ -1234,6 +1352,29 @@ void RecordingCommandList::reset(const char* label, QueueKind queue) {
     uniformsApplied_ = 0;
     debugDepth_ = 0;
     timedScopeOpen_ = false;
+}
+
+void RecordingCommandList::use_buffer(Buffer buffer) {
+    if (!buffer.id) return;
+    for (const Use& u : uses_)
+        if (!u.image && u.id == buffer.id) return;
+    uses_.push_back(Use{false, buffer.id});
+}
+
+void RecordingCommandList::use_image(Image image) {
+    if (!image.id) return;
+    for (const Use& u : uses_)
+        if (u.image && u.id == image.id) return;
+    uses_.push_back(Use{true, image.id});
+}
+
+void RecordingCommandList::use_view(View view) {
+    const auto* e = device_.state_->views.live(view.id);
+    if (!e) return;
+    if (e->info.type == ViewType::StorageBuffer)
+        use_buffer(Buffer{e->info.resource});
+    else
+        use_image(Image{e->info.resource});
 }
 
 void RecordingCommandList::record(CommandKind kind, std::uint32_t id, std::initializer_list<int> args,
@@ -1308,6 +1449,10 @@ void RecordingCommandList::begin_pass(const PassDesc& p) {
              "end_pass() before the next begin_pass()");
     }
     const bool attachments = p.color.id || p.color1.id || p.resolve.id || p.depth.id;
+    use_view(p.color);
+    use_view(p.color1);
+    use_view(p.resolve);
+    use_view(p.depth);
     if (p.swapchain && attachments)
         fail(cmd, "the pass names both the swapchain and attachments",
              "a pass draws into the window (swapchain) or into views, not both");
@@ -1463,6 +1608,9 @@ void RecordingCommandList::set_bindings(const Bindings& b) {
     for (const Buffer& v : b.vertexBuffers) vbs += v.id != 0;
     for (const View& v : b.views) views += v.id != 0;
     for (const Sampler& v : b.samplers) samplers += v.id != 0;
+    for (const Buffer& v : b.vertexBuffers) use_buffer(v);
+    use_buffer(b.indexBuffer);
+    for (const View& v : b.views) use_view(v);
     record(CommandKind::SetBindings, b.indexBuffer.id, {vbs, views, samplers},
            "set_bindings vb=" + std::to_string(vbs) + " views=" + std::to_string(views) +
                " samplers=" + std::to_string(samplers) + (b.indexBuffer.id ? " index" : ""));
@@ -1714,6 +1862,7 @@ void RecordingCommandList::write_buffer(const BufferWrite& w) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     auto& s = *device_.state_;
     const char* cmd = "write_buffer";
+    use_buffer(w.buffer);
     const auto* e = s.buffers.live(w.buffer.id);
     if (!e || e->state != ResourceState::Valid) {
         fail(cmd, "the buffer is " + s.buffers.describe(w.buffer.id), "write into a live buffer");
@@ -1740,6 +1889,7 @@ void RecordingCommandList::write_image(const ImageWrite& w) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     auto& s = *device_.state_;
     const char* cmd = "write_image";
+    use_image(w.dst.image);
     const auto* e = s.images.live(w.dst.image.id);
     if (!e || e->state != ResourceState::Valid) {
         fail(cmd, "the image is " + s.images.describe(w.dst.image.id), "write into a live image");
@@ -1769,6 +1919,8 @@ void RecordingCommandList::copy_buffer_to_buffer(const BufferCopy& c) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     auto& s = *device_.state_;
     const char* cmd = "copy_buffer_to_buffer";
+    use_buffer(c.src);
+    use_buffer(c.dst);
     if (require_pass(cmd, PassState::None)) {
         const auto* src = s.buffers.live(c.src.id);
         const auto* dst = s.buffers.live(c.dst.id);
@@ -1798,6 +1950,8 @@ void RecordingCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     auto& s = *device_.state_;
     const char* cmd = "copy_buffer_to_image";
+    use_buffer(c.src);
+    use_image(c.dst.image);
     if (require_pass(cmd, PassState::None)) {
         const auto* src = s.buffers.live(c.src.id);
         const auto* dst = s.images.live(c.dst.image.id);
@@ -1844,14 +1998,20 @@ void RecordingCommandList::pop_debug_group() {
 void RecordingCommandList::begin_timed_scope(const char* name) {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     timedScopeOpen_ = true;  // a begin closes the scope still open
-    record(CommandKind::BeginTimedScope, 0, {}, "begin_timed_scope " + quoted(str(name)));
+    // The transfer queue has no timestamps: the scope is accepted and measures nothing (recorded so a test can see it).
+    const bool ignored = queue_ == QueueKind::Transfer;
+    record(CommandKind::BeginTimedScope, 0, {ignored ? 1 : 0},
+           "begin_timed_scope " + quoted(str(name)) +
+               (ignored ? " (ignored: the transfer queue has no timestamps)" : ""));
 }
 
 void RecordingCommandList::end_timed_scope() {
     std::lock_guard<std::mutex> lock(device_.mutex_);
     if (!timedScopeOpen_) fail("end_timed_scope", "no timed scope is open", "call begin_timed_scope() first");
     timedScopeOpen_ = false;
-    record(CommandKind::EndTimedScope, 0, {}, "end_timed_scope");
+    const bool ignored = queue_ == QueueKind::Transfer;
+    record(CommandKind::EndTimedScope, 0, {ignored ? 1 : 0},
+           ignored ? "end_timed_scope (ignored: the transfer queue has no timestamps)" : "end_timed_scope");
 }
 
 }  // namespace fa::gpu

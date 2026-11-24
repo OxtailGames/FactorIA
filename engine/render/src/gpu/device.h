@@ -49,6 +49,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -117,7 +118,10 @@ public:
     // The queue this list really runs on: the one begin_commands(label, queue) asked for, or the nearest the device has
     // when it has no such queue of its own (Transfer, then Compute, then Graphics). Valid until submit(). A list on the
     // Compute queue takes compute passes, copies, writes and markers (no render pass, no draw); one on the Transfer
-    // queue takes copies, writes and markers only. The default is the graphics queue (a backend with one queue).
+    // queue takes copies, writes and markers only (no pass at all, so no draw and no dispatch). Markers are debug
+    // groups and timed scopes; a timed scope on a list whose queue has no timestamps (Transfer, or a backend that says
+    // so) is accepted and ignored: it records nothing and measures nothing. The default is the graphics queue (a backend
+    // with one queue).
     virtual QueueKind queue() const { return QueueKind::Graphics; }
 };
 
@@ -236,16 +240,22 @@ public:
     virtual CommandList& begin_commands(const char* label, QueueKind queue);
     // submit() that also returns a token for the work: it is complete once everything submitted to the list's queue up
     // to and including this list has finished on the GPU. Plain submit() returns none (it costs no fence). The token's
-    // queue is list.queue(), as read before the call. Render thread only.
-    virtual SyncToken submit_token(CommandList& list);
+    // queue is list.queue(), as read before the call. Render thread only. `handoffs` hand resources to another queue at
+    // this submit (see RESOURCES BETWEEN QUEUES); the single-queue default accepts and ignores them (the order already
+    // holds). submit_token(list) is submit_token(list, {}); a derived class that overrides the two-argument form writes
+    // `using Device::submit_token;` to keep the short one visible through its own type.
+    virtual SyncToken submit_token(CommandList& list, std::span<const QueueHandoff> handoffs);
+    SyncToken submit_token(CommandList& list) { return submit_token(list, std::span<const QueueHandoff>{}); }
     // Makes the work of `list` start only after `token` is complete. Called while the list is open (the owning
     // thread's call, like a recording call); every wait of a list holds before its first command, whatever the order of
     // the calls inside the list, and they accumulate (the list waits for all of them). The invalid token, and a token
-    // of the list's own queue, wait for nothing (the queue's order already covers them).
+    // of the list's own queue, wait for nothing (the queue's order already covers them). The default does nothing,
+    // which is only right while every queue is the graphics queue: a backend with Features::asyncCompute MUST override it.
     virtual void wait_list(CommandList& list, SyncToken token);
     // Makes everything submitted to `queue` AFTER this call start only after `token` is complete (a wait on the queue
     // itself, for work whose lists were recorded without knowing it). `queue` is mapped as in begin_commands: on a
-    // device without that queue it is the graphics queue. Render thread only.
+    // device without that queue it is the graphics queue. Render thread only. The default does nothing (single queue); a
+    // backend with Features::asyncCompute MUST override it.
     virtual void wait_queue(QueueKind queue, SyncToken token);
     //
     // THE CONTRACT OF A TOKEN.
@@ -255,29 +265,39 @@ public:
     //  * Waiting for a token that no submit_token() of this device has returned (a made-up value, another device's,
     //    one of a list not submitted yet) is a programming error: it can never be satisfied. RecordingDevice reports
     //    it. A wait is always recorded AFTER the producer's submit_token() returned.
+    //  * Token values only grow per queue but are NOT contiguous: a backend may submit fix-up work of its own that takes
+    //    values too. Compare tokens; never compute with them. The backends implement them with timeline semaphores
+    //    (Vulkan 1.2, already required) and 64-bit fences (D3D12), so a backend without them has no asyncCompute.
     //  * Only the GPU waits: nothing here blocks the calling thread (readbacks and commit()'s frame limiter do).
     //  * commit() ends the frame for the graphics queue (what is presented, the frames in flight). Compute and
     //    transfer work of the frame that no list ever waited for is allowed (an asynchronous readback's copy, say), and
     //    the frames-in-flight limit counts the work of every queue, but the frame's picture may only depend on async
     //    work that a graphics list of the same frame waited for (the swapchain waits for the graphics queue alone).
     //
-    // RESOURCES BETWEEN QUEUES. A buffer or image is used by ONE queue at a time (exclusive ownership). The interface
-    // has no barrier call (see BARRIERS): the handover is declared by the ordering alone, and the backend does the rest
-    // (a Vulkan queue-family ownership release and acquire, a D3D12 state transition or promotion) from the views the
-    // producing and the consuming list bind. What the renderer must do when something written on the compute queue is
-    // read on the graphics queue:
-    //   1. produce:  token = submit_token(computeList);
-    //   2. consume:  wait_list(graphicsList, token) before the graphicsList's first command that touches it (or
-    //                wait_queue(Graphics, token) before submitting that list); never read it earlier;
-    //   3. hand back: before the compute queue writes it again (the next frame's HiZ, say) the compute list waits for
-    //                a token of the graphics list that last read it (wait_list(computeList, graphicsToken));
-    //   4. read-only sharing (two queues sample an image that nothing writes meanwhile) is allowed once both waited for
-    //                the producer's token; a resource that a pass of one queue writes is never touched by the other
-    //                between the producer's submit and the consumer's token wait.
-    // Destroying a resource that any queue's submitted list uses is allowed, as for one queue: the release is deferred
-    // until the GPU is done with it on every queue. Swapchain images and pass attachments belong to the graphics queue.
-    // RecordingDevice records the queue of each list and every signal and wait (stream, QueueKind, tokens) and checks
-    // the queue's capabilities and the tokens' validity; it does not check the ownership rules above.
+    // RESOURCES BETWEEN QUEUES. A buffer or image belongs to ONE queue at a time. A new resource belongs to Graphics.
+    // The interface has no barrier call (see BARRIERS), and the backend does not guess a handover from the views the
+    // lists bind: the PRODUCER declares it when it submits, with QueueHandoff, and the CONSUMER waits for the token:
+    //   1. produce:  token = submit_token(producerList, {QueueHandoff{image or buffer, to}});  `to` is the queue that
+    //                uses the resource next; the producer's queue must own the resource at that moment (to start using
+    //                a new resource on the compute queue, a graphics list, possibly an empty one, hands it over first);
+    //   2. consume:  wait_list(consumerList, token) (or wait_queue(to, token) before the consumer is submitted), so the
+    //                consumer's first command that touches the resource runs after the token; the consumer's queue must
+    //                be `to`; submit it after the producer (the wait names a token that exists);
+    //   3. go back:  the same way in the other direction: the consumer (or a later list of `to`) hands the resource to
+    //                the next queue in its own submit_token, and the next user waits for that token. Before the
+    //                compute queue writes a resource again (the next frame's HiZ), it has been handed back and waited.
+    // Read-only sharing of one image by two queues is not a feature: hand it over in turn, or keep one copy per queue.
+    // The backend resolves a handoff on the render thread at submit: Vulkan records the queue-family release at the end
+    // of the producer's list and the acquire at the head of the consumer list that waits for the token (or makes such
+    // resources VK_SHARING_MODE_CONCURRENT, its choice); D3D12 transitions the resource on the producer queue to a state
+    // the destination queue type accepts (COMMON, or a read state) and the consumer transitions on from there. Using a
+    // resource on a queue that does not own it, or before waiting for the handoff's token, is a programming error:
+    // RecordingDevice tracks the owner of every resource (checked when a list is submitted, so lists may be recorded in
+    // parallel in any order) and reports both, naming the resource, the list and the fix. Without Features::asyncCompute
+    // handoffs are accepted and ignored. Destroying a resource that any queue's submitted list uses is allowed, as for
+    // one queue: the release is deferred until the GPU is done with it on every queue. Swapchain images belong to the
+    // graphics queue and cannot be handed off. RecordingDevice also records the queue of each list, every signal, wait
+    // and handoff in its stream, and checks the queue's capabilities and the tokens' validity.
     //
     // THREADS. Which calls may run at the same time on different threads:
     //  * Render thread only (the one that made the device), never while another thread is inside any call below it:
