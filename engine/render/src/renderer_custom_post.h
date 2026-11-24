@@ -219,6 +219,9 @@ private:
     bool refuseHistory_ = false;
     int historyAttempts_ = 0;
     std::uint64_t history_budget() const;
+    // The device of the last add_passes: the history images are made, counted and destroyed on it (none before the first one).
+    gpu::Device* device_ = nullptr;
+    void destroy_images(HistorySlot& slot);
 
     std::vector<std::uint64_t> failed_;  // shapes whose images could not be made
     std::vector<std::uint64_t> probed_;  // shapes whose images were made once
