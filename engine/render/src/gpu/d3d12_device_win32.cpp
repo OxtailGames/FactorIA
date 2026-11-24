@@ -990,7 +990,7 @@ bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
     }
     for (const D3d12CommandList::Use& u : list.uses_) {
         const TrackedResource& t = *u.res;
-        if (!t.handoff.valid()) continue;
+        if (!t.handoff.valid() || !token_issued(t.handoff)) continue;  // never wait for a value nothing signals
         const QueueKind from = map_queue(t.handoff.queue);
         bool covered = waited_[std::size_t(kind)][std::size_t(from)] >= t.handoff.value;
         for (const SyncToken& w : list.waits_)

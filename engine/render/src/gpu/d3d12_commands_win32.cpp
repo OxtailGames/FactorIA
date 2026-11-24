@@ -35,6 +35,8 @@ Result<void> D3d12CommandList::create(const char* what, QueueKind kind) {
     fixup_.reset();
     fixupAllocator_.reset();
     kind_ = kind;
+    // A value of the old queue's fence means nothing on the new one (submit_token compares it with this queue's).
+    fence_ = 0;
     const D3D12_COMMAND_LIST_TYPE type = list_type(kind);
     HRESULT hr = dev->CreateCommandAllocator(type, __uuidof(ID3D12CommandAllocator), allocator_.put_void());
     if (FAILED(hr))
