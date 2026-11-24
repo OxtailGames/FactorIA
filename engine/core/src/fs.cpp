@@ -84,7 +84,8 @@ std::shared_ptr<const PackReader> pack_for(const std::string& normalized) {
 // -1: not decided yet (read the environment on first use), 0: off, 1: on. Windows is always "on" and emulates nothing.
 std::atomic<int> g_emulate{-1};
 
-bool env_flag(const char* name, bool& value) {
+// Unused on Windows, which never emulates the rules (GCC/MinGW -Wunused-function).
+[[maybe_unused]] bool env_flag(const char* name, bool& value) {
     const char* v = std::getenv(name);
     if (!v || !*v) return false;
     std::string s = to_lower(v);
