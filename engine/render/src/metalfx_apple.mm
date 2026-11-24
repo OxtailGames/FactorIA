@@ -11,6 +11,11 @@
 #if __has_include(<MetalFX/MetalFX.h>)
 #import <MetalFX/MetalFX.h>
 #define FA_HAVE_METALFX_SDK 1
+// The reactive mask input came with the macOS 14.4 / iOS 17.4 SDK (Xcode 15.3): an older SDK builds the scaler without it.
+#if (defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140400) || \
+    (defined(__IPHONE_OS_VERSION_MAX_ALLOWED) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 170400)
+#define FA_HAVE_METALFX_REACTIVE 1
+#endif
 #endif
 #include <TargetConditionals.h>
 
@@ -68,7 +73,7 @@ std::string formats_list() {
 }
 
 // The reactive mask's image: R8 (what the renderer's mask is, Gpu::reactive_format()).
-const FormatInfo kReactiveFormat = {SG_PIXELFORMAT_R8, MTLPixelFormatR8Unorm, "r8"};
+[[maybe_unused]] const FormatInfo kReactiveFormat = {SG_PIXELFORMAT_R8, MTLPixelFormatR8Unorm, "r8"};
 
 [[maybe_unused]] std::string os_version() {
     NSString* v = [[NSProcessInfo processInfo] operatingSystemVersionString];
@@ -317,6 +322,7 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
                 // The scaler is ready for the first frame it is asked to draw (else MetalFX finishes its set-up on another thread
                 // and the first frames are unscaled): the cost is a hitch when it is made, at start and at a resize.
                 d.requiresSynchronousInitialization = YES;
+#if FA_HAVE_METALFX_REACTIVE
                 if (desc.reactiveMask) {
                     // macOS 14.4 and iOS 17.4 have the mask input; an older OS makes the scaler without it (reactive_mask() says so).
                     if (@available(macOS 14.4, iOS 17.4, *)) {
@@ -325,6 +331,7 @@ bool Scaler::configure(const Desc& desc, std::string* error) {
                         reactiveOn = true;
                     }
                 }
+#endif
                 impl_->temporal = [d newTemporalScalerWithDevice:device];
                 made = impl_->temporal != nil;
             }
@@ -485,6 +492,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 t.preExposure = frame.preExposure;
                 t.depthReversed = d.depthReversed ? YES : NO;
                 t.reset = (frame.reset || im.encoded == 0) ? YES : NO;
+#if FA_HAVE_METALFX_REACTIVE
                 if (im.reactiveOn) {
                     if (@available(macOS 14.4, iOS 17.4, *)) {
                         t.reactiveMaskTexture = reactiveTex;  // nil: no mask in this frame
@@ -495,6 +503,7 @@ bool Scaler::encode(const Frame& frame, std::string* error) {
                 if (im.reactiveOn) {
                     if (@available(macOS 14.4, iOS 17.4, *)) t.reactiveMaskTexture = nil;
                 }
+#endif
                 t.colorTexture = nil;
                 t.depthTexture = nil;
                 t.motionTexture = nil;
