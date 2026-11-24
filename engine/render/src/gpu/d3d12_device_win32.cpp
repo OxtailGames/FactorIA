@@ -230,11 +230,10 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
     if (FAILED(hr))
         return hr_error("CheckFeatureSupport(D3D12_OPTIONS) on " + adapterName_, hr,
                         "update the GPU driver or use the D3D11 backend");
-    if (o.ResourceBindingTier < D3D12_RESOURCE_BINDING_TIER_2)
-        return make_error("gpu d3d12: " + adapterName_ +
-                              " has resource binding tier 1; FactorIA's D3D12 backend binds through unbounded "
-                              "descriptor tables, which need tier 2",
-                          "use the D3D11 backend on this GPU");
+    // Tier 1 has no unbounded descriptor ranges: init() makes no bindless table there (bindless_descriptors() is 0).
+    bindingTier_ = o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3   ? 3
+                   : o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2 ? 2
+                                                                            : 1;
     return {};
 }
 
@@ -297,12 +296,20 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     for (int i = 0; i < kHeapCount; ++i)
         if (auto r = cpuHeaps_[std::size_t(i)].init(device_.get(), heaps[i].type, heaps[i].n, heaps[i].name); !r)
             return r;
-    if (auto r = viewHeap_.init(device_.get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                                std::uint32_t(options.bindlessDescriptors), std::uint32_t(options.frameViewDescriptors),
-                                framesInFlight_, "fa-d3d12-shader-views");
+    // Resource binding tier 1 allows no unbounded descriptor range in a root signature (and at most 128 views per
+    // stage): the bindless table, an unbounded SRV range in every root signature, is left out there.
+    bindlessDescriptors_ = std::uint32_t(options.bindlessDescriptors);
+    if (bindingTier_ < 2 && bindlessDescriptors_ > 0) {
+        FA_WARN("render",
+                "gpu d3d12: {} has resource binding tier 1, which has no unbounded descriptor ranges: the device makes "
+                "no bindless table (D3d12Options::bindlessDescriptors {} is taken as 0; set it to 0 to silence this)",
+                adapterName_, bindlessDescriptors_);
+        bindlessDescriptors_ = 0;
+    }
+    if (auto r = viewHeap_.init(device_.get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, bindlessDescriptors_,
+                                std::uint32_t(options.frameViewDescriptors), framesInFlight_, "fa-d3d12-shader-views");
         !r)
         return r;
-    bindlessDescriptors_ = std::uint32_t(options.bindlessDescriptors);
     if (const ShaderVisibleHeap::Span bindless = viewHeap_.reserved(); bindless.ok()) {
         // Null textures until something is put there: a table the GPU may read holds no uninitialized descriptor.
         D3D12_SHADER_RESOURCE_VIEW_DESC none{};
@@ -330,6 +337,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::D3d12);
     init_caps();
+    init_timer();
     dead_ = std::make_unique<D3d12CommandList>(*this);
     drain_messages();
     FA_INFO("render", "gpu d3d12: {} ({}{}{}), {} frames in flight", adapterName_, warp_ ? "WARP" : "hardware",
@@ -488,18 +496,6 @@ TotalStats D3d12Device::total_stats() const {
     pool(s.pipelines, pipelines_.alive(), pipelines_.capacity());
     return s;
 }
-
-bool D3d12Device::timer_supported(std::string* why) const {
-    if (why) *why = "the D3D12 backend measures GPU time from M77-P7c2 on (timestamp queries are not built yet)";
-    return false;
-}
-
-Result<ReadTicket> D3d12Device::request_buffer_read(Buffer, std::size_t, std::size_t) {
-    return make_error("gpu d3d12: request_buffer_read is not built yet (M77-P7c2)",
-                      "async_read_supported() is false on this device: read with read_buffer(), which waits");
-}
-
-bool D3d12Device::poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) { return false; }
 
 void D3d12Device::report(const std::string& message) {
     FA_ERROR("render", "{}", message);
@@ -719,6 +715,17 @@ void D3d12Device::submit(CommandList& l) {
 
 void D3d12Device::execute(D3d12CommandList& list) {
     list.flush_barriers();
+    if (list.scopeOpen_) list.close_scope();  // a timed scope left open ends with its list
+    if (!list.scopes_.empty()) {
+        // The scopes of the timed frame still open run before its end: timer_end_frame reports them.
+        std::lock_guard<std::mutex> lock(timerMutex_);
+        for (const D3d12CommandList::ScopeRef& s : list.scopes_) {
+            if (s.slot != timerCurrent_ || s.slot < 0) continue;
+            TimerSlot& slot = timerSlots_[std::size_t(s.slot)];
+            if (slot.serial == s.serial && s.scope < slot.submitted.size()) slot.submitted[s.scope] = true;
+        }
+        list.scopes_.clear();
+    }
     list.open_ = false;
     HRESULT hr = list.list_->Close();
     if (FAILED(hr)) {

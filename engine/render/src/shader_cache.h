@@ -75,7 +75,8 @@ gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, c
 // them; a report is "since the process started". reset_shader_build_stats is for tests.
 const ShaderBuildStats& shader_build_stats();
 void reset_shader_build_stats();
-// "d3d11-dxbc" where the engine caches, "none" elsewhere or when there is no cache folder.
-const char* shader_cache_mode();
+// The cache of a device of `backend`: "d3d11-dxbc" or "d3d12-dxbc" (shader model 5.1 stages) where the engine caches,
+// "none" on the other backends, on builds where the engine does not compile stages, or when there is no cache folder.
+const char* shader_cache_mode(gpu::Backend backend);
 
 }  // namespace fa::render

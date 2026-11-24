@@ -62,6 +62,8 @@ Result<void> D3d12CommandList::open(const char* label) {
     useIndex_.clear();
     pending_.clear();
     keep_.clear();
+    scopes_.clear();
+    scopeOpen_ = false;
     // Every list sees the two shader-visible heaps (the bindings' tables and the bindless table point into them).
     ID3D12DescriptorHeap* heaps[2] = {device_.viewHeap_.heap(), device_.samplerHeap_.heap()};
     list_->SetDescriptorHeaps(2, heaps);
@@ -102,10 +104,41 @@ void D3d12CommandList::reset_bind_state() {
     uavsWritten_ = false;
 }
 
-// GPU timers come in M77-P7c2 (timer_supported() is false until then): a timed scope does nothing, as the interface
-// says.
-void D3d12CommandList::begin_timed_scope(const char*) {}
-void D3d12CommandList::end_timed_scope() {}
+// A timed scope: a timestamp in the open timed frame's query heap at each end (d3d12_timers_win32.cpp resolves them).
+// Outside a timed frame, past its kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded.
+void D3d12CommandList::begin_timed_scope(const char* name) {
+    FA_D3D12_REQUIRE_OPEN("begin_timed_scope");
+    if (scopeOpen_) close_scope();  // scopes do not nest
+    ScopeRef ref;
+    {
+        std::lock_guard<std::mutex> lock(device_.timerMutex_);
+        if (!device_.timerOk_ || device_.timerCurrent_ < 0) return;
+        D3d12Device::TimerSlot& slot = device_.timerSlots_[std::size_t(device_.timerCurrent_)];
+        if (slot.names.size() >= std::size_t(D3d12Device::kMaxTimedScopes)) return;  // drawn, not measured
+        ref.serial = slot.serial;
+        ref.slot = device_.timerCurrent_;
+        ref.scope = std::uint32_t(slot.names.size());
+        ref.heap = slot.heap.get();
+        slot.names.emplace_back(name ? name : "");
+        slot.submitted.push_back(false);
+    }
+    list_->EndQuery(ref.heap, D3D12_QUERY_TYPE_TIMESTAMP, 2 + 2 * ref.scope);
+    empty_ = false;
+    scopes_.push_back(ref);
+    scopeOpen_ = true;
+}
+
+void D3d12CommandList::end_timed_scope() {
+    FA_D3D12_REQUIRE_OPEN("end_timed_scope");
+    if (scopeOpen_) close_scope();
+}
+
+void D3d12CommandList::close_scope() {
+    scopeOpen_ = false;
+    if (scopes_.empty() || !list_) return;
+    const ScopeRef& ref = scopes_.back();
+    list_->EndQuery(ref.heap, D3D12_QUERY_TYPE_TIMESTAMP, 3 + 2 * ref.scope);
+}
 
 namespace {
 
