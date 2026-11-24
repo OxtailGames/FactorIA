@@ -1257,9 +1257,24 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
     if (barriers.empty()) return;
     // Merge the barriers of one image that go the same way: adjacent mips first, then adjacent layers of equal mip
     // ranges (require() walks mips inside layers, so a whole image becomes one barrier).
-    auto same = [](const Barrier& a, const Barrier& b) {
-        return a.image && a.image == b.image && a.aspects == b.aspects && a.from == b.from && a.to == b.to &&
-               a.srcFamily == b.srcFamily && a.dstFamily == b.dstFamily;
+    // The two halves of a queue family ownership transfer must name the same subresource ranges, but the release's
+    // source stages and accesses differ per subresource (what the producer did with each) while the acquire's are
+    // none: so a transfer merges on its layouts, families and destination state alone, the merged source the union
+    // of the parts (waiting for more is still right). Both halves skip the same subresources and walk them in the
+    // same order, so their ranges come out equal.
+    auto transfer = [](const Barrier& b) {
+        return b.srcFamily != b.dstFamily && b.srcFamily != VK_QUEUE_FAMILY_IGNORED &&
+               b.dstFamily != VK_QUEUE_FAMILY_IGNORED;
+    };
+    auto same = [&transfer](const Barrier& a, const Barrier& b) {
+        if (!a.image || a.image != b.image || a.aspects != b.aspects || !(a.to == b.to) || a.srcFamily != b.srcFamily ||
+            a.dstFamily != b.dstFamily)
+            return false;
+        return transfer(a) ? a.from.layout == b.from.layout : a.from == b.from;
+    };
+    auto join = [](Barrier& into, const Barrier& b) {
+        into.from.stages |= b.from.stages;
+        into.from.access |= b.from.access;
     };
     std::vector<Barrier> mips;
     for (const Barrier& b : barriers) {
@@ -1268,6 +1283,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
             if (same(last, b) && last.layer == b.layer && last.layerCount == b.layerCount &&
                 last.mip + last.mipCount == b.mip) {
                 last.mipCount += b.mipCount;
+                join(last, b);
                 continue;
             }
         }
@@ -1280,6 +1296,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
             if (same(last, b) && last.mip == b.mip && last.mipCount == b.mipCount &&
                 last.layer + last.layerCount == b.layer) {
                 last.layerCount += b.layerCount;
+                join(last, b);
                 continue;
             }
         }
@@ -1618,6 +1635,7 @@ void VulkanCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
                        "': the buffer that repacks the rows could not be made: " + error);
         return;
     }
+    scratch->owner = queue_;  // the list's own: born on its queue, never handed to another
     require(scratch, 0, transfer_write_state(false));
     flush_barriers();
     std::vector<VkBufferCopy> rows;
