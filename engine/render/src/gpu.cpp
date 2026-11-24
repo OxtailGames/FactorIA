@@ -228,15 +228,19 @@ void Gpu::commit_frame() {
 
 Gpu::~Gpu() = default;
 
-bool Gpu::init(int sampleCount, std::string* error) {
+bool Gpu::init(int sampleCount, std::string* error, std::unique_ptr<gpu::Device> device) {
     sampleCount_ = std::max(1, sampleCount);
-    // The device adopts the sokol context the renderer opened (Renderer::init): `init` of make_device is not read.
-    auto made = gpu::make_device(gpu::built_sokol_backend());
-    if (!made) {
-        if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
-        return false;
+    if (device) {
+        device_ = std::move(device);
+    } else {
+        // The device adopts the sokol context the renderer opened (Renderer::init): `init` of make_device is not read.
+        auto made = gpu::make_device(gpu::built_sokol_backend());
+        if (!made) {
+            if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
+            return false;
+        }
+        device_ = std::move(made.value());
     }
-    device_ = std::move(made.value());
     if (sampleCount_ > 1 && !device_->pixel_format_caps(gpu::PixelFormat::Rgba8).msaa) {
         FA_WARN("render", "MSAA is not supported by this device; falling back to sampleCount 1");
         sampleCount_ = 1;
@@ -338,13 +342,15 @@ bool Gpu::init(int sampleCount, std::string* error) {
     }
     gpu::BufferDesc ib{};
     ib.usage.indexBuffer = true;
-    ib.data = {idx.data(), idx.size() * sizeof(std::uint16_t)};
+    ib.size = idx.size() * sizeof(std::uint16_t);
+    ib.data = {idx.data(), ib.size};
     ib.label = "quad-indices";
     quadIndices_ = device_->make_buffer(ib);
 
     const float tri[] = {-1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f};
     gpu::BufferDesc tb{};
     tb.usage.vertexBuffer = true;
+    tb.size = sizeof(tri);
     tb.data = {tri, sizeof(tri)};
     tb.label = "fullscreen-triangle";
     fsTriangle_ = device_->make_buffer(tb);

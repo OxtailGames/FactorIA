@@ -110,8 +110,9 @@ struct RendererDesc {
     int sampleCount = 1;    // MSAA of the game target (1 = off)
     bool headless = false;  // no swapchain; present() must not be called
     // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
-    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
-    // Ignored (a normal init) when no context is open.
+    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() leaves it open
+    // (close_context() closes it). Ignored (a normal init) when no context is open. A context that is open when init() runs
+    // is never closed by shutdown(), with this flag or without it.
     bool adoptContext = false;
 };
 
@@ -298,7 +299,7 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Calls sg_setup() with `env` (unless desc.adoptContext and a context is open). Returns false + message on failure.
+    // Calls sg_setup() with `env` (unless a context is already open: the renderer then uses it and never closes it). Returns false + message on failure.
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
@@ -310,8 +311,8 @@ public:
     // sg_setup() with the same limits init() uses. False + message when the device is not usable. False when a context is open.
     static bool open_context(const GfxEnvironment& env, std::string* error);
     static bool context_open();
-    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
-    // renderer that adopted the context closes it in shutdown().
+    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed, or the
+    // end of a player). A renderer whose init() found the context open leaves it open in shutdown(): whoever opened it closes it.
     static void close_context();
     // The end of a frame of a client that draws into the window itself (the editor): presents what the passes drew. False when
     // no context is open. A game's Renderer::present() commits on its own.

@@ -202,6 +202,7 @@ void compute_bounds(const std::vector<MeshVertex>& v, Vec3& bmin, Vec3& bmax) {
 gpu::Buffer make_data_buffer(gpu::Device& device, const void* data, std::size_t bytes, const char* label,
                              bool index = false) {
     gpu::BufferDesc d;
+    d.size = bytes;
     d.usage.indexBuffer = index;
     d.data = gpu::Range{data, bytes};
     d.label = label;

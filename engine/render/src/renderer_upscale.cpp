@@ -53,12 +53,11 @@ using render::UpscaleInput;
 // full-viewport camera (`multiCamera`, what the last frame had). MetalFX (M76-P5b) is the Metal backend on an OS and a GPU that have its
 // scalers (metalfx.h, asked once), until one of its frames fails here.
 render::UpscalerCaps Renderer::Impl::upscaler_caps() {
-    if (spatialSupported < 0) {
+    // Asked once, with a device: without one the answer (no) is not kept, so a renderer that gets its device later asks again.
+    if (spatialSupported < 0 && gpu.has_device()) {
         const int row = render::find_feature("spatialUpscaler");
-        spatialSupported = row >= 0 && gpu.has_device() &&
-                                   render::feature_supported(render::feature_env_from_device(gpu.device()), row)
-                               ? 1
-                               : 0;
+        spatialSupported =
+            row >= 0 && render::feature_supported(render::feature_env_from_device(gpu.device()), row) ? 1 : 0;
     }
     render::UpscalerCaps caps;
     caps.pixelArt = scaleMode == ScaleMode::PixelPerfect;

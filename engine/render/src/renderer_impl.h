@@ -110,7 +110,7 @@ struct Renderer::Impl {
     bool warmBuilt = false;
     std::size_t warmPipelines = 0;
     double warmMs = 0;
-    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
+    bool adopted = false;  // the graphics context was open before init: shutdown() leaves it to whoever opened it
     std::unique_ptr<Assets> assets;
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
@@ -1047,8 +1047,5 @@ template <class T>
 void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
     list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
-
-// Begins `pass` (pass_into, the Target fields) on `list`.
-inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) { list.begin_pass(pass); }
 
 }  // namespace fa

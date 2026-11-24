@@ -443,12 +443,14 @@ MeshAsset* TerrainRenderer::patch(gpu::Device& device, bool split) {
     SubMesh sm;
     gpu::BufferDesc vb;
     vb.usage.vertexBuffer = true;
-    vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
+    vb.size = v.size() * sizeof(MeshVertex);
+    vb.data = {v.data(), vb.size};
     vb.label = split ? "terrain-patch-split" : "terrain-patch";
     sm.vb = device.make_buffer(vb);
     gpu::BufferDesc ib;
     ib.usage.indexBuffer = true;
-    ib.data = {idx.data(), idx.size() * sizeof(std::uint32_t)};
+    ib.size = idx.size() * sizeof(std::uint32_t);
+    ib.data = {idx.data(), ib.size};
     ib.label = vb.label;
     sm.ib = device.make_buffer(ib);
     sm.vertexCount = int(v.size());

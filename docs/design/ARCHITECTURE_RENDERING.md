@@ -84,7 +84,8 @@ a full image pool, and the game target then falls back to RGBA8 like any other t
 that draws its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` /
 `end_window_pass`, and the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor
 `editor_app.cpp` calls sokol for the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU
-client with its own pipelines and keeps using sokol directly.
+client that turns an `ImDrawData` into `UiPainter` draw lists (M77-P5c, ARCHITECTURE_RENDERING_GPU.md, "The 2D
+painter") and calls no sokol function.
 
 **Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
 (normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
