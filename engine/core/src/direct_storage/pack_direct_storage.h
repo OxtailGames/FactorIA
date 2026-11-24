@@ -99,10 +99,16 @@ inline constexpr std::uint64_t kDirectBatchBytes = std::uint64_t(32) << 20;
 // The D3D12 backend reads pack ranges into buffers and texture regions (d3d12_pack_reads_win32.cpp). Its queue is made
 // with the device, so DirectStorage decompresses GDeflate on the GPU where the GPU and its driver can.
 
-// The D3D12 queue's size, and the most requests one read into a GPU resource may make (a read of more blocks is an
-// error that says to split it: 2045 blocks of 256 KiB are about 511 MiB).
+// The D3D12 queue's size, and the most requests one read into a GPU resource that DirectStorage would write may make (a
+// read of more blocks is an error that says to split it: 2045 blocks of 256 KiB are about 511 MiB).
 inline constexpr std::size_t kDirectGpuQueueCapacity = 2048;
 inline constexpr std::size_t kDirectGpuReadRequests = kDirectGpuQueueCapacity - 3;
+// Whether a read into a GPU resource of `requests` blocks can start: the limit is DirectStorage's (one submission holds
+// the read), so a read that takes the CPU fallback (`direct` false: an lz4 file, a pack in memory, no DirectStorage)
+// reads any number of blocks.
+inline constexpr bool direct_gpu_read_fits(std::size_t requests, bool direct) {
+    return !direct || requests <= kDirectGpuReadRequests;
+}
 
 // A read into a buffer: whole blocks decompress straight into it (DSTORAGE_REQUEST_DESTINATION_BUFFER); a block the range
 // holds only part of (the first and the last) is decoded on the CPU and its part uploaded, since a request writes its
@@ -135,6 +141,17 @@ struct DirectRowSpan {
 // `rows` rows; empty when the region cannot be cut that way (the read then takes the CPU path).
 std::vector<DirectRowSpan> plan_direct_texture_rows(std::span<const DirectRequest> requests, std::uint32_t rowBytes,
                                                     std::uint32_t rows);
+
+// The box (D3D12_BOX's left, top, right, bottom, in texels of the subresource) that the request of `span` writes, for
+// the region (x, y, width, height). The rows of a compressed format are rows of 4x4 blocks, and its box is whole blocks
+// of the mip's physical size, as D3D12 copies them: a mip smaller than a block, or a region that reaches the mip's edge
+// at a size that is not a multiple of 4, rounds its right and bottom up to the next multiple of 4 (a 2x2 BC1 mip is the
+// box 0..4 x 0..4). The caller has checked that x and y of a compressed region are multiples of 4.
+struct DirectTextureBox {
+    std::uint32_t left = 0, top = 0, right = 0, bottom = 0;
+};
+DirectTextureBox direct_texture_box(std::uint32_t x, std::uint32_t y, std::uint32_t width, std::uint32_t height,
+                                    DirectRowSpan span, bool compressed);
 
 // ---- the runtime (Windows x64) --------------------------------------------------------------------------------------
 

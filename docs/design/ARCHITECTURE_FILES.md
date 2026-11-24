@@ -196,17 +196,20 @@ reuses the plan and the declarations; core never includes render.
   batches of at most 253 requests (a submission of n requests takes n + 2 queue entries with its status and event, and a
   queue of capacity C holds C - 1) and 32 MiB of output. Each batch takes one of 32 slots (its status-array entry and its
   own auto-reset event, with a cancellation tag of its own); no lock is held while the reading thread waits. The wait is
-  a loop of 1 s waits that checks the status after each one, so neither a late event nor another read's wake-up is taken
-  for its end; it logs a warning after 30 s, cancels the batch's requests after 10 minutes and redoes the read on the CPU.
-  A slot whose event never came is retired rather than reused, and if DirectStorage does not confirm a cancellation the
+  a loop of 1 s waits for the batch's event, which DirectStorage sets after the batch's requests and status entry are
+  done: the event, not the status entry, ends the wait, since the entry can still say "complete" from the slot's previous
+  batch until DirectStorage reaches the new one, and only this batch waits for that event (it consumes it before the slot
+  is free again). The wait logs a warning after 30 s, cancels the batch's requests after 10 minutes and redoes the read on
+  the CPU; if DirectStorage does not confirm a cancellation (its event never comes) the
   process stops (`FA_ERROR`, then abort) rather than let it write into freed memory. A raw block is a plain read whose
   xxh32 is checked as on the CPU path; a compressed block is decompressed by DirectStorage from its stored bytes, which never
   reach the engine, so its checksum is not checked on this path (a damaged stream is a failed request) unless
   `FA_DIRECTSTORAGE_VERIFY=1`, which also reads the stored bytes and checks them (a debugging aid: it reads every block
   twice). `PackReader::counters().directBlocks` counts the blocks read this way.
 - **Share mode.** DirectStorage opens `game.pak` itself (`IDStorageFactory::OpenFile` takes only a path: the share mode is
-  DirectStorage's, a read handle, not the engine's) and the engine keeps that file while the pack (or, for GPU destinations,
-  the device) lives. Treat a running game's `game.pak` as locked, as when it is mapped: replacing or deleting it fails until
+  DirectStorage's, a read handle, not the engine's) and the engine keeps that file while the pack lives (for GPU
+  destinations the device closes its handle once the pack is gone, at the next `commit()`, `poll_pack_read` or read, or
+  with the device). Treat a running game's `game.pak` as locked, as when it is mapped: replacing or deleting it fails until
   the game is closed, and so does replacing the DLLs a running game has loaded (the desktop export's copy-failure hint says
   so).
 - **Where it decompresses.** With memory destinations DirectStorage decompresses GDeflate on its own CPU worker threads, not
@@ -221,13 +224,19 @@ reuses the plan and the declarations; core never includes render.
   CPU (`read_range`) and uploaded first. An image read sends one `DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION` per block:
   the range holds the region as D3D12's copyable footprint (rows of texels, or of 4x4 blocks, 256-byte aligned apart, the
   last row unpadded), and it goes to DirectStorage only when every block decodes to whole rows (the range starts and ends on
-  block boundaries, and the region fits one block or its rows' bytes are a multiple of 256). DirectStorage writes resources in the COMMON state: a read first runs an
+  block boundaries, and the region fits one block or its rows' bytes are a multiple of 256). A compressed format's boxes
+  are whole 4x4 blocks of the mip's physical size, as D3D12 copies them (a 2x2 BC1 mip is the box 0..4 x 0..4,
+  `direct_texture_box`). DirectStorage writes resources in the COMMON state: a read first runs an
   internal list that moves the texture's subresource to COMMON (buffers are COMMON between lists already) and records it in
   the state tracking; once that list finished on the GPU the requests, a status entry and a fence signal go to the queue;
   once the status is complete and the fence reached its value, the D3D12 queue waits for that fence, so the lists
-  submitted afterwards see the bytes. `commit()` and `poll_pack_read` move reads along; the destructor waits for (and,
-  after 30 s, cancels) the reads DirectStorage still holds before the queue, the files and the resources go. More than
-  2045 blocks in one read is an error that says to split it. **Fallback:** a pack opened from memory, another codec, a
+  submitted afterwards see the bytes. Until then the read owns the whole buffer, or only the image's subresource (its
+  other mips and layers stay usable through views that leave it out). `commit()` and `poll_pack_read` move reads along;
+  the destructor waits for (and, after 30 s, cancels once) the reads DirectStorage still holds before the queue, the files
+  and the resources go. A lost device (its fences read UINT64_MAX) ends every read in flight with an error that names
+  the removal reason, so neither a poll nor the destructor waits for it. A partial block that finds no upload room ends
+  the read with an error (the whole blocks still go to DirectStorage). More than 2045 blocks in one read that
+  DirectStorage would take is an error that says to split it; the CPU fallback reads any size. **Fallback:** a pack opened from memory, another codec, a
   32-bit build, no DLLs, a queue that cannot be made, a texture region whose rows do not fill whole blocks, or a request
   that fails: the range is decoded on the CPU and uploaded on an internal list, with one log warning per reason (a failed
   request also turns DirectStorage off for that device). `PackReadResult::direct` says which path wrote the bytes;

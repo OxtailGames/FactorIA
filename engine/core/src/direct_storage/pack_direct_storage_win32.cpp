@@ -164,8 +164,7 @@ constexpr UINT32 kStatusSlots = 32;
 
 struct Slot {
     HANDLE event = nullptr;  // auto-reset; set by DirectStorage once the read's requests and status are done
-    bool busy = false;
-    bool retired = false;  // its event may still be set late: never used again
+    bool busy = false;       // a read waits for its event (and consumes it before the slot is free again)
 };
 
 struct MemoryQueue {
@@ -306,7 +305,7 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
         std::unique_lock<std::mutex> lock(q.mutex);
         auto freeSlot = [&]() -> int {
             for (UINT32 i = 0; i < kStatusSlots; ++i)
-                if (!q.slots[i].busy && !q.slots[i].retired) return int(i);
+                if (!q.slots[i].busy) return int(i);
             return -1;
         };
         for (;;) {
@@ -315,9 +314,6 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
                 slot = UINT32(s);
                 break;
             }
-            bool anyUsable = false;
-            for (const Slot& sl : q.slots) anyUsable = anyUsable || !sl.retired;
-            if (!anyUsable) return make_error("DirectStorage stopped answering: every status entry was given up");
             q.freed.wait(lock);
         }
         q.slots[slot].busy = true;
@@ -338,18 +334,18 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
         q.queue->Submit();
     }
 
-    // Wait without the lock. Never return before DirectStorage is done: it writes into the caller's buffers. The status
-    // entry decides (the event only wakes the wait, and is checked against IsComplete after each wake). The event is
-    // enqueued after the status, so once the status is complete the event follows; it is consumed before the slot is
-    // used again, or the slot is retired, so a late signal never wakes another read.
+    // Wait without the lock. Never return before DirectStorage is done: it writes into the caller's buffers. This read's
+    // event decides: DirectStorage sets it after every request before it in the queue (the read's own) and its status
+    // entry are done, and only this read waits for it, since the auto-reset event is consumed here before the slot is
+    // used again. The status entry is not the exit condition: until DirectStorage reaches this read's EnqueueStatus, the
+    // entry may still say "complete" from the slot's previous read.
     const std::uint64_t start = now_ms();
-    bool warned = false, cancelled = false, eventSeen = false;
+    bool warned = false, cancelled = false;
     std::uint64_t cancelAt = 0;
     for (;;) {
         const DWORD waited = WaitForSingleObject(q.slots[slot].event, 1000);
-        if (waited == WAIT_OBJECT_0) eventSeen = true;
-        if (waited == WAIT_FAILED) Sleep(1);  // never with a valid event; IsComplete below still decides
-        if (q.status->IsComplete(slot)) break;
+        if (waited == WAIT_OBJECT_0) break;
+        if (waited == WAIT_FAILED) Sleep(1000);  // never with a valid event; the bounds below still hold
         const std::uint64_t waitedMs = now_ms() - start;
         if (!warned && waitedMs >= kDirectWarnMs) {
             FA_WARN("fs", "DirectStorage has not finished a read of game.pak for {} s; still waiting",
@@ -372,17 +368,16 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
             std::abort();
         }
     }
-    // The status is complete: its event follows. Consume it so the slot's next read does not wake early; an event that
-    // does not come retires the slot.
-    if (!eventSeen) eventSeen = WaitForSingleObject(q.slots[slot].event, kDirectWarnMs) == WAIT_OBJECT_0;
-    const HRESULT hr = q.status->GetHResult(slot);
+    // The event came, so the status entry is this read's (it was enqueued before the event).
+    const bool complete = q.status->IsComplete(slot);
+    const HRESULT hr = complete ? q.status->GetHResult(slot) : E_FAIL;
     {
         std::lock_guard<std::mutex> lock(q.mutex);
         q.slots[slot].busy = false;
-        if (!eventSeen) q.slots[slot].retired = true;
         q.room.give(ios.size());
     }
     q.freed.notify_all();
+    if (!complete) return make_error("DirectStorage set a read's event before its status entry was complete");
     if (FAILED(hr)) return make_error("a DirectStorage read failed with " + hresult_text(hr));
     return {};
 }

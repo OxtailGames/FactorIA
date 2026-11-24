@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [json, json_schema, pak, scene, prefab, mcp_jsonrpc, translations, image, ktx2, gltf, font, audio, midi, soundfont]
+        target: [json, json_schema, pak, gdeflate, scene, prefab, mcp_jsonrpc, translations, image, ktx2, gltf, font, audio, midi, soundfont]
     env:
       FA_FUZZ_MINUTES: ${{ github.event.inputs.minutes || '25' }}
     steps:
