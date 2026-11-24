@@ -554,7 +554,7 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         return false;
     }
     if (!gpu.committed()) {  // as read_floats: the work of the frame is submitted before a read-back waits for it
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
     sg_image scratch{};
@@ -562,7 +562,7 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         if (error) *error = "the image for the read-back could not be created";
         return false;
     }
-    sg_commit();
+    gpu.commit_frame();
     gpu.note_commit();
     return ProbeGpu::read_region_end(scratch, w, h, ps.gpu.rgba8(), out, error);
 }
@@ -637,18 +637,18 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     sg_image pageImage{}, shImage{};
     bool ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, 0, pw, ph, pageImage, &calls);
     if (ok) ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, lay.shY, kProbeShCoefficients, 1, shImage, &calls);
-    sg_commit();  // the read-back waits for the GPU, and on Metal the work is only submitted by sg_commit
+    gpu.commit_frame();  // the read-back waits for the GPU, and on Metal the work is only submitted by the commit
     gpu.note_commit();
     std::vector<float> pagePx, shPx;
     std::string readError;
     if (ok)
         ok = ProbeGpu::read_region_end(pageImage, pw, ph, false, pagePx, &readError);
     else if (pageImage.id)
-        sg_destroy_image(pageImage);
+        gpu.device().destroy_image(gpu::from_sg(pageImage));
     if (ok)
         ok = ProbeGpu::read_region_end(shImage, kProbeShCoefficients, 1, false, shPx, &readError);
     else if (shImage.id)
-        sg_destroy_image(shImage);
+        gpu.device().destroy_image(gpu::from_sg(shImage));
     cleanup();
     if (!ok) return fail("reading the capture back from the GPU failed: " + readError);
     if (pagePx.size() != std::size_t(pw) * std::size_t(ph) * 4 || shPx.size() < std::size_t(kProbeShCoefficients) * 4)

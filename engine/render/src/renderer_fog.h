@@ -90,13 +90,13 @@ public:
     // BloomTarget), `prepass` the camera's prepass (invalid: nothing is drawn). Each pass adds one to *drawCalls when it runs. Returns the
     // number of passes declared (0: nothing is drawn: no shafts, no prepass, shaders or targets the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan, const PostRect& rect,
-                   int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                   int picW, int picH, ResourceId game, gpu::bridged::View srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, int* drawCalls, const std::string& job);
 
     // Draws the fog of `plan` over the pass being drawn, whose target has `format` (the game image, multisampled or not): one full-screen
     // triangle that reads the prepass `prepassTex`. The caller has set the viewport and the scissor to the camera's rectangle. False (nothing
     // drawn) when the program cannot be made.
-    bool draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const TargetFormat& format);
+    bool draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::bridged::View prepassTex, const TargetFormat& format);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();
@@ -105,16 +105,20 @@ public:
 
     enum class Prog { Fog, Rays, Add, Count };
     // The program, made on the first use (false: it cannot be made; logged once), and its pipeline for a target format.
+    bool ready(Gpu& gpu, Prog prog);
+    // TRANSITIONAL (M77-P4b): for renderer_draw.cpp, which asks without a Gpu (it uses Gpu::active_device()).
     bool ready(Prog prog);
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    gpu::Pipeline pipeline(gpu::Device& device, Prog prog, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    bool ready(gpu::Device& device, Prog prog);
+    gpu::Device* device_ = nullptr;  // what ready() made the shaders on: release() has no Gpu at hand
+    gpu::Shader shaders_[int(Prog::Count)]{};
     int state_[int(Prog::Count)]{};  // 0 = not made yet, 1 = ready, -1 = failed (logged)
     std::vector<PipelineEntry> pipelines_;
     bool warnedTargets_ = false;
