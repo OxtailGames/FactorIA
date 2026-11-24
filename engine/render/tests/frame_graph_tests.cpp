@@ -14,7 +14,7 @@ using namespace fa::render;
 
 namespace {
 
-TransientDesc desc(int w, int h, const char* label, sg_pixel_format color = SG_PIXELFORMAT_RGBA8) {
+TransientDesc desc(int w, int h, const char* label, gpu::PixelFormat color = gpu::PixelFormat::Rgba8) {
     TransientDesc d;
     d.width = w;
     d.height = h;
@@ -365,7 +365,7 @@ TEST_CASE("target pool: reuse across frames, eviction after N idle frames, count
     CHECK(pool.stats().live == 2);
     // a size or a format that differs is another target
     CHECK(pool.acquire(desc(100, 51, "x")) != 0);
-    CHECK(pool.acquire(desc(100, 50, "x", SG_PIXELFORMAT_RGBA16F)) != 0);
+    CHECK(pool.acquire(desc(100, 50, "x", gpu::PixelFormat::Rgba16F)) != 0);
     CHECK(pool.stats().created == 4);
     pool.release(h1);
 
@@ -419,8 +419,8 @@ TEST_CASE("frame graph: a pool that cannot create a target fails the frame and g
 
 TEST_CASE("frame graph: to_json describes resources, passes, order, culling and aliasing") {
     FrameGraph g;
-    TransientDesc gd = desc(1280, 720, "game", SG_PIXELFORMAT_RGBA16F);
-    gd.format.depth = SG_PIXELFORMAT_DEPTH_STENCIL;
+    TransientDesc gd = desc(1280, 720, "game", gpu::PixelFormat::Rgba16F);
+    gd.format.depth = gpu::PixelFormat::DepthStencil;
     ResourceId game = g.import_target("game", 3, gd);
     ResourceId a = g.create_transient(desc(64, 32, "a"));
     ResourceId b = g.create_transient(desc(64, 32, "b"));

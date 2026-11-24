@@ -167,15 +167,15 @@ gpu::PixelFormat pick_ldr_cut_format(gpu::PixelFormat display, bool hdrOutput, b
     return half ? gpu::PixelFormat::Rgba16F : full ? gpu::PixelFormat::Rgba32F : display;
 }
 
-sg_pixel_format Gpu::ldr_cut_format(bool hdrOutput) const {
+gpu::PixelFormat Gpu::ldr_cut_format(bool hdrOutput) const {
     const gpu::PixelFormat display = display_pixel_format();
-    if (!hdrOutput) return gpu::to_sg(display);
+    if (!hdrOutput) return display;
     auto usable = [this](gpu::PixelFormat f) {
         const gpu::PixelFormatCaps i = caps(f);
         return i.render && i.sample && i.filter;
     };
-    return gpu::to_sg(
-        pick_ldr_cut_format(display, hdrOutput, usable(gpu::PixelFormat::Rgba16F), usable(gpu::PixelFormat::Rgba32F)));
+    return pick_ldr_cut_format(display, hdrOutput, usable(gpu::PixelFormat::Rgba16F),
+                               usable(gpu::PixelFormat::Rgba32F));
 }
 
 bool Gpu::scene_has_alpha() const { return sceneFormat_ != gpu::PixelFormat::Rg11B10F; }
@@ -465,8 +465,7 @@ void Gpu::begin_pass(const PassDesc& pass) {
 #ifndef NDEBUG
     FA_ASSERT(!inPass_, "Gpu::begin_pass: a pass is already open (end_pass it first)");
 #endif
-    gpu::Swapchain swapchain;
-    const gpu::PassDesc p = gpu::from_render(pass, swapchain);
+    const gpu::PassDesc p = pass;
     if (Gpu* g = active())
         g->list_->begin_pass(p);
     else
@@ -554,7 +553,7 @@ gpu::bridged::Pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& fo
         ++pipelineHits_;
         return it->second.pipeline;
     }
-    const gpu::TargetFormat target = gpu::from_render(format);
+    const gpu::TargetFormat target = format;
     gpu::PipelineDesc desc = request;  // a copy only on a miss (the description is more than 1 KB)
     desc.colors[0].pixelFormat = target.color;
     if (target.color1 != gpu::PixelFormat::None) {
@@ -919,13 +918,13 @@ gpu::bridged::Pipeline Gpu::post_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
-sg_pixel_format Gpu::prepass_color_format() const {
+gpu::PixelFormat Gpu::prepass_color_format() const {
     // The prepass image is only sampled with a nearest sampler (a depth is never blended or filtered), so it needs no more than render + sample.
     for (gpu::PixelFormat f : {gpu::PixelFormat::Rgba32F, gpu::PixelFormat::Rgba16F}) {
         const gpu::PixelFormatCaps info = caps(f);
-        if (info.render && info.sample) return gpu::to_sg(f);
+        if (info.render && info.sample) return f;
     }
-    return SG_PIXELFORMAT_NONE;
+    return gpu::PixelFormat::None;
 }
 
 namespace {
@@ -948,7 +947,7 @@ MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
 
 bool Gpu::velocity_ready() {
     if (!prepass_ready()) return false;
-    const gpu::PixelFormatCaps info = caps(gpu::from_sg(velocity_format()));
+    const gpu::PixelFormatCaps info = caps(velocity_format());
     return info.render && info.sample;
 }
 
@@ -956,7 +955,7 @@ bool Gpu::prepass_ready() {
     if (prepassState_ != 0) return prepassState_ > 0;
     prepassShader_ = make_builtin(mesh_prepass_shader_desc, "mesh_prepass");
     prepassSkinShader_ = make_builtin(mesh_prepass_skin_shader_desc, "mesh_prepass_skin");
-    if (prepass_color_format() == SG_PIXELFORMAT_NONE || !shader_valid(prepassShader_) ||
+    if (prepass_color_format() == gpu::PixelFormat::None || !shader_valid(prepassShader_) ||
         !shader_valid(prepassSkinShader_)) {
         for (gpu::Shader* s : {&prepassShader_, &prepassSkinShader_}) {
             if (s->id) device_->destroy_shader(*s);
@@ -1116,7 +1115,7 @@ gpu::bridged::Pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
 }
 
 bool Gpu::reactive_ready() {
-    const gpu::PixelFormatCaps info = caps(gpu::from_sg(reactive_format()));
+    const gpu::PixelFormatCaps info = caps(reactive_format());
     return info.render && info.sample && quad_motion_ready();
 }
 

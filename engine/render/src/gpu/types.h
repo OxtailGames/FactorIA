@@ -838,9 +838,8 @@ struct BufferImageCopy {
 // Passes
 // ---------------------------------------------------------------------------------------------------------------------
 
-// The formats and sample count of the attachments a pass writes, which a pipeline drawn in that pass must match. The
-// same fields, order and hash as render::TargetFormat (gpu_types.h), whose sokol enum values these share, so a cache
-// keyed by one hashes the same as a cache keyed by the other.
+// The formats and sample count of the attachments a pass writes, which a pipeline drawn in that pass must match: the key
+// of the pipelines made for a pass (std::hash<TargetFormat> below hashes the four fields the same on every run).
 struct TargetFormat {
     PixelFormat color = PixelFormat::None;  // colour attachment 0; None for a depth-only pass
     PixelFormat depth = PixelFormat::None;  // the depth(-stencil) attachment; None without one
@@ -922,8 +921,8 @@ struct Swapchain {
     } gl;
 };
 
-// One render pass as data: the same fields, meaning and defaults as render::PassDesc (gpu_types.h), with this
-// interface's types. A pass draws either into the views below or into a swapchain, never both.
+// One render pass as data: where it draws, what it does with the old contents and how it ends. A pass draws either into
+// the views below or into a swapchain, never both.
 //
 // The defaults of the load/store actions are NOT sokol's: a PassDesc says DontCare for what it does not set (a zero
 // sg_pass clears), so a pass that forgets a field is cheap rather than clearing. A site that begins a pass sets

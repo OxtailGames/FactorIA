@@ -48,7 +48,7 @@ public:
 
     // The image the picture's sky view is drawn into: what the frame graph's resource for it imports.
     std::uint64_t image_id() const { return view_[0].id; }
-    sg_pixel_format format() const { return gpu::to_sg(format_); }
+    gpu::PixelFormat format() const { return format_; }
 
     // How many times each table was drawn (tests).
     int air_builds() const { return airBuilds_; }

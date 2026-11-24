@@ -26,7 +26,7 @@ inline gpu::Pipeline make_triangle_pipeline(gpu::Device& device, gpu::Shader sha
     d.layout.attrs[posAttr].format = gpu::VertexFormat::Float2;
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;
-    const gpu::TargetFormat t = gpu::from_render(format);
+    const gpu::TargetFormat t = format;
     d.depth.pixelFormat = t.depth;
     d.colors[0].pixelFormat = t.color;
     d.colors[0].writeMask = colorMask;

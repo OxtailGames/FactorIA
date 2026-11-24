@@ -998,8 +998,8 @@ struct ForcedOutput {
     ForcedOutput& operator=(const ForcedOutput&) = delete;
 };
 
-bool usable_format(sg_pixel_format f) {
-    const sg_pixelformat_info i = sg_query_pixelformat(f);
+bool usable_format(gpu::PixelFormat f) {
+    const sg_pixelformat_info i = sg_query_pixelformat(gpu::to_sg(f));
     return i.render && i.sample && i.filter;
 }
 
@@ -1038,8 +1038,8 @@ TEST_CASE(
         ForcedOutput hdr(g.renderer, HdrEncoding::ScRgb, 4.0f);
         cut_picture();
         const int format = render::renderer_ldr_cut_format(g.renderer);
-        if (usable_format(SG_PIXELFORMAT_RGBA16F) || usable_format(SG_PIXELFORMAT_RGBA32F))
-            CHECK((format == int(SG_PIXELFORMAT_RGBA16F) || format == int(SG_PIXELFORMAT_RGBA32F)));
+        if (usable_format(gpu::PixelFormat::Rgba16F) || usable_format(gpu::PixelFormat::Rgba32F))
+            CHECK((format == int(gpu::PixelFormat::Rgba16F) || format == int(gpu::PixelFormat::Rgba32F)));
         else
             CHECK(format == int(gpu->display_format()));
         CHECK(format == int(gpu->ldr_cut_format(true)));

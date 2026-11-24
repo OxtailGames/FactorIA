@@ -11,19 +11,19 @@ namespace fa::render {
 
 namespace {
 
-const char* format_name(sg_pixel_format f) {
+const char* format_name(gpu::PixelFormat f) {
     switch (f) {
-        case SG_PIXELFORMAT_NONE: return "none";
-        case SG_PIXELFORMAT_RGBA8: return "rgba8";
-        case SG_PIXELFORMAT_RGBA16F: return "rgba16f";
-        case SG_PIXELFORMAT_R16F: return "r16f";
-        case SG_PIXELFORMAT_DEPTH: return "depth";
-        case SG_PIXELFORMAT_DEPTH_STENCIL: return "depth_stencil";
+        case gpu::PixelFormat::None: return "none";
+        case gpu::PixelFormat::Rgba8: return "rgba8";
+        case gpu::PixelFormat::Rgba16F: return "rgba16f";
+        case gpu::PixelFormat::R16F: return "r16f";
+        case gpu::PixelFormat::Depth: return "depth";
+        case gpu::PixelFormat::DepthStencil: return "depth_stencil";
         default: return nullptr;
     }
 }
 
-Json format_json(sg_pixel_format f) {
+Json format_json(gpu::PixelFormat f) {
     if (const char* n = format_name(f)) return n;
     return int(f);  // a format with no short name: sokol's enum value
 }

@@ -82,8 +82,8 @@ bool float_path(Gfx& g) {
     Flat warm(0.5f);  // a frame, so there is a picture to read back
     g.draw(warm.world);
     render::Gpu* gpu = render::renderer_gpu(g.renderer);
-    const sg_pixel_format f = gpu ? gpu->display_format() : SG_PIXELFORMAT_NONE;
-    if (f != SG_PIXELFORMAT_RGBA16F) {  // R11G11B10 scenes keep their display picture in RGBA8 (Gpu::display_format)
+    const gpu::PixelFormat f = gpu ? gpu->display_format() : gpu::PixelFormat::None;
+    if (f != gpu::PixelFormat::Rgba16F) {  // R11G11B10 scenes keep their display picture in RGBA8 (Gpu::display_format)
         MESSAGE("skipped: this GPU holds the picture in 8 bits (nothing above paper white can be stored)");
         return false;
     }

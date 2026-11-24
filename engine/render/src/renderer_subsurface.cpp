@@ -56,7 +56,7 @@ TransientDesc SssFx::light_desc(const SssPlan& plan, const std::string& job) {
     TransientDesc d;
     d.width = plan.rectW;
     d.height = plan.rectH;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Depth, 1};
     d.label = job + "/sss-light";
     return d;
 }
@@ -65,7 +65,7 @@ TransientDesc SssFx::params_desc(const SssPlan& plan, const std::string& job) {
     TransientDesc d;
     d.width = plan.rectW;
     d.height = plan.rectH;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
     d.label = job + "/sss-image";
     return d;
 }
@@ -111,8 +111,8 @@ gpu::Pipeline SssFx::pipeline(Gpu& gpu, Prog prog, const TargetFormat& format, b
     d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;
-    d.depth.pixelFormat = gpu::from_sg(format.depth);
-    d.colors[0].pixelFormat = gpu::from_sg(format.color);
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
     d.sampleCount = format.samples;
     d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Add) {
@@ -221,15 +221,14 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             const Target* ht = tt->get(c.handle(h));
             if (!at || !bt || !ht || !at->texView.id || !bt->texView.id) return;
             PassDesc pd = pass_into(*ht, "sss-blur-h");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
+            pd.colorLoad = gpu::LoadAction::DontCare;
             gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
-            gpu::Swapchain swapchain;
-            list.begin_pass(gpu::from_render(pd, swapchain));
+            list.begin_pass(pd);
             list.set_pipeline(self->pipeline(*g, Prog::BlurH, pd.format));
             gpu::Bindings bind;
             bind.vertexBuffers[0] = g->fullscreen_triangle();
-            bind.views[VIEW_subsurface_tex_a] = gpu::from_sg(at->texView);
-            bind.views[VIEW_subsurface_tex_b] = gpu::from_sg(bt->texView);
+            bind.views[VIEW_subsurface_tex_a] = at->texView;
+            bind.views[VIEW_subsurface_tex_b] = bt->texView;
             bind.samplers[SMP_subsurface_smp_pt] = g->sampler(SamplerKind::Nearest);
             list.set_bindings(bind);
             const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
@@ -254,16 +253,15 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             const Target* vt = tt->get(c.handle(v));
             if (!at || !bt || !ht || !vt || !at->texView.id || !bt->texView.id || !ht->texView.id) return;
             PassDesc pd = pass_into(*vt, "sss-blur-v");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
+            pd.colorLoad = gpu::LoadAction::DontCare;
             gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
-            gpu::Swapchain swapchain;
-            list.begin_pass(gpu::from_render(pd, swapchain));
+            list.begin_pass(pd);
             list.set_pipeline(self->pipeline(*g, Prog::BlurV, pd.format));
             gpu::Bindings bind;
             bind.vertexBuffers[0] = g->fullscreen_triangle();
-            bind.views[VIEW_subsurface_tex_aa] = gpu::from_sg(at->texView);
-            bind.views[VIEW_subsurface_tex_ab] = gpu::from_sg(bt->texView);
-            bind.views[VIEW_subsurface_tex_ah] = gpu::from_sg(ht->texView);
+            bind.views[VIEW_subsurface_tex_aa] = at->texView;
+            bind.views[VIEW_subsurface_tex_ab] = bt->texView;
+            bind.views[VIEW_subsurface_tex_ah] = ht->texView;
             bind.samplers[SMP_subsurface_smp_ap] = g->sampler(SamplerKind::Nearest);
             list.set_bindings(bind);
             const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
@@ -281,7 +279,7 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         gp.name = job + "/sss-add";
         gp.reads = {v, game};
         gp.writes = {game};
-        const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
+        const TargetFormat dstFormat{gpu.scene_format(), gpu::PixelFormat::None, dst.samples};
         gp.execute = [=](const PassContext& c) {
             const Target* vt = tt->get(c.handle(v));
             if (!vt || !vt->texView.id || !dst.att.id) return;
@@ -290,11 +288,10 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             pd.color = dst.att;
             pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
             pd.format = dstFormat;
-            pd.colorLoad = SG_LOADACTION_LOAD;
-            pd.colorStore = SG_STOREACTION_STORE;
+            pd.colorLoad = gpu::LoadAction::Load;
+            pd.colorStore = gpu::StoreAction::Store;
             gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
-            gpu::Swapchain swapchain;
-            list.begin_pass(gpu::from_render(pd, swapchain));
+            list.begin_pass(pd);
             if (!whole) {
                 list.set_viewport(rx, ry, rw, rh, true);
                 list.set_scissor(rx, ry, rw, rh, true);
@@ -303,7 +300,7 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
                 list.set_pipeline(self->pipeline(*g, Prog::Add, pd.format, part == 1));
                 gpu::Bindings bind;
                 bind.vertexBuffers[0] = g->fullscreen_triangle();
-                bind.views[VIEW_subsurface_tex_dv] = gpu::from_sg(vt->texView);
+                bind.views[VIEW_subsurface_tex_dv] = vt->texView;
                 bind.samplers[SMP_subsurface_smp_dv] = g->sampler(SamplerKind::Nearest);
                 list.set_bindings(bind);
                 const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};

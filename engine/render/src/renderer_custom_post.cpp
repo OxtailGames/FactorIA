@@ -37,7 +37,7 @@ struct PassData {
     MaterialProgram program;
     float params[kMaxMaterialParams][4]{};
     int textureCount = 0;
-    sg_view views[kMaxMaterialTextures]{};
+    gpu::View views[kMaxMaterialTextures]{};
     SamplerKind samplers[kMaxMaterialTextures]{};
     PostParamsBlock block{};
 };
@@ -52,15 +52,14 @@ struct PixelRect {
 // it; when there is none, the picture stands in: fa_history_valid is false then and the shader does not read it).
 // `part`: the rectangle of the destination the pass covers (null: all of it). False (nothing drawn) when the target is
 // gone or the program has no pipeline for this format.
-bool draw_post(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const PassData& d, sg_view src, sg_view prepass,
-               sg_view history, const PixelRect* part) {
+bool draw_post(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const PassData& d, gpu::View src,
+               gpu::View prepass, gpu::View history, const PixelRect* part) {
     if (!pd.color.id || !src.id) return false;
     const bool usesPrepass = ((d.program.viewMask >> 1) & 1u) != 0;
     if (usesPrepass && !prepass.id) return false;
     const gpu::Pipeline pip = gpu.post_material_pipeline(pd.format, d.program.shader);
     if (!pip.id) return false;
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part->x, part->y, part->w, part->h, true);
         list.set_scissor(part->x, part->y, part->w, part->h, true);
@@ -68,15 +67,15 @@ bool draw_post(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const PassD
     list.set_pipeline(pip);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[0] = gpu::from_sg(src);
+    b.views[0] = src;
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
     if (usesPrepass) {
-        b.views[1] = gpu::from_sg(prepass);
+        b.views[1] = prepass;
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
-    b.views[kMaterialPostHistoryView] = gpu::from_sg(history.id ? history : src);
+    b.views[kMaterialPostHistoryView] = history.id ? history : src;
     for (int i = 0; i < d.textureCount; ++i) {
-        b.views[kMaterialPostFirstView + i] = gpu::from_sg(d.views[i]);
+        b.views[kMaterialPostFirstView + i] = d.views[i];
         b.samplers[kMaterialPostFirstSampler + i] = gpu.sampler(d.samplers[i]);
     }
     // Only what the program declares: the device rejects a binding the shader does not have.
@@ -163,7 +162,7 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
         const MaterialAsset& m = *use->material;
         e.textureCount = int(std::min<std::size_t>(m.textures.size(), std::size_t(kMaxMaterialTextures)));
         for (int i = 0; i < e.textureCount; ++i) {
-            e.views[i] = use->textures[i] ? use->textures[i]->gpu_view() : sg_view{};
+            e.views[i] = use->textures[i] ? gpu::from_sg(use->textures[i]->gpu_view()) : gpu::View{};
             e.samplers[i] = m.textures[std::size_t(i)].sampler;
         }
         plan.entries.push_back(std::move(e));
@@ -186,8 +185,10 @@ namespace {
 constexpr std::uint64_t kHistoryBudgetBytes =
     sizeof(void*) >= 8 ? (std::uint64_t(1) << 30) : (std::uint64_t(256) << 20);
 
-std::uint64_t history_bytes(int w, int h, sg_pixel_format format) {
-    const std::uint64_t perPixel = format == SG_PIXELFORMAT_RGBA32F ? 16 : format == SG_PIXELFORMAT_RGBA16F ? 8 : 4;
+std::uint64_t history_bytes(int w, int h, gpu::PixelFormat format) {
+    const std::uint64_t perPixel = format == gpu::PixelFormat::Rgba32F   ? 16
+                                   : format == gpu::PixelFormat::Rgba16F ? 8
+                                                                         : 4;
     return 2 * perPixel * std::uint64_t(std::max(w, 0)) * std::uint64_t(std::max(h, 0));
 }
 
@@ -242,7 +243,7 @@ int CustomPost::history_image_count() const {
 }
 
 std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHistoryFrame& hf, const HistoryKey& key,
-                                                                  int w, int h, sg_pixel_format format,
+                                                                  int w, int h, gpu::PixelFormat format,
                                                                   const std::string& label) {
     // The GPU refused the images of this pass in this shape before: not asked again every frame (a resize or a format
     // change, or forget_targets, lets it try again). The budget is not remembered: it is a sum of what the other slots
@@ -321,7 +322,7 @@ std::shared_ptr<CustomPost::HistorySlot> CustomPost::plan_history(const CustomHi
 
 int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, SceneFx& copier,
                            const CustomPostPlan& plan, std::uint32_t slots, const PostRect& rectIn, int picW, int picH,
-                           ResourceId game, sg_view srcTex, const BloomTarget& dst, sg_pixel_format fmt,
+                           ResourceId game, gpu::View srcTex, const BloomTarget& dst, gpu::PixelFormat fmt,
                            const PrepassRef& prepass, bool linear, float time, int* drawCalls,
                            std::vector<std::string>& fallbacks, const std::string& job) {
     if (!plan.any_in_mask(slots)) return 0;
@@ -338,8 +339,8 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
 
     // The passes that can be drawn: one that reads the prepass of a camera without one, or that has no pipeline for the
     // format of the picture, is left out (the picture stays as the pass before left it).
-    const TargetFormat scratchFormat{fmt, SG_PIXELFORMAT_NONE, 1};
-    const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat scratchFormat{fmt, gpu::PixelFormat::None, 1};
+    const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     std::vector<const CustomPostEntry*> chain;
     std::vector<const CustomPostEntry*> wanted;
     for (const CustomPostEntry& e : plan.entries)
@@ -492,7 +493,7 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             const Target* t = tt->get(c.handle(o.res));
             pd = t ? pass_into(*t, label) : PassDesc{};
         }
-        pd.colorLoad = SG_LOADACTION_DONTCARE;
+        pd.colorLoad = gpu::LoadAction::DontCare;
         return pd;
     };
     auto into_picture = [dst, dstFormat, rect](const char* label) {
@@ -501,14 +502,14 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
+        pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
         return pd;
     };
     auto view_of = [tt](const PassContext& c, const Out& o) {
         if (o.hs) return o.hs->img[o.writeIdx].texView;
         const Target* t = tt->get(c.handle(o.res));
-        return t ? t->texView : sg_view{};
+        return t ? t->texView : gpu::View{};
     };
 
     for (int k = 0; k < n; ++k) {
@@ -545,7 +546,7 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
         }
         const Out prev = first ? Out{} : out[std::size_t(k - 1)];
         const Out self = out[std::size_t(k)];
-        const sg_view histView = histValid ? hs->img[hs->read].texView : sg_view{};
+        const gpu::View histView = histValid ? hs->img[hs->read].texView : gpu::View{};
         std::vector<ResourceId> reads;
         reads.push_back(first ? game : prev.res);
         if (e.readsPrepass) reads.push_back(pre);
@@ -554,17 +555,17 @@ int CustomPost::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gp
             reads.push_back(game);
             add(prefix + "-pass" + std::to_string(k), std::move(reads), {game}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
-                const sg_view src = view_of(c, prev);
+                const gpu::View src = view_of(c, prev);
                 if (draw_post(pass_list(c, *g), *g, into_picture("custom-post"), *data, src,
-                              pt ? pt->texView : sg_view{}, histView, rect.whole ? nullptr : &rect))
+                              pt ? pt->texView : gpu::View{}, histView, rect.whole ? nullptr : &rect))
                     ++*drawCalls;
             });
         } else {
             add(prefix + "-pass" + std::to_string(k), std::move(reads), {self.res}, [=](const PassContext& c) {
                 const Target* pt = prepassRef.target(c);
-                const sg_view src = first ? srcTex : view_of(c, prev);
+                const gpu::View src = first ? srcTex : view_of(c, prev);
                 const bool drew = draw_post(pass_list(c, *g), *g, into_image(c, self, "custom-post"), *data, src,
-                                            pt ? pt->texView : sg_view{}, histView, nullptr);
+                                            pt ? pt->texView : gpu::View{}, histView, nullptr);
                 if (drew) ++*drawCalls;
                 if (drew && hs) {  // what the next frame's pass reads
                     hs->wrote = true;

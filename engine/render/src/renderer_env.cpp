@@ -216,14 +216,14 @@ void Environment::draw(Gpu& gpu, Prog prog, gpu::View dst, gpu::View srcTex, int
 
 // Part A of a bake: the sky into S0 and the pyramid under it (6 + 18 passes).
 void Environment::bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls) {
-    const TargetFormat fmt{gpu::to_sg(format_), SG_PIXELFORMAT_NONE, 1};
+    const TargetFormat fmt{format_, gpu::PixelFormat::None, 1};
     // The sky itself: the material's program into the six faces of S0.
     gpu::CommandList& list = gpu.commands();
     for (int f = 0; f < 6; ++f) {
         gpu::PassDesc pd;
         pd.label = "env-sky";
         pd.color = pyramidAtt_[0][f];
-        pd.format = gpu::from_render(fmt);
+        pd.format = fmt;
         pd.colorLoad = gpu::LoadAction::DontCare;
         pd.colorStore = gpu::StoreAction::Store;
         list.begin_pass(pd);

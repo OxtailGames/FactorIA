@@ -238,7 +238,7 @@ TransientDesc VolumetricFx::image_desc(const VolPlan& plan, const std::string& j
     TransientDesc d;
     d.width = plan.width;
     d.height = plan.height;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
     d.label = job + "/vol-image";
     return d;
 }
@@ -277,8 +277,8 @@ gpu::Pipeline VolumetricFx::pipeline(gpu::Device& device, Prog prog, const Targe
     d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in both programs
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;
-    d.depth.pixelFormat = gpu::from_sg(format.depth);
-    d.colors[0].pixelFormat = gpu::from_sg(format.color);
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
     d.sampleCount = format.samples;
     d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Apply) {
@@ -367,10 +367,9 @@ void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::
                          int* drawCalls) {
     if (!dst.colorAtt.id || !prepass.id || !shadowTex.id || !lightTex.id || !ready(gpu, Prog::March)) return;
     PassDesc pd = pass_into(dst, "vol-march");
-    pd.colorLoad = SG_LOADACTION_DONTCARE;
+    pd.colorLoad = gpu::LoadAction::DontCare;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(pipeline(gpu.device(), Prog::March, pd.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
@@ -448,7 +447,7 @@ int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& g
     Gpu* g = &gpu;
     VolumetricFx* self = this;
     const PrepassRef prepassRef = prepass;
-    const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{gpu.scene_format(), gpu::PixelFormat::None, dst.samples};
     volumetric_apply_params_t u{};
     u.a[0] = float(plan.width);
     u.a[1] = float(plan.height);
@@ -465,11 +464,10 @@ int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& g
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
+        pd.colorLoad = gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
         gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
-        gpu::Swapchain swapchain;
-        list.begin_pass(gpu::from_render(pd, swapchain));
+        list.begin_pass(pd);
         if (!whole) {
             list.set_viewport(rx, ry, rw, rh, true);
             list.set_scissor(rx, ry, rw, rh, true);
@@ -477,8 +475,8 @@ int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& g
         list.set_pipeline(self->pipeline(g->device(), Prog::Apply, pd.format));
         gpu::Bindings b;
         b.vertexBuffers[0] = g->fullscreen_triangle();
-        b.views[VIEW_volumetric_tex_av] = gpu::from_sg(vt->texView);
-        b.views[VIEW_volumetric_tex_ap] = gpu::from_sg(pt->texView);
+        b.views[VIEW_volumetric_tex_av] = vt->texView;
+        b.views[VIEW_volumetric_tex_ap] = pt->texView;
         b.samplers[SMP_volumetric_smp_ap] = g->sampler(SamplerKind::Nearest);
         list.set_bindings(b);
         const float flip[4] = {g->is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
