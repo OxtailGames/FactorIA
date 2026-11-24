@@ -3,8 +3,15 @@
 //
 // The same contract as GpuTimer (gpu_timer.cpp) on D3D11 and GL: a ring of kTimerSlots timed frames (a full ring skips
 // the frame), at most kMaxTimedScopes scopes per frame, scopes that do not nest, results polled in order and never
-// waited for. Only the direct queue is timed: a copy queue would need D3D12_OPTIONS3.CopyQueueTimestampQueriesSupported.
+// waited for. Scopes of compute lists are timed too when the compute queue has a timestamp frequency (their ticks are
+// that queue's; the frame's resolve waits for the compute fence value they end at). Scopes of a copy list are ignored:
+// a copy queue would need D3D12_OPTIONS3.CopyQueueTimestampQueriesSupported and a heap of its own type.
+//
+// A slot is taken again only once no open list holds one of its scopes (TimerSlot::openLists) and every queue reached
+// the last write of its queries (TimerSlot::lastWrite): a list kept open over the whole ring would otherwise write its
+// queries into the frame that took the slot next.
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -51,6 +58,12 @@ void D3d12Device::init_timer() {
         }
     }
     timestampFrequency_ = freq;
+    // The compute queue's ticks run at their own frequency (0 = its scopes are not measured).
+    side_[0].timestampFrequency = 0;
+    if (side_[0].queue) {
+        UINT64 computeFreq = 0;
+        if (SUCCEEDED(side_[0].queue->GetTimestampFrequency(&computeFreq))) side_[0].timestampFrequency = computeFreq;
+    }
     timerOk_ = true;
     timerWhy_.clear();
 }
@@ -68,10 +81,19 @@ void D3d12Device::timer_begin_frame() {
     if (timerCurrent_ >= 0) end_timer_frame_locked();  // a frame left open ends here
     // The next slot no timed frame holds, in ring order from the last one taken. A frame that could not end (dropped)
     // gave its slot back at once, so a slot whose resolve may still be in flight is never taken again.
+    // Nor one an open list still writes, or a queue has not finished writing.
+    std::array<std::uint64_t, std::size_t(kQueueKinds)> completed{};
+    for (int q = 0; q < kQueueKinds; ++q) completed[std::size_t(q)] = completed_value(QueueKind(q));
+    auto free_slot = [&](const TimerSlot& slot) {
+        if (slot.busy || slot.openLists > 0) return false;
+        for (std::size_t q = 0; q < completed.size(); ++q)
+            if (slot.lastWrite[q] > completed[q]) return false;
+        return true;
+    };
     int index = -1;
     for (int i = 0; i < kTimerSlots && index < 0; ++i) {
         const auto at = std::size_t((timerNext_ + std::uint64_t(i)) % std::uint64_t(kTimerSlots));
-        if (!timerSlots_[at].busy) index = int(at);
+        if (free_slot(timerSlots_[at])) index = int(at);
     }
     if (index < 0) return;  // every slot waits for its fence: this frame is not timed
     D3d12CommandList& pl = prelude();
@@ -83,6 +105,8 @@ void D3d12Device::timer_begin_frame() {
     slot.fence = 0;
     slot.names.clear();
     slot.submitted.clear();
+    slot.scopeQueue.clear();
+    slot.computeWait = 0;
     pl.list_->EndQuery(slot.heap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
     pl.empty_ = false;
     timerCurrent_ = index;
@@ -121,6 +145,8 @@ void D3d12Device::end_timer_frame_locked() {
     const auto used = UINT(2 + 2 * slot.names.size());
     pl.list_->ResolveQueryData(heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, used, slot.readback.get(), 0);
     pl.empty_ = false;
+    // The scopes the compute queue ran end there: the resolve waits for them.
+    if (slot.computeWait > 0) pl.waits_.push_back(SyncToken{QueueKind::Compute, slot.computeWait});
     D3d12CommandList* list = &pl;
     const std::uint64_t before = fenceValue_;
     flush_prelude();
@@ -152,6 +178,8 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
         const D3D12_RANGE none{0, 0};
         slot.readback->Unmap(0, &none);
         const double toMs = 1000.0 / double(timestampFrequency_);
+        const double computeToMs =
+            side_[0].timestampFrequency > 0 ? 1000.0 / double(side_[0].timestampFrequency) : toMs;
         if (ticks[1] >= ticks[0]) frameMs.push_back(double(ticks[1] - ticks[0]) * toMs);
         struct Timed {
             std::uint64_t begin;
@@ -161,7 +189,8 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
         for (std::size_t i = 0; i < slot.names.size(); ++i) {
             if (!slot.submitted[i]) continue;
             const std::uint64_t b = ticks[2 + 2 * i], e = ticks[3 + 2 * i];
-            scopes.push_back({b, {slot.names[i], e > b ? double(e - b) * toMs : 0.0}});
+            const bool compute = i < slot.scopeQueue.size() && slot.scopeQueue[i] == QueueKind::Compute;
+            scopes.push_back({b, {slot.names[i], e > b ? double(e - b) * (compute ? computeToMs : toMs) : 0.0}});
         }
         std::stable_sort(scopes.begin(), scopes.end(),
                          [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
@@ -178,6 +207,11 @@ std::vector<Device::ScopeTime> D3d12Device::timer_last_scopes() const {
 int D3d12Device::timer_slots_busy() const {
     std::lock_guard<std::mutex> lock(timerMutex_);
     return int(std::count_if(timerSlots_.begin(), timerSlots_.end(), [](const TimerSlot& s) { return s.busy; }));
+}
+
+int D3d12Device::timer_current_slot() const {
+    std::lock_guard<std::mutex> lock(timerMutex_);
+    return timerCurrent_;
 }
 
 void D3d12Device::drop_next_timed_frame() {
