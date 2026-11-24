@@ -83,7 +83,7 @@ void VulkanDevice::timer_begin_frame() {
     std::lock_guard<std::mutex> queueLock(queueMutex_);
     std::lock_guard<std::mutex> timerLock(timerMutex_);
     if (!timerOk_) return;
-    if (timerCurrent_ >= 0) end_timer_frame_locked();               // a frame left open ends here
+    if (timerCurrent_ >= 0) end_timer_frame_locked();              // a frame left open ends here
     if (timerPending_.size() >= std::size_t(kTimerSlots)) return;  // every slot waits for its GPU work: not timed
     VulkanCommandList& pl = prelude();
     if (!pl.open_ || !pl.cmd_) return;  // reported by acquire_list
@@ -157,14 +157,14 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
         for (std::size_t i = 0; i < slot.names.size(); ++i) {
             if (!slot.submitted[i]) continue;
             std::uint64_t t[2] = {};
-            const VkResult sr =
-                fn_.vkGetQueryPoolResults(device_, slot.pool, std::uint32_t(2 + 2 * i), 2, sizeof(t), t,
-                                          sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
+            const VkResult sr = fn_.vkGetQueryPoolResults(device_, slot.pool, std::uint32_t(2 + 2 * i), 2, sizeof(t), t,
+                                                          sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
             if (sr != VK_SUCCESS) continue;
             // In the frame's order: ticks since the frame's start (masked, so a counter that wrapped still sorts).
             scopes.push_back({(t[0] - frame[0]) & mask, {slot.names[i], ticks_between(t)}});
         }
-        std::stable_sort(scopes.begin(), scopes.end(), [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
+        std::stable_sort(scopes.begin(), scopes.end(),
+                         [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
         timerLastScopes_.clear();
         for (Timed& t : scopes) timerLastScopes_.push_back(std::move(t.time));
     }
