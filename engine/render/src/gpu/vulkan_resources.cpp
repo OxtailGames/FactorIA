@@ -164,12 +164,17 @@ Buffer VulkanDevice::make_buffer(const BufferDesc& desc) {
     rec.usage = desc.usage;
     rec.label = label;
     std::string error;
+    bool poolFull = false;  // no Vulkan object and no upload then (reported when the record does not go in)
+    {
+        std::lock_guard<std::mutex> lock(resMutex_);
+        poolFull = buffers_.alive() >= buffers_.capacity();
+    }
     if (desc.size == 0)
         error = "size is 0 (hint: give BufferDesc::size the buffer's bytes)";
     else if (desc.data.ptr && desc.data.size > desc.size)
         error = "its initial data has " + std::to_string(desc.data.size) + " bytes, more than its size " +
                 std::to_string(desc.size) + " (hint: BufferDesc::size is the buffer's bytes, at least data.size)";
-    if (error.empty()) {
+    if (error.empty() && !poolFull) {
         const BufferUsage& u = desc.usage;
         VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         if (u.vertexBuffer || !(u.indexBuffer || u.storageBuffer || u.stagingBuffer || u.stagingIndexBuffer))
@@ -199,13 +204,20 @@ Buffer VulkanDevice::make_buffer(const BufferDesc& desc) {
             }
         }
     }
-    std::lock_guard<std::mutex> lock(resMutex_);
-    const bool ok = rec.tracked != nullptr;
+    std::unique_lock<std::mutex> lock(resMutex_);
+    const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
+    const bool ok = made != nullptr;
     const std::uint32_t id = buffers_.add(std::move(rec));
-    if (id == 0) {
-        report("gpu vulkan: make_buffer '" + label + "': the buffer pool is full (" +
-               std::to_string(buffers_.capacity()) +
+    if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
+        const int capacity = buffers_.capacity();
+        lock.unlock();
+        report("gpu vulkan: make_buffer '" + label + "': the buffer pool is full (" + std::to_string(capacity) +
                " buffers) (hint: destroy buffers you no longer use, or raise DeviceInit::bufferPoolSize)");
+        if (made) {  // the prelude may already copy into it: released once that frame is done
+            Deferred d;
+            d.tracked = made;
+            defer(std::move(d));
+        }
         return {};
     }
     count_make(stats_.buffers, ok);
@@ -368,7 +380,12 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
     }
     if (!error.empty()) report("gpu vulkan: make_image '" + label + "': " + error);
 
-    if (error.empty()) {
+    bool poolFull = false;  // no Vulkan image and no upload then (reported when the record does not go in)
+    {
+        std::lock_guard<std::mutex> lock(resMutex_);
+        poolFull = images_.alive() >= images_.capacity();
+    }
+    if (error.empty() && !poolFull) {
         auto t = std::make_shared<TrackedResource>();
         t->device = this;
         VkResult r = fn_.vkCreateImage(device_, &ci, nullptr, &t->image);
@@ -404,12 +421,20 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
     }
     if (rec.tracked) upload_initial_image(rec, desc);
 
-    std::lock_guard<std::mutex> lock(resMutex_);
-    const bool ok = rec.tracked != nullptr;
+    std::unique_lock<std::mutex> lock(resMutex_);
+    const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
+    const bool ok = made != nullptr;
     const std::uint32_t id = images_.add(std::move(rec));
-    if (id == 0) {
-        report("gpu vulkan: make_image '" + label + "': the image pool is full (" + std::to_string(images_.capacity()) +
+    if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
+        const int capacity = images_.capacity();
+        lock.unlock();
+        report("gpu vulkan: make_image '" + label + "': the image pool is full (" + std::to_string(capacity) +
                " images) (hint: destroy images you no longer use, or raise DeviceInit::imagePoolSize)");
+        if (made) {  // the prelude may already copy into it: released once that frame is done
+            Deferred d;
+            d.tracked = made;
+            defer(std::move(d));
+        }
         return {};
     }
     count_make(stats_.images, ok);

@@ -213,6 +213,7 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
     if (portabilityEnumeration) enabled.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     std::vector<const char*> layers;
+    bool syncValidation = false;  // VulkanOptions::synchronizationValidation, with a layer that has it
     if (options.validation) {
         const std::string prepared = prepare_validation_layer();
         if (!prepared.empty()) FA_INFO("render", "gpu vulkan: {}", prepared);
@@ -227,6 +228,25 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
         if (found) {
             layers.push_back(kValidationLayer);
             validation_ = true;
+            if (options.synchronizationValidation) {
+                // VK_EXT_validation_features comes from the layer itself: ask the layer for its extensions.
+                n = 0;
+                fn_.vkEnumerateInstanceExtensionProperties(kValidationLayer, &n, nullptr);
+                std::vector<VkExtensionProperties> layerExtensions(n);
+                if (n) fn_.vkEnumerateInstanceExtensionProperties(kValidationLayer, &n, layerExtensions.data());
+                layerExtensions.resize(n);
+                if (has_extension(layerExtensions, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME)) {
+                    enabled.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+                    syncValidation = true;
+                } else {
+                    const std::string w =
+                        "gpu vulkan: the validation layer has no VK_EXT_validation_features: synchronization "
+                        "validation is off (update the validation layers)";
+                    FA_WARN("render", "{}", w);
+                    std::lock_guard<std::mutex> lock(msgMutex_);
+                    warnings_.push_back(w);
+                }
+            }
         } else {
             const std::string w =
                 "gpu vulkan: the validation layer (VK_LAYER_KHRONOS_validation) is not installed: the device runs "
@@ -252,9 +272,18 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     messenger.pfnUserCallback = debug_callback;
     messenger.pUserData = this;
+    // Synchronization validation: hazards between commands (a read after a write without a barrier, a write after a
+    // read) become validation errors too.
+    const VkValidationFeatureEnableEXT syncFeature = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    VkValidationFeaturesEXT features{};
+    features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+    features.enabledValidationFeatureCount = 1;
+    features.pEnabledValidationFeatures = &syncFeature;
+    void* messengerChain = (validation_ && debugUtils_) ? &messenger : nullptr;  // messages of vkCreateInstance itself
+    if (syncValidation) features.pNext = messengerChain;
     VkInstanceCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    ci.pNext = (validation_ && debugUtils_) ? &messenger : nullptr;  // messages of vkCreateInstance itself
+    ci.pNext = syncValidation ? static_cast<void*>(&features) : messengerChain;
     ci.flags = portabilityEnumeration ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
     ci.pApplicationInfo = &app;
     ci.enabledExtensionCount = std::uint32_t(enabled.size());
@@ -284,7 +313,17 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
         layers.clear();
         validation_ = false;
         instance_ = VK_NULL_HANDLE;
+        if (syncValidation) {  // the layer's own extension goes with it
+            enabled.erase(std::remove_if(enabled.begin(), enabled.end(),
+                                         [](const char* e) {
+                                             return std::strcmp(e, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0;
+                                         }),
+                          enabled.end());
+            syncValidation = false;
+        }
         ci.pNext = nullptr;
+        ci.enabledExtensionCount = std::uint32_t(enabled.size());
+        ci.ppEnabledExtensionNames = enabled.data();
         ci.enabledLayerCount = 0;
         ci.ppEnabledLayerNames = nullptr;
         r = fn_.vkCreateInstance(&ci, nullptr, &instance_);
@@ -294,6 +333,12 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
                               " found no driver (vkCreateInstance: " + result_text(r) + ")",
                           "install a Vulkan driver (Linux: mesa-vulkan-drivers, which has the CPU driver lavapipe; "
                           "macOS: brew install molten-vk)");
+    if (r == VK_ERROR_INITIALIZATION_FAILED)
+        return make_error("gpu vulkan: no Vulkan device: vkCreateInstance failed with VK_ERROR_INITIALIZATION_FAILED "
+                          "(the loader " +
+                              library_.path + " found a driver it could not start)",
+                          "install or repair the Vulkan driver (Linux: mesa-vulkan-drivers, which has the CPU driver "
+                          "lavapipe), or point VK_DRIVER_FILES at a working driver manifest");
     if (r != VK_SUCCESS || !instance_)
         return vk_error("vkCreateInstance (Vulkan " + version_text(requested) + ")", r,
                         "update the Vulkan loader and the GPU driver");
@@ -322,6 +367,7 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
         }
     }
     apiVersion_ = requested;
+    syncValidation_ = syncValidation;
     return {};
 }
 
@@ -406,6 +452,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     fn_.vkGetPhysicalDeviceQueueFamilyProperties(physical_, &qn, nullptr);
     std::vector<VkQueueFamilyProperties> families(qn);
     if (qn) fn_.vkGetPhysicalDeviceQueueFamilyProperties(physical_, &qn, families.data());
+    families.resize(qn);
+    timestampBits_ = queueFamily_ < qn ? families[queueFamily_].timestampValidBits : 0u;
     std::uint32_t transfer = UINT32_MAX;
     for (std::uint32_t i = 0; i < qn; ++i) {
         const VkQueueFlags f = families[i].queueFlags;
@@ -529,11 +577,18 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     r = fn_.vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS || !device_) return vk_error("vkCreateDevice on " + deviceName_, r, "update the GPU driver");
 
+    // A function the driver does not give: the device is destroyed here (the destructor may not have
+    // vkDestroyDevice) and the error names the function.
+    auto missing = [this](const char* name) {
+        auto destroy = reinterpret_cast<PFN_vkDestroyDevice>(fn_.vkGetDeviceProcAddr(device_, "vkDestroyDevice"));
+        if (destroy) destroy(device_, nullptr);
+        device_ = VK_NULL_HANDLE;
+        return make_error("gpu vulkan: the driver of " + deviceName_ + " gives no " + name,
+                          "update the GPU driver (Vulkan 1.2 or later)");
+    };
 #define FA_VK_LOAD_DEVICE(name)                                                                                        \
     fn_.name = reinterpret_cast<PFN_##name>(fn_.vkGetDeviceProcAddr(device_, #name));                                  \
-    if (!fn_.name)                                                                                                     \
-        return make_error("gpu vulkan: the driver of " + deviceName_ + " gives no " #name,                             \
-                          "update the GPU driver (Vulkan 1.2 or later)");
+    if (!fn_.name) return missing(#name);
     FA_VK_DEVICE_FUNCTIONS(FA_VK_LOAD_DEVICE)
 #undef FA_VK_LOAD_DEVICE
     if (sync2)
@@ -668,6 +723,7 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
             device_type_name(props_.deviceType), version_text(apiVersion_), validation_ ? ", validation layer" : "",
             synchronization2_active() ? ", synchronization2" : "", portability_ ? ", portability subset" : "",
             framesInFlight_, library_.path);
+    init_timer();
     return {};
 }
 
@@ -745,16 +801,32 @@ void VulkanDevice::init_caps() {
     }
 }
 
+bool VulkanDevice::storage_image_loadable(PixelFormat format, std::string* why) const {
+    // The engine's shaders declare every storage image's format, so a load needs only VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT
+    // with optimal tiling (init_caps put it into caps_[].read); shaderStorageImageReadWithoutFormat is not needed.
+    if (why) why->clear();
+    const auto i = std::size_t(format);
+    if (i < caps_.size() && caps_[i].read && caps_[i].write) return true;
+    if (why)
+        *why = std::string("the Vulkan device ") + deviceName_ + " cannot use " + pixel_format_name(format) +
+               " as a storage image (no VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT with optimal tiling); rgba8, rgba16f, "
+               "r32f and rgba32f are storage formats on every Vulkan GPU";
+    return false;
+}
+
 VulkanDevice::~VulkanDevice() {
     if (device_ && timeline_) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
     }
+    if (device_) destroy_timer();
+    for (AsyncRead& a : asyncReads_) a.buffer.reset();  // their copies finished (wait_idle)
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         prelude_ = nullptr;
         for (Deferred& d : deferred_) release(d);
         deferred_.clear();
         lists_.clear();
+        deadLists_.clear();
     }
     {
         std::lock_guard<std::mutex> lock(resMutex_);
@@ -788,7 +860,7 @@ VulkanDevice::~VulkanDevice() {
     ringBuffer_.reset();
     if (device_) memory_.destroy();
     if (timeline_) fn_.vkDestroySemaphore(device_, timeline_, nullptr);
-    if (device_) fn_.vkDestroyDevice(device_, nullptr);
+    if (device_ && fn_.vkDestroyDevice) fn_.vkDestroyDevice(device_, nullptr);
     if (messenger_ && fn_.vkDestroyDebugUtilsMessengerEXT)
         fn_.vkDestroyDebugUtilsMessengerEXT(instance_, messenger_, nullptr);
     if (instance_ && fn_.vkDestroyInstance) fn_.vkDestroyInstance(instance_, nullptr);
@@ -859,18 +931,6 @@ TotalStats VulkanDevice::total_stats() const {
     pool(s.pipelines, pipelines_.alive(), pipelines_.capacity());
     return s;
 }
-
-bool VulkanDevice::timer_supported(std::string* why) const {
-    if (why) *why = "the Vulkan backend measures GPU time from M77-P8b on (timestamp queries are not built yet)";
-    return false;
-}
-
-Result<ReadTicket> VulkanDevice::request_buffer_read(Buffer, std::size_t, std::size_t) {
-    return make_error("gpu vulkan: request_buffer_read is not built yet (M77-P8b)",
-                      "async_read_supported() is false on this device: read with read_buffer(), which waits");
-}
-
-bool VulkanDevice::poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) { return false; }
 
 void VulkanDevice::report(const std::string& message) {
     FA_ERROR("render", "{}", message);
@@ -1053,18 +1113,17 @@ VulkanCommandList* VulkanDevice::acquire_list(const char* label, bool internal) 
 CommandList& VulkanDevice::begin_commands(const char* label) {
     std::lock_guard<std::mutex> lock(queueMutex_);
     if (VulkanCommandList* l = acquire_list(label ? label : "", false)) return *l;
-    // Vulkan could not give a list (reported): hand out one that ignores everything, so the frame goes on.
-    static thread_local std::unique_ptr<VulkanCommandList> dead;
-    dead = std::make_unique<VulkanCommandList>(*this);
-    return *dead;
+    // Vulkan could not give a list (reported): hand out one that ignores everything, so the frame goes on. It lives as
+    // long as the device (a caller may still hold an earlier one), and each failure adds one: they are few and small.
+    deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));
+    return *deadLists_.back();
 }
 
 VulkanCommandList& VulkanDevice::prelude() {
     if (!prelude_) prelude_ = acquire_list("fa-vulkan-uploads", true);
     if (prelude_) return *prelude_;
-    static thread_local std::unique_ptr<VulkanCommandList> dead;
-    dead = std::make_unique<VulkanCommandList>(*this);
-    return *dead;
+    deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));  // ignores everything (see begin_commands)
+    return *deadLists_.back();
 }
 
 void VulkanDevice::flush_prelude() {
@@ -1153,18 +1212,31 @@ bool VulkanDevice::submit_signal(const VkCommandBuffer* cmds, std::uint32_t coun
     return true;
 }
 
-void VulkanDevice::execute(VulkanCommandList& list) {
+bool VulkanDevice::execute(VulkanCommandList& list) {
     list.flush_barriers();
+    if (list.scopeOpen_) list.close_scope();  // a timed scope left open ends with its list
     list.open_ = false;
+    // Nothing of a list that does not run changes the device: its resources keep their tracked states, its scopes are
+    // not reported, and what it kept goes with the frame.
+    auto drop = [&] {
+        list.uses_.clear();
+        list.useIndex_.clear();
+        list.scopes_.clear();
+        for (std::shared_ptr<TrackedResource>& k : list.keep_) {
+            Deferred d;
+            d.frame = frame_;
+            d.tracked = std::move(k);
+            deferred_.push_back(std::move(d));
+        }
+        list.keep_.clear();
+        return false;
+    };
     VkResult r = fn_.vkEndCommandBuffer(list.cmd_);
     if (r != VK_SUCCESS) {
         report(vk_error("vkEndCommandBuffer of '" + list.label_ + "'", r,
                         "the validation layer's message before this one names the command that was wrong")
                    .to_string());
-        list.uses_.clear();
-        list.useIndex_.clear();
-        list.keep_.clear();
-        return;
+        return drop();
     }
     // The fix-up barriers: from the state the queue leaves each resource in to the state the list starts with.
     std::vector<Barrier> fix;
@@ -1174,10 +1246,12 @@ void VulkanDevice::execute(VulkanCommandList& list) {
             const SubState& want = u.first[s];
             if (want.layout == kUnknownLayout) continue;
             const SubState& have = t.states[s];
-            // read after read in the same layout needs nothing, as long as the list's first reads wait for no
-            // stage the queue's reads ran in (a later write in the list only waits for the list's own stages)
+            // Read after read in the same layout needs nothing when the list reads in exactly the stages the queue's
+            // state names, with no other access: a write before those reads was made visible to them (and to no
+            // other stage), and a later write in the list waits for the same stages. Otherwise a barrier: one stage
+            // more must see the earlier write, one stage less must still be waited for.
             if (have.layout == want.layout && !access_writes(have.access) && !access_writes(want.access) &&
-                (have.stages & ~want.stages) == 0)
+                have.stages == want.stages && (want.access & ~have.access) == 0)
                 continue;
             Barrier b;
             b.buffer = t.buffer;
@@ -1209,7 +1283,7 @@ void VulkanDevice::execute(VulkanCommandList& list) {
             cmds[n++] = list.fixup_;
     }
     cmds[n++] = list.cmd_;
-    submit_signal(cmds, n, list.label_.c_str());
+    if (!submit_signal(cmds, n, list.label_.c_str())) return drop();  // reported
     for (VulkanCommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
         for (std::size_t s = 0; s < u.current.size(); ++s)
@@ -1225,6 +1299,17 @@ void VulkanDevice::execute(VulkanCommandList& list) {
     }
     list.keep_.clear();
     list.fence_ = timelineValue_;
+    if (!list.scopes_.empty()) {
+        // The scopes of the timed frame still open ran before its end: timer_end_frame reports them.
+        std::lock_guard<std::mutex> lock(timerMutex_);
+        for (const VulkanCommandList::ScopeRef& sc : list.scopes_) {
+            if (sc.slot != timerCurrent_ || sc.slot < 0) continue;
+            TimerSlot& slot = timerSlots_[std::size_t(sc.slot)];
+            if (slot.serial == sc.serial && sc.scope < slot.submitted.size()) slot.submitted[sc.scope] = true;
+        }
+        list.scopes_.clear();
+    }
+    return true;
 }
 
 void VulkanDevice::commit() {

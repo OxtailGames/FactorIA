@@ -83,3 +83,18 @@ void main() {
 @end
 
 @program compute compute_cs
+
+// Copies texel (x, y) of a texture into an 8x8 storage image: a compute shader that samples (the texture and the
+// storage image are views 0 and 1).
+@cs sample_cs
+layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+layout(binding=0) uniform texture2D src_tex;
+layout(binding=0) uniform sampler src_smp;
+layout(binding=1, rgba8) uniform writeonly image2D dst_img;
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    imageStore(dst_img, p, texelFetch(sampler2D(src_tex, src_smp), p, 0));
+}
+@end
+
+@program sample sample_cs
