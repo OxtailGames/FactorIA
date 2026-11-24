@@ -715,9 +715,15 @@ void D3d12Device::init_side_queues(bool wanted) {
         set_name(s.queue.get(), want[i].queue);
         set_name(s.fence.get(), want[i].fence);
     }
+    if (!side_[0].queue && side_[1].queue) {  // map_queue sends every list to the direct queue then: keep no idle one
+        side_[1].queue.reset();
+        side_[1].fence.reset();
+    }
 }
 
 QueueKind D3d12Device::map_queue(QueueKind q) const {
+    // No compute queue (asyncCompute is false): every queue is the graphics one, a copy queue made on its own too.
+    if (!side_[0].queue) return QueueKind::Graphics;
     if (q == QueueKind::Transfer) {
         if (side_[1].queue) return QueueKind::Transfer;
         q = QueueKind::Compute;  // copies run on the compute queue just as well
@@ -919,7 +925,7 @@ SyncToken D3d12Device::submit_token(CommandList& l, std::span<const QueueHandoff
         for (Move& m : moves) {
             if (m.res->owner != kind) {
                 report("gpu d3d12: submit_token: list '" + list->label_ + "' (the " + queue_name(kind) +
-                       " queue) hands over " + m.res->label + ", which the " + queue_name(m.res->owner) +
+                       " queue) hands over " + m.res->display_name() + ", which the " + queue_name(m.res->owner) +
                        " queue owns (hint: a resource is handed over by a list of the queue that owns it; it stays "
                        "where it is)");
                 continue;
@@ -978,8 +984,8 @@ bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
         const TrackedResource& t = *u.res;
         if (t.owner == kind) continue;
         const char* owner = queue_name(t.owner);
-        report(at + " runs on the " + queue_name(kind) + " queue and uses " + t.label + ", which the " + owner +
-               " queue owns; the list was dropped (hint: the last " + owner +
+        report(at + " runs on the " + queue_name(kind) + " queue and uses " + t.display_name() + ", which the " +
+               owner + " queue owns; the list was dropped (hint: the last " + owner +
                " list that uses it hands it over with submit_token(list, {QueueHandoff{..., QueueKind::" +
                (kind == QueueKind::Compute    ? "Compute"
                 : kind == QueueKind::Transfer ? "Transfer"
@@ -996,7 +1002,7 @@ bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
         for (const SyncToken& w : list.waits_)
             if (map_queue(w.queue) == from && w.value >= t.handoff.value) covered = true;
         if (covered) continue;
-        report(at + " uses " + t.label + ", which the " + queue_name(from) +
+        report(at + " uses " + t.display_name() + ", which the " + queue_name(from) +
                " queue handed over to it, without waiting for that handoff's token; the wait was added (hint: "
                "wait_list(list, token) with the token the producer's submit_token() returned)");
         list.waits_.push_back(t.handoff);
@@ -1134,8 +1140,8 @@ void D3d12Device::execute(D3d12CommandList& list) {
     }
     lists[n++] = list.list_.get();
     queue_of(kind)->ExecuteCommandLists(n, lists);
-    // What the list leaves each resource in. Buffers decay to COMMON once the queue finished ExecuteCommandLists, and so
-    // does everything a copy queue touched.
+    // What the list leaves each resource in. Buffers decay to COMMON once the queue finished ExecuteCommandLists,
+    // and so does everything a copy queue touched.
     Deferred held;
     held.frame = frame_;
     held.held.reserve(list.uses_.size());

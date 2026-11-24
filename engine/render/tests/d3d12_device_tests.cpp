@@ -2415,6 +2415,9 @@ TEST_CASE("d3d12: a texture written by a compute list is sampled by a graphics l
 }
 
 TEST_CASE("d3d12: two threads record lists while the render thread destroys unrelated resources") {
+    // Robustness, not allowed use: docs/design/ARCHITECTURE_THREADS.md keeps resource creation and destruction on the
+    // render thread while other threads record. This checks that the deferred destruction of the backend (a resource
+    // lives until its frame is done) and the locks around the shared state survive that misuse without an error.
     auto dev = make_warp();
     if (!dev) return;
     const Pipeline pip = make_compute_pipeline(*dev, kTwiceCs, false, "twice");
