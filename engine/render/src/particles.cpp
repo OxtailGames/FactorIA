@@ -231,6 +231,7 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
                         std::clamp((now - sim.emitterTrail[i].time) / std::max(1e-3f, em.trailTime), 0.0f, 1.0f));
                 }
                 list.begin_item(em.layer, depth, white, SamplerKind::Linear, em.blend, clip);
+                list.set_reactive(em.reactive);  // M76-P1d: blended, no velocity of its own
                 list.set_material(item.material_of(g));
                 ribbon(em, style, em.startColor, 1.0f, billboard);
                 list.end_item();
@@ -238,6 +239,7 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
             if (sim.live(g) <= 0) continue;
             if (c.trail == ParticleTrail::Particle) {
                 list.begin_item(c.layer, depth, white, SamplerKind::Linear, c.blend, clip);
+                list.set_reactive(c.reactive);
                 list.set_material(item.material_of(g));
                 for (const Particle& p : sim.particles) {
                     const int points = sim.trail_size(p);
@@ -282,6 +284,7 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
             const bool plain = !c.alignToVelocity && c.startRotation.x == 0.0f && c.startRotation.y == 0.0f &&
                                c.spin.x == 0.0f && c.spin.y == 0.0f;
             list.begin_item(c.layer, depth, tex, pixel ? SamplerKind::Nearest : SamplerKind::Linear, c.blend, clip);
+            list.set_reactive(c.reactive);
             list.set_material(item.material_of(g));
             for (const Particle& p : sim.particles) {
                 if (p.group != g) continue;
