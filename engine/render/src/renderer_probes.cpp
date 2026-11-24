@@ -293,7 +293,7 @@ void Renderer::Impl::probes_plan(World& world) {
         ps.skyState = "failed";
         ps.scheduler.set_probes({});
     };
-    if (!ps.gpu.ready()) {
+    if (!ps.gpu.ready(gpu)) {
         fail_all("this GPU cannot draw the probes' passes (see the log)");
         return;
     }
@@ -557,14 +557,14 @@ bool Renderer::Impl::probe_read_atlas(int x, int y, int w, int h, std::vector<fl
         sg_commit();
         gpu.note_commit();
     }
-    sg_image scratch{};
+    gpu::Image scratch{};
     if (!ps.gpu.read_region_begin(gpu, ps.atlas, x, y, w, h, scratch, nullptr)) {
         if (error) *error = "the image for the read-back could not be created";
         return false;
     }
     sg_commit();
     gpu.note_commit();
-    return ProbeGpu::read_region_end(scratch, w, h, ps.gpu.rgba8(), out, error);
+    return ProbeGpu::read_region_end(gpu.device(), scratch, w, h, ps.gpu.rgba8(), out, error);
 }
 
 bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::ProbePage& out, std::string* error) {
@@ -576,7 +576,7 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     if (!found) return fail("the entity has no ReflectionProbe component");
     const ReflectionProbe rp = *found;
     ProbeSystem& ps = probes;
-    if (!ps.gpu.ready()) return fail("this GPU cannot draw the probes' passes (see the log)");
+    if (!ps.gpu.ready(gpu)) return fail("this GPU cannot draw the probes' passes (see the log)");
     if (ps.gpu.rgba8())
         return fail("this GPU cannot render to RGBA16F, and a baked probe holds light above 1 (use a probe that is "
                     "captured at run time)");
@@ -634,7 +634,7 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     ps.gpu.filter(gpu, ps.syncAtlas, kSlot, tile, 1.0f, &calls);
     const ProbeLayout lay = probe_layout(resolution);
     const int pw = probe_page_width(resolution), ph = probe_page_height(resolution);
-    sg_image pageImage{}, shImage{};
+    gpu::Image pageImage{}, shImage{};
     bool ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, 0, pw, ph, pageImage, &calls);
     if (ok) ok = ps.gpu.read_region_begin(gpu, ps.syncAtlas, 0, lay.shY, kProbeShCoefficients, 1, shImage, &calls);
     sg_commit();  // the read-back waits for the GPU, and on Metal the work is only submitted by sg_commit
@@ -642,13 +642,13 @@ bool Renderer::Impl::probe_sync_capture(World& world, Entity probe, Renderer::Pr
     std::vector<float> pagePx, shPx;
     std::string readError;
     if (ok)
-        ok = ProbeGpu::read_region_end(pageImage, pw, ph, false, pagePx, &readError);
+        ok = ProbeGpu::read_region_end(gpu.device(), pageImage, pw, ph, false, pagePx, &readError);
     else if (pageImage.id)
-        sg_destroy_image(pageImage);
+        gpu.device().destroy_image(pageImage);
     if (ok)
-        ok = ProbeGpu::read_region_end(shImage, kProbeShCoefficients, 1, false, shPx, &readError);
+        ok = ProbeGpu::read_region_end(gpu.device(), shImage, kProbeShCoefficients, 1, false, shPx, &readError);
     else if (shImage.id)
-        sg_destroy_image(shImage);
+        gpu.device().destroy_image(shImage);
     cleanup();
     if (!ok) return fail("reading the capture back from the GPU failed: " + readError);
     if (pagePx.size() != std::size_t(pw) * std::size_t(ph) * 4 || shPx.size() < std::size_t(kProbeShCoefficients) * 4)
@@ -695,7 +695,7 @@ Json Renderer::probe_report() const {
     Json out = Json::object();
     Json atlas = Json::object();
     atlas["size"] = ps.allocator.atlas_size();
-    atlas["format"] = ps.gpu.format() == SG_PIXELFORMAT_NONE ? "none" : ps.gpu.rgba8() ? "RGBA8" : "RGBA16F";
+    atlas["format"] = ps.gpu.format() == gpu::PixelFormat::None ? "none" : ps.gpu.rgba8() ? "RGBA8" : "RGBA16F";
     atlas["tiles"] = ps.allocator.count();
     atlas["usedTexels"] = double(ps.allocator.used_texels());
     atlas["reservedTexels"] = double(ps.allocator.reserved_texels());

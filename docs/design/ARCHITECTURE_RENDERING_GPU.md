@@ -130,6 +130,9 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
 - `SokolDevice::create` adopts the sokol context that is open (the renderer's; left open at destruction) or opens one
   from `DeviceInit` (and shuts it down at destruction). `frame_index()` counts commits through a commit listener.
 - Timers and readbacks forward to the renderer's `GpuTimer`, `readback_*.cpp/.mm` and `AsyncBufferRead`.
+- Asynchronous reads come from a pool of up to 8 `AsyncBufferRead` rings of 4 slots each, made lazily (a ticket's slot is
+  ring * 4 + slot): the Hi-Z cull of up to 8 cameras keeps 4 reads in flight each. A request takes the first ring with a
+  free slot; when all 32 are busy it returns an invalid ticket without an error.
 - sokol's `DUMMY` backend, which the engine never builds, maps to `Backend::Recording` (no GPU either way); sokol's
   WebGPU and Vulkan backends are not used.
 
@@ -273,9 +276,11 @@ sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers
 helpers (target.cpp), shader_cache.cpp and render_features.cpp; assets.cpp, custom_shader.cpp, water2d.cpp, gi2d.cpp,
 renderer_lights2d.cpp, fonts.cpp, gradient_ramp.cpp, postprocess.cpp and bloom.cpp (P3: their passes open on
 `gpu.commands()` or `PassContext::commands()`; a class with no Gpu member (WaterFx, GradientRamps, Gi2dSystem, AutoExposure)
-remembers the `gpu::Device` it first got, and keeps an overload without a device for the callers not converted yet); the
-frame graph carries the list to its passes. A pass opened on its own list does not set `Gpu::in_pass()`, so it writes
-its transient buffers before it begins (gi2d.cpp, draw_list).
+remembers the `gpu::Device` it first got, and keeps an overload without a device for the callers not converted yet);
+compute.cpp, light_atlas.cpp, renderer_hiz.cpp, renderer_probes_gpu.cpp and renderer_gi_gpu.cpp (they open their passes on
+`gpu.commands()`); the frame graph carries the list to its passes. A pass opened on its own list does not set
+`Gpu::in_pass()`, so it writes its transient buffers before it begins (gi2d.cpp, draw_list). gpu_timer.cpp stays on
+sokol: it is the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

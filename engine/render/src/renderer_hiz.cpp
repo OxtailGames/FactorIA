@@ -30,9 +30,11 @@ constexpr std::uint64_t kHizForgetFrames = 120;
 }  // namespace
 
 Renderer::Impl::HizCamera::~HizCamera() {
-    if (!sg_isvalid()) return;
-    if (cellsView.id) sg_destroy_view(cellsView);
-    if (cells.id) sg_destroy_buffer(cells);
+    if (!device) return;
+    // The copies still in flight are released with the camera; the device frees the staging buffers with itself.
+    for (const Flight& f : flights) device->release_buffer_read(f.ticket);
+    if (cellsView.id) device->destroy_view(cellsView);
+    if (cells.id) device->destroy_buffer(cells);
 }
 
 bool Renderer::Impl::hiz_resolve(World& world) {
@@ -40,18 +42,17 @@ bool Renderer::Impl::hiz_resolve(World& world) {
     if (mode == OcclusionMode::Cpu) return false;
     if (hizSupport == 0) {
         std::string why;
-        const render::FeatureEnv env = render::feature_env_from_sokol();
+        const render::FeatureEnv env = render::feature_env_from_device(gpu.device());
         bool ok = render::feature_supported(env, render::find_feature("occlusionGpu"), &why);
-        if (ok && !render::AsyncBufferRead::supported()) {
+        if (ok && !gpu.device().async_read_supported()) {
             ok = false;
             why = "this backend cannot read a storage buffer back without waiting";
         }
         if (ok && hizShaderState == 0) {
-            const sg_shader_desc* d = hiz_hiz_shader_desc(sg_query_backend());
-            hizShader = d ? render::make_shader(d, "hiz_hiz") : sg_shader{};
-            hizShaderState = hizShader.id && sg_query_shader_state(hizShader) == SG_RESOURCESTATE_VALID ? 1 : -1;
+            hizShader = render::make_shader(gpu.device(), gpu::generated_shader_desc(hiz_hiz_shader_desc), "hiz_hiz");
+            hizShaderState = hizShader.id && gpu.device().state(hizShader) == gpu::ResourceState::Valid ? 1 : -1;
             if (hizShaderState < 0) {
-                if (hizShader.id) sg_destroy_shader(hizShader);
+                if (hizShader.id) gpu.destroy_shader(hizShader);
                 hizShader = {};
                 ok = false;
                 why = "the depth reduction program was refused by this graphics driver (see the sokol log lines above)";
@@ -78,7 +79,7 @@ void Renderer::Impl::hiz_release() {
     hizCams.clear();
     hizShown = {};
     hizPrev = {};
-    if (hizShader.id && sg_isvalid()) sg_destroy_shader(hizShader);
+    if (hizShader.id && gpu.has_device()) gpu.destroy_shader(hizShader);
     hizShader = {};
     hizShaderState = 0;
     hizSupport = 0;
@@ -107,9 +108,10 @@ void Renderer::Impl::hiz_submit() {
     bool pending = false;
     for (auto& [key, hc] : hizCams) pending = pending || hc->reduced;
     if (pending && !gpu.committed()) {
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
+    gpu::Device& device = gpu.device();
     std::vector<std::uint8_t> bytes;
     for (auto& [key, hcPtr] : hizCams) {
         HizCamera& hc = *hcPtr;
@@ -117,10 +119,18 @@ void Renderer::Impl::hiz_submit() {
             hc.reduced = false;
             std::string error;
             const std::size_t size = std::size_t(hc.reducedInfo.w) * std::size_t(hc.reducedInfo.h) * 8;
-            const int slot = hc.cells.id && size > 0 ? hc.ring.request(hc.cells, size, &error) : -1;
-            if (slot >= 0) {
+            gpu::ReadTicket ticket;
+            if (hc.cells.id && size > 0) {
+                const Result<gpu::ReadTicket> asked = device.request_buffer_read(hc.cells, 0, size);
+                if (asked)
+                    ticket =
+                        asked.value();  // invalid without an error: every slot is in flight, the next frame asks again
+                else
+                    error = asked.error().message;
+            }
+            if (ticket.valid()) {
                 HizCamera::Flight f = hc.reducedInfo;
-                f.slot = slot;
+                f.ticket = ticket;
                 hc.flights.push_back(f);
             } else if (!error.empty() && !warnedHizRead) {
                 warnedHizRead = true;
@@ -133,7 +143,7 @@ void Renderer::Impl::hiz_submit() {
         // Oldest first: the GPU runs its copies in order, so the newest that is done is the one to keep.
         for (std::size_t i = 0; i < hc.flights.size();) {
             HizCamera::Flight& f = hc.flights[i];
-            if (!hc.ring.poll(f.slot, bytes, wait)) {
+            if (!device.poll_buffer_read(f.ticket, bytes, wait)) {
                 ++i;
                 continue;
             }
@@ -150,7 +160,7 @@ void Renderer::Impl::hiz_submit() {
         // A GPU that never answers (a lost device) must not keep the ring full for ever: the copies older than the usable age are dropped.
         for (std::size_t i = 0; i < hc.flights.size();) {
             if (frameSerial > hc.flights[i].frame + 4 * render::kHizMaxAgeFrames) {
-                hc.ring.release(hc.flights[i].slot);
+                device.release_buffer_read(hc.flights[i].ticket);
                 hc.flights.erase(hc.flights.begin() + std::ptrdiff_t(i));
             } else {
                 ++i;
@@ -199,6 +209,7 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
         }
         auto fresh = std::make_unique<HizCamera>();
         fresh->key = key;
+        fresh->device = &gpu.device();
         fresh->name = fr.cam.fromEntity ? std::string(world.id_of(fr.cam.entity)) : std::string("camera");
         it = hizCams.emplace(key, std::move(fresh)).first;
     }
@@ -281,37 +292,38 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
     return &hc;
 }
 
-void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose,
-                                     std::uint64_t worldFrame) {
+void Renderer::Impl::hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const Target& prepass,
+                                     const render::HizPose& pose, std::uint64_t worldFrame) {
     if (hizShaderState <= 0 || !prepass.texView.id || prepass.w < 1 || prepass.h < 1) return;
+    gpu::Device& device = gpu.device();
     int w = 0, h = 0;
     render::hiz_size_for(float(prepass.w) / float(prepass.h), w, h);
     if (!hc.cells.id || hc.w != w || hc.h != h) {
-        if (hc.cellsView.id) sg_destroy_view(hc.cellsView);
-        if (hc.cells.id) sg_destroy_buffer(hc.cells);
+        if (hc.cellsView.id) device.destroy_view(hc.cellsView);
+        if (hc.cells.id) device.destroy_buffer(hc.cells);
         hc.cellsView = {};
         hc.cells = {};
         hc.w = hc.h = 0;
         // A picture of another grid cannot be mixed with the new ones: the pyramid stays as it is (it has its own size) until a new one replaces it.
-        sg_buffer_desc bd{};
+        gpu::BufferDesc bd{};
         bd.size = std::size_t(w) * std::size_t(h) * 8;
-        bd.usage.storage_buffer = true;
-        bd.usage.copy_dst =
+        bd.usage.storageBuffer = true;
+        bd.usage.copyDst =
             true;  // sokol: a storage buffer with no initial data is made with copy_dst (the shader fills it)
         bd.label = "hiz cells";
-        hc.cells = sg_make_buffer(&bd);
-        if (sg_query_buffer_state(hc.cells) != SG_RESOURCESTATE_VALID) {
-            if (hc.cells.id) sg_destroy_buffer(hc.cells);
+        hc.cells = device.make_buffer(bd);
+        if (device.state(hc.cells) != gpu::ResourceState::Valid) {
+            if (hc.cells.id) device.destroy_buffer(hc.cells);
             hc.cells = {};
             return;
         }
-        sg_view_desc vd{};
-        vd.storage_buffer.buffer = hc.cells;
+        gpu::ViewDesc vd{};
+        vd.storageBuffer.buffer = hc.cells;
         vd.label = "hiz cells view";
-        hc.cellsView = sg_make_view(&vd);
-        if (sg_query_view_state(hc.cellsView) != SG_RESOURCESTATE_VALID) {
-            if (hc.cellsView.id) sg_destroy_view(hc.cellsView);
-            sg_destroy_buffer(hc.cells);
+        hc.cellsView = device.make_view(vd);
+        if (device.state(hc.cellsView) != gpu::ResourceState::Valid) {
+            if (hc.cellsView.id) device.destroy_view(hc.cellsView);
+            device.destroy_buffer(hc.cells);
             hc.cellsView = {};
             hc.cells = {};
             return;
@@ -319,8 +331,8 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
         hc.w = w;
         hc.h = h;
     }
-    const sg_pipeline pip = gpu.compute_pipeline(hizShader);
-    if (sg_query_pipeline_state(pip) != SG_RESOURCESTATE_VALID) {
+    const gpu::Pipeline pip = gpu.compute_pipeline(hizShader);
+    if (device.state(pip) != gpu::ResourceState::Valid) {
         // The driver refused the program (the pipeline getter logged the reason once): this GPU cannot cull with the pyramid, so the
         // next frame's hiz_resolve answers "no" and the CPU culling of the Occluders takes over, with no more tries.
         hizShaderState = -1;
@@ -333,9 +345,9 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
         }
         return;
     }
-    sg_bindings bind{};
+    gpu::Bindings bind{};
     bind.views[VIEW_hiz_hiz_cells_buf] = hc.cellsView;
-    bind.views[VIEW_hiz_prepass_tex] = prepass.texView;
+    bind.views[VIEW_hiz_prepass_tex] = gpu::from_sg(prepass.texView);  // Target is still sokol-typed (P4a converts it)
     bind.samplers[SMP_hiz_prepass_smp] = gpu.sampler(render::SamplerKind::Nearest);
     hiz_hiz_params_t u{};
     u.dims[0] = float(prepass.w);
@@ -343,12 +355,12 @@ void Renderer::Impl::hiz_reduce_pass(HizCamera& hc, const Target& prepass, const
     u.dims[2] = float(w);
     u.dims[3] = float(h);
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;  // an OpenGL render target's row 0 is the bottom of the picture
-    render::Gpu::begin_compute_pass();
-    sg_apply_pipeline(pip);
-    sg_apply_bindings(&bind);
-    sg_apply_uniforms(UB_hiz_hiz_params, SG_RANGE(u));
-    sg_dispatch((w + 7) / 8, (h + 7) / 8, 1);
-    render::Gpu::end_compute_pass();
+    cmd.begin_compute_pass("hiz-reduce");
+    cmd.set_pipeline(pip);
+    cmd.set_bindings(bind);
+    cmd.set_uniforms(UB_hiz_hiz_params, gpu::Range{&u, sizeof(u)});
+    cmd.dispatch((w + 7) / 8, (h + 7) / 8, 1);
+    cmd.end_pass();
     gpu.note_work();
     hc.reduced = true;
     hc.reducedInfo = HizCamera::Flight{};

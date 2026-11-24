@@ -153,15 +153,20 @@ private:
     SokolCommandList list_{*this};
     bool listOpen_ = false;
     std::uint64_t frames_ = 0;
-    mutable std::unique_ptr<render::GpuTimer> timer_;     // made on first use
-    std::unique_ptr<render::AsyncBufferRead> asyncRead_;  // made on first use
+    mutable std::unique_ptr<render::GpuTimer> timer_;  // made on first use
+    // The asynchronous reads: up to kMaxReadRings rings of AsyncBufferRead::kSlots slots, each made on first use (a ring
+    // costs its staging buffers only once it is needed). A ticket's slot is ring * kSlots + slot. The renderer's depth
+    // pyramid keeps up to eight cameras' reads in flight, four each.
+    static constexpr int kReadSlotsPerRing = 4;  // == AsyncBufferRead::kSlots (asserted in sokol_device.cpp)
+    static constexpr int kMaxReadRings = 8;
+    std::array<std::unique_ptr<render::AsyncBufferRead>, kMaxReadRings> asyncRead_;
     // The read in flight in each slot of asyncRead_: the offset to drop from its bytes, and its ticket's generation
-    // (0: none). The size is AsyncBufferRead::kSlots (asserted in sokol_device.cpp).
+    // (0: none).
     struct PendingRead {
         std::size_t offset = 0;
         std::uint32_t generation = 0;
     };
-    std::array<PendingRead, 4> reads_{};
+    std::array<PendingRead, kMaxReadRings * kReadSlotsPerRing> reads_{};
     std::uint32_t readGeneration_ = 0;
 };
 

@@ -491,17 +491,17 @@ struct Renderer::Impl {
     // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
     // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
     struct HizCamera {
-        struct Flight {  // a copy of the cells that was asked for and has not been taken yet
-            int slot = -1;
+        struct Flight {              // a copy of the cells that was asked for and has not been taken yet
+            gpu::ReadTicket ticket;  // the read of the cells, polled by hiz_submit
             render::HizPose pose;
             int w = 0, h = 0;
             std::uint64_t frame = 0, worldFrame = 0;
         };
         std::uint64_t key = 0;
-        int w = 0, h = 0;  // cells of `cells` (the aspect of the camera's rectangle)
-        sg_buffer cells{};
-        sg_view cellsView{};
-        render::AsyncBufferRead ring;
+        int w = 0, h = 0;               // cells of `cells` (the aspect of the camera's rectangle)
+        gpu::Device* device = nullptr;  // the device the buffer lives on (the renderer's, which outlives the camera)
+        gpu::Buffer cells{};
+        gpu::View cellsView{};
         std::vector<Flight> flights;  // oldest first
         bool reduced = false;         // a reduce pass wrote `cells` and no copy of it was asked for yet
         Flight reducedInfo;           // its pose, size and frame
@@ -516,7 +516,7 @@ struct Renderer::Impl {
         ~HizCamera();
     };
     std::map<std::uint64_t, std::unique_ptr<HizCamera>> hizCams;  // by camera entity bits
-    sg_shader hizShader{};
+    gpu::Shader hizShader{};
     int hizShaderState = 0;  // 0 not tried, 1 made, -1 refused
     int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
     std::string hizWhy;      // why not
@@ -557,7 +557,8 @@ struct Renderer::Impl {
     // hiz_submit only runs when a frame begins and a capture's reduce could never come back within it.
     HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
     // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
-    void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
+    void hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const Target& prepass, const render::HizPose& pose,
+                         std::uint64_t worldFrame);
     void hiz_overlay();
     std::string hizModeName = "cpu";  // SceneSettings.occlusionMode of the last frame's world
     // The "gpu" object of Renderer::occlusion_report: what the depth pyramid did in the last frame; `level` of the pyramid is saved to
