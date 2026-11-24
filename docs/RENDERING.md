@@ -31,7 +31,7 @@ This page has the render targets, the depth and normals prepass, capture and HDR
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
 - [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [The post-processing stack](rendering/RENDERING_POSTPROCESS.md): bloom, exposure, tonemap, colour grading, lens effects, colour filter, the LUT, and the commands, looks and panel that read and change the stack.
-- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect and the graphics presets (the temporal antialiasing draws; the upscaler settings and the presets are settings only for now).
+- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect, the spatial, temporal and MetalFX upscalers, the dynamic resolution, the motion vectors and the graphics presets.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
@@ -349,6 +349,26 @@ Shockwave, heat haze, radial blur pulse, flash and fade: five short effects of t
 finished picture, started by `camera.shockwave(opts)` and its four siblings or by the `feel.*` commands, on the game clock. They
 have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md).
 
+## Temporal effects and upscaling at a glance (M76)
+
+What each M76 feature is switched on with, which GPU backends draw it and what it costs. The contract of every setting is
+[UPSCALING.md](UPSCALING.md); `render.supports {"feature": "<row>"}` says what this build and GPU draw, with the reason when not.
+
+| Feature | Switched on with | `render.supports` row | Backends | Cost |
+|---|---|---|---|---|
+| Velocity image (motion vectors) | nothing: the depth prepass writes it when something reads it (temporal effects, `motionBlurMode` `object`, `render.debug_view {"view":"motionVectors"}`) | `motionVectors` | every GPU backend with RGBA16F render targets (`half`) | a second attachment (RG16F) of the prepass, 4 bytes a pixel, plus the sprites' own passes (`quad-velocity`, `quad-reactive`) in a 2D game |
+| Temporal antialiasing | `PostProcess.temporalAAEnabled` | `temporalAA` | every GPU backend | two fragment passes at the render size, one RGBA16F history (RGBA8 without half-float targets) per camera, and the depth prepass |
+| Per-object motion blur | `PostProcess.motionBlurEnabled`, `motionBlurMode` `object` (the default) | `motionBlur` | every GPU that samples the depth; the `object` mode also needs an RG16F target, else the camera mode | the velocity image and 3 more passes than the `camera` mode |
+| Spatial upscaler | `render.upscaler` mode `spatial` | `spatialUpscaler` | every GPU backend | two fragment passes at the window size |
+| Temporal upscaler | `render.upscaler` mode `temporal` | `temporalUpscaler` | every GPU backend; one camera over the whole window, else it draws `spatial` | one history at the window size, two passes, the depth prepass |
+| MetalFX | `render.upscaler` mode `metalfx` | `metalfx` | Metal only (macOS 13 or iOS 16 or later, a GPU with the MetalFX scalers, not the iOS simulator) | one more command buffer a frame; falls back to `temporal`, then `spatial` |
+| Dynamic resolution | `render.dynamic_resolution`, `window.dynamicResolution`, `render.dynamicResolution` in `factoria.json` | `dynamicResolution` | every GPU backend (GPU time where there are timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) | none of its own; the targets are made again at a step of the scale (at most twice a second) |
+| Graphics presets | `graphics.preset`, `game.graphics`, `render.graphicsPreset` | none (limits on other rows) | every backend; a knob for a feature the GPU cannot draw is capped | none: it only lowers what the scene asks for |
+
+Where a row says `false`, the mode that needs it draws as the next best one (`auto`, `metalfx`, `temporal`, `spatial`, `stretch`) and `window.upscaler.effectiveMode`
+tells which. A sprite, tile or glyph that moves writes its own velocity in a 2D game, and a particle or an additive sprite is marked in the reactive mask
+(`ParticleEmitter.reactive`, `Sprite.reactive`) so it does not trail. The passes are in [The passes of a frame](rendering/RENDERING_PASSES.md).
+
 ## Depth and normals
 
 The effects that need to know how far away something is or which way it faces (ambient occlusion, reflections, fog, sun shafts,
@@ -382,6 +402,10 @@ orthographic 3D camera.
   `a` is 1 where an opaque mesh was drawn and 0 elsewhere, and is the truth about coverage, not `r` (a surface at 60000 or more has
   `r` = 60000 too). A custom material whose shader was made before the prepass has no prepass programs: it is left out of the
   image, and the renderer logs one warning at load that says so (make the shader again).
+- **The velocity image (M76).** When a temporal effect, the per-object motion blur or the `motionVectors` debug view reads it, the prepass
+  also writes a second attachment (`RG16F`, where each pixel was in the frame before, from unjittered matrices) where the GPU can render to
+  `RG16F` (`render.supports` `motionVectors`); skinned meshes, material `vertex()` displacement, instances, terrain, foliage and impostors
+  move their pixels, and in a 2D game the sprites' own passes write it. Without the attachment the temporal passes rebuild the camera's own motion from the depth. See [UPSCALING.md](UPSCALING.md).
 
 ## Off-screen capture
 

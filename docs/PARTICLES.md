@@ -128,6 +128,15 @@ says what is being retried.
 - alpha is kept, so a fading particle blends and the blended pixel is no longer a palette colour. For an exact palette end a
   gradient on an opaque colour, or fade in hard steps: `"alphaCurve": {"keys": [[0, 1], [0.8, 1], [1, 0]], "interp": "step"}`.
 
+## With temporal antialiasing and upscaling: `reactive`
+
+While the temporal antialiasing (`PostProcess.temporalAAEnabled`) or a temporal upscaler (`render.upscaler` mode `temporal` or `metalfx`) draws, a pixel keeps part of
+the frames before it. A fast, bright particle would blend with that history and trail or ghost, so a blended or additive particle writes `ParticleEmitter.reactive`
+(0 to 1, default 1) into a reactive mask that lowers the weight of the history where it is drawn (`temporalAAReactiveScale` of the `PostProcess` scales it). Leave it at
+1 for sparks, fire and smoke; set 0 for an emitter whose particles are slow and wide enough that a little history helps. It does nothing when no temporal effect
+draws, and a particle writes no motion vector of its own. The mask holds the pixels a particle covers now: it does not clear the trail it left earlier
+([UPSCALING.md](UPSCALING.md), "Temporal antialiasing").
+
 ## Determinism and `seed`
 
 The random numbers of an emitter come from its own generator, seeded from the entity's id (never `world.rng()`), so the same scene

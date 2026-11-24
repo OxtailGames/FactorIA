@@ -149,6 +149,10 @@ of the engine yet.
 form of a path that long, so it works whether or not long paths are enabled on the machine. Explorer, zip tools and
 some other programs still cannot open such files: export into a short folder (`--out C:\exports`) when you can.
 
+**MetalFX on a Mac.** The macOS player draws `render.upscaler` mode `metalfx` on macOS 13 or later with a GPU that has the MetalFX scalers (its reactive mask
+needs macOS 14.4); the framework is loaded at run time, so the export, the signature and the notarization need nothing extra and an older macOS runs the same
+build with `temporal` or `spatial` instead. Windows and Linux players never draw it ([UPSCALING.md](../UPSCALING.md), "MetalFX (Apple GPUs)").
+
 On macOS the export signs the finished `.app` ad hoc (`codesign --force --deep --sign -`), last, so the signature
 covers its `Info.plist`, the game files and the native plugins in `Contents/Frameworks`. The player of a signed release carries FactorIA's Developer ID signature, which covers
 the executable alone: copied into a bundle unchanged it fails `codesign --verify` ("code has no resources but signature
