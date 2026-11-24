@@ -68,12 +68,16 @@ struct DynamicResolutionState {
 // fed the time between presented frames, one call per frame, and takes the median of kSamples of them after skipping the
 // first kSkipFrames (the start, a resize) and every interval over kMaxSampleMs (a hitch, a load). With vsync on and no
 // frame cap the presents follow the display, so the median is one refresh; a game that cannot keep up while it measures
-// reads its own rate (a whole multiple of the refresh). It never reads a clock: the same intervals give the same rate.
+// reads its own rate (a whole multiple of the refresh). Intervals that do not form a steady beat (kMaxSpread) give no rate. It never
+// reads a clock: the same intervals give the same rate.
 class RefreshRateEstimator {
 public:
     static constexpr int kSkipFrames = 10;
     static constexpr int kSamples = 60;
     static constexpr double kMaxSampleMs = 50.0;  // 20 Hz: anything slower is not a display refresh
+    // The median absolute deviation of the intervals may be this share of the median, else the beat is not a display's (a driver that
+    // ignores the swap interval, a game that never settles): no rate. Vsync'd presents deviate by a few percent.
+    static constexpr double kMaxSpread = 0.15;
     // It gives up (done, rate 0) after this many frames without kSamples usable ones: a deterministic count, not a time.
     static constexpr int kMaxFrames = kSkipFrames + 4 * kSamples;
 

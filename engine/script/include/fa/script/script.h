@@ -294,7 +294,8 @@ public:
     virtual render::DynamicResolutionState dynamic_resolution_state() const {
         render::DynamicResolutionState st;
         st.scale = dynamicResolution_.enabled ? dynamicResolution_.maxScale : 1.0f;
-        st.targetMs = dynamicResolution_.enabled ? render::dynamic_target_ms(dynamicResolution_, 0.0) : 0.0;
+        // A host without an engine knows no display: st.refreshHz is the default rate (kDynamicDefaultRefreshHz), source "default".
+        st.targetMs = dynamicResolution_.enabled ? render::dynamic_target_ms(dynamicResolution_, st.refreshHz) : 0.0;
         return st;
     }
     // The graphics presets (`game.graphics`, M76, docs/UPSCALING.md "Graphics presets"). graphics_preset({}) answers the current preset;
