@@ -41,16 +41,16 @@ Plan plan_for(float radius) {
 }
 
 template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
+void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
+    list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
 // One full-screen-triangle pass: samples `srcTex`, writes `dst`, whose colour format is `fmt` (no depth). `fsParams`
 // (optional) goes to slot `fsSlot`.
 template <class U>
-void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, const BloomTarget& dst, bool additive,
-              const U* fsParams, int fsSlot, const char* label, sg_view dirt = {}) {
+void run_pass(const PassContext& c, Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex,
+              const BloomTarget& dst, bool additive, const U* fsParams, int fsSlot, const char* label,
+              sg_view dirt = {}) {
     PassDesc p;
     p.label = label;
     p.color = dst.att;
@@ -58,20 +58,22 @@ void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, c
     p.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
     p.colorLoad = additive ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;
     p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.bloom_pipeline(stage, p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_bloom_tex] = srcTex;
-    if (dirt.id) b.views[VIEW_bloom_dirt_tex] = dirt;  // the composite program only
+    gpu::CommandList& list = c.commands() ? *c.commands() : gpu.commands();
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(p, swapchain));
+    list.set_pipeline(gpu.bloom_pipeline(stage, p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_bloom_tex] = gpu::from_sg(srcTex);
+    if (dirt.id) b.views[VIEW_bloom_dirt_tex] = gpu::from_sg(dirt);  // the composite program only
     b.samplers[SMP_bloom_smp] = gpu.sampler(SamplerKind::LinearClamp);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     bloom_bloom_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_bloom_bloom_vs_params, vu);
-    if (fsParams) apply_uniforms(fsSlot, *fsParams);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
+    apply_uniforms(list, UB_bloom_bloom_vs_params, vu);
+    if (fsParams) apply_uniforms(list, fsSlot, *fsParams);
+    list.draw(0, 3, 1);
+    list.end_pass();
 }
 
 }  // namespace
@@ -190,7 +192,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         u.q[1] = s.knee * 0.5f;  // the half-width of the soft knee
         const ResourceId out = a[plan.first];
         add("bloom-bright", {game}, {out}, [=](const PassContext& c) {
-            run_pass(*g, fmt, BloomStage::Bright, srcTex, BloomTarget{att(c, out)}, false, &u,
+            run_pass(c, *g, fmt, BloomStage::Bright, srcTex, BloomTarget{att(c, out)}, false, &u,
                      UB_bloom_bloom_bright_params, "bloom-bright");
             ++*drawCalls;
         });
@@ -199,7 +201,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     for (int l = plan.first + 1; l <= plan.level; ++l) {
         const ResourceId from = a[l - 1], out = a[l];
         add("bloom-down-" + std::to_string(l), {from}, {out}, [=](const PassContext& c) {
-            run_pass<bloom_bloom_bright_params_t>(*g, fmt, BloomStage::Down, tex(c, from), BloomTarget{att(c, out)},
+            run_pass<bloom_bloom_bright_params_t>(c, *g, fmt, BloomStage::Down, tex(c, from), BloomTarget{att(c, out)},
                                                   false, nullptr, 0, "bloom-down");
             ++*drawCalls;
         });
@@ -217,12 +219,12 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         uv.p[1] = 1.0f / float(lh[plan.level]);
         const ResourceId wa = a[plan.level], wb = b;
         add("bloom-blur-h", {wa}, {wb}, [=](const PassContext& c) {
-            run_pass(*g, fmt, BloomStage::Blur, tex(c, wa), BloomTarget{att(c, wb)}, false, &uh,
+            run_pass(c, *g, fmt, BloomStage::Blur, tex(c, wa), BloomTarget{att(c, wb)}, false, &uh,
                      UB_bloom_bloom_blur_params, "bloom-blur-h");
             ++*drawCalls;
         });
         add("bloom-blur-v", {wb}, {wa}, [=](const PassContext& c) {
-            run_pass(*g, fmt, BloomStage::Blur, tex(c, wb), BloomTarget{att(c, wa)}, false, &uv,
+            run_pass(c, *g, fmt, BloomStage::Blur, tex(c, wb), BloomTarget{att(c, wa)}, false, &uv,
                      UB_bloom_bloom_blur_params, "bloom-blur-v");
             ++*drawCalls;
         });
@@ -236,7 +238,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
                      : s.dirtIntensity;  // no lens dirt: the glow is added as it is (the dirt image is a dummy)
         const ResourceId wa = a[plan.level];
         add("bloom-composite", {wa, game}, {game}, [=](const PassContext& c) {
-            run_pass(*g, fmt, BloomStage::Composite, tex(c, wa), dst, true, &u, UB_bloom_bloom_composite_params,
+            run_pass(c, *g, fmt, BloomStage::Composite, tex(c, wa), dst, true, &u, UB_bloom_bloom_composite_params,
                      "bloom-composite", dirtView);
             ++*drawCalls;
         });

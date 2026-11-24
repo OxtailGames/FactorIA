@@ -140,8 +140,10 @@ void bake_ramp_row(const GradientSpec& spec, std::uint8_t* rgba) {
 GradientRamps::~GradientRamps() { destroy(); }
 
 void GradientRamps::destroy() {
-    if (tex_.view.id) sg_destroy_view(tex_.view);
-    if (tex_.image.id) sg_destroy_image(tex_.image);
+    if (device_) {  // nothing was made before a sync
+        if (tex_.view.id) device_->destroy_view(gpu::from_sg(tex_.view));
+        if (tex_.image.id) device_->destroy_image(gpu::from_sg(tex_.image));
+    }
     tex_.view = {};
     tex_.image = {};
 }
@@ -184,20 +186,26 @@ int GradientRamps::acquire(const GradientSpec& spec) {
 
 void GradientRamps::sync() {
     if (pixels_.empty() || (!dirty_ && tex_.image.id)) return;
-    if (tex_.view.id) sg_destroy_view(tex_.view);
-    if (tex_.image.id) sg_destroy_image(tex_.image);
-    sg_image_desc d{};
+    sync(device_ ? *device_ : Gpu::active_device());
+}
+
+void GradientRamps::sync(gpu::Device& device) {
+    if (pixels_.empty() || (!dirty_ && tex_.image.id)) return;
+    destroy();  // on the device the old image was made on
+    device_ = &device;
+    gpu::ImageDesc d;
     d.width = kRampWidth;
     d.height = kRampRows;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.data.mip_levels[0] = {pixels_.data(), pixels_.size()};
+    d.pixelFormat = gpu::PixelFormat::Rgba8;
+    d.data.mipLevels[0] = gpu::Range{pixels_.data(), pixels_.size()};
     d.label = "gradient-ramps";
     tex_.path = "<gradient-ramps>";
-    tex_.image = make_image(d);
-    sg_view_desc vd{};
-    vd.texture.image = tex_.image;
+    const gpu::Image image = device.make_image(d);
+    tex_.image = gpu::to_sg(image);
+    gpu::ViewDesc vd;
+    vd.texture.image = image;
     vd.label = "gradient-ramps";
-    tex_.view = sg_make_view(&vd);
+    tex_.view = gpu::to_sg(device.make_view(vd));
     tex_.width = kRampWidth;
     tex_.height = kRampRows;
     tex_.bytes = pixels_.size();

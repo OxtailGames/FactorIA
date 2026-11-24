@@ -228,6 +228,8 @@ public:
     Gi2dSystem& operator=(const Gi2dSystem&) = delete;
 
     // Whether this GPU can draw the field: RGBA16F render targets that blend and filter (the rule of FeatureEnv::halfTargets).
+    static bool float_targets_ok(const gpu::Device& device);
+    // The same on the device of Gpu::active() (TRANSITIONAL, M77: false when no Gpu is alive).
     static bool float_targets_ok();
 
     // Start of a frame graph: no slot is asked for yet. `keep` (a capture that draws no 2D camera of the game): the slots stay as they were.
@@ -235,6 +237,8 @@ public:
     // The slot `n` (0 .. kGi2dMaxFields - 1) for `g`: its three images, made (again) when the size changed. Null when the GPU cannot make
     // them (logged once). Marks the slot as used by this frame.
     // Also makes the irradiance images of `cp` (the history of the bounce is dropped when any size changes).
+    Gi2dField* acquire(gpu::Device& device, int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
+    // The same on the device given before, or on Gpu::active_device() (TRANSITIONAL, M77: the callers not converted yet).
     Gi2dField* acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
     // Before the frame graph runs: frees the slots no job asked for (a frame without GI keeps no image) and counts the ones that were.
     void free_unused();
@@ -269,8 +273,8 @@ public:
 
     // The programs and their pipelines for a target format (made on first use; null when it cannot be made). Used by the passes.
     enum class Prog { DrawAdd, DrawReplace, Seed, Jfa, SeedEmit, Cascade, Irradiance, Count };
-    bool ready();
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    bool ready(gpu::Device& device);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
     // Teaching message of a GPU without float targets, logged once; returns the sentence (also for the command).
     static std::string unsupported_message(const std::string& backend);
@@ -308,11 +312,13 @@ private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
     std::array<std::unique_ptr<Gi2dField>, kGi2dMaxFields> slots_;
     std::uint64_t shifts_ = 0;
-    sg_shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
+    gpu::Shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
+    gpu::Device* device_ =
+        nullptr;  // the device the images, shaders and pipelines were made on (set by acquire / ready)
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;

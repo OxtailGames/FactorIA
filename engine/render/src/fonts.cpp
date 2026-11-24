@@ -56,6 +56,7 @@ struct Fonts::Impl {
     };
     std::vector<Shelf> shelves;
     bool dirty = true;
+    Gpu* renderGpu = nullptr;  // the device the atlas image is made on (Gpu outlives the Fonts: renderer_impl.h)
     explicit Impl(FontSet::FailureNote note) : set(std::move(note)) {}
 
     void reset_atlas(int size) {
@@ -87,11 +88,12 @@ struct Fonts::Impl {
     }
 };
 
-Fonts::Fonts(Gpu& /*gpu*/, Assets& assets)
+Fonts::Fonts(Gpu& gpu, Assets& assets)
     : impl_(
           std::make_unique<Impl>([&assets](const std::string& font, const std::string& error, const std::string& hint) {
               assets.note_failure("font", font, error, hint);
           })) {
+    impl_->renderGpu = &gpu;
     impl_->reset_atlas(1024);
     atlasTex_.path = "<glyph-atlas>";
 }
@@ -99,8 +101,11 @@ Fonts::Fonts(Gpu& /*gpu*/, Assets& assets)
 Fonts::~Fonts() { clear(); }
 
 void Fonts::clear() {
-    if (atlasTex_.view.id) sg_destroy_view(atlasTex_.view);
-    if (atlasTex_.image.id) sg_destroy_image(atlasTex_.image);
+    if (impl_->renderGpu && impl_->renderGpu->has_device()) {
+        gpu::Device& device = impl_->renderGpu->device();
+        if (atlasTex_.view.id) device.destroy_view(gpu::from_sg(atlasTex_.view));
+        if (atlasTex_.image.id) device.destroy_image(gpu::from_sg(atlasTex_.image));
+    }
     atlasTex_.view = {};
     atlasTex_.image = {};
     impl_->set.clear();
@@ -307,18 +312,20 @@ int Fonts::atlas_size() const { return impl_->atlasSize; }
 void Fonts::sync() {
     Impl& im = *impl_;
     if (!im.dirty && atlasTex_.image.id) return;
-    if (atlasTex_.view.id) sg_destroy_view(atlasTex_.view);
-    if (atlasTex_.image.id) sg_destroy_image(atlasTex_.image);
-    sg_image_desc d{};
+    gpu::Device& device = im.renderGpu->device();
+    if (atlasTex_.view.id) device.destroy_view(gpu::from_sg(atlasTex_.view));
+    if (atlasTex_.image.id) device.destroy_image(gpu::from_sg(atlasTex_.image));
+    gpu::ImageDesc d;
     d.width = d.height = im.atlasSize;
-    d.pixel_format = SG_PIXELFORMAT_R8;
-    d.data.mip_levels[0] = {im.pixels.data(), im.pixels.size()};
+    d.pixelFormat = gpu::PixelFormat::R8;
+    d.data.mipLevels[0] = gpu::Range{im.pixels.data(), im.pixels.size()};
     d.label = "glyph-atlas";
-    atlasTex_.image = make_image(d);
-    sg_view_desc vd{};
-    vd.texture.image = atlasTex_.image;
+    const gpu::Image image = device.make_image(d);
+    atlasTex_.image = gpu::to_sg(image);
+    gpu::ViewDesc vd;
+    vd.texture.image = image;
     vd.label = "glyph-atlas";
-    atlasTex_.view = sg_make_view(&vd);
+    atlasTex_.view = gpu::to_sg(device.make_view(vd));
     atlasTex_.width = atlasTex_.height = im.atlasSize;
     im.dirty = false;
 }
