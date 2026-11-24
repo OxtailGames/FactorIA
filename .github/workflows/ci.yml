@@ -518,21 +518,43 @@ jobs:
       # dstoragecore.dll, installed the way a game developer does it. The engine's GDeflate test vectors go through
       # DirectStorage's own codec (IDStorageCompressionCodec) both ways, and a gdeflate pack is read through its queue;
       # FA_DIRECTSTORAGE_REQUIRE=1 turns their skip (no DLLs) into a failure. The ctest run below skips them (no DLLs next
-      # to the tests), so this step, on shard 1, is where they run.
+      # to the tests), so this step, on shard 1, is where they run. The D3D12 backend's reads of a pack into buffers and
+      # textures (render's "d3d12 pack reads" cases) run on WARP here too. The installed folder is cached under the
+      # pinned version and SHA-256 (tools/common/include/fa/tooling/setup.h), so NuGet is asked only when the pin moves.
+      - name: DirectStorage pin
+        if: ${{ matrix.shard == 1 }}
+        id: dstorage-pin
+        shell: bash
+        run: |
+          pin=$(grep -A1 'kSetupDirectStorage = {' tools/common/include/fa/tooling/setup.h | tail -n 1 | sed -E 's/[^"]*"([^"]*)", *"([^"]*)".*/\1-\2/' | tr -d '\r')
+          case "$pin" in *-*) ;; *) echo "::error::no kSetupDirectStorage pin in tools/common/include/fa/tooling/setup.h"; exit 1 ;; esac
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the DirectStorage DLLs
+        if: ${{ matrix.shard == 1 }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.factoria/tools/directstorage
+          key: directstorage-${{ runner.os }}-${{ steps.dstorage-pin.outputs.pin }}
+
       - name: DirectStorage (factoria setup directstorage, GDeflate vectors and pack reads)
         if: ${{ matrix.shard == 1 }}
         shell: bash
         run: |
           cli=$(find build/windows-release/tools/cli -maxdepth 2 -type f -name factoria.exe | head -n 1)
           test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
-          "$cli" setup directstorage --json > "$RUNNER_TEMP/directstorage.json"
-          dir=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['paths']['directstorage'])" "$RUNNER_TEMP/directstorage.json" | tr -d '\r')
-          test -n "$dir" || { echo "::error::factoria setup directstorage reported no folder"; cat "$RUNNER_TEMP/directstorage.json"; exit 1; }
+          json="$RUNNER_TEMP/directstorage.json"
+          "$cli" setup directstorage --json > "$json" || { echo "::error::factoria setup directstorage failed"; cat "$json"; exit 1; }
+          dir=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['paths']['directstorage'])" "$json" | tr -d '\r') || { cat "$json"; exit 1; }
+          test -n "$dir" || { echo "::error::factoria setup directstorage reported no folder"; cat "$json"; exit 1; }
           tests=$(find build/windows-release/engine/core -type f -name fa_test_core.exe | head -n 1)
           test -n "$tests" || { echo "::error::fa_test_core.exe was not built under build/windows-release/engine/core"; exit 1; }
+          render=$(find build/windows-release/engine/render -type f -name fa_test_render.exe | head -n 1)
+          test -n "$render" || { echo "::error::fa_test_render.exe was not built under build/windows-release/engine/render"; exit 1; }
           mkdir -p "$RUNNER_TEMP/gdeflate-vectors"
           FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 FA_GDEFLATE_VECTORS_DIR="$RUNNER_TEMP/gdeflate-vectors" \
             "$tests" "-tc=gdeflate: test vectors*,directstorage*"
+          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*"
 
       # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
       - name: Display resolution for the editor autotest

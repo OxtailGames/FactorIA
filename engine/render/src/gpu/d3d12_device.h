@@ -112,6 +112,10 @@ void d3d12_pipeline_cache_count(const D3d12PipelineCacheTotals& add);
 #include <utility>
 #include <vector>
 
+namespace fa {
+class PackReader;
+}
+
 namespace fa::gpu::d3d12 {
 
 // An owning COM pointer (the engine does not depend on WRL). Copy = AddRef, destruction = Release.
@@ -588,6 +592,41 @@ struct D3d12Counters {
     std::uint64_t psoLibraryMisses = 0;         // PSOs compiled and stored into the library
     std::uint64_t pipelineCacheStored = 0;      // times this device wrote its cache file
     std::uint64_t pipelineCacheDiscarded = 0;   // cache files it threw away (damaged, another GPU or driver)
+    std::uint64_t packReadsDirect = 0;          // pack reads DirectStorage wrote into a buffer or image
+    std::uint64_t packReadsCpu = 0;             // pack reads decoded on the CPU and uploaded (the fallback)
+    std::uint64_t packBlocksDirect = 0;         // pack blocks DirectStorage read for them
+    std::size_t packReadsInFlight = 0;          // tickets not finished yet
+};
+
+// A range of a file of a game pack, read into a GPU resource by read_pack_to_buffer / read_pack_to_image.
+struct PackSource {
+    std::shared_ptr<const PackReader> pack;  // kept alive by the read until it finishes
+    std::string path;                        // the file in the pack (project-relative, as PackReader::read takes it)
+    std::uint64_t offset = 0;                // the range's first byte in the (decoded) file
+    std::uint64_t size = 0;                  // its bytes; must lie inside the file
+};
+
+// The texel region of one subresource that read_pack_to_image fills: mip `mip` of layer `layer` (array layer, cube
+// face, or depth slice of a 3D image), the rectangle (x, y, width, height). A compressed format's rectangle starts on a
+// 4x4 block and its size is whole blocks, or reaches the mip's edge.
+struct PackImageRegion {
+    int mip = 0, layer = 0;
+    int x = 0, y = 0, width = 0, height = 0;
+};
+
+// A pack read in flight: invalid (slot -1) when every slot is busy (ask again next frame).
+struct PackReadTicket {
+    int slot = -1;
+    std::uint32_t generation = 0;
+    bool valid() const { return slot >= 0 && generation != 0; }
+};
+
+// How a finished pack read went.
+struct PackReadResult {
+    bool direct = false;             // DirectStorage wrote it (else the CPU decoded it and an upload copied it)
+    std::uint64_t bytes = 0;         // the range's bytes
+    std::uint64_t directBlocks = 0;  // the pack blocks DirectStorage read for it
+    std::string error;               // empty: the destination holds the bytes
 };
 
 // The pipeline cache file (d3d12_pipelines_win32.cpp): a header, then the ID3D12PipelineLibrary's serialized blob.
@@ -691,6 +730,33 @@ public:
     // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
     // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.
     Result<ReadTicket> request_image_read(Image image, int mip, int layer, int x, int y, int width, int height);
+
+    // Pack reads into GPU resources (d3d12_pack_reads_win32.cpp, docs/design/ARCHITECTURE_FILES.md, "DirectStorage").
+    // Bytes [src.offset, src.offset + src.size) of a file of a game pack go into `buffer` from `dstOffset`, or into a
+    // texel region of an image. On Windows x64 with the DirectStorage DLLs (`factoria setup directstorage`), a pack on
+    // disk and a gdeflate (or stored) file, DirectStorage reads the blocks into the resource itself, on a queue made
+    // with this device, and decompresses GDeflate on the GPU where the GPU and its driver can (else on its own CPU
+    // path); a block the range holds only part of is decoded on the CPU and uploaded first. Anything else (no
+    // DirectStorage, a pack in memory, another codec, a texture region whose rows do not fill whole blocks, a failed
+    // DirectStorage read) takes the CPU fallback: PackReader::read_range and an upload, with one warning per reason.
+    // The image read's range holds the region as D3D12's copyable footprint: its rows (of texels, or of 4x4 blocks)
+    // 256-byte aligned apart, the last row unpadded (fa::detail::direct_texture_bytes). Each read takes a slot
+    // (kPackReads in all): the ticket is invalid with ok() when every slot is busy. Until poll_pack_read says the read
+    // finished, the destination must not be used or destroyed (DirectStorage writes it from its own queue). The
+    // resource is left in the COMMON state, which the state tracking knows. Render thread only.
+    static constexpr int kPackReads = 64;
+    Result<PackReadTicket> read_pack_to_buffer(const PackSource& src, Buffer buffer, std::size_t dstOffset);
+    Result<PackReadTicket> read_pack_to_image(const PackSource& src, Image image, const PackImageRegion& region);
+    // True once the read finished (`out` says how, and whether it failed); false while it runs, and for a stale ticket.
+    // `wait` waits (bounded) until it finished. A finished read's ticket is stale after this call.
+    bool poll_pack_read(PackReadTicket ticket, PackReadResult& out, bool wait);
+    // Drops the ticket; the read itself runs to its end before its slot is reused.
+    void release_pack_read(PackReadTicket ticket);
+    // Why reads do not use DirectStorage on this device ("" when they do, or none was asked for yet).
+    std::string pack_reads_direct_why() const;
+    // The pack reads' state (defined in d3d12_pack_reads_win32.cpp; public only so its helpers can name them).
+    struct PackReads;
+    struct PackRead;
     // The size of the bindless table every root signature sees (0 = none: D3d12Options::bindlessDescriptors was 0, or
     // the GPU has resource binding tier 1).
     std::uint32_t bindless_descriptors() const { return bindlessDescriptors_; }
@@ -869,6 +935,13 @@ private:
     bool async_ticket_current(ReadTicket ticket) const;
     // Records the copy of an async read on an internal list, executes it, and hands the slot its ticket.
     Result<ReadTicket> start_async_read(int slot, const char* what, const std::function<void(D3d12CommandList&)>& copy);
+    // Pack reads (d3d12_pack_reads_win32.cpp): the DirectStorage submissions whose graphics work finished go out and
+    // finished reads are collected (poll_pack_read and commit() call it); the destructor's bounded wait for them.
+    void pump_pack_reads();
+    void shutdown_pack_reads();
+    void pack_read_counters(D3d12Counters& c) const;
+    Result<PackReadTicket> start_pack_read(PackRead& r, const char* what);
+    void cpu_pack_read(PackRead& r);
 
     // The D3D12 objects
     Com<IDXGIFactory4> factory_;
@@ -975,6 +1048,10 @@ private:
     };
     std::array<AsyncRead, kAsyncReads> asyncReads_;
     std::uint32_t readGeneration_ = 0;
+
+    // Pack reads (render thread only; their lists under queueMutex_). Declared after device_ and the queue: it goes
+    // before them (shutdown_pack_reads has waited for its reads already).
+    std::shared_ptr<PackReads> packReads_;
 
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;

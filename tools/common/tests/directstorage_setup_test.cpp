@@ -66,6 +66,7 @@ struct Lab {
     std::string package(const std::string& tag, bool withCore = true) {
         std::vector<std::pair<std::string, std::string>> entries = {
             {"LICENSE.txt", "license " + tag},
+            {"NOTICES.txt", "notices " + tag},
             {"native/bin/x64/dstorage.dll", "x64 dstorage " + tag},
             {"native/bin/x86/dstorage.dll", "x86 dstorage " + tag},
             {"native/include/dstorage.h", "// header"},
@@ -100,7 +101,8 @@ SetupComponent directstorage_status(const SetupContext& c) {
 
 }  // namespace
 
-TEST_CASE("setup directstorage: the pinned NuGet package, missing until installed, installable on every host") {
+TEST_CASE(
+    "setup directstorage: the pinned NuGet package, missing on Windows, not needed elsewhere, installable anywhere") {
     Lab lab;
     CHECK(std::string(kSetupDirectStorage.sha256).size() == 64);
     CHECK(std::string(kSetupDirectStorage.version) == "1.3.0");
@@ -109,11 +111,18 @@ TEST_CASE("setup directstorage: the pinned NuGet package, missing until installe
         SetupContext c = lab.ctx();
         c.host = host;
         const SetupComponent s = directstorage_status(c);
-        CHECK(s.state == "missing");
-        CHECK(s.canInstall);
+        CHECK(s.canInstall);  // `factoria setup directstorage` installs it on any host (for Windows exports made there)
         CHECK(s.installSizeMb == kSetupDirectStorage.sizeMb);
-        REQUIRE(!s.problems.empty());
-        CHECK(has_text(s.problems[0], "factoria setup directstorage"));
+        if (std::string(host) == "windows") {
+            CHECK(s.state == "missing");
+            REQUIRE(!s.problems.empty());
+            CHECK(has_text(s.problems[0], "factoria setup directstorage"));
+        } else {
+            CHECK(s.state == "unsupported");  // no red "missing" where nothing runs it
+            CHECK(s.problems.empty());
+            CHECK(has_text(s.details, "Not needed on this computer"));
+            CHECK(has_text(s.details, "factoria setup directstorage"));
+        }
     }
     CHECK(installed_directstorage_dir(lab.ctx()).empty());
     CHECK(has_text(directstorage_install_dir(lab.ctx()), "directstorage"));
@@ -127,7 +136,8 @@ TEST_CASE("setup directstorage: the pinned NuGet package, missing until installe
     CHECK(installed_directstorage_dir(lab.ctx()).empty());
 }
 
-TEST_CASE("setup directstorage: installs the two x64 DLLs and the license, skips when there, --force reinstalls") {
+TEST_CASE(
+    "setup directstorage: installs the two x64 DLLs, the license and notices, skips when there, --force reinstalls") {
     Lab lab;
     const DirectStoragePackage pkg = lab.serve(lab.package("one"));
     const SetupResult r = setup_detail::directstorage_install_package(lab.ctx(), options(), pkg, kUrl);
@@ -137,6 +147,7 @@ TEST_CASE("setup directstorage: installs the two x64 DLLs and the license, skips
     CHECK(testing::read_all(dir / "dstorage.dll") == "x64 dstorage one");
     CHECK(testing::read_all(dir / "dstoragecore.dll") == "x64 dstoragecore one");
     CHECK(testing::read_all(dir / "LICENSE.txt") == "license one");
+    CHECK(testing::read_all(dir / "NOTICES.txt") == "notices one");
     CHECK_FALSE(stdfs::exists(dir / "native"));  // only the two DLLs are kept
     CHECK(installed_directstorage_dir(lab.ctx()) == fs::path_to_utf8(dir));
     const SetupComponent s = directstorage_status(lab.ctx());

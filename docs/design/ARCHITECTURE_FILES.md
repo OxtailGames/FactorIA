@@ -169,34 +169,79 @@ step of the Windows CI job runs the `.gdef` files through DirectStorage's own de
 "test vectors decoded by DirectStorage's codec", Windows x64 only). Bit-compatibility with the GPU decoder itself is checked
 once reads go to GPU destinations (P11b2).
 
-### DirectStorage (`pack_direct_storage_win32.cpp`, M77)
+### DirectStorage (`engine/core/src/direct_storage/`, M77)
 On 64-bit Windows, `PackReader` reads the blocks of a gdeflate file through Microsoft's DirectStorage runtime when its two
 DLLs are there; nothing changes for the callers (`fs::read_file`, `IoQueue`, `read_range` and the streaming readers all end
-in `decode_range`). Everything else, and every other platform, uses the CPU path.
+in `decode_range`). The D3D12 backend also has DirectStorage write pack ranges straight into its buffers and textures
+("GPU destinations" below). Everything else, and every other platform, uses the CPU path.
+
+The folder holds the plan (`pack_direct_plan.cpp`, pure, built everywhere), the engine's declarations of the API
+(`dstorage_api_win32.h`), the runtime (`pack_direct_storage_win32.cpp`) and the header they share
+(`pack_direct_storage.h`). `fa_render` has this one private folder of `fa_core` on its include path, so the D3D12 backend
+reuses the plan and the declarations; core never includes render.
 
 - **The runtime.** `dstoragecore.dll` and `dstorage.dll` (1.1 or newer, the 1.3.0 NuGet package `factoria setup
-  directstorage` installs) are loaded at run time with `LoadLibraryExW` from `FA_DIRECTSTORAGE_DIR` or, by default, the
-  executable's folder (a Windows release export with `export.pack.directStorage` copies them there); `FA_DIRECTSTORAGE=0`
-  turns the reader off. The engine declares the few COM interfaces it calls itself (`IDStorageFactory`, `IDStorageFile`,
-  `IDStorageQueue1`, `IDStorageStatusArray`, `IDStorageCompressionCodec`, with their IIDs and the layout of
-  `DSTORAGE_REQUEST`), so no SDK header is needed to build it and no DLL is needed to run it. One process-wide queue
-  (memory destinations, file source, capacity 256) serves every pack; it is created on the first gdeflate read and never
-  released.
-- **A read.** `pack_direct_plan.cpp` turns a range into one request per block (pure functions, tested on every platform):
-  whole blocks decompress straight into the caller's buffer, the partial first and last blocks into two scratch buffers and
-  are copied from there. The requests go in batches of at most 254 requests and 32 MiB of output; each batch ends with a
-  status-array entry and an event the reading thread waits on (with a log warning when it has waited 30 s). A raw block is
-  a plain read whose xxh32 is checked as on the CPU path; a compressed block is decompressed by DirectStorage from its stored
-  bytes, which never reach the engine, so its checksum is not checked on this path (a damaged stream is a failed request).
-  `PackReader::counters().directBlocks` counts the blocks read this way.
+  directstorage` installs) are loaded at run time with `LoadLibraryExW(LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+  LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` from `FA_DIRECTSTORAGE_DIR` (a relative one is made absolute first) or, by default,
+  the executable's folder (a Windows release export with `export.pack.directStorage` copies them there); a failed load
+  reports its `GetLastError`. `FA_DIRECTSTORAGE=0` turns the reader off. The engine declares the few COM interfaces it
+  calls itself (`IDStorageFactory`, `IDStorageFile`, `IDStorageQueue1`, `IDStorageStatusArray`,
+  `IDStorageCompressionCodec`, with their IIDs and the layout of `DSTORAGE_REQUEST` and its destinations), so no SDK header
+  is needed to build it and no DLL is needed to run it. The DLLs, the factory and the codec (which needs the DLLs only)
+  are separate stages; COM objects are held by an RAII reference, so an error path releases what it made. One
+  process-wide queue (memory destinations, file source, capacity 256) serves every pack; it is created on the first
+  gdeflate read and never released.
+- **A read.** `pack_direct_plan.cpp` turns a range into one request per block: whole blocks decompress straight into the
+  caller's buffer, the partial first and last blocks into two scratch buffers and are copied from there. The requests go in
+  batches of at most 253 requests (a submission of n requests takes n + 2 queue entries with its status and event, and a
+  queue of capacity C holds C - 1) and 32 MiB of output. Each batch takes one of 32 slots (its status-array entry and its
+  own auto-reset event, with a cancellation tag of its own); no lock is held while the reading thread waits. The wait is
+  a loop of 1 s waits that checks the status after each one, so neither a late event nor another read's wake-up is taken
+  for its end; it logs a warning after 30 s, cancels the batch's requests after 10 minutes and redoes the read on the CPU.
+  A slot whose event never came is retired rather than reused, and if DirectStorage does not confirm a cancellation the
+  process stops (`FA_ERROR`, then abort) rather than let it write into freed memory. A raw block is a plain read whose
+  xxh32 is checked as on the CPU path; a compressed block is decompressed by DirectStorage from its stored bytes, which never
+  reach the engine, so its checksum is not checked on this path (a damaged stream is a failed request) unless
+  `FA_DIRECTSTORAGE_VERIFY=1`, which also reads the stored bytes and checks them (a debugging aid: it reads every block
+  twice). `PackReader::counters().directBlocks` counts the blocks read this way.
+- **Share mode.** DirectStorage opens `game.pak` itself (`IDStorageFactory::OpenFile` takes only a path: the share mode is
+  DirectStorage's, a read handle, not the engine's) and the engine keeps that file while the pack (or, for GPU destinations,
+  the device) lives. Treat a running game's `game.pak` as locked, as when it is mapped: replacing or deleting it fails until
+  the game is closed, and so does replacing the DLLs a running game has loaded (the desktop export's copy-failure hint says
+  so).
 - **Where it decompresses.** With memory destinations DirectStorage decompresses GDeflate on its own CPU worker threads, not
-  on the GPU; what it gives now is fewer copies and a queue that batches the file reads. Decompression on the GPU comes with
-  GPU destinations (buffers and textures, P11b2).
-- **Fallback.** Every failure falls back to the CPU path and never crashes: DLLs that are missing or too old, a queue or file
-  that cannot be created, a failed request or a raw block whose checksum is wrong. The first gdeflate read of a pack logs
-  once (`fs`, info) whether DirectStorage is used and, if not, why; a request that fails logs one warning, turns
-  DirectStorage off for that pack and the same read is redone on the CPU, whose checksums name the damaged block.
-- **Tests.** `engine/core/tests/test_pack_direct_storage.cpp`: the plan and the batches (every platform), and on Windows x64
-  a gdeflate pack with raw blocks inside, read whole and by ranges, mapped and not, through DirectStorage. Without the DLLs
-  the Windows cases are skipped; `FA_DIRECTSTORAGE_REQUIRE=1` makes them fail instead, which the Windows CI job sets in its
-  DirectStorage step (it installs the DLLs with `factoria setup directstorage` and runs these cases and the GDeflate vectors).
+  on the GPU; what it gives is fewer copies and a queue that batches the file reads. GPU destinations decompress on the GPU.
+- **GPU destinations (D3D12 backend, `d3d12_pack_reads_win32.cpp`, P11b2).** `D3d12Device::read_pack_to_buffer(PackSource,
+  Buffer, dstOffset)` and `read_pack_to_image(PackSource, Image, PackImageRegion)` return a ticket polled like the
+  asynchronous reads (`poll_pack_read`, `release_pack_read`; 64 slots). `PackReader::range_layout` tells the backend where
+  the range's blocks lie (pack file, codec, offsets, stored sizes); the device opens its own `IDStorageFile` for the pack and
+  makes its own queue (capacity 2048, `DSTORAGE_QUEUE_DESC::Device` set to the D3D12 device, so DirectStorage decompresses
+  GDeflate on the GPU where the GPU and driver can, else on its CPU path), a status array and a fence. A buffer read sends
+  each whole block as a `DSTORAGE_REQUEST_DESTINATION_BUFFER` request; the partial first and last blocks are decoded on the
+  CPU (`read_range`) and uploaded first. An image read sends one `DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION` per block:
+  the range holds the region as D3D12's copyable footprint (rows of texels, or of 4x4 blocks, 256-byte aligned apart, the
+  last row unpadded), and it goes to DirectStorage only when every block decodes to whole rows (the range starts and ends on
+  block boundaries, and the region fits one block or its rows' bytes are a multiple of 256). DirectStorage writes resources in the COMMON state: a read first runs an
+  internal list that moves the texture's subresource to COMMON (buffers are COMMON between lists already) and records it in
+  the state tracking; once that list finished on the GPU the requests, a status entry and a fence signal go to the queue;
+  once the status is complete and the fence reached its value, the D3D12 queue waits for that fence, so the lists
+  submitted afterwards see the bytes. `commit()` and `poll_pack_read` move reads along; the destructor waits for (and,
+  after 30 s, cancels) the reads DirectStorage still holds before the queue, the files and the resources go. More than
+  2045 blocks in one read is an error that says to split it. **Fallback:** a pack opened from memory, another codec, a
+  32-bit build, no DLLs, a queue that cannot be made, a texture region whose rows do not fill whole blocks, or a request
+  that fails: the range is decoded on the CPU and uploaded on an internal list, with one log warning per reason (a failed
+  request also turns DirectStorage off for that device). `PackReadResult::direct` says which path wrote the bytes;
+  `D3d12Counters` counts both and the blocks DirectStorage read.
+- **Fallback.** Every failure of the memory path falls back to the CPU path: DLLs that are missing or too old, a queue or
+  file that cannot be created, a failed or cancelled request or a raw block whose checksum is wrong. The first gdeflate read
+  of a pack logs once (`fs`, info) whether DirectStorage is used and, if not, why; a request that fails logs one warning,
+  turns DirectStorage off for that pack and the same read is redone on the CPU, whose checksums name the damaged block.
+- **Tests.** `engine/core/tests/test_pack_direct_storage.cpp`: the plan, the batches, the queue's room, the buffer split,
+  the texture footprint and `range_layout`/`check_stored` (every platform), and on Windows x64 a gdeflate pack with raw
+  blocks inside, read whole and by ranges, mapped and not, through DirectStorage. `engine/render/tests/
+  d3d12_pack_reads_tests.cpp` (ctest `render_d3d12_pack_reads`): on WARP, a gdeflate range into a buffer (whole and partial
+  blocks) and a 64x2048 RGBA8 region into a texture, the CPU fallback (a pack in memory, an lz4 file, a padded region) and
+  the teaching errors. Without the DLLs the DirectStorage cases check the fallback's bytes and say so;
+  `FA_DIRECTSTORAGE_REQUIRE=1` makes them fail instead, which the Windows CI job sets in its DirectStorage step (it
+  installs the DLLs with `factoria setup directstorage`, cached under the pinned version and SHA-256, and runs these cases
+  and the GDeflate vectors).
