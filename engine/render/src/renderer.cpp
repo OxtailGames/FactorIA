@@ -331,7 +331,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
         // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
         // window never takes it).
-        const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
+        const render::FeatureBackend backend = render::feature_env_from_device(gpu->device()).backend;
         if (world.settings().hdrOutput == HdrOutput::Auto &&
             (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
             const TargetFormat hdrFormat{gpu::PixelFormat::Rgba16F, presentFormat.depth, presentFormat.samples};
@@ -620,7 +620,7 @@ const render::QualityLimits& Renderer::quality() const { return impl_->quality; 
 ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
 render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
     render::FeatureEnv env;  // headless (no GPU) until the renderer has one
-    if (initialized()) env = render::feature_env_from_sokol();
+    if (initialized()) env = render::feature_env_from_device(impl_->gpu.device());
     return render::resolve_quality(preset, env);
 }
 render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
@@ -712,7 +712,7 @@ void Renderer::set_shader_compiler(ShaderCompiler compiler) {
     if (impl_ && impl_->assets) impl_->assets->set_shader_compiler(shaderCompiler_);
 }
 std::string Renderer::shader_dialect() const {
-    return initialized() ? backend_dialect(sg_query_backend()) : std::string();
+    return initialized() ? backend_dialect(impl_->gpu.device().info()) : std::string();
 }
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
@@ -791,14 +791,14 @@ bool Renderer::supports(std::string_view feature) const {
     if (!initialized()) return false;
     const int index = render::find_feature(feature);
     if (index < 0) return false;
-    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
 Json Renderer::supports_report() const {
     if (!initialized()) return Json::object();
-    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_report(env, backend_name());
 }
@@ -907,7 +907,7 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     if (!initialized()) return;
     Impl& im = *impl_;
     if (!im.backendKnown) {  // the backend never changes once the context is open: asked once, not every frame
-        im.backend = render::feature_env_from_sokol().backend;
+        im.backend = render::feature_env_from_device(im.gpu.device()).backend;
         im.backendKnown = true;
     }
     // Called every frame: the request is kept and changed only where a value differs (a string is compared, never assigned, when it
@@ -2035,9 +2035,11 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
     BackgroundWork w;
     switch (kind) {
         case BackgroundKind::Texture: {
-            const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            const gpu::PixelFormat format =
+                impl_ ? render::ktx2_target_format(impl_->gpu.device()) : gpu::PixelFormat::Rgba8;
             // The colour space the texture will be made for (asked here, on the calling thread, not in the worker).
-            const bool srgbMips = impl_ && impl_->gpu.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+            const bool srgbMips =
+                impl_ && impl_->gpu.texture_format(gpu::PixelFormat::Rgba8) != gpu::PixelFormat::Rgba8;
             w.read = [path]() -> Result<IoFile> {
                 // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
                 const assets::PackedTexture packed = assets::packed_texture(path);

@@ -451,7 +451,7 @@ bool WaterFx::draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const Draw
     gpu::CommandList& list = gpu.commands();  // the pass the caller opened is on this list
     list.set_pipeline(pipe);
     gpu::Bindings b;
-    b.vertexBuffers[0] = gpu::from_sg(env.vertices);
+    b.vertexBuffers[0] = env.vertices;
     b.vertexBufferOffsets[0] = int(std::size_t(firstQuad) * 4 * sizeof(Vertex2D));
     b.indexBuffer = gpu.quad_index_buffer();
     b.views[VIEW_water2d_scene_tex] = env.scene;

@@ -234,7 +234,7 @@ struct GiSystem {
         int probe = 0, face = 0, distIndex = 0;
         bool last = false;   // the sixth face of the capture: the block is filtered after it
         bool first = false;  // the probe's first capture: it replaces the block instead of blending into it
-        sg_view picture{};
+        gpu::View picture{};
     };
     std::vector<Job> jobs;
     std::deque<GiFacePlan> plans;  // one per job: a JobPlan keeps a pointer
@@ -274,7 +274,7 @@ struct ProbeSystem {
         int slot = 0, face = 0;
         bool last = false;
         std::uint64_t key = 0;  // view_image key of the face picture
-        sg_view picture{};      // the face's image (upright), valid until the frame is done
+        gpu::View picture{};    // the face's image (upright), valid until the frame is done
     };
     std::vector<Job> jobs;
     int drawCalls = 0;  // passes of the probes since the renderer was made (reported)

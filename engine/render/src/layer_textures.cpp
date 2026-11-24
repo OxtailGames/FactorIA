@@ -130,7 +130,7 @@ struct Sources {
             }
         } else if (auto twin = fs::read_bytes(r.path + kTextureTwinExtension); twin) {
             // An export replaces the picture by its GPU twin: read the twin as RGBA8.
-            auto tex = transcode_ktx2_as(twin->data(), twin->size(), SG_PIXELFORMAT_RGBA8);
+            auto tex = transcode_ktx2_as(twin->data(), twin->size(), gpu::PixelFormat::Rgba8);
             if (tex && !tex->levels.empty() && tex->width > 0 && tex->height > 0 &&
                 tex->levels[0].size() == std::size_t(tex->width) * std::size_t(tex->height) * 4 &&
                 std::uint64_t(tex->width) * std::uint64_t(tex->height) <= kMaxLayerPackPixels) {

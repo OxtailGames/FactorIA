@@ -245,16 +245,16 @@ enum class TexEncoding : std::uint8_t { Raw, Srgb, Scene };
 struct TextureAsset {
     std::string path;
     TexEncoding enc = TexEncoding::Raw;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
     // A picture something draws into every frame (a camera's render target or view, a compute image): its contents change
     // under the same view id, so a copy of it made once is stale (the 2D light cookie atlas copies it every frame).
     // (Probes and GI faces are marked too, though a cookie cannot reach them today.)
     bool live = false;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
-    std::size_t bytes = 0;                          // GPU memory of all mip levels
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;  // what the GPU holds (compressed when the file is a KTX2 twin)
+    std::size_t bytes = 0;                              // GPU memory of all mip levels
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
     TextureAsset* atlas = nullptr;
     int atlasX = 0, atlasY = 0;
@@ -262,7 +262,7 @@ struct TextureAsset {
     // use (LoadTrace::file_used), so the load order lists them where a load on first use would have read them.
     std::vector<std::string> untraced;
 
-    sg_view gpu_view() const { return atlas ? atlas->view : view; }
+    gpu::View gpu_view() const { return atlas ? atlas->view : view; }
     // The fix the shader applies to a sample of this texture (fa_tex_fix: 0 none, 1 sRGB -> linear, 2 linear -> sRGB) so that a
     // colour use sees linear light in a linear scene and the file's own values otherwise, and a data use (normal map, masks)
     // always sees the file's values: one texture asset serves both uses, whichever format it was made in (the first user that
@@ -304,31 +304,32 @@ inline void normal_uv_transform(const TextureAsset& diffuse, const TextureAsset&
 // A KTX2 file (Basis Universal, UASTC or ETC1S) transcoded for the GPU (ktx2.cpp).
 struct TranscodedTexture {
     int width = 0, height = 0;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;
     std::vector<std::vector<std::uint8_t>> levels;  // every mip level, largest first
 };
 // Picks the best format this GPU samples: ASTC 4x4 (mobile GPUs), BC7 (desktop), ETC2 RGBA8 (every GLES3 device), else
 // RGBA8. `allowCompressed` false goes straight to RGBA8. The environment variable FA_TEXTURE_FORMAT (astc, bc7, etc2 or
 // rgba8) narrows the choice to that one format, to test a path on a GPU that would pick another.
-Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed);
+Result<TranscodedTexture> transcode_ktx2(gpu::Device& device, const std::uint8_t* data, std::size_t size,
+                                         bool allowCompressed);
 // The format transcode_ktx2 picks with compression allowed (asks the GPU: main thread), and the transcode to a format
 // chosen before (any thread: what a background decode job runs). A format that is not a block format, or a size that
 // is not a multiple of 4, gives RGBA8.
-sg_pixel_format ktx2_target_format();
-Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format);
-const char* pixel_format_name(
-    sg_pixel_format
+gpu::PixelFormat ktx2_target_format(gpu::Device& device);
+Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, gpu::PixelFormat format);
+const char* texture_format_name(
+    gpu::PixelFormat
         format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8", the sRGB twins ("SRGB8A8", "BC7_SRGB", ...), "RGBA16F", "R11G11B10"
 
 struct SubMesh {
-    sg_buffer vb{};
-    sg_buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
-    sg_buffer
+    gpu::Buffer vb{};
+    gpu::Buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
+    gpu::Buffer
         uv1Vb{};  // TEXCOORD_1 (two floats per vertex) when the glTF primitive has it, else id 0 (a material's "uv1")
-    sg_buffer
+    gpu::Buffer
         color1Vb{};  // COLOR_1 (four normalized bytes per vertex, like MeshVertex::color) when it has it, else id 0
     int skin = -1;   // index of the glTF skin that deforms it (-1 = not skinned)
-    sg_buffer ib{};
+    gpu::Buffer ib{};
     int ibOffset = 0;  // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
     int indexCount = 0;
@@ -365,7 +366,7 @@ struct MeshLightmap {
     std::string uvKind;  // "gltf" or "generated"
     std::string hashHex;         // lightmap_hash_hex of the geometry: compared with the manifest entry's meshHash
     std::vector<SubMesh> parts;  // one per part of the mesh, in the same order
-    sg_buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
+    gpu::Buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
 };
 
 struct MeshAsset {
@@ -382,8 +383,8 @@ struct MeshAsset {
 struct LightmapPageGpu {
     std::string file;
     int width = 0, height = 0;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     std::size_t bytes = 0;
     bool ok =
         false;  // false: the file could not be read (reported once); entities on this page are drawn without a lightmap
@@ -466,7 +467,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t 
 // A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread. `srgbMips`: the
 // texture will be made as an sRGB image (a linear scene, Gpu::texture_format of the main thread): its mips average in linear light.
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips = false);
+                                            std::size_t size, gpu::PixelFormat ktx2Format, bool srgbMips = false);
 
 // Fonts ---------------------------------------------------------------------
 struct GlyphInfo {
@@ -508,7 +509,7 @@ struct TextLayout {
 // target's format changes.
 struct PipelineKey {
     std::uint32_t bits = 0;    // which pipeline (the getter and its flags)
-    std::uint32_t shader = 0;  // sg_shader id of a custom material program (0 = the built-in one)
+    std::uint32_t shader = 0;  // gpu::Shader id of a custom material program (0 = the built-in one)
     TargetFormat format{};     // what the pass the pipeline draws in writes into
     bool operator<(const PipelineKey& o) const {
         if (bits != o.bits) return bits < o.bits;
@@ -669,8 +670,7 @@ constexpr int mesh_fragment_units(int phase) {
 constexpr bool mesh_fragment_views_valid() {
     for (int i = 0; i < kMeshFragmentViewCount; ++i) {
         const MeshFragmentView& a = kMeshFragmentViews[i];
-        if (a.view < 0 || a.view >= SG_MAX_VIEW_BINDSLOTS || a.sampler >= kMeshSamplerSlots ||
-            a.firstPhase > a.lastPhase)
+        if (a.view < 0 || a.view >= gpu::kMaxViews || a.sampler >= kMeshSamplerSlots || a.firstPhase > a.lastPhase)
             return false;
         const bool storageRange = a.view >= kMeshBufferFirstView && a.view < kMeshNewViewFirst;
         if (storageRange) return false;
@@ -714,9 +714,9 @@ static_assert(kMaterialSpriteSceneView == 15 &&
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
 struct MaterialProgram {
-    sg_shader shader{};                                       // id 0 = the material has no such program
+    gpu::Shader shader{};                                     // id 0 = the material has no such program
     std::uint32_t ubMask = 0, viewMask = 0, samplerMask = 0;  // bit n = slot n is declared
-    std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};    // bytes of each declared uniform block
+    std::uint32_t ubSize[gpu::kMaxUniformBlocks]{};           // bytes of each declared uniform block
     bool has_ub(int slot) const { return (ubMask >> slot) & 1u; }
 };
 enum MaterialProgramId : int {
@@ -785,7 +785,7 @@ struct MaterialBufferDef {
 struct MaterialImageDef {
     std::string name;
     int binding = 0;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;
     bool readWrite = false;         // the shader may imageLoad it too
     int width = 256, height = 256;  // the size compute.create_image uses when it gets none
 };
@@ -868,19 +868,18 @@ inline const char* missing_channel(const MaterialAsset& m, const SubMesh& part) 
     return nullptr;
 }
 
-// The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
-std::string backend_dialect(sg_backend backend);
-// The same for the device the renderer runs on (Device::info(): the backend and, on Metal, its platform).
+// The shader dialect of the device the renderer runs on ("hlsl5", "glsl430"...; Device::info(): the backend and, on
+// Metal, its platform); "" for an unsupported one.
 std::string backend_dialect(const gpu::DeviceInfo& info);
 
-// The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
+// The gpu::ShaderDesc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
 // shader is not made). The desc points into `program`, which must outlive it.
 // A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them
 // with the shader).
 // `materialTextures` names the material's textures, so the too-many-texture-pairs error tells them from the engine's.
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
-                                            const int* workgroup = nullptr,
-                                            const std::vector<std::string>* materialTextures = nullptr);
+Result<gpu::ShaderDesc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
+                                             const int* workgroup = nullptr,
+                                             const std::vector<std::string>* materialTextures = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
 Result<MaterialProgram> make_material_program(gpu::Device& device, const std::string& label, const Json& program,
                                               const int* workgroup = nullptr,
@@ -1173,8 +1172,8 @@ struct CameraInfo : CameraGeometry {
 // cube_lut_strip). `view` is empty when the file could not be loaded (Assets::lut then answers null).
 struct LutAsset {
     std::string path;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int size = 0, cols = 0, rows = 0;  // colours per side, and how many slices sit across and down the image
     std::size_t bytes = 0;
     bool retryPending =
@@ -1186,8 +1185,8 @@ struct LutAsset {
 // successful load, so a file that is reloaded is a different environment even at the same path.
 struct HdriAsset {
     std::string path;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int width = 0, height = 0;  // what the GPU has (mip 0)
     std::size_t bytes = 0;
     std::uint64_t serial = 0;
@@ -1341,7 +1340,7 @@ public:
     // (the program always declares it). Grows; the buffer of an earlier call may be destroyed by a later one, so ask again every draw.
     // `vertices` must be the part's own vertex count (SubMesh::vertexCount, the whole shared buffer for a lightmap mesh): the draw reads uv1
     // at every index of the part, so an index at or past `vertices` would read past the zeros.
-    sg_buffer zero_uv1(std::size_t vertices);
+    gpu::Buffer zero_uv1(std::size_t vertices);
 
     // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
     // there already (loaded on first use meanwhile: the prepared one is dropped). `files`: the project files its read and
@@ -1389,13 +1388,13 @@ private:
     std::unique_ptr<LightmapSetAsset> lightmapSet_;
     std::string
         lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
-    sg_buffer zeroUv1_{};
+    gpu::Buffer zeroUv1_{};
     std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {
         std::unique_ptr<MeshAsset> asset;
         std::uint64_t version = 0;  // MeshStore::Entry::version the GPU copy was made from
-        sg_buffer vb{}, ib{};       // shared by every part
-        sg_buffer vbStage{},
+        gpu::Buffer vb{}, ib{};     // shared by every part
+        gpu::Buffer vbStage{},
             ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
         std::size_t vbCap = 0, ibCap = 0;  // bytes the buffers hold
         std::uint64_t stagedFrame = 0;     // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
@@ -1831,7 +1830,7 @@ public:
     // The format a COLOUR texture of this format is made in now: in a linear scene the sRGB variant (SRGB8A8, BC7/ASTC/ETC2 sRGB)
     // where the GPU samples and filters it, so the GPU decodes the texels to linear light before filtering; the format itself in
     // a gamma scene or where there is no sRGB variant (the shader then decodes: TextureAsset::enc, tex_fix).
-    sg_pixel_format texture_format(sg_pixel_format unorm) const;
+    gpu::PixelFormat texture_format(gpu::PixelFormat unorm) const;
     // The GPU decodes SRGB8A8 when it samples it (every backend but some old GLES).
     bool srgb_textures() const { return srgbTextures_; }
 

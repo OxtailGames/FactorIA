@@ -43,7 +43,7 @@ void HdriSky::draw(Gpu& gpu, const HdriAsset& hdri, float rotationDegrees, float
     list.set_pipeline(format ? gpu.sky_pipeline(*format, shader_) : gpu.sky_pipeline(shader_));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_hdri_hdri_tex] = gpu::from_sg(hdri.view);
+    b.views[VIEW_hdri_hdri_tex] = hdri.view;
     b.samplers[SMP_hdri_hdri_smp] = sampler_;
     list.set_bindings(b);
     hdri_hdri_vs_params_t vu{};

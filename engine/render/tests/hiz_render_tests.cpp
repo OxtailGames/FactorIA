@@ -73,8 +73,8 @@ int differing(const Image& a, const Image& b) {
 }
 
 bool has_hiz() {
-    return render::feature_supported(render::feature_env_from_sokol(), render::find_feature("occlusionGpu")) &&
-           render::AsyncBufferRead::supported();
+    const render::FeatureEnv env = render::feature_env_from_device(RendererTestAccess::gpu(gfx().renderer)->device());
+    return render::feature_supported(env, render::find_feature("occlusionGpu")) && render::AsyncBufferRead::supported();
 }
 
 // Draws `frames` frames of `w` and returns the last picture.
