@@ -146,8 +146,9 @@ struct PackExportSettings {
     // `codecs`, keep theirs). With "auto", a Windows export with `directStorage` on packs those files as "gdeflate", the
     // stream DirectStorage 1.1 decompresses on the GPU.
     std::string codec = "auto";
-    // export.pack.directStorage: used by the Windows DirectStorage reader, which arrives in M77 (the option is read and
-    // saved now and has no other effect than the "auto" codec above). Default off.
+    // export.pack.directStorage: the "auto" codec above, and a Windows release export copies the DirectStorage DLLs
+    // `setup directstorage` installed next to the game (a warning when they are not installed), whose pack reader then
+    // reads its gdeflate files through DirectStorage (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). Default off.
     bool directStorage = false;
     bool operator==(const PackExportSettings&) const = default;
 };

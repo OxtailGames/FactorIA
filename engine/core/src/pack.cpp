@@ -5,14 +5,17 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <new>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "compress_internal.h"
+#include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
+#include "pack_direct_storage.h"
 #include "pack_file.h"
 
 namespace stdfs = std::filesystem;
@@ -368,7 +371,17 @@ Result<PackStats> PackWriter::write(const stdfs::path& out) const {
 
 // ================================================================== PackReader
 
+// DirectStorage reads of one pack (pack_direct_storage.h). The file is opened on the first gdeflate read, so a game that
+// reads none never loads the runtime.
+struct PackReader::Direct {
+    std::once_flag opened;
+    std::shared_ptr<detail::DirectStorageFile> file;  // null: not used (`off` says so)
+    std::atomic<bool> off{false};                     // set once: every read of this pack takes the CPU path
+    std::atomic<std::uint64_t> blocks{0};             // blocks it read (Counters::directBlocks)
+};
+
 PackReader::~PackReader() {
+    direct_.reset();  // DirectStorage's handle of the file goes first, so the registry below is right about it too
     if (!inMemory_) detail::pack_unmap(map_, mapSize_, mapping_);  // open_memory's bytes are not a mapping
     detail::pack_close(native_);
     // After the file is let go, as fs::ReadStream does: the registry never says closed while the file is still open.
@@ -566,6 +579,12 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
     // and to delete a mapped one; an unmapped one shares delete (pack_file_win32.cpp), so a delete goes through: the
     // emulation does the same for as long as the reader lives.
     pack->registered_ = fs::detail::register_open_file(*file, /*sharesDelete=*/pack->map_ == nullptr);
+    if constexpr (detail::kDirectStorageBuilt) {
+        const bool gdeflate = std::any_of(pack->entries_.begin(), pack->entries_.end(), [](const Entry& e) {
+            return e.codec == Codec::GDeflate && e.blockCount > 0;
+        });
+        if (gdeflate) pack->direct_ = std::make_shared<Direct>();
+    }
     return std::shared_ptr<const PackReader>(std::move(pack));
 }
 
@@ -621,8 +640,80 @@ void PackReader::count(std::uint64_t bytes, std::uint64_t stored) const {
     storedRead_.fetch_add(stored, std::memory_order_relaxed);
 }
 
+bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const {
+    Direct& d = *direct_;
+    if (d.off.load(std::memory_order_acquire)) return false;
+    std::call_once(d.opened, [&] {
+        std::string why;
+        d.file = detail::direct_storage_open(file_, why);
+        if (d.file) {
+            FA_INFO("fs", "{}: DirectStorage reads and decompresses its gdeflate files", quoted(file_));
+        } else {
+            d.off.store(true, std::memory_order_release);
+            FA_INFO("fs", "{}: gdeflate files are decompressed on the CPU, DirectStorage is not used: {}",
+                    quoted(file_), why);
+        }
+    });
+    if (!d.file || d.off.load(std::memory_order_acquire)) return false;
+    // The plan covers the blocks that hold the range only: block indices and the range are made relative to the first.
+    const std::uint64_t B = blockSize_, firstK = from / B, lastK = (from + out.size() - 1) / B;
+    if (lastK >= e.blockCount) return false;
+    std::vector<detail::DirectBlock> blocks;
+    blocks.reserve(std::size_t(lastK - firstK + 1));
+    for (std::uint64_t k = firstK; k <= lastK; ++k) {
+        const Block& b = blocks_[std::size_t(e.firstBlock + k)];
+        blocks.push_back(detail::DirectBlock{b.offset, b.stored, b.raw});
+    }
+    const std::uint64_t base = firstK * B;
+    const auto requests = detail::plan_direct_requests(blocks, B, e.size - base, from - base, out.size());
+    const auto batches =
+        detail::batch_direct_requests(requests, detail::kDirectBatchRequests, detail::kDirectBatchBytes);
+    std::vector<std::uint8_t> scratch[2];  // the first and the last block when the range holds only part of them
+    std::vector<detail::DirectIo> ios;
+    std::string failure;
+    for (const detail::DirectBatch& batch : batches) {
+        ios.clear();
+        for (std::size_t i = batch.first; i < batch.first + batch.count; ++i) {
+            const detail::DirectRequest& r = requests[i];
+            std::uint8_t* dest = out.data() + r.outOffset;
+            if (r.scratch >= 0) {
+                scratch[r.scratch].resize(r.decodedSize);
+                dest = scratch[r.scratch].data();
+            }
+            ios.push_back(detail::DirectIo{r.fileOffset, r.storedSize, r.decodedSize, r.compressed, dest});
+        }
+        if (auto done = detail::direct_storage_read(*d.file, ios); !done.ok()) {
+            failure = done.error().message;
+            break;
+        }
+        std::size_t io = 0;
+        for (std::size_t i = batch.first; i < batch.first + batch.count; ++i, ++io) {
+            const detail::DirectRequest& r = requests[i];
+            const std::uint32_t k = std::uint32_t(firstK) + r.block;
+            // A raw block's bytes are its stored bytes: checked as the CPU path checks them.
+            if (!r.compressed &&
+                xxh32(ios[io].dest, r.decodedSize) != blocks_[std::size_t(e.firstBlock) + k].checksum) {
+                failure = "block " + std::to_string(k + 1) + " of '" + e.path + "' does not match its checksum";
+                break;
+            }
+            if (r.scratch >= 0) std::memcpy(out.data() + r.outOffset, ios[io].dest + r.copyFrom, r.copyLength);
+        }
+        if (!failure.empty()) break;
+    }
+    if (failure.empty()) {
+        d.blocks.fetch_add(requests.size(), std::memory_order_relaxed);
+        return true;
+    }
+    // Not this read only: a pack whose reads fail through DirectStorage is read on the CPU from now on.
+    if (!d.off.exchange(true, std::memory_order_acq_rel))
+        FA_WARN("fs", "{}: DirectStorage failed ({}); its gdeflate files are decompressed on the CPU from now on",
+                quoted(file_), failure);
+    return false;
+}
+
 Result<void> PackReader::decode_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const {
     if (out.empty()) return {};
+    if (direct_ && e.codec == Codec::GDeflate && e.blockCount > 0 && direct_range(e, from, out)) return {};
     const auto readError = [&] {
         return make_error("Failed while reading '" + e.path + "' from the game pack " + quoted(file_),
                           "The pack may be damaged or on a drive that went away. Export the game again.");
@@ -740,7 +831,8 @@ std::vector<std::string> PackReader::data_order() const {
 
 PackReader::Counters PackReader::counters() const {
     return Counters{reads_.load(std::memory_order_relaxed), bytesRead_.load(std::memory_order_relaxed),
-                    storedRead_.load(std::memory_order_relaxed)};
+                    storedRead_.load(std::memory_order_relaxed),
+                    direct_ ? direct_->blocks.load(std::memory_order_relaxed) : 0};
 }
 
 std::vector<std::string> PackReader::list(std::string_view dir, bool recursive) const {

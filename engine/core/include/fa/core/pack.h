@@ -48,6 +48,14 @@
 // FA_PACK_MAP=0 environment variable or PackOpenOptions::map false) it falls back to positional reads (pread /
 // ReadFile with an offset). Both are safe from any number of threads at the same time.
 //
+// DirectStorage (64-bit Windows, docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). The blocks of a gdeflate file are
+// read by Microsoft's DirectStorage runtime when dstorage.dll and dstoragecore.dll lie next to the executable (a Windows
+// export with export.pack.directStorage puts them there): it reads them from the pack and decompresses them into the
+// reader's memory itself. A raw block it reads as it is, and its checksum is checked; a compressed block is not
+// checksummed on this path (its stored bytes never reach the engine), a stream DirectStorage cannot decode is a failed
+// request. Any failure (no DLLs, a runtime older than 1.1, a failed request) logs why once and that pack's reads go back
+// to the CPU path above, which names a damaged block. FA_DIRECTSTORAGE=0 turns it off; other platforms never use it.
+//
 // A pack is immutable: the writer builds a new file next to the target and renames it over it when it is complete, so
 // a game that has the old pack mapped keeps reading the old bytes on macOS and Linux (rename never touches the old
 // file; changing a mapped pack IN PLACE, by truncating it, would make the reading process crash with SIGBUS, which is
@@ -223,8 +231,11 @@ public:
 
     // Reads served since the pack was opened (read, read_range and view calls that succeeded) and the bytes they
     // returned and took from the pack (stored, before decoding). For the loading section of a play report.
+    // `directBlocks`: blocks of gdeflate files DirectStorage read and decompressed (Windows x64, see "DirectStorage"
+    // below); 0 everywhere else and whenever it is not used.
     struct Counters {
         std::uint64_t reads = 0, bytes = 0, storedBytes = 0;
+        std::uint64_t directBlocks = 0;
     };
     Counters counters() const;
 
@@ -258,6 +269,9 @@ private:
     // Decodes bytes [from, from + out.size()) of `e` into `out`.
     Result<void> decode_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const;
     Error damaged(const Entry& e, std::uint32_t block, const std::string& what) const;
+    // The DirectStorage path of decode_range for a gdeflate file (pack.cpp): true when `out` holds the bytes, false when
+    // the CPU path must read them (DirectStorage is not there, or a request failed: it says why once in the log).
+    bool direct_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const;
     void count(std::uint64_t bytes, std::uint64_t stored) const;
 
     std::filesystem::path file_;
@@ -274,6 +288,8 @@ private:
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
     mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};
+    struct Direct;  // DirectStorage state (pack.cpp): only for a pack file with gdeflate files, on Win64
+    std::shared_ptr<Direct> direct_;  // shared_ptr: its type stays incomplete here
 };
 
 }  // namespace fa

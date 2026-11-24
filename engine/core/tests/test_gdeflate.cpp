@@ -1,7 +1,7 @@
 // GDeflate (fa::Codec::GDeflate): round trips across tile and block boundaries, the layout of the stream, corrupt input,
 // determinism, the pak with gdeflate blocks (mapped and read, and through the storage layer) and a decode-speed bench.
 // The test vectors a Windows CI job checks against DirectStorage's own decoder are written by the case "test vectors"
-// (docs/design/ARCHITECTURE_FILES.md, "GDeflate").
+// and read back by "test vectors decoded by DirectStorage" (Windows x64; docs/design/ARCHITECTURE_FILES.md, "GDeflate").
 #include <doctest.h>
 
 #include <algorithm>
@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../src/compress_internal.h"
+#include "../src/pack_direct_storage.h"
 #include "fa/core/compress.h"
 #include "fa/core/fs.h"
 #include "fa/core/pack.h"
@@ -89,6 +90,27 @@ Bytes stream_of(const Bytes& in, int level = 0) {
 }
 
 std::uint32_t le32(const Bytes& b, std::size_t at) { return codec::load32(b.data() + at); }
+
+// The test vectors: fixed by seeds and sizes, with the FNV-1a hash of the raw bytes and of the stream this encoder writes.
+struct Vector {
+    const char* name;
+    Bytes raw;
+    std::uint64_t rawHash;
+    std::uint64_t gdefHash;
+};
+std::vector<Vector> test_vectors() {
+    std::vector<Vector> vectors;
+    vectors.push_back({"empty", {}, 0xcbf29ce484222325ull, 0xfa78522c67d13e09ull});
+    vectors.push_back({"byte", Bytes{42}, 0xaf63a74c8601927dull, 0x91e5d2497f6d8876ull});
+    vectors.push_back(
+        {"text_one_tile_less_one", text_bytes(kTile - 1, 1), 0x46be7a61e673b621ull, 0xd48e3ba0ff146bafull});
+    vectors.push_back({"text_two_tiles", text_bytes(kTile + 1, 2), 0x0aee8c7a934b6e9eull, 0xe5a7988735a550a6ull});
+    vectors.push_back({"text_block", text_bytes(262144, 3), 0xae0bbc0533a5585cull, 0x51387ba926f7915eull});
+    vectors.push_back({"noise_block", random_bytes(262144, 4), 0x67b493646fb23a27ull, 0x377c41fe3c6cfcceull});
+    vectors.push_back({"zeros_block", Bytes(262144, 0), 0x9c735bed0a722325ull, 0xf3bdb0a4666bfb84ull});
+    vectors.push_back({"structured", structured_bytes(200000), 0x547946993377b75dull, 0x5d4ab3e52beff416ull});
+    return vectors;
+}
 
 }  // namespace
 
@@ -422,24 +444,9 @@ TEST_CASE("gdeflate: test vectors for the DirectStorage decoder") {
     // The vectors are fixed by seeds and sizes: raw bytes and the stream this encoder writes for them. The FNV-1a hash
     // of every raw and stream is pinned here, so a change of the encoder's output (on any platform: it is integer-only)
     // is a deliberate one (FA_GDEFLATE_PRINT_HASHES=1 prints the new values); FA_GDEFLATE_VECTORS_DIR=<dir> also
-    // writes <name>.raw and <name>.gdef for a job that feeds them to DirectStorage's decoder (M77 P11b) and compares
-    // the result to the .raw.
-    struct Vector {
-        const char* name;
-        Bytes raw;
-        std::uint64_t rawHash;
-        std::uint64_t gdefHash;
-    };
-    std::vector<Vector> vectors;
-    vectors.push_back({"empty", {}, 0xcbf29ce484222325ull, 0xfa78522c67d13e09ull});
-    vectors.push_back({"byte", Bytes{42}, 0xaf63a74c8601927dull, 0x91e5d2497f6d8876ull});
-    vectors.push_back(
-        {"text_one_tile_less_one", text_bytes(kTile - 1, 1), 0x46be7a61e673b621ull, 0xd48e3ba0ff146bafull});
-    vectors.push_back({"text_two_tiles", text_bytes(kTile + 1, 2), 0x0aee8c7a934b6e9eull, 0xe5a7988735a550a6ull});
-    vectors.push_back({"text_block", text_bytes(262144, 3), 0xae0bbc0533a5585cull, 0x51387ba926f7915eull});
-    vectors.push_back({"noise_block", random_bytes(262144, 4), 0x67b493646fb23a27ull, 0x377c41fe3c6cfcceull});
-    vectors.push_back({"zeros_block", Bytes(262144, 0), 0x9c735bed0a722325ull, 0xf3bdb0a4666bfb84ull});
-    vectors.push_back({"structured", structured_bytes(200000), 0x547946993377b75dull, 0x5d4ab3e52beff416ull});
+    // writes <name>.raw and <name>.gdef for the next case, which feeds them to DirectStorage's decoder and compares the
+    // result to the .raw (the Windows CI job).
+    const std::vector<Vector> vectors = test_vectors();
     auto fnv = [](const Bytes& b) {
         std::uint64_t h = 0xcbf29ce484222325ull;
         for (std::uint8_t c : b) h = (h ^ c) * 0x100000001b3ull;
@@ -465,6 +472,41 @@ TEST_CASE("gdeflate: test vectors for the DirectStorage decoder") {
                     static_cast<unsigned long long>(fnv(s)), s.size());
     }
 }
+
+#if defined(_WIN32) && defined(_WIN64)
+TEST_CASE("gdeflate: test vectors decoded by DirectStorage's codec, and its streams by this decoder (Windows x64)") {
+    // DirectStorage's own CPU codec (IDStorageCompressionCodec in dstorage.dll, from FA_DIRECTSTORAGE_DIR or next to the
+    // test) decodes every stream this encoder wrote, and this decoder reads every stream it writes. Skipped without the
+    // DLLs (`factoria setup directstorage`), a failure with FA_DIRECTSTORAGE_REQUIRE=1 (the Windows CI job).
+    if (auto ok = detail::direct_storage_available(); !ok.ok()) {
+        const char* require = std::getenv("FA_DIRECTSTORAGE_REQUIRE");
+        if (require && std::string(require) == "1") FAIL(ok.error().to_string());
+        MESSAGE("skipped: " << ok.error().to_string());
+        return;
+    }
+    const char* dir = std::getenv("FA_GDEFLATE_VECTORS_DIR");  // the files the case before wrote, when it is set
+    auto file_bytes = [](const stdfs::path& p) {
+        std::ifstream in(p, std::ios::binary);
+        REQUIRE_MESSAGE(in.good(), "cannot read " << fs::path_to_utf8(p));
+        return Bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    for (const Vector& v : test_vectors()) {
+        if (v.raw.empty()) continue;  // a pack has no empty block (an empty file has none), so no request reads one
+        CAPTURE(v.name);
+        const Bytes raw = dir ? file_bytes(stdfs::path(dir) / (std::string(v.name) + ".raw")) : v.raw;
+        const Bytes s = dir ? file_bytes(stdfs::path(dir) / (std::string(v.name) + ".gdef")) : stream_of(v.raw);
+        CHECK(raw == v.raw);
+        auto decoded = detail::direct_storage_decompress(s, raw.size());
+        REQUIRE_MESSAGE(decoded.ok(), (decoded.ok() ? "" : decoded.error().to_string()));
+        CHECK(decoded.value() == raw);
+        auto theirs = detail::direct_storage_compress(raw);
+        REQUIRE_MESSAGE(theirs.ok(), (theirs.ok() ? "" : theirs.error().to_string()));
+        auto ours = decompress(Codec::GDeflate, theirs.value(), raw.size());
+        REQUIRE_MESSAGE(ours.ok(), (ours.ok() ? "" : ours.error().to_string()));
+        CHECK(ours.value() == raw);
+    }
+}
+#endif
 
 TEST_CASE("gdeflate: decode speed against lz4 and zstd (prints MB/s, checks nothing about them)") {
     const Bytes in = text_bytes(8u << 20, 77);

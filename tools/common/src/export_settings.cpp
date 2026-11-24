@@ -876,7 +876,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
             if (!b->is_boolean())
                 r.error("/export/pack/directStorage", "expected true or false, got " + describe_json_value(*b),
                         "Write \"directStorage\": true to let a Windows export pack with the codec DirectStorage "
-                        "decompresses on the GPU (it arrives in M77), or remove the key (the default, false).");
+                        "reads (gdeflate) and ship its DLLs, or remove the key (the default, false).");
             else
                 s.pack.directStorage = b->get<bool>();
         }
@@ -1539,7 +1539,9 @@ AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& e
     const ExportEnvLookup& env = s.env;
     std::string home = env("HOME");
     if (home.empty()) home = env("USERPROFILE");
-    [[maybe_unused]] auto under = [&](const char* rel) { return home.empty() ? std::string() : (stdfs::path(home) / rel).string(); };
+    [[maybe_unused]] auto under = [&](const char* rel) {
+        return home.empty() ? std::string() : (stdfs::path(home) / rel).string();
+    };
     // What `factoria setup android` installs (fa/tooling/setup.h) comes first: the user asked FactorIA to provide it.
     const stdfs::path factoriaHome = factoria_home(env);
     s.jdk.push_back({(factoriaHome / "android" / "jdk").string(), "FactorIA"});
