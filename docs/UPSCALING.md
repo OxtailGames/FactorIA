@@ -234,9 +234,13 @@ reads as 1. `game.render_stats` and `window.upscaler` report `dynamicScale` (the
 `window.upscaler` ignores them). Nothing of the simulation reads the factor, so a replay or a script's result never depends on it.
 
 **What it measures.** Where the backend has timer queries (Direct3D 11 and OpenGL), the GPU time of the frame: `source` is `"gpu"`, the
-mean of the frames the renderer timed since the last tick (a result arrives a few frames late). Elsewhere (Metal, GLES3, WebGL2) and
-whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window that renders only
-on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
+mean of the frames the renderer timed since the last tick (a result arrives a few frames late). It is the span from the first command
+of the frame to the last one the GPU finishes, not the time the GPU was busy: a frame that waits for the CPU (heavy scripts, a
+present that blocks) reads long although the GPU idled, and the controller then lowers the scale for nothing, down to `minScale`
+at worst (the profiler and the controller each see every result; one never takes the other's). A GPU timer that gives no result
+for 120 frames in a row (a driver that reports every query as disjoint) is given up for the time between frames. Elsewhere (Metal,
+GLES3, WebGL2) and whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window
+that renders only on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
 `source` `"injected"`).
 
 **The display's refresh rate.** A `targetMs` of 0 holds one refresh of the display the window is on: `1000 / refreshHz` ms, 8.3 ms
@@ -245,16 +249,17 @@ on a 120 Hz display, 6.9 ms on a 144 Hz one. `refreshHz` (rounded to 0.1 Hz, rep
 
 | `refreshSource` | Where | The rate |
 |---|---|---|
-| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's current display mode (a 59 is read as 59.94), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
-| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them |
+| `"platform"` | macOS, iOS, Windows, Linux with libXrandr, Android | what the OS says (`app_display_refresh_hz`, fa/platform/app.h): macOS and iOS `maximumFramesPerSecond` of the screen (the top of a ProMotion panel's variable rate; an iPhone runs at 60 unless the app's Info.plist sets `CADisableMinimumFrameDurationOnPhone`), Windows the frequency of the monitor's **current** display mode (a 59 is read as 59.94; a laptop panel with Windows 11's dynamic refresh rate flips between its modes, so the rate and the target follow the one in force at each poll: set `targetMs` there), Linux the XRandR mode of the output under the window's centre, Android `Display.getRefreshRate()` |
+| `"estimated"` | where the OS does not say: the web, a Windows driver that answers "the hardware's default", Linux without libXrandr | the median time between presented frames: after the first 10 frames, 60 intervals of at most 50 ms (longer ones are hitches); it gives up after 250 frames without 60 of them, and when the intervals are not a steady beat (their median absolute deviation over 15 % of the median: a driver that ignores the swap interval, a game that never settles) there is no rate |
 | `"default"` | no window (headless, tests, `graphics=false`), the editor, and an estimate that cannot be made | 60 Hz |
 
 The estimate is made only while the display paces the frames: with vsync off (`display.vsync`, `window.vsync`), a `window.frameCap`
 or a window that renders on demand the time between frames is the game's, not the display's, so the rate stays the default 60 Hz
 until they pace it again (the estimate then starts over). A game that cannot keep up with the display during the first second
-measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display); set `targetMs` where that matters. The platform is
+measures its own rate (a whole fraction of the refresh: 30 on a 60 Hz display), and a driver that ignores the swap interval yet
+paces the game very steadily at a few hundred fps looks like a display of that rate: set `targetMs` where that matters. The platform is
 asked again every 2 s of frames, so a window dragged to another monitor follows that one's rate (an estimate starts over when the
-display's size changes). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
+display's size changes, and one that found no steady rate tries again after 15 polls, 30 s of frames). Like the frame time, the rate is a measurement of this machine: it moves only the frame time the controller
 holds, never the simulation.
 
 **How it moves** (`render::DynamicResolutionController`, deterministic: the same numbers give the same scales on every machine):
@@ -270,14 +275,26 @@ holds, never the simulation.
 - with only the interval time the headroom is hidden (vsync pins it at the refresh rate while the game is fast enough), so the
   controller goes down by prediction and tries one step up after 3 s inside the band. A try that fails (the time goes over again within
   3 s) doubles the next wait (up to 48 s) and the step that failed is not tried again for a minute or more, so it settles under it
-  instead of swinging.
+  instead of swinging;
+- what is measured around a step or a load says nothing about the scale and is kept out: the next 3 frames after a step (the images
+  are made at the step, and a GPU result arrives a few frames late), and the first 3 seconds of frames after every scene load
+  (shaders compile and assets arrive: the scale does not move, and a game that starts at the full size is not pushed down by its
+  own warm-up).
+
+A `window.frameCap` slower than the target (a cap of 30 fps against a 16.7 ms target) makes the time between frames the cap's, not
+the game's: the controller sees a frame that is always over the target and brings the scale down to `minScale`. Set `targetMs` to
+the cap's frame time or more, or do not use both.
 
 **Reallocation.** A step makes the render targets again (the scene's color, depth and post chain at the new size); it does not
-change the window or the swap chain. That costs a few milliseconds at the step, which is why the controller is rate-limited to two
+change the window or the swap chain. That costs a hitch at the step (the time depends on the GPU, the driver and the size, and has not
+been measured on every backend), which is why the controller ignores the next 3 frames' times, is rate-limited to two
 changes a second and quantised, never per frame: a viewport inside fixed-size targets would avoid it at the price of every pass
 reading a sub-rectangle (the post chain, the temporal history and the bloom chain all assume the whole texture). The **temporal history
 survives the steps**: the history of the `temporal` upscaler lives at the output size and is kept, and its key follows the scale the
-game asked for, without the factor, so a step does not reset it. The jitter sequence is rounded up to a multiple of 4 phases while a
+game asked for, without the factor, so a step does not reset it. A step also keeps what does not depend on the render size: the
+automatic exposure each camera has adapted to (the picture does not flash brighter or darker at a step), and the images of
+CameraViews, render targets and probes. What is at the render size starts again (the other cameras' temporal histories, SSR, fog,
+volumetrics, SSAO and the depth-of-field chain). The jitter sequence is rounded up to a multiple of 4 phases while a
 factor is on, so the phase changes smoothly when the size does.
 
 **Presets.** No preset turns it on. A preset is a static set of limits that gives the same picture on every machine; this one decides

@@ -139,6 +139,7 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
         return !game_targets_valid() || (hookInvalid && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F);
     };
     if (!refused() || gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return;
+    scaleStepOnly = false;  // another scene format: every image is made again
     const int first = gpu.scene_pick();
     const sg_pixel_format firstFormat = gpu.scene_format();
     while (gpu.next_scene_format()) {
@@ -252,14 +253,19 @@ void Renderer::Impl::free_read_image() {
 }
 
 void Renderer::Impl::destroy_targets() {
-    for (auto& [key, t] : viewTargets) release_view(*t);
-    viewTargets.clear();
+    // A step of the dynamic resolution (scaleStepOnly) changes only the render size: the images of CameraViews, render targets, probes and
+    // captures have their own size, and the adapted exposure is a 1x1 value; losing them would be a flash of the exposure and a frame of
+    // black views at every step.
+    if (!scaleStepOnly) {
+        for (auto& [key, t] : viewTargets) release_view(*t);
+        viewTargets.clear();
+    }
     bloom.release();
     ssr.forget_targets();
     xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
-    taa.forget_targets(keepUpscaleHistory);
+    taa.forget_targets(scaleStepOnly);
     gi2d.free_images();
     fogFx.forget_targets();
     volFx.forget_targets();
@@ -277,9 +283,11 @@ void Renderer::Impl::destroy_targets() {
     destroy_target(hudTarget);
     free_output_targets();
     for (Target& t : ldrMid) destroy_target(t);
-    for (auto& [key, slot] : autoExposures)
-        if (slot.exposure) slot.exposure->release();
-    autoExposures.clear();
+    if (!scaleStepOnly) {
+        for (auto& [key, slot] : autoExposures)
+            if (slot.exposure) slot.exposure->release();
+        autoExposures.clear();
+    }
     destroy_target(editorTarget);
     free_read_image();
     destroy_target(gameTarget);

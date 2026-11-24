@@ -132,8 +132,14 @@ bool RefreshRateEstimator::add(double intervalMs) {
         std::copy(samples_, samples_ + kSamples, sorted);
         std::sort(sorted, sorted + kSamples);
         const double median = (sorted[kSamples / 2 - 1] + sorted[kSamples / 2]) / 2.0;
+        // A display's presents are a steady beat: the median absolute deviation of the intervals is a few percent of the median. A
+        // driver that ignores the swap interval, or a game that never settles, gives intervals that wander: no rate, not a wrong one.
+        double dev[kSamples];
+        for (int i = 0; i < kSamples; ++i) dev[i] = std::abs(samples_[i] - median);
+        std::sort(dev, dev + kSamples);
+        const double mad = (dev[kSamples / 2 - 1] + dev[kSamples / 2]) / 2.0;
         const double hz = 1000.0 / median;
-        hz_ = hz >= 20.0 && hz <= 1000.0 ? hz : 0.0;
+        hz_ = hz >= 20.0 && hz <= 1000.0 && mad <= kMaxSpread * median ? hz : 0.0;
     }
     return true;
 }
