@@ -149,12 +149,12 @@ struct Renderer::Impl::DrawContext {
     std::vector<PrevModelRows>
         prevRows;  // fill_prev_models: the previous model of every opaque item (MeshItem::prevIdx)
     std::vector<PrevModelRows> prevMats;  // build_batches: the same, one per drawn instance, in the order of mainMats
-    sg_buffer prevInst{};
+    gpu::Buffer prevInst{};
     // plan_quad_motion (M76-P1d): the job draws the quads of the world into the velocity image (doQuadVel) and into the reactive mask
     // (doQuadReact); `ownVelocity`: the job has no prepass, so the velocity image is a transient of its own (cleared to the sentinel);
     // `depthTest`: the quads are tested against the prepass. `vmotion` is the per-vertex motion of the quad stream (build_quad_stream).
     bool doQuadVel = false, doQuadReact = false, ownVelocity = false, quadDepthTest = false;
-    sg_buffer vmotion{};
+    gpu::Buffer vmotion{};
     // upload_prev_palettes (M76-P1c): the previous joint palettes of the skinned draws of the prepass in one RGBA32F image (`prevPalView`, empty = none);
     // `prevPalBase` has the first texel of the palette of (batch.rep, skin), key `prev_palette_key`. The CPU copy is Impl::prevPalTexels (a
     // DrawContext is made again every frame, so a vector here would not keep its capacity).
@@ -206,13 +206,13 @@ struct Renderer::Impl::DrawContext {
     };
     Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
     std::size_t lineFirst = 0;
-    sg_buffer vbuf{};
-    sg_buffer
+    gpu::Buffer vbuf{};
+    gpu::Buffer
         vinst{};  // the instanced params of the sprite-material batches, per vertex (vertex buffer 1 of their pipelines)
     Mat4 screenProj;
     // upload_instances
-    sg_buffer mainInst{}, shadowInst{};
-    sg_buffer mainExtra{},
+    gpu::Buffer mainInst{}, shadowInst{};
+    gpu::Buffer mainExtra{},
         shadowExtra{};  // the per-instance params of mainExtraData / shadowExtraData (vertex buffer 3)
     // scene_uniforms
     SceneSettings ss;
@@ -461,14 +461,14 @@ void draw_sky(Renderer::Impl& im, const SkyDraw& d, const float* invViewProj, co
         return;
     }
     gpu::CommandList& list = gpu.commands();
-    const sg_shader shader = d.prog ? d.prog->shader : sg_shader{};
+    const gpu::Shader shader = d.prog ? d.prog->shader : gpu::Shader{};
     list.set_pipeline(format ? gpu.sky_pipeline(*format, shader) : gpu.sky_pipeline(shader));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
     if (d.prog)
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
             if (!d.in.textures[i]) continue;
-            b.views[kMaterialSkyFirstView + int(i)] = gpu::from_sg(d.in.textures[i]->gpu_view());
+            b.views[kMaterialSkyFirstView + int(i)] = d.in.textures[i]->gpu_view();
             b.samplers[kMaterialSkyFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
         }
     list.set_bindings(b);
@@ -875,7 +875,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             // the asset cache and the table is skipped, the rest of the grade is drawn.
             const LutAsset* lut = assets->lut(pp.lut);
             if (lut && lut->view.id != 0) {
-                pp.lutInfo = LutInfo{gpu::from_sg(lut->view), lut->size, lut->cols, lut->rows};
+                pp.lutInfo = LutInfo{lut->view, lut->size, lut->cols, lut->rows};
             } else {
                 pp.fx.lut = false;
                 pp.lut.clear();
@@ -1336,7 +1336,7 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         tv.serial = frameSerial;
         if (qualityOn) tv.lodQuality = quality.terrainLodQuality;
         tv.gpu = &gpu;
-        tv.albedoFormat = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
+        tv.albedoFormat = gpu.texture_format(gpu::PixelFormat::Rgba8);
         terrains.gather(tv, ctx.terrainDraws, meshes);
         meshBlended.resize(meshes.size(), 0);
     }
@@ -2245,21 +2245,21 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
         vbuf = gpu.acquire_transient(stream.size() * sizeof(Vertex2D));
         gpu::BufferWrite wd;
         wd.data = gpu::Range{stream.data(), stream.size() * sizeof(Vertex2D)};
-        wd.buffer = gpu::from_sg(vbuf);
+        wd.buffer = vbuf;
         gpu.commands().write_buffer(wd);
     }
     if (!instStream.empty()) {
         ctx.vinst = gpu.acquire_transient(instStream.size() * sizeof(float));
         gpu::BufferWrite wd;
         wd.data = gpu::Range{instStream.data(), instStream.size() * sizeof(float)};
-        wd.buffer = gpu::from_sg(ctx.vinst);
+        wd.buffer = ctx.vinst;
         gpu.commands().write_buffer(wd);
     }
     if (motion && !quadMotionStream.empty()) {
         ctx.vmotion = gpu.acquire_transient(quadMotionStream.size() * sizeof(float));
         gpu::BufferWrite wd;
         wd.data = gpu::Range{quadMotionStream.data(), quadMotionStream.size() * sizeof(float)};
-        wd.buffer = gpu::from_sg(ctx.vmotion);
+        wd.buffer = ctx.vmotion;
         gpu.commands().write_buffer(wd);
     }
 
@@ -2272,11 +2272,11 @@ void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
 void Renderer::Impl::upload_instances(DrawContext& ctx) {
     static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
     auto upload = [&](const void* data, std::size_t bytes) {
-        if (bytes == 0) return sg_buffer{};
-        sg_buffer buf = gpu.acquire_transient(bytes);
+        if (bytes == 0) return gpu::Buffer{};
+        gpu::Buffer buf = gpu.acquire_transient(bytes);
         gpu::BufferWrite wd;
         wd.data = gpu::Range{data, bytes};
-        wd.buffer = gpu::from_sg(buf);
+        wd.buffer = buf;
         gpu.commands().write_buffer(wd);
         return buf;
     };
@@ -2437,7 +2437,7 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
                     "them.",
                     decalPack.lists.clippedEntries, kMaxDecalsPerCluster, kMaxDecalIndices);
         }
-        ctx.decalView = decal_view_or(gpu::from_sg(ctx.white->view));
+        ctx.decalView = decal_view_or(ctx.white->view);
     }
     // The shadow records of the point and spot lights that got maps this frame (local_shadows.h): where each tile is in the atlas, its
     // matrix and its depth convention.
@@ -2531,9 +2531,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.skyColor = to_scene(ss.skyColor, fr.linear);
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
-    ctx.lightView = gpu::from_sg(ctx.white->view);
+    ctx.lightView = ctx.white->view;
     // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
-    ctx.decalView = gpu::from_sg(ctx.white->view);
+    ctx.decalView = ctx.white->view;
     copy_mat(vuScene.fa_view_proj, fr.cam.drawViewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
@@ -2789,14 +2789,14 @@ void Renderer::Impl::plan_env(DrawContext& ctx) {
 // Binds the vertex buffers of a custom material's extras (MeshExtras): its per-instance params from `data` (the floats
 // of this batch start at `floatOffset`) and the part's uv1 and color1 channels, as the pipeline made with m.extras()
 // reads them.
-static void bind_extras(gpu::Bindings& b, const MaterialAsset& m, const SubMesh& part, sg_buffer data,
+static void bind_extras(gpu::Bindings& b, const MaterialAsset& m, const SubMesh& part, gpu::Buffer data,
                         std::uint32_t floatOffset) {
     if (m.instanceVec4 > 0) {
-        b.vertexBuffers[kInstanceDataBuffer] = gpu::from_sg(data);
+        b.vertexBuffers[kInstanceDataBuffer] = data;
         b.vertexBufferOffsets[kInstanceDataBuffer] = int(floatOffset * sizeof(float));
     }
-    if (m.uv1) b.vertexBuffers[kUv1Buffer] = gpu::from_sg(part.uv1Vb);
-    if (m.color1) b.vertexBuffers[kColor1Buffer] = gpu::from_sg(part.color1Vb);
+    if (m.uv1) b.vertexBuffers[kUv1Buffer] = part.uv1Vb;
+    if (m.color1) b.vertexBuffers[kColor1Buffer] = part.color1Vb;
 }
 
 // What one part of an item is drawn with (reads ctx.white).
@@ -2814,7 +2814,7 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
-    if (mi.lm.mesh && mi.lm.page) d.lightmap = gpu::from_sg(mi.lm.page->view);
+    if (mi.lm.mesh && mi.lm.page) d.lightmap = mi.lm.page->view;
     return d;
 }
 
@@ -3117,25 +3117,24 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
                                    const MaterialInputs& in, bool shadowPass, bool opaquePhase) {
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
-    b.views[VIEW_mesh_fa_tex] = gpu::from_sg(d.tex->gpu_view());
-    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? ctx.shadowTgt.texView : gpu::from_sg(white->view);
-    b.views[VIEW_mesh_fa_normal_tex] = gpu::from_sg((d.normal ? d.normal : white)->gpu_view());
-    b.views[VIEW_mesh_fa_mr_tex] = gpu::from_sg(d.mr->gpu_view());
-    b.views[VIEW_mesh_fa_occlusion_tex] = gpu::from_sg(d.occlusion->gpu_view());
-    b.views[VIEW_mesh_fa_emissive_tex] = gpu::from_sg(d.emissive->gpu_view());
-    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : gpu::from_sg(white->view);
+    b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
+    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? ctx.shadowTgt.texView : white->view;
+    b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
+    b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
+    b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
+    b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
+    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
-    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? gpu::from_sg(white->view) : ctx.lightView;
+    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? white->view : ctx.lightView;
     // The light atlas (LTC tables, cookies, IES profiles): the image the view's lights were laid out in, else the white image (nothing
     // reads it while no light has the data texture's extension texels).
-    b.views[VIEW_mesh_fa_light_atlas] =
-        (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : gpu::from_sg(white->view);
-    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? gpu::from_sg(white->view) : ctx.decalView;
+    b.views[VIEW_mesh_fa_light_atlas] = (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view;
+    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? white->view : ctx.decalView;
     // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows; in the blended phase of a frame with a
     // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
-    gpu::View screenSlot = gpu::from_sg(white->view);
+    gpu::View screenSlot = white->view;
     if (!shadowPass) {
         if (opaquePhase && ctx.contactOn && ctx.screenView.id)
             screenSlot = ctx.screenView;
@@ -3145,18 +3144,18 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
     b.views[VIEW_mesh_fa_screen_tex] = screenSlot;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
-    b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : gpu::from_sg(white->view);
+    b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : white->view;
     b.samplers[kMaterialEnvSampler] = gpu.sampler(SamplerKind::LinearClamp);
     if (!prog) return;
     if (d.mat)
         for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
-            b.views[kMaterialFirstView + int(i)] = gpu::from_sg(in.textures[i]->gpu_view());
+            b.views[kMaterialFirstView + int(i)] = in.textures[i]->gpu_view();
             b.samplers[kMaterialFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
             // The same texture for vertex(): the vertex stage's copy of the slot (dropped below when the program has
             // none).
             b.views[kMaterialVsFirstView + int(i)] = b.views[kMaterialFirstView + int(i)];
             b.samplers[kMaterialVsFirstSampler + int(i)] = b.samplers[kMaterialFirstSampler + int(i)];
-            if (in.vsTextures[i]) b.views[kMaterialVsFirstView + int(i)] = gpu::from_sg(in.vsTextures[i]->gpu_view());
+            if (in.vsTextures[i]) b.views[kMaterialVsFirstView + int(i)] = in.vsTextures[i]->gpu_view();
         }
     for (int i = 0; i < gpu::kMaxViews; ++i)
         if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
@@ -3198,7 +3197,7 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     ctx.cookieView = ctx.cookieCells.empty() ? gpu::View{} : cookieTarget.texView;
     int points = 0;
     for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
-    shadowRowsTex = gpu::from_sg(upload_shadow_rows(fr));
+    shadowRowsTex = upload_shadow_rows(fr);
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
     if (qualityOn) lightScale = std::max(0.25f, std::min(lightScale, quality.lightScale));  // the graphics preset's cap
@@ -3303,7 +3302,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     ctx.gi2d.active = true;
     ctx.gi2d.field = field;
     ctx.gi2d.gather = std::move(gather);
-    if (assets && assets->white()) ctx.gi2d.white = gpu::from_sg(assets->white()->gpu_view());
+    if (assets && assets->white()) ctx.gi2d.white = assets->white()->gpu_view();
 }
 
 // The light buffer's pass (light_plan chose litMode 1): every point light of the camera is a quad added into the buffer.
@@ -3359,8 +3358,8 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         gpu::Bindings b;
         b.vertexBuffers[0] = lb;
         b.indexBuffer = gpu.quad_index_buffer();
-        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : gpu::from_sg(assets->white()->view);
-        b.views[VIEW_light_cookie_tex] = ctx.cookieView.id ? ctx.cookieView : gpu::from_sg(assets->white()->view);
+        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+        b.views[VIEW_light_cookie_tex] = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
         b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
         b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
         cl.set_bindings(b);
@@ -3387,7 +3386,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
     const std::vector<MeshItem>& opaque = ctx.opaque;
     const std::vector<MeshItem>& blended = ctx.blended;
-    const gpu::Buffer shadowInst = gpu::from_sg(ctx.shadowInst);
+    const gpu::Buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
     sp.colorLoad = gpu::LoadAction::Clear;
@@ -3442,12 +3441,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                     cl.set_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true, mat->extras())
                                          : gpu.shadow_pipeline(skinned));
                     gpu::Bindings b;
-                    b.vertexBuffers[0] = gpu::from_sg(p.vb);
+                    b.vertexBuffers[0] = p.vb;
                     b.vertexBuffers[1] = shadowInst;
                     b.vertexBufferOffsets[1] = int(first * kMeshInstanceBytes);
-                    if (skinned) b.vertexBuffers[2] = gpu::from_sg(p.skinVb);
+                    if (skinned) b.vertexBuffers[2] = p.skinVb;
                     if (prog) bind_extras(b, *mat, p, ctx.shadowExtra, run.extra);
-                    b.indexBuffer = gpu::from_sg(p.ib);
+                    b.indexBuffer = p.ib;
                     b.indexBufferOffset = p.ibOffset;
                     if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
                     if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
@@ -3629,7 +3628,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
         vu.depth_row[c] = -fr.cam.view.at(c, 2);  // the view depth of a world point, what the prepass stores
     quad_motion_quad_motion_fs_params_t fu{};
     fu.fcfg[0] = depth && depth->texView.id ? 1.0f : 0.0f;
-    const gpu::View preView = depth && depth->texView.id ? depth->texView : gpu::from_sg(assets->white()->view);
+    const gpu::View preView = depth && depth->texView.id ? depth->texView : assets->white()->view;
     for (const QuadBatch& qb : ctx.gWorld.batches) {
         if (qb.effect || qb.instances > 0 || qb.quadCount == 0) continue;
         // A scissor (a clipped item: only the screen-space quads of a ScrollList have one, and they are not in the world's list) and a
@@ -3646,12 +3645,12 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
         while (done < qb.quadCount) {
             const std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
             gpu::Bindings b;
-            b.vertexBuffers[0] = gpu::from_sg(ctx.vbuf);
+            b.vertexBuffers[0] = ctx.vbuf;
             b.vertexBufferOffsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
-            b.vertexBuffers[kQuadMotionBuffer] = gpu::from_sg(ctx.vmotion);
+            b.vertexBuffers[kQuadMotionBuffer] = ctx.vmotion;
             b.vertexBufferOffsets[kQuadMotionBuffer] = int((qb.firstQuad + done) * 4 * kQuadMotionStride);
             b.indexBuffer = gpu.quad_index_buffer();
-            b.views[VIEW_quad_motion_tex] = gpu::from_sg(qb.tex->gpu_view());
+            b.views[VIEW_quad_motion_tex] = qb.tex->gpu_view();
             b.views[VIEW_quad_motion_pre_tex] = preView;
             b.samplers[SMP_quad_motion_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_motion_pre_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -3795,30 +3794,29 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
             cl.set_pipeline(gpu.prepass_pipeline(
                 pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided), skinned,
-                custom ? custom->shader : sg_shader{}, custom ? mat->extras() : MeshExtras{}, backFaces,
+                custom ? custom->shader : gpu::Shader{}, custom ? mat->extras() : MeshExtras{}, backFaces,
                 mi.lodFade != 0.0f));  // the engine's program of a fading draw: with the dither
             gpu::Bindings b;
-            b.vertexBuffers[0] = gpu::from_sg(part.vb);
-            b.vertexBuffers[1] = gpu::from_sg(ctx.mainInst);
+            b.vertexBuffers[0] = part.vb;
+            b.vertexBuffers[1] = ctx.mainInst;
             b.vertexBufferOffsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
-            if (skinned) b.vertexBuffers[2] = gpu::from_sg(part.skinVb);
+            if (skinned) b.vertexBuffers[2] = part.skinVb;
             if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
             // The previous model of each instance (vertex buffer 6) when the program reads it; with no velocity image the pipeline still
             // has the attributes, so the instance buffer stands in for it (never read: fa_vel_on is 0).
             if (prepass_prev_attr(skinned, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
-                b.vertexBuffers[kPrevModelBuffer] = gpu::from_sg(vel ? ctx.prevInst : ctx.mainInst);
+                b.vertexBuffers[kPrevModelBuffer] = vel ? ctx.prevInst : ctx.mainInst;
                 b.vertexBufferOffsets[kPrevModelBuffer] =
                     int(batch.mainFirst * (vel ? kPrevModelBytes : kMeshInstanceBytes));
             }
-            b.indexBuffer = gpu::from_sg(part.ib);
+            b.indexBuffer = part.ib;
             b.indexBufferOffset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
             // The previous palettes of the skinned programs (vertex stage). The slot is declared by every skinned prepass program, so a
             // pass without velocity binds the white image (never read: fa_vel_on.x is 0).
             if (skinned) {
                 if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
-                    b.views[VIEW_mesh_fa_prev_pal_tex] =
-                        vel && ctx.prevPalView.id ? ctx.prevPalView : gpu::from_sg(ctx.white->view);
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = vel && ctx.prevPalView.id ? ctx.prevPalView : ctx.white->view;
                 if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
                     b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
             }
@@ -3893,15 +3891,15 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
             if (!pipe.id) continue;
             cl.set_pipeline(pipe);
             gpu::Bindings bind;
-            bind.vertexBuffers[0] = gpu::from_sg(part.vb);
-            bind.vertexBuffers[1] = gpu::from_sg(ctx.mainInst);
+            bind.vertexBuffers[0] = part.vb;
+            bind.vertexBuffers[1] = ctx.mainInst;
             bind.vertexBufferOffsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
             if (skinned)
-                bind.vertexBuffers[2] = gpu::from_sg(part.skinVb);
+                bind.vertexBuffers[2] = part.skinVb;
             else  // like the main pass: the lightmap UV, or zeros
-                bind.vertexBuffers[kUv1Buffer] = gpu::from_sg(
-                    part.uv1Vb.id && mi.lm.mesh ? part.uv1Vb : assets->zero_uv1(std::size_t(part.vertexCount)));
-            bind.indexBuffer = gpu::from_sg(part.ib);
+                bind.vertexBuffers[kUv1Buffer] =
+                    part.uv1Vb.id && mi.lm.mesh ? part.uv1Vb : assets->zero_uv1(std::size_t(part.vertexCount));
+            bind.indexBuffer = part.ib;
             bind.indexBufferOffset = part.ibOffset;
             bind_textures(ctx, bind, d, &prog, MaterialInputs{}, false, true);
             bind.views[VIEW_mesh_fa_screen_tex] =
@@ -4017,7 +4015,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                                 const Px& base, int flatMode, const TargetFormat* format, const FogFxPlan* fog,
                                 int passW, int passH) {
     Frame& fr = ctx.fr;
-    const sg_buffer vbuf = ctx.vbuf;
+    const gpu::Buffer vbuf = ctx.vbuf;
     const gpu::View shadowRowsTex = ctx.shadowRowsTex;
     if (batches.empty()) return;
     gpu::CommandList& cl = gpu.commands();  // no frame commit happens inside a draw group
@@ -4141,15 +4139,15 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         fogged.fog_col[3] = litUniforms.fog_col[3] = fog->density;
     }
     const bool fogOn = fog && fog->fog;
-    const gpu::View lightTexBound = flatMode == 1 ? lightTarget.texView : gpu::from_sg(assets->white()->view);
-    const gpu::View shadowTexBound = shadowRowsTex.id ? shadowRowsTex : gpu::from_sg(assets->white()->view);
-    const gpu::View cookieTexBound = ctx.cookieView.id ? ctx.cookieView : gpu::from_sg(assets->white()->view);
+    const gpu::View lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
+    const gpu::View shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+    const gpu::View cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
     // M74-P3b: the irradiance of the 2D GI cascades, added to the lit quads of the camera's own world group (not the coverage image's).
     // The screen and debug groups draw in screen pixels (their world_xy is not a world position) and the clear group in 0..1: the field
     // does not apply to them, they bind the white image and gi_p.x = 0.
     const bool giOn = ctx.gi2d.active && ctx.gi2d.cascadePasses > 0 && ctx.gi2d.irradianceView.id && !format &&
                       ctx.gi2d.intensity > 0.0f && &batches == &ctx.gWorld.batches;
-    const gpu::View giTexBound = giOn ? ctx.gi2d.irradianceView : gpu::from_sg(assets->white()->view);
+    const gpu::View giTexBound = giOn ? ctx.gi2d.irradianceView : assets->white()->view;
     if (giOn) {
         std::memcpy(litUniforms.gi_xf, ctx.gi2d.xf, sizeof(litUniforms.gi_xf));
         litUniforms.gi_p[0] = ctx.gi2d.intensity;
@@ -4205,11 +4203,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                        -1};  // the new pass starts with the base viewport: the next apply_clip sets the clip again
     };
     // What view 15 of a material shows (kMaterialSpriteSceneView).
-    gpu::View sceneBound = sceneGroup && sc.view.id ? sc.view : gpu::from_sg(assets->white()->view);
+    gpu::View sceneBound = sceneGroup && sc.view.id ? sc.view : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         if (sceneGroup && sc.next < sc.copyAt.size() && sc.copyAt[sc.next] == std::uint32_t(&qb - batches.data())) {
             split_for_scene();
-            sceneBound = sc.view.id ? sc.view : gpu::from_sg(assets->white()->view);
+            sceneBound = sc.view.id ? sc.view : assets->white()->view;
         }
         apply_clip(qb.clip);
         if (qb.effect) {
@@ -4281,7 +4279,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         } else if (prog) {
             count_material(use->material);
         }
-        const sg_shader programShader = prog ? prog->shader : sg_shader{};
+        const gpu::Shader programShader = prog ? prog->shader : gpu::Shader{};
         cl.set_pipeline(
             format ? gpu.quad_pipeline(*format, depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4)
                    : gpu.quad_pipeline(depthTest, false, qb.blend, plain, qb.opaque, programShader, instVec4));
@@ -4354,21 +4352,19 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         while (done < qb.quadCount) {
             std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
             gpu::Bindings b;
-            b.vertexBuffers[0] = gpu::from_sg(vbuf);
+            b.vertexBuffers[0] = vbuf;
             b.vertexBufferOffsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
             if (instVec4 > 0) {
-                b.vertexBuffers[kQuadInstBuffer] = gpu::from_sg(ctx.vinst);
+                b.vertexBuffers[kQuadInstBuffer] = ctx.vinst;
                 b.vertexBufferOffsets[kQuadInstBuffer] =
                     int((qb.instFirst + std::size_t(done) * 4 * std::size_t(instVec4) * 4) * sizeof(float));
             }
             b.indexBuffer = gpu.quad_index_buffer();
-            b.views[VIEW_quad_tex] = gpu::from_sg(qb.tex->gpu_view());
-            b.views[VIEW_quad_normal_tex] =
-                gpu::from_sg((qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view());
+            b.views[VIEW_quad_tex] = qb.tex->gpu_view();
+            b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
             b.views[VIEW_quad_light_tex] = batchLightTex;
             b.views[VIEW_quad_shadow_tex] = shadowTexBound;
-            b.views[VIEW_quad_fx_emissive_tex] =
-                gpu::from_sg((qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view());
+            b.views[VIEW_quad_fx_emissive_tex] = (qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view();
             b.views[VIEW_quad_fx_cookie_tex] = cookieTexBound;
             b.views[VIEW_quad_fx_gi_tex] = giTexBound;
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
@@ -4379,9 +4375,9 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                 for (std::size_t i = 0; i < mat.textures.size() && i < std::size_t(kMaxMaterialTextures); ++i) {
                     // Bound for both stages; the program takes the slots it declares (vertex() may sample the texture
                     // too).
-                    b.views[kMaterialSpriteFirstView + int(i)] = gpu::from_sg(use->textures[i]->gpu_view());
+                    b.views[kMaterialSpriteFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
-                    b.views[kMaterialSpriteVsFirstView + int(i)] = gpu::from_sg(use->textures[i]->gpu_view());
+                    b.views[kMaterialSpriteVsFirstView + int(i)] = use->textures[i]->gpu_view();
                     b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
                 b.views[kMaterialSpriteSceneView] = sceneBound;  // its sampler is the engine's light_smp (slot 1)
@@ -4422,7 +4418,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const SceneSettings& ss = ctx.ss;
     const Mat4& screenProj = ctx.screenProj;
     const std::size_t lineFirst = ctx.lineFirst;
-    const sg_buffer vbuf = ctx.vbuf;
+    const gpu::Buffer vbuf = ctx.vbuf;
     const int litMode = ctx.litMode;
     const DrawContext::Group& gClear = ctx.gClear;
     const DrawContext::Group& gWorld = ctx.gWorld;
@@ -4433,7 +4429,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
     const std::vector<MeshItem>& opaque = ctx.opaque;
     const std::vector<MeshItem>& blended = ctx.blended;
-    const gpu::Buffer mainInst = gpu::from_sg(ctx.mainInst);
+    const gpu::Buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom && !ctx.hudAfterPost && !ctx.hudOut;
     if (ctx.envActive && !skyEnv.baked()) {  // the bake did not complete: the meshes keep the gradient
@@ -4573,21 +4569,21 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         else
                             cl.set_pipeline(gpu.mesh_pipeline(
                                 isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned,
-                                prog ? prog->shader : sg_shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
+                                prog ? prog->shader : gpu::Shader{}, pd.mat ? pd.mat->extras() : MeshExtras{},
                                 isBlend && mesh_is_transmissive(mr, *mi.mesh, mi.material),
                                 mi.lodFade != 0.0f));  // the engine's program of a fading draw: the one with the dither
                         gpu::Bindings b;
-                        b.vertexBuffers[0] = gpu::from_sg(part.vb);
+                        b.vertexBuffers[0] = part.vb;
                         b.vertexBuffers[1] = mainInst;
                         b.vertexBufferOffsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
-                        if (skinned) b.vertexBuffers[2] = gpu::from_sg(part.skinVb);
+                        if (skinned) b.vertexBuffers[2] = part.skinVb;
                         if (pd.mat)
                             bind_extras(b, *pd.mat, part, ctx.mainExtra, batch.mainExtra);
                         else if (!skinned)  // the engine's program always reads uv1: the lightmap UV, or zeros
-                            b.vertexBuffers[kUv1Buffer] = gpu::from_sg(
-                                part.uv1Vb.id && mi.lm.mesh ? part.uv1Vb
-                                                            : assets->zero_uv1(std::size_t(part.vertexCount)));
-                        b.indexBuffer = gpu::from_sg(part.ib);
+                            b.vertexBuffers[kUv1Buffer] = part.uv1Vb.id && mi.lm.mesh
+                                                              ? part.uv1Vb
+                                                              : assets->zero_uv1(std::size_t(part.vertexCount));
+                        b.indexBuffer = part.ib;
                         b.indexBufferOffset = part.ibOffset;
                         bind_textures(ctx, b, pd, prog, inputs, false, !isBlend);
                         if (mbu.active && prog) bind_mesh_buffers(b, mbu, *prog);
@@ -4710,8 +4706,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             quad_quad_fs_params_t unlit{};
             apply_uniforms(cl, UB_quad_quad_fs_params, unlit);
             gpu::Bindings b;
-            const gpu::View white = gpu::from_sg(assets->white()->view);
-            b.vertexBuffers[0] = gpu::from_sg(vbuf);
+            const gpu::View white = assets->white()->view;
+            b.vertexBuffers[0] = vbuf;
             b.vertexBufferOffsets[0] = int(lineFirst * sizeof(Vertex2D));
             b.views[VIEW_quad_tex] = white;
             b.views[VIEW_quad_normal_tex] = white;
@@ -5029,7 +5025,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const Target* pt = transient_targets().get(c.handle(prepassRes));
             if (!vt || !pt) return;
             const gpu::View shadowTex =
-                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : gpu::from_sg(ctx.white->view);
+                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : ctx.white->view;
             volFx.march(gpu, ctx.postPlan.vol, *vt, pt->texView, shadowTex, ctx.lightView, ctx.shadowU,
                         &stats.drawCalls);
         });
@@ -5175,8 +5171,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 graph.import_target("output-filtered", outFilterTarget.color.id,
                                     import_desc(targetW, targetH, outFilterTarget.format, "output-filtered"));
             add("output-color-filter", {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
-                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, gpu::from_sg(assets->white()->view),
-                          gpu::View{}, outFilterTarget, "color-filter", false);
+                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, assets->white()->view, gpu::View{},
+                          outFilterTarget, "color-filter", false);
                 outFilterActive = true;
             });
         }
@@ -5277,8 +5273,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         taa.add_passes(graph, gpu, c->postPlan.taa, c->postPlan.rect, physW, physH, game, gameTarget.texView, taaDst,
-                       c->postPlan.prepass, c->postPlan.velocity, c->postPlan.reactive,
-                       gpu::from_sg(assets->white()->view), &stats.drawCalls, c->plan.name);
+                       c->postPlan.prepass, c->postPlan.velocity, c->postPlan.reactive, assets->white()->view,
+                       &stats.drawCalls, c->plan.name);
     }
     custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
@@ -5304,8 +5300,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         }
         // The lens dirt: its texture, or a white one the composite ignores (intensity 0) when there is none.
-        const gpu::View dirt = pp.bloom.dirt.empty() ? gpu::from_sg(assets->white()->view)
-                                                     : gpu::from_sg(assets->texture(pp.bloom.dirt)->view);
+        const gpu::View dirt = pp.bloom.dirt.empty() ? assets->white()->view : assets->texture(pp.bloom.dirt)->view;
         bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
@@ -5411,7 +5406,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         const bool lastPiece = toMid < 0;
                         Target& out = lastPiece ? (hud ? hudTarget : filterTarget) : ldrMid[toMid];
                         post_pass(drawn, true, filter, autoExp, src,
-                                  autoExp ? exposure->ev_view() : gpu::from_sg(assets->white()->view), aux, out, "post",
+                                  autoExp ? exposure->ev_view() : assets->white()->view, aux, out, "post",
                                   lastPiece && hud, rect, load, slice);
                         if (!lastPiece) return;
                         if (hud)
@@ -5499,8 +5494,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     graph.import_target("game-filtered", filterTarget.color.id,
                                         import_desc(physW, physH, filterTarget.format, "game-filtered"));
                 add("color-filter", {dest}, {filtered}, [this, pp](const PassContext&) {
-                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, gpu::from_sg(assets->white()->view),
-                              gpu::View{}, filterTarget, "color-filter", false);
+                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, gpu::View{},
+                              filterTarget, "color-filter", false);
                     filterActive = true;
                 });
                 finishRes = filtered;
@@ -5512,8 +5507,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {
-            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, gpu::from_sg(assets->white()->view),
-                      gpu::View{}, filterTarget, "color-filter", false);
+            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, gpu::View{},
+                      filterTarget, "color-filter", false);
             filterActive = true;
         });
         finishRes = filtered;

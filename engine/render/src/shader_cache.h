@@ -10,8 +10,7 @@
 //          Metal cache do that. The creation is still timed, so the startup report says what it costs.
 //
 // Everything here runs on the thread that owns the graphics context (the main thread). It reaches the GPU through
-// gpu::Device (no sokol_gfx.h here); the sokol-typed make_shader below is the bridge for the call sites not converted yet
-// (shader_cache_sg.cpp, M77-P2..P5).
+// gpu::Device (no sokol_gfx.h here).
 #pragma once
 
 #include <cstdint>
@@ -24,10 +23,6 @@
 #include "fa/core/blob_cache.h"
 #include "fa/core/json.h"
 #include "gpu/types.h"
-
-// The sokol types of the bridge declaration below (sokol_gfx.h defines them).
-struct sg_shader;
-struct sg_shader_desc;
 
 namespace fa::gpu {
 class Device;
@@ -70,14 +65,11 @@ std::string shader_cache_file_name(std::string_view label, std::string_view stag
 // Device::make_shader through the cache layer. `label` names the program in the cache file and logs (desc.label when
 // null or empty).
 gpu::Shader make_shader(gpu::Device& device, const gpu::ShaderDesc& desc, const char* label = nullptr);
-// The cache layer itself, for a caller that makes the program some other way (the sokol bridge below): `make` is called
+// The cache layer itself, for a caller that makes the program some other way: `make` is called
 // once, with the desc to make (`prepared`: the stages compiled to bytecode on D3D11) or nullptr for `desc` itself
 // (another backend, or a stage the engine could not compile: the backend compiles it and reports why).
 gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, const char* label,
                             const std::function<gpu::Shader(const gpu::ShaderDesc* prepared)>& make);
-// TRANSITIONAL (until M77-P5): the same for a sokol desc on the open sokol context (shader_cache_sg.cpp), for the call
-// sites that still hold sg_shader. A null desc makes nothing.
-sg_shader make_shader(const sg_shader_desc* desc, const char* label = nullptr);
 
 // The counters are PROCESS-WIDE: every renderer in the process (the editor has several) adds to them and no renderer resets
 // them; a report is "since the process started". reset_shader_build_stats is for tests.

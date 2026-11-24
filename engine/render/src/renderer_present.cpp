@@ -326,7 +326,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     const ViewTarget& vt = *viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = read_rgba8(gpu::from_sg(vt.asset.image), gpu::from_sg(vt.asset.view), w, h, px, &readError, true);
+    const bool ok = read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
     release_view(*viewTargets[kKey]);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
     if (readW != final_w() || readH != final_h()) free_read_image();

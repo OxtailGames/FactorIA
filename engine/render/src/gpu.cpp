@@ -183,10 +183,10 @@ bool Gpu::scene_is_float() const {
     return sceneFormat_ == gpu::PixelFormat::Rgba16F || sceneFormat_ == gpu::PixelFormat::Rg11B10F;
 }
 
-sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
+gpu::PixelFormat Gpu::texture_format(gpu::PixelFormat unorm) const {
     if (!linear_) return unorm;
     gpu::PixelFormat srgb = gpu::PixelFormat::None;
-    switch (gpu::from_sg(unorm)) {
+    switch (unorm) {
         case gpu::PixelFormat::Rgba8: srgb = gpu::PixelFormat::Srgb8A8; break;
         case gpu::PixelFormat::Bc7Rgba: srgb = gpu::PixelFormat::Bc7Srgba; break;
         case gpu::PixelFormat::Astc4x4Rgba: srgb = gpu::PixelFormat::Astc4x4Srgba; break;
@@ -195,7 +195,7 @@ sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
     }
     if (srgb == gpu::PixelFormat::None) return unorm;
     const gpu::PixelFormatCaps info = caps(srgb);
-    return info.sample && info.filter ? gpu::to_sg(srgb) : unorm;
+    return info.sample && info.filter ? srgb : unorm;
 }
 
 gpu::PixelFormatCaps Gpu::caps(gpu::PixelFormat f) const {
@@ -931,7 +931,7 @@ namespace {
 // The slots a built-in program declares, as the twin of a custom one says them (MaterialProgram).
 MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
     MaterialProgram out;
-    out.shader = gpu::to_sg(shader);
+    out.shader = shader;
     for (int i = 0; i < gpu::kMaxUniformBlocks; ++i) {
         if (desc.uniformBlocks[i].stage == gpu::ShaderStage::None) continue;
         out.ubMask |= 1u << i;

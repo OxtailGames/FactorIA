@@ -33,8 +33,8 @@ std::string Renderer::Impl::decal_path_key(const std::string& path) { return dec
 
 bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn, bool linear) {
     // 0 = gamma scene (raw bytes), 1 = linear scene, no sRGB format (the shader decodes the albedo), 2 = linear scene, SRGB8A8 atlas.
-    const sg_pixel_format format = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
-    const int mode = !linear ? 0 : (format != SG_PIXELFORMAT_RGBA8 ? 2 : 1);
+    const gpu::PixelFormat format = gpu.texture_format(gpu::PixelFormat::Rgba8);
+    const int mode = !linear ? 0 : (format != gpu::PixelFormat::Rgba8 ? 2 : 1);
     const std::uint64_t generation = assets->reload_generation();
     DecalAtlasState& a = decalAtlas;
     // Only the reload of a texture the atlas holds (or refused) rebuilds it, not that of any other asset of the project.
@@ -92,7 +92,7 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
         gpu::ImageDesc d;
         d.width = built.layout.width;
         d.height = built.layout.height;
-        d.pixelFormat = mode == 2 ? gpu::from_sg(format) : gpu::PixelFormat::Rgba8;
+        d.pixelFormat = mode == 2 ? format : gpu::PixelFormat::Rgba8;
         d.numMipmaps = int(std::min<std::size_t>(chain.size(), gpu::kMaxMipmaps));
         for (int i = 0; i < d.numMipmaps; ++i) {
             d.data.mipLevels[i] = gpu::Range{chain[std::size_t(i)].rgba.data(), chain[std::size_t(i)].rgba.size()};
@@ -120,8 +120,8 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
         }
     }
     if (a.image.id || a.view.id) decalRetired.emplace_back(a.image, a.view);
-    a.image = gpu::to_sg(image);
-    a.view = gpu::to_sg(view);
+    a.image = image;
+    a.view = view;
     a.layout = std::move(built.layout);
     a.known = std::move(wanted);
     a.generation = generation;
@@ -133,16 +133,16 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
 
 void Renderer::Impl::free_retired_decal_atlases() {
     for (auto& [image, view] : decalRetired) {
-        if (view.id) gpu.device().destroy_view(gpu::from_sg(view));
-        if (image.id) gpu.device().destroy_image(gpu::from_sg(image));
+        if (view.id) gpu.device().destroy_view(view);
+        if (image.id) gpu.device().destroy_image(image);
     }
     decalRetired.clear();
 }
 
 void Renderer::Impl::destroy_decal_atlas() {
     free_retired_decal_atlases();
-    if (decalAtlas.view.id) gpu.device().destroy_view(gpu::from_sg(decalAtlas.view));
-    if (decalAtlas.image.id) gpu.device().destroy_image(gpu::from_sg(decalAtlas.image));
+    if (decalAtlas.view.id) gpu.device().destroy_view(decalAtlas.view);
+    if (decalAtlas.image.id) gpu.device().destroy_image(decalAtlas.image);
     decalAtlas = DecalAtlasState{};
 }
 
