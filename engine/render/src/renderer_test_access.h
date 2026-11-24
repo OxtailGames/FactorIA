@@ -119,6 +119,16 @@ struct RendererTestAccess {
     // as out = {depth, motion x, motion y} (false + error when the images are not there).
     static void mfx_force_support(Renderer& r, bool spatial, bool temporal);
     static void mfx_prep_only(Renderer& r, bool only);
+    // M76 POL-METALFX: the reactive mask of MetalFX. mfx_reactive_enabled: the scaler was made with the mask input (false before the
+    // first MetalFX frame, and on an OS older than macOS 14.4 / iOS 17.4); mfx_reactive_frames: the frames that handed it a mask;
+    // mfx_no_reactive: hand none (the contrast of a test). mfx_scaler_hooks: the scaler's test hooks (metalfx.h, Scaler::TestHooks: the
+    // frames are encoded without any MetalFX work, and/or their command buffers end as failed ones); mfx_wait_signalled: the GPU raised the
+    // event of the last MetalFX frame within `timeoutMs` (false: a buffer that never released the passes after it).
+    static bool mfx_reactive_enabled(Renderer& r);
+    static int mfx_reactive_frames(Renderer& r);
+    static void mfx_no_reactive(Renderer& r, bool none);
+    static void mfx_scaler_hooks(Renderer& r, bool emptyBuffers, bool failBuffers);
+    static bool mfx_wait_signalled(Renderer& r, int timeoutMs);
     static int mfx_images(Renderer& r);
     static bool mfx_last_wrote(Renderer& r);
     static bool mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error);

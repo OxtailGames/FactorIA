@@ -186,7 +186,7 @@ each.
      the renderer already does (a full transient pool, read-backs, `gi2d`). What the tests catch and what they do not: the test "frames queued
      without waiting for the GPU" (below) fails with the old code and passes with the early take alone, so it does NOT catch the events being
      removed: the events rest on Metal's contract, not on a test. The failure path (a MetalFX buffer that finishes with an error, whose handler
-     raises the event) has no test either. The test `metalfx: a pass that writes the input and a pass that reads the output in the same
+     raises the event) has one (POL-METALFX, "Failure and clean-up" below). The test `metalfx: a pass that writes the input and a pass that reads the output in the same
      frame ...` queues twelve frames without waiting for the GPU, each with its own grey, and checks every frame shows its own grey; with
      the `sg_commit()` taken out of `encode` all twelve frames show the wrong picture.
 - **Cost of the split** (per frame that upscales): one more `sg_commit` (one more sokol command buffer, its garbage collection and uniform
@@ -259,6 +259,28 @@ each.
   `mfx_prep_only` stops after the preparation pass: with them every Metal GPU (the macOS CI VM, which has no MetalFX) runs the preparation
   shader, the creation failure with its one warning, the fall to the temporal upscaler and the clean-up; `mfx_images`, `mfx_last_wrote` and
   `mfx_read_prep` read the result.
+  **The failure path is tested** (POL-METALFX) on any Metal GPU, with `Scaler::TestHooks` (`metalfx.h`): `emptyBuffers` makes a scaler that
+  asks MetalFX for nothing (its buffers hold only the event wait and signal, so a GPU without MetalFX runs the whole ordering), `failBuffers`
+  makes the buffer end as a failed one does: the completion handler reports an error and the buffer does **not** signal the event itself, so
+  only the handler's `signal_at_least` releases the sokol buffer of the passes behind it. `Scaler::test_wait_signalled` waits for that event with
+  a limit (and raises it itself when it times out, so a broken handler fails the test instead of hanging the queue); the tests are
+  `metalfx: a command buffer that fails still releases ...` (wrapper, three rounds, a read back goes through the queue after each) and `metalfx
+  renderer: a MetalFX command buffer that fails ...` (one warning, the temporal upscaler, the picture still drawn). With the handler's signal
+  taken out both fail after the limit (checked). A real GPU error cannot be made on demand, so what the hook stands in for is the `status` of the
+  buffer; the signal and the report are the production code.
+- **The reactive mask (POL-METALFX).** `metalfx::Desc::reactiveMask` and `Frame::reactive` carry the renderer's R8 mask (`upscaleReactive`, the
+  target of the camera's `PostPlan::reactive`, read by the `upscale` pass of a MetalFx frame as it is for the temporal one) to the
+  `MTLFXTemporalScaler`: `reactiveMaskTextureEnabled` and `reactiveMaskTextureFormat` (R8Unorm) on the descriptor, `reactiveMaskTexture` on the
+  scaler, all `macOS 14.4 / iOS 17.4` in the SDK (the descriptor's properties are marked so; the scaler's property sits in the base protocol
+  without a mark, and is guarded by the same `@available`). **Always created with the input** (`metalfx_upscale` sets `d.reactiveMask` for the
+  temporal kind), not made again when the first mask appears: the descriptor cannot change, a new scaler pays `requiresSynchronousInitialization`
+  (a hitch) and drops its history in the very frame a particle appears, whereas a scaler with the input and no mask in the frame (`reactiveMaskTexture`
+  nil) draws exactly as one made without it (`metalfx: a reactive mask ...` compares them). The mask is handed only when the frame has one
+  (`upscaleReactive.target(c)` is null when no item asked: the pass does not exist then) and it is the render size and R8; else nil, and the
+  wrapper refuses a mask of another size or format like any other image (`Frame.reactive ...`). On an older OS `reactiveOn` stays false: the
+  descriptor is not touched, the frame's mask is ignored and `Scaler::reactive_mask()` says so. The engine's `temporalAAReactiveScale` is not applied
+  (MetalFX takes the mask as is, 0 its own judgement, 1 no history); `Scaler::reactive_encoded()` and the test accessors
+  `mfx_reactive_enabled`, `mfx_reactive_frames` and `mfx_no_reactive` (hand none: the contrast) show what was handed over.
 
 ## Motion vectors and jitter (M76)
 

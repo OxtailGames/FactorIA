@@ -237,6 +237,8 @@ struct Renderer::Impl {
     // MetalFX for anything, so the pass can be read back on a GPU that has no MetalFX.
     bool mfxForceCreateFail = false;
     bool mfxPrepOnly = false;
+    bool mfxNoReactive =
+        false;  // test hook: the reactive mask is not handed to MetalFX (the frames without one are the contrast)
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();
