@@ -77,6 +77,12 @@ struct EngineConfig {
     // pool with it; an engine started while another runs shares that pool (jobs.info says what runs). A bad value makes
     // init fail. Threads never change what the game computes.
     std::string jobThreads;
+    // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan" (render::
+    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else factoria.json render.backend, else "auto" (the
+    // sokol backend this binary was built with). An unknown name makes init fail with the valid names; one this platform or
+    // build does not have is a warning and "auto". D3D12 and Vulkan have no window path yet: with a window the engine warns
+    // once and draws with "auto"; a headless run uses the one asked for. Engine::startup_report names the one that runs.
+    std::string gpuBackend;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless

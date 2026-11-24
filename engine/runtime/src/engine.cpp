@@ -1037,6 +1037,16 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
     {
+        // The GPU backend: EngineConfig, then FA_GPU_BACKEND, then factoria.json render.backend, then auto (M77-P9a).
+        auto chosen = choose_gpu_backend(config.gpuBackend, std::getenv("FA_GPU_BACKEND"), I.project.renderBackend);
+        if (!chosen) return fail(chosen.error().to_string());
+        I.gpuChoice = chosen.value();
+        for (const std::string& w : I.gpuChoice.warnings) {
+            FA_WARN("engine", "{}", w);
+            I.startupProblems.push_back("graphics: " + w);
+        }
+    }
+    {
         // The job pool (fa/core/jobs.h): EngineConfig, then FA_JOB_THREADS, then factoria.json runtime.jobThreads, then auto.
         jobs::Settings threads = jobs::Settings::automatic();
         I.jobThreadsSource = "default";
@@ -1143,11 +1153,24 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.designHeight = config.height > 0 ? config.height : I.project.height;
         rd.headless = !I.windowed;
         rd.adoptContext = I.windowed && config.adoptGraphicsContext;
+        rd.backend = I.gpuChoice.backend;
         std::string gerr;
         bool ok = false;
         if (I.windowed) {
             I.renderer = std::make_unique<Renderer>();
             ok = I.renderer->init(rd, *gfx, &gerr);
+            if (!ok && rd.backend != GpuBackend::Default) {
+                // The engine's own backends have no swapchain yet (P9c, P9d): one warning, and the window draws with the
+                // backend of this build rather than stay black or crash.
+                const std::string msg = gpu_backend_fallback_warning(rd.backend, gerr, Renderer::backend_name());
+                FA_WARN("engine", "{}", msg);
+                I.startupProblems.push_back("graphics: " + msg);
+                I.renderer->shutdown();
+                rd.backend = GpuBackend::Default;
+                I.renderer = std::make_unique<Renderer>();
+                gerr.clear();
+                ok = I.renderer->init(rd, *gfx, &gerr);
+            }
         } else {
             I.gpu = std::make_unique<HeadlessGpu>();
             ok = I.gpu->init(&gerr);
@@ -1409,6 +1432,12 @@ int Engine::warm_step(const GfxSwapchain& swapchain) {
 Json Engine::startup_report() const {
     Json j = impl_->startup.to_json();
     j["gpu"] = impl_->renderer && impl_->renderer->initialized() ? impl_->renderer->startup_report() : Json();
+    // "backend" is the device's; the asked one is named when it is another (M77-P9a).
+    if (j["gpu"].is_object()) {
+        const GpuBackend asked = impl_->gpuChoice.requested;
+        if (asked != GpuBackend::Default && asked != impl_->renderer->device_backend())
+            j["gpu"]["requestedBackend"] = gpu_backend_name(asked);
+    }
     return j;
 }
 

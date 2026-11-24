@@ -112,6 +112,18 @@ std::string mesh_full_template_hash();
 // GPU at all (it validates and records every call: tests).
 enum class GpuBackend : std::uint8_t { Default, Gl, Gles3, WebGl2, D3d11, Metal, D3d12, Vulkan, Recording };
 
+// The name of a backend as a project's `render.backend` and the FA_GPU_BACKEND variable write it: "auto" (Default), "gl",
+// "gles3", "webgl2", "d3d11", "metal", "d3d12", "vulkan" ("recording" for GpuBackend::Recording, which no setting accepts).
+const char* gpu_backend_name(GpuBackend backend);
+// The inverse of gpu_backend_name for the names a game may ask for ("auto" and the seven GPU backends; "recording" is not
+// one); nullopt for anything else (the caller reports it with gpu_backend_names()).
+std::optional<GpuBackend> parse_gpu_backend_name(std::string_view name);
+// The names parse_gpu_backend_name accepts besides "auto": every GPU backend, whether this binary has it or not.
+std::vector<std::string> gpu_backend_names();
+// Whether this binary can make a device of `backend` (Default: always): the sokol backend it was built with, D3D12 on
+// Windows, Vulkan where FA_RENDER_VULKAN is on. True does not promise a GPU or a window path.
+bool gpu_backend_available(GpuBackend backend);
+
 struct RendererDesc {
     int designWidth = 1280;
     int designHeight = 720;
@@ -403,6 +415,9 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The backend of the device this renderer draws on (never Default: the sokol backend it runs is named); Default
+    // before init() and after shutdown(). Unlike backend_name() it says "d3d12" or "vulkan" for the engine's own backends.
+    GpuBackend device_backend() const;
     // The GPU this renderer draws on, as its device's graphics API describes it (the adapter's name, vendor, memory;
     // fa/render/gpu_info.h), with `backend` = backend_name(). Before init() or after shutdown(): backend "none" and
     // nothing else. Call it on the thread that draws (OpenGL answers for the context current there).

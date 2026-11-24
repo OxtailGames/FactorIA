@@ -290,10 +290,17 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         if (!st->startupLogged) {  // one line per run: what the first frames cost (docs/PERFORMANCE.md, "Startup")
             st->startupLogged = true;
             const Json t = st->engine.startup_report();
+            std::string backend = "none";  // the backend of the renderer's device, and the one asked when it is another
+            if (t["gpu"].is_object() && t["gpu"].contains("backend")) {
+                backend = t["gpu"]["backend"].get<std::string>();
+                if (t["gpu"].contains("requestedBackend"))
+                    backend += " (asked for " + t["gpu"]["requestedBackend"].get<std::string>() + ")";
+            }
             FA_INFO("player",
                     "startup: first frame presented at {} ms, game ready at {} ms (reading the game {} ms, GPU warm-up "
-                    "{} ms; since process start)",
-                    t["firstPresentMs"].dump(), t["firstGameFrameMs"].dump(), t["initMs"].dump(), t["warmupMs"].dump());
+                    "{} ms; since process start; GPU backend {})",
+                    t["firstPresentMs"].dump(), t["firstGameFrameMs"].dump(), t["initMs"].dump(), t["warmupMs"].dump(),
+                    backend);
         }
         apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
