@@ -134,14 +134,14 @@ int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
 // is not jittered, and a jitter a test forced, have none: the picture is the one of a renderer without the feature.
 float Renderer::Impl::mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const {
     if (phases <= 0) return 0.0f;
-    const bool upscaler = temporalPhases > 0 && mainFrameCamera;
-    if (!upscaler && jitterForce > 0) return 0.0f;
+    const bool temporalUpscale = temporalPhases > 0 && mainFrameCamera;
+    if (!temporalUpscale && jitterForce > 0) return 0.0f;
     static const PostProcess kDefaults;
     const PostProcess& f = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) ? ci.postStack->fx : kDefaults;
     const float rawOffset = f.temporalAAMipBias;
     const double offset = std::isfinite(rawOffset) ? std::clamp(double(rawOffset), -2.0, 0.0) : -0.5;
     double bias = offset;
-    if (upscaler && physW > 0 && targetW > 0) bias += std::log2(std::min(1.0, double(physW) / double(targetW)));
+    if (temporalUpscale && physW > 0 && targetW > 0) bias += std::log2(std::min(1.0, double(physW) / double(targetW)));
     return float(std::clamp(bias, -4.0, 0.0));
 }
 
