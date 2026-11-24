@@ -4,8 +4,8 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 [ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md)). The engine's own Vulkan device: M77-P8a built the core
 (loader, device, memory, resources, barriers, transfers, descriptors, readbacks), M77-P8c the shaders, pipelines,
 passes, draws and dispatches, M77-P8b1 the GPU timers, the asynchronous reads and the synchronization fixes that
-lavapipe's synchronization validation asks for. The on-disk pipeline cache, growing descriptor pools, cache eviction and
-SPIR-V validation are M77-P8b2's, passes into the window M77-P9's.
+lavapipe's synchronization validation asks for, M77-P8b2 the pipeline cache on disk, the descriptor pool chains, the
+eviction of the caches, the framebuffer cache and the SPIR-V checks. Passes into the window are M77-P9's.
 
 ## Where it is built
 
@@ -58,7 +58,10 @@ mapped; upload memory is host-coherent, and readback memory that is not is inval
 **Resources.** Buffers; 2D, array, cube and 3D images with mips and MSAA; every `ViewDesc` kind (a sampled view, a
 storage image, a storage buffer range, colour, depth and resolve attachments: their Vulkan image views); samplers. A
 format table maps each `PixelFormat` to its `VkFormat`, texel or block size and aspect, and `caps()` asks the driver
-what each format can do. A 2D view of a 3D image needs `imageView2DOn3DImage`, which the portability subset may lack.
+what each format can do. A 2D view of a 3D image needs `imageView2DOn3DImage`, which the portability subset may lack:
+without it a 3D image is made without `VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT` and a colour attachment view of one of
+its slices is refused (draw into a 2D array image instead); the tests turn it off to check that path
+(`set_image_view_2d_on_3d_for_tests`).
 
 **Uploads.** `write_buffer`, `write_image` and the initial data of `make_buffer` / `make_image` copy through one
 persistently mapped upload ring shared by the frames in flight (rounded up to whole 64 KiB). An upload that does not
@@ -93,9 +96,12 @@ buffer copy per row (`features().copyBufferToImageRelaxedBytesPerRow`). Zero `by
 whole mip's pitch and zero sizes the rest of the mip, as in sokol. `push_debug_group` / `pop_debug_group` are
 `VK_EXT_debug_utils` labels, and every object carries its label as its debug name.
 
-**Descriptors.** One descriptor pool per frame in flight (`frameDescriptorSets` sets, `frameDescriptors` of each kind),
-reset when the frame's slot comes round again; the device counts the room itself, so a full pool is refused with the
-same error on every driver, naming the option to raise. The bindless table is one update-after-bind set of
+**Descriptors.** One chain of descriptor pools per frame in flight. Each pool holds `frameDescriptorSets` sets and
+`frameDescriptors` descriptors of each kind; a frame that fills one goes on to the next, made the first time a frame
+needs it, up to `frameDescriptorPools` (default 8, 1 to 64) pools a frame (`counters().frameDescriptorPools` says how
+many this frame took). The chain is reset when the frame's slot comes round again, and the pools stay made. The device
+counts the room itself, so a set larger than one pool, or a frame past its last pool, is refused with the same error on
+every driver, naming the option to raise. The bindless table is one update-after-bind set of
 `bindlessDescriptors` sampled images (descriptor indexing, partially bound): `bindless_add(view)` writes a free slot,
 `bindless_remove(slot)` frees it once the frames that may read it are finished. A count over what the device binds in
 one stage or puts in one set (MoltenVK: 1212) is lowered with a warning; a device without descriptor indexing has no
@@ -131,7 +137,8 @@ without a timestamp period makes `timer_supported()` false with a reason naming 
 **`storage_image_loadable(format)`** is true where the format has `VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT` with optimal
 tiling: the engine's shaders always declare a storage image's format, so a load needs nothing more
 (`shaderStorageImageReadWithoutFormat` is not used). Otherwise false with a reason naming the device and the format and
-the formats every Vulkan GPU stores (rgba8, rgba16f, r32f, rgba32f).
+the formats every Vulkan GPU stores (rgba8, rgba16f, r32f, rgba32f). BGRA8 is always false: SPIR-V has no format
+qualifier for it, so no shader can declare such a storage image, whatever the driver lists.
 
 **Robustness.** A full buffer or image pool is found before the Vulkan object or its upload is made; a Vulkan object
 made while another thread took the last slot is released with its frame, never while the prelude may copy into it. A
@@ -143,7 +150,9 @@ opened with `LoadLibraryExW`: `vulkan-1.dll` from System32 only, an absolute `lo
 
 **SPIR-V only.** `make_shader` (`vulkan_pipelines.cpp`) takes each stage as SPIR-V bytecode: sokol-shdc's `spirv_vk`
 output. A stage given as source text is refused ("Vulkan takes SPIR-V"), and bytecode that is not a whole number of
-32-bit words with the SPIR-V magic number and header is refused too. `tools/shaders/compile_shaders.sh` asks for
+32-bit words with the SPIR-V magic number and header is refused too, and so is SPIR-V whose instructions' word counts
+do not add up (a count of 0, or one that runs past the end: the error names the word and the opcode). The driver never
+sees such bytes. `tools/shaders/compile_shaders.sh` asks for
 `spirv_vk` for every built-in shader and opens the guard of its SPIR-V to `FA_SHADERS_SPIRV` next to `SOKOL_VULKAN`: a
 translation unit that drives this backend while sokol runs another one defines `FA_SHADERS_SPIRV` before including a
 generated header and calls `<program>_shader_desc(SG_BACKEND_VULKAN)`; every other translation unit carries none of it.
@@ -176,17 +185,44 @@ pass has, sample counts 1, 2, 4 or 8) and says which field is wrong. Its key is 
 layout's key and every value of the state; equal keys share one `VkPipeline` (`counters().pipelineCacheHits` /
 `pipelineCacheMisses`), so two `Pipeline` handles of the same desc, or of two shaders with the same SPIR-V and slots,
 are one Vulkan object. A pipeline is made outside the cache's lock through the device's `VkPipelineCache`
-(`pipeline_cache()`; M77-P8b saves and loads its data); when two threads make the same one, the first is kept.
-Viewport, scissor, blend constants and stencil reference are dynamic state, set by the command list. Pipelines and
-their layouts live as long as the device.
+(`pipeline_cache()`, saved to disk: "The pipeline cache file" below); when two threads make the same one, the first is
+kept. Viewport, scissor, blend constants and stencil reference are dynamic state, set by the command list. A point
+list (`PrimitiveType::Points`) needs a vertex stage that stores to `gl_PointSize` (`spirv_writes_point_size`: a store,
+not the declaration, which glslang emits in every vertex shader): otherwise `make_pipeline` refuses it and says to add
+`gl_PointSize = 1.0;`, since Vulkan draws such points at an undefined size.
+
+**Eviction.** The caches hold their objects by reference count. A cached `VkPipeline` stays while a live shader has its
+code (`codeKey`): `destroy_shader` of the last shader with that code takes its pipelines out of the cache, and a
+destroyed `Pipeline` handle lets go of its own reference. Set and pipeline layouts stay while a shader or pipeline
+holds them. An object nobody holds any more goes to the deferred release queue and is destroyed once the frames that
+may use it are finished, so reloading shaders does not grow the device. `counters().pipelinesCached`,
+`pipelineLayoutsCached`, `setLayoutsCached` and `framebuffersCached` count what the caches hold now. Render passes,
+which a few formats bound, live as long as the device.
+
+**The pipeline cache file.** `VulkanOptions::pipelineCacheFile` (empty: none; `vulkan_pipeline_cache_file()` is the
+engine's place, `shaders/vulkan-pipelines.bin` in the user's cache directory) is read when the device is made and
+gives the `VkPipelineCache` its data. The file has a header of its own: the magic `FAVKPSO`, a format version, the
+`vendorID`, `deviceID`, `driverVersion` and `pipelineCacheUUID` it was made with, the data's size and its SHA-256. Then
+comes the driver's data, whose `VkPipelineCacheHeaderVersionOne` is checked too. A file that is too large, cut,
+corrupt, of another format version, or made on another GPU or driver is thrown away with one warning (`warnings()`)
+before the driver sees a byte, and so is data the driver refuses; the pipelines are then compiled again and the file is
+written anew. `save_pipeline_cache()` writes it, and so does the destructor: only when pipelines were made since the
+file was read and the data differs. The write is atomic (a temporary file, then a rename, through `fs::write_bytes`,
+which takes long Windows paths and removes its temporary on a failure). A failure (a directory that cannot be made, a
+file another process holds open on Windows, a full disk) is one warning plus an error from `save_pipeline_cache()`,
+and the old file stays. `counters().pipelineCacheLoaded`, `pipelineCacheFileBytes`, `pipelineCacheStored`,
+`pipelineCacheDiscarded` and `pipelineCacheStoreFailed` follow it, like `D3d12Counters` on D3D12. The renderer
+assigns the path in M77-P9.
 
 **Render passes.** Dynamic rendering is off (MoltenVK and the Vulkan 1.2 baseline): a `VkRenderPass` is cached by its
 formats, sample count and load/store operations (`counters().renderPassCacheHits` / `renderPassCacheMisses`). Its
 attachments are colour 0, colour 1, depth-stencil and the resolve target; each starts and ends in the layout the pass
 uses it in, and the command list's barriers put it there. A graphics pipeline is made against a pass with its own
 formats and sample count; Vulkan's compatibility rule ignores load/store operations and layouts, and a single-subpass
-pass's resolve attachments, so every pass with those formats draws with it. A `VkFramebuffer` is made per pass and
-kept by the list until the list is opened again.
+pass's resolve attachments, so every pass with those formats draws with it. A `VkFramebuffer` is cached by its render
+pass, its size and the serial number of each attachment view (`counters().framebufferCacheHits` / `framebufferCacheMisses`), so a pass
+into the same targets reuses it list after list; `destroy_view` takes every framebuffer of that view out of the cache
+and releases it once its frame is done.
 
 ## The command list (M77-P8c)
 
@@ -222,7 +258,10 @@ views need, so a second dispatch that reads what the first wrote waits for it.
 are bound at the next draw or dispatch, in order: see "The synchronization model"). `set_bindings` checks the vertex and index buffers the pipeline reads (slot by slot, with the index
 offset's alignment), each view against the type the shader declares (texture, storage buffer, storage image, its image
 type and sample type) and the storage buffer offset against `minStorageBufferOffsetAlignment`; then it writes set 1
-from the frame's descriptor pool, bound with sets 0 and 2 before the next draw or dispatch. `set_uniforms` copies the data into the upload ring, aligned to
+from the frame's descriptor pool, bound before the next draw or dispatch. A storage buffer's descriptor covers the rest
+of the buffer from its offset (`VK_WHOLE_SIZE`) when that fits `maxStorageBufferRange`, and that limit otherwise (128
+MiB on Mali, `storage_buffer_range`). Each set has a dirty flag of its own: new uniforms bind set 0 again (with the
+same layout, sets 1 and 2 stay bound), new bindings set 1, a new pipeline all three (`counters().descriptorSetBinds`). `set_uniforms` copies the data into the upload ring, aligned to
 `minUniformBufferOffsetAlignment` (16 to 256 bytes), and checks its size against the block; before the next draw or
 dispatch set 0 is bound with one dynamic offset per block, and the set itself is made once per layout and ring buffers
 in a list. A draw before the uniforms or bindings its shader needs reports which and draws nothing.
@@ -236,9 +275,7 @@ A texture view and a storage image view of one subresource in the same dispatch 
 refused at the dispatch with the mip and layer and what to do instead (bind another mip or layer, read the storage
 image in the shader, or copy the image).
 
-**Not yet.** M77-P8b2: the pipeline cache saved to and loaded from disk, descriptor pools that grow instead of
-refusing a full frame, eviction of the layout and pipeline caches, and SPIR-V validated before `vkCreateShaderModule`.
-M77-P9: a pass into the window.
+**Not yet.** M77-P9: a pass into the window, and the renderer's path for the pipeline cache file.
 
 ## Tests
 
@@ -258,7 +295,12 @@ shader, and the errors of `make_shader`, `make_pipeline` and the command list. M
 scopes over several frames (and the untimed, late, forgotten and full-ring cases), async reads of a buffer and an
 image region with ticket reuse and all 32 slots in flight, a texture written by compute and read by a second compute
 pass and a fragment shader (with synchronization2 and with the 1.0 barriers), pipelines with different set-0 layouts
-drawn in turn, the texture + storage image conflict in a dispatch, and `storage_image_loadable`. A machine with no
+drawn in turn, the texture + storage image conflict in a dispatch, and `storage_image_loadable`. M77-P8b2 added the
+pipeline cache file (a second device made with the first one's file, the destructor's save, a file of another GPU or
+driver, with a changed UUID, cut, corrupt or of another format thrown away and written anew, a directory that cannot
+be made and a file another reader holds open: a warning and the old file kept), the descriptor pool chain, damaged
+SPIR-V, a point list without `gl_PointSize`, the binds of set 0 alone per draw, the eviction of a destroyed shader's
+pipelines and layouts, the framebuffer cache, a 3D image without 2D views and the storage buffer range. A machine with no
 loader, no Vulkan device, a loader older than 1.2 or a driver that does not start (`VK_ERROR_INITIALIZATION_FAILED`)
 says so with a MESSAGE and passes, and one case checks the factory's errors (bad options, a missing loader). They run on
 macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationlayers`), on Windows where a Vulkan
