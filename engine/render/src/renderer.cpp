@@ -554,7 +554,7 @@ void Renderer::shutdown() {
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
-        im.lightAtlas.destroy();  // its images are destroyed with the context still open
+        im.lightAtlas.destroy(im.gpu.device());  // its images are destroyed with the context still open
         im.destroy_decal_atlas();
         destroy_target(im.shadowTarget);
         im.free_retired_shadow_targets();

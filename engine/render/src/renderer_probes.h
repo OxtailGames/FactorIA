@@ -46,10 +46,10 @@ struct GiFacePlan {
 class ProbeGpu {
 public:
     struct Atlas {
-        sg_image image{};
-        sg_view tex{};  // what a shader samples
-        sg_view att{};  // what a pass draws into
-        int size = 0;   // the width
+        gpu::Image image{};
+        gpu::View tex{};  // what a shader samples
+        gpu::View att{};  // what a pass draws into
+        int size = 0;     // the width
         int height =
             0;  // the atlas is size x height: taller than wide while a RealtimeGI's band of blocks is in it (gi.h)
         bool valid() const { return image.id != 0; }
@@ -59,11 +59,13 @@ public:
     ProbeGpu(const ProbeGpu&) = delete;
     ProbeGpu& operator=(const ProbeGpu&) = delete;
 
-    // Makes the programs, pipelines and sampler on first use. False (logged once) when this GPU cannot.
-    bool ready();
-    sg_pixel_format format() const { return format_; }
-    bool rgba8() const { return format_ == SG_PIXELFORMAT_RGBA8; }
-    sg_sampler sampler() const { return sampler_; }
+    // Makes the programs, pipelines and sampler on first use, on `gpu`'s device (kept: every other method of the class that
+    // makes or destroys a resource uses it, so call ready() before them, and release() before the Gpu shuts down). False
+    // (logged once) when this GPU cannot.
+    bool ready(Gpu& gpu);
+    gpu::PixelFormat format() const { return format_; }
+    bool rgba8() const { return format_ == gpu::PixelFormat::Rgba8; }
+    gpu::Sampler sampler() const { return sampler_; }
     // Tests only: the next ready() makes RGBA8 images (call before ready()).
     static void force_rgba8_for_tests(bool force);
 
@@ -80,32 +82,35 @@ public:
 
     // Copies the picture of capture face `face` (`picture`: an upright 2D view, row 0 = the top, as the face job drew it) into face `face` of
     // the slot's S0.
-    void face_to_cube(Gpu& gpu, int slot, int face, sg_view picture, int* drawCalls);
+    void face_to_cube(Gpu& gpu, int slot, int face, gpu::bridged::View picture, int* drawCalls);
     // The pyramid, the levels and the SH row of the tile, from the slot's S0. `gain` multiplies the light (ReflectionProbe.intensity).
     void filter(Gpu& gpu, Atlas& atlas, int slot, const ProbeTile& tile, float gain, int* drawCalls);
     // The sky's entry: levels from the lods of the environment cube, the SH row from its mip 5. `envRgba8`: the cube is RGBA8 (its SH is coded).
-    void write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, sg_view envCube, sg_sampler envSampler, bool envRgba8,
-                   int* drawCalls);
+    void write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::bridged::View envCube,
+                   gpu::bridged::Sampler envSampler, bool envRgba8, int* drawCalls);
     // A baked probe: the page (the tile without its SH row) times `gain`, and the nine coefficients times `gain`.
     bool upload(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, const ImageF& page, const float sh[9][3], float gain,
                 int* drawCalls);
     // The texels of a rectangle of the atlas as RGBA floats, top row of the rectangle first (RGBA16F only: the atlas as RGBA8 is read as
     // bytes / 255). The work recorded so far must be committed by the caller when the backend needs it (Metal): see Renderer::Impl.
-    bool read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, int h, sg_image& scratch, int* drawCalls);
-    static bool read_region_end(sg_image scratch, int w, int h, bool rgba8, std::vector<float>& out,
-                                std::string* error);
+    bool read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, int h, gpu::Image& scratch, int* drawCalls);
+    // Reads `scratch` (waits for the GPU) and destroys it, on `device` (the Gpu's).
+    static bool read_region_end(gpu::Device& device, gpu::Image scratch, int w, int h, bool rgba8,
+                                std::vector<float>& out, std::string* error);
 
     // ---- the realtime GI (renderer_gi_gpu.cpp) ----
     // Makes the programs of the GI on first use. False (logged once) when this GPU cannot: it needs RGBA16F images it can blend into.
     bool gi_ready();
     // The distance picture `index` (res x res, RGBA16F: r = the distance of the first hit, g = 1 when it is a back face), made when missing.
     bool dist_image(int index, int res);
-    sg_view dist_view(int index) const;
+    gpu::View dist_view(int index) const;
     // "gi-distance": the prepass images of one face (front faces, back faces) into the distance picture `index`.
-    void gi_dist(Gpu& gpu, int index, sg_view front, sg_view back, float maxDistance, int* drawCalls);
+    void gi_dist(Gpu& gpu, int index, gpu::bridged::View front, gpu::bridged::View back, float maxDistance,
+                 int* drawCalls);
     // The face of a GI capture into face `face` of the slot's S0: the colour by direction, the signed distance (negative: a back face) in alpha.
     // `dist` invalid: the face has no picture and every ray is maxDistance long.
-    void face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view dist, float maxDistance, int* drawCalls);
+    void face_gi(Gpu& gpu, int slot, int face, gpu::bridged::View picture, gpu::bridged::View dist, float maxDistance,
+                 int* drawCalls);
     // Block `block` of the band (gi.h) from the slot's S0: the SH row, the depth map and the meta texel, each blended into what the block holds
     // with weight `blend` (1 replaces it: a probe's first capture; 1 - hysteresis afterwards).
     void filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolution, float blend, float maxDistance,
@@ -131,30 +136,33 @@ private:
         All  // the ones gi_ready() makes (ShBlend: the Sh program that blends)
     };
     struct DistImage {
-        sg_image image{};
-        sg_view att{}, tex{};
+        gpu::Image image{};
+        gpu::View att{}, tex{};
         int size = 0;
     };
     void release_gi();
     int giState_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
-    sg_sampler nearest_{};
+    gpu::Sampler nearest_{};
     std::vector<DistImage> dist_;
     struct Scratch {
         int resolution = 0, images = 0;
-        sg_image image[kProbeMaxLevels]{};
-        sg_view tex[kProbeMaxLevels]{};
-        sg_view att[kProbeMaxLevels][6]{};
+        gpu::Image image[kProbeMaxLevels]{};
+        gpu::View tex[kProbeMaxLevels]{};
+        gpu::View att[kProbeMaxLevels][6]{};
     };
     void destroy_scratch(Scratch& s);
-    void pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w, int h, sg_view source, sg_sampler sampler,
-                   const float region[4], const float p[4], const float q[4], const float* blit, int* drawCalls);
-    void pass_cube(Gpu& gpu, Prog prog, sg_view att, sg_view source, int face, const float camera[12], int* drawCalls);
+    void pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w, int h, gpu::View source,
+                   gpu::Sampler sampler, const float region[4], const float p[4], const float q[4], const float* blit,
+                   int* drawCalls);
+    void pass_cube(Gpu& gpu, Prog prog, gpu::View att, gpu::View source, int face, const float camera[12],
+                   int* drawCalls);
 
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
-    sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
-    sg_shader shaders_[int(Prog::All)]{};
-    sg_pipeline pipelines_[int(Prog::All)]{};
-    sg_sampler sampler_{};
+    gpu::PixelFormat format_ = gpu::PixelFormat::None;
+    gpu::Shader shaders_[int(Prog::All)]{};
+    gpu::Pipeline pipelines_[int(Prog::All)]{};
+    gpu::Sampler sampler_{};
+    Gpu* gpu_ = nullptr;  // the Gpu of the last ready(): its device makes and destroys everything above
     Scratch scratch_[kProbeScratchSlots];
     bool isGl_ = false;
 };

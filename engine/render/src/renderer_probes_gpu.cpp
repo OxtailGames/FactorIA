@@ -17,25 +17,25 @@ namespace {
 
 bool g_forceRgba8 = false;
 
-bool usable(sg_pixel_format f) {
-    const sg_pixelformat_info i = sg_query_pixelformat(f);
-    return i.sample && i.filter && i.render;
+bool usable(gpu::Device& device, gpu::PixelFormat f) {
+    const gpu::PixelFormatCaps c = device.pixel_format_caps(f);
+    return c.sample && c.filter && c.render;
 }
-bool valid(sg_image i) { return i.id && sg_query_image_state(i) == SG_RESOURCESTATE_VALID; }
-bool valid(sg_view v) { return v.id && sg_query_view_state(v) == SG_RESOURCESTATE_VALID; }
+bool valid(gpu::Device& device, gpu::Image i) { return i.id && device.state(i) == gpu::ResourceState::Valid; }
+bool valid(gpu::Device& device, gpu::View v) { return v.id && device.state(v) == gpu::ResourceState::Valid; }
 
-sg_view texture_view(sg_image image, const char* label) {
-    sg_view_desc v{};
+gpu::View texture_view(gpu::Device& device, gpu::Image image, const char* label) {
+    gpu::ViewDesc v{};
     v.texture.image = image;
     v.label = label;
-    return sg_make_view(&v);
+    return device.make_view(v);
 }
-sg_view attachment_view(sg_image image, int slice, const char* label) {
-    sg_view_desc v{};
-    v.color_attachment.image = image;
-    v.color_attachment.slice = slice;
+gpu::View attachment_view(gpu::Device& device, gpu::Image image, int slice, const char* label) {
+    gpu::ViewDesc v{};
+    v.colorAttachment.image = image;
+    v.colorAttachment.slice = slice;
     v.label = label;
-    return sg_make_view(&v);
+    return device.make_view(v);
 }
 
 // A half float with its sign (render_internal.h float_to_half_bits is for values that are never negative).
@@ -46,23 +46,27 @@ std::uint16_t signed_half_bits(float f) {
 
 // A small immutable image with data and its texture view, for a baked page on its way into the atlas.
 struct Upload {
-    sg_image image{};
-    sg_view view{};
-    bool make(int w, int h, sg_pixel_format format, const void* data, std::size_t bytes, const char* label) {
-        sg_image_desc d{};
+    gpu::Device& device;
+    gpu::Image image{};
+    gpu::View view{};
+    explicit Upload(gpu::Device& d) : device(d) {}
+    Upload(const Upload&) = delete;
+    Upload& operator=(const Upload&) = delete;
+    bool make(int w, int h, gpu::PixelFormat format, const void* data, std::size_t bytes, const char* label) {
+        gpu::ImageDesc d{};
         d.width = w;
         d.height = h;
-        d.pixel_format = format;
-        d.data.mip_levels[0] = {data, bytes};
+        d.pixelFormat = format;
+        d.data.mipLevels[0] = {data, bytes};
         d.label = label;
-        image = make_image(d);
-        if (!valid(image)) return false;
-        view = texture_view(image, label);
-        return valid(view);
+        image = device.make_image(d);
+        if (!valid(device, image)) return false;
+        view = texture_view(device, image, label);
+        return valid(device, view);
     }
     ~Upload() {
-        if (view.id) sg_destroy_view(view);
-        if (image.id) sg_destroy_image(image);
+        if (view.id) device.destroy_view(view);
+        if (image.id) device.destroy_image(image);
     }
 };
 
@@ -70,50 +74,52 @@ struct Upload {
 
 void ProbeGpu::force_rgba8_for_tests(bool force) { g_forceRgba8 = force; }
 
-bool ProbeGpu::ready() {
+bool ProbeGpu::ready(Gpu& gpu) {
+    gpu_ = &gpu;
     if (state_ != 0) return state_ > 0;
-    format_ = usable(SG_PIXELFORMAT_RGBA16F) && !g_forceRgba8
-                  ? SG_PIXELFORMAT_RGBA16F
-                  : (usable(SG_PIXELFORMAT_RGBA8) ? SG_PIXELFORMAT_RGBA8 : SG_PIXELFORMAT_NONE);
-    bool ok = format_ != SG_PIXELFORMAT_NONE;
+    gpu::Device& device = gpu.device();
+    format_ = usable(device, gpu::PixelFormat::Rgba16F) && !g_forceRgba8
+                  ? gpu::PixelFormat::Rgba16F
+                  : (usable(device, gpu::PixelFormat::Rgba8) ? gpu::PixelFormat::Rgba8 : gpu::PixelFormat::None);
+    bool ok = format_ != gpu::PixelFormat::None;
     if (ok) {
-        const sg_backend backend = sg_query_backend();
-        isGl_ = backend == SG_BACKEND_GLCORE || backend == SG_BACKEND_GLES3;
-        const sg_shader_desc* descs[int(Prog::Count)] = {
-            probe_face_shader_desc(backend),    probe_down_shader_desc(backend), probe_oct_cube_shader_desc(backend),
-            probe_oct_ggx_shader_desc(backend), probe_sh_shader_desc(backend),   probe_sh_cube_shader_desc(backend),
-            probe_blit_shader_desc(backend)};
+        isGl_ = gpu.is_gl();
+        const gpu::GeneratedShader descs[int(Prog::Count)] = {
+            probe_face_shader_desc, probe_down_shader_desc,    probe_oct_cube_shader_desc, probe_oct_ggx_shader_desc,
+            probe_sh_shader_desc,   probe_sh_cube_shader_desc, probe_blit_shader_desc};
         static const char* const names[int(Prog::Count)] = {
             "probe_face", "probe_down", "probe_oct_cube", "probe_oct_ggx", "probe_sh", "probe_sh_cube", "probe_blit"};
         for (int p = 0; p < int(Prog::Count); ++p) {
-            shaders_[p] = make_shader(descs[p], names[p]);
-            ok = ok && sg_query_shader_state(shaders_[p]) == SG_RESOURCESTATE_VALID;
+            shaders_[p] = make_shader(device, gpu::generated_shader_desc(descs[p]), names[p]);
+            ok = ok && device.state(shaders_[p]) == gpu::ResourceState::Valid;
         }
     }
     if (ok) {
-        sg_sampler_desc sd{};
-        sd.min_filter = SG_FILTER_LINEAR;
-        sd.mag_filter = SG_FILTER_LINEAR;
-        sd.mipmap_filter = SG_FILTER_LINEAR;
-        sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
+        gpu::SamplerDesc sd{};
+        sd.minFilter = gpu::Filter::Linear;
+        sd.magFilter = gpu::Filter::Linear;
+        sd.mipmapFilter = gpu::Filter::Linear;
+        sd.wrapU = sd.wrapV = sd.wrapW = gpu::Wrap::ClampToEdge;
         sd.label = "probe-sampler";
-        sampler_ = sg_make_sampler(&sd);
-        ok = sampler_.id && sg_query_sampler_state(sampler_) == SG_RESOURCESTATE_VALID;
+        sampler_ = device.make_sampler(sd);
+        ok = sampler_.id && device.state(sampler_) == gpu::ResourceState::Valid;
     }
     if (ok) {
         for (int p = 0; p < int(Prog::Count); ++p) {
-            sg_pipeline_desc d{};
+            gpu::PipelineDesc d{};
             d.shader = shaders_[p];
-            d.layout.attrs[ATTR_probe_face_pos].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
-            d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-            d.depth.write_enabled = false;
-            d.depth.pixel_format = SG_PIXELFORMAT_NONE;
-            d.colors[0].pixel_format = format_;
-            d.sample_count = 1;
-            d.face_winding = SG_FACEWINDING_CCW;
+            d.layout.attrs[ATTR_probe_face_pos].format =
+                gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
+            d.depth.compare = gpu::CompareFunc::Always;
+            d.depth.writeEnabled = false;
+            d.depth.pixelFormat = gpu::PixelFormat::None;
+            d.colorCount = 1;
+            d.colors[0].pixelFormat = format_;
+            d.sampleCount = 1;
+            d.faceWinding = gpu::FaceWinding::Ccw;
             d.label = "probe";
-            pipelines_[p] = sg_make_pipeline(&d);
-            ok = ok && sg_query_pipeline_state(pipelines_[p]) == SG_RESOURCESTATE_VALID;
+            pipelines_[p] = device.make_pipeline(d);
+            ok = ok && device.state(pipelines_[p]) == gpu::ResourceState::Valid;
         }
     }
     if (!ok) {
@@ -132,81 +138,89 @@ bool ProbeGpu::ready() {
 
 bool ProbeGpu::make_atlas(Atlas& a, int size, const char* label, int height) {
     destroy_atlas(a);
-    if (!ready()) return false;
+    if (state_ <= 0 || !gpu_) return false;  // ready(gpu) first
+    gpu::Device& device = gpu_->device();
     if (height <= 0) height = size;
-    sg_image_desc d{};
-    d.usage.color_attachment = true;
+    gpu::ImageDesc d{};
+    d.usage.colorAttachment = true;
     d.width = size;
     d.height = height;
-    d.pixel_format = format_;
+    d.pixelFormat = format_;
     d.label = label;
-    a.image = make_image(d);
-    if (!valid(a.image)) {
+    a.image = device.make_image(d);
+    if (!valid(device, a.image)) {
         destroy_atlas(a);
         return false;
     }
-    a.tex = texture_view(a.image, label);
-    a.att = attachment_view(a.image, 0, label);
+    a.tex = texture_view(device, a.image, label);
+    a.att = attachment_view(device, a.image, 0, label);
     a.size = size;
     a.height = height;
-    if (!valid(a.tex) || !valid(a.att)) {
+    if (!valid(device, a.tex) || !valid(device, a.att)) {
         destroy_atlas(a);
         return false;
     }
     // Black, so that no texel is ever garbage (a tile that is not written yet reads as 0).
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = "probe-atlas-clear";
     pd.color = a.att;
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_CLEAR;
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    Gpu::end_pass();
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::Clear;
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu_->commands();
+    cmd.begin_pass(pd);
+    cmd.end_pass();
     return true;
 }
 
 void ProbeGpu::destroy_atlas(Atlas& a) {
-    if (a.att.id) sg_destroy_view(a.att);
-    if (a.tex.id) sg_destroy_view(a.tex);
-    if (a.image.id) sg_destroy_image(a.image);
+    if (gpu_ && gpu_->has_device()) {
+        gpu::Device& device = gpu_->device();
+        if (a.att.id) device.destroy_view(a.att);
+        if (a.tex.id) device.destroy_view(a.tex);
+        if (a.image.id) device.destroy_image(a.image);
+    }
     a = Atlas{};
 }
 
 void ProbeGpu::destroy_scratch(Scratch& s) {
+    gpu::Device* device = gpu_ && gpu_->has_device() ? &gpu_->device() : nullptr;
     for (int i = 0; i < kProbeMaxLevels; ++i) {
-        for (sg_view& v : s.att[i]) {
-            if (v.id) sg_destroy_view(v);
+        for (gpu::View& v : s.att[i]) {
+            if (v.id && device) device->destroy_view(v);
             v = {};
         }
-        if (s.tex[i].id) sg_destroy_view(s.tex[i]);
+        if (s.tex[i].id && device) device->destroy_view(s.tex[i]);
         s.tex[i] = {};
-        if (s.image[i].id) sg_destroy_image(s.image[i]);
+        if (s.image[i].id && device) device->destroy_image(s.image[i]);
         s.image[i] = {};
     }
     s.resolution = s.images = 0;
 }
 
 bool ProbeGpu::prepare_scratch(int slot, int resolution) {
-    if (!ready() || slot < 0 || slot >= kProbeScratchSlots) return false;
+    if (state_ <= 0 || !gpu_ || slot < 0 || slot >= kProbeScratchSlots) return false;  // ready(gpu) first
+    gpu::Device& device = gpu_->device();
     Scratch& s = scratch_[slot];
     if (s.resolution == resolution) return true;
     destroy_scratch(s);
     const int images = std::max(probe_levels(resolution), probe_sh_source(resolution) + 1);
     bool ok = images <= kProbeMaxLevels;
     for (int i = 0; ok && i < images; ++i) {
-        sg_image_desc d{};
-        d.type = SG_IMAGETYPE_CUBE;
-        d.usage.color_attachment = true;
+        gpu::ImageDesc d{};
+        d.type = gpu::ImageType::Cube;
+        d.numSlices = 6;
+        d.usage.colorAttachment = true;
         d.width = d.height = resolution >> i;
-        d.num_mipmaps = 1;
-        d.pixel_format = format_;
+        d.numMipmaps = 1;
+        d.pixelFormat = format_;
         d.label = "probe-scratch";
-        s.image[i] = make_cube_image(d);
-        s.tex[i] = texture_view(s.image[i], "probe-scratch");
-        ok = valid(s.image[i]) && valid(s.tex[i]);
+        s.image[i] = device.make_image(d);  // the cube fixes of render::make_cube_image are the device's
+        s.tex[i] = texture_view(device, s.image[i], "probe-scratch");
+        ok = valid(device, s.image[i]) && valid(device, s.tex[i]);
         for (int f = 0; ok && f < 6; ++f) {
-            s.att[i][f] = attachment_view(s.image[i], f, "probe-scratch");
-            ok = valid(s.att[i][f]);
+            s.att[i][f] = attachment_view(device, s.image[i], f, "probe-scratch");
+            ok = valid(device, s.att[i][f]);
         }
     }
     if (!ok) {
@@ -218,21 +232,22 @@ bool ProbeGpu::prepare_scratch(int slot, int resolution) {
     return true;
 }
 
-void ProbeGpu::pass_cube(Gpu& gpu, Prog prog, sg_view att, sg_view source, int face, const float camera[12],
+void ProbeGpu::pass_cube(Gpu& gpu, Prog prog, gpu::View att, gpu::View source, int face, const float camera[12],
                          int* drawCalls) {
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = prog == Prog::Face ? "probe-face" : "probe-down";
     pd.color = att;
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipelines_[int(prog)]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
+    cmd.set_pipeline(pipelines_[int(prog)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_cube] = source;  // the same slot (0) as the 2D picture of the Face program
     b.samplers[SMP_probe_probe_smp] = sampler_;
-    sg_apply_bindings(&b);
+    cmd.set_bindings(b);
     const EnvFace f = env_face(face, isGl_);
     probe_probe_vs_params_t vu{};
     for (int i = 0; i < 3; ++i) {
@@ -240,61 +255,58 @@ void ProbeGpu::pass_cube(Gpu& gpu, Prog prog, sg_view att, sg_view source, int f
         vu.right[i] = f.right[i];
         vu.up[i] = f.up[i];
     }
-    sg_range vr{&vu, sizeof(vu)};
-    sg_apply_uniforms(UB_probe_probe_vs_params, &vr);
+    cmd.set_uniforms(UB_probe_probe_vs_params, gpu::Range{&vu, sizeof(vu)});
     if (prog == Prog::Face) {
         probe_probe_face_params_t fu{};
         std::memcpy(fu.cam_right, camera, 3 * sizeof(float));
         std::memcpy(fu.cam_up, camera + 4, 3 * sizeof(float));
         std::memcpy(fu.cam_fwd, camera + 8, 3 * sizeof(float));
-        sg_range fr{&fu, sizeof(fu)};
-        sg_apply_uniforms(UB_probe_probe_face_params, &fr);
+        cmd.set_uniforms(UB_probe_probe_face_params, gpu::Range{&fu, sizeof(fu)});
     }
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    cmd.draw(0, 3, 1);
+    cmd.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w, int h, sg_view source,
-                         sg_sampler sampler, const float region[4], const float p[4], const float q[4],
+void ProbeGpu::pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w, int h, gpu::View source,
+                         gpu::Sampler sampler, const float region[4], const float p[4], const float q[4],
                          const float* blit, int* drawCalls) {
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = "probe-atlas";
     pd.color = atlas.att;
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_LOAD;  // the other tiles stay
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::Load;  // the other tiles stay
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
     // The rectangle in MEMORY rows: OpenGL counts its window from the bottom, which is where a render target's row 0 is.
-    sg_apply_viewport(x, y, w, h, !isGl_);
-    sg_apply_scissor_rect(x, y, w, h, !isGl_);
-    sg_apply_pipeline(pipelines_[int(prog)]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    cmd.set_viewport(x, y, w, h, !isGl_);
+    cmd.set_scissor(x, y, w, h, !isGl_);
+    cmd.set_pipeline(pipelines_[int(prog)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_cube] = source;  // a cube, or the 2D image of Blit: slot 0 either way
     b.samplers[SMP_probe_probe_smp] = sampler;
-    sg_apply_bindings(&b);
+    cmd.set_bindings(b);
     if (prog == Prog::Blit) {
         probe_probe_blit_params_t u{};
         u.dst[0] = float(x);
         u.dst[1] = float(y);
         std::memcpy(u.src, blit, 4 * sizeof(float));
-        sg_range r{&u, sizeof(u)};
-        sg_apply_uniforms(UB_probe_probe_blit_params, &r);
+        cmd.set_uniforms(UB_probe_probe_blit_params, gpu::Range{&u, sizeof(u)});
     } else {
         probe_probe_params_t u{};
         std::memcpy(u.region, region, 4 * sizeof(float));
         std::memcpy(u.p, p, 4 * sizeof(float));
         std::memcpy(u.q, q, 4 * sizeof(float));
-        sg_range r{&u, sizeof(u)};
-        sg_apply_uniforms(UB_probe_probe_params, &r);
+        cmd.set_uniforms(UB_probe_probe_params, gpu::Range{&u, sizeof(u)});
     }
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    cmd.draw(0, 3, 1);
+    cmd.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::face_to_cube(Gpu& gpu, int slot, int face, sg_view picture, int* drawCalls) {
+void ProbeGpu::face_to_cube(Gpu& gpu, int slot, int face, gpu::bridged::View picture, int* drawCalls) {
     Scratch& s = scratch_[slot];
     const ProbeFace c = probe_face(face);
     const float camera[12] = {c.right.x, c.right.y, c.right.z, 0.0f,    c.up.x,  c.up.y,
@@ -329,8 +341,8 @@ void ProbeGpu::filter(Gpu& gpu, Atlas& atlas, int slot, const ProbeTile& tile, f
               sampler_, region, p, q, nullptr, drawCalls);
 }
 
-void ProbeGpu::write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, sg_view envCube, sg_sampler envSampler,
-                         bool envRgba8, int* drawCalls) {
+void ProbeGpu::write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::bridged::View envCube,
+                         gpu::bridged::Sampler envSampler, bool envRgba8, int* drawCalls) {
     const ProbeLayout lay = probe_layout(tile.resolution);
     const float rgba8 = this->rgba8() ? 1.0f : 0.0f;
     for (int k = 0; k < lay.levels; ++k) {
@@ -379,7 +391,7 @@ bool ProbeGpu::upload(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, const Image
             else
                 shHalf.push_back(signed_half_bits(v));
         }
-    Upload pageImage, shImage;
+    Upload pageImage(gpu.device()), shImage(gpu.device());
     if (!pageImage.make(pw, ph, format_,
                         bytes ? static_cast<const void*>(byte.data()) : static_cast<const void*>(half.data()),
                         bytes ? byte.size() : half.size() * 2, "probe-page") ||
@@ -397,39 +409,41 @@ bool ProbeGpu::upload(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, const Image
     return true;
 }
 
-bool ProbeGpu::read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, int h, sg_image& scratch,
+bool ProbeGpu::read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, int h, gpu::Image& scratch,
                                  int* drawCalls) {
     scratch = {};
-    sg_image_desc d{};
-    d.usage.color_attachment = true;
+    gpu::Device& device = gpu.device();
+    gpu::ImageDesc d{};
+    d.usage.colorAttachment = true;
     d.width = w;
     d.height = h;
-    d.pixel_format = format_;
+    d.pixelFormat = format_;
     d.label = "probe-read";
-    scratch = make_image(d);
-    sg_view att = valid(scratch) ? attachment_view(scratch, 0, "probe-read") : sg_view{};
-    if (!valid(att)) {
-        if (att.id) sg_destroy_view(att);
-        if (scratch.id) sg_destroy_image(scratch);
+    scratch = device.make_image(d);
+    gpu::View att = valid(device, scratch) ? attachment_view(device, scratch, 0, "probe-read") : gpu::View{};
+    if (!valid(device, att)) {
+        if (att.id) device.destroy_view(att);
+        if (scratch.id) device.destroy_image(scratch);
         scratch = {};
         return false;
     }
     // A pass of its own into the scratch image (not the atlas): the same blit program, the other target.
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = "probe-read";
     pd.color = att;
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_DONTCARE;
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_viewport(0, 0, w, h, !isGl_);
-    sg_apply_scissor_rect(0, 0, w, h, !isGl_);
-    sg_apply_pipeline(pipelines_[int(Prog::Blit)]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::DontCare;
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
+    cmd.set_viewport(0, 0, w, h, !isGl_);
+    cmd.set_scissor(0, 0, w, h, !isGl_);
+    cmd.set_pipeline(pipelines_[int(Prog::Blit)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_tex] = atlas.tex;
     b.samplers[SMP_probe_probe_smp] = sampler_;
-    sg_apply_bindings(&b);
+    cmd.set_bindings(b);
     probe_probe_blit_params_t u{};
     u.dst[0] = 0.0f;
     u.dst[1] = 0.0f;
@@ -438,42 +452,50 @@ bool ProbeGpu::read_region_begin(Gpu& gpu, Atlas& atlas, int x, int y, int w, in
     u.src[1] = float(y);
     u.src[2] = float(h);
     u.src[3] = isGl_ ? 1.0f : 0.0f;
-    sg_range r{&u, sizeof(u)};
-    sg_apply_uniforms(UB_probe_probe_blit_params, &r);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    cmd.set_uniforms(UB_probe_probe_blit_params, gpu::Range{&u, sizeof(u)});
+    cmd.draw(0, 3, 1);
+    cmd.end_pass();
     if (drawCalls) ++*drawCalls;
-    sg_destroy_view(att);
+    device.destroy_view(att);
     return true;
 }
 
-bool ProbeGpu::read_region_end(sg_image scratch, int w, int h, bool rgba8, std::vector<float>& out,
-                               std::string* error) {
+bool ProbeGpu::read_region_end(gpu::Device& device, gpu::Image scratch, int w, int h, bool rgba8,
+                               std::vector<float>& out, std::string* error) {
     bool ok;
+    std::string why;
     if (rgba8) {
         std::vector<std::uint8_t> bytes;
-        ok = readback_rgba8(scratch, w, h, bytes, error);
+        const Result<void> read = device.read_image_rgba8(scratch, w, h, bytes);
+        ok = bool(read);
+        if (!ok) why = read.error().message;
         out.resize(bytes.size());
         for (std::size_t i = 0; ok && i < bytes.size(); ++i) out[i] = float(bytes[i]) / 255.0f;
     } else {
-        ok = readback_rgba16f(scratch, w, h, out, error);
+        const Result<void> read = device.read_image_rgba16f(scratch, w, h, out);
+        ok = bool(read);
+        if (!ok) why = read.error().message;
     }
-    sg_destroy_image(scratch);
+    if (!ok && error) *error = why;
+    device.destroy_image(scratch);
     return ok;
 }
 
 void ProbeGpu::release() {
     release_gi();
     for (Scratch& s : scratch_) destroy_scratch(s);
-    for (sg_pipeline& p : pipelines_) {
-        if (p.id) sg_destroy_pipeline(p);
-        p = {};
+    if (gpu_ && gpu_->has_device()) {
+        gpu::Device& device = gpu_->device();
+        for (gpu::Pipeline& p : pipelines_) {
+            if (p.id) device.destroy_pipeline(p);
+            p = {};
+        }
+        for (gpu::Shader& s : shaders_) {
+            if (s.id) gpu_->destroy_shader(s);
+            s = {};
+        }
+        if (sampler_.id) device.destroy_sampler(sampler_);
     }
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
-        s = {};
-    }
-    if (sampler_.id) sg_destroy_sampler(sampler_);
     sampler_ = {};
     state_ = 0;
 }

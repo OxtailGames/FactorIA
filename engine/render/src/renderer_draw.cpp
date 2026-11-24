@@ -598,7 +598,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
     if (countPost) ++postSerial;
     trim_shadow_rows();
     free_retired_shadow_targets();  // the frame before has run its graph
-    lightAtlas.free_retired();
+    lightAtlas.free_retired(gpu.device());
     free_retired_decal_atlases();
     sharedGame = sharedLight = sharedShadow = sharedEnv = sharedSkyLut = sharedCookie = ResourceId{};
     gi2d.begin_frame(!countPost);
@@ -1564,11 +1564,11 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
     }
     lightAtlas.end_requests();
     if (!pendingAtlas.empty()) {
-        const bool atlasOk =
-            lightAtlas.sync([](const LightAtlasKey& k) { return load_light_atlas_source(k); },
-                            [](const LightAtlasKey&, const std::string& message, const std::string& hint) {
-                                FA_WARN("render", "{}. Hint: {}", message, hint);
-                            });
+        const bool atlasOk = lightAtlas.sync(
+            gpu.device(), [](const LightAtlasKey& k) { return load_light_atlas_source(k); },
+            [](const LightAtlasKey&, const std::string& message, const std::string& hint) {
+                FA_WARN("render", "{}. Hint: {}", message, hint);
+            });
         for (const PendingAtlas& pa : pendingAtlas) {
             LightData& ld = lights[pa.index];
             const LightAtlasRect* cr =
@@ -3144,7 +3144,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     b.views[VIEW_mesh_fa_screen_tex] = screenSlot;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
-    b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : white->view;
+    b.views[kMaterialEnvView] = probes.atlas.valid() ? gpu::to_sg(probes.atlas.tex) : white->view;
     b.samplers[kMaterialEnvSampler] = gpu.sampler(SamplerKind::LinearClamp);
     if (!prog) return;
     if (d.mat)
@@ -4927,7 +4927,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 "hiz-reduce", {prepassRes}, {},
                 [this, &ctx, hc, prepassRes](const PassContext& c) {
                     const Target* t = transient_targets().get(c.handle(prepassRes));
-                    if (t) hiz_reduce_pass(*hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                    if (t) hiz_reduce_pass(*c.commands(), *hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
                 },
                 true);
         }

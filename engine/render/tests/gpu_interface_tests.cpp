@@ -970,3 +970,55 @@ TEST_CASE("SokolDevice: a read ticket names one read: offset, a stale ticket, a 
     CHECK(!dev.request_buffer_read(buf, 1, 0));  // no bytes: an error
     dev.destroy_buffer(buf);
 }
+
+TEST_CASE("SokolDevice: reads in flight are not limited to four: eight cameras keep four each") {
+    auto& g = fa::test::gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the async read case is skipped");
+        return;
+    }
+    auto made = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
+    Device& dev = *made.value();
+    if (!dev.async_read_supported() || !dev.features().compute) {
+        MESSAGE("this backend reads buffers back only by waiting: the async read case is skipped");
+        return;
+    }
+    std::uint8_t bytes[16];
+    for (int i = 0; i < 16; ++i) bytes[i] = std::uint8_t(100 + i);
+    BufferDesc bd;
+    bd.size = sizeof(bytes);
+    bd.usage.storageBuffer = true;
+    bd.data = Range{bytes, sizeof(bytes)};
+    bd.label = "gpu_interface async many";
+    const Buffer buf = dev.make_buffer(bd);
+    REQUIRE(dev.state(buf) == ResourceState::Valid);
+    dev.commit();
+
+    // 32 reads at once (eight rings of four slots), each with its own offset so a mixed-up ticket shows in the bytes.
+    std::vector<ReadTicket> tickets;
+    for (int i = 0; i < 32; ++i) {
+        auto r = dev.request_buffer_read(buf, std::size_t(i % 8), 4);
+        REQUIRE_MESSAGE(r, (r ? "" : r.error().message));
+        REQUIRE_MESSAGE(r.value().valid(), "request " << i << " found no free slot");
+        tickets.push_back(r.value());
+    }
+    for (std::size_t i = 0; i < tickets.size(); ++i)
+        for (std::size_t j = i + 1; j < tickets.size(); ++j) CHECK(tickets[i].slot != tickets[j].slot);
+    auto extra = dev.request_buffer_read(buf, 0, 4);
+    REQUIRE(extra);
+    CHECK_FALSE(extra.value().valid());  // every slot is in flight: ask again next frame, no error
+    dev.commit();
+    std::vector<std::uint8_t> out;
+    for (int i = 0; i < 32; ++i) {
+        REQUIRE(dev.poll_buffer_read(tickets[std::size_t(i)], out, true));
+        REQUIRE(out.size() == 4u);
+        CHECK(out[0] == std::uint8_t(100 + i % 8));
+    }
+    // A polled slot is free again.
+    auto again = dev.request_buffer_read(buf, 0, 4);
+    REQUIRE(again);
+    CHECK(again.value().valid());
+    dev.release_buffer_read(again.value());
+    dev.destroy_buffer(buf);
+}
