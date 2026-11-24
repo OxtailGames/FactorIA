@@ -75,8 +75,9 @@ if(TARGET fa_test_render)
         COMMAND fa_test_render --fa-files=d3d12_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
     # The engine's own Vulkan backend (src/gpu/vulkan_*): its cases run on the machine's Vulkan device (MoltenVK on
-    # macOS, lavapipe on Linux CI) with the validation layer, and say so and pass where there is no loader or no device;
-    # where the backend is not built one case checks the factory's error.
+    # macOS; Mesa's lavapipe on the Linux CI job, which installs it and the validation layers and sets
+    # FA_VULKAN_REQUIRE=1 so a skip fails) with the validation layer and its synchronization validation, and say so and
+    # pass where there is no loader or no device; where the backend is not built one case checks the factory's error.
     add_test(NAME render_vulkan_device
         COMMAND fa_test_render --fa-files=vulkan_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})

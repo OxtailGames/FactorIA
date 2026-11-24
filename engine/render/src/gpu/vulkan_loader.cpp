@@ -44,7 +44,17 @@ std::wstring widen(const std::string& utf8) {
 
 void* open_one(const std::string& path, std::string& why) {
     const std::wstring w = widen(path);
-    HMODULE m = w.empty() ? nullptr : LoadLibraryW(w.c_str());
+    // A bare name (vulkan-1.dll) only from System32, where the loader is installed, never from the current or the
+    // game's directory (DLL planting); an absolute path from its own directory (its dependencies next to it) and the
+    // default ones. A relative path with a directory keeps the classic search (LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+    // refuses it).
+    const bool bare = w.find_first_of(L"\\/:") == std::wstring::npos;
+    const bool absolute =
+        w.size() > 2 && ((w[1] == L':' && (w[2] == L'\\' || w[2] == L'/')) || (w[0] == L'\\' && w[1] == L'\\'));
+    const DWORD flags = bare       ? LOAD_LIBRARY_SEARCH_SYSTEM32
+                        : absolute ? LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+                                   : 0;
+    HMODULE m = w.empty() ? nullptr : LoadLibraryExW(w.c_str(), nullptr, flags);
     if (!m) why = "Windows error " + std::to_string(GetLastError());
     return reinterpret_cast<void*>(m);
 }

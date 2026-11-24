@@ -1,5 +1,6 @@
-// The Vulkan backend's blocking readbacks: a copy into a host-visible buffer, a timeline wait, a read of the mapped
-// memory (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
+// The Vulkan backend's readbacks: a copy into a host-visible buffer, then a timeline wait and a read of the mapped
+// memory (the blocking reads), or a ticket polled until the timeline passed the copy (the asynchronous reads,
+// docs/design/ARCHITECTURE_RENDERING_VULKAN.md, "Asynchronous reads").
 #include "gpu/vulkan_device.h"
 
 #if defined(FA_VULKAN_BACKEND)
@@ -44,8 +45,8 @@ Result<void> invalidate(const VkFunctions& f, VkDevice device, const Allocation&
 
 }  // namespace
 
-Result<void> VulkanDevice::read_texture(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y,
-                                        int width, int height, std::vector<std::uint8_t>& out, const char* what) {
+Result<void> VulkanDevice::check_texture_read(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x,
+                                              int y, int width, int height, const char* what) const {
     const std::string where = std::string("gpu vulkan: ") + what + " of image '" + rec.label + "'";
     if (rec.samples > 1)
         return make_error(where + ": the image is multisampled",
@@ -71,6 +72,35 @@ Result<void> VulkanDevice::read_texture(const ImageRecord& rec, std::uint32_t mi
                               std::to_string(mw) + "x" + std::to_string(mh) + " mip " + std::to_string(mip),
                           "read inside the image's size");
     if (!rec.tracked) return make_error(where + ": the image has no Vulkan image", "make_image failed: see errors()");
+    return {};
+}
+
+void VulkanDevice::record_texture_read(VulkanCommandList& list, const ImageRecord& rec, std::uint32_t mip,
+                                       std::uint32_t layer, int x, int y, int width, int height,
+                                       const std::shared_ptr<TrackedResource>& dst) {
+    const bool is3d = rec.type == ImageType::Tex3d;
+    list.require(rec.tracked, rec.tracked->subresource(mip, is3d ? 0 : layer), transfer_read_state(true));
+    list.require(dst, 0, transfer_write_state(false));
+    list.flush_barriers();
+    VkBufferImageCopy c{};
+    c.bufferOffset = 0;
+    c.bufferRowLength = 0;  // tightly packed
+    c.bufferImageHeight = 0;
+    c.imageSubresource.aspectMask = rec.tracked->aspects;
+    c.imageSubresource.mipLevel = mip;
+    c.imageSubresource.baseArrayLayer = is3d ? 0 : layer;
+    c.imageSubresource.layerCount = 1;
+    c.imageOffset = {x, y, is3d ? std::int32_t(layer) : 0};
+    c.imageExtent = {std::uint32_t(width), std::uint32_t(height), 1};
+    fn_.vkCmdCopyImageToBuffer(list.cmd_, rec.tracked->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst->buffer, 1, &c);
+    host_read_barrier(fn_, list.cmd_);
+    list.empty_ = false;
+}
+
+Result<void> VulkanDevice::read_texture(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y,
+                                        int width, int height, std::vector<std::uint8_t>& out, const char* what) {
+    if (auto c = check_texture_read(rec, mip, layer, x, y, width, height, what); !c) return c;
+    const std::string where = std::string("gpu vulkan: ") + what + " of image '" + rec.label + "'";
     const std::uint32_t rowBytes = texel_row_bytes(rec.format, std::uint32_t(width));
     const std::uint64_t total = std::uint64_t(rowBytes) * std::uint32_t(height);
     std::string error;
@@ -84,24 +114,9 @@ Result<void> VulkanDevice::read_texture(const ImageRecord& rec, std::uint32_t mi
         flush_prelude();  // the image's initial data goes first
         VulkanCommandList* list = acquire_list("fa-vulkan-readback", true);
         if (!list) return make_error(where + ": no command list", "see errors() for Vulkan's reason");
-        list->require(rec.tracked, rec.tracked->subresource(mip, is3d ? 0 : layer), transfer_read_state(true));
-        list->require(rb, 0, transfer_write_state(false));
-        list->flush_barriers();
-        VkBufferImageCopy c{};
-        c.bufferOffset = 0;
-        c.bufferRowLength = 0;  // tightly packed
-        c.bufferImageHeight = 0;
-        c.imageSubresource.aspectMask = rec.tracked->aspects;
-        c.imageSubresource.mipLevel = mip;
-        c.imageSubresource.baseArrayLayer = is3d ? 0 : layer;
-        c.imageSubresource.layerCount = 1;
-        c.imageOffset = {x, y, is3d ? std::int32_t(layer) : 0};
-        c.imageExtent = {std::uint32_t(width), std::uint32_t(height), 1};
-        fn_.vkCmdCopyImageToBuffer(list->cmd_, rec.tracked->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, rb->buffer, 1,
-                                   &c);
-        host_read_barrier(fn_, list->cmd_);
-        list->empty_ = false;
-        execute(*list);
+        record_texture_read(*list, rec, mip, layer, x, y, width, height, rb);
+        if (!execute(*list))
+            return make_error(where + ": the copy could not be submitted", "see errors() for Vulkan's reason");
         auto r = wait_timeline(list->fence_, what);
         collect();
         if (!r) return r;
@@ -211,7 +226,8 @@ Result<void> VulkanDevice::read_buffer(Buffer buffer, std::size_t offset, std::s
         fn_.vkCmdCopyBuffer(list->cmd_, t->buffer, rb->buffer, 1, &c);
         host_read_barrier(fn_, list->cmd_);
         list->empty_ = false;
-        execute(*list);
+        if (!execute(*list))
+            return make_error(where + ": the copy could not be submitted", "see errors() for Vulkan's reason");
         auto r = wait_timeline(list->fence_, "read_buffer");
         collect();
         if (!r) return r;
@@ -219,6 +235,145 @@ Result<void> VulkanDevice::read_buffer(Buffer buffer, std::size_t offset, std::s
     if (auto r = invalidate(fn_, device_, rb->memory, where); !r) return r;
     out.assign(rb->memory.mapped, rb->memory.mapped + bytes);
     return {};
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Asynchronous reads: the copy is submitted at once on an internal list (behind every list submitted so far); its
+// timeline value says when the bytes are there. Nothing waits but poll_buffer_read(wait = true).
+// ---------------------------------------------------------------------------------------------------------------------
+
+int VulkanDevice::free_async_slot() const {
+    const std::uint64_t completed = completed_value();  // 0 when the device was lost: only never-used slots are free
+    for (std::size_t i = 0; i < asyncReads_.size(); ++i)
+        if (asyncReads_[i].generation == 0 && asyncReads_[i].fence <= completed) return int(i);
+    return -1;
+}
+
+bool VulkanDevice::async_ticket_current(ReadTicket ticket) const {
+    return ticket.valid() && ticket.slot < kAsyncReads &&
+           asyncReads_[std::size_t(ticket.slot)].generation == ticket.generation;
+}
+
+Result<void> VulkanDevice::async_buffer(int slot, std::uint64_t bytes, const std::string& where) {
+    AsyncRead& r = asyncReads_[std::size_t(slot)];
+    if (r.buffer && r.capacity >= bytes) return {};
+    // Its copy finished (free_async_slot), so the old buffer can go now.
+    const std::uint64_t capacity = align_up(bytes, 64u * 1024u);
+    std::string error;
+    std::shared_ptr<TrackedResource> rb = make_raw_buffer(capacity, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                          MemoryUse::Readback, true, "fa-vulkan-async-read", error);
+    if (!rb) return make_error(where + ": the readback buffer could not be made: " + error, "see errors()");
+    if (!rb->memory.mapped)
+        return make_error(where + ": the readback buffer is not mapped", "the device has no host-visible memory");
+    r.buffer = std::move(rb);
+    r.capacity = capacity;
+    return {};
+}
+
+template <class Copy>
+Result<ReadTicket> VulkanDevice::start_async_read(int slot, const char* what, const Copy& copy) {
+    AsyncRead& r = asyncReads_[std::size_t(slot)];
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        flush_prelude();  // initial data and uploads go first
+        VulkanCommandList* list = acquire_list("fa-vulkan-async-read", true);
+        if (!list)
+            return make_error(std::string("gpu vulkan: ") + what + ": no command list",
+                              "see errors() for Vulkan's reason");
+        copy(*list);
+        if (!execute(*list))
+            return make_error(std::string("gpu vulkan: ") + what + ": the copy could not be submitted",
+                              "see errors() for Vulkan's reason");
+        r.fence = list->fence_;
+        collect();
+    }
+    if (++readGeneration_ == 0) ++readGeneration_;  // 0 names no ticket
+    r.generation = readGeneration_;
+    return ReadTicket{slot, r.generation};
+}
+
+Result<ReadTicket> VulkanDevice::request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) {
+    std::size_t size = 0;
+    std::string label;
+    std::shared_ptr<TrackedResource> t = buffer_tracked(buffer, &size, &label);
+    if (!t)
+        return make_error("gpu vulkan: request_buffer_read: buffer " + std::to_string(buffer.id) +
+                              " is not a live buffer (destroyed, failed, or another device's)",
+                          "read a buffer this device made, before destroy_buffer()");
+    if (bytes == 0 || offset > size || bytes > size - offset)
+        return make_error("gpu vulkan: request_buffer_read of buffer '" + label + "': " + std::to_string(bytes) +
+                              " bytes from offset " + std::to_string(offset) +
+                              (bytes == 0 ? " is no read" : " go past its " + std::to_string(size) + " bytes"),
+                          "read at least one byte, inside the buffer");
+    const int slot = free_async_slot();
+    if (slot < 0) return ReadTicket{};  // every slot is busy: ask again next frame
+    const std::string where = "gpu vulkan: request_buffer_read of buffer '" + label + "'";
+    if (auto b = async_buffer(slot, bytes, where); !b) return b.error();
+    AsyncRead& r = asyncReads_[std::size_t(slot)];
+    r.bytes = bytes;
+    const std::shared_ptr<TrackedResource> dst = r.buffer;
+    return start_async_read(slot, "request_buffer_read", [&](VulkanCommandList& list) {
+        list.require(t, 0, transfer_read_state(false));
+        list.require(dst, 0, transfer_write_state(false));
+        list.flush_barriers();
+        VkBufferCopy c{};
+        c.srcOffset = offset;
+        c.dstOffset = 0;
+        c.size = bytes;
+        fn_.vkCmdCopyBuffer(list.cmd_, t->buffer, dst->buffer, 1, &c);
+        host_read_barrier(fn_, list.cmd_);
+        list.empty_ = false;
+    });
+}
+
+Result<ReadTicket> VulkanDevice::request_image_read(Image image, int mip, int layer, int x, int y, int width,
+                                                    int height) {
+    ImageRecord rec;
+    if (!image_info(image, rec))
+        return make_error("gpu vulkan: request_image_read: image " + std::to_string(image.id) +
+                              " is not a live image (destroyed, failed, or another device's)",
+                          "read an image this device made, before destroy_image()");
+    if (mip < 0 || layer < 0)
+        return make_error("gpu vulkan: request_image_read of image '" + rec.label + "': a negative mip or slice",
+                          "mip and slice count from 0");
+    const auto m = std::uint32_t(mip), l = std::uint32_t(layer);
+    if (auto c = check_texture_read(rec, m, l, x, y, width, height, "request_image_read"); !c) return c.error();
+    const int slot = free_async_slot();
+    if (slot < 0) return ReadTicket{};  // every slot is busy: ask again next frame
+    const std::uint64_t total =
+        std::uint64_t(texel_row_bytes(rec.format, std::uint32_t(width))) * std::uint64_t(std::uint32_t(height));
+    const std::string where = "gpu vulkan: request_image_read of image '" + rec.label + "'";
+    if (auto b = async_buffer(slot, total, where); !b) return b.error();
+    AsyncRead& r = asyncReads_[std::size_t(slot)];
+    r.bytes = std::size_t(total);
+    const std::shared_ptr<TrackedResource> dst = r.buffer;
+    return start_async_read(slot, "request_image_read", [&](VulkanCommandList& list) {
+        record_texture_read(list, rec, m, l, x, y, width, height, dst);
+    });
+}
+
+bool VulkanDevice::poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) {
+    if (!async_ticket_current(ticket)) return false;  // never issued, already read or released: stale
+    AsyncRead& r = asyncReads_[std::size_t(ticket.slot)];
+    if (completed_value() < r.fence) {
+        if (!wait) return false;
+        if (auto w = wait_timeline(r.fence, "poll_buffer_read"); !w) {
+            report(w.error().to_string());
+            return false;
+        }
+    }
+    if (auto inv = invalidate(fn_, device_, r.buffer->memory, "gpu vulkan: poll_buffer_read"); !inv) {
+        report(inv.error().to_string());
+        return false;
+    }
+    out.assign(r.buffer->memory.mapped, r.buffer->memory.mapped + r.bytes);
+    r.generation = 0;  // read to the end: the ticket is stale, the slot free (its copy finished)
+    return true;
+}
+
+void VulkanDevice::release_buffer_read(ReadTicket ticket) {
+    // The slot is reused once its copy finished (free_async_slot checks the timeline), so nothing waits here.
+    if (async_ticket_current(ticket)) asyncReads_[std::size_t(ticket.slot)].generation = 0;
 }
 
 }  // namespace fa::gpu::vk

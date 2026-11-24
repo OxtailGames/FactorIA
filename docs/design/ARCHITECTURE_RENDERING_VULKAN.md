@@ -3,7 +3,9 @@
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page; the GPU interface it implements is
 [ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md)). The engine's own Vulkan device: M77-P8a built the core
 (loader, device, memory, resources, barriers, transfers, descriptors, readbacks), M77-P8c the shaders, pipelines,
-passes, draws and dispatches. GPU timers and asynchronous reads are M77-P8b's, passes into the window M77-P9's.
+passes, draws and dispatches, M77-P8b1 the GPU timers, the asynchronous reads and the synchronization fixes that
+lavapipe's synchronization validation asks for. The on-disk pipeline cache, growing descriptor pools, cache eviction and
+SPIR-V validation are M77-P8b2's, passes into the window M77-P9's.
 
 ## Where it is built
 
@@ -68,9 +70,22 @@ data is recorded into an internal prelude list that runs before the next submitt
 buffer one access. A list tracks, per resource it touches, the state it needs first and the state it leaves; its
 barriers are merged over neighbouring mips and layers, batched and flushed before each copy, pass and dispatch, through
 `vkCmdPipelineBarrier2` where the device has synchronization2 (core in 1.3) and the Vulkan 1.0
-`vkCmdPipelineBarrier` otherwise (`synchronization2 = false` forces it, for its tests). Lists may be recorded on
-several threads and submitted in any order, so at submit a fix-up command buffer moves every subresource from the
-state the queue left it in to the one the list starts with, executed just before it (`counters().barriers`).
+`vkCmdPipelineBarrier` otherwise (`synchronization2 = false` forces it, for its tests; the synchronization2 stage and
+access bits above bit 31, such as `SHADER_STORAGE_WRITE`, are mapped to the 1.0 bits that cover them). Lists may be
+recorded on several threads and submitted in any order, so at submit a fix-up command buffer moves every subresource
+from the state the queue left it in to the one the list starts with, executed just before it (`counters().barriers`);
+the fix-up is skipped only for a read whose layout, stages and access the queue's state already covers.
+
+**The synchronization model.** A write followed by a read is a barrier from the write's stages and access to the
+read's. A read followed by a read in the same layout needs no barrier, but a read in a stage the last barrier did not
+reach (a texture written by a compute pass, sampled by a second compute pass and then by a fragment shader) does: the
+list remembers each subresource's last barrier source (`Use::since`) and, when a read adds stages or access that
+barrier did not cover, barriers again from that write to the new read, so the chain of execution dependencies always
+starts at the write. A list's state changes on the queue only when its submit succeeds: a list that fails to end or
+submit is dropped (its resources released with the frame), and the queue's states stay those of the last list that
+ran. Descriptor sets are bound in order before each draw or dispatch that needs them, set 0 (uniforms), set 1 (views
+and samplers), set 2 (the bindless table), all three again after a pipeline change, so a set 0 of another layout never
+disturbs a set 1 bound before it.
 
 **Copies.** `copy_buffer_to_image` copies straight from the buffer when its offset and row pitch are whole texels (or
 blocks) and the slice pitch is whole rows; otherwise it repacks the rows into a scratch buffer on the GPU first, one
@@ -89,7 +104,40 @@ table.
 **Readbacks.** `read_buffer`, `read_image_rgba8` (BGRA is swizzled to RGBA), `read_image_rgba16f`,
 `read_storage_image` and, for tests, `read_image_region(image, mip, layer, x, y, w, h)` copy into a host buffer of
 their own on an internal command buffer, wait for the timeline, invalidate non-coherent memory and unpack the rows. They
-block.
+block. A copy that cannot be submitted returns an error instead of waiting.
+
+**Asynchronous reads (M77-P8b1).** `async_read_supported()` is true. `request_buffer_read(buffer, offset, bytes)` and
+`request_image_read(image, mip, layer, x, y, w, h)` (a rectangle of one mip and slice, tightly packed rows, checked as
+the blocking reads are) record the copy on an internal list and submit it at once, behind every list submitted so far,
+into one of 32 slots, each with a host-visible buffer of its own (whole 64 KiB, grown when a read is bigger). The ticket
+is the slot and a generation: `poll_buffer_read(ticket, out, wait)` hands the bytes over once the timeline passed the
+copy (`wait` blocks for it), and a ticket that was read to the end or released (`release_buffer_read`) is stale and
+ignored, even after its slot was reused. A slot is free again only once its copy finished, so release never waits;
+with every slot busy a request returns an invalid ticket and no error (ask again next frame). A read survives
+`destroy_buffer` of its source (the copy holds it). Bad requests (no live buffer, zero bytes, past the end, outside
+the image) are teaching errors.
+
+**GPU timers (M77-P8b1, `vulkan_timers.cpp`).** The contract of the D3D12 backend: a ring of 6 timed frames, each a
+`VK_QUERY_TYPE_TIMESTAMP` pool of 130 queries (the frame's start and end, then two per scope, at most 64 scopes);
+`timer_begin_frame` resets the frame's pool and writes its start timestamp on the prelude, `timer_end_frame` writes the
+end one and submits the prelude, and a full ring skips the frame instead of waiting. `CommandList::begin_timed_scope`
+writes a `BOTTOM_OF_PIPE` timestamp into the list (in the pass's secondary when a pass is open); scopes do not nest (a
+begin ends the open one, submit ends the last). `timer_poll` reads, without waiting, the frames whose timeline value
+passed: ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
+list was not submitted before the frame ended is never read, so no query that was never written is asked for.
+`timer_forget` drops the frames in flight. A queue family without timestamps (`timestampValidBits` 0) or a driver
+without a timestamp period makes `timer_supported()` false with a reason naming the device.
+
+**`storage_image_loadable(format)`** is true where the format has `VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT` with optimal
+tiling: the engine's shaders always declare a storage image's format, so a load needs nothing more
+(`shaderStorageImageReadWithoutFormat` is not used). Otherwise false with a reason naming the device and the format and
+the formats every Vulkan GPU stores (rgba8, rgba16f, r32f, rgba32f).
+
+**Robustness.** A full buffer or image pool is found before the Vulkan object or its upload is made; a Vulkan object
+made while another thread took the last slot is released with its frame, never while the prelude may copy into it. A
+list Vulkan could not give is a dead list that ignores everything and lives as long as the device. A device whose
+driver lacks a function is destroyed through `vkGetDeviceProcAddr`'s own `vkDestroyDevice`. On Windows the loader is
+opened with `LoadLibraryExW`: `vulkan-1.dll` from System32 only, an absolute `loaderPath` from its own directory.
 
 ## Shaders (M77-P8c)
 
@@ -170,11 +218,11 @@ views need, so a second dispatch that reads what the first wrote waits for it.
 1.1). `begin_pass` sets the whole pass; `set_viewport` with no area skips the draws until the next viewport with one
 (Vulkan takes no empty viewport); `set_scissor` is clipped to the pass, in 64 bits.
 
-**Bindings and uniforms.** `set_pipeline` binds the pipeline, the bindless set (set 2), the blend constants and the
-stencil reference. `set_bindings` checks the vertex and index buffers the pipeline reads (slot by slot, with the index
+**Bindings and uniforms.** `set_pipeline` binds the pipeline, the blend constants and the stencil reference (the sets
+are bound at the next draw or dispatch, in order: see "The synchronization model"). `set_bindings` checks the vertex and index buffers the pipeline reads (slot by slot, with the index
 offset's alignment), each view against the type the shader declares (texture, storage buffer, storage image, its image
 type and sample type) and the storage buffer offset against `minStorageBufferOffsetAlignment`; then it writes set 1
-from the frame's descriptor pool and binds it. `set_uniforms` copies the data into the upload ring, aligned to
+from the frame's descriptor pool, bound with sets 0 and 2 before the next draw or dispatch. `set_uniforms` copies the data into the upload ring, aligned to
 `minUniformBufferOffsetAlignment` (16 to 256 bytes), and checks its size against the block; before the next draw or
 dispatch set 0 is bound with one dynamic offset per block, and the set itself is made once per layout and ring buffers
 in a list. A draw before the uniforms or bindings its shader needs reports which and draws nothing.
@@ -184,14 +232,20 @@ vertex) check their counts in 64 bits; `dispatch` takes counts up to `min(65535,
 and says the range otherwise. Every misuse is reported as on D3D12 (the list's label, the method, what is wrong, a
 hint) and records nothing.
 
-**Not yet.** GPU timers and asynchronous reads come in M77-P8b: `timer_supported()` and `async_read_supported()` are
-false, a timed scope does nothing and `request_buffer_read` returns an error naming M77-P8b. A pass into the window
-comes in M77-P9.
+A texture view and a storage image view of one subresource in the same dispatch (one layout cannot serve both) is
+refused at the dispatch with the mip and layer and what to do instead (bind another mip or layer, read the storage
+image in the shader, or copy the image).
+
+**Not yet.** M77-P8b2: the pipeline cache saved to and loaded from disk, descriptor pools that grow instead of
+refusing a full frame, eviction of the layout and pipeline caches, and SPIR-V validated before `vkCreateShaderModule`.
+M77-P9: a pass into the window.
 
 ## Tests
 
 `engine/render/tests/vulkan_device_tests.cpp` (ctest `render_vulkan_device`): each case makes a device on the
-machine's Vulkan driver with the validation layer and ends by checking that the layer reported no error. The core:
+machine's Vulkan driver with the validation layer and its synchronization validation (`VulkanOptions::
+synchronizationValidation`, through `VK_EXT_validation_features`) and ends by checking that the layer reported no
+error. The core:
 buffer and image round trips with mips, RGBA8, RGBA16F, BGRA, arrays, cubes and 3D images, every view kind, both
 `copy_buffer_to_image` paths, deferred destruction, the ring's wrap and the dedicated uploads, descriptor-pool
 exhaustion and reuse, the bindless table, the Vulkan 1.0 barriers, a CPU device on request. The drawing cases use the
@@ -200,8 +254,15 @@ compiled by `compile_shaders.sh` into `vulkan_test.glsl.h` next to it) and the e
 targets per texel: a clear, a uniform fill into RGBA8 and RGBA16F, two views through two samplers, an indexed
 instanced draw with a base vertex, the depth test with a viewport, a scissor, an MSAA resolve, a compute pass that
 writes a storage image and buffer and a second dispatch that reads them, the caches' counters and the layout of a
-shader, and the errors of `make_shader`, `make_pipeline` and the command list. A machine with no loader or no Vulkan
-device says so with a MESSAGE and passes, and one case checks the factory's errors (bad options, a missing loader).
-They run on macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationlayers`) and on Windows
-where a Vulkan driver is installed; Linux CI has no Vulkan driver until M77-P8b brings lavapipe, so there they skip.
+shader, and the errors of `make_shader`, `make_pipeline` and the command list. M77-P8b1 added timed frames with two
+scopes over several frames (and the untimed, late, forgotten and full-ring cases), async reads of a buffer and an
+image region with ticket reuse and all 32 slots in flight, a texture written by compute and read by a second compute
+pass and a fragment shader (with synchronization2 and with the 1.0 barriers), pipelines with different set-0 layouts
+drawn in turn, the texture + storage image conflict in a dispatch, and `storage_image_loadable`. A machine with no
+loader, no Vulkan device, a loader older than 1.2 or a driver that does not start (`VK_ERROR_INITIALIZATION_FAILED`)
+says so with a MESSAGE and passes, and one case checks the factory's errors (bad options, a missing loader). They run on
+macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationlayers`), on Windows where a Vulkan
+driver is installed, and on the Linux CI job, which installs Mesa's lavapipe and the validation layers
+(`mesa-vulkan-drivers libvulkan1 vulkan-validationlayers`) and sets `FA_VULKAN_REQUIRE=1`: there a skip or a missing
+validation layer fails the case.
 `VulkanDevice::counters()`, `fn()`, `pipeline_state()` and `read_image_region` exist for these tests.
