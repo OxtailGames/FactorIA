@@ -22,6 +22,16 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 - Polish: an Occluder whose mesh could not be read is tried again after 600 frames (it was never read again until the game restarted), and the error for an unknown mesh name no longer says "collider mesh" when an Occluder asked for it.
 
+### Per-object motion blur (M76-P1e)
+
+- `PostProcess.motionBlurMode` (`"object"`, the default, or `"camera"`) and `motionBlurMaxRadius` (design pixels, 1 to 64, default 24). In
+  `object` mode the motion blur reads the velocity image of the depth prepass: a moving object blurs along its own motion and a still one
+  next to it stays sharp, with McGuire's tile-max / neighbour-max / depth-aware gather (passes `motion-velocity`, `motion-tile-x`,
+  `motion-tile-y`, `motion-blur`), the taps bounded by `motionBlurSamples`; where no object wrote a velocity (the sky) it falls back to the
+  camera's own motion from the depth. It runs after the temporal antialiasing and reads the unjittered motion. `camera` mode is the old
+  blur, bit for bit, and the effect off changes nothing. `object` is the default: a project that already had `motionBlur` on now blurs moving objects and pays the velocity attachment of the prepass and 3 more passes; set `motionBlurMode` to `camera` for the old look and cost. A project with the effect off (the default) is not changed;
+  docs/rendering/RENDERING_POSTPROCESS.md, "Depth of field and motion blur".
+
 ### Temporal antialiasing and open upscalers: the shared API (M76)
 
 - New effect `PostEffect::TemporalAA` (`PostProcess.temporalAAEnabled`, `temporalAAFeedback`, `temporalAASharpen`,

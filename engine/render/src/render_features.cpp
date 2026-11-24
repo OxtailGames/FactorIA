@@ -43,7 +43,8 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
      "images the history is 8 bits per channel (no depth to reject uncovered surfaces, colours above 1 clipped in the "
      "history), with a note in the log. Not drawn for the cameras of a CameraView, a render target or a capture."},
     {"depthOfField", "half+depth", "Depth of field with near and far blur, bokeh and autofocus."},
-    {"motionBlur", "depth", "Camera motion blur, from the depth buffer."},
+    {"motionBlur", "depth",
+     "Motion blur: per object from the velocity image, or the camera's own from the depth buffer."},
     {"radialBlur", "",
      "Radial blur from a point of the picture (final pass; camera.radialBlur starts a pulse of it, drawn the same "
      "way)."},

@@ -69,6 +69,12 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
         if ((drawn & (1u << int(PostEffect::SunShafts))) != 0 && !shafts_has_effect(*cam.postStack))
             drawn &= ~(1u << int(PostEffect::SunShafts));
         read |= drawn;
+        // The per-object motion blur reads the velocity image (every other effect asks through post_effect_needs_velocity, which cannot see
+        // a setting). It asks on the frames that do not blur yet too (the first, a cut): the history of the objects' models is only kept for
+        // a frame that asked, so the next frame blurs the objects' own motion and not only the camera's.
+        if ((drawn & (1u << int(PostEffect::MotionBlur))) != 0 &&
+            cam.postStack->fx.motionBlurMode == MotionBlurMode::Object && cam.postStack->fx.motionBlurIntensity > 0.0f)
+            p.request_velocity();
     }
     p.readMask = read;
     p.needsDepth = post_mask_needs_depth(read);
