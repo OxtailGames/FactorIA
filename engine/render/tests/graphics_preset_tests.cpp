@@ -392,7 +392,7 @@ TEST_CASE("graphics presets on a GPU: custom brings back the game's own picture 
 TEST_CASE("gpu benchmark on a GPU: bounded, leaves the preset and the world alone, never run on a software renderer") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const GpuInfo info = query_gpu_info();
+    const GpuInfo info = g.renderer.gpu_info();
     CHECK(info.backend == Renderer::backend_name());
     const QualityLimits low = graphics_preset_table(GraphicsPreset::Low).limits;
     g.renderer.set_quality(low);
@@ -524,7 +524,7 @@ TEST_CASE(
 TEST_CASE("gpu benchmark on a GPU: a game in the Linear colour space keeps its targets and histories") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const GpuInfo info = query_gpu_info();
+    const GpuInfo info = g.renderer.gpu_info();
     World w;
     Entity cam = make(w, "cam", {0, 3, 9});
     auto& c = w.add<Camera>(cam);

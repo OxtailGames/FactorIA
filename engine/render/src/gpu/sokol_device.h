@@ -15,11 +15,11 @@
 
 namespace fa::render {
 class GpuTimer;
-class AsyncBufferRead;
 }  // namespace fa::render
 
 namespace fa::gpu {
 
+class AsyncBufferRead;  // gpu/sokol_native.h
 class SokolDevice;
 
 // The one immediate command list of a SokolDevice: every call runs the sokol function at once.
@@ -54,8 +54,9 @@ private:
 
 // The Device of the sokol backends. It adopts the sokol context that is open when it is made (the renderer's: it is
 // left open at destruction) or opens one from DeviceInit (and closes it at destruction). One immediate command list;
-// single-threaded (the thread that made the device). Readbacks and timers forward to readback_*.cpp/.mm and
-// gpu_timer.cpp.
+// single-threaded (the thread that made the device). Readbacks, storage_image_loadable and the OpenGL ES fix of
+// make_image forward to the native_* functions of gpu/sokol_native.h (readback_*.cpp/.mm, image_gl.cpp: they reach the
+// backend through this device's natives); timers to gpu_timer.cpp.
 class SokolDevice final : public Device {
 public:
     // The device of the open sokol context, or of a new one made with `init`. Fails (with a hint) when sg_setup fails.
@@ -125,6 +126,7 @@ public:
                                     std::vector<std::uint8_t>& out) override;
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
+    bool storage_image_loadable(PixelFormat format, std::string* why) const override;
     bool async_read_supported() const override;
     Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) override;
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
@@ -161,7 +163,7 @@ private:
     // pyramid keeps up to eight cameras' reads in flight, four each.
     static constexpr int kReadSlotsPerRing = 4;  // == AsyncBufferRead::kSlots (asserted in sokol_device.cpp)
     static constexpr int kMaxReadRings = 8;
-    std::array<std::unique_ptr<render::AsyncBufferRead>, kMaxReadRings> asyncRead_;
+    std::array<std::unique_ptr<AsyncBufferRead>, kMaxReadRings> asyncRead_;
     // The read in flight in each slot of asyncRead_: the offset to drop from its bytes, and its ticket's generation
     // (0: none).
     struct PendingRead {

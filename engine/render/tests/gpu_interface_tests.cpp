@@ -2,6 +2,7 @@
 // factory, and a SokolDevice round trip on the test GPU (skipped without one).
 #include <doctest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <climits>
@@ -828,14 +829,18 @@ TEST_CASE("RecordingDevice: lists record on several threads and join the stream 
     CHECK((next == &opaque || next == &shadows));
 }
 
-TEST_CASE("RecordingDevice: readbacks and timers say there is no GPU") {
+TEST_CASE("RecordingDevice: a dead handle is not read, background reads and timers say there is no GPU") {
     RecordingDevice dev;
     std::vector<std::uint8_t> out;
     const auto r = dev.read_buffer(Buffer{}, 0, 4, out);
     REQUIRE(!r);
     CHECK(contains(r.error().message, "no buffer (id 0)"));
-    CHECK(contains(r.error().hint, "SokolDevice"));
-    CHECK(!dev.request_buffer_read(Buffer{}, 0, 4));
+    CHECK(contains(r.error().hint, "live storage buffer"));
+    const auto ticket = dev.request_buffer_read(Buffer{}, 0, 4);
+    REQUIRE(!ticket);
+    CHECK(contains(ticket.error().message, "async_read_supported() is false"));
+    CHECK(contains(ticket.error().hint, "read_buffer()"));
+    CHECK(dev.commands().empty());
     std::string why;
     CHECK(!dev.timer_supported(&why));
     CHECK(contains(why, "no GPU"));
@@ -850,6 +855,187 @@ TEST_CASE("RecordingDevice: readbacks and timers say there is no GPU") {
     CHECK(dev.remove_commit_listener(listener, &calls));
     dev.commit();
     CHECK(calls == 2);
+}
+
+namespace {
+
+Image color_image(Device& dev, PixelFormat format, int w, int h, const char* label, bool storage = false) {
+    ImageDesc d;
+    d.usage.colorAttachment = !storage;
+    d.usage.storageImage = storage;
+    d.width = w;
+    d.height = h;
+    d.pixelFormat = format;
+    d.sampleCount = 1;
+    d.label = label;
+    return dev.make_image(d);
+}
+
+}  // namespace
+
+TEST_CASE("RecordingDevice: accepted reads answer zeros of the asked size and are recorded") {
+    RecordingDevice dev;
+    const Image ldr = color_image(dev, PixelFormat::Rgba8, 16, 8, "ldr");
+    const Image hdr = color_image(dev, PixelFormat::Rgba16F, 4, 4, "hdr");
+    const Image depth = color_image(dev, PixelFormat::R32F, 8, 8, "mfx depth", true);
+    BufferDesc bd;
+    bd.size = 64;
+    bd.usage.storageBuffer = true;
+    bd.label = "hiz out";
+    const Buffer buf = dev.make_buffer(bd);
+    REQUIRE(dev.errors().empty());
+
+    std::vector<std::uint8_t> bytes(3, 7);
+    REQUIRE(dev.read_image_rgba8(ldr, 16, 8, bytes).ok());
+    CHECK(bytes.size() == 16u * 8u * 4u);
+    CHECK(std::all_of(bytes.begin(), bytes.end(), [](std::uint8_t b) { return b == 0; }));
+    std::vector<float> floats(1, 1.0f);
+    REQUIRE(dev.read_image_rgba16f(hdr, 4, 4, floats).ok());
+    CHECK(floats.size() == 4u * 4u * 4u);
+    CHECK(std::all_of(floats.begin(), floats.end(), [](float f) { return f == 0.0f; }));
+    REQUIRE(dev.read_storage_image(depth, PixelFormat::R32F, 3, 2, 1, 1, bytes).ok());
+    CHECK(bytes.size() == 4u);
+    REQUIRE(dev.read_buffer(buf, 8, 16, bytes).ok());
+    CHECK(bytes.size() == 16u);
+    REQUIRE(dev.read_buffer(buf, 64, 0, bytes).ok());  // an empty range at the end is a read of nothing
+    CHECK(bytes.empty());
+    dev.commit();
+
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+    CHECK(dev.stream_text() == "frame 0 read_image_rgba8 image 'ldr' 0 0 16x8\n"
+                               "frame 0 read_image_rgba16f image 'hdr' 0 0 4x4\n"
+                               "frame 0 read_storage_image image 'mfx depth' 3 2 1x1\n"
+                               "frame 0 read_buffer buffer 'hiz out' 8 16\n"
+                               "frame 0 read_buffer buffer 'hiz out' 64 0\n"
+                               "frame 0 commit\n");
+    const auto cmds = dev.commands();
+    REQUIRE(cmds.size() == 6);
+    CHECK(cmds[0].kind == CommandKind::ReadImage);
+    CHECK(cmds[0].id == ldr.id);
+    CHECK(cmds[0].list.empty());
+    CHECK(cmds[2].args[0] == 3);
+    CHECK(cmds[2].args[1] == 2);
+    CHECK(cmds[3].kind == CommandKind::ReadBuffer);
+    CHECK(cmds[3].id == buf.id);
+    CHECK(cmds[3].args[0] == 8);
+    CHECK(cmds[3].args[1] == 16);
+    CHECK(std::string(command_kind_name(CommandKind::ReadImage)) == "read_image");
+    CHECK(std::string(command_kind_name(CommandKind::ReadBuffer)) == "read_buffer");
+
+    // The same reads on a second device answer the same: the answer does not depend on anything but the call.
+    RecordingDevice twin;
+    const Image ldr2 = color_image(twin, PixelFormat::Rgba8, 16, 8, "ldr");
+    std::vector<std::uint8_t> again;
+    REQUIRE(twin.read_image_rgba8(ldr2, 16, 8, again).ok());
+    CHECK(again == std::vector<std::uint8_t>(16u * 8u * 4u, 0));
+}
+
+TEST_CASE("RecordingDevice: reads a GPU would refuse fail with a teaching error and record nothing") {
+    RecordingDevice dev;
+    const Image ldr = color_image(dev, PixelFormat::Rgba8, 16, 8, "ldr");
+    const Image hdr = color_image(dev, PixelFormat::Rgba16F, 4, 4, "hdr");
+    const Image depth = color_image(dev, PixelFormat::R32F, 8, 8, "mfx depth", true);
+    BufferDesc bd;
+    bd.size = 64;
+    bd.usage.storageBuffer = true;
+    bd.label = "hiz out";
+    const Buffer buf = dev.make_buffer(bd);
+    BufferDesc vd;
+    vd.size = 64;
+    vd.usage.vertexBuffer = true;
+    vd.label = "verts";
+    const Buffer verts = dev.make_buffer(vd);
+    REQUIRE(dev.errors().empty());
+
+    std::vector<std::uint8_t> bytes;
+    std::vector<float> floats;
+    auto fails = [](const fa::Result<void>& r, const char* what, const char* fix) {
+        REQUIRE(!r.ok());
+        INFO(r.error().to_string());
+        CHECK(contains(r.error().message, what));
+        CHECK(contains(r.error().hint, fix));
+    };
+    fails(dev.read_image_rgba8(hdr, 4, 4, bytes), "is RGBA16F, not RGBA8", "read_image_rgba16f");
+    fails(dev.read_image_rgba16f(ldr, 16, 8, floats), "is RGBA8, not RGBA16F", "read_image_rgba8");
+    fails(dev.read_image_rgba8(ldr, 17, 8, bytes), "is not inside image 'ldr' (16x8)", "inside the image");
+    fails(dev.read_image_rgba8(ldr, 0, 8, bytes), "of 0x8", "at least 1x1");
+    fails(dev.read_storage_image(ldr, PixelFormat::Rgba8, 0, 0, 1, 1, bytes), "is not a storage image",
+          "usage.storageImage");
+    fails(dev.read_storage_image(depth, PixelFormat::Rg16F, 0, 0, 1, 1, bytes), "RG16F is not the image's own (R32F)",
+          "R32F");
+    fails(dev.read_storage_image(depth, PixelFormat::R32F, 7, 0, 2, 1, bytes), "at (7, 0) of 2x1", "inside");
+    fails(dev.read_storage_image(depth, PixelFormat::R32F, INT_MAX, 0, 2, 1, bytes), "is not inside", "inside");
+    fails(dev.read_buffer(buf, 60, 8, bytes), "offset 60 + bytes 8 is past the end of buffer 'hiz out' (64 bytes)",
+          "inside the buffer");
+    fails(dev.read_buffer(buf, 65, 0, bytes), "past the end", "inside the buffer");
+    fails(dev.read_buffer(buf, 8, SIZE_MAX, bytes), "past the end", "inside the buffer");
+    fails(dev.read_buffer(verts, 0, 4, bytes), "is not a storage buffer", "usage.storageBuffer");
+
+    const Image gone = color_image(dev, PixelFormat::Rgba8, 4, 4, "gone");
+    dev.destroy_image(gone);
+    fails(dev.read_image_rgba8(gone, 4, 4, bytes), "'gone'", "live image");
+
+    CHECK(dev.commands().empty());
+    CHECK(dev.errors().empty());  // a refused read is its Result, not a misuse report
+
+    // A device without compute (GLES3-like) has no storage reads.
+    DeviceInit init;
+    init.recordingDefaultCaps = false;
+    RecordingDevice gles(init);
+    const Image img = color_image(gles, PixelFormat::Rgba8, 4, 4, "img");
+    fails(gles.read_storage_image(img, PixelFormat::Rgba8, 0, 0, 1, 1, bytes), "no storage images",
+          "Features::compute");
+}
+
+TEST_CASE("RecordingDevice: a read before commit() reports that a GPU would not have run the work yet") {
+    RecordingDevice dev;
+    Scene s(dev);
+    const Image ldr = color_image(dev, PixelFormat::Rgba8, 4, 4, "ldr");
+    std::vector<std::uint8_t> bytes;
+
+    CommandList& cl = dev.begin_commands("main");
+    ready(cl, s);
+    cl.draw(0, 36, 1);
+    cl.end_pass();
+    // Still recording.
+    REQUIRE(dev.read_image_rgba8(ldr, 4, 4, bytes).ok());  // the read still answers
+    CHECK(has_error(dev.take_errors(), {"read_image_rgba8", "'main' is still recording", "submit()"}));
+    dev.submit(cl);
+    // Submitted, not committed.
+    REQUIRE(dev.read_image_rgba8(ldr, 4, 4, bytes).ok());
+    CHECK(has_error(dev.take_errors(), {"read_image_rgba8", "'main' was submitted but not committed", "commit()"}));
+    dev.commit();
+    REQUIRE(dev.read_image_rgba8(ldr, 4, 4, bytes).ok());
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+    // An empty list submitted (nothing to wait for) is no reason to report.
+    CommandList& empty = dev.begin_commands("empty");
+    dev.submit(empty);
+    REQUIRE(dev.read_image_rgba8(ldr, 4, 4, bytes).ok());
+    CHECK(dev.errors().empty());
+}
+
+TEST_CASE("storage_image_loadable: RecordingDevice answers per format and compute; the Device default teaches") {
+    RecordingDevice dev;
+    std::string why = "stale";
+    CHECK(dev.storage_image_loadable(PixelFormat::Rgba16F, &why));
+    CHECK(why.empty());
+    for (PixelFormat f : {PixelFormat::Rgba8, PixelFormat::R32F, PixelFormat::Rgba32F})
+        CHECK(dev.storage_image_loadable(f, nullptr));
+    CHECK(!dev.storage_image_loadable(PixelFormat::Rg16F, &why));
+    CHECK(contains(why, "RG16F is not a storage image format"));
+
+    DeviceInit init;
+    init.recordingDefaultCaps = false;
+    RecordingDevice gles(init);
+    CHECK(!gles.storage_image_loadable(PixelFormat::Rgba16F, &why));
+    CHECK(contains(why, "features().compute is false"));
+
+    // The base class's answer, for a backend that has not implemented it (D3d12Device, VulkanDevice today).
+    CHECK(!dev.Device::storage_image_loadable(PixelFormat::Rgba16F, &why));
+    CHECK(contains(why, "not implemented on the recording device"));
+    CHECK(contains(why, "\"access\": \"write\""));
 }
 
 TEST_CASE("make_device: Recording, the built sokol backend, and teaching errors for the rest") {

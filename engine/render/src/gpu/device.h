@@ -244,6 +244,13 @@ public:
     // `bytes` bytes of a storage buffer from `offset`.
     virtual Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                                      std::vector<std::uint8_t>& out) = 0;
+    // Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F,
+    // RGBA32F) on this GPU: the question behind a material's `"access": "readWrite"`. pixel_format_caps().read does not
+    // answer it (on D3D11.0 hardware a typed UAV exists for formats it cannot load; on Metal the read-write texture tier
+    // decides). False + `why` (a sentence about this GPU, for the material's error) when it cannot. The default answers
+    // false with a teaching `why`: a backend that has not built the question yet (D3D12, Vulkan) refuses rather than
+    // promising a load the GPU may not do.
+    virtual bool storage_image_loadable(PixelFormat format, std::string* why) const;
     // Asynchronous readback of `bytes` bytes of a storage buffer from `offset`, frames in flight: request() queues a
     // copy behind the committed work and returns a ticket (an invalid ticket with ok = every slot is busy, ask again
     // next frame); poll() hands the bytes over once the GPU is done (wait = block until then, bounded); release()

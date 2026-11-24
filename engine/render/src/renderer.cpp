@@ -642,6 +642,12 @@ const char* Renderer::backend_name() {
         default: return "unknown";  // wgpu / vulkan: the engine never builds those sokol backends
     }
 }
+render::GpuInfo Renderer::gpu_info() {
+    if (!impl_ || !impl_->gpu.has_device()) return {};  // no graphics device: backend "none"
+    render::GpuInfo info = render::query_gpu_info(impl_->gpu.device());
+    info.backend = backend_name();
+    return info;
+}
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 
@@ -1336,10 +1342,11 @@ bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], 
         im.gpu.note_commit();
     }
     std::vector<std::uint8_t> depth, motion;
-    if (!render::readback_storage_image(gpu::to_sg(im.mfxDepth.color), gpu::to_sg(gpu::PixelFormat::R32F), x, y, 1, 1,
-                                        depth, error) ||
-        !render::readback_storage_image(gpu::to_sg(im.mfxMotion.color), gpu::to_sg(gpu::PixelFormat::Rg16F), x, y, 1, 1,
-                                        motion, error))
+    gpu::Device& device = im.gpu.device();
+    if (!render::result_ok(device.read_storage_image(im.mfxDepth.color, gpu::PixelFormat::R32F, x, y, 1, 1, depth),
+                           error) ||
+        !render::result_ok(device.read_storage_image(im.mfxMotion.color, gpu::PixelFormat::Rg16F, x, y, 1, 1, motion),
+                           error))
         return false;
     if (depth.size() < 4 || motion.size() < 4) {
         if (error) *error = "the read-back of the MetalFX preparation images came back short";

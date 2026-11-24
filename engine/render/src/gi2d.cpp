@@ -639,13 +639,13 @@ Json Gi2dSystem::report(const gpu::Device& device, const std::string& backend) c
     return out;
 }
 
-bool gi2d_read(const Target& t, bool isGl, std::vector<float>& out, std::string* error) {
+bool gi2d_read(gpu::Device& device, const Target& t, bool isGl, std::vector<float>& out, std::string* error) {
     if (!t.color.id || t.w <= 0 || t.h <= 0) {
         if (error) *error = "the field image does not exist";
         return false;
     }
-    if (!readback_rgba16f(gpu::to_sg(t.color), t.w, t.h, out, error)) return false;
-    // readback_rgba16f returns the picture top row first: on OpenGL that is the highest texture row, elsewhere the lowest. The field's
+    if (!result_ok(device.read_image_rgba16f(t.color, t.w, t.h, out), error)) return false;
+    // read_image_rgba16f returns the picture top row first: on OpenGL that is the highest texture row, elsewhere the lowest. The field's
     // contract is "texture row 0 first" on every backend.
     if (isGl) {
         const std::size_t stride = std::size_t(t.w) * 4;

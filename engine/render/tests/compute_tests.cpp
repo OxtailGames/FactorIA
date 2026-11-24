@@ -21,6 +21,7 @@
 #include "compute_internal.h"
 #include "render_features.h"
 #include "render_internal.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -704,7 +705,8 @@ TEST_CASE("compute images: readWrite of a format other than r32f works where the
         return;
     }
     std::string loadWhy;
-    const bool loadable = render::storage_image_loadable(SG_PIXELFORMAT_RGBA16F, &loadWhy);
+    const bool loadable =
+        RendererTestAccess::gpu(s.g.renderer)->device().storage_image_loadable(gpu::PixelFormat::Rgba16F, &loadWhy);
     auto acc = s.compute().create_image("materials/rwhalf.material.json", "acc");
     if (!loadable) {
         // Metal Tier 1, D3D11.0 hardware: only r32f is loaded. The image is refused with the way out, never made half

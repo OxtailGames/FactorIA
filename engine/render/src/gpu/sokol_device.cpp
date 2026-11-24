@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "fa/platform/sokol_logging.h"
+#include "gpu/sokol_native.h"
 #include "render_internal.h"
 
 namespace fa::gpu {
@@ -1297,6 +1298,7 @@ NativeImage SokolDevice::native_image(Image image) const {
             const sg_gl_image_info i = sg_gl_query_image_info(to_sg(image));
             if (i.active_slot >= 0 && i.active_slot < SG_NUM_INFLIGHT_FRAMES) n.glTexture = i.tex[i.active_slot];
             n.glTarget = i.tex_target;
+            for (int s = 0; s < kInflightFrames; ++s) n.glTextures[s] = i.tex[s];
             break;
         }
         default: break;
@@ -1336,16 +1338,10 @@ Buffer SokolDevice::make_buffer(const BufferDesc& desc) {
 Image SokolDevice::make_image(const ImageDesc& desc) {
     check_thread("Device::make_image");
     const sg_image_desc d = to_sg(desc);
-    // Through the renderer's image functions: they add the per-backend fixes (image_gl.cpp: the last mip level on
-    // OpenGL ES) on the image's own GL target.
-    switch (desc.type) {
-        case ImageType::Cube: return from_sg(render::make_cube_image(d));
-        case ImageType::Array: return from_sg(render::make_array_image(d));
-        case ImageType::Tex3d: return from_sg(sg_make_image(&d));
-        case ImageType::Default:
-        case ImageType::Tex2d: break;
-    }
-    return from_sg(render::make_image(d));
+    const Image image = from_sg(sg_make_image(&d));
+    // The per-backend fix (image_gl.cpp: the last mip level on OpenGL ES, on the image's own GL target).
+    native_finish_image(*this, image, desc.numMipmaps);
+    return image;
 }
 
 View SokolDevice::make_view(const ViewDesc& desc) {
@@ -1533,7 +1529,7 @@ void SokolDevice::timer_forget() {
 Result<void> SokolDevice::read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) {
     check_thread("Device::read_image_rgba8");
     std::string err;
-    if (render::readback_rgba8(to_sg(image), width, height, out, &err)) return {};
+    if (native_read_image_rgba8(*this, image, width, height, out, &err)) return {};
     return make_error("gpu: read_image_rgba8: " + err,
                       "the image must be a valid RGBA8 attachment of this device, and the frame that drew it "
                       "committed (Device::commit) before the read");
@@ -1542,7 +1538,7 @@ Result<void> SokolDevice::read_image_rgba8(Image image, int width, int height, s
 Result<void> SokolDevice::read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) {
     check_thread("Device::read_image_rgba16f");
     std::string err;
-    if (render::readback_rgba16f(to_sg(image), width, height, out, &err)) return {};
+    if (native_read_image_rgba16f(*this, image, width, height, out, &err)) return {};
     return make_error("gpu: read_image_rgba16f: " + err,
                       "the image must be a valid RGBA16F attachment of this device, and the frame that drew it "
                       "committed (Device::commit) before the read");
@@ -1552,7 +1548,7 @@ Result<void> SokolDevice::read_storage_image(Image image, PixelFormat format, in
                                              std::vector<std::uint8_t>& out) {
     check_thread("Device::read_storage_image");
     std::string err;
-    if (render::readback_storage_image(to_sg(image), to_sg(format), x, y, width, height, out, &err)) return {};
+    if (native_read_storage_image(*this, image, format, x, y, width, height, out, &err)) return {};
     return make_error("gpu: read_storage_image: " + err,
                       "pass the image's own format (RGBA8, RGBA16F, R32F, RGBA32F) and a rectangle inside it, on a "
                       "backend with storage images (Features::compute)");
@@ -1562,13 +1558,18 @@ Result<void> SokolDevice::read_buffer(Buffer buffer, std::size_t offset, std::si
                                       std::vector<std::uint8_t>& out) {
     check_thread("Device::read_buffer");
     std::string err;
-    if (render::readback_buffer(to_sg(buffer), offset, bytes, out, &err)) return {};
+    if (native_read_buffer(*this, buffer, offset, bytes, out, &err)) return {};
     return make_error("gpu: read_buffer: " + err,
                       "read a storage buffer of this device within its size, on a backend with storage buffers "
                       "(Features::compute), after Device::commit");
 }
 
-bool SokolDevice::async_read_supported() const { return render::AsyncBufferRead::supported(); }
+bool SokolDevice::storage_image_loadable(PixelFormat format, std::string* why) const {
+    check_thread("Device::storage_image_loadable");
+    return native_storage_image_loadable(*this, format, why);
+}
+
+bool SokolDevice::async_read_supported() const { return AsyncBufferRead::supported(); }
 
 Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) {
     check_thread("Device::request_buffer_read");
@@ -1576,13 +1577,13 @@ Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t o
         return make_error("gpu: request_buffer_read: offset " + std::to_string(offset) + " + bytes " +
                               std::to_string(bytes) + " is empty or overflows",
                           "ask for at least one byte inside the buffer");
-    static_assert(render::AsyncBufferRead::kSlots == kReadSlotsPerRing, "SokolDevice::reads_ has one entry per slot");
+    static_assert(AsyncBufferRead::kSlots == kReadSlotsPerRing, "SokolDevice::reads_ has one entry per slot");
     std::string err;
     // AsyncBufferRead copies from the buffer's start: copy offset + bytes and drop the first offset bytes at poll. The
     // first ring with a free slot takes the request; a new ring is made only when every earlier one is in flight.
     for (std::size_t ring = 0; ring < asyncRead_.size(); ++ring) {
-        if (!asyncRead_[ring]) asyncRead_[ring] = std::make_unique<render::AsyncBufferRead>();
-        const int slot = asyncRead_[ring]->request(to_sg(buffer), offset + bytes, &err);
+        if (!asyncRead_[ring]) asyncRead_[ring] = std::make_unique<AsyncBufferRead>(*this);
+        const int slot = asyncRead_[ring]->request(buffer, offset + bytes, &err);
         if (slot >= 0 && slot < kReadSlotsPerRing) {
             const std::size_t index = ring * std::size_t(kReadSlotsPerRing) + std::size_t(slot);
             if (++readGeneration_ == 0) ++readGeneration_;  // 0 is "no ticket"

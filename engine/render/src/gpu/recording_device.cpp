@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 namespace fa::gpu {
@@ -30,6 +32,8 @@ const char* command_kind_name(CommandKind kind) {
         case CommandKind::BeginTimedScope: return "begin_timed_scope";
         case CommandKind::EndTimedScope: return "end_timed_scope";
         case CommandKind::Commit: return "commit";
+        case CommandKind::ReadImage: return "read_image";
+        case CommandKind::ReadBuffer: return "read_buffer";
     }
     return "?";
 }
@@ -287,6 +291,8 @@ struct RecordingDevice::State {
     std::vector<std::string> errors;
     std::vector<std::pair<void (*)(void*), void*>> listeners;
     std::uint64_t frames = 0;
+    // The label of the last list submitted with commands since the last commit() (a read now would not see its work).
+    std::optional<std::string> uncommitted;
     bool statsEnabled = false;
 };
 
@@ -348,7 +354,8 @@ std::string RecordingDevice::stream_text() const {
     std::string out;
     for (const RecordedCommand& c : state_->stream) {
         out += "frame " + std::to_string(c.frame) + " ";
-        if (c.kind != CommandKind::Commit) out += "[" + c.list + "] ";
+        if (c.kind != CommandKind::Commit && c.kind != CommandKind::ReadImage && c.kind != CommandKind::ReadBuffer)
+            out += "[" + c.list + "] ";
         out += c.text;
         out += '\n';
     }
@@ -821,6 +828,7 @@ void RecordingDevice::submit(CommandList& list) {
                     "pop_debug_group() once for every push_debug_group() of the list");
     if (mine->timedScopeOpen_)
         fail_locked("submit", mine->label_.c_str(), "a timed scope is still open", "end_timed_scope() before submit()");
+    if (!mine->commands_.empty()) state_->uncommitted = mine->label_;
     for (RecordedCommand& c : mine->commands_) {
         c.frame = state_->frames;
         state_->stream.push_back(std::move(c));
@@ -843,6 +851,7 @@ void RecordingDevice::commit() {
         c.text = "commit";
         state_->stream.push_back(std::move(c));
         ++state_->frames;
+        state_->uncommitted.reset();
         listeners = state_->listeners;
     }
     // Outside the lock: a listener may call the device.
@@ -900,41 +909,181 @@ bool RecordingDevice::timer_supported(std::string* why) const {
 }
 
 // ---- readbacks ------------------------------------------------------------------------------------------------------
+// The reads a real device would accept answer zeros (there is no GPU memory) and are recorded; the ones it would refuse
+// fail with the same teaching error on every run.
 namespace {
 
-Error no_gpu(const char* call, const std::string& what) {
-    return make_error(std::string("gpu: ") + call + ": " + what,
-                      "the recording device has no GPU memory to read; read on a SokolDevice "
-                      "(make_device(built_sokol_backend())), and assert on RecordingDevice::commands() here");
+Error refused(const char* call, const std::string& what, const std::string& fix) {
+    return make_error(std::string("gpu: ") + call + ": " + what, fix);
+}
+
+int clamp_int(std::size_t v) { return int(std::min<std::size_t>(v, std::size_t(INT_MAX))); }
+
+bool storage_format(PixelFormat f) {
+    return f == PixelFormat::Rgba8 || f == PixelFormat::Rgba16F || f == PixelFormat::R32F || f == PixelFormat::Rgba32F;
 }
 
 }  // namespace
 
-Result<void> RecordingDevice::read_image_rgba8(Image image, int, int, std::vector<std::uint8_t>&) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return no_gpu("read_image_rgba8", state_->images.describe(image.id) + " has no pixels on the recording device");
+void RecordingDevice::check_committed_locked(const char* call) {
+    if (state_->uncommitted) {
+        fail_locked(call, nullptr,
+                    "command list " + quoted(*state_->uncommitted) +
+                        " was submitted but not committed: a GPU would not have run it yet, so the read would see the "
+                        "contents from before it",
+                    "commit() after the last submit() and before the read (the read waits for the committed work)");
+        return;
+    }
+    for (const auto& l : lists_)
+        if (l->open_ && !l->commands_.empty()) {
+            fail_locked(call, nullptr,
+                        "command list " + quoted(l->label_) +
+                            " is still recording: its work is not on "
+                            "the GPU yet",
+                        "submit() the list and commit() before the read");
+            return;
+        }
 }
 
-Result<void> RecordingDevice::read_image_rgba16f(Image image, int, int, std::vector<float>&) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return no_gpu("read_image_rgba16f", state_->images.describe(image.id) + " has no pixels on the recording device");
+Result<void> RecordingDevice::read_image_locked(const char* call, Image image, PixelFormat format, bool storage, int x,
+                                                int y, int width, int height) {
+    State& s = *state_;
+    const auto* e = s.images.live(image.id);
+    const std::string name = s.images.describe(image.id);
+    if (!e || e->state != ResourceState::Valid)
+        return refused(call, "the image is " + name + (e ? " (Failed)" : ""), "read back a live image of this device");
+    const ImageInfo& info = e->info;
+    if (info.type != ImageType::Tex2d)
+        return refused(call, name + " is not a 2D image", "read back a 2D image (attachment or storage image)");
+    if (info.samples > 1)
+        return refused(call, name + " is multisampled (" + std::to_string(info.samples) + " samples)",
+                       "read the single-sample image it resolves into");
+    if (storage) {
+        if (!features_.compute)
+            return refused(call, "this device has no storage images (features().compute is false)",
+                           "read storage images only where Features::compute is true (not on GLES3 or WebGL2)");
+        if (!info.usage.storageImage)
+            return refused(call, name + " is not a storage image",
+                           "make it with usage.storageImage, or read an attachment with read_image_rgba8 / "
+                           "read_image_rgba16f");
+        if (format != info.format || pixel_format_bytes(format) <= 0)
+            return refused(call,
+                           std::string("the format ") + pixel_format_name(format) + " is not the image's own (" +
+                               pixel_format_name(info.format) + ")",
+                           std::string("pass the image's format, ") + pixel_format_name(info.format));
+    } else if (format == PixelFormat::None) {  // read_image_rgba8
+        if (info.format != PixelFormat::Rgba8 && info.format != PixelFormat::Srgb8A8)
+            return refused(call, name + " is " + pixel_format_name(info.format) + ", not RGBA8",
+                           info.format == PixelFormat::Rgba16F ? "read it with read_image_rgba16f"
+                                                               : "read an RGBA8 (or SRGB8A8) image with it");
+    } else if (info.format != format) {  // read_image_rgba16f
+        return refused(call, name + " is " + pixel_format_name(info.format) + ", not " + pixel_format_name(format),
+                       info.format == PixelFormat::Rgba8 || info.format == PixelFormat::Srgb8A8
+                           ? "read it with read_image_rgba8"
+                           : "read an RGBA16F image with it");
+    }
+    if (!span_fits(x, width, info.width) || !span_fits(y, height, info.height))
+        return refused(call,
+                       "the rectangle at (" + std::to_string(x) + ", " + std::to_string(y) + ") of " +
+                           std::to_string(width) + "x" + std::to_string(height) + " is not inside " + name + " (" +
+                           std::to_string(info.width) + "x" + std::to_string(info.height) + ")",
+                       "read a rectangle of at least 1x1 inside the image");
+    check_committed_locked(call);
+    RecordedCommand c;
+    c.kind = CommandKind::ReadImage;
+    c.frame = s.frames;
+    c.id = image.id;
+    c.args[0] = x;
+    c.args[1] = y;
+    c.args[2] = width;
+    c.args[3] = height;
+    c.text = std::string(call) + " " + name + " " + std::to_string(x) + " " + std::to_string(y) + " " +
+             std::to_string(width) + "x" + std::to_string(height);
+    s.stream.push_back(std::move(c));
+    return {};
 }
 
-Result<void> RecordingDevice::read_storage_image(Image image, PixelFormat, int, int, int, int,
-                                                 std::vector<std::uint8_t>&) {
+Result<void> RecordingDevice::read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return no_gpu("read_storage_image", state_->images.describe(image.id) + " has no pixels on the recording device");
+    Result<void> r = read_image_locked("read_image_rgba8", image, PixelFormat::None, false, 0, 0, width, height);
+    if (!r.ok()) return r;
+    out.assign(std::size_t(width) * std::size_t(height) * 4u, std::uint8_t(0));
+    return {};
 }
 
-Result<void> RecordingDevice::read_buffer(Buffer buffer, std::size_t, std::size_t, std::vector<std::uint8_t>&) {
+Result<void> RecordingDevice::read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return no_gpu("read_buffer", state_->buffers.describe(buffer.id) + " has no contents on the recording device");
+    Result<void> r = read_image_locked("read_image_rgba16f", image, PixelFormat::Rgba16F, false, 0, 0, width, height);
+    if (!r.ok()) return r;
+    out.assign(std::size_t(width) * std::size_t(height) * 4u, 0.0f);
+    return {};
+}
+
+Result<void> RecordingDevice::read_storage_image(Image image, PixelFormat format, int x, int y, int width, int height,
+                                                 std::vector<std::uint8_t>& out) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Result<void> r = read_image_locked("read_storage_image", image, format, true, x, y, width, height);
+    if (!r.ok()) return r;
+    out.assign(std::size_t(width) * std::size_t(height) * std::size_t(pixel_format_bytes(format)), std::uint8_t(0));
+    return {};
+}
+
+Result<void> RecordingDevice::read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
+                                          std::vector<std::uint8_t>& out) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const char* call = "read_buffer";
+    State& s = *state_;
+    const auto* e = s.buffers.live(buffer.id);
+    const std::string name = s.buffers.describe(buffer.id);
+    if (!e || e->state != ResourceState::Valid)
+        return refused(call, "the buffer is " + name + (e ? " (Failed)" : ""),
+                       "read back a live storage buffer of this device");
+    if (!features_.compute)
+        return refused(call, "this device has no storage buffers (features().compute is false)",
+                       "read buffers only where Features::compute is true (not on GLES3 or WebGL2)");
+    if (!e->info.usage.storageBuffer)
+        return refused(call, name + " is not a storage buffer",
+                       "make it with usage.storageBuffer: only those are read");
+    if (offset > e->info.size || bytes > e->info.size - offset)
+        return refused(call,
+                       "offset " + std::to_string(offset) + " + bytes " + std::to_string(bytes) +
+                           " is past the end of " + name + " (" + std::to_string(e->info.size) + " bytes)",
+                       "read a range inside the buffer");
+    check_committed_locked(call);
+    RecordedCommand c;
+    c.kind = CommandKind::ReadBuffer;
+    c.frame = s.frames;
+    c.id = buffer.id;
+    c.args[0] = clamp_int(offset);
+    c.args[1] = clamp_int(bytes);
+    c.text = std::string(call) + " " + name + " " + std::to_string(offset) + " " + std::to_string(bytes);
+    s.stream.push_back(std::move(c));
+    out.assign(bytes, std::uint8_t(0));
+    return {};
+}
+
+bool RecordingDevice::storage_image_loadable(PixelFormat format, std::string* why) const {
+    if (why) why->clear();
+    if (!features_.compute) {
+        if (why)
+            *why = "the recording device was made without compute (features().compute is false): no storage images";
+        return false;
+    }
+    if (storage_format(format)) return true;
+    if (why)
+        *why =
+            std::string(pixel_format_name(format)) + " is not a storage image format (RGBA8, RGBA16F, R32F, RGBA32F)";
+    return false;
 }
 
 Result<ReadTicket> RecordingDevice::request_buffer_read(Buffer buffer, std::size_t, std::size_t) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return no_gpu("request_buffer_read",
-                  state_->buffers.describe(buffer.id) + " cannot be read back (async_read_supported() is false)");
+    return refused("request_buffer_read",
+                   state_->buffers.describe(buffer.id) +
+                       " cannot be read in the background: the recording device has no frames in flight "
+                       "(async_read_supported() is false)",
+                   "read it with read_buffer() (a deterministic answer of zeros), or on a SokolDevice "
+                   "(make_device(built_sokol_backend()))");
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1431,7 +1580,7 @@ void RecordingCommandList::dispatch(int x, int y, int z) {
 
 namespace {
 
-int clamp_int(std::size_t v) { return int(std::min<std::size_t>(v, std::size_t(INT32_MAX))); }
+// clamp_int: with the readbacks above.
 
 // Whether [offset, offset + size) fits in `total` bytes (no overflow).
 bool fits(std::size_t offset, std::size_t size, std::size_t total) { return size <= total && offset <= total - size; }

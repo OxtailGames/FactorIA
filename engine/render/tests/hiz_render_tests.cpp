@@ -19,6 +19,7 @@
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/scene/postprocess.h"
+#include "gpu/sokol_native.h"
 #include "render_features.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -74,7 +75,8 @@ int differing(const Image& a, const Image& b) {
 
 bool has_hiz() {
     const render::FeatureEnv env = render::feature_env_from_device(RendererTestAccess::gpu(gfx().renderer)->device());
-    return render::feature_supported(env, render::find_feature("occlusionGpu")) && render::AsyncBufferRead::supported();
+    return render::feature_supported(env, render::find_feature("occlusionGpu")) &&
+           RendererTestAccess::gpu(gfx().renderer)->device().async_read_supported();
 }
 
 // Draws `frames` frames of `w` and returns the last picture.
@@ -322,16 +324,18 @@ TEST_CASE("hi-z on a GPU: a wall over the top half of the picture hides the top 
 TEST_CASE("async read-back: a slot asked for a smaller size, then a bigger one, returns what was asked") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!render::AsyncBufferRead::supported()) return;
+    if (!gpu::AsyncBufferRead::supported()) return;
+    gpu::Device& device = RendererTestAccess::gpu(g.renderer)->device();
     std::vector<std::uint8_t> data(8192);
     for (std::size_t i = 0; i < data.size(); ++i) data[i] = std::uint8_t((i * 7 + 3) & 0xFF);
-    sg_buffer_desc bd{};
-    bd.usage.storage_buffer = true;
+    gpu::BufferDesc bd;
+    bd.size = data.size();
+    bd.usage.storageBuffer = true;
     bd.data = {data.data(), data.size()};
     bd.label = "async read test";
-    const sg_buffer buf = sg_make_buffer(&bd);
-    REQUIRE(sg_query_buffer_state(buf) == SG_RESOURCESTATE_VALID);
-    render::AsyncBufferRead ring;
+    const gpu::Buffer buf = device.make_buffer(bd);
+    REQUIRE(device.state(buf) == gpu::ResourceState::Valid);
+    gpu::AsyncBufferRead ring(device);
     for (const std::size_t bytes :
          {std::size_t(4096), std::size_t(512), std::size_t(8192), std::size_t(64), std::size_t(2048)}) {
         std::string error;
@@ -343,7 +347,7 @@ TEST_CASE("async read-back: a slot asked for a smaller size, then a bigger one, 
         REQUIRE(out.size() == bytes);
         CHECK(std::equal(out.begin(), out.end(), data.begin()));
     }
-    sg_destroy_buffer(buf);
+    device.destroy_buffer(buf);
 }
 
 TEST_CASE("hi-z on a GPU: a capture of the camera leaves the game's pyramid and the numbers it reports as they were") {

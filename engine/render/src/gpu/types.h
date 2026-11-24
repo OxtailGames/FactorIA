@@ -976,8 +976,11 @@ struct NativeDevice {
 struct NativeImage {
     const void* texture = nullptr;   // id<MTLTexture>, ID3D11Texture2D* (or ID3D11Texture3D* for a 3D image)
     const void* resource = nullptr;  // ID3D11Resource* (D3D11)
-    std::uint32_t glTexture = 0;     // GL texture name
+    std::uint32_t glTexture = 0;     // GL texture name (the slot of the frame in flight)
     std::uint32_t glTarget = 0;      // GL texture target (GL_TEXTURE_2D...)
+    // GL: the texture of every slot (a writeTransient image has one per frame in flight, the others only [0]; 0 where
+    // there is none), for a fix that must reach them all (image_gl.cpp).
+    std::uint32_t glTextures[kInflightFrames]{};
 };
 
 // The backend's own objects of a buffer (the slot of the frame in flight where the backend keeps several).
