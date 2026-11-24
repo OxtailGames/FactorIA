@@ -162,6 +162,18 @@ TEST_CASE("refresh rate estimate: the median of the presented frames, after the 
         s.targetMs = 0.0;
         CHECK(dynamic_target_ms(s, e.hz()) == doctest::Approx(1000.0 / kDynamicDefaultRefreshHz));
     }
+    SUBCASE("intervals that are not a steady beat (a driver that ignores the swap interval) give no rate") {
+        RefreshRateEstimator e;
+        // Between 2 and 8 ms, a fixed pattern: a median near 5 ms (about 200 Hz) with a spread of a third of it.
+        feed(e, 400, [](int i) { return 2.0 + double((i * 37) % 13) * 0.5; });
+        REQUIRE(e.done());
+        CHECK(e.samples() == RefreshRateEstimator::kSamples);
+        CHECK(e.hz() == 0.0);
+        // The same median with the spread of a display (a few percent): the rate.
+        RefreshRateEstimator steady;
+        feed(steady, 400, [](int i) { return 5.0 + 0.1 * double((i * 37) % 9 - 4) / 4.0; });
+        CHECK(steady.hz() == doctest::Approx(200.0).epsilon(0.02));
+    }
     SUBCASE("nonsense intervals are ignored and reset() starts over") {
         RefreshRateEstimator e;
         feed(e, 30, [](int i) { return i % 2 ? -1.0 : 0.0; });

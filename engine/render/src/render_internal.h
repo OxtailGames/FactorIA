@@ -514,6 +514,8 @@ struct PipelineKey {
         if (bits != o.bits) return bits < o.bits;
         if (shader != o.shader) return shader < o.shader;
         if (format.color != o.format.color) return format.color < o.format.color;
+        if (format.color1 != o.format.color1)
+            return format.color1 < o.format.color1;  // the prepass with and without the velocity
         if (format.depth != o.format.depth) return format.depth < o.format.depth;
         return format.samples < o.format.samples;
     }

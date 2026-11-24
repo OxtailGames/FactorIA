@@ -135,12 +135,17 @@ void Engine::Impl::sync_dynamic_resolution() {
     dynRes.configure(settings);
     if (renderer) renderer->set_gpu_frame_timing(settings.enabled && windowed && !cfg.editorMode && !injectedFrameMs);
     dynSource = "none";
+    dynSettle = 0;
+    gpuMissFrames = 0;
     apply_render_scale();
 }
 
 // One frame of the controller. The sample is a GPU time where the backend has timer queries (the Renderer times the frames and answers a
 // few frames late), else the time between frames the platform measured (`dt`; a frame of a loading hitch is no sample). A test injects it.
 // Nothing here reads a clock, and nothing of the simulation reads the result: it changes the size the next picture is drawn at.
+// Samples that say nothing about the scale are kept out of the controller: the frames right after a step (the new images are made
+// at the step, and a GPU result arrives a few frames late), the seconds after a scene load (shaders compile, assets arrive) and, where
+// the GPU timer never answers (a driver that reports every query as disjoint), the GPU time is given up for the time between frames.
 void Engine::Impl::dynamic_resolution_tick(double dt) {
     if (!renderer || cfg.editorMode || !dynRes.settings().enabled) return;
     double sample = -1.0;
@@ -150,12 +155,21 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
         sample = *injectedFrameMs;
         source = "injected";
     } else if (windowed && cfg.renderMode != RenderMode::OnDemand) {
+        bool gpu = false;
         if (renderer->gpu_timing_supported()) {
             gpuFrameScratch.clear();
             renderer->take_gpu_frame_ms(gpuFrameScratch);
-            double sum = 0.0;
-            for (double v : gpuFrameScratch) sum += v;
-            if (!gpuFrameScratch.empty()) sample = sum / double(gpuFrameScratch.size());
+            if (!gpuFrameScratch.empty()) {
+                double sum = 0.0;
+                for (double v : gpuFrameScratch) sum += v;
+                sample = sum / double(gpuFrameScratch.size());
+                gpuMissFrames = 0;
+            } else if (gpuMissFrames < kGpuMissFrames) {
+                ++gpuMissFrames;
+            }
+            gpu = gpuMissFrames < kGpuMissFrames;
+        }
+        if (gpu) {
             exact = true;
             source = "gpu";
         } else {
@@ -165,10 +179,21 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
     }
     dynSource = source;
     if (std::string_view(source) == "none") return;
+    if (dynFreezeS > 0.0) {               // a scene was just loaded: nothing is learnt from these frames
+        dynFreezeS -= std::min(dt, 0.1);  // a long load frame is one frame of it, not all of it
+        return;
+    }
+    if (dynSettle > 0) {
+        --dynSettle;
+        sample = -1.0;
+    }
     const double target = render::dynamic_target_ms(dynRes.settings(), refreshHz);  // 0: the default rate
     if (sample > 3.0 * target)
         sample = 3.0 * target;  // a hitch (a load, a window drag) moves the average, not the whole way
-    if (dynRes.update(sample, dt * 1000.0, target, exact)) apply_render_scale();
+    if (dynRes.update(sample, dt * 1000.0, target, exact)) {
+        dynSettle = kDynSettleFrames;
+        apply_render_scale();
+    }
 }
 
 // The display's refresh rate (M76-P6d). The platform is asked at the first frame and again every kRefreshPollS seconds of
@@ -178,14 +203,14 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
 // monitor) or of the pacing starts the estimate again. Time here is the frames' dt, never a clock read, and the result only
 // moves the frame time the dynamic resolution holds.
 void Engine::Impl::track_display_refresh(double dt) {
-    if (!windowed || cfg.editorMode) return;
+    if ((!windowed && !injectedRefreshHz) || cfg.editorMode) return;
     const bool paced =
         app_vsync() && (!appWindow || appWindow->frame_cap() == 0) && cfg.renderMode != RenderMode::OnDemand;
     refreshPollS += dt;
     if (!refreshPolled || refreshPollS >= kRefreshPollS || paced != refreshPaced) {
         refreshPolled = true;
         refreshPollS = 0.0;
-        const double hz = app_display_refresh_hz();
+        const double hz = injectedRefreshHz ? *injectedRefreshHz : app_display_refresh_hz();
         if (hz >= 20.0) {  // the rates dynamic_target_ms follows; a slower answer is taken as no answer
             refreshHz = hz;
             refreshSource = "platform";
@@ -198,6 +223,14 @@ void Engine::Impl::track_display_refresh(double dt) {
         const bool restart = std::string_view(refreshSource) == "platform" || paced != refreshPaced ||
                              w != refreshDisplayW || h != refreshDisplayH;
         refreshPaced = paced;
+        // An estimate that found no steady rate (a game that never held a rate while it measured) starts over now and then, so one bad
+        // second at the start does not leave the target at 60 Hz for the whole run.
+        const bool retry =
+            refreshEstimator.done() && refreshEstimator.hz() <= 0.0 && ++refreshGaveUpPolls >= kRefreshRetryPolls;
+        if (retry) {
+            refreshGaveUpPolls = 0;
+            refreshEstimator.reset();
+        }
         if (restart) {
             refreshEstimator.reset();
             refreshHz = 0.0;
@@ -450,7 +483,8 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
 
 void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string& label, std::string* error) {
     world.reset_clock();
-    input.stop_all_rumble();  // a pad never keeps shaking into the next scene; its own onStart may rumble again
+    dynFreezeS = kDynFreezeS;  // the dynamic resolution waits for the new scene to settle (dynamic_resolution_tick)
+    input.stop_all_rumble();   // a pad never keeps shaking into the next scene; its own onStart may rumble again
     sceneIssues.clear();
     sceneErrorCount = report.error_count();
     for (const LoadMessage& m : report.messages) {
@@ -1126,9 +1160,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
-            I.apply_render_scale();      // the project's quality draws below the window's size from the first frame
-            I.apply_graphics_quality();  // and so did the project's graphics preset
-            I.apply_fallback_fonts();    // the renderer did not exist when the start language was chosen
+            I.sync_dynamic_resolution();  // the project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality draws below the window's size from the first frame)
+            I.apply_graphics_quality();   // and so did the project's graphics preset
+            I.apply_fallback_fonts();     // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
@@ -1877,6 +1911,8 @@ render::DynamicResolutionState Engine::dynamic_resolution_state() const {
     st.source = I.dynSource;
     return st;
 }
+
+void Engine::set_display_refresh_hz(std::optional<double> hz) { impl_->injectedRefreshHz = hz; }
 
 void Engine::set_dynamic_resolution_frame_ms(std::optional<double> ms) {
     impl_->injectedFrameMs = ms;

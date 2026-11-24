@@ -247,6 +247,12 @@ TEST_CASE("gpu info: classify_gpu names the vendor and finds the software raster
     CHECK(of("Adreno (TM) 740", "Qualcomm").vendor == "qualcomm");
     CHECK(of("Mali-G710", "ARM").vendor == "arm");
     CHECK(of("Something unheard of").vendor == "other");
+    // "arm" and "ati" are vendors only as whole words (Karma, Mediatek, a "...ation " are not).
+    CHECK(of("Karma Render Engine").vendor == "other");
+    CHECK(of("Integrated Graphics Corporation").vendor == "other");
+    CHECK(of("ARM Mali-G78").vendor == "arm");
+    CHECK(of("ATI Radeon HD 5870").vendor == "amd");
+    CHECK(of("ATI Technologies Inc.").vendor == "amd");
     CHECK(of("").vendor.empty());
     CHECK_FALSE(of("NVIDIA GeForce RTX 4070").software);
     for (const char* sw : {"llvmpipe (LLVM 19.1.1, 256 bits)", "Microsoft Basic Render Driver", "SwiftShader Device",
@@ -277,6 +283,9 @@ TEST_CASE("gpu info: the suggestion follows the benchmark, and the machine caps 
     CHECK(at(12.0, gpu, desktop).preset == GraphicsPreset::Medium);
     CHECK(at(30.0, gpu, desktop).preset == GraphicsPreset::Low);
     CHECK_FALSE(at(2.0, gpu, desktop).reason.empty());
+    // The reason names the budget and holds no measured time: it reaches scripts, and a time differs from machine to machine.
+    CHECK(at(2.7, gpu, desktop).reason.find("2.7") == std::string::npos);
+    CHECK(at(6.3, gpu, desktop).reason == at(7.9, gpu, desktop).reason);
     DeviceClass phone;
     phone.tier = "high";
     phone.formFactor = "phone";

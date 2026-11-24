@@ -90,9 +90,10 @@ struct Renderer::Impl {
     bool anyFrameRendered = false;
     int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
-    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same): the temporal upscaler's
-    // history, at the output size, is kept (destroy_targets).
-    bool keepUpscaleHistory = false;
+    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same): destroy_targets keeps
+    // what does not depend on the render size (the cameras' adapted exposure, the CameraView and render-target images, the temporal
+    // upscaler's history at the output size) and frees the rest.
+    bool scaleStepOnly = false;
     float renderBaseScale =
         1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
     bool gpuFrameWanted = false;     // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
@@ -881,6 +882,8 @@ struct Renderer::Impl {
     }
     // GPU frame times the timer resolved while the renderer polled it for pass times, kept for take_gpu_ms().
     std::vector<double> gpuFrames;
+    void
+    poll_gpu_frames();  // reads the timer's answers into gpuFrames and, while the dynamic resolution asks, gpuFrameMs
     bool passHooksSet = false;      // begin_frame_graph() gave the graph its pass hooks
     bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;

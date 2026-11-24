@@ -137,7 +137,7 @@ own names, **Sharpness** a slider (greyed out while the mode is `stretch`), each
 
 **Autotest.** Section Q4 of `fa_editor_autotest` opens the window from the menu, picks a mode and a preset with real clicks on the
 combos, Saves and reads `factoria.json` back with the engine's own reader, turns the dynamic resolution on, sets a misspelt mode and a minimum scale above the maximum (each named with its pointer, Save
-disabled and refused) and Reverts. The rules (`graphics_settings_model.*`) have unit tests in `graphics_settings_tests.cpp`.
+disabled and refused) and Reverts. The rules (`fa/tooling/graphics_settings.h`, shared with the command `project.graphics`) have unit tests in `tools/common/tests/graphics_settings_test.cpp`.
 
 ## Graph panel
 

@@ -8,6 +8,7 @@
 #include "fa/tooling/ci_workflow.h"
 #include "fa/tooling/ios_sim.h"
 #include "fa/tooling/material_graph.h"
+#include "fa/tooling/graphics_settings.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/perf.h"
 #include "fa/tooling/play_auto.h"
@@ -38,6 +39,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_sign_commands(registry, projectDir);
     register_ci_workflow_commands(registry, projectDir);
     register_menu_kit_commands(registry, projectDir);
+    register_graphics_settings_commands(registry, projectDir);
     register_perf_commands(registry, projectDir);
     register_play_auto_commands(registry, projectDir);
     register_script_trace_commands(registry, projectDir);
