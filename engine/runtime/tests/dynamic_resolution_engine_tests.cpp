@@ -1,6 +1,7 @@
-// M76-P6c: dynamic resolution in the engine (docs/UPSCALING.md, "Dynamic resolution"): the project key, the command, window.dynamicResolution, the render
-// stats, and the controller fed injected frame times (Engine::set_dynamic_resolution_frame_ms): the scale moves, the image is the one of a fixed scale of
-// the same size, and off draws what a build without the feature draws.
+// M76-P6c: dynamic resolution in the engine (docs/UPSCALING.md, "Dynamic resolution"): the project key, the command,
+// window.dynamicResolution, the render stats, and the controller fed injected frame times
+// (Engine::set_dynamic_resolution_frame_ms): the scale moves, the image is the one of a fixed scale of the same size,
+// and off draws what a build without the feature draws.
 #include <doctest.h>
 
 #include <filesystem>
@@ -11,6 +12,7 @@
 #include "fa/core/fs.h"
 #include "fa/render/renderer.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/internal/engine_impl.h"
 #include "fa/runtime/project.h"
 
 using namespace fa;
@@ -20,8 +22,10 @@ namespace {
 
 const char* kScene = R"({ "format": "factoria.scene/1", "entities": [
   { "id": "cam", "components": { "Camera": {} } },
-  { "id": "a", "components": { "Transform": { "position": [-40, 10] }, "Sprite": { "size": [60, 40], "color": "#d04020" } } },
-  { "id": "b", "components": { "Transform": { "position": [50, -20] }, "Sprite": { "size": [30, 70], "color": "#2060d0" } } } ] })";
+  { "id": "a", "components": { "Transform": { "position": [-40, 10] },
+    "Sprite": { "size": [60, 40], "color": "#d04020" } } },
+  { "id": "b", "components": { "Transform": { "position": [50, -20] },
+    "Sprite": { "size": [30, 70], "color": "#2060d0" } } } ] })";
 
 struct TempProject {
     stdfs::path dir;
@@ -189,7 +193,8 @@ TEST_CASE("dynamic resolution with injected frame times: the scale follows the t
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(1.0));
 
     e.set_dynamic_resolution_frame_ms(40.0);  // every frame takes 40 ms: far over the target
-    // The scene was just loaded: the controller waits for it to settle (shaders compile, assets arrive) and the scale stays.
+    // The scene was just loaded: the controller waits for it to settle (shaders compile, assets arrive) and the scale
+    // stays.
     e.step(60 * 2);
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(1.0));
     CHECK(stats(e)["frameMs"].get<double>() == doctest::Approx(0.0));
@@ -224,6 +229,42 @@ TEST_CASE("dynamic resolution with injected frame times: the scale follows the t
     e.shutdown();
 }
 
+TEST_CASE("dynamic resolution: a timer that never answers falls back to the frame interval after 120 frames the "
+          "renderer drew, and frames it did not draw do not count") {
+    TempProject p("gpumiss");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true})")).ok);
+    auto source = [&] { return eval(e, "window.dynamicResolution.source").get<std::string>(); };
+    // A timer that answers: the source is the GPU.
+    e.set_dynamic_resolution_gpu_ms(5.0);
+    e.step(5);
+    CHECK(source() == "gpu");
+    // A timer that never answers: the GPU is kept for 119 drawn frames and given up at the 120th.
+    e.set_dynamic_resolution_gpu_ms(-1.0);
+    e.step(60);
+    CHECK(source() == "gpu");
+    e.step(55);  // 115 frames in all (the one of the switch included): still waiting
+    CHECK(source() == "gpu");
+    e.step(10);
+    CHECK(source() == "interval");
+    // An answer brings the GPU back and starts the count again.
+    e.set_dynamic_resolution_gpu_ms(6.0);
+    e.step(3);
+    CHECK(source() == "gpu");
+    // Ticks with no frame drawn between them are no misses of the timer, however many there are.
+    e.set_dynamic_resolution_gpu_ms(-1.0);
+    e.step(1);
+    Engine::Impl& I = e.runtime_impl();
+    for (int i = 0; i < 1000; ++i) I.dynamic_resolution_tick(1.0 / 60.0);
+    CHECK(I.gpuMissFrames < 5);
+    CHECK(source() == "gpu");
+    e.step(130);
+    CHECK(source() == "interval");
+    e.shutdown();
+}
+
 TEST_CASE("dynamic resolution multiplies into window.renderScale and the upscaler's quality, never below 0.25") {
     TempProject p("multiply");
     Engine e;
@@ -237,7 +278,8 @@ TEST_CASE("dynamic resolution multiplies into window.renderScale and the upscale
     CHECK(stats(e)["dynamicScale"].get<double>() == doctest::Approx(0.25));
     CHECK(stats(e)["renderScale"].get<double>() == doctest::Approx(0.25));  // 0.5 x 0.25 = 0.125: the renderer's floor
     CHECK(stats(e)["width"] == 80);
-    // The player's option is a part of the base: 0.8 x 0.5 x 0.25 is below the floor too, and the factor is still reported as it is.
+    // The player's option is a part of the base: 0.8 x 0.5 x 0.25 is below the floor too, and the factor is still
+    // reported as it is.
     eval(e, "window.renderScale = 0.8; 0");
     CHECK(stats(e)["renderScale"].get<double>() == doctest::Approx(0.25));
     e.shutdown();
@@ -263,7 +305,8 @@ TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the sa
     }
     REQUIRE(reference.width > 0);
 
-    // Off with the other keys set (enabled false), and on with nothing measured yet: the same pixels as a build without the feature.
+    // Off with the other keys set (enabled false), and on with nothing measured yet: the same pixels as a build
+    // without the feature.
     Image off, notMeasured;
     REQUIRE(picture(
         [](Engine& e) {

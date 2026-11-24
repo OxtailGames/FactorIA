@@ -518,6 +518,16 @@ TEST_CASE("game.graphics: a script reads, sets and detects, and a wrong name thr
     CHECK(r.result["preset"] == "low");
     CHECK(eval(e, "typeof game.graphics.detect().preset") == "string");
     CHECK(eval(e, "game.graphics.detect().gpu.backend.length > 0") == true);
+    // What a script reads leaves out the times of the benchmark, and is frozen all the way down.
+    CHECK(eval(e, "'benchmarkMs' in game.graphics.detect()") == false);
+    CHECK(eval(e, "'frameMs' in game.graphics.detect().benchmark") == false);
+    CHECK(eval(e, "'totalMs' in game.graphics.detect().benchmark") == false);
+    CHECK(eval(e, "JSON.stringify(game.graphics.detect()).includes('Ms')") == false);
+    CHECK(eval(e, "const d = game.graphics.detect(); [d, d.gpu, d.device, d.benchmark].every(Object.isFrozen)") ==
+          true);
+    CHECK(eval(e,
+               "(() => { const d = game.graphics.detect(); try { d.gpu.name = 'x'; d.device.tier = 'x'; } catch (_) {} "
+               "return d.gpu.name !== 'x' && d.device.tier !== 'x'; })()") == true);
     auto bad = e.commands().call("script.eval", Json::object({{"code", "game.graphics.preset('hihg')"}}));
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("high") != std::string::npos);

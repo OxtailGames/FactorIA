@@ -157,16 +157,21 @@ struct Engine::Impl {
     // The ONE place that decides the render scale the renderer draws at and whether its upscale stage runs: from heldScale, the
     // upscaler's quality and the mode that really draws (docs/UPSCALING.md, "The render scale"). Called by every change of those.
     void apply_render_scale();
-    // Dynamic resolution (M76-P6c, docs/UPSCALING.md): the controller, what feeds it and what it last reported. The factor it gives is the
-    // `dynamicScale` that apply_render_scale multiplies in (1 while off, in the editor and for a scale held as a size).
+    // Dynamic resolution (M76-P6c, docs/UPSCALING.md): the controller, what feeds it and what it last reported. The
+    // factor it gives is the `dynamicScale` that apply_render_scale multiplies in (1 while off, in the editor and for
+    // a scale held as a size).
     render::DynamicResolutionController dynRes;
     std::optional<double> injectedFrameMs;  // Engine::set_dynamic_resolution_frame_ms
+    std::optional<double> injectedGpuMs;    // Engine::set_dynamic_resolution_gpu_ms
+    std::uint64_t drawCount = 0;            // frames handed to the renderer (draw())
+    std::uint64_t tickDrawCount = 0;        // drawCount at the last tick that measured
     const char* dynSource = "none";         // what the last tick measured (DynamicResolutionState::source)
     std::vector<double> gpuFrameScratch;
-    // What keeps a measurement that says nothing about the new scale or the scene out of the controller (all counted in frames or in the
-    // frames' own dt, never read from a clock): the frames after a change of the scale whose time is the new images' (kDynSettleFrames),
-    // the seconds after a scene load while shaders compile and assets arrive (kDynFreezeS), and the frames in a row in which the GPU timer
-    // gave no result (after kGpuMissFrames the tick measures the time between frames instead).
+    // What keeps a measurement that says nothing about the new scale or the scene out of the controller (all counted
+    // in frames or in the frames' own dt, never read from a clock): the frames after a change of the scale whose time
+    // is the new images' (kDynSettleFrames), the seconds after a scene load while shaders compile and assets arrive
+    // (kDynFreezeS), and the frames in a row in which the GPU timer gave no result (after kGpuMissFrames the tick
+    // measures the time between frames instead).
     static constexpr int kDynSettleFrames = 3;
     static constexpr double kDynFreezeS = 3.0;
     static constexpr int kGpuMissFrames = 120;
@@ -179,9 +184,10 @@ struct Engine::Impl {
     void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
     void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)
     // The display refresh rate a targetMs of 0 follows (M76-P6d, docs/UPSCALING.md, "The display's refresh rate"): the
-    // platform's (asked again every kRefreshPollS seconds of frames, so a move to another monitor is seen), else the estimate
-    // from the time between presented frames while vsync paces them, else kDynamicDefaultRefreshHz. Only a windowed game
-    // outside the editor tracks it; it changes the frame time the controller holds and nothing of the simulation.
+    // platform's (asked again every kRefreshPollS seconds of frames, so a move to another monitor is seen), else the
+    // estimate from the time between presented frames while vsync paces them, else kDynamicDefaultRefreshHz. Only a
+    // windowed game outside the editor tracks it; it changes the frame time the controller holds and nothing of the
+    // simulation.
     static constexpr double kRefreshPollS = 2.0;
     static constexpr int kRefreshRetryPolls =
         15;                                   // a given-up estimate starts over after this many polls (30 s of frames)

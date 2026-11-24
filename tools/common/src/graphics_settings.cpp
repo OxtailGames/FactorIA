@@ -84,7 +84,7 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
     return out;
 }
 
-Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std::string& file) {
+Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std::string& file, bool round) {
     GraphicsSettings s;
     if (!json.is_object())
         return make_error(file + ": the project file must be a JSON object.",
@@ -117,14 +117,16 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
         auto parsed = render::parse_dynamic_resolution_settings(*dr, file + "#/render/dynamicResolution", {});
         if (!parsed.ok()) return parsed.error();
         s.dynamic = *parsed;
-        s.dynamic.minScale = float(std::round(double(s.dynamic.minScale) * 100.0) / 100.0);
-        s.dynamic.maxScale = float(std::round(double(s.dynamic.maxScale) * 100.0) / 100.0);
-        s.dynamic.targetMs = std::round(s.dynamic.targetMs * 10.0) / 10.0;
+        if (round) {  // the editor's model: its sliders step in hundredths and tenths of a ms
+            s.dynamic.minScale = float(std::round(double(s.dynamic.minScale) * 100.0) / 100.0);
+            s.dynamic.maxScale = float(std::round(double(s.dynamic.maxScale) * 100.0) / 100.0);
+            s.dynamic.targetMs = std::round(s.dynamic.targetMs * 10.0) / 10.0;
+        }
     }
     return s;
 }
 
-Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir) {
+Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir, bool round) {
     const std::string path = project_file_path(projectDir);
     auto text = fs::read_text(path);
     if (!text.ok())
@@ -132,13 +134,21 @@ Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir) {
                           "Open a project folder that contains factoria.json (`factoria new` makes one).");
     auto parsed = parse_json(*text, path);
     if (!parsed.ok()) return parsed.error();
-    return graphics_settings_from_json(*parsed, path);
+    return graphics_settings_from_json(*parsed, path, round);
 }
 
-Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s) {
-    if (auto problems = check_graphics_settings(s); !problems.empty())
-        return make_error(problems.front().pointer + ": " + problems.front().message,
-                          "Fix the field before saving; nothing was written.");
+namespace {
+
+// What to do with one key of `render`: leave it (the default), remove it (an empty optional) or set it to a value.
+struct KeyOp {
+    bool touch = false;
+    std::optional<Json> value;
+};
+
+// Patches the keys `ops` name into <projectDir>/factoria.json (the others, the order and the formatting stay) and
+// answers whether the file changed. `preset`, `upscaler` and `dynamic` are the three keys of `render`.
+Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& preset, const KeyOp& upscaler,
+                               const KeyOp& dynamic) {
     const std::string path = project_file_path(projectDir);
     // The raw bytes, so a UTF-8 BOM the file starts with is written back (read_text drops it).
     auto bytes = fs::read_bytes(path);
@@ -156,46 +166,64 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
         return make_error(path + ": the project file must be a JSON object.",
                           "Start from {\"format\": \"factoria.project/1\", \"name\": \"My Game\"}.");
 
-    const GraphicsSettings def;
-    const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
-    const bool presetDefault = s.preset == "custom";
-    const bool dynamicDefault = s.dynamic == def.dynamic;
     std::vector<JsonPatchOp> ops;
-    // Would `render` be empty afterwards? Then the key goes too.
     // "render": null loads as no render settings, so it is an absent object here too.
     const bool hasRender = parsed->contains("render") && !(*parsed)["render"].is_null();
     if (hasRender && !(*parsed)["render"].is_object())
         return make_error(path + "#/render: expected an object.", "Replace the value of \"render\" with an object.");
     Json render = hasRender ? (*parsed)["render"] : Json::object();
-    if (upscalerDefault)
-        render.erase("upscaler");
-    else
-        render["upscaler"] = upscaler_json(s);
-    if (presetDefault)
-        render.erase("graphicsPreset");
-    else
-        render["graphicsPreset"] = s.preset;
-    if (dynamicDefault)
-        render.erase("dynamicResolution");
-    else
-        render["dynamicResolution"] = dynamic_json(s);
+    const auto apply = [&](const char* key, const KeyOp& op) {
+        if (!op.touch) return;
+        if (op.value)
+            render[key] = *op.value;
+        else
+            render.erase(key);
+    };
+    apply("upscaler", upscaler);
+    apply("graphicsPreset", preset);
+    apply("dynamicResolution", dynamic);
     if (render.empty()) {
+        // Would `render` be empty afterwards? Then the key goes too.
         if (hasRender) ops.push_back({{"render"}, std::nullopt});
     } else {
         if (parsed->contains("render") && !hasRender) ops.push_back({{"render"}, Json::object()});  // null -> {}
         // Remove what is default, set what is not: one op per key, so the rest of `render` stays byte for byte.
-        ops.push_back({{"render", "upscaler"},
-                       upscalerDefault ? std::optional<Json>() : std::optional<Json>(render["upscaler"])});
-        ops.push_back({{"render", "graphicsPreset"},
-                       presetDefault ? std::optional<Json>() : std::optional<Json>(Json(s.preset))});
-        ops.push_back({{"render", "dynamicResolution"},
-                       dynamicDefault ? std::optional<Json>() : std::optional<Json>(render["dynamicResolution"])});
+        const auto push = [&](const char* key, const KeyOp& op) {
+            if (op.touch) ops.push_back({{"render", key}, op.value});
+        };
+        push("upscaler", upscaler);
+        push("graphicsPreset", preset);
+        push("dynamicResolution", dynamic);
     }
     auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();
     const std::string out = (hasBom ? std::string("\xEF\xBB\xBF") : std::string()) + *patched;
-    if (out == rawText) return {};
-    return fs::write_bytes(path, out.data(), out.size());
+    if (out == rawText) return false;
+    auto written = fs::write_bytes(path, out.data(), out.size());
+    if (!written.ok()) return written.error();
+    return true;
+}
+
+KeyOp set_or_remove(bool isDefault, const Json& value) {
+    KeyOp op;
+    op.touch = true;
+    if (!isDefault) op.value = value;
+    return op;
+}
+
+}  // namespace
+
+Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s) {
+    if (auto problems = check_graphics_settings(s); !problems.empty())
+        return make_error(problems.front().pointer + ": " + problems.front().message,
+                          "Fix the field before saving; nothing was written.");
+    const GraphicsSettings def;
+    const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
+    auto r = patch_render_keys(projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
+                               set_or_remove(upscalerDefault, upscaler_json(s)),
+                               set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)));
+    if (!r.ok()) return r.error();
+    return {};
 }
 
 void register_graphics_settings_commands(CommandRegistry& registry, const std::string& projectDir) {
@@ -243,9 +271,16 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
                     throw CommandError("invalid_argument",
                                        "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
                                        "project.graphics takes `preset`, `upscaler` and `dynamicResolution`.");
-        auto current = read_graphics_settings(projectDir);
+        // The numbers of the file as they are (no rounding of the editor's sliders): a key this call does not name is
+        // not written, and one it names keeps what the caller wrote.
+        auto current = read_graphics_settings(projectDir, false);
         if (!current.ok()) throw CommandError("failed", current.error().message, current.error().hint);
         GraphicsSettings s = *current;
+        Json rawDynamic = Json::object();  // the file's render.dynamicResolution, for the keys the call leaves alone
+        if (auto text = fs::read_text(project_file_path(projectDir)); text.ok())
+            if (auto file = parse_json(*text, project_file_path(projectDir)); file.ok() && file->is_object())
+                if (auto r = file->find("render"); r != file->end() && r->is_object())
+                    if (auto d = r->find("dynamicResolution"); d != r->end() && d->is_object()) rawDynamic = *d;
         const auto object_arg = [&](const char* key) -> const Json* {
             if (!args.is_object()) return nullptr;
             auto it = args.find(key);
@@ -283,10 +318,29 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         if (auto problems = check_graphics_settings(s); !problems.empty())
             throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
                                "Fix the value; nothing was written.");
-        const bool changed = !(s == *current);
-        if (changed) {
-            auto written = write_graphics_settings(projectDir, s);
+        // Only the keys the call names are written.
+        const GraphicsSettings def;
+        KeyOp presetOp, upscalerOp, dynamicOp;
+        if (args.is_object() && args.contains("preset") && !args["preset"].is_null())
+            presetOp = set_or_remove(s.preset == "custom", Json(s.preset));
+        if (object_arg("upscaler"))
+            upscalerOp = set_or_remove(s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness,
+                                       upscaler_json(s));
+        if (const Json* dyn = object_arg("dynamicResolution")) {
+            Json value = dynamic_json(s);
+            for (const char* key : {"enabled", "targetMs", "minScale", "maxScale"}) {
+                if (dyn->contains(key))
+                    value[key] = (*dyn)[key];  // as the caller wrote it (0.333, not the float's 0.33300000429)
+                else if (rawDynamic.contains(key))
+                    value[key] = rawDynamic[key];
+            }
+            dynamicOp = set_or_remove(s.dynamic == def.dynamic, value);
+        }
+        bool changed = false;
+        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch) {
+            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp);
             if (!written.ok()) throw CommandError("failed", written.error().message, written.error().hint);
+            changed = *written;
         }
         Json out = Json::object();
         out["file"] = project_file_path(projectDir);

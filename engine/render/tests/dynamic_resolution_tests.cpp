@@ -1,5 +1,5 @@
-// M76-P6c: dynamic resolution (fa/render/dynamic_resolution.h): the settings parser with its teaching errors and the controller, fed injected frame times (no
-// clock, no GPU), so the same numbers give the same scales on every machine.
+// M76-P6c: dynamic resolution (fa/render/dynamic_resolution.h): the settings parser with its teaching errors and the
+// controller, fed injected frame times (no clock, no GPU), so the same numbers give the same scales on every machine.
 #include <doctest.h>
 
 #include <algorithm>
@@ -39,7 +39,8 @@ struct Run {
     }
 };
 
-// Ticks the controller for `seconds`; `cost(scale, t)` is the frame time the game would take at that scale (ms), `measure` turns it into the sample.
+// Ticks the controller for `seconds`; `cost(scale, t)` is the frame time the game would take at that scale (ms),
+// `measure` turns it into the sample.
 Run drive(
     DynamicResolutionController& c, double seconds, bool exact, const std::function<double(float, double)>& cost,
     const std::function<double(double)>& measure = [](double ms) { return ms; }, double targetMs = 16.7) {
@@ -133,7 +134,8 @@ TEST_CASE("refresh rate estimate: the median of the presented frames, after the 
     }
     SUBCASE("noise around 120 Hz and hitches over 50 ms are left out") {
         RefreshRateEstimator e;
-        // +-0.4 ms of noise (a fixed pattern, no rng), a 200 ms load every 7th frame and a 30 ms double frame every 13th.
+        // +-0.4 ms of noise (a fixed pattern, no rng), a 200 ms load every 7th frame and a 30 ms double frame every
+        // 13th.
         const int last = feed(e, 400, [](int i) {
             if (i % 7 == 3) return 200.0;
             if (i % 13 == 5) return 30.0;
@@ -316,7 +318,8 @@ TEST_CASE("dynamic resolution: with the interval measure it goes down by predict
           "a failed try waits longer") {
     DynamicResolutionController c;
     c.configure(on());
-    // The game costs 24 ms at full size; the sample is the vsync-pinned interval (a multiple of 16.7 ms is not modelled: one refresh).
+    // The game costs 24 ms at full size; the sample is the vsync-pinned interval (a multiple of 16.7 ms is not
+    // modelled: one refresh).
     const auto cost = [](float s, double) { return 24.0 * double(s) * double(s); };
     const auto vsync = [](double ms) { return std::max(ms, 16.7); };
     const Run run = drive(c, 120.0, false, cost, vsync);

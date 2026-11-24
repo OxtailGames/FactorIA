@@ -319,6 +319,11 @@ public:
     // Test hook: while set, every frame of the engine (a step, headless or not) feeds the dynamic resolution controller this frame time in ms
     // instead of a measurement (the state's source is "injected"). std::nullopt goes back to measuring. Nothing else reads it.
     void set_dynamic_resolution_frame_ms(std::optional<double> ms);
+    // Test hook: while set, the tick measures as a windowed run on a GPU with timer queries does (source "gpu", and
+    // the frame time of the interval after kGpuMissFrames frames without an answer): after each frame the renderer
+    // drew, the timer answers `ms`; a negative `ms` is a timer that never answers. std::nullopt goes back to the real
+    // timer.
+    void set_dynamic_resolution_gpu_ms(std::optional<double> ms);
     // Test hook: while set, the engine takes this as what the platform says the display's refresh rate is (refreshSource "platform"),
     // also without a window, in place of app_display_refresh_hz(); it is read at the next poll (the first, then every 2 s of
     // frames; the first one comes at the first frame). std::nullopt asks the platform again. Nothing else reads it.
