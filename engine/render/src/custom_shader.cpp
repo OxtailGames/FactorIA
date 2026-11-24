@@ -226,7 +226,7 @@ std::optional<Error> too_many_pairs(const std::string& where, const Json& pairLi
                    " image-sampler pairs over both stages (every texture a stage reads counts once, "
                    "with the sampler it is read through), and at most " +
                    std::to_string(gpu::kMaxTextureSamplerPairs) +
-                   " fit in one shader (sokol's cap, the same on every backend): " + "fragment " +
+                   " fit in one shader (the engine's cap, the same on every backend): " + "fragment " +
                    clause(stages[0], "fragment") + "; vertex " + clause(stages[1], "vertex");
         excess = total - gpu::kMaxTextureSamplerPairs;
         vertexCopies = stages[1].nOwn > 0;
