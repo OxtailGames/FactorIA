@@ -20,6 +20,9 @@ struct ThirdPartyComponent {
     std::string fontKey =
         {};  // a built-in font that is not inside the player ("builtin:serif"): an export ships it, and so lists
              // this component, only in games that name it (inGames is false)
+    std::vector<std::string> moreLicenseFiles =
+        {};  // further license texts that follow licenseFile, bundled too: a dual-licensed library whose licenseFile
+             // only names its licenses (Vulkan-Headers' LICENSE.md and its LICENSES/ folder)
 };
 
 // FactorIA itself first, then the third-party parts, in a fixed order.

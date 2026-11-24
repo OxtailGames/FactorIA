@@ -121,6 +121,16 @@ const char* backend_name(Backend b) {
     return "?";
 }
 
+const char* queue_name(QueueKind queue) {
+    switch (queue) {
+        case QueueKind::Graphics: return "graphics";
+        case QueueKind::Compute: return "compute";
+        case QueueKind::Transfer: return "transfer";
+        case QueueKind::Count: break;
+    }
+    return "?";
+}
+
 const char* pixel_format_name(PixelFormat f) {
     return std::size_t(f) < std::size_t(PixelFormat::Count) ? kFormats[std::size_t(f)].name : "?";
 }

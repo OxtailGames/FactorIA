@@ -26,6 +26,7 @@ Result<std::unique_ptr<Device>> make_vulkan_device(const VulkanOptions&) {
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 
 namespace fa::gpu {
@@ -176,6 +177,11 @@ Result<std::unique_ptr<VulkanDevice>> VulkanDevice::create(const VulkanOptions& 
                                   ", outside " + std::to_string(c.min) + "..1048576",
                               "the defaults (4096 sets, 32768 descriptors of each kind, 32768 bindless slots) suit "
                               "the renderer");
+    if (options.frameDescriptorPools < 1 || options.frameDescriptorPools > 64)
+        return make_error("gpu vulkan: VulkanOptions::frameDescriptorPools is " +
+                              std::to_string(options.frameDescriptorPools) + ", outside 1..64",
+                          "the default (8) lets a frame take up to eight times frameDescriptorSets sets; 1 keeps a "
+                          "frame to one pool (a test of the pool's limit)");
 
     std::unique_ptr<VulkanDevice> d(new VulkanDevice());
     if (auto r = d->init(options); !r) return r.error();
@@ -555,6 +561,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     anisotropy_ = q.samplerAnisotropy == VK_TRUE;
     depthBiasClamp_ = q.depthBiasClamp == VK_TRUE;
     imageView2DOn3D_ = !portability_ || qPort.imageView2DOn3DImage;
+    imageView2DOn3DReal_ = imageView2DOn3D_;
     features_.mrtIndependentBlendState = q.independentBlend == VK_TRUE;
     features_.mrtIndependentWriteMask = q.independentBlend == VK_TRUE;
     features_.dualSourceBlending = q.dualSrcBlend == VK_TRUE;
@@ -632,9 +639,31 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
     shaders_.init(in.shaderPoolSize);
     pipelines_.init(in.pipelinePoolSize);
     {
+        // The pipelines of an earlier run, from VulkanOptions::pipelineCacheFile (vulkan_pipeline_cache.cpp checks
+        // every byte the driver would trust; a file that does not match this device is thrown away with a warning).
+        cacheFile_ = options.pipelineCacheFile;
+        const std::vector<std::uint8_t> initial = load_pipeline_cache_file();
         VkPipelineCacheCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-        const VkResult r = fn_.vkCreatePipelineCache(device_, &ci, nullptr, &pipelineCache_);
+        ci.initialDataSize = initial.size();
+        ci.pInitialData = initial.empty() ? nullptr : initial.data();
+        VkResult r = fn_.vkCreatePipelineCache(device_, &ci, nullptr, &pipelineCache_);
+        if (r != VK_SUCCESS && !initial.empty()) {
+            // The driver refused data that passed every check: start empty, and the next save replaces the file.
+            cache_warning("gpu vulkan: the driver refused the pipeline cache " + fs::path_to_utf8(cacheFile_) +
+                          " (vkCreatePipelineCache: " + result_text(r) +
+                          "); its pipelines are compiled again and the file is written anew (hint: nothing to fix; "
+                          "deleting the file clears the cache)");
+            ++cacheDiscarded_;
+            cacheDirty_ = true;
+            cacheLoadedSha256_.clear();
+            cacheFileBytes_ = 0;
+            ci.initialDataSize = 0;
+            ci.pInitialData = nullptr;
+            r = fn_.vkCreatePipelineCache(device_, &ci, nullptr, &pipelineCache_);
+        } else if (r == VK_SUCCESS && !initial.empty()) {
+            cacheLoaded_ = true;
+        }
         if (r != VK_SUCCESS) {
             pipelineCache_ = VK_NULL_HANDLE;
             return vk_error("vkCreatePipelineCache", r, "the device is out of memory");
@@ -695,7 +724,8 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
         }
     }
     if (auto r = descriptors_.init(*this, framesInFlight_, std::uint32_t(options.frameDescriptorSets),
-                                   std::uint32_t(options.frameDescriptors), bindless);
+                                   std::uint32_t(options.frameDescriptors), std::uint32_t(options.frameDescriptorPools),
+                                   bindless);
         !r)
         return r;
 
@@ -805,6 +835,13 @@ bool VulkanDevice::storage_image_loadable(PixelFormat format, std::string* why) 
     // The engine's shaders declare every storage image's format, so a load needs only VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT
     // with optimal tiling (init_caps put it into caps_[].read); shaderStorageImageReadWithoutFormat is not needed.
     if (why) why->clear();
+    if (format == PixelFormat::Bgra8) {
+        // SPIR-V has no image format qualifier for BGRA, so no shader can declare (and load from) such an image.
+        if (why)
+            *why = "bgra8 has no SPIR-V image format qualifier, so a Vulkan shader cannot load from it as a storage "
+                   "image; use rgba8 (the same bytes in RGBA order)";
+        return false;
+    }
     const auto i = std::size_t(format);
     if (i < caps_.size() && caps_[i].read && caps_[i].write) return true;
     if (why)
@@ -819,6 +856,8 @@ VulkanDevice::~VulkanDevice() {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
     }
     if (device_) destroy_timer();
+    // The pipelines this run made, for the next one (a failure is a warning: the old file stays).
+    if (device_ && pipelineCache_) (void)save_pipeline_cache();
     for (AsyncRead& a : asyncReads_) a.buffer.reset();  // their copies finished (wait_idle)
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -844,13 +883,26 @@ VulkanDevice::~VulkanDevice() {
         pipelines_.clear();
     }
     if (device_) {
+        // The cached pipelines go with the last holder (the records above were theirs): each hands its handle to
+        // retired_, destroyed here, as the GPU is idle.
+        std::unordered_map<std::string, std::shared_ptr<const PipelineObject>> objects;
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex_);
+            objects.swap(pipelineObjects_);
+            pipelineLayouts_.clear();
+            setLayouts_.clear();
+            codeUsers_.clear();
+        }
+        objects.clear();
+        std::vector<Deferred> retired;
+        {
+            std::lock_guard<std::mutex> lock(retireMutex_);
+            retired.swap(retired_);
+        }
+        for (Deferred& d : retired) release(d);
         std::lock_guard<std::mutex> lock(cacheMutex_);
-        for (auto& [key, p] : pipelineObjects_) fn_.vkDestroyPipeline(device_, p, nullptr);
-        pipelineObjects_.clear();
-        for (auto& [key, l] : pipelineLayouts_) fn_.vkDestroyPipelineLayout(device_, l->layout, nullptr);
-        pipelineLayouts_.clear();
-        for (auto& [key, l] : setLayouts_) fn_.vkDestroyDescriptorSetLayout(device_, l, nullptr);
-        setLayouts_.clear();
+        for (auto& [key, f] : framebuffers_) fn_.vkDestroyFramebuffer(device_, f.framebuffer, nullptr);
+        framebuffers_.clear();
         for (auto& [key, rp] : renderPasses_) fn_.vkDestroyRenderPass(device_, rp, nullptr);
         renderPasses_.clear();
         if (pipelineCache_) fn_.vkDestroyPipelineCache(device_, pipelineCache_, nullptr);
@@ -997,6 +1049,8 @@ VulkanCounters VulkanDevice::counters() const {
     c.frameDescriptors = descriptors_.frame_descriptors_used();
     c.bindlessUsed = descriptors_.bindless_used();
     c.bindlessCapacity = descriptors_.bindless_capacity();
+    c.frameDescriptorPools = descriptors_.frame_pools_used();
+    c.descriptorSetBinds = descriptorSetBinds_.load();
     std::lock_guard<std::mutex> lock(cacheMutex_);
     c.pipelineCacheHits = pipelineHits_;
     c.pipelineCacheMisses = pipelineMisses_;
@@ -1004,6 +1058,17 @@ VulkanCounters VulkanDevice::counters() const {
     c.layoutCacheMisses = layoutMisses_;
     c.renderPassCacheHits = renderPassHits_;
     c.renderPassCacheMisses = renderPassMisses_;
+    c.framebufferCacheHits = framebufferHits_;
+    c.framebufferCacheMisses = framebufferMisses_;
+    c.pipelinesCached = pipelineObjects_.size();
+    for (const auto& [key, l] : pipelineLayouts_) c.pipelineLayoutsCached += l.expired() ? 0 : 1;
+    for (const auto& [key, l] : setLayouts_) c.setLayoutsCached += l.expired() ? 0 : 1;
+    c.framebuffersCached = framebuffers_.size();
+    c.pipelineCacheLoaded = cacheLoaded_;
+    c.pipelineCacheFileBytes = cacheFileBytes_;
+    c.pipelineCacheStored = cacheStored_;
+    c.pipelineCacheDiscarded = cacheDiscarded_;
+    c.pipelineCacheStoreFailed = cacheStoreFailed_;
     return c;
 }
 
@@ -1113,17 +1178,21 @@ VulkanCommandList* VulkanDevice::acquire_list(const char* label, bool internal) 
 CommandList& VulkanDevice::begin_commands(const char* label) {
     std::lock_guard<std::mutex> lock(queueMutex_);
     if (VulkanCommandList* l = acquire_list(label ? label : "", false)) return *l;
-    // Vulkan could not give a list (reported): hand out one that ignores everything, so the frame goes on. It lives as
-    // long as the device (a caller may still hold an earlier one), and each failure adds one: they are few and small.
-    deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));
-    return *deadLists_.back();
+    // Vulkan could not give a list (reported): hand out one that ignores everything, so the frame goes on.
+    return dead_list();
+}
+
+VulkanCommandList& VulkanDevice::dead_list() {
+    // It lives as long as the device (a caller may still hold an earlier one); a dead list holds no state, so the ones
+    // of earlier frames are handed out again (commit() starts the count anew) and a device lost does not grow them.
+    if (deadUsed_ == deadLists_.size()) deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));
+    return *deadLists_[deadUsed_++];
 }
 
 VulkanCommandList& VulkanDevice::prelude() {
     if (!prelude_) prelude_ = acquire_list("fa-vulkan-uploads", true);
     if (prelude_) return *prelude_;
-    deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));  // ignores everything (see begin_commands)
-    return *deadLists_.back();
+    return dead_list();  // ignores everything (see begin_commands)
 }
 
 void VulkanDevice::flush_prelude() {
@@ -1253,6 +1322,9 @@ bool VulkanDevice::execute(VulkanCommandList& list) {
             if (have.layout == want.layout && !access_writes(have.access) && !access_writes(want.access) &&
                 have.stages == want.stages && (want.access & ~have.access) == 0)
                 continue;
+            // Nothing used it yet (a new resource, in the layout the list wants): no earlier access to wait for and
+            // no layout to change, so no barrier (an empty one would only stall the pipeline).
+            if (have.layout == want.layout && have.stages == 0 && have.access == 0) continue;
             Barrier b;
             b.buffer = t.buffer;
             b.image = t.image;
@@ -1336,6 +1408,7 @@ void VulkanDevice::commit() {
         }
         collect();
         descriptors_.begin_frame(int(frame_ % std::uint64_t(framesInFlight_)));
+        deadUsed_ = 0;
         calls = listeners_;
     }
     for (const Listener& l : calls) l.func(l.user);
@@ -1370,7 +1443,7 @@ Result<void> VulkanDevice::wait_idle() {
     flush_prelude();
     submit_signal(nullptr, 0, "wait_idle");
     auto r = wait_timeline(timelineValue_, "wait_idle");
-    collect();
+    collect();  // takes the retired objects too
     // The GPU finished everything submitted, so what the open frame deferred (destroyed handles, the kept objects of
     // submitted lists) goes too. Its ring room stays held: lists still open may have written into it.
     if (r)
@@ -1382,6 +1455,7 @@ Result<void> VulkanDevice::wait_idle() {
 }
 
 void VulkanDevice::collect() {
+    take_retired();
     const std::uint64_t completed = completed_value();
     while (!frameValues_.empty() && frameValues_.front().second <= completed) {
         completedFrames_ = frameValues_.front().first + 1;
@@ -1399,9 +1473,99 @@ void VulkanDevice::release(Deferred& d) {
     if (d.view) fn_.vkDestroyImageView(device_, d.view, nullptr);
     if (d.sampler) fn_.vkDestroySampler(device_, d.sampler, nullptr);
     if (d.bindlessSlot != kNoSlot) descriptors_.bindless_free(d.bindlessSlot);
-    d.view = VK_NULL_HANDLE;
-    d.sampler = VK_NULL_HANDLE;
-    d.bindlessSlot = kNoSlot;
+    if (d.pipeline) fn_.vkDestroyPipeline(device_, d.pipeline, nullptr);
+    if (d.pipelineLayout) fn_.vkDestroyPipelineLayout(device_, d.pipelineLayout, nullptr);
+    if (d.setLayout) fn_.vkDestroyDescriptorSetLayout(device_, d.setLayout, nullptr);
+    if (d.framebuffer) fn_.vkDestroyFramebuffer(device_, d.framebuffer, nullptr);
+    d = Deferred{};
+}
+
+void VulkanDevice::retire_pipeline(VkPipeline pipeline) {
+    if (!pipeline) return;
+    Deferred d;
+    d.pipeline = pipeline;
+    std::lock_guard<std::mutex> lock(retireMutex_);
+    retired_.push_back(std::move(d));
+}
+
+void VulkanDevice::retire_pipeline_layout(VkPipelineLayout layout) {
+    if (!layout) return;
+    Deferred d;
+    d.pipelineLayout = layout;
+    std::lock_guard<std::mutex> lock(retireMutex_);
+    retired_.push_back(std::move(d));
+}
+
+void VulkanDevice::retire_set_layout(VkDescriptorSetLayout layout) {
+    if (!layout) return;
+    Deferred d;
+    d.setLayout = layout;
+    std::lock_guard<std::mutex> lock(retireMutex_);
+    retired_.push_back(std::move(d));
+}
+
+void VulkanDevice::take_retired() {
+    // An object retired while a frame was recorded may be in that frame's lists: it waits for the frame like any
+    // destroyed handle (the open frame, frame_, as defer() tags it).
+    std::vector<Deferred> retired;
+    {
+        std::lock_guard<std::mutex> lock(retireMutex_);
+        retired.swap(retired_);
+    }
+    for (Deferred& d : retired) {
+        d.frame = frame_;
+        deferred_.push_back(std::move(d));
+    }
+}
+
+VkFramebuffer VulkanDevice::framebuffer(VkRenderPass renderPass, const std::vector<VkImageView>& views,
+                                        const std::vector<std::uint64_t>& serials, std::uint32_t width,
+                                        std::uint32_t height, std::string& error) {
+    // By the views' serials, not their handles: a new view may get the handle of a destroyed one.
+    std::string key =
+        std::to_string(handle_bits(renderPass)) + "|" + std::to_string(width) + "x" + std::to_string(height);
+    for (std::uint64_t s : serials) key += "|" + std::to_string(s);
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    if (auto it = framebuffers_.find(key); it != framebuffers_.end()) {
+        ++framebufferHits_;
+        return it->second.framebuffer;
+    }
+    VkFramebufferCreateInfo fi{};
+    fi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fi.renderPass = renderPass;
+    fi.attachmentCount = std::uint32_t(views.size());
+    fi.pAttachments = views.data();
+    fi.width = width;
+    fi.height = height;
+    fi.layers = 1;
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    const VkResult r = fn_.vkCreateFramebuffer(device_, &fi, nullptr, &fb);
+    if (r != VK_SUCCESS) {
+        error = "vkCreateFramebuffer failed with " + result_text(r);
+        return VK_NULL_HANDLE;
+    }
+    ++framebufferMisses_;
+    framebuffers_.emplace(std::move(key), FramebufferEntry{fb, serials});
+    return fb;
+}
+
+void VulkanDevice::forget_framebuffers(std::uint64_t viewSerial) {
+    std::vector<Deferred> gone;
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        for (auto it = framebuffers_.begin(); it != framebuffers_.end();) {
+            const auto& s = it->second.serials;
+            if (std::find(s.begin(), s.end(), viewSerial) != s.end()) {
+                Deferred d;
+                d.framebuffer = it->second.framebuffer;
+                gone.push_back(std::move(d));
+                it = framebuffers_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (Deferred& d : gone) defer(std::move(d));
 }
 
 void VulkanDevice::defer(Deferred d) {

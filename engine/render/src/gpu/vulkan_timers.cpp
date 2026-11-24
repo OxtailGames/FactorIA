@@ -87,9 +87,16 @@ void VulkanDevice::timer_begin_frame() {
     if (timerPending_.size() >= std::size_t(kTimerSlots)) return;  // every slot waits for its GPU work: not timed
     VulkanCommandList& pl = prelude();
     if (!pl.open_ || !pl.cmd_) return;  // reported by acquire_list
-    // The pending frames hold the slots before this one (in ring order), so this one is free; the reset runs after
-    // whatever last wrote its queries (one queue, in submission order).
-    const int index = int(timerNext_++ % std::uint64_t(kTimerSlots));
+    // The next slot in ring order that no pending frame holds (a dropped frame leaves its slot free and out of order,
+    // so the next one in the ring may still be pending: it is skipped, never reset under its results). One is free:
+    // fewer than kTimerSlots are pending. The reset runs after whatever last wrote its queries (one queue, in
+    // submission order).
+    int index = -1;
+    for (int tries = 0; tries < kTimerSlots && index < 0; ++tries) {
+        const int candidate = int(timerNext_++ % std::uint64_t(kTimerSlots));
+        if (std::find(timerPending_.begin(), timerPending_.end(), candidate) == timerPending_.end()) index = candidate;
+    }
+    if (index < 0) return;
     TimerSlot& slot = timerSlots_[std::size_t(index)];
     slot.serial = ++timerSerial_;
     slot.fence = 0;

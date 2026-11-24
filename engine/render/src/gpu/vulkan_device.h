@@ -27,6 +27,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -61,11 +62,13 @@ struct VulkanOptions {
     // memoryBlockBytes).
     std::size_t memoryBlockBytes = 64u * 1024u * 1024u;
     std::size_t dedicatedThreshold = 16u * 1024u * 1024u;
-    // The per-frame descriptor pools (one per frame in flight, reset when that frame comes round again): sets, and
-    // descriptors of each kind (sampled image, sampler, storage image, storage buffer, dynamic uniform buffer,
-    // combined image-sampler). 1 to 1048576 each.
+    // The per-frame descriptor pools (a chain per frame in flight, reset when that frame comes round again): the sets,
+    // and the descriptors of each kind (sampled image, sampler, storage image, storage buffer, dynamic uniform buffer,
+    // combined image-sampler), of ONE pool of the chain, 1 to 1048576 each; and the pools a frame may chain when one
+    // is full, 1 to 64 (a frame takes the next pool only when the one before is full, so a light frame holds one).
     int frameDescriptorSets = 4096;
     int frameDescriptors = 32768;
+    int frameDescriptorPools = 8;
     // The bindless table: sampled images in one update-after-bind set (descriptor indexing). 0 = none; 0 to 1048576,
     // and at most what the device binds in one stage (maxPerStageDescriptorUpdateAfterBindSampledImages) and puts in
     // one set (a count over maxPerSetDescriptors that vkGetDescriptorSetLayoutSupport refuses is lowered to
@@ -78,12 +81,28 @@ struct VulkanOptions {
     // The Vulkan loader to open (a UTF-8 path); empty = the platform's search (libvulkan.so.1, vulkan-1.dll,
     // libvulkan.1.dylib with the Homebrew prefixes on macOS).
     std::string loaderPath;
+    // The VkPipelineCache's data on disk: read when the device is made (a file of another GPU, driver or pipeline
+    // cache layout, a cut or corrupt one, is thrown away with a warning), written when the device is destroyed if it
+    // gained pipelines (or VulkanDevice::save_pipeline_cache() at a point of the caller's choice). The write is atomic
+    // (a temporary file renamed over the old one); one that fails (a directory that cannot be written, a file another
+    // process holds open on Windows) is a warning and keeps the old file. Empty = in memory only. The renderer gives
+    // vulkan_pipeline_cache_file().
+    std::filesystem::path pipelineCacheFile;
 };
 
 // Makes a Vulkan device. Fails with a teaching error where the backend is not built (web, iOS), when an option is out of
 // range (before any Vulkan call), when no Vulkan loader is found, or when no device has Vulkan 1.2 with timeline
 // semaphores and a graphics + compute queue.
 Result<std::unique_ptr<Device>> make_vulkan_device(const VulkanOptions& options = {});
+
+// Where the engine keeps the Vulkan pipeline cache: shaders/vulkan-pipelines.bin in the user's cache directory
+// (fa::fs::cache_dir()), next to the D3D12 one.
+std::filesystem::path vulkan_pipeline_cache_file();
+
+// The range of a storage buffer descriptor of the buffer's `bufferBytes` from `offset`: VK_WHOLE_SIZE (~0) when the
+// rest of the buffer fits the device's maxStorageBufferRange, else that limit rounded down to whole 32-bit words (a
+// shader reads no further; a bigger buffer is viewed in pieces).
+std::uint64_t storage_buffer_range(std::uint64_t bufferBytes, std::uint64_t offset, std::uint64_t maxRange);
 
 }  // namespace fa::gpu
 
@@ -541,24 +560,27 @@ struct DescriptorCounts {
 };
 inline constexpr std::uint32_t kNoSlot = 0xFFFFFFFFu;
 
-// The descriptor pools: one per frame in flight that the sets of that frame's draws come from (reset when the frame
-// comes round again), and the bindless table (sampled images in one update-after-bind set, slots from a free list).
-// Its own lock, taken inside the device's.
+// The descriptor pools: a chain per frame in flight that the sets of that frame's draws come from (reset when the
+// frame comes round again; a frame whose pool is full takes the next one, made on first use, up to `chain` pools), and
+// the bindless table (sampled images in one update-after-bind set, slots from a free list). Its own lock, taken inside
+// the device's.
 class DescriptorPools {
 public:
-    Result<void> init(VulkanDevice& device, int frames, std::uint32_t sets, std::uint32_t perKind,
+    Result<void> init(VulkanDevice& device, int frames, std::uint32_t sets, std::uint32_t perKind, std::uint32_t chain,
                       std::uint32_t bindless);
     void destroy();
     // Whether the driver can make a bindless table of `count` sampled images (vkGetDescriptorSetLayoutSupport: a layout
     // over maxPerSetDescriptors may or may not be supported, and only this query says).
     static bool bindless_supported(const VulkanDevice& device, std::uint32_t count);
-    // A set of `layout` from this frame's pool; `counts` = the descriptors the layout holds. The pool's room is counted
-    // here, so a full pool is refused the same way on every driver.
+    // A set of `layout` from this frame's pools; `counts` = the descriptors the layout holds. Each pool's room is
+    // counted here, so a full pool (and a full chain) is refused the same way on every driver.
     Result<VkDescriptorSet> alloc(VkDescriptorSetLayout layout, const DescriptorCounts& counts);
-    // The frame in slot `slot` starts (the GPU finished the frame that used its pool last): its pool is empty again.
+    // The frame in slot `slot` starts (the GPU finished the frame that used its pools last): they are empty again.
     void begin_frame(int slot);
+    // This frame's sets and descriptors (every pool of its chain), and the pools of the chain it took.
     std::uint32_t frame_sets_used() const;
     std::uint32_t frame_descriptors_used() const;
+    std::uint32_t frame_pools_used() const;
     // The bindless table: its layout and its one set (null without one), its size, a free slot (kNoSlot when full) and
     // writing a sampled-image view into a slot. A freed slot is handed out again (the device frees it once the frames
     // that may read it are finished).
@@ -572,13 +594,21 @@ public:
 
 private:
     mutable std::mutex mutex_;
+    // A pool of a frame's chain, and what this frame took from it.
+    struct FramePool {
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        std::uint32_t setsUsed = 0;
+        DescriptorCounts used{};
+    };
+    Result<VkDescriptorPool> make_pool() const;
+
     VulkanDevice* device_ = nullptr;
-    std::vector<VkDescriptorPool> pools_;
+    std::vector<std::vector<FramePool>> pools_;  // [frame slot]: the chain, made as far as a frame needed it
     int slot_ = 0;
+    std::size_t active_ = 0;  // the pool of this frame's chain the sets come from
     std::uint32_t maxSets_ = 0;
     std::uint32_t perKind_ = 0;
-    std::uint32_t setsUsed_ = 0;
-    DescriptorCounts used_{};
+    std::uint32_t chain_ = 1;
     VkDescriptorPool bindlessPool_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout bindlessLayout_ = VK_NULL_HANDLE;
     VkDescriptorSet bindlessSet_ = VK_NULL_HANDLE;
@@ -605,16 +635,42 @@ struct ShaderInfo {
     bool viewWritable[kMaxViews]{};                  // a storage image, or a storage buffer that is not readonly
     ImageType viewImageType[kMaxViews]{};            // textures and storage images: what the view must be
     std::string codeKey;                             // SHA-256 of the SPIR-V and the entries (the pipeline cache key)
+    bool pointSize = false;  // the vertex stage writes its PointSize output (what a point-list pipeline needs)
     ShaderInfo() = default;
     ShaderInfo(const ShaderInfo&) = delete;
     ShaderInfo& operator=(const ShaderInfo&) = delete;
     ~ShaderInfo();
 };
 
+// A descriptor set layout, shared by every pipeline layout with the same set. The last holder's destructor hands the
+// VkDescriptorSetLayout to the device, which destroys it once the frames that may use it are finished.
+struct SetLayoutObject {
+    VulkanDevice* device = nullptr;
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    SetLayoutObject() = default;
+    SetLayoutObject(const SetLayoutObject&) = delete;
+    SetLayoutObject& operator=(const SetLayoutObject&) = delete;
+    ~SetLayoutObject();
+};
+
+// A VkPipeline, shared by the device's cache (while a live shader has its code) and every pipeline state made with it.
+// The last holder's destructor hands it to the device (destroyed once the frames that may use it are finished).
+struct PipelineObject {
+    VulkanDevice* device = nullptr;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    PipelineObject() = default;
+    PipelineObject(const PipelineObject&) = delete;
+    PipelineObject& operator=(const PipelineObject&) = delete;
+    ~PipelineObject();
+};
+
 // A pipeline layout as sokol-shdc lays the descriptors out: set 0 holds the uniform blocks (dynamic uniform buffers),
 // set 1 the views and samplers, set 2 the bindless table (every layout has it when the device has one). Cached by its
-// key: every shader with the same bindings shares one.
+// key while a shader or pipeline holds it: every shader with the same bindings shares one. The destructor hands the
+// VkPipelineLayout to the device (destroyed once the frames that may use it are finished).
 struct PipelineLayoutInfo {
+    VulkanDevice* device = nullptr;
+    std::shared_ptr<const SetLayoutObject> setObjects[2];  // what sets[] are (kept while the layout lives)
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};  // an empty layout where a set is unused
     DescriptorCounts counts[2]{};                                      // what one set of each holds
@@ -628,12 +684,17 @@ struct PipelineLayoutInfo {
     std::uint32_t samplerUsed = 0;  // bit i = sampler slot i
     bool bindless = false;          // set 2 is the bindless table
     std::string key;
+    PipelineLayoutInfo() = default;
+    PipelineLayoutInfo(const PipelineLayoutInfo&) = delete;
+    PipelineLayoutInfo& operator=(const PipelineLayoutInfo&) = delete;
+    ~PipelineLayoutInfo();
 };
 
-// What a pipeline draws with: its VkPipeline (owned by the device's cache), its layout and shader, and the state the
-// command list sets with it.
+// What a pipeline draws with: its VkPipeline (`object`, shared with the device's cache), its layout and shader, and the
+// state the command list sets with it.
 struct PipelineState {
-    VkPipeline pipeline = VK_NULL_HANDLE;
+    std::shared_ptr<const PipelineObject> object;
+    VkPipeline pipeline = VK_NULL_HANDLE;  // object's
     std::shared_ptr<const PipelineLayoutInfo> layout;
     std::shared_ptr<const ShaderInfo> shader;
     bool compute = false;
@@ -814,15 +875,17 @@ private:
     std::map<std::pair<const TrackedResource*, std::uint32_t>, std::size_t> boundNeedIndex_;  // -> boundNeeds_
     std::vector<VkCommandBuffer> secondaries_;
     std::size_t secondaryNext_ = 0;
-    std::vector<VkFramebuffer> framebuffers_;  // destroyed when the list is reused (its GPU work is done)
-    std::vector<std::string> passGroups_;      // debug groups pushed inside the render pass and still open
-    int passOuterPops_ = 0;                    // pops inside the render pass of groups pushed before it
+    std::vector<std::string> passGroups_;  // debug groups pushed inside the render pass and still open
+    int passOuterPops_ = 0;                // pops inside the render pass of groups pushed before it
 
     // Pipeline, bindings, uniforms
     std::shared_ptr<const PipelineState> pipeline_;
     std::uint32_t uniformsSet_ = 0;  // bit i = uniform slot i was set since set_pipeline
     bool bindingsSet_ = false;
-    bool uniformsDirty_ = false;  // the descriptor sets (0, 1, 2) must be bound again before the next draw or dispatch
+    // Bit n = descriptor set n (0 uniforms, 1 views and samplers, 2 bindless) must be bound again before the next draw
+    // or dispatch: set_pipeline marks all three (its layout may differ), set_uniforms set 0, set_bindings set 1. Sets
+    // bound with the same pipeline layout do not disturb each other.
+    std::uint32_t setsDirty_ = 0;
     VkDescriptorSet viewSet_ = VK_NULL_HANDLE;  // set 1 of the last set_bindings (this frame's pool)
     VkBuffer uniformBuffer_[kMaxUniformBlocks]{};
     std::uint32_t uniformOffset_[kMaxUniformBlocks]{};
@@ -844,15 +907,45 @@ struct VulkanCounters {
     std::uint64_t timelineValue = 0;           // the last value signalled
     std::uint64_t completedTimelineValue = 0;  // the last value the GPU reached
     MemoryCounters memory{};                   // the suballocator
-    std::uint32_t frameDescriptorSets = 0;     // descriptor sets this frame took from its pool
+    std::uint32_t frameDescriptorSets = 0;     // descriptor sets this frame took from its pools
     std::uint32_t frameDescriptors = 0;        // descriptors of every kind in them
-    std::uint32_t bindlessUsed = 0;      // bindless slots handed out (freed ones waiting for their frame included)
-    std::uint32_t bindlessCapacity = 0;  // the bindless table's size (0 = none)
+    std::uint32_t frameDescriptorPools = 0;    // the pools of its chain this frame took (1 until one was full)
+    std::uint32_t bindlessUsed = 0;        // bindless slots handed out (freed ones waiting for their frame included)
+    std::uint32_t bindlessCapacity = 0;    // the bindless table's size (0 = none)
+    std::uint64_t descriptorSetBinds = 0;  // vkCmdBindDescriptorSets calls of every list (one per set bound)
     // The caches of pipelines (VkPipeline by shader code, layout and state), layouts (descriptor set and pipeline
-    // layouts) and render passes: hits, and misses (objects made).
+    // layouts), render passes and framebuffers (by render pass, attachments and size): hits, misses (objects made) and
+    // the objects they hold now (a destroyed shader's pipelines and layouts, a destroyed view's framebuffers leave).
     std::uint64_t pipelineCacheHits = 0, pipelineCacheMisses = 0;
     std::uint64_t layoutCacheHits = 0, layoutCacheMisses = 0;
     std::uint64_t renderPassCacheHits = 0, renderPassCacheMisses = 0;
+    std::uint64_t framebufferCacheHits = 0, framebufferCacheMisses = 0;
+    std::size_t pipelinesCached = 0, pipelineLayoutsCached = 0, setLayoutsCached = 0, framebuffersCached = 0;
+    // The pipeline cache file (VulkanOptions::pipelineCacheFile): whether the device was made with its data, the
+    // file's bytes then, the saves that wrote it, the files thrown away (another GPU or driver, cut, corrupt) and the
+    // saves that failed (the old file kept).
+    bool pipelineCacheLoaded = false;
+    std::uint64_t pipelineCacheFileBytes = 0;
+    std::uint64_t pipelineCacheStored = 0, pipelineCacheDiscarded = 0, pipelineCacheStoreFailed = 0;
+};
+
+// The pipeline cache file: a header of its own (what the data was made for, its size and SHA-256), then the
+// VkPipelineCache data, which starts with Vulkan's VkPipelineCacheHeaderVersionOne. Little-endian.
+struct PipelineCacheFile {
+    static constexpr char kMagic[8] = {'F', 'A', 'V', 'K', 'P', 'S', 'O', '\0'};
+    static constexpr std::uint32_t kVersion = 1;
+    static constexpr std::size_t kMagicAt = 0;           // 8 bytes
+    static constexpr std::size_t kVersionAt = 8;         // u32
+    static constexpr std::size_t kHeaderBytesAt = 12;    // u32: kHeaderBytes
+    static constexpr std::size_t kVendorAt = 16;         // u32 VkPhysicalDeviceProperties::vendorID
+    static constexpr std::size_t kDeviceAt = 20;         // u32 deviceID
+    static constexpr std::size_t kDriverAt = 24;         // u32 driverVersion
+    static constexpr std::size_t kUuidAt = 32;           // 16 bytes pipelineCacheUUID
+    static constexpr std::size_t kPayloadBytesAt = 48;   // u64: the bytes after the header
+    static constexpr std::size_t kPayloadSha256At = 56;  // 64 hex digits
+    static constexpr std::size_t kHeaderBytes = 120;
+    // Vulkan's own header at the start of the data (VkPipelineCacheHeaderVersionOne).
+    static constexpr std::size_t kVkHeaderBytes = 32;  // headerSize, headerVersion, vendorID, deviceID, UUID
 };
 
 // The Vulkan Device. Made, used for resources and destroyed on one thread (the render thread); command lists may be
@@ -959,7 +1052,8 @@ public:
     // The errors so far: the validation layer's ERROR messages, failed Vulkan calls, calls not built yet. Each also went
     // to the log.
     std::vector<std::string> errors();
-    // The validation layer's WARNING messages so far.
+    // The validation layer's WARNING messages so far, and the backend's own warnings (a bindless table cut down to what
+    // the GPU binds, a pipeline cache file thrown away or not written).
     std::vector<std::string> warnings();
     void clear_messages();
     // Waits until the GPU finished everything submitted, then releases everything pending, the current frame's
@@ -989,8 +1083,32 @@ public:
     MemoryAllocator& memory() { return memory_; }
     // The VkFormat of `f` on this device (DepthStencil: D24S8 where it is a depth attachment, else D32S8).
     VkFormat vk_format(PixelFormat f) const;
-    // The VkPipelineCache every pipeline is made through (M77-P8b2 saves and loads its data).
+    // The VkPipelineCache every pipeline is made through (its data loaded from and saved to
+    // VulkanOptions::pipelineCacheFile).
     VkPipelineCache pipeline_cache() const { return pipelineCache_; }
+    // Writes the pipeline cache's data to VulkanOptions::pipelineCacheFile when pipelines were made since it was read
+    // or last written (the destructor calls it too); nothing without a file. The write is atomic: a failure (the
+    // directory cannot be written, another process holds the file open on Windows) keeps the old file and returns a
+    // teaching error that also goes to warnings(). Render thread.
+    Result<void> save_pipeline_cache();
+    const std::filesystem::path& pipeline_cache_file() const { return cacheFile_; }
+    // Tests of the path of a device without 2D views of 3D images (VK_KHR_portability_subset's imageView2DOn3DImage):
+    // false makes the device refuse them as such a device does.
+    void set_image_view_2d_on_3d_for_tests(bool on) { imageView2DOn3D_ = on && imageView2DOn3DReal_; }
+    // A Vulkan object whose last holder let go (a shader's pipeline, a pipeline or descriptor set layout): destroyed
+    // once the frames that may use it are finished. Any thread, any lock held (a leaf lock of its own).
+    void retire_pipeline(VkPipeline pipeline);
+    void retire_pipeline_layout(VkPipelineLayout layout);
+    void retire_set_layout(VkDescriptorSetLayout layout);
+    // The framebuffer of `renderPass` with `views` (attachment order) of `width` x `height`, from the cache or made
+    // now (null with `error` set when Vulkan refused). `serials` name the views (ViewRecord::serial): a destroyed view
+    // takes its framebuffers out of the cache (forget_framebuffers), and a new view with the same handle never finds
+    // them.
+    VkFramebuffer framebuffer(VkRenderPass renderPass, const std::vector<VkImageView>& views,
+                              const std::vector<std::uint64_t>& serials, std::uint32_t width, std::uint32_t height,
+                              std::string& error);
+    void forget_framebuffers(std::uint64_t viewSerial);
+    void count_descriptor_set_bind() { ++descriptorSetBinds_; }
     // A pipeline's state (null when `pipeline` names nothing or failed).
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
     // The render pass of `key`, from the cache or made now; null with `error` set when Vulkan refused.
@@ -1038,6 +1156,7 @@ private:
         std::size_t offset = 0;             // a storage buffer view's first byte
         VkImageView view = VK_NULL_HANDLE;  // image views
         VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
+        std::uint64_t serial = 0;  // unique for the device's life (the framebuffer cache's key)
     };
     struct SamplerRecord {
         VkSampler sampler = VK_NULL_HANDLE;  // null when the creation failed
@@ -1049,6 +1168,14 @@ private:
         VkImageView view = VK_NULL_HANDLE;
         VkSampler sampler = VK_NULL_HANDLE;
         std::uint32_t bindlessSlot = kNoSlot;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    };
+    struct FramebufferEntry {
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        std::vector<std::uint64_t> serials;  // the views it was made with
     };
     struct Listener {
         void (*func)(void*) = nullptr;
@@ -1076,6 +1203,8 @@ private:
     bool submit_signal(const VkCommandBuffer* cmds, std::uint32_t count, const char* what);
     // The device's own list for initial uploads and readbacks, opened on first use. Under queueMutex_.
     VulkanCommandList& prelude();
+    // A list that ignores everything, for when Vulkan could not give one (deadLists_). Under queueMutex_.
+    VulkanCommandList& dead_list();
     // Executes the prelude if it recorded anything. Under queueMutex_.
     void flush_prelude();
     // Waits (bounded) until the timeline reaches `value`. Under queueMutex_ or not.
@@ -1113,15 +1242,25 @@ private:
     Result<ReadTicket> start_async_read(int slot, const char* what, const Copy& copy);
     // A host-visible buffer of at least `bytes` for slot `slot` (kept while big enough).
     Result<void> async_buffer(int slot, std::uint64_t bytes, const std::string& where);
-    // A descriptor set layout of `bindings` (cached by `key`); null with `error` set when Vulkan refused.
-    VkDescriptorSetLayout set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings,
-                                     std::string& error);
+    // A descriptor set layout of `bindings` (cached by `key` while a pipeline layout holds it); null with `error` set
+    // when Vulkan refused.
+    std::shared_ptr<const SetLayoutObject>
+    set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings, std::string& error);
+    // The pipeline cache file read and checked: the VkPipelineCache's initial data (init). Empty when there is no file,
+    // and when it does not match this device or is cut or corrupt (thrown away with a warning). Under cacheMutex_.
+    std::vector<std::uint8_t> load_pipeline_cache_file();
+    // A warning of the pipeline cache file: the log and warnings().
+    void cache_warning(const std::string& message);
+    // Moves the retired objects into the deferred queue (tagged with the current frame). Under queueMutex_.
+    void take_retired();
     // The pipeline layout of a shader (cached by its bindings); null with `error` set when it cannot be one.
     std::shared_ptr<const PipelineLayoutInfo> pipeline_layout(const ShaderDesc& desc, const ShaderInfo& info,
                                                               std::string& error);
     // A VkPipeline from the cache, or made now; null with `error` set when Vulkan refused.
-    VkPipeline pipeline_object(const std::string& key, const VkGraphicsPipelineCreateInfo* graphics,
-                               const VkComputePipelineCreateInfo* compute, std::string& error);
+    std::shared_ptr<const PipelineObject> pipeline_object(const std::string& key,
+                                                          const VkGraphicsPipelineCreateInfo* graphics,
+                                                          const VkComputePipelineCreateInfo* compute,
+                                                          std::string& error);
 
     // The Vulkan objects
     VulkanLibrary library_{};
@@ -1145,6 +1284,7 @@ private:
     bool debugUtils_ = false;
     bool portability_ = false;
     bool imageView2DOn3D_ = true;
+    bool imageView2DOn3DReal_ = true;  // what the device has (imageView2DOn3D_ may be turned off by a test)
     bool anisotropy_ = false;
     bool descriptorIndexing_ = false;
     int framesInFlight_ = kInflightFrames;
@@ -1171,16 +1311,35 @@ private:
     Pool<ShaderRecord> shaders_;
     Pool<PipelineRecord> pipelines_;
 
-    // The caches (cacheMutex_): made once, destroyed with the device
+    // The caches (cacheMutex_). The pipelines stay while a live shader has their code (codeUsers_), the layouts while
+    // a shader or pipeline holds them (weak entries), the framebuffers until one of their views is destroyed; render
+    // passes (one per set of attachment formats and load / store ops, a small set) for the device's life.
     mutable std::mutex cacheMutex_;
     VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
-    std::unordered_map<std::string, VkDescriptorSetLayout> setLayouts_;
-    std::unordered_map<std::string, std::shared_ptr<const PipelineLayoutInfo>> pipelineLayouts_;
-    std::unordered_map<std::string, VkPipeline> pipelineObjects_;
+    std::unordered_map<std::string, std::weak_ptr<const SetLayoutObject>> setLayouts_;
+    std::unordered_map<std::string, std::weak_ptr<const PipelineLayoutInfo>> pipelineLayouts_;
+    std::unordered_map<std::string, std::shared_ptr<const PipelineObject>> pipelineObjects_;
+    std::unordered_map<std::string, int> codeUsers_;  // ShaderInfo::codeKey -> live shaders with that code
     std::unordered_map<std::string, VkRenderPass> renderPasses_;
+    std::unordered_map<std::string, FramebufferEntry> framebuffers_;
     std::uint64_t pipelineHits_ = 0, pipelineMisses_ = 0;
     std::uint64_t layoutHits_ = 0, layoutMisses_ = 0;
     std::uint64_t renderPassHits_ = 0, renderPassMisses_ = 0;
+    std::uint64_t framebufferHits_ = 0, framebufferMisses_ = 0;
+    std::uint64_t viewSerial_ = 0;  // the last ViewRecord::serial handed out (resMutex_)
+    std::atomic<std::uint64_t> descriptorSetBinds_{0};
+
+    // The pipeline cache file (cacheMutex_)
+    std::filesystem::path cacheFile_;
+    std::string cacheLoadedSha256_;  // of the data read at init ("" = none): a save of the same data is skipped
+    bool cacheLoaded_ = false;
+    bool cacheDirty_ = false;  // pipelines were made since the data was read or written
+    std::uint64_t cacheFileBytes_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0, cacheStoreFailed_ = 0;
+
+    // Objects whose last holder let go, waiting to go into the deferred queue (retireMutex_: a leaf, taken under any
+    // other lock, never the other way round).
+    std::mutex retireMutex_;
+    std::vector<Deferred> retired_;
 
     // The queue, the frames, the lists (queueMutex_)
     mutable std::mutex queueMutex_;
@@ -1196,9 +1355,11 @@ private:
     std::atomic<std::uint64_t> dedicatedUploads_{0};
     std::atomic<std::uint64_t> barriers_{0};
     std::vector<Listener> listeners_;
-    // The lists handed out when Vulkan could not give one (they ignore everything): kept until the device goes, as the
-    // caller still holds each one.
+    // The lists handed out when Vulkan could not give one (they ignore everything and hold no state): kept until the
+    // device goes, as a caller may still hold one, and handed out again from the next frame on (deadUsed_ of them are
+    // this frame's; commit() sets it to 0), so a device lost does not make one more each call.
     std::vector<std::unique_ptr<VulkanCommandList>> deadLists_;
+    std::size_t deadUsed_ = 0;
 
     // GPU timers (timerMutex_; taken after queueMutex_ when both are held). A timed frame takes the next slot of the
     // ring: query 0 is its start, 1 its end, 2 + 2i and 3 + 2i scope i's.
@@ -1244,6 +1405,11 @@ private:
     bool statsEnabled_ = false;
     TotalStats stats_{};
 };
+
+// Whether a vertex stage's SPIR-V (words checked by make_shader) stores to its PointSize built-in, which Vulkan needs
+// to draw a point list: a store to a variable decorated BuiltIn PointSize, to that member of gl_PerVertex or to the whole
+// block. A declaration alone does not count (glslang declares the member in every vertex shader). vulkan_pipelines.cpp.
+bool spirv_writes_point_size(const std::vector<std::uint32_t>& words);
 
 }  // namespace fa::gpu::vk
 
