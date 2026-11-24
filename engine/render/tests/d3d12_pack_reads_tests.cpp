@@ -149,8 +149,8 @@ TEST_CASE("d3d12 pack reads: a gdeflate range fills a buffer, whole blocks throu
     std::vector<std::uint8_t> out;
     auto rb = dev->read_buffer(buf, 64, std::size_t(size), out);
     REQUIRE_MESSAGE(rb, rb.error().to_string());
-    CHECK(out == std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(from),
-                                           data.begin() + std::ptrdiff_t(from + size)));
+    CHECK(out ==
+          std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(from), data.begin() + std::ptrdiff_t(from + size)));
     // The buffer is usable afterwards: a second read of the whole file over it.
     auto t2 = dev->read_pack_to_buffer(PackSource{pack.value(), "a/data.bin", 0, B}, buf, 0);
     REQUIRE(t2.ok());
@@ -229,7 +229,8 @@ TEST_CASE("d3d12 pack reads: a pack in memory, an lz4 file and a padded texture 
     const Buffer buf = dev->make_buffer(bd);
     REQUIRE(dev->state(buf) == ResourceState::Valid);
     std::vector<std::uint8_t> out;
-    for (const auto& [pack, path] : {std::pair{inMemory.value(), "a/data.bin"}, std::pair{onDisk.value(), "a/data.lz4"}}) {
+    for (const auto& [pack, path] :
+         {std::pair{inMemory.value(), "a/data.bin"}, std::pair{onDisk.value(), "a/data.lz4"}}) {
         CAPTURE(path);
         auto t = dev->read_pack_to_buffer(PackSource{pack, path, 100, data.size() - 100}, buf, 0);
         REQUIRE_MESSAGE(t.ok(), (t.ok() ? "" : t.error().to_string()));
