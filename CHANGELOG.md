@@ -29,7 +29,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
 - New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
   `render.upscaler` and `window.upscaler` in scripts (docs/UPSCALING.md). `effectiveMode` says what draws: `stretch`, `spatial` and
-  `temporal` today; `metalfx` and `auto` draw as the best that exists until its upscaler lands, and `temporal` draws as `spatial`
+  `temporal`, and `metalfx` on Apple GPUs (M76-P5b); `auto` draws as the best that exists, and `temporal` draws as `spatial`
   where it cannot run.
 - The temporal upscaler is drawn (M76-P4): `render.upscaler` / `window.upscaler` / `factoria.json` with mode `temporal` (or `auto`)
   draw the game at the quality's size (`quality` 1/1.5, 1/1.7, 1/2 or 1/3 of the window, times `window.renderScale`, at least 0.25) with
@@ -42,6 +42,20 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   The objects' motion vectors (M76-P1a) feed its reprojection (it asks the prepass for them). Off (`stretch`) is free: no pass, no
   image, no jitter, the same pixels. `UpscalerCaps` gets `temporal` (the TAA shaders compiled) and `multiCamera` (the frame has no single
   full-window camera); `kJitterPhasesMax` is 128 (was 16); `docs/UPSCALING.md`, "The temporal upscaler".
+- MetalFX is drawn (M76-P5b): on the Metal backend (macOS 13 or iOS 16 or later, a GPU with the MetalFX scalers; not the iOS simulator),
+  `render.upscaler` / `window.upscaler` / `factoria.json` with mode `metalfx` (and `auto`, which now prefers it) hand the upscale to
+  Apple's MetalFX. Its temporal scaler takes the jittered picture at the render size (the same phases and quality sizes as `temporal`),
+  a 0..1 depth and a motion image that a small pass makes from the prepass and the velocity image (where no object wrote a velocity
+  the camera's own movement is reprojected, as the temporal upscaler does), and keeps its history at the window's size; the spatial
+  scaler draws a frame the temporal one cannot take. The history resets on a camera cut, another scene, a floating-origin shift, a change
+  of the render size or quality and a new scaler. A frame with more than one camera draws `spatial`, as for `temporal`. If MetalFX cannot be
+  made or fails in a frame, the renderer drops to `temporal` (then `spatial`) for the rest of the run with one warning, and
+  `effectiveMode` says it. `render.supports` `metalfx` is `supported` where it is available, with the reason where not;
+  `render.upscaler` reports `metalfx` also for a headless project on an Apple build where it is available. `sharpness` does not apply to it.
+  The CI machines have no MetalFX (the macOS VM has a paravirtual GPU): its tests skip there with a message. Docs/UPSCALING.md, "MetalFX".
+- Fix: the motion vectors the temporal upscaler reprojects with (M76-P1a) were asked for after the culling had decided whether the draws
+  keep their previous models, so with the upscaler alone (no motion blur, no TemporalAA effect) the image was never made and every pixel
+  reprojected from the camera. It is asked for before, and moving objects now reproject with their own motion.
 - Fixes in the temporal resolve (`taa_shared.glsl`, antialiasing too): a NaN in the picture or in the history is dropped and never stays in
   the history for ever (on a GPU that keeps NaN through `max`), and the depth rejection no longer discards the history of the sky when the
   camera turns fast.

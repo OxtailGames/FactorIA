@@ -1755,12 +1755,15 @@ render::UpscalerMode Engine::effective_upscaler_mode() const {
 
 render::UpscalerCaps Engine::upscaler_caps() const {
     // No renderer: what a GPU would draw for a game with one full-window camera and a history that fits (the milestone rule: a
-    // headless run and a test report what a player would see). MetalFX is not built, so `metalfx` stays false.
+    // headless run and a test report what a player would see). MetalFX is what the default Metal GPU of this machine offers (asked once;
+    // false on every build that does not draw with Metal): on an Apple build where it is available, auto and metalfx report "metalfx".
+    static const render::MetalFxHere mfx = render::metalfx_available_here();
     render::UpscalerCaps caps;
     caps.spatial = true;
     caps.temporal = true;
     caps.multiCamera = false;
-    caps.metalfx = false;
+    caps.metalfx = mfx.available;
+    caps.metalfxTemporal = mfx.temporal;
     caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
     return caps;
 }

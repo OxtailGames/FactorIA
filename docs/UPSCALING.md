@@ -1,8 +1,8 @@
 # Upscaling and temporal antialiasing (M76)
 
 This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the **temporal upscaler**,
-the plain **stretch** and the **graphics presets** draw today (see below); MetalFX is planned (`render.supports` says `planned
-(M76)` for it, and a setting that asks for it draws as the best mode that exists).
+**MetalFX** (Apple GPUs), the plain **stretch** and the **graphics presets** draw today (see below). A mode the GPU cannot draw draws as the
+best mode that exists, and `render.supports` says why.
 
 ## The engine-wide upscaler settings
 
@@ -28,12 +28,16 @@ draws, so reading the setting back never lies:
 - `temporal` draws as itself where the renderer can (the TAA shaders compiled, histories that fit) and the frame has one camera
   that covers the window; otherwise it draws as `spatial` (several cameras or a split screen, a history the GPU cannot make). The
   fallback is the spatial upscaler, never a bare stretch: the picture is the one of the mode `spatial`;
-- `auto` picks the best the GPU can draw: `metalfx` (when it lands), `temporal`, `spatial`; where `temporal` cannot run it is
-  `spatial`. `metalfx` draws as `temporal` (or `spatial`) until its package lands;
-- with no renderer (`graphics=false`) `effectiveMode` is what a GPU would draw for a game with one camera and no history to
-  fail: `stretch` for a pixel-perfect project, and otherwise the setting itself (`spatial`, `temporal`), with `auto` and
-  `metalfx` reported as `temporal`. It cannot know that a particular GPU's shaders compile or that a frame has several cameras, so
-  a game that does that draws `spatial` where this reports `temporal`.
+- `metalfx` draws as itself on the Metal backend (macOS 13 or iOS 16 or later, a GPU with the MetalFX scalers, not the iOS simulator)
+  until one of its frames fails; it draws as `temporal` (then `spatial`) where it cannot, with the reason in `render.supports` and one
+  warning in the log. Its temporal scaler has one history like the temporal upscaler, so a frame of several cameras draws `spatial`
+  too; a GPU that has only MetalFX's spatial scaler keeps `metalfx` on every frame (the section "MetalFX" below);
+- `auto` picks the best the GPU can draw: `metalfx`, `temporal`, `spatial`; where `temporal` cannot run it is `spatial`;
+- with no renderer (`graphics=false`) `effectiveMode` is what a GPU here would draw for a game with one camera and no history to
+  fail: `stretch` for a pixel-perfect project, and otherwise the setting itself (`spatial`, `temporal`), with `auto` and `metalfx`
+  reported as `metalfx` on a Mac or iPhone build where MetalFX is available (the system is asked, no window is made) and as `temporal`
+  everywhere else. It cannot know that a particular GPU's shaders compile or that a frame has several cameras, so a game that does that
+  draws `spatial` where this reports `temporal` or `metalfx`.
 
 The project's block is applied when the engine starts and again when `factoria.json` changes it.
 
@@ -43,7 +47,7 @@ The project's block is applied when the engine starts and again when `factoria.j
 window's size** with the same resolve as the temporal antialiasing (`taa_shared.glsl`; its Gaussian is as narrow as an output pixel when
 the picture is smaller than the output), then sharpens it (`sharpness`: 0 none, 0.5 the effect's own, 1 twice as much). The jitter has
 `ceil(8 * (output / render)^2)` phases (at most 128): 32 at half the size, 72 at a third. One seam serves it: the `upscale` stage of the
-frame graph, which the spatial upscaler (P3b) and MetalFX (P5) use too, with the HUD drawn after it at the window's size, never jittered.
+frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with the HUD drawn after it at the window's size, never jittered.
 
 - **Quality.** `quality` sets the render size (`scale` above); `native` is the whole size, so the stage is off and nothing is jittered
   (for antialiasing at the full size turn `temporalAAEnabled` on). `sharpness` is the output sharpen. A change of the output size, the
@@ -119,8 +123,42 @@ If they cannot compile on a backend (logged once) the stage scales up with the p
 |---|---|---|
 | OpenGL, GLES3, WebGL2 | yes | fragment passes with `texelFetch` |
 | D3D11 | yes | same |
-| Metal | yes | same; `metalfx` is a separate mode |
+| Metal | yes | same; MetalFX is a separate mode |
 | No renderer (`graphics=false`) | nothing is drawn | `effectiveMode` is what a GPU would draw: `stretch` for pixel-perfect projects, else per the setting |
+
+## MetalFX (Apple GPUs)
+
+`mode` `metalfx` (or `auto` on Metal) hands the upscale to Apple's MetalFX framework, loaded at run time (a player built with it still
+starts on an OS without it). It draws in the same `upscale` stage as the other modes, with the HUD drawn after it at the window's size.
+
+- **Temporal scaler** (the usual case). The camera is jittered exactly as for the temporal upscaler (the same `ceil(8 * (output / render)^2)`
+  phases) and MetalFX gets the picture at the render size, a depth image, a motion image and the jitter, and keeps its own history at the
+  window's size. A small pass at the render size prepares the two images: the depth of the camera's prepass squashed to 0..1 (1 for the sky
+  and for pixels no mesh wrote), and the motion in UV units as the velocity image holds it. Where no object wrote a velocity (the sentinel
+  `1024`: particles, sprites, skins of more than 32 joints, the sky) MetalFX does **not** get the sentinel: the pass reprojects the camera's own
+  movement from the depth, as the temporal upscaler does, so those pixels move with the camera. The history resets on the events of the
+  temporal upscaler: a camera cut, another scene, a floating-origin shift, a change of the render size or the quality, a frame MetalFX did not
+  draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
+  The motion image is in UV units as MetalFX reads it: from the pixel to where it was (previous minus current position), scaled by the
+  render size. `metalfx_tests` checks that convention with a moving pattern: that sign is clearly better than the opposite one or none.
+  **Open:** in the renderer's own scenes `metalfx_renderer_tests` could not make the output depend on the sign of the motion image (a
+  square that moves leaves the same few pixels of ghost with either sign, or none), although the image has the right values and the
+  history does not reset; the tests there check what holds (no trail, the history resets and converges, the fallbacks) and not the sign.
+  If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
+- **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,
+  through it. At `native` quality the stage is off and MetalFX has nothing to do, like the other modes.
+- **Where it runs in the frame.** MetalFX encodes into its own command buffer, so the frame is split there: the passes drawn so far (the
+  picture) are submitted, MetalFX runs behind them, and the HUD, the colour filter and the present run behind it. It costs one more command
+  buffer a frame. A change of the render size (dynamic changes of the quality, a resize) makes a new scaler, which takes a moment to build.
+- **The colour.** The picture is the scene colour after the post stack, as for the other modes: linear light above 1 in an HDR scene, display
+  values after a final pass. MetalFX's temporal scaler is told the exposure is 1 (the scene is exposed before the stage).
+- **Fallbacks.** Where MetalFX is missing (the OS is older, the iOS simulator, a GPU without it, the OpenGL backend) the effective mode is
+  the next best (`temporal`, then `spatial`) and the log says why once; `render.supports` `metalfx` carries the same reason. If MetalFX fails
+  at creation or in a frame (a size it refuses, a lost device) the renderer drops to the temporal upscaler (the spatial one if that cannot
+  draw) for the rest of the run, with one warning, and `effectiveMode` says it.
+- **The tests.** The tests that need MetalFX (`metalfx_tests`, `metalfx_renderer_tests`) run on a Mac or an iPhone build with a real GPU.
+  A machine without it, such as the macOS VM of CI, which has a paravirtual GPU with no MetalFX, skips them with an explicit message in the
+  test output (a `MESSAGE` that names the reason), never silently.
 
 ## Temporal antialiasing
 
@@ -252,17 +290,19 @@ upscaler is not put back by itself: applying the preset again does.
 ## What a game can already ask
 
 `render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
-(the effect's row). `temporalAA`, `spatialUpscaler` and `temporalUpscaler` are `supported` on every GPU backend; `motionVectors` answers
+(the effect's row). `temporalAA`, `spatialUpscaler` and `temporalUpscaler` are `supported` on every GPU backend; `metalfx` is
+`supported` on Metal where the OS and the GPU have MetalFX (else false, with the reason: the OS version, the iOS simulator, the GPU,
+or the OpenGL/D3D11 backend of this build); `motionVectors` answers
 true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 32 joints and
 materials with a `vertex()` included, instances, terrain, foliage and impostors, and `render.debug_view {"view":"motionVectors"}`
-shows it); the others answer false with the status `planned (M76)` until their packages land.
+shows it); `dynamicResolution` answers false with the status `planned (M76)` until its package lands.
 
 | Row | Backends | Needs |
 |---|---|---|
 | `motionVectors` | every GPU backend | RGBA16F render targets that blend and filter (`half`) |
 | `temporalUpscaler` | every GPU backend | nothing (RGBA16F history where the GPU can, else RGBA8, as the temporal antialiasing) |
 | `spatialUpscaler`, `dynamicResolution` | every GPU backend | nothing |
-| `metalfx` | Metal only (macOS, iOS) | nothing |
+| `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing) |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 
 How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_POST.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).

@@ -8,15 +8,18 @@
 
 #include "fa/core/strings.h"
 
+#include "metalfx.h"
+
 namespace fa::render {
 
 UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCaps& caps) {
     if (caps.pixelArt) return UpscalerMode::Stretch;
-    // The best the GPU can draw from here down: a mode that cannot be drawn falls to the next (the metalfx package of M76 sets its flag
-    // in the caps, so the branch below starts to answer it). Temporal needs a frame of one camera too (caps.multiCamera).
+    // The best the GPU can draw from here down: a mode that cannot be drawn falls to the next. Temporal needs a frame of one camera too
+    // (caps.multiCamera), and so does the temporal scaler of MetalFX (one history); the spatial scaler of MetalFX needs none.
     const bool temporal_ok = caps.temporal && !caps.multiCamera;
+    const bool metalfx_ok = caps.metalfx && (!caps.multiCamera || !caps.metalfxTemporal);
     const auto best_from_metalfx = [&]() {
-        if (caps.metalfx) return UpscalerMode::MetalFx;
+        if (metalfx_ok) return UpscalerMode::MetalFx;
         if (temporal_ok) return UpscalerMode::Temporal;
         return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
     };
@@ -30,6 +33,15 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
         case UpscalerMode::Auto: return best_from_metalfx();
     }
     return UpscalerMode::Stretch;
+}
+
+MetalFxHere metalfx_available_here() {
+    const metalfx::Support s = metalfx::support_default_device();
+    MetalFxHere h;
+    h.available = s.spatial || s.temporal;
+    h.temporal = s.temporal;
+    h.reason = s.reason;
+    return h;
 }
 
 Json upscaler_to_json(const UpscalerSettings& s) {
