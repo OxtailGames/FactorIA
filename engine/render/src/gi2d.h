@@ -229,8 +229,6 @@ public:
 
     // Whether this GPU can draw the field: RGBA16F render targets that blend and filter (the rule of FeatureEnv::halfTargets).
     static bool float_targets_ok(const gpu::Device& device);
-    // The same on the device of Gpu::active() (TRANSITIONAL, M77: false when no Gpu is alive).
-    static bool float_targets_ok();
 
     // Start of a frame graph: no slot is asked for yet. `keep` (a capture that draws no 2D camera of the game): the slots stay as they were.
     void begin_frame(bool keep);
@@ -238,8 +236,6 @@ public:
     // them (logged once). Marks the slot as used by this frame.
     // Also makes the irradiance images of `cp` (the history of the bounce is dropped when any size changes).
     Gi2dField* acquire(gpu::Device& device, int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
-    // The same on the device given before, or on Gpu::active_device() (TRANSITIONAL, M77: the callers not converted yet).
-    Gi2dField* acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
     // Before the frame graph runs: frees the slots no job asked for (a frame without GI keeps no image) and counts the ones that were.
     void free_unused();
     // Destroys every image, shader and pipeline (the graphics context is still open).
@@ -262,7 +258,7 @@ public:
                    int* drawCalls);
 
     // The report of `render.gi2d_field`: whether GI is on and supported, and every field of the last frame (no GPU read).
-    Json report(const std::string& backend) const;
+    Json report(const gpu::Device& device, const std::string& backend) const;
     // The settings of the last job planned (`on` false when the scene has no enabled GlobalIllumination2D) and whether a frame asked for
     // fields at all: what the report says about the state of the feature.
     Gi2dSettings lastSettings;

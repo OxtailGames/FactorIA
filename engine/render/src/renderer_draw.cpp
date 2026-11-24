@@ -949,7 +949,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         ctx.postPlan.vol.heightBase = float(double(ctx.postPlan.vol.heightBase) - world.origin().y);
         // Only a camera that can draw it asks for the prepass: on a GPU without RGBA16F, or after a shader failure, no prepass is made for it.
         if (ctx.postPlan.vol.on) {
-            if (volFx.can_draw(transient_targets(), ctx.postPlan.vol))
+            if (volFx.can_draw(transient_targets(), gpu, ctx.postPlan.vol))
                 ctx.postPlan.needsDepth = true;
             else
                 ctx.postPlan.vol = VolPlan{};
@@ -1012,8 +1012,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (!ctx.doPrepass) {
             ff = FogFxPlan{};
         } else {
-            if (ff.fog && !fogFx.ready(FogFx::Prog::Fog)) ff.fog = false;
-            if (ff.shafts && !(fogFx.ready(FogFx::Prog::Rays) && fogFx.ready(FogFx::Prog::Add))) ff.shafts = false;
+            if (ff.fog && !fogFx.ready(gpu, FogFx::Prog::Fog)) ff.fog = false;
+            if (ff.shafts && !(fogFx.ready(gpu, FogFx::Prog::Rays) && fogFx.ready(gpu, FogFx::Prog::Add)))
+                ff.shafts = false;
         }
     }
     // Reflections, sun shafts, depth of field and motion blur work on the scene colour, so the screen-space items are drawn after them
@@ -3248,7 +3249,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     if (!s.on) return;
     if (framePost)
         gi2d.note_gi_asked();  // only the game's frames count (an offscreen shot or probe keeps the warnings)
-    if (!Gi2dSystem::float_targets_ok()) {
+    if (!Gi2dSystem::float_targets_ok(gpu.device())) {
         if (!gi2d.warned_unsupported) {
             gi2d.warned_unsupported = true;
             FA_WARN("render", "{}", Gi2dSystem::unsupported_message(Renderer::backend_name()));
@@ -3282,7 +3283,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
         }
         return;
     }
-    Gi2dField* field = gi2d.acquire(slot, geom, cascadePlan);
+    Gi2dField* field = gi2d.acquire(gpu.device(), slot, geom, cascadePlan);
     if (!field) return;
     field->settings = s;
     field->job = ctx.plan.name;
@@ -4457,7 +4458,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         ctx.sceneCopy = {};
         ctx.sceneCopy.finalStore = finalStore;
         ctx.sceneCopy.format = mp.format;
-        if (fr.wantWorld && count_scene_readers(gWorld.batches) > 0 && waterFx.ready()) {
+        if (fr.wantWorld && count_scene_readers(gWorld.batches) > 0 && waterFx.ready(gpu)) {
             const int runs = plan_scene_copies(gWorld.batches, ctx.sceneCopy.copyAt);
             if (runs > kMaxSceneCopies && !sceneCapWarned) {
                 sceneCapWarned = true;
@@ -4642,7 +4643,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             if (ctx.ssaoApply.valid) {
                 const Target* aoT = transient_targets().get(pc.handle(ctx.ssaoApply.ao));
                 if (aoT && aoT->texView.id) {
-                    Ssao::draw_apply(gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
+                    Ssao::draw_apply(cl, gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
                     ++stats.drawCalls;
                 }
             }

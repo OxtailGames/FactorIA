@@ -1,5 +1,5 @@
 // Passes and targets: PassDesc maps every field to the sg_pass sokol gets (the swapchain case included), a window pass
-// takes its formats from the environment, Gpu::begin_pass records the format pipelines are checked against, and
+// takes its formats from the environment, Gpu::begin_pass (on its own list) records the format pipelines are checked against, and
 // make_target makes (and destroy_target frees) one description's images and views, MSAA resolve and depth included.
 #include "test_util.h"
 
@@ -197,18 +197,18 @@ TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
     d.depthFormat = render::kSceneDepthFormat;
     render::Target t = render::make_target(gpu.device(), d);
     REQUIRE(t.valid(gpu.device()));
-    CHECK(!render::Gpu::in_pass());
+    CHECK(!gpu.in_pass());
     gpu::PassDesc p = render::pass_into(t, "unit-pass");
     p.colorLoad = gpu::LoadAction::Clear;
     p.depthLoad = gpu::LoadAction::Clear;
     p.stencilLoad = gpu::LoadAction::Clear;
     gpu.begin_pass(p);
-    CHECK(render::Gpu::in_pass());
-    CHECK(render::Gpu::pass_format() == gpu.scene_target_format());
+    CHECK(gpu.in_pass());
+    CHECK(gpu.pass_format() == gpu.scene_target_format());
     // A pipeline for the pass's own format is fine.
     CHECK(sg_query_pipeline_state(gpu.quad_pipeline(false, false)) == SG_RESOURCESTATE_VALID);
     gpu.end_pass();
-    CHECK(!render::Gpu::in_pass());
+    CHECK(!gpu.in_pass());
     // Outside a pass any format may be asked for (the warm-up does).
     const gpu::TargetFormat other{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1};
     CHECK(sg_query_pipeline_state(gpu.blit_pipeline(other)) == SG_RESOURCESTATE_VALID);
@@ -217,36 +217,33 @@ TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
     gpu.shutdown();
 }
 
-TEST_CASE("gpu: active() is the Gpu initialised last of those alive, and active_device() is its device") {
+TEST_CASE("gpu: every Gpu has its own device and frame list, and a resource lives on the device that made it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     std::string error;
-    render::Gpu* const before = render::Gpu::active();  // a renderer another test left alive, or none
     render::Gpu first;
     REQUIRE_MESSAGE(first.init(1, &error), error);
-    CHECK(render::Gpu::active() == &first);
     {
         render::Gpu second;
         REQUIRE_MESSAGE(second.init(1, &error), error);
-        CHECK(render::Gpu::active() == &second);
-        CHECK(&render::Gpu::active_device() == &second.device());
+        CHECK(&first.device() != &second.device());
+        CHECK(&first.commands() != &second.commands());
         second.shutdown();
-        CHECK(render::Gpu::active() == &first);  // the one before is active again, not none
+        CHECK(!second.has_device());  // the one that stays is not touched
+        CHECK(first.has_device());
         REQUIRE_MESSAGE(second.init(1, &error), error);
-        CHECK(render::Gpu::active() == &second);
+        CHECK(second.has_device());
         second.shutdown();
     }
-    CHECK(render::Gpu::active() == &first);
     render::TargetDesc d;
-    d.label = "unit-active";
+    d.label = "unit-own-device";
     d.width = d.height = 4;
     d.colorFormat = gpu::PixelFormat::Rgba8;
-    CHECK(&render::Gpu::active_device() == &first.device());
     render::Target t = render::make_target(first.device(), d);
     CHECK(t.valid(first.device()));
     CHECK(first.device().state(t.color) == fa::gpu::ResourceState::Valid);
     render::destroy_target(first.device(), t);
     CHECK(t.color.id == 0);
     first.shutdown();
-    CHECK(render::Gpu::active() == before);
+    CHECK(!first.has_device());
 }

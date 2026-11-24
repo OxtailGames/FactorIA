@@ -137,8 +137,7 @@ void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi
     pd.clearColor = {0, 0, 0, 0};
     pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = gpu.commands();
-    // The vertices are written before the pass opens: acquire_transient's Metal pacing copy cannot run inside one (the pass is on this
-    // list, so Gpu::in_pass() does not know it).
+    // The vertices are written before the pass opens: acquire_transient's Metal pacing copy cannot run inside one.
     const bool anyDraw = !verts.empty() && !batches.empty();
     gpu::Buffer buf{};
     if (anyDraw) {
@@ -176,11 +175,6 @@ bool Gi2dSystem::float_targets_ok(const gpu::Device& device) {
     return half.render && half.blend && half.filter;
 }
 
-bool Gi2dSystem::float_targets_ok() {
-    Gpu* g = Gpu::active();
-    return g && g->has_device() && float_targets_ok(g->device());
-}
-
 std::string Gi2dSystem::unsupported_message(const std::string& backend) {
     return std::format("2D global illumination needs RGBA16F render targets that blend and filter, and the graphics "
                        "backend {} has none, so "
@@ -199,10 +193,6 @@ void Gi2dSystem::begin_frame(bool keep) {
     }
     for (auto& s : slots_)
         if (s) s->used = keep;
-}
-
-Gi2dField* Gi2dSystem::acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp) {
-    return acquire(device_ ? *device_ : Gpu::active_device(), n, g, cp);
 }
 
 Gi2dField* Gi2dSystem::acquire(gpu::Device& device, int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp) {
@@ -576,9 +566,9 @@ Gi2dField* Gi2dSystem::find(const std::string& job) {
     return nullptr;
 }
 
-Json Gi2dSystem::report(const std::string& backend) const {
+Json Gi2dSystem::report(const gpu::Device& device, const std::string& backend) const {
     Json out = Json::object();
-    const bool supported = float_targets_ok();
+    const bool supported = float_targets_ok(device);
     out["enabled"] = lastSettings.on;
     out["supported"] = supported;
     if (!supported) out["message"] = unsupported_message(backend);
