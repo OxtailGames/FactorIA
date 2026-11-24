@@ -128,8 +128,10 @@ public:
     // knows (jitter, gamma, feedback, matrices) are taken from `plan`; `history` and `historyValid` are set here. The history restarts (the
     // frame shows its own picture alone) when it is not the one of the frame before (PostPlan rules: a cut, another scene, a floating-origin
     // shift, no frame in between), when the image size changed, or when `configKey` (the render size and the quality) differs from the last
+    // `list` is the list of the pass the caller is in.
     // frame's. False (nothing drawn: `out` is untouched) when the shaders or the history are not available; the caller then stretches.
-    bool upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out);
+    bool upscale(gpu::CommandList& list, Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey,
+                 Target& out);
 
     // True from the first failure (shader that did not compile, history of a camera the GPU or the budget refused) to release() or the
     // next forget_targets(): a camera then draws without TAA and without the jitter. ready() compiles the shaders on its first call (the

@@ -355,8 +355,8 @@ void TerrainRenderer::destroy() {
     for (std::unique_ptr<MeshAsset>* slot : {&patch_, &splitPatch_}) {
         if (!*slot) continue;
         for (SubMesh& p : (*slot)->parts) {
-            if (p.vb.id) device_->destroy_buffer(p.vb);
-            if (p.ib.id) device_->destroy_buffer(p.ib);
+            if (p.vb.id && device_) device_->destroy_buffer(p.vb);
+            if (p.ib.id && device_) device_->destroy_buffer(p.ib);
         }
         slot->reset();
     }
@@ -366,7 +366,7 @@ void TerrainRenderer::destroy() {
         free_texture(*device_, dummyHoles_);
     }
     for (gpu::Shader& s : shaders_) {
-        if (s.id) device_->destroy_shader(s);
+        if (s.id && device_) device_->destroy_shader(s);
         s = {};
     }
     matState_ = 0;

@@ -146,6 +146,7 @@ void GradientRamps::destroy() {
     }
     tex_.view = {};
     tex_.image = {};
+    device_ = nullptr;
 }
 
 int GradientRamps::acquire(const GradientSpec& spec) {

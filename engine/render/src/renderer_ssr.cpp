@@ -148,6 +148,7 @@ void Ssr::release() {
     failed_.clear();
     probed_.clear();
     warnedTargets_ = false;
+    device_ = nullptr;
 }
 
 // The pass callbacks capture the uniform block by value, which is alignas(16): MSVC warns (C4324, an error under /WX) that each closure is
