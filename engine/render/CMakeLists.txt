@@ -74,6 +74,37 @@ if(TARGET fa_test_render)
     add_test(NAME render_d3d12_device
         COMMAND fa_test_render --fa-files=d3d12_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # The engine's own Vulkan backend (src/gpu/vulkan_*): its cases run on the machine's Vulkan device (MoltenVK on
+    # macOS, lavapipe on Linux CI) with the validation layer, and say so and pass where there is no loader or no device;
+    # where the backend is not built one case checks the factory's error.
+    add_test(NAME render_vulkan_device
+        COMMAND fa_test_render --fa-files=vulkan_device_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()
+# The Vulkan backend (src/gpu/vulkan_*.cpp): built on Linux, Windows and Android, and on macOS for its tests only (through
+# MoltenVK; never a macOS product backend); not on the web or iOS. No Vulkan library is linked: the sources compile with
+# VK_NO_PROTOTYPES against the vendored Khronos headers and open the system's loader at run time.
+if(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "windows" OR FA_PLATFORM STREQUAL "android" OR
+   FA_PLATFORM STREQUAL "macos")
+    set(FA_VULKAN_BACKEND_DEFAULT ON)
+else()
+    set(FA_VULKAN_BACKEND_DEFAULT OFF)
+endif()
+option(FA_VULKAN_BACKEND "Build the engine's own Vulkan backend (fa::gpu::make_vulkan_device)" ${FA_VULKAN_BACKEND_DEFAULT})
+if(FA_VULKAN_BACKEND AND (FA_PLATFORM STREQUAL "web" OR FA_PLATFORM STREQUAL "ios"))
+    message(STATUS "FactorIA: FA_VULKAN_BACKEND is not built for ${FA_PLATFORM}")
+    set(FA_VULKAN_BACKEND OFF)
+endif()
+if(FA_VULKAN_BACKEND)
+    foreach(t fa_render fa_test_render)
+        if(TARGET ${t})
+            target_compile_definitions(${t} PRIVATE FA_VULKAN_BACKEND=1 VK_NO_PROTOTYPES)
+            target_include_directories(${t} SYSTEM PRIVATE ${FA_ROOT}/external/vulkan_headers/include)
+        endif()
+    endforeach()
+    if(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "android")
+        target_link_libraries(fa_render PRIVATE ${CMAKE_DL_LIBS})  # dlopen of libvulkan.so.1
+    endif()
 endif()
 # The D3D12 backend (src/gpu/d3d12_*_win32.cpp) links the D3D12 runtime and DXGI; fa_platform links dxgi and dxguid
 # already (D3D11), named again here because this module calls them itself.
