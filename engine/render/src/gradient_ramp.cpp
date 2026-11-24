@@ -184,11 +184,6 @@ int GradientRamps::acquire(const GradientSpec& spec) {
     return row;
 }
 
-void GradientRamps::sync() {
-    if (pixels_.empty() || (!dirty_ && tex_.image.id)) return;
-    sync(device_ ? *device_ : Gpu::active_device());
-}
-
 void GradientRamps::sync(gpu::Device& device) {
     if (pixels_.empty() || (!dirty_ && tex_.image.id)) return;
     destroy();  // on the device the old image was made on

@@ -11,7 +11,7 @@
 //    the other: the compiler cannot choose); write to_sg() or from_sg() on one side.
 //  * GeneratedShader / generated_shader_desc: the generated shader headers (shaders/*.glsl.h) return sokol descs.
 //  * begin_context_pass / end_context_pass: a pass on the sokol context itself, for the one pass that may run before
-//    any device exists (Renderer::present_clear, through Gpu::begin_pass).
+//    any device exists (Renderer::present_clear and the window passes).
 #pragma once
 
 #include <cstdint>

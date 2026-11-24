@@ -311,7 +311,7 @@ TEST_CASE("floating origin render: the 2D GI keeps its history across a rebase")
     REQUIRE(g.ok);
     Own o(g);
     REQUIRE(o.ok);
-    if (!Gi2dSystem::float_targets_ok()) {
+    if (!Gi2dSystem::float_targets_ok(renderer_gpu(o.r)->device())) {
         MESSAGE("no RGBA16F targets on this GPU: the 2D GI is not drawn here");
         return;
     }
