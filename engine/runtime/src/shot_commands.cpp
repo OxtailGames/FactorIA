@@ -1304,8 +1304,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "preset; "
          "with no argument it reads the current one. Returns {preset, previous, changed, changes: [{knob, from, to}], "
          "limits, capped: [{knob, wanted, effective, reason}], upscaler, headless}. Example: graphics.preset "
-         "{\"name\":\"high\"} The table of each preset: docs/UPSCALING.md, \"Graphics presets\"." FA_COMMAND_DETAILS
-         "A limit only lowers: a scene that asks "
+         "{\"name\":\"high\"} With no argument it only reads and changes nothing (the command is not marked read-only "
+         "because it also writes). The table of each preset: docs/UPSCALING.md, \"Graphics "
+         "presets\"." FA_COMMAND_DETAILS "A limit only lowers: a scene that asks "
          "for 2 cascades under a limit of 4 still draws 2, and the simulation never reads a preset. The presets also "
          "write the upscaler (mode auto, a quality; ultra none); `custom` puts back the one the game had before the "
          "first preset, "
@@ -1358,11 +1359,16 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "backend nothing "
          "is drawn (`benchmark.ran` is false and says why) and the device tier decides. `benchmarkMs` is the whole "
          "benchmark, warm-up "
-         "included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds: call it "
-         "behind a loading "
-         "screen or the first-run options page, never during play. Times are rounded to 0.1 ms and differ run to run: "
-         "a game uses "
-         "`preset`, not the number. The same is game.graphics.detect() in scripts.",
+         "included (about the time the player waits); on a slow GPU or a cold shader cache it takes seconds, and the "
+         "call blocks the frame it is made in, whether from a command or from a script's update: call it behind a "
+         "loading "
+         "screen or the first-run options page, never during play. On the web it is not run (the page would freeze "
+         "while the pipelines are made) and the device tier decides. The benchmark draws in the colour space the "
+         "game's targets are in, so the game's targets are not made again. Times are rounded to 0.1 ms and differ run "
+         "to run: a game uses "
+         "`preset`, not the number, and `reason` never holds a time. The same is game.graphics.detect() in scripts, "
+         "which leaves out `benchmarkMs`, `benchmark.frameMs` and `benchmark.totalMs` (machine-dependent numbers a "
+         "script could branch on): only tools and MCP read them.",
          parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
         [&I](const Json& a) {
             check_args_known(a, {}, "graphics.detect");

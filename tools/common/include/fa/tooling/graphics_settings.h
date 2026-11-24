@@ -1,7 +1,7 @@
-// The rules of the Graphics settings window (View > Graphics): the project's `render.graphicsPreset`,
+// The graphics settings of the project file (the Graphics window of the editor, View > Graphics, and the command project.graphics): the project's `render.graphicsPreset`,
 // `render.upscaler` (mode, quality, sharpness) and `render.dynamicResolution` (enabled, targetMs, minScale, maxScale) in factoria.json (M76, docs/UPSCALING.md), read, checked and saved. No
-// ImGui here, so the tests of the editor (tools/editor/tests/graphics_settings_tests.cpp) run it without a window;
-// graphics_settings_panel.cpp only draws it.
+// ImGui here, so the tests of the editor (tools/common/tests/graphics_settings_test.cpp) run it without a window;
+// tools/editor/src/graphics_settings_panel.cpp only draws it.
 //
 // The checks are the engine's own: the upscaler goes through fa::render::parse_upscaler_settings and the preset through
 // fa::render::parse_graphics_preset and the dynamic resolution through fa::render::parse_dynamic_resolution_settings, the code the project loader, the command render.upscaler and graphics.preset read
@@ -12,11 +12,12 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 #include "fa/render/dynamic_resolution.h"
 
-namespace fa::editor {
+namespace fa {
 
 // What the window edits. The defaults are what factoria.json means when the keys are missing.
 struct GraphicsSettings {
@@ -55,4 +56,9 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
 // nothing, when check_graphics_settings finds a problem (the error is its first message) or the file is not valid JSON.
 Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s);
 
-}  // namespace fa::editor
+// project.graphics: reads, and with `preset`, `upscaler` or `dynamicResolution` writes, the three keys above in <projectDir>/factoria.json
+// (what the editor's Graphics window does), for the CLI, MCP and AIs. The live commands graphics.preset, render.upscaler and
+// render.dynamic_resolution change the running game only.
+void register_graphics_settings_commands(CommandRegistry& registry, const std::string& projectDir);
+
+}  // namespace fa

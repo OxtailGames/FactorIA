@@ -294,7 +294,8 @@ A preset is a quality layer of the renderer, not a change of the game. Each of `
 the lights ask for (a scene that asks for 2 shadow cascades under a limit of 4 still draws 2), so `ultra` is the game as its author
 made it, and `custom` (no preset, the default) is exactly that too, bit for bit. Nothing is written into the scene, its components or
 `factoria.json`: leaving a preset gives the game's own look back. Presets never touch the simulation (the physics, the scripts and
-the random numbers do not read them), and the benchmark never runs inside a simulation step.
+the random numbers do not read them). The benchmark of `graphics.detect` draws a world of its own and never touches the game's world, clock or random
+numbers, but it blocks the frame it is called in, from a script's `update` too (below).
 
 | Knob | `low` | `medium` | `high` | `ultra` / `custom` |
 |---|---|---|---|---|
@@ -318,7 +319,9 @@ the random numbers do not read them), and the benchmark never runs inside a simu
 | `realtimeGiProbesPerFrame` | 2 | 4 | 8 | 32 |
 | upscaler (`mode` auto, `quality`) | `performance` | `balanced` | `quality` | none: the game's own |
 
-The numbers are caps and never rise above what the scene asks for. The table is monotone (every knob of `medium` is at least as high
+The numbers are caps and never rise above what the scene asks for. `shadowTileSize` caps the map of the sun's cascades and of every
+local light: one with `Light.shadowResolution` above it gets the cap, and one with no `shadowResolution` of its own (spot maps are up to
+1024 texels, point faces up to 512) gets the cap too when the cap is smaller than its own size. The table is monotone (every knob of `medium` is at least as high
 as `low`, and so on), and a test keeps it so. `graphics.preset` answers the whole `limits` object by knob name.
 
 **What the GPU caps.** A knob for a feature the backend cannot draw is lowered too, with the same status `render.supports` gives:
@@ -343,14 +346,27 @@ upscaler is not put back by itself: applying the preset again does.
   `software`), runs a short benchmark and answers `{preset, reason, gpu, benchmarkMs, benchmark, device}`: the preset it suggests
   and why. The benchmark draws a fixed scene of its own (about 150 lit meshes, a sun with three cascades and two point lights, at
   960 x 540, read back) once to warm up and five times to measure, and takes the median; `benchmarkMs` is the whole time, normally a
-  few hundred milliseconds, and it stops by itself after four seconds. It lifts the current preset while it runs and puts it back.
-  It is skipped, and the device tier decides, when there is no GPU or the renderer is a software one (llvmpipe, WARP, SwiftShader).
-  A call blocks the frame it is made in: call it once, from a loading screen, never every frame.
+  few hundred milliseconds. The five timed pictures stop after four seconds in all (at least one is taken); the warm-up, which makes
+  the pipelines, has no cap of its own and takes seconds on a slow GPU or a cold shader cache. It lifts the current preset while it
+  runs and puts it back, and it draws in the colour space the game's targets are in, so a linear game's targets and their TAA and
+  upscaler histories are not made again. It is skipped, and the device tier decides, when there is no GPU, when the renderer is a
+  software one (llvmpipe, WARP, SwiftShader) and on the web (the page would freeze while the pipelines are made). A call blocks the
+  frame it is made in, whether it comes from a command or from a script's `update`: call it once, from a loading screen, never every
+  frame. `reason` names the budget the picture fit in ("at most 8 ms"), never the measured time.
 - Rule: at most 4 ms for `ultra`, 8 ms for `high`, 16 ms for `medium`, more is `low`; a software renderer is `low`; a phone or tablet
   is capped at `medium` and a handheld at `high`; a device tier of `low`, or a discrete GPU with under 2048 MB, caps at `medium`;
   without a benchmark the tier alone decides (`low`, `medium`, `high`; never `ultra`). `reason` says which rule applied.
 - Scripts: `game.graphics.preset()` reads, `game.graphics.preset("high")` applies, `game.graphics.detect()` detects; the results
-  are the objects above, and a wrong name throws with the same hint.
+  are the objects above, and a wrong name throws with the same hint. `game.graphics.detect()` leaves out `benchmarkMs`,
+  `benchmark.frameMs` and `benchmark.totalMs`: they differ from machine to machine and from run to run, and a script that branched
+  on one would not play the same twice. A game decides on `preset`, `gpu` and `device`; the command `graphics.detect` (CLI, MCP,
+  tests) answers the times too, for tools that tune the thresholds.
+- Saving for tools: `project.graphics` (CLI, MCP) reads, and with `preset`, `upscaler` {mode, quality, sharpness} or
+  `dynamicResolution` writes, the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of `factoria.json`,
+  the same code the editor's View > Graphics window saves with: the keys given replace the file's, a value at its default removes
+  its key, the rest of the file stays, and a wrong value is named with its JSON pointer and a "did you mean" before anything is
+  written. `graphics.preset` and `render.upscaler` change only the running game. Example: `factoria call project.graphics
+  '{"preset":"medium"}'`.
 - Project: `"render": { "graphicsPreset": "medium" }` in `factoria.json` starts the run on that preset (`custom` is the default and is
   not written). With a preset set there, `render.upscaler` of the same file is what `custom` returns to, not what the preset
   uses. A wrong name fails to load with the JSON pointer `/render/graphicsPreset` and a "did you mean".
@@ -361,7 +377,8 @@ upscaler is not put back by itself: applying the preset again does.
 
 - **Menu kit.** The options panel of the menu kit (docs/MENUS.md, the Graphics tab) has a second page in its Graphics tab, opened by
   the "Preset and upscaling" button: a **Preset** row (Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (Auto and
-  each mode, with the modes this GPU does not draw greyed out and the reason shown, read from `render.supports`), the upscaling
+  each mode, with the modes this GPU does not draw greyed out and the reasons in one note under the page, not on each button, read from
+  `render.supports`; "needs a window with a GPU" is the reason of Spatial in a run without graphics), the upscaling
   quality, the render scale (0.33 to 1, `window.renderScale`) and the sharpness (only while `window.upscaler.effectiveMode` is not
   `stretch`). Auto runs `game.graphics.detect()` once, keeps its pick in the save and shows it. A preset drives the tab's own
   "quality" row of the screen effects (Low, Medium, High and Ultra pick low, medium, high and high), so the two never disagree. The

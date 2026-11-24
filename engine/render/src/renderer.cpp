@@ -565,6 +565,7 @@ void Renderer::set_quality(const render::QualityLimits& limits) {
     impl_->qualityOn = limits != render::QualityLimits{};
 }
 const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
+ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
 render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
     render::FeatureEnv env;  // headless (no GPU) until the renderer has one
     if (initialized()) env = render::feature_env_from_sokol();

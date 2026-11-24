@@ -254,6 +254,24 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 | `allowPlayerMismatch` | boolean | no | Bundle the player (the desktop factoria_player, the web factoria_player.wasm, the prebuilt Android and iOS libraries) even when it was built from another commit than this factoria (its build fingerprint differs or is missing). By default that export stops with an error, because an old player may lack what the game uses (components, script API) or fail to start; the CLI flag is --allow-player-mismatch. Rebuild both from one checkout instead when you can. Default false. |
 | `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
 
+## `project.graphics` (modifies state)
+
+Not released yet (on main after 0.35.2).
+
+Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in factoria.json.
+
+Capabilities: read, writeProject
+
+Edits the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of factoria.json (docs/UPSCALING.md, "Graphics presets"): the settings the run starts with, the ones the editor's View > Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, ultra or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, maxScale}: the keys you give replace those of the file, the others stay. A value at its default removes its key (a `render` object left empty is removed), and every other key and the formatting of the file stay as they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON pointer and a "did you mean", and nothing is written. Examples: {"preset":"medium"}, {"upscaler":{"mode":"auto","quality":"balanced"}}.
+
+It does not change a running game: graphics.preset, render.upscaler and render.dynamic_resolution do that, and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, written}; `written` is false when nothing changed (a read, or the same values). Errors: `invalid_argument` (unknown key or wrong value), `failed` (no factoria.json, a file that is not valid JSON, or one that cannot be written).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `preset` | string ["low","medium","high","ultra","custom"] | no | render.graphicsPreset: the preset a run starts with (custom removes the key). |
+| `upscaler` | object | no | render.upscaler: the keys given replace the file's. |
+| `dynamicResolution` | object | no | render.dynamicResolution: the keys given replace the file's. |
+
 ## `project.info`
 
 Show the project settings, input actions, current scene, scenes and scripts.

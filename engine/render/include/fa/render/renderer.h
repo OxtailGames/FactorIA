@@ -367,6 +367,9 @@ public:
     // Nothing of the scene is changed, so setting the default again brings the game's own look back unchanged; the simulation never reads it.
     void set_quality(const render::QualityLimits& limits);
     const render::QualityLimits& quality() const;
+    // The colour space the game target is in now (the last drawn world's SceneSettings.colorSpace; Gamma before the first frame). A caller
+    // that draws a world of its own (the GPU benchmark) gives it this one, so the draw does not make the game's targets again.
+    ColorSpace color_space() const;
     // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
     // reason of each (render.supports' status). Changes nothing; needs no frame.
     render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
