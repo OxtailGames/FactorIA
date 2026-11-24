@@ -58,10 +58,11 @@ struct Own {
         }
     }
     bool gi_ready() {
-        const bool have = Gi2dSystem::float_targets_ok(renderer_gpu(r)->device());
-        const sg_backend b = sg_query_backend();
-        if (b == SG_BACKEND_GLCORE || b == SG_BACKEND_D3D11 || b == SG_BACKEND_METAL_MACOS ||
-            b == SG_BACKEND_METAL_IOS) {
+        REQUIRE(renderer_gpu(r)->has_device());
+        const gpu::Device& dev = renderer_gpu(r)->device();
+        const bool have = Gi2dSystem::float_targets_ok(dev);
+        const gpu::Backend b = dev.backend();
+        if (b == gpu::Backend::Gl || b == gpu::Backend::D3d11 || b == gpu::Backend::Metal) {
             INFO("this backend must have RGBA16F render targets that blend and filter");
             REQUIRE(have);
         }

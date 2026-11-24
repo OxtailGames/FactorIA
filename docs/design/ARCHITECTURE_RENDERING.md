@@ -65,13 +65,14 @@ snippet, so the engine and the materials share one source of truth (an empty `su
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
 **Passes and targets.** One way to begin a pass and one way to make a target (`render_internal.h`, `gpu_types.h`). Every
-pass of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `Gpu::begin_pass`,
-and `Gpu::end_pass` ends it: `sg_begin_pass` appears nowhere else in `engine/`. The defaults of a `PassDesc` are
+pass of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `CommandList::begin_pass`,
+and `CommandList::end_pass` ends it: the renderer calls no sokol (gpu/sokol_context.h opens the window pass). The defaults of a `PassDesc` are
 DONTCARE, not sokol's (a zero `sg_pass` CLEARS to grey), so each site says what it loads and stores. A pass into the
 window is `PassDesc::for_swapchain`, which resolves sokol's 0 (colour format, depth format, sample count) against the
-environment's defaults, so its `TargetFormat` is the one the pipelines are keyed by. In a Debug build `begin_pass`
-records the pass's format and every pipeline fetched while it runs must match it (an assertion names the mismatch);
-outside a pass, as in the warm-up, any format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a
+environment's defaults, so its `TargetFormat` is the one the pipelines are keyed by. The command list checks the
+format: `begin_pass` checks `PassDesc::format` against the attachments and `set_pipeline` checks the pipeline's format
+against the pass's (a Debug assertion on the sokol device, an entry of `errors()` on RecordingDevice); outside a pass, as
+in the warm-up, a pipeline of any format may be made. A `Target` is made by `make_target(TargetDesc)`: a
 colour image, its resolve image when `samples > 1` (`resolveAsColor` also gives the resolve a colour-attachment view,
 for bloom), an optional depth image, and their views (`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling),
 `pass_into(target, label)` is the matching `PassDesc` and `destroy_target` frees the lot. The game, CameraView and

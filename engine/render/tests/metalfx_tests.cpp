@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "gpu/device.h"
-#include "gpu/sg_bridge.h"
+#include "gpu/sokol_device.h"
 #include "metalfx.h"
 #include "render_internal.h"
 #include "shaders/blit.glsl.h"
@@ -479,7 +479,7 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
         gpu::Bindings b{};
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
         b.views[VIEW_blit_tex] = out.view;
-        b.samplers[SMP_blit_smp] = gpu::from_sg(gpu.sampler(render::SamplerKind::Nearest));
+        b.samplers[SMP_blit_smp] = gpu.sampler(render::SamplerKind::Nearest);
         list.set_bindings(b);
         blit_blit_vs_params_t vu{};
         vu.flip[0] = 0.0f;

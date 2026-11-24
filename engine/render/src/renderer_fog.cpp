@@ -10,6 +10,7 @@
 #include "postprocess.h"
 #include "postprocess_resolve.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/fog.glsl.h"
 #include "shaders/sun_shafts.glsl.h"
 
@@ -269,7 +270,7 @@ void FogFx::release() {
     warnedTargets_ = false;
 }
 
-bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::bridged::View prepassTex, const TargetFormat& format) {
+bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::View prepassTex, const TargetFormat& format) {
     if (!plan.fog || !prepassTex.id || !ready(gpu, Prog::Fog)) return false;
     fog_fog_params_t u{};
     u.a[0] = gpu.is_gl() ? 1.0f : 0.0f;
@@ -307,7 +308,7 @@ bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::bridged::View prepass
 #pragma warning(disable : 4324)
 #endif
 int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan,
-                      const PostRect& rectIn, int picW, int picH, ResourceId game, gpu::bridged::View srcTex,
+                      const PostRect& rectIn, int picW, int picH, ResourceId game, gpu::View srcTex,
                       const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.shafts || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);

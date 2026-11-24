@@ -1,11 +1,11 @@
 // Passes and targets: PassDesc maps every field to the sg_pass sokol gets (the swapchain case included), a window pass
-// takes its formats from the environment, Gpu::begin_pass (on its own list) records the format pipelines are checked against, and
+// takes its formats from the environment, a pass on the Gpu's frame list takes the pipelines of its format, and
 // make_target makes (and destroy_target frees) one description's images and views, MSAA resolve and depth included.
 #include "test_util.h"
 
 #include <string>
 
-#include "gpu/sg_bridge.h"
+#include "gpu/sokol_device.h"
 #include "render_internal.h"
 
 using namespace fa;
@@ -183,7 +183,7 @@ TEST_CASE("target: a multisampled target resolves into a single-sample image the
     gpu.shutdown();
 }
 
-TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
+TEST_CASE("gpu: a pass on the frame list takes the pipelines of its format; in_pass follows the list") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     render::Gpu gpu;
@@ -202,17 +202,20 @@ TEST_CASE("gpu: begin_pass records the pass format and end_pass forgets it") {
     p.colorLoad = gpu::LoadAction::Clear;
     p.depthLoad = gpu::LoadAction::Clear;
     p.stencilLoad = gpu::LoadAction::Clear;
-    gpu.begin_pass(p);
+    CHECK(p.format == gpu.scene_target_format());
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(p);  // a debug build asserts here that p.format is what the attachments are
     CHECK(gpu.in_pass());
-    CHECK(gpu.pass_format() == gpu.scene_target_format());
-    // A pipeline for the pass's own format is fine.
-    CHECK(sg_query_pipeline_state(gpu.quad_pipeline(false, false)) == SG_RESOURCESTATE_VALID);
-    gpu.end_pass();
+    // A pipeline for the pass's own format is fine (a debug build asserts the match in set_pipeline).
+    const gpu::Pipeline quad = gpu.quad_pipeline(false, false);
+    CHECK(gpu.device().state(quad) == gpu::ResourceState::Valid);
+    list.set_pipeline(quad);
+    list.end_pass();
     CHECK(!gpu.in_pass());
     // Outside a pass any format may be asked for (the warm-up does).
     const gpu::TargetFormat other{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1};
-    CHECK(sg_query_pipeline_state(gpu.blit_pipeline(other)) == SG_RESOURCESTATE_VALID);
-    sg_commit();
+    CHECK(gpu.device().state(gpu.blit_pipeline(other)) == gpu::ResourceState::Valid);
+    gpu.commit_frame();
     render::destroy_target(gpu.device(), t);
     gpu.shutdown();
 }

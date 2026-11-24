@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "fa/core/log.h"
@@ -11,6 +12,7 @@
 #include "light_clusters.h"
 #include "shader_cache.h"
 
+#include "gpu/sokol_shaders.h"
 #include "shaders/bloom.glsl.h"
 #include "shaders/colorfilter.glsl.h"
 #include "shaders/exposure.glsl.h"
@@ -211,7 +213,9 @@ void Gpu::drop_shader(gpu::Shader& s) {
     s = {};
 }
 
-gpu::Shader Gpu::make_builtin(gpu::GeneratedShader desc, const char* label) {
+template <class GeneratedShader>
+gpu::Shader Gpu::make_builtin(GeneratedShader desc, const char* label) {
+    static_assert(std::is_same_v<GeneratedShader, gpu::GeneratedShader>, "a generated header's desc function");
     return make_shader(*device_, gpu::generated_shader_desc(desc), label);
 }
 
@@ -233,6 +237,10 @@ bool Gpu::init(int sampleCount, std::string* error) {
         return false;
     }
     device_ = std::move(made.value());
+    if (sampleCount_ > 1 && !device_->pixel_format_caps(gpu::PixelFormat::Rgba8).msaa) {
+        FA_WARN("render", "MSAA is not supported by this device; falling back to sampleCount 1");
+        sampleCount_ = 1;
+    }
     list_ = &device_->begin_commands("frame");
     const gpu::Backend backend = device_->backend();
     isGl_ = backend == gpu::Backend::Gl || backend == gpu::Backend::Gles3 || backend == gpu::Backend::WebGl2;
@@ -437,7 +445,7 @@ void Gpu::sweep_pipelines() {
     }
 }
 
-void Gpu::destroy_shader(gpu::bridged::Shader shader) {
+void Gpu::destroy_shader(gpu::Shader shader) {
     if (!device_) return;
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
         if (it->first.shader == shader.id) {
@@ -451,25 +459,9 @@ void Gpu::destroy_shader(gpu::bridged::Shader shader) {
     device_->destroy_shader(shader);
 }
 
-void Gpu::begin_pass(const PassDesc& pass) {
-    FA_ASSERT(list_, "Gpu::begin_pass() before Gpu::init() or after shutdown()");
-#ifndef NDEBUG
-    FA_ASSERT(!inPass_, "Gpu::begin_pass: a pass is already open (end_pass it first)");
-#endif
-    list_->begin_pass(pass);
-    inPass_ = true;
-    passFormat_ = pass.format;
-}
+bool Gpu::in_pass() const { return list_ && list_->pass_state() != gpu::PassState::None; }
 
-bool Gpu::in_pass() const { return inPass_ || (list_ && list_->pass_state() != gpu::PassState::None); }
-
-void Gpu::end_pass() {
-    FA_ASSERT(list_, "Gpu::end_pass() before Gpu::init() or after shutdown()");
-    list_->end_pass();
-    inPass_ = false;
-}
-
-gpu::bridged::Pipeline Gpu::compute_pipeline(gpu::bridged::Shader shader) {
+gpu::Pipeline Gpu::compute_pipeline(gpu::Shader shader) {
     PipelineKey key{0xF00u, shader.id};
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) {
@@ -494,14 +486,9 @@ gpu::bridged::Pipeline Gpu::compute_pipeline(gpu::bridged::Shader shader) {
     return p;
 }
 
-gpu::bridged::Pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format,
-                                         const gpu::PipelineDesc& request) {
-#ifndef NDEBUG
-    // A pipeline applied in a pass must have the pass's colour format, depth format and sample count. GL and D3D11
-    // validation reject a mismatch; Metal accepts it and draws wrong, so check here, where every pipeline comes from.
-    FA_ASSERT(!inPass_ || format == passFormat_,
-              "a pipeline was fetched for another target format than the pass being drawn (PassDesc::format)");
-#endif
+gpu::Pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& request) {
+    // A pipeline applied in a pass must have the pass's formats and sample count: CommandList::set_pipeline checks it
+    // (a debug assertion on sokol, an errors() entry on RecordingDevice).
     if (layoutProbe_) {  // a test reads the layout a getter built; nothing is made or cached
         probedLayout_ = request.layout;
         return {};
@@ -539,8 +526,8 @@ gpu::bridged::Pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& fo
     return p;
 }
 
-gpu::bridged::Pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend,
-                                          bool plain, bool opaque, gpu::bridged::Shader shader, int instanceVec4) {
+gpu::Pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
+                                 bool opaque, gpu::Shader shader, int instanceVec4) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
                         (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u),
                     shader.id};
@@ -607,8 +594,8 @@ gpu::bridged::Pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depth
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
-                                          gpu::bridged::Shader shader, MeshExtras extras, bool glass, bool lod) {
+gpu::Pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
+                                 gpu::Shader shader, MeshExtras extras, bool glass, bool lod) {
     lod = lod && !shader.id;  // a custom material has no variant: its alphaMode "clip" program dithers
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (glass ? 8u : 0u) |
                         (lod ? 0x10u : 0u),
@@ -656,8 +643,8 @@ gpu::bridged::Pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blend
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
-                                          gpu::bridged::Shader shader, MeshExtras extras) {
+gpu::Pipeline Gpu::full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                                 gpu::Shader shader, MeshExtras extras) {
     PipelineKey key{0x1000u | (skinned ? 1u : 0u) | (unsigned(state.cull) << 1) | (state.depthTest ? 8u : 0u) |
                         (state.depthWrite ? 16u : 0u) | (unsigned(state.blend) << 5),
                     shader.id};
@@ -703,7 +690,7 @@ gpu::bridged::Pipeline Gpu::full_pipeline(const TargetFormat& format, const Mate
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::sky_pipeline(const TargetFormat& format, gpu::bridged::Shader shader) {
+gpu::Pipeline Gpu::sky_pipeline(const TargetFormat& format, gpu::Shader shader) {
     PipelineKey key{0x300u, shader.id};
     gpu::PipelineDesc d{};
     d.shader = shader.id ? shader : builtin_shader(sky_shader_, sky_sky_shader_desc, "sky_sky");
@@ -715,8 +702,8 @@ gpu::bridged::Pipeline Gpu::sky_pipeline(const TargetFormat& format, gpu::bridge
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, gpu::bridged::Shader shader,
-                                            bool fullVertex, MeshExtras extras) {
+gpu::Pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, gpu::Shader shader, bool fullVertex,
+                                   MeshExtras extras) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     gpu::PipelineDesc d{};
     d.shader = shader.id
@@ -744,7 +731,7 @@ gpu::bridged::Pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool ski
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::blit_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::blit_pipeline(const TargetFormat& format) {
     PipelineKey key{0x500u};
     gpu::PipelineDesc d{};
     d.shader = blit_shader_;
@@ -780,7 +767,7 @@ bool Gpu::bloom_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
     PipelineKey key{0x900u};
     gpu::PipelineDesc d{};
     d.shader = blitKeepShader_;
@@ -792,7 +779,7 @@ gpu::bridged::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::bloom_pipeline(BloomStage stage, const TargetFormat& format) {
+gpu::Pipeline Gpu::bloom_pipeline(BloomStage stage, const TargetFormat& format) {
     PipelineKey key{0x600u | std::uint32_t(stage)};
     gpu::PipelineDesc d{};
     d.shader = bloom_shaders_[int(stage)];
@@ -834,7 +821,7 @@ bool Gpu::colorfilter_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
     if (!colorfilter_ready()) return {};
     PipelineKey key{0x700u};
     gpu::PipelineDesc d{};
@@ -866,7 +853,7 @@ bool Gpu::post_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::post_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::post_pipeline(const TargetFormat& format) {
     if (!post_ready()) return {};
     PipelineKey key{0xA00u};
     gpu::PipelineDesc d{};
@@ -937,8 +924,8 @@ bool Gpu::prepass_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned,
-                                             gpu::bridged::Shader shader, MeshExtras extras, bool cullFront, bool lod) {
+gpu::Pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, gpu::Shader shader,
+                                    MeshExtras extras, bool cullFront, bool lod) {
     if (!shader.id && !prepass_ready()) return {};
     lod = lod && !shader.id;  // a custom material has no variant: its alphaMode "clip" program dithers
     PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u) | (lod ? 0x10u : 0u),
@@ -976,7 +963,8 @@ gpu::bridged::Pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool do
 // every linked program) costs a game that draws no mesh around 100 MB of peak memory. So the 3D programs are made the
 // first time a pipeline asks for one: the renderer's warm-up asks only when the scene has a MeshRenderer. A program
 // the driver rejects is reported once and kept (find_or_make then makes no pipeline from it) rather than retried.
-gpu::Shader Gpu::builtin_shader(gpu::Shader& slot, gpu::GeneratedShader desc, const char* label) {
+template <class GeneratedShader>
+gpu::Shader Gpu::builtin_shader(gpu::Shader& slot, GeneratedShader desc, const char* label) {
     if (slot.id || layoutProbe_) return slot;
     slot = make_builtin(desc, label);
     if (!shader_valid(slot)) {
@@ -1013,7 +1001,7 @@ bool Gpu::sss_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::sss_pipeline(bool doubleSided, bool skinned) {
+gpu::Pipeline Gpu::sss_pipeline(bool doubleSided, bool skinned) {
     if (!sss_ready()) return {};
     PipelineKey key{0xD80u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u)};
     gpu::PipelineDesc d{};
@@ -1062,7 +1050,7 @@ bool Gpu::prepass_view_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::prepass_view_pipeline(const TargetFormat& format) {
     if (!prepass_view_ready()) return {};
     PipelineKey key{0xD00u};
     gpu::PipelineDesc d{};
@@ -1100,7 +1088,7 @@ bool Gpu::quad_motion_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::quad_motion_pipeline(const TargetFormat& format, bool reactive) {
+gpu::Pipeline Gpu::quad_motion_pipeline(const TargetFormat& format, bool reactive) {
     if (!quad_motion_ready()) return {};
     PipelineKey key{0xD10u | (reactive ? 1u : 0u)};
     gpu::PipelineDesc d{};
@@ -1133,7 +1121,7 @@ gpu::bridged::Pipeline Gpu::quad_motion_pipeline(const TargetFormat& format, boo
     return find_or_make(key, format, d);
 }
 
-gpu::bridged::Pipeline Gpu::post_material_pipeline(const TargetFormat& format, gpu::bridged::Shader shader) {
+gpu::Pipeline Gpu::post_material_pipeline(const TargetFormat& format, gpu::Shader shader) {
     if (!shader.id) return {};
     PipelineKey key{0xF00u, shader.id};
     gpu::PipelineDesc d{};
@@ -1169,7 +1157,7 @@ bool Gpu::exposure_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::exposure_pipeline(ExposureStage stage, const TargetFormat& format) {
+gpu::Pipeline Gpu::exposure_pipeline(ExposureStage stage, const TargetFormat& format) {
     if (!exposure_ready()) return {};
     PipelineKey key{0xB00u | std::uint32_t(stage)};
     gpu::PipelineDesc d{};
@@ -1206,7 +1194,7 @@ bool Gpu::ssao_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::ssao_pipeline(SsaoStage stage, const TargetFormat& format) {
+gpu::Pipeline Gpu::ssao_pipeline(SsaoStage stage, const TargetFormat& format) {
     if (!ssao_ready()) return {};
     PipelineKey key{0xE00u | std::uint32_t(stage)};
     gpu::PipelineDesc d{};
@@ -1253,7 +1241,7 @@ bool Gpu::light_ready() {
     return true;
 }
 
-gpu::bridged::Pipeline Gpu::light_pipeline(const TargetFormat& format) {
+gpu::Pipeline Gpu::light_pipeline(const TargetFormat& format) {
     PipelineKey key{0x800u};
     gpu::PipelineDesc d{};
     d.shader = light_shader_;
@@ -1282,11 +1270,8 @@ gpu::bridged::Pipeline Gpu::light_pipeline(const TargetFormat& format) {
 void Gpu::begin_transient_writes() {
     if (!device_ || device_->backend() != gpu::Backend::Metal) return;
     if (pacedFrame_ == frame_ + 1) return;  // once per sokol frame
-    if (inPass_ ||
-        (list_ &&
-         list_->pass_state() !=
-             gpu::PassState::
-                 None)) {  // in a pass the frame's command buffer exists already: sokol waited for the frame at its first pass
+    // In a pass the frame's command buffer exists already: sokol waited for the frame at its first pass.
+    if (in_pass()) {
         pacedFrame_ = frame_ + 1;
         return;
     }
@@ -1325,7 +1310,7 @@ void Gpu::begin_transient_writes() {
     pacedFrame_ = pacerCopyFrame_ = frame_ + 1;  // the copy opened the frame's command buffer (committed() says so)
 }
 
-gpu::bridged::Buffer Gpu::acquire_transient(std::size_t bytes) {
+gpu::Buffer Gpu::acquire_transient(std::size_t bytes) {
     begin_transient_writes();
     if (transientUsed_ >= transient_.size()) transient_.emplace_back();
     Transient& t = transient_[transientUsed_++];

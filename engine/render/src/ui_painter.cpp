@@ -5,8 +5,8 @@
 #include <algorithm>
 #include <cstring>
 
-#include "gpu/sg_bridge.h"
-#include "gpu/sokol_device.h"
+#include "gpu/sokol_context.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/ui2d.glsl.h"
 #include "ui_painter_internal.h"
 
@@ -27,17 +27,20 @@ void set_error(std::string* error, std::string message) {
 
 UiNativeHandles native_window_handles(const GfxSwapchain& swapchain) {
     UiNativeHandles h;
-    if (!sg_isvalid()) return h;
-#if defined(SOKOL_METAL)
-    h.metalDrawable = swapchain.get().metal.current_drawable;
-    h.metalQueue = sg_mtl_command_queue();
-#elif defined(SOKOL_D3D11)
-    h.d3d11Device = sg_d3d11_device();
-    h.d3d11Context = sg_d3d11_device_context();
-    (void)swapchain;
-#else
-    (void)swapchain;
-#endif
+    if (!gpu::context_open()) return h;
+    // The open context's native objects (what Device::native() of a device on it returns): empty on GL.
+    const gpu::NativeDevice n = gpu::context_native();
+    switch (gpu::context_backend()) {
+        case gpu::Backend::Metal:
+            h.metalDrawable = gpu::swapchain_of(swapchain).metal.currentDrawable;
+            h.metalQueue = n.commandQueue;
+            break;
+        case gpu::Backend::D3d11:
+            h.d3d11Device = n.device;
+            h.d3d11Context = n.context;
+            break;
+        default: break;
+    }
     return h;
 }
 
@@ -380,7 +383,7 @@ UiPainter::UiPainter(std::unique_ptr<UiPainterImpl> impl) : impl_(std::move(impl
 UiPainter::~UiPainter() = default;
 
 std::unique_ptr<UiPainter> UiPainter::create(std::string* error) {
-    if (!sg_isvalid()) {
+    if (!gpu::context_open()) {
         set_error(error, "UiPainter::create needs an open graphics context (Renderer::open_context, or a Renderer)");
         return nullptr;
     }
@@ -420,7 +423,7 @@ bool UiPainter::upload(const UiFrame& frame, std::string* error) {
 
 void UiPainter::draw(const GfxSwapchain& swapchain, const UiFrame& frame) {
     gpu::Device& device = *impl_->device;
-    const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
+    const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
     const gpu::PassDesc pass = gpu::PassDesc::for_swapchain(sc, device.environment_defaults());
     gpu::CommandList& list = device.begin_commands("ui draw");
     impl_->draw(list, pass.format, frame);

@@ -14,6 +14,7 @@
 #include "render_jobs.h"
 #include "render_scene.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/terrain.glsl.h"
 
 namespace fa::render {
