@@ -119,6 +119,21 @@ its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engi
 - New script API `game.graphics` (`preset(name?)`, `detect()`) with typings, and the project key `"render": {"graphicsPreset"}` with
   validation and a "did you mean".
 
+### Dynamic resolution (M76)
+
+- The render scale can follow the frame time so a game holds a target. Off by default (the picture and the frame are those of a build
+  without it, bit for bit). Settings: `"render": {"dynamicResolution": {enabled, targetMs, minScale, maxScale}}` in `factoria.json`, the
+  command `render.dynamic_resolution` and `window.dynamicResolution` in scripts, with errors that name the JSON pointer and the valid
+  range. The controller measures the GPU time where the backend has timer queries (Direct3D 11, OpenGL) and the time between frames
+  elsewhere, smooths it, and moves a factor between `minScale` and `maxScale` on a grid of 32 steps with a dead band, hold times and at
+  most two changes a second; its factor multiplies into the render scale in one place (`apply_render_scale`). A step makes the render
+  targets again (rate-limited for that reason); the temporal upscaler's history survives the steps. `game.render_stats` and
+  `window.upscaler` report `dynamicScale` and `frameMs` (read-only), and `render.supports` `dynamicResolution` is drawn. No preset turns it
+  on. "One display refresh" is 60 Hz where the platform has no refresh-rate query: set `targetMs` for other displays.
+  docs/UPSCALING.md, "Dynamic resolution".
+- The menu kit's Graphics page has a Dynamic resolution row (Off, 30 fps, 60 fps, Display refresh; saved as
+  `settings.graphics.dynamicResolution`, `null` in an older save), and the editor's Graphics window edits `render.dynamicResolution`.
+
 ### Fixes
 
 - Release workflow: the package jobs get 150 minutes instead of 60. The macOS universal build compiles two

@@ -257,7 +257,7 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   one camera (`multiCamera`), and `metalfx` / `metalfxTemporal` (M76-P5b, from `metalfx::support()` on Metal, false after a failure). A
   temporal mode that cannot run draws as `spatial`. `render.supports`
   has the rows `motionVectors` (drawn since M76-P1a), `spatialUpscaler` (drawn since M76-P3b), `temporalUpscaler` (drawn since M76-P4),
-  `metalfx` (drawn since M76-P5b where Metal has it), `dynamicResolution` (planned M76); `temporalAA` is the row of the effect itself (`PostEffect::TemporalAA`, supported on every
+  `metalfx` (drawn since M76-P5b where Metal has it), `dynamicResolution` (drawn since M76-P6c: the controller lives in `render/dynamic_resolution.*`, the engine feeds it and multiplies its factor into `apply_render_scale`; the renderer remakes its targets at a step and keeps the temporal history of the base scale); `temporalAA` is the row of the effect itself (`PostEffect::TemporalAA`, supported on every
   backend), not a second engine row.
 
 ### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)

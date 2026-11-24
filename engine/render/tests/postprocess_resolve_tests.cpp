@@ -693,15 +693,14 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
 // spatialUpscaler in P3b, temporalUpscaler in P4, metalfx in P5b); temporalAA is the effect row of that name and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
     const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
+    // Dynamic resolution is drawn (M76-P6c): every GPU backend, no longer planned.
     {
         const int i = find_feature("dynamicResolution");
         REQUIRE(i >= 0);
         CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
-        REQUIRE(feature_table()[std::size_t(i)].planned != nullptr);
-        CHECK(std::string(feature_table()[std::size_t(i)].planned) == "M76");
-        std::string why;
-        CHECK_FALSE(supported(full, "dynamicResolution", &why));  // never claims what is not drawn
-        CHECK(why == "planned (M76)");
+        CHECK(feature_table()[std::size_t(i)].planned == nullptr);
+        std::string whyDyn;
+        CHECK(supported(full, "dynamicResolution", &whyDyn));
     }
     // MetalFX is drawn (M76-P5b): supported on Metal when the OS and the GPU have it (FeatureEnv::metalfx), with the reason when not.
     {
