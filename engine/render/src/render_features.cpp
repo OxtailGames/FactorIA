@@ -579,7 +579,7 @@ FeatureBackend feature_backend_of(gpu::Backend backend) {
 
 FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& limits, bool compute,
                                     const std::function<gpu::PixelFormatCaps(gpu::PixelFormat)>& caps,
-                                    bool askMetalFx) {
+                                    const void* metalDevice) {
     using gpu::PixelFormat;
     FeatureEnv env;
     env.backend = feature_backend_of(backend);
@@ -599,8 +599,8 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
     const gpu::PixelFormatCaps r32 = caps(PixelFormat::R32F);
     env.float32 = r32.render && r32.sample && f32.render && f32.sample;
     env.compute = compute;
-    if (env.backend == FeatureBackend::Metal && askMetalFx) {
-        const metalfx::Support s = metalfx::support();
+    if (env.backend == FeatureBackend::Metal && metalDevice) {
+        const metalfx::Support s = metalfx::support(metalDevice);
         env.metalfx = s.spatial || s.temporal;
         env.metalfxWhy = s.reason;
     }
@@ -610,7 +610,7 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
 FeatureEnv feature_env_from_device(const gpu::Device& device) {
     return feature_env_from_queries(
         device.backend(), device.limits(), device.features().compute,
-        [&](gpu::PixelFormat f) { return device.pixel_format_caps(f); }, true);
+        [&](gpu::PixelFormat f) { return device.pixel_format_caps(f); }, device.native().device);
 }
 
 Json feature_report(const FeatureEnv& env, const char* backendName) {

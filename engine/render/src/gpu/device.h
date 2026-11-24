@@ -109,6 +109,22 @@ public:
     virtual void end_timed_scope() = 0;
 };
 
+// The command buffer of a Metal device, for code that orders its own Metal work against the frame (MetalFX,
+// metalfx_apple.mm). Only the Metal backend has one (Device::native_metal() is null elsewhere): the objects are
+// void* so that no Objective-C type reaches a header (`id<MTLCommandBuffer>`).
+class MetalNative {
+public:
+    virtual ~MetalNative() = default;
+    // The MTLCommandBuffer the passes recorded from now on go into: the one the open frame has, made when it has
+    // none yet. Encoding events or waits on it is allowed (outside a pass); committing it is not: split_commit() does.
+    // Null when the device lost its queue.
+    virtual const void* current_command_buffer() = 0;
+    // Submits everything recorded so far to the GPU as one command buffer and goes on with the frame: the next pass
+    // goes into a new buffer, queued behind it. It is a commit() that does not end the frame (the commit listeners
+    // run, as in sokol's frame split; the command list stays open). Outside a pass.
+    virtual void split_commit() = 0;
+};
+
 // The per-backend settings of make_device().
 struct DeviceInit {
     // The window's environment: the default formats and the native device. Read by a SokolDevice that opens its own
@@ -149,6 +165,9 @@ public:
     virtual NativeDevice native() const = 0;
     virtual NativeImage native_image(Image image) const = 0;
     virtual NativeBuffer native_buffer(Buffer buffer) const = 0;
+    // The Metal command-buffer access (MetalFX); null on every backend that is not Metal. The MTLTexture of an image is
+    // native_image(image).texture.
+    virtual MetalNative* native_metal() = 0;
 
     // ---- resources -------------------------------------------------------------------------------------------------
     virtual Buffer make_buffer(const BufferDesc& desc) = 0;
