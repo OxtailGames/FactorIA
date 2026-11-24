@@ -324,3 +324,37 @@ TEST_CASE("project.graphics reads and writes the graphics keys of factoria.json"
     REQUIRE(r.ok);
     CHECK(d.read().find("render") == std::string::npos);
 }
+
+TEST_CASE("project.graphics writes only the keys it is given, with the numbers of the file as they are") {
+    Dir d;
+    d.write(R"({ "format": "factoria.project/1", "name": "G", "id": "com.example.g",
+  "render": { "upscaler": { "mode": "spatial" },
+    "dynamicResolution": { "enabled": true, "targetMs": 16.67, "minScale": 0.333 } } })");
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    // Only a preset: the upscaler (one key) and the dynamic resolution (16.67, 0.333) are not rewritten.
+    auto r = registry.call("project.graphics", Json::parse(R"({"preset":"low"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["written"] == true);
+    std::string text = d.read();
+    CHECK(text.find("\"targetMs\": 16.67") != std::string::npos);
+    CHECK(text.find("\"minScale\": 0.333") != std::string::npos);
+    CHECK(text.find("\"upscaler\": { \"mode\": \"spatial\" }") != std::string::npos);
+    CHECK(r.result["dynamicResolution"]["targetMs"].get<double>() == doctest::Approx(16.67));
+    // Another key of the dynamic resolution: the numbers it does not name stay as written.
+    r = registry.call("project.graphics", Json::parse(R"({"dynamicResolution":{"maxScale":0.9}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    text = d.read();
+    CHECK(text.find("16.67") != std::string::npos);
+    CHECK(text.find("0.333") != std::string::npos);
+    CHECK(text.find("16.7,") == std::string::npos);
+    // A number the call names is written as given.
+    r = registry.call("project.graphics", Json::parse(R"({"dynamicResolution":{"targetMs":22.22}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(d.read().find("22.22") != std::string::npos);
+    CHECK(d.read().find("0.333") != std::string::npos);
+    // The editor's model still works in tenths and hundredths.
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK(s->dynamic.minScale == doctest::Approx(0.33f));
+}

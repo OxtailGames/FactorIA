@@ -339,15 +339,17 @@ public:
     // Recreates the targets: draw again before capturing.
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
-    // `baseScale` (0: the same as `scale`) is the part of `scale` that does not come from the dynamic resolution (the player's scale times the
-    // upscaler's quality): the temporal upscaler's history is bound to it, not to the size, so a step of the dynamic resolution (a different
-    // `scale` with the same `baseScale`) keeps the history and any other change of the render size starts it again.
+    // `baseScale` (0: the same as `scale`) is the part of `scale` that does not come from the dynamic resolution (the
+    // player's scale times the upscaler's quality): the temporal upscaler's history is bound to it, not to the size,
+    // so a step of the dynamic resolution (a different `scale` with the same `baseScale`) keeps the history and any
+    // other change of the render size starts it again.
     void set_render_scale(float scale, float baseScale = 0.0f);
-    // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported() (D3D11 and OpenGL), every
-    // drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms appends the milliseconds of the frames whose
-    // result arrived since the last call (a few frames late, never waited for) and clears them; nothing while off. Measurement only.
-    // The profiler's take_gpu_ms() and this list each see every result (they do not take each other's). Needs an initialized renderer
-    // (before init() the call does nothing: ask again after it).
+    // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported()
+    // (D3D11 and OpenGL), every drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms
+    // appends the milliseconds of the frames whose result arrived since the last call (a few frames late, never
+    // waited for) and clears them; nothing while off. Measurement only. The profiler's take_gpu_ms() and this list
+    // each see every result (they do not take each other's). Needs an initialized renderer (before init() the call
+    // does nothing: ask again after it).
     void set_gpu_frame_timing(bool on);
     void take_gpu_frame_ms(std::vector<double>& out);
     // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is

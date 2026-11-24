@@ -253,9 +253,10 @@ void Renderer::Impl::free_read_image() {
 }
 
 void Renderer::Impl::destroy_targets() {
-    // A step of the dynamic resolution (scaleStepOnly) changes only the render size: the images of CameraViews, render targets, probes and
-    // captures have their own size, and the adapted exposure is a 1x1 value; losing them would be a flash of the exposure and a frame of
-    // black views at every step.
+    // A step of the dynamic resolution (scaleStepOnly) changes only the render size. The slots of the view images
+    // stay: render targets, probes and captures have their own size, so their images are kept as they are; a
+    // CameraView's size is its rectangle times renderScale (ui2d.cpp), so view_image makes it again at the next draw
+    // when the size changed. The adapted exposure is a 1x1 value and stays too (no flash at a step).
     if (!scaleStepOnly) {
         for (auto& [key, t] : viewTargets) release_view(*t);
         viewTargets.clear();

@@ -753,11 +753,16 @@ bool Renderer::gpu_timing_supported(std::string* reason) const {
     return ok;
 }
 
-// Reads the answers the timer has now. The profiler's list (gpuFrames) and the dynamic resolution's (gpuFrameMs, take_gpu_frame_ms) each
-// get every result once: whoever polls (render() or take_gpu_ms()) feeds both, so neither takes the other's samples.
+// Reads the answers the timer has now. The profiler's list (gpuFrames) and the dynamic resolution's (gpuFrameMs,
+// take_gpu_frame_ms) each get every result once: whoever polls (render() or take_gpu_ms()) feeds both, so neither
+// takes the other's samples.
 void Renderer::Impl::poll_gpu_frames() {
     const std::size_t before = gpuFrames.size();
     gpuTimer.poll(gpuFrames);
+    if (!testGpuFrames.empty()) {  // RendererTestAccess::inject_gpu_frame_ms: answers a test made up
+        gpuFrames.insert(gpuFrames.end(), testGpuFrames.begin(), testGpuFrames.end());
+        testGpuFrames.clear();
+    }
     if (!gpuFrameWanted) return;
     constexpr std::size_t kKeepFrames = 64;
     gpuFrameMs.insert(gpuFrameMs.end(), gpuFrames.begin() + std::ptrdiff_t(std::min(before, gpuFrames.size())),
@@ -1248,6 +1253,10 @@ int RendererTestAccess::post_history_attempts(Renderer& r) {
     return r.impl_ ? r.impl_->customPost.history_attempts() : 0;
 }
 
+void RendererTestAccess::inject_gpu_frame_ms(Renderer& r, double ms) {
+    if (r.impl_) r.impl_->testGpuFrames.push_back(ms);
+}
+
 void RendererTestAccess::set_before_frame_graph(Renderer& r, std::function<void()> hook) {
     if (r.impl_) r.impl_->beforeFrameGraph = std::move(hook);
 }
@@ -1492,8 +1501,9 @@ void Renderer::Impl::render(World& world, float dt) {
         outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
         if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
-        // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is made longer in steps of
-        // 4 phases, so it changes every few steps and the jitter of the frames before it stays valid for the history (the frame index goes on).
+        // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is
+        // made longer in steps of 4 phases, so it changes every few steps and the jitter of the frames before it
+        // stays valid for the history (the frame index goes on).
         if (wantedPhases > 0 && renderScale != renderBaseScale)
             wantedPhases = std::min((wantedPhases + 3) / 4 * 4, kJitterPhasesMax);
     }

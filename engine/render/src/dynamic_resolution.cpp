@@ -117,7 +117,8 @@ double dynamic_target_ms(const DynamicResolutionSettings& s, double refreshHz) {
     return 1000.0 / hz;
 }
 
-// ------------------------------------------------------------------------------------------- the refresh rate estimate --
+// ------------------------------------------------------------------------------------------- the refresh rate
+// estimate --
 
 void RefreshRateEstimator::reset() { *this = RefreshRateEstimator{}; }
 
@@ -132,8 +133,9 @@ bool RefreshRateEstimator::add(double intervalMs) {
         std::copy(samples_, samples_ + kSamples, sorted);
         std::sort(sorted, sorted + kSamples);
         const double median = (sorted[kSamples / 2 - 1] + sorted[kSamples / 2]) / 2.0;
-        // A display's presents are a steady beat: the median absolute deviation of the intervals is a few percent of the median. A
-        // driver that ignores the swap interval, or a game that never settles, gives intervals that wander: no rate, not a wrong one.
+        // A display's presents are a steady beat: the median absolute deviation of the intervals is a few percent of
+        // the median. A driver that ignores the swap interval, or a game that never settles, gives intervals that
+        // wander: no rate, not a wrong one.
         double dev[kSamples];
         for (int i = 0; i < kSamples; ++i) dev[i] = std::abs(samples_[i] - median);
         std::sort(dev, dev + kSamples);
@@ -144,7 +146,8 @@ bool RefreshRateEstimator::add(double intervalMs) {
     return true;
 }
 
-// ------------------------------------------------------------------------------------------------------------ the controller --
+// ------------------------------------------------------------------------------------------------------------ the
+// controller --
 
 float DynamicResolutionController::scale_of(int step) const {
     if (step >= kSteps) return s_.maxScale;
@@ -191,8 +194,9 @@ bool DynamicResolutionController::update(double sampleMs, double elapsedMs, doub
     }
     if (!seeded_ || !(s_.maxScale - s_.minScale > 1e-4f)) return false;
 
-    // The band, as shares of the target, and where a move aims (the middle of it, so the new scale is not at an edge). A GPU time is
-    // exact: a frame also needs the CPU and the present, so it must stay a little under the target.
+    // The band, as shares of the target, and where a move aims (the middle of it, so the new scale is not at an
+    // edge). A GPU time is exact: a frame also needs the CPU and the present, so it must stay a little under the
+    // target.
     const double low = exact ? 0.80 : 0.90, high = exact ? 0.95 : 1.08, aim = exact ? 0.875 : 0.97;
     const double stepSize = double(s_.maxScale - s_.minScale) / double(kSteps);
     const double now = double(scale_of(step_));
@@ -219,7 +223,8 @@ bool DynamicResolutionController::update(double sampleMs, double elapsedMs, doub
             probeWait_ = std::min(probeWait_ * 2.0, kProbeMax);
             ceilingLife_ = kCeilingLife * probeWait_ / kProbeFirst;  // twice as long at each failure in a row
         }
-        // The cost follows the picture's area: what was measured at the old scale predicts the new one, so the next frames start from it.
+        // The cost follows the picture's area: what was measured at the old scale predicts the new one, so the next
+        // frames start from it.
         if (!probe && before > 0.0) ema_ *= (after * after) / (before * before);
     };
 
@@ -253,8 +258,8 @@ bool DynamicResolutionController::update(double sampleMs, double elapsedMs, doub
     }
     over_ = 0.0;
     under_ = 0.0;
-    // Inside the band. With the GPU time there is nothing to learn here. With the time between frames the headroom is hidden (vsync pins it at
-    // the refresh rate), so after a quiet time the controller tries one step up.
+    // Inside the band. With the GPU time there is nothing to learn here. With the time between frames the headroom is
+    // hidden (vsync pins it at the refresh rate), so after a quiet time the controller tries one step up.
     if (lastWasProbe_ && sinceChange_ >= kProbeKeep) {
         probeWait_ = kProbeFirst;  // the try held: the next one need not wait long
         lastWasProbe_ = false;

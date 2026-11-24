@@ -13,6 +13,7 @@
 #include "postprocess_resolve.h"
 #include "quality.h"
 #include "render_features.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::render;
@@ -469,4 +470,82 @@ TEST_CASE("graphics presets on a GPU: without soft shadows a PCSS sun is drawn w
     g.renderer.set_quality(QualityLimits{});
     g.draw(w);
     CHECK(differing(g.draw(w), pcss) == 0);  // and lifting it brings the scene's own filter back
+}
+
+TEST_CASE(
+    "graphics presets on a GPU: the Low preset caps the shadow map of a spot light with no size of its own at 512") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CHECK(graphics_preset_table(GraphicsPreset::Low).limits.shadowTileSize == 512);
+    if (!g.renderer.supports("spotShadows")) {
+        MESSAGE("spotShadows is not supported on this GPU: the test did not run");
+        return;
+    }
+    World w;
+    Entity cam = make(w, "cam", {0, 4, 9});
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    w.get<Transform>(cam)->rotation = {-25, 0, 0};
+    w.settings().ambientLight = Color{0.05f, 0.05f, 0.06f, 1};
+    Entity floor = make(w, "floor", {0, 0, 0});
+    w.get<Transform>(floor)->scale = {16, 1, 16};
+    w.add<MeshRenderer>(floor).mesh = "plane";
+    Entity pillar = make(w, "pillar", {-1.5f, 1, -1});
+    w.get<Transform>(pillar)->scale = {1, 2, 1};
+    w.add<MeshRenderer>(pillar).mesh = "cube";
+    Entity lamp = make(w, "lamp", {0, 6, 2});
+    w.get<Transform>(lamp)->rotation = {-90, 0, 0};
+    auto& l = w.add<Light>(lamp);
+    l.type = LightType::Spot;
+    l.intensity = 3;
+    l.range = 14;  // the camera is nearer than the range: the light would ask for 1024 texels
+    l.spotAngle = 55;
+    l.castShadows = true;
+    l.shadowFilter = ShadowFilter::Hard;
+    QualityLimits cap;  // only the tile cap: every other limit is the game's own
+    cap.shadowTileSize = 512;
+    g.renderer.set_quality(QualityLimits{});
+    g.draw(w);
+    const Image own = g.draw(w);
+    g.renderer.set_quality(cap);
+    g.draw(w);
+    const Image capped = g.draw(w);
+    g.renderer.set_quality(QualityLimits{});
+    l.shadowResolution = 512;  // the size the cap asks for, written by hand
+    g.draw(w);
+    const Image by_hand = g.draw(w);
+    CHECK(differing(capped, by_hand) == 0);
+    CHECK(differing(own, capped) > 0);  // 1024 texels against 512: the edge of the shadow is not the same
+}
+
+TEST_CASE("gpu benchmark on a GPU: a game in the Linear colour space keeps its targets and histories") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const GpuInfo info = query_gpu_info();
+    World w;
+    Entity cam = make(w, "cam", {0, 3, 9});
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    camera_post(w, cam).temporalAAEnabled = true;
+    w.settings().colorSpace = ColorSpace::Linear;
+    Entity ball = make(w, "ball", {0, 1, 0});
+    w.add<MeshRenderer>(ball).mesh = "sphere";
+    for (int i = 0; i < 4; ++i) g.draw(w);
+    REQUIRE(g.renderer.color_space() == ColorSpace::Linear);
+    const int histories = RendererTestAccess::taa_images(g.renderer);
+    if (histories == 0) {
+        MESSAGE("this backend keeps no temporal history: the test did not run");
+        return;
+    }
+    const GpuBenchmark b = run_gpu_benchmark(g.renderer, info);
+    if (!b.ran) {
+        MESSAGE("the benchmark did not run: " << b.why);
+        return;
+    }
+    // The benchmark drew in the colour space of the game: its targets were not made again, and the history is still
+    // there.
+    CHECK(g.renderer.color_space() == ColorSpace::Linear);
+    CHECK(RendererTestAccess::taa_images(g.renderer) == histories);
 }

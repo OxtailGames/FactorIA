@@ -351,3 +351,57 @@ TEST_CASE("pass times: the GPU times of an earlier run of the profiler are forgo
     REQUIRE(!st.passes.empty());
     for (const RenderStats::PassTime& p : st.passes) CHECK(p.gpuMs == -1.0);
 }
+
+TEST_CASE("GPU frame times: the profiler's list and the dynamic resolution's each get every result once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World world;
+    bloom_scene(world);
+    g.render(world);
+    g.renderer.set_gpu_frame_timing(true);
+    // A real timer may answer too (D3D11, OpenGL): the injected numbers are counted, not compared as the whole list.
+    auto times = [](const std::vector<double>& v, double x) { return int(std::count(v.begin(), v.end(), x)); };
+    std::vector<double> prof, dyn;
+    // Whoever polls feeds both lists: the profiler's call first...
+    {
+        ProfilerOn on;
+        g.renderer.take_gpu_ms(prof);  // drops what is pending
+        prof.clear();
+        g.renderer.take_gpu_frame_ms(dyn);
+        dyn.clear();
+        render::renderer_inject_gpu_frame_ms(g.renderer, 5.0);
+        g.renderer.take_gpu_ms(prof);
+        g.renderer.take_gpu_frame_ms(dyn);
+        CHECK(times(prof, 5.0) == 1);
+        CHECK(times(dyn, 5.0) == 1);
+        // ... or the frame's own poll (render() reads with the profiler on and keeps them for take_gpu_ms) ...
+        prof.clear();
+        dyn.clear();
+        render::renderer_inject_gpu_frame_ms(g.renderer, 6.0);
+        g.render(world);
+        g.renderer.take_gpu_frame_ms(dyn);
+        g.renderer.take_gpu_ms(prof);
+        CHECK(times(dyn, 6.0) == 1);
+        CHECK(times(prof, 6.0) == 1);
+        // Each result once: nothing is left for a second call.
+        prof.clear();
+        dyn.clear();
+        g.renderer.take_gpu_ms(prof);
+        g.renderer.take_gpu_frame_ms(dyn);
+        CHECK(times(prof, 6.0) == 0);
+        CHECK(times(dyn, 6.0) == 0);
+    }
+    // Profiler off: only the dynamic resolution asked, and the profiler's list keeps nothing.
+    render::renderer_inject_gpu_frame_ms(g.renderer, 7.0);
+    g.render(world);
+    std::vector<double> d2;
+    g.renderer.take_gpu_frame_ms(d2);
+    CHECK(times(d2, 7.0) == 1);
+    {
+        ProfilerOn on;
+        std::vector<double> p2;
+        g.renderer.take_gpu_ms(p2);
+        CHECK(times(p2, 7.0) == 0);
+    }
+    g.renderer.set_gpu_frame_timing(false);
+}
