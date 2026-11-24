@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ## Unreleased
 
+- **Game packs can hold GDeflate (M77, first part of DirectStorage):** `game.pak` blocks can now be compressed with `gdeflate`, the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU, written for the engine (`Codec::GDeflate`, levels 1 to 12; the decoder reads it on the CPU, about the ratio of zlib). Choose it with `export.pack.codecs` per extension or with the new `export.pack.codec` (`"auto"`, `"lz4"`, `"zstd"`, `"gdeflate"`; `"auto"` keeps today's choice). `export.pack.directStorage` (default false, read and saved now) makes a Windows export with `"auto"` pack as `gdeflate`; the DirectStorage reader arrives later in M77. The pack stays format version 2, but an older FactorIA cannot read a pack with gdeflate files. docs/design/ARCHITECTURE_FILES.md, "GDeflate".
+
 ## 0.36.0
 
 Temporal antialiasing and open upscalers (M76): the renderer writes a velocity image (meshes, skins, terrain, foliage, impostors, 2D sprites, shapes, tiles and quads, with a reactive mask for particles and additive items) and uses it for temporal antialiasing (`PostProcess.temporalAAEnabled`, Halton jitter, a texture LOD bias) and per-object motion blur; `render.upscaler` draws the picture below the window's size and brings it up with a spatial upscaler (edge-adaptive filter and sharpen), a temporal upscaler, or Apple's MetalFX; dynamic resolution moves the render scale to hold a frame time; graphics presets (Low to Ultra, `graphics.preset`, `graphics.detect` with a benchmark) cap the costly features, and the menu kit and the editor have a Graphics page for all of it. docs/UPSCALING.md explains each part. The entries below list them.

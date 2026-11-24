@@ -228,6 +228,8 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | All | `export.exclude` (directly in `export`) | `[]` | Project-relative globs no export ships, see [What is shipped](EXPORTING_CONTENTS.md#what-is-shipped-and-what-is-not). |
 | Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](EXPORTING_DESKTOP.md#scripts-as-bytecode). |
 | Desktop, Web | `export.pack.codecs` (directly in `export`) | `{}` (each type's default) | The codec of an extension inside `game.pak`: `{".json": "zstd", ".bin": "store"}`. Edited in `factoria.json` only. See [Compression and pack order](EXPORTING_DESKTOP.md#compression-and-pack-order). |
+| Desktop, Web | `export.pack.codec` | `"auto"` | `"auto"`, `"lz4"`, `"zstd"` or `"gdeflate"`: the codec of every file `game.pak` would compress (a type stored by default, and an extension in `export.pack.codecs`, keep theirs). `"auto"` keeps each type's default, and packs `gdeflate` for a Windows export with `export.pack.directStorage` on. |
+| Windows | `export.pack.directStorage` | `false` | Used by DirectStorage, which arrives in M77: with `export.pack.codec` `"auto"` a Windows export packs its compressed files as `gdeflate`, the stream DirectStorage decompresses on the GPU. |
 | Desktop, Web | `export.pack.useLoadOrder` | `true` | Writes `game.pak` in the order play sessions first read the files (`.factoria/cache/load-order.json`); `false` packs by path. |
 
 Wrong types or values are errors that name the JSON pointer and the fix

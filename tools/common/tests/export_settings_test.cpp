@@ -1056,3 +1056,34 @@ TEST_CASE(
     CHECK_FALSE(back->pack.useLoadOrder);
     CHECK_FALSE(back->scriptBytecode);
 }
+
+TEST_CASE("export settings: export.pack.codec and directStorage are read, and a wrong one names its pointer") {
+    auto none = parse_export_settings(parse(R"({"name": "G"})"));
+    CHECK(none.settings.pack.codec == "auto");
+    CHECK_FALSE(none.settings.pack.directStorage);
+
+    auto good = parse_export_settings(parse(R"({"export": {"pack": {"codec": "gdeflate", "directStorage": true}}})"));
+    CHECK(good.errors.empty());
+    CHECK(good.warnings.empty());
+    CHECK(good.settings.pack.codec == "gdeflate");
+    CHECK(good.settings.pack.directStorage);
+    auto named = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {".json": "gdeflate"}}}})"));
+    CHECK(named.errors.empty());
+    CHECK(named.settings.pack.codecs.at(".json") == Codec::GDeflate);
+
+    auto typo = parse_export_settings(parse(R"({"export": {"pack": {"codec": "gdeflat"}}})"));
+    const ExportSettingsIssue* t = find_issue(typo.errors, "/export/pack/codec");
+    REQUIRE(t != nullptr);
+    CHECK(t->message.find("gdeflat") != std::string::npos);
+    CHECK(t->hint.find("gdeflate") != std::string::npos);
+    CHECK(typo.settings.pack.codec == "auto");  // an invalid value keeps the default
+
+    auto bad = parse_export_settings(parse(R"({"export": {"pack": {"codec": 3, "directStorage": "yes"}}})"));
+    CHECK(find_issue(bad.errors, "/export/pack/codec") != nullptr);
+    const ExportSettingsIssue* flag = find_issue(bad.errors, "/export/pack/directStorage");
+    REQUIRE(flag != nullptr);
+    CHECK(flag->message.find("expected true or false") != std::string::npos);
+    // "store" is not a choice here: it is per extension, in codecs.
+    auto store = parse_export_settings(parse(R"({"export": {"pack": {"codec": "store"}}})"));
+    CHECK(find_issue(store.errors, "/export/pack/codec") != nullptr);
+}

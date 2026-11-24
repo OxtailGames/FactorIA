@@ -1909,8 +1909,19 @@ constexpr const char* kSchemaText =
           "properties": {
             "codecs": {
               "type": "object",
-              "additionalProperties": {"type": "string", "enum": ["store", "lz4", "zstd"]},
-              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\" or \"zstd\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest; a block that compression shrinks by less than 1/32 is stored as it is."
+              "additionalProperties": {"type": "string", "enum": ["store", "lz4", "zstd", "gdeflate"]},
+              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\", \"zstd\" or \"gdeflate\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest, gdeflate is the stream DirectStorage decompresses on the GPU; a block that compression shrinks by less than 1/32 is stored as it is."
+            },
+            "codec": {
+              "type": "string",
+              "enum": ["auto", "lz4", "zstd", "gdeflate"],
+              "default": "auto",
+              "description": "The codec of every file that is compressed (not the ones stored by default, like .png and .ogg, and not an extension named in \"codecs\", which keeps its own). \"auto\" (default): each type's own choice (zstd for fonts and text, lz4 for the rest), except a Windows export with \"directStorage\" on, which packs them as gdeflate. \"lz4\", \"zstd\" or \"gdeflate\": that codec for all of them. gdeflate is Deflate64 in 64 KiB tiles of 32 lanes, the stream DirectStorage 1.1 decompresses on the GPU; other readers decode it on the CPU, about as fast as zstd and with the ratio of zlib. An older FactorIA cannot read a pack with gdeflate files."
+            },
+            "directStorage": {
+              "type": "boolean",
+              "default": false,
+              "description": "Used by DirectStorage, which arrives in M77: true makes a Windows export pack its compressed files as gdeflate (see \"codec\") so that the player can hand their blocks to the GPU. It changes nothing else yet. Default false."
             },
             "useLoadOrder": {
               "type": "boolean",

@@ -11,7 +11,7 @@
 //               scene's files lie next to each other and a load reads the drive mostly forward
 //   index       u32 file count, u32 block size B (the most bytes one block holds once decoded: kPackBlockSize, 256 KiB),
 //               u32 block count, then per file, sorted by path (byte order):
-//                 u16 path length, the path, u8 codec (0 store, 1 lz4, 2 zstd: fa/core/compress.h),
+//                 u16 path length, the path, u8 codec (0 store, 1 lz4, 2 zstd, 3 gdeflate: fa/core/compress.h),
 //                 u64 size (decoded bytes), u64 offset of the file's first block (from the start of the pack),
 //                 u64 stored size (bytes of all its blocks in the pack), u32 index of its first block in the block table
 //               then the block table, one entry per block, file after file in index order:
@@ -23,7 +23,9 @@
 // Blocks. A file of `size` bytes has ceil(size / B) blocks (an empty file has none); block k decodes to bytes
 // [k*B, min((k+1)*B, size)) of the file, and the blocks of one file are contiguous in the pack. Each block is compressed
 // on its own with the file's codec, so a reader that wants part of a big file (a range of an audio stream, one mip of
-// a texture) decodes only the blocks that hold it: a read's buffers are what it returns plus at most one block (and
+// a texture) decodes only the blocks that hold it (a gdeflate block is one GDeflate stream of up to four 64 KiB tiles,
+// which the DirectStorage reader can hand to the GPU as it is; codec 3 was added in 0.37 without a new format
+// version, an older FactorIA reports a codec it does not know): a read's buffers are what it returns plus at most one block (and
 // the zstd decoder's own working state per block, ~14 KiB plus up to 128 KiB of literals, fa/core/compress.h). A block
 // keeps its compressed form only when that saves at least 1/32 of its bytes; else it is stored as it is (bit 31), and
 // a file none of whose blocks kept a compressed form is recorded with codec store. Small files do NOT share blocks:
@@ -109,7 +111,7 @@ struct PackStats {
     std::uint64_t files = 0, bytes = 0, storedBytes = 0;
     std::uint64_t packBytes = 0;  // the size of the pack file (data + index + header and footer)
     // By the codec each file ended up with (index = Codec value): a file whose codec saved nothing counts as store.
-    std::array<PackCodecStats, 3> codecs{};
+    std::array<PackCodecStats, 4> codecs{};
     std::uint64_t orderedFiles = 0;  // files placed by set_order (the rest came after them, by path)
     std::uint64_t blocksKeptRaw =
         0;  // blocks of lz4 / zstd files stored as they are, because the codec saved too little
@@ -134,6 +136,12 @@ public:
     // once), then every other file sorted by path. Without it the data is sorted by path. The index is always sorted.
     void set_order(std::vector<std::string> paths);
 
+    // The codec of the files added AFTER this call that get no codec of their own and that pack_default_codec would
+    // compress (lz4 or zstd): `codec` takes their place. Files it would store (PNG, Ogg, archives: already compressed)
+    // stay stored, and a codec given to add_bytes / add_file always wins. Empty (the default): pack_default_codec alone.
+    // The export uses it for export.pack.codec (docs/exporting/EXPORTING_DESKTOP.md, "Release build").
+    void set_default_codec(std::optional<Codec> codec) { defaultCodec_ = codec; }
+
     // Compression level for every file (fa::CompressOptions::level; 0 = each codec's default).
     void set_level(int level) { level_ = level; }
 
@@ -156,6 +164,10 @@ private:
     std::vector<Item> items_;
     std::vector<std::string> order_;
     int level_ = 0;
+    std::optional<Codec> defaultCodec_;
+    Codec choose_codec(Codec chosenByType) const {
+        return chosenByType != Codec::Store && defaultCodec_ ? *defaultCodec_ : chosenByType;
+    }
 };
 
 struct PackOpenOptions {

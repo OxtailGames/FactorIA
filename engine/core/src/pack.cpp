@@ -129,7 +129,7 @@ Result<void> PackWriter::check_path(const std::string& path) const {
 Result<void> PackWriter::add_bytes(std::string path, std::vector<std::uint8_t> data, std::optional<Codec> codec) {
     if (auto ok = check_path(path); !ok.ok()) return ok;
     Item item;
-    item.codec = codec ? *codec : pack_default_codec(path, data);
+    item.codec = codec ? *codec : choose_codec(pack_default_codec(path, data));
     item.size = data.size();
     item.path = std::move(path);
     item.bytes = std::move(data);
@@ -158,7 +158,7 @@ Result<void> PackWriter::add_file(std::string path, stdfs::path source, std::opt
             }
         }
         head.resize(got);
-        item.codec = pack_default_codec(path, head);
+        item.codec = choose_codec(pack_default_codec(path, head));
     }
     item.size = size;
     item.path = std::move(path);
@@ -489,7 +489,7 @@ Result<std::shared_ptr<const PackReader>> PackReader::finish_open(std::shared_pt
             e.size = e.stored = get_le(&index[at + 8], 8);
         } else {
             const std::uint8_t codec = index[at];
-            if (codec > std::uint8_t(Codec::Zstd))
+            if (codec > std::uint8_t(Codec::GDeflate))
                 return make_error("The game pack " + name + " stores '" + e.path + "' with codec " +
                                       std::to_string(codec) + ", which this FactorIA does not know",
                                   again);
