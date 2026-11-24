@@ -281,12 +281,22 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
 // pack, so nothing in the game changes. A script that does not compile is packed as the source it is, with a warning: the
 // game then behaves exactly as it does when run from the folder (the error shows when something loads that script).
 // Each file gets the codec export.pack.codecs names for its extension, else the engine's default for its type
-// (pack_default_codec); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
+// (pack_default_codec, or the one export.pack.codec names); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
 // export.pack.useLoadOrder is false or nothing was recorded.
-Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
-                       ExportReport& report) {
+Result<void> pack_game(const Project& p, const std::string& platform, const std::vector<std::string>& files,
+                       const stdfs::path& packFile, ExportReport& report) {
     PackWriter writer;
     const PackExportSettings& pack = p.settings.pack;
+    // export.pack.codec: a name replaces the codec of every file the default would compress; "auto" keeps each type's
+    // own, except that a Windows export with the DirectStorage option on packs them as gdeflate.
+    if (pack.codec != "auto") {
+        auto chosen = parse_codec(pack.codec);
+        if (!chosen.ok())
+            return err("export: factoria.json export.pack.codec: " + chosen.error().message, chosen.error().hint);
+        writer.set_default_codec(chosen.value());
+    } else if (platform == "windows" && pack.directStorage) {
+        writer.set_default_codec(Codec::GDeflate);
+    }
     auto codec_for = [&](const std::string& path) -> std::optional<Codec> {
         if (auto it = pack.codecs.find(fs::extension(path)); it != pack.codecs.end()) return it->second;
         return std::nullopt;  // the writer picks pack_default_codec
@@ -353,7 +363,7 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
 
 Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
                           ExportReport& report) {
-    return pack_game(p, files, packFile, report);
+    return pack_game(p, "web", files, packFile, report);
 }
 
 // The entitlements of a signed macOS app, from the plugins' manifests: Xcode's build settings ($(TeamIdentifierPrefix),
@@ -443,7 +453,7 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     // The pack sits where the game/ folder would: next to the executable, in Contents/Resources of a macOS app.
     const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
     if (options.release) {
-        if (auto r = pack_game(p, files, packFile, report); !r.ok()) return r;
+        if (auto r = pack_game(p, platform, files, packFile, report); !r.ok()) return r;
     } else if (auto r = copy_game(p, files, gameDest); !r.ok()) {
         return r;
     }

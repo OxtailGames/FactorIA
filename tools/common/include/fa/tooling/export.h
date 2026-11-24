@@ -141,7 +141,7 @@ struct ExportSize {
 // One codec of a game pack: how many files it holds and their size before and after (a file whose compressed blocks saved
 // too little is stored as it is, and counts under "store").
 struct ExportPackCodec {
-    std::string codec;  // "store" | "lz4" | "zstd"
+    std::string codec;  // "store" | "lz4" | "zstd" | "gdeflate"
     std::uint64_t files = 0;
     std::uint64_t bytes = 0;        // the files' size
     std::uint64_t storedBytes = 0;  // what they take in the pack

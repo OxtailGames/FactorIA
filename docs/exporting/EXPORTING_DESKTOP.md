@@ -405,10 +405,17 @@ A block keeps its compressed form only when that saves at least 1/32 of its byte
 that does not compress costs nothing to decode. Choose another codec for an extension in `factoria.json`:
 
 ```json
-"export": { "pack": { "codecs": { ".json": "zstd", ".bin": "store" }, "useLoadOrder": true } }
+"export": { "pack": { "codecs": { ".json": "zstd", ".bin": "store" }, "codec": "auto", "useLoadOrder": true } }
 ```
 
-`export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4` or `zstd`.
+`export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4`, `zstd`
+or `gdeflate`. `export.pack.codec` (default `"auto"`) sets the codec of every file that the table above would compress
+(never the ones it stores, and an extension named in `codecs` keeps its own): `"lz4"`, `"zstd"` or `"gdeflate"`. `gdeflate` is
+the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU; the engine decodes it on the CPU too
+(about the ratio of zlib, slower than lz4 and zstd), so a pack with it works everywhere, but a FactorIA older than this
+option cannot read it. With `"auto"`, a Windows export with `export.pack.directStorage: true` packs those files as
+`gdeflate`; `directStorage` (default `false`) is used by the DirectStorage reader, which arrives in M77, and changes nothing
+else yet. A wrong value is an error with its JSON pointer and a "did you mean".
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
 editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`: what
 the engine and the scripts read after `factoria.json`, which is read by its full path and is not listed) and, per scene,
