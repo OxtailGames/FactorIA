@@ -711,10 +711,15 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
     // shader with many storage views can.
     static_assert(kMaxViews <= 128 && kMaxSamplers <= 16, "the tier 1 limits checked below assume these");
     if (bindingTier_ == 1) {
-        int uavs = 0;
+        // A UAV that several stages see is one register, not one per stage: count distinct (register, space) pairs.
+        std::vector<std::uint64_t> uavRegs;
         for (const auto& ranges : viewRanges)
             for (const D3D12_DESCRIPTOR_RANGE& r : ranges)
-                if (r.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV) ++uavs;
+                if (r.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
+                    for (UINT k = 0; k < r.NumDescriptors; ++k)
+                        uavRegs.push_back(std::uint64_t(r.RegisterSpace) << 32 | (r.BaseShaderRegister + k));
+        std::sort(uavRegs.begin(), uavRegs.end());
+        const int uavs = int(std::unique(uavRegs.begin(), uavRegs.end()) - uavRegs.begin());
         const int uavLimit = featureLevel_ == D3D_FEATURE_LEVEL_11_0 ? 8 : 64;
         if (uavs > uavLimit) {
             error = "it declares " + std::to_string(uavs) + " writable views (storage buffers and images), and " +

@@ -27,19 +27,25 @@ std::uint32_t extent_or_rest(int size, int at, std::uint32_t level) {
 // Life
 // ---------------------------------------------------------------------------------------------------------------------
 
-Result<void> D3d12CommandList::create(const char* what) {
+Result<void> D3d12CommandList::create(const char* what, QueueKind kind) {
     ID3D12Device* dev = device_.device_.get();
-    HRESULT hr = dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
-                                             allocator_.put_void());
+    // A list made for another queue before: its fix-up list goes too (its type must be the queue's).
+    list_.reset();
+    allocator_.reset();
+    fixup_.reset();
+    fixupAllocator_.reset();
+    kind_ = kind;
+    const D3D12_COMMAND_LIST_TYPE type = list_type(kind);
+    HRESULT hr = dev->CreateCommandAllocator(type, __uuidof(ID3D12CommandAllocator), allocator_.put_void());
     if (FAILED(hr))
-        return make_error(std::string("gpu d3d12: begin_commands('") + what +
-                              "'): CreateCommandAllocator failed with " + hr_text(hr) + device_.removed_reason(),
+        return make_error(std::string("gpu d3d12: begin_commands('") + what + "', " + queue_name(kind) +
+                              "): CreateCommandAllocator failed with " + hr_text(hr) + device_.removed_reason(),
                           "the GPU ran out of memory or the device was lost");
-    hr = dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator_.get(), nullptr,
-                                __uuidof(ID3D12GraphicsCommandList), list_.put_void());
+    hr = dev->CreateCommandList(0, type, allocator_.get(), nullptr, __uuidof(ID3D12GraphicsCommandList),
+                                list_.put_void());
     if (FAILED(hr))
-        return make_error(std::string("gpu d3d12: begin_commands('") + what + "'): CreateCommandList failed with " +
-                              hr_text(hr) + device_.removed_reason(),
+        return make_error(std::string("gpu d3d12: begin_commands('") + what + "', " + queue_name(kind) +
+                              "): CreateCommandList failed with " + hr_text(hr) + device_.removed_reason(),
                           "the GPU ran out of memory or the device was lost");
     list_->Close();  // made open: closed here, so open() can always Reset it
     return {};
@@ -64,9 +70,13 @@ Result<void> D3d12CommandList::open(const char* label) {
     keep_.clear();
     scopes_.clear();
     scopeOpen_ = false;
-    // Every list sees the two shader-visible heaps (the bindings' tables and the bindless table point into them).
-    ID3D12DescriptorHeap* heaps[2] = {device_.viewHeap_.heap(), device_.samplerHeap_.heap()};
-    list_->SetDescriptorHeaps(2, heaps);
+    waits_.clear();
+    // Every list that can bind sees the two shader-visible heaps (the bindings' tables and the bindless table point
+    // into them); a copy list binds nothing and may not set them.
+    if (kind_ != QueueKind::Transfer) {
+        ID3D12DescriptorHeap* heaps[2] = {device_.viewHeap_.heap(), device_.samplerHeap_.heap()};
+        list_->SetDescriptorHeaps(2, heaps);
+    }
     passState_ = PassState::None;
     passFailed_ = false;
     passFormat_ = {};
@@ -106,10 +116,13 @@ void D3d12CommandList::reset_bind_state() {
 }
 
 // A timed scope: a timestamp in the open timed frame's query heap at each end (d3d12_timers_win32.cpp resolves them).
-// Outside a timed frame, past its kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded.
+// Outside a timed frame, past its kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded; nor on
+// a Transfer list (a copy queue's timestamps need a heap of another type) or a Compute list whose queue cannot time.
 void D3d12CommandList::begin_timed_scope(const char* name) {
     FA_D3D12_REQUIRE_OPEN("begin_timed_scope");
     if (scopeOpen_) close_scope();  // scopes do not nest
+    if (kind_ == QueueKind::Transfer) return;
+    if (kind_ == QueueKind::Compute && device_.side_[0].timestampFrequency == 0) return;
     ScopeRef ref;
     {
         std::lock_guard<std::mutex> lock(device_.timerMutex_);
@@ -122,6 +135,11 @@ void D3d12CommandList::begin_timed_scope(const char* name) {
         ref.heap = slot.heap.get();
         slot.names.emplace_back(name ? name : "");
         slot.submitted.push_back(false);
+        slot.scopeQueue.push_back(kind_);
+        // This list now writes the slot's queries: the slot is not taken again until it was submitted or dropped.
+        const bool holds =
+            std::any_of(scopes_.begin(), scopes_.end(), [&](const ScopeRef& s) { return s.slot == ref.slot; });
+        if (!holds) ++slot.openLists;
     }
     list_->EndQuery(ref.heap, D3D12_QUERY_TYPE_TIMESTAMP, 2 + 2 * ref.scope);
     empty_ = false;
@@ -192,6 +210,13 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     passAttachments_.clear();
     reset_bind_state();
     const std::string passName = std::string("pass '") + (pass.label && *pass.label ? pass.label : "(no label)") + "'";
+    if (kind_ != QueueKind::Graphics) {
+        fail("begin_pass",
+             passName + ": a " + queue_name(kind_) +
+                 " list records no render pass (hint: draw in a list of begin_commands(label) or "
+                 "begin_commands(label, QueueKind::Graphics); hand the resources over with QueueHandoff)");
+        return;
+    }
     if (pass.swapchain) {
         fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) comes in M77-P9 (hint: the D3D12 "
                                       "backend draws into images for now; present with the sokol backend)");
@@ -209,8 +234,11 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     };
     Attachment color, color1, resolve, depth;
     std::string error;
+    // Held until the clears read the attachments' CPU descriptors: a view destroyed on the render thread meanwhile may
+    // have its descriptor freed at once (wait_idle), and the make_* call that takes it again writes it under this lock,
+    // never while this list reads it.
+    std::unique_lock<std::mutex> lock(device_.resMutex_);
     {
-        std::lock_guard<std::mutex> lock(device_.resMutex_);
         auto look = [&](View v, ViewType type, const char* what, Attachment& a) {
             if (!error.empty() || v.id == 0) return;
             const D3d12Device::ViewRecord* r = device_.views_.get(v.id);
@@ -280,6 +308,7 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
         error = "its depth attachment has " + std::to_string(depth.samples) + " sample(s), its colour attachment " +
                 std::to_string(color.samples);
     if (!error.empty()) {
+        lock.unlock();
         fail("begin_pass", passName + ": " + error);
         return;
     }
@@ -313,6 +342,7 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
         const float clearDepth = std::isfinite(pass.clearDepth) ? std::clamp(pass.clearDepth, 0.0f, 1.0f) : 1.0f;
         if (flags) list_->ClearDepthStencilView(depth.handle, flags, clearDepth, 0, 0, nullptr);
     }
+    lock.unlock();
     passWidth_ = first.width;
     passHeight_ = first.height;
     passColors_ = int(rtvCount);
@@ -347,6 +377,13 @@ void D3d12CommandList::begin_compute_pass(const char* label) {
     passState_ = PassState::Compute;
     passFailed_ = false;
     reset_bind_state();
+    if (kind_ == QueueKind::Transfer) {
+        // Open (end_pass matches it) but failed: its commands are skipped.
+        passFailed_ = true;
+        fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
+                                       "': a Transfer list records copies and writes only (hint: dispatch in a list of "
+                                       "begin_commands(label, QueueKind::Compute) or a Graphics one)");
+    }
 }
 
 void D3d12CommandList::end_pass() {
@@ -480,8 +517,11 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         if (error.empty()) error = e;
     };
     const std::string shaderName = "shader '" + sh.label + "'";
+    // Held until the CPU descriptors are copied into the shader-visible heap: a view or sampler destroyed on the
+    // render thread meanwhile may have its descriptor freed at once (wait_idle), and the make_* call that takes it
+    // again writes it under this lock, never while this list copies it.
+    std::unique_lock<std::mutex> lock(device_.resMutex_);
     {
-        std::lock_guard<std::mutex> lock(device_.resMutex_);
         auto buffer = [&](Buffer buf, int offset, bool wanted, bool usageOk, const char* what, const char* usage,
                           BoundBuffer& out) {
             if (!wanted) {
@@ -578,6 +618,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         }
     }
     if (!error.empty()) {
+        lock.unlock();
         drawsFailed_ = true;
         fail("set_bindings", error);
         return;
@@ -590,6 +631,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         if (lay.viewCount[s] > 0) {
             viewSpan[s] = device_.viewHeap_.alloc(lay.viewCount[s]);
             if (!viewSpan[s].ok()) {
+                lock.unlock();
                 drawsFailed_ = true;
                 fail("set_bindings",
                      "this frame used up its " + std::to_string(device_.viewHeap_.per_frame()) +
@@ -600,6 +642,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         if (lay.samplerCount[s] > 0) {
             samplerSpan[s] = device_.samplerHeap_.alloc(lay.samplerCount[s]);
             if (!samplerSpan[s].ok()) {
+                lock.unlock();
                 drawsFailed_ = true;
                 fail("set_bindings",
                      "this frame used up its " + std::to_string(device_.samplerHeap_.per_frame()) +
@@ -628,8 +671,11 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
                 require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             if (std::find(boundUavs_.begin(), boundUavs_.end(), v.t) == boundUavs_.end()) boundUavs_.push_back(v.t);
         } else {
-            const auto read = D3D12_RESOURCE_STATES(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
-                                                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            // A compute list's queue has no pixel shader state (a COMPUTE list may not use it).
+            const auto read = kind_ == QueueKind::Graphics
+                                  ? D3D12_RESOURCE_STATES(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                                                          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+                                  : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             if (v.type == ViewType::StorageBuffer)
                 require(v.t, 0, read);
             else
@@ -642,6 +688,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         dst.ptr += std::size_t(lay.samplerOffset[i]) * samplerInc;
         dev->CopyDescriptorsSimple(1, dst, samplers[i], D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
     }
+    lock.unlock();
     for (std::size_t s = 0; s < 2; ++s) {
         if (lay.viewTable[s] >= 0) {
             if (st.compute)
@@ -1181,6 +1228,7 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     scratch->resource = raw;
     scratch->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
     scratch->buffer = true;
+    scratch->owner = kind_;  // this list's own, on whichever queue it runs
     require(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     flush_barriers();
     for (std::uint32_t i = 0; i < r.count; ++i)
