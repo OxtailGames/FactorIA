@@ -119,4 +119,37 @@ DirectTextureBox direct_texture_box(std::uint32_t x, std::uint32_t y, std::uint3
     return b;
 }
 
+DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool statusComplete) {
+    if (!w.warned && waitedMs >= kDirectWarnMs) {
+        w.warned = true;
+        return DirectWaitStep::Warn;
+    }
+    if (!w.cancelled && waitedMs >= kDirectGiveUpMs) {
+        w.cancelled = true;
+        w.cancelledAtMs = waitedMs;
+        return DirectWaitStep::Cancel;
+    }
+    if (w.cancelled && waitedMs - w.cancelledAtMs >= kDirectGiveUpMs) return DirectWaitStep::Abort;
+    // After the timed steps: a probe the full queue keeps putting off (the caller clears `probed` every second) must
+    // not hold back the warning, the cancellation or the abort.
+    if (statusComplete && !w.probed) {
+        w.probed = true;
+        return DirectWaitStep::Probe;
+    }
+    return DirectWaitStep::Wait;
+}
+
+Result<void> direct_read_result(bool complete, std::int32_t hr, const std::string& hrText) {
+    if (!complete)
+        return make_error(
+            "DirectStorage signalled the end of a read of game.pak before it wrote the read's status entry (the "
+            "runtime did not keep the order of its queue)",
+            "The pack is read on the CPU from now on. Install the DirectStorage runtime again with `factoria setup "
+            "directstorage` and export the game again, or set FA_DIRECTSTORAGE=0.");
+    if (hr < 0)
+        return make_error("a DirectStorage read of game.pak failed with " + hrText,
+                          "The pack is read on the CPU from now on; the CPU read names a damaged block, if any.");
+    return {};
+}
+
 }  // namespace fa::detail

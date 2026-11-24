@@ -199,9 +199,16 @@ reuses the plan and the declarations; core never includes render.
   a loop of 1 s waits for the batch's event, which DirectStorage sets after the batch's requests and status entry are
   done: the event, not the status entry, ends the wait, since the entry can still say "complete" from the slot's previous
   batch until DirectStorage reaches the new one, and only this batch waits for that event (it consumes it before the slot
-  is free again). The wait logs a warning after 30 s, cancels the batch's requests after 10 minutes and redoes the read on
-  the CPU; if DirectStorage does not confirm a cancellation (its event never comes) the
-  process stops (`FA_ERROR`, then abort) rather than let it write into freed memory. A raw block is a plain read whose
+  is free again). When a second goes by without the event while the entry says complete, the batch checks progress with
+  a probe instead of trusting the entry: one more event enqueued after it (a second one per slot), which DirectStorage sets
+  only once everything before it, the batch included, is done. A probe that comes ends the wait as the event would (the
+  slot then takes a new event, in case its own comes late), so a lost event costs a second and the probe's wait, not a
+  cancellation and an abort; a slot whose last batch ended before its probe came is free again only once the probe came
+  (`direct_wait_step`, `direct_read_result`). An event or probe that comes while the entry is still not complete is an
+  error, and the pack is read on the CPU from then on. The wait logs a warning after 30 s, cancels the batch's requests
+  after 10 minutes and redoes the read on the CPU; if DirectStorage does not confirm a cancellation (neither its event
+  nor a probe comes within 10 more minutes) the process stops (`FA_ERROR`, then abort) rather than let it write into
+  freed memory. A raw block is a plain read whose
   xxh32 is checked as on the CPU path; a compressed block is decompressed by DirectStorage from its stored bytes, which never
   reach the engine, so its checksum is not checked on this path (a damaged stream is a failed request) unless
   `FA_DIRECTSTORAGE_VERIFY=1`, which also reads the stored bytes and checks them (a debugging aid: it reads every block
@@ -234,23 +241,34 @@ reuses the plan and the declarations; core never includes render.
   other mips and layers stay usable through views that leave it out). `commit()` and `poll_pack_read` move reads along;
   the destructor waits for (and, after 30 s, cancels once) the reads DirectStorage still holds before the queue, the files
   and the resources go. A lost device (its fences read UINT64_MAX) ends every read in flight with an error that names
-  the removal reason, so neither a poll nor the destructor waits for it. A partial block that finds no upload room ends
-  the read with an error (the whole blocks still go to DirectStorage). More than 2045 blocks in one read that
-  DirectStorage would take is an error that says to split it; the CPU fallback reads any size. **Fallback:** a pack opened from memory, another codec, a
+  the removal reason, so neither a poll nor the destructor waits for it; its requests are cancelled, and since
+  DirectStorage may still hold them, the device closes no pack file from then on until its queue is closed (the
+  destructor closes the queue before the files). A partial block that finds no upload memory ends the read with an
+  error in its result and in `errors()` that names the bytes not written and how to avoid it (free GPU memory, a bigger
+  `D3d12Options::uploadRingBytes`, or a range on block boundaries, which has no partial block); the whole blocks still go
+  to DirectStorage. More than 2045 blocks in one read that DirectStorage takes (whole blocks of a buffer read, every
+  block of an image read) is an error that says to split it, checked once the read's path is known: a read that takes
+  the CPU fallback reads any size. **Fallback:** a pack opened from memory, another codec, a
   32-bit build, no DLLs, a queue that cannot be made, a texture region whose rows do not fill whole blocks, or a request
   that fails: the range is decoded on the CPU and uploaded on an internal list, with one log warning per reason (a failed
   request also turns DirectStorage off for that device). `PackReadResult::direct` says which path wrote the bytes;
-  `D3d12Counters` counts both and the blocks DirectStorage read.
+  `D3d12Counters` counts both, the blocks DirectStorage read and the pack files it opened and closed.
 - **Fallback.** Every failure of the memory path falls back to the CPU path: DLLs that are missing or too old, a queue or
   file that cannot be created, a failed or cancelled request or a raw block whose checksum is wrong. The first gdeflate read
   of a pack logs once (`fs`, info) whether DirectStorage is used and, if not, why; a request that fails logs one warning,
   turns DirectStorage off for that pack and the same read is redone on the CPU, whose checksums name the damaged block.
 - **Tests.** `engine/core/tests/test_pack_direct_storage.cpp`: the plan, the batches, the queue's room, the buffer split,
-  the texture footprint and `range_layout`/`check_stored` (every platform), and on Windows x64 a gdeflate pack with raw
+  the texture footprint, `range_layout`/`check_stored`, the steps of a batch's wait (probe, warning, cancellation, abort)
+  and how it ends (an event before the status is an error) on every platform, and on Windows x64 a gdeflate pack with raw
   blocks inside, read whole and by ranges, mapped and not, through DirectStorage. `engine/render/tests/
-  d3d12_pack_reads_tests.cpp` (ctest `render_d3d12_pack_reads`): on WARP, a gdeflate range into a buffer (whole and partial
-  blocks) and a 64x2048 RGBA8 region into a texture, the CPU fallback (a pack in memory, an lz4 file, a padded region) and
-  the teaching errors. Without the DLLs the DirectStorage cases check the fallback's bytes and say so;
+  d3d12_pack_reads_tests.cpp` (ctest `render_d3d12_pack_reads`): on WARP with the debug layer, a gdeflate range into a
+  buffer (whole and partial blocks), a 64x2048 RGBA8 region into a texture, the 2x2 and 1x1 mips of an 8x8 BC1 texture
+  (one whole block each, the box larger than the mip), the pack file closed once the pack is gone (a MESSAGE says when
+  the device never opened it, so that part was not covered), the CPU fallback (a pack in memory, an lz4 file, a padded
+  region) and the teaching errors. Without the DLLs the DirectStorage cases check the fallback's bytes and say so;
   `FA_DIRECTSTORAGE_REQUIRE=1` makes them fail instead, which the Windows CI job sets in its DirectStorage step (it
   installs the DLLs with `factoria setup directstorage`, cached under the pinned version and SHA-256, and runs these cases
-  and the GDeflate vectors).
+  and the GDeflate vectors). Even with `FA_DIRECTSTORAGE_REQUIRE=1`, a runtime that loaded but refuses the WARP device
+  (its D3D12 queue, the file or a request) is only a MESSAGE, since WARP is not a GPU DirectStorage has to serve: the
+  cases check the CPU fallback's bytes, and the CI step turns that MESSAGE into a `::warning` on the run, so a green run
+  that did not exercise DirectStorage's GPU destinations says so.
