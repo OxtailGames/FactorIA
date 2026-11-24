@@ -66,6 +66,18 @@ TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFr
                       std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
                       const Mat4& prevViewProj, bool prevValid);
 
+// The history key of the temporal upscaler (M76-P4): one history for the frame, at the output resolution, in the same TaaFx as the cameras'
+// (no entity has this id).
+inline constexpr std::uint64_t kUpscaleCamKey = ~std::uint64_t(0);
+
+// The plan of the temporal upscaler for the frame's one camera: the numbers of the camera's stack when it has TemporalAA (feedback,
+// variance gamma, reactive scale, sharpen), else the defaults of PostProcess (`stack` may be null: no post stack). `sharpness` is
+// UpscalerSettings::sharpness (0..1, 0.5 = the stack's own sharpen): the output sharpen is temporalAASharpen * sharpness / 0.5, clamped to 0..1.
+// `camKey` is kUpscaleCamKey. Pure CPU.
+TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, bool gameFrame, bool available,
+                              float sharpness, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+                              const Mat4& prevViewProj, bool prevValid);
+
 // What one resolve pass reads (the temporal upscaler fills the same). A null view is not bound; `dummy` stands in for it (any texture view).
 struct TaaResolveInput {
     sg_view color{};     // the picture of this frame, jittered
@@ -103,6 +115,14 @@ public:
     // The resolve pass of `in`, drawn into the whole of `into` (the history image of the frame, `outW` x `outH`): the entry the temporal upscaler
     // shares. False (nothing drawn) when the target is gone or the program is not ready.
     bool resolve(Gpu& gpu, const PassDesc& into, const TaaResolveInput& in);
+
+    // The temporal upscaler (M76-P4): resolves `in` (the jittered picture at the render resolution, inW x inH; the history is at outW x outH)
+    // with the history kept under kUpscaleCamKey and draws the sharpened result into the whole of `out`. The fields of `in` that the plan
+    // knows (jitter, gamma, feedback, matrices) are taken from `plan`; `history` and `historyValid` are set here. The history restarts (the
+    // frame shows its own picture alone) when it is not the one of the frame before (PostPlan rules: a cut, another scene, a floating-origin
+    // shift, no frame in between), when the image size changed, or when `configKey` (the render size and the quality) differs from the last
+    // frame's. False (nothing drawn: `out` is untouched) when the shaders or the history are not available; the caller then stretches.
+    bool upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out);
 
     // True from the first failure (shader that did not compile, history the GPU or the budget refused) to release(): a camera then draws
     // without TAA and without the jitter. ready() compiles the shaders on its first call (the renderer calls it before it jitters a camera).
@@ -146,7 +166,8 @@ private:
         std::uint64_t planned = 0;     // the last frame that asked for it
         std::uint64_t sceneKey = 0;
         std::uint64_t originShifts = 0;
-        bool usedHistory = false;      // the last resolve blended with the history
+        std::uint64_t configKey = 0;  // the temporal upscaler's render size and quality of the frame in img[last]
+        bool usedHistory = false;     // the last resolve blended with the history
     };
     sg_shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;

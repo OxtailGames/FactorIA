@@ -1,6 +1,11 @@
 // Renderer: the upscale stage (render_upscale.h) and the output-resolution images the screen-space items are drawn into after it.
 #include "render_upscale.h"
 
+#include <algorithm>
+#include <cmath>
+
+#include "fa/scene/jitter.h"
+
 #include "renderer_impl.h"
 
 #include "render_features.h"
@@ -9,14 +14,23 @@
 namespace fa::render {
 
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known) {
-    const bool understood = mode == "stretch" || mode == "spatial";
+    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal";
     if (known) *known = understood;
+    if (mode == "temporal") return UpscaleImpl::Temporal;
     return mode == "spatial" ? UpscaleImpl::Spatial : UpscaleImpl::Stretch;
+}
+
+int upscale_jitter_phases(int renderW, int renderH, int outW, int outH) {
+    const double rw = std::max(renderW, 1), rh = std::max(renderH, 1);
+    const double ow = std::max(outW, 1), oh = std::max(outH, 1);
+    const double phases = std::ceil(double(kJitterPhasesDefault) * (ow * oh) / (rw * rh) - 1e-6);
+    return int(std::clamp(phases, 1.0, double(kJitterPhasesMax)));
 }
 
 const char* upscale_impl_name(UpscaleImpl impl) {
     switch (impl) {
         case UpscaleImpl::Stretch: return "stretch";
+        case UpscaleImpl::Temporal: return "temporal";
         case UpscaleImpl::Spatial: return "spatial";
     }
     return "stretch";
@@ -30,8 +44,10 @@ using render::UpscaleImpl;
 using render::UpscaleInput;
 
 // What this backend and the game's display allow: the spatial upscaler runs on every GPU backend (the row of render.supports), pixel
-// art (ScaleMode::PixelPerfect) keeps its hard edges. The temporal and MetalFX flags come with their packages (M76 P4, P5).
-render::UpscalerCaps Renderer::Impl::upscaler_caps() const {
+// art (ScaleMode::PixelPerfect) keeps its hard edges. The temporal upscaler (M76-P4) is the TAA resolve: it needs the TAA shaders (compiled
+// here the first time a temporal, metalfx or auto setting asks, as the cameras do) and histories that fit, and it works on a frame of one
+// full-viewport camera (`multiCamera`, what the last frame had). The MetalFX flag comes with its package (M76 P5).
+render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     if (spatialSupported < 0) {
         const int row = render::find_feature("spatialUpscaler");
         spatialSupported = row >= 0 && render::feature_supported(render::feature_env_from_sokol(), row) ? 1 : 0;
@@ -39,16 +55,20 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() const {
     render::UpscalerCaps caps;
     caps.pixelArt = scaleMode == ScaleMode::PixelPerfect;
     caps.spatial = spatialSupported > 0;
+    if (sg_isvalid() && (upscaler.mode == render::UpscalerMode::Temporal ||
+                         upscaler.mode == render::UpscalerMode::Auto || upscaler.mode == render::UpscalerMode::MetalFx))
+        caps.temporal = taa.ready() && !taa.unavailable();
+    caps.multiCamera = temporalBlocked;
     return caps;
 }
 
-render::UpscalerMode Renderer::Impl::effective_upscaler_mode() const {
+render::UpscalerMode Renderer::Impl::effective_upscaler_mode() {
     return render::effective_upscaler_mode(upscaler, upscaler_caps());
 }
 
 // The stage runs when the game is drawn below the output size, and at the output size too when the spatial mode has a sharpen to do
 // (sharpness above 0): then it is that one pass and nothing else. Spatial with sharpness 0 at scale 1, and stretch, draw nothing.
-bool Renderer::Impl::upscale_active() const {
+bool Renderer::Impl::upscale_active() {
     if (!upscaleStage || physW <= 0 || physH <= 0) return false;
     if (physW < targetW || physH < targetH) return true;
     return physW == targetW && physH == targetH && upscaler.sharpness > 0.0f &&
@@ -111,6 +131,27 @@ void Renderer::Impl::stretch_upscale(const UpscaleInput& in, Target& out) {
     sg_draw(0, 3, 1);
     gpu.end_pass();
     ++stats.drawCalls;
+}
+
+// The "temporal" implementation (M76-P4): the TAA resolve of the jittered picture at the render resolution into a history of the output
+// resolution, sharpened into `out` (TaaFx::upscale). The depth of the camera's prepass and the velocity are read when the frame has
+// them. False (nothing drawn): the plan is off or the history cannot be made; the caller then stretches.
+bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const PassContext& c) {
+    if (!upscaleTaa.on || !assets || !assets->white()) return false;
+    render::TaaResolveInput r;
+    r.color = in.color;
+    r.dummy = assets->white()->view;
+    if (const Target* t = upscalePrepass.target(c)) r.depth = t->texView;
+    if (const Target* t = upscaleVelocity.target(c)) r.velocity = t->texView;
+    r.inW = in.renderW;
+    r.inH = in.renderH;
+    // What the history is bound to besides the camera: the size the picture is drawn at and the quality (a change of either drops it).
+    const std::uint64_t config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
+                                 (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 |
+                                 (std::uint64_t(int(upscaler.quality)) & 0xFF);
+    if (!taa.upscale(gpu, upscaleTaa, r, config, out)) return false;
+    stats.drawCalls += 2;  // the resolve and the sharpened copy
+    return true;
 }
 
 // The image between the two passes of the spatial upscaler: the output size, no depth, the format of the output image. False (and one
@@ -195,8 +236,8 @@ void Renderer::Impl::spatial_upscale(const UpscaleInput& in, Target& out) {
             resize ? in.outW : in.renderW, resize ? in.outH : in.renderH, out);
 }
 
-// The upscale pass: the picture of the render resolution (scene_target()) into `out`. The implementation is chosen by the effective upscaler mode (Renderer::effective_upscaler_mode).
-void Renderer::Impl::run_upscale(Target& out) {
+// The upscale pass: the picture of the render resolution (scene_target()) into `out`. The implementation follows the effective upscaler mode and the frame (Temporal only on a frame the renderer jittered).
+void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     const Target& src = scene_target();
     UpscaleInput in;
     in.color = src.texView;
@@ -208,12 +249,24 @@ void Renderer::Impl::run_upscale(Target& out) {
     in.pixelArt = scaleMode == ScaleMode::PixelPerfect;
     in.linear = gpu.linear() && !finalEncoded;  // linear light (display values after a final pass)
     in.sharpness = upscaler.sharpness;
-    // The implementation follows the effective mode (pixel art is stretch there): the one place that decides it.
-    upscaleImpl =
-        effective_upscaler_mode() == render::UpscalerMode::Spatial ? UpscaleImpl::Spatial : UpscaleImpl::Stretch;
+    // The implementation follows the effective mode (pixel art is stretch there): the one place that decides it. Temporal draws on the
+    // frame render() jittered for it (temporalFrame); a temporal mode on a frame that was not (the stage came up between the two) and a
+    // temporal picture that cannot be made fall to the spatial upscaler, as the effective mode does.
+    const render::UpscalerMode mode = effective_upscaler_mode();
+    if (temporalFrame)
+        upscaleImpl = UpscaleImpl::Temporal;
+    else
+        upscaleImpl = mode == render::UpscalerMode::Stretch ? UpscaleImpl::Stretch : UpscaleImpl::Spatial;
+    if (upscaleImpl == UpscaleImpl::Temporal) {
+        in.jitter[0] = upscaleTaa.jitterPx.x;
+        in.jitter[1] = upscaleTaa.jitterPx.y;
+        if (!temporal_upscale(in, out, c))
+            upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
+    }
     switch (upscaleImpl) {
         case UpscaleImpl::Stretch: stretch_upscale(in, out); break;
         case UpscaleImpl::Spatial: spatial_upscale(in, out); break;
+        case UpscaleImpl::Temporal: break;  // drawn above
     }
     outActive = true;
 }

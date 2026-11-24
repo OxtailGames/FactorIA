@@ -431,8 +431,28 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   the design size and include the HUD.
 - **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_POST.md,
   "Temporal antialiasing"), before the stage; the stage then brings the resolved picture to the design size like any other, with the
-  same HUD rule (`hudAfterBloom` counts the effect). The temporal upscaler of M76-P4 will do both in one pass with `TaaFx::resolve`
-  (history at the output size).
+  same HUD rule (`hudAfterBloom` counts the effect). With the temporal upscaler (below) the camera's own pass is skipped instead.
+- **Temporal upscaler (M76-P4, `UpscaleImpl::Temporal`).** The seam exists so that one stage serves the spatial upscaler, this one and
+  MetalFX with the HUD drawn after it, unjittered, at the output size: each is a `case` of `run_upscale`, none moves the HUD. The temporal
+  one resolves the jittered render-size picture into a history at the output size with `TaaFx::upscale` (`renderer_taa.cpp`; the same
+  `taa_resolve` as the antialiasing with `inSize != outSize`, history key `kUpscaleCamKey`, the `upscale` pass's two draws, resolve and
+  sharpen, counted in the stats) and writes the sharpened image into `outTarget`. `Renderer::render` decides it before the cameras are
+  built (`Impl::upscaler_caps()`: `temporal` is the TAA shaders ready and not refused, `pixelArt` is `scaleMode` `PixelPerfect`;
+  `effective_upscaler_mode(settings, caps)` is Temporal) and the frame must have exactly one full-viewport camera: the cameras are
+  collected with the jitter the last frame's count says, and again when this frame's count says otherwise (`temporalBlocked`, the
+  `multiCamera` cap: the mode then reads and draws `spatial`, the spatial upscaler, never a bare stretch). Then `jitter_phases`
+  gives that camera `upscale_jitter_phases` = `ceil(8 * outArea / renderArea)` (at most `kJitterPhasesMax` = 128) phases, `plan_job` builds
+  `upscaleTaa` (`make_upscale_taa_plan`: the stack's TemporalAA fields, else the defaults, sharpen scaled by `UpscalerSettings.sharpness`)
+  and clears the camera's own `pp.taa`, forces the depth prepass on and asks it for the velocity image (`request_velocity`, M76-P1a), and `finish_output` adds the prepass and the velocity (when a
+  velocity pass ran) to the reads of `upscale`. The history resets with everything the antialiasing resets on, and when the render size, the
+  output size or the quality (`configKey`) changes. A failure of the resolve falls back to `spatial_upscale` for that frame. Native quality
+  never reaches the stage. Engine side: the render scale is the one of `Engine::Impl::apply_render_scale` (`plan_upscale_scale`: `heldScale * upscaler_quality_scale(quality)`,
+  floor 0.25; a CLI `--render-scale` hold is a size and ignores the quality).
+  `Renderer::effective_upscaler_mode()` is what `render.upscaler` and `window.upscaler` report. Trade-offs: the resolve runs after the
+  post stack, so the post effects see a jittered image; a 2D game has no velocity so moving sprites trail; with a glowing bloom
+  (`bloomScreenSpace`) the HUD is in the game image and is resolved with it; the output alpha is cleared to 1 (the `Out` pipeline
+  writes RGB). Not done: a mip bias for the textures (sokol samplers have none; it would need a per-frame uniform and a change at
+  every `texture()` of `mesh_common.glsl`, terrain, foliage and the custom materials).
 - **Cost.** One image of the design size (`outTarget`, plus `outFilterTarget` with a colour filter, plus `spatialTarget` for the spatial
   mode with a sharpen over a resize) while the stage applies; freed by
   `set_upscale_stage(false)` and `destroy_targets`. The pipelines for the output formats are created the first time the stage

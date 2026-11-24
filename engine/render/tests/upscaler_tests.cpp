@@ -96,6 +96,9 @@ TEST_CASE("upscaler: plan_upscale_scale multiplies the player's scale by the qua
     CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
     CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
+    CHECK_FALSE(plan_upscale_scale(1.0f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin)
+                    .stage);  // nothing to upscale or sharpen
+    CHECK(plan_upscale_scale(0.5f, UpscalerQuality::Native, UpscalerMode::Temporal, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Spatial, kMin).stage);
     CHECK_FALSE(plan_upscale_scale(2.0f, UpscalerQuality::Native, UpscalerMode::Stretch, kMin).stage);
 }

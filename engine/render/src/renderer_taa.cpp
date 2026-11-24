@@ -51,12 +51,12 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 
 }  // namespace
 
-TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available, std::uint64_t camKey,
-                      std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
-                      const Mat4& prevViewProj, bool prevValid) {
+namespace {
+
+// The plan of `cam` with the numbers of `f` (clamped); the callers decide whether there is one.
+TaaPlan build_taa_plan(const CameraInfo& cam, const PostProcess& f, std::uint64_t camKey, std::uint64_t serial,
+                       std::uint64_t sceneKey, std::uint64_t originShifts, const Mat4& prevViewProj, bool prevValid) {
     TaaPlan p;
-    if (!gameFrame || !available || !stack.has(PostEffect::TemporalAA)) return p;
-    const PostProcess& f = stack.fx;
     p.gamma = std::clamp(finite_or(f.temporalAAVarianceGamma, 1.0f), 0.5f, 2.0f);
     p.feedback = std::clamp(finite_or(f.temporalAAFeedback, 0.9f), 0.5f, 0.98f);
     p.sharpen = std::clamp(finite_or(f.temporalAASharpen, 0.25f), 0.0f, 1.0f);
@@ -79,6 +79,26 @@ TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFr
         for (int i = 0; i < 16; ++i) finite = finite && std::isfinite(p.prevFromView.m[i]);
         p.prevValid = finite;  // a matrix that is not usable: the camera starts a new history (a cut)
     }
+    return p;
+}
+
+}  // namespace
+
+TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available, std::uint64_t camKey,
+                      std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+                      const Mat4& prevViewProj, bool prevValid) {
+    if (!gameFrame || !available || !stack.has(PostEffect::TemporalAA)) return TaaPlan{};
+    return build_taa_plan(cam, stack.fx, camKey, serial, sceneKey, originShifts, prevViewProj, prevValid);
+}
+
+TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, bool gameFrame, bool available,
+                              float sharpness, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+                              const Mat4& prevViewProj, bool prevValid) {
+    if (!gameFrame || !available) return TaaPlan{};
+    static const PostProcess kDefaults;
+    const PostProcess& f = stack && stack->has(PostEffect::TemporalAA) ? stack->fx : kDefaults;
+    TaaPlan p = build_taa_plan(cam, f, kUpscaleCamKey, serial, sceneKey, originShifts, prevViewProj, prevValid);
+    p.sharpen = std::clamp(p.sharpen * finite_or(sharpness, 0.5f) / 0.5f, 0.0f, 1.0f);
     return p;
 }
 
@@ -323,6 +343,49 @@ bool TaaFx::output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, 
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     return true;
+}
+
+bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out) {
+    if (!plan.on || !out.valid() || !in.color.id || !in.dummy.id || !ready() || refused_) return false;
+    in.outW = out.w;
+    in.outH = out.h;
+    const sg_pixel_format hf = pick_format();
+    const std::shared_ptr<Slot> slot = slot_for(plan.camKey, in.outW, in.outH, hf, "upscale");
+    if (!slot) return false;
+    // The history holds the frame before when the upscaler resolved it, nothing that changes what the images mean happened since (a cut, a
+    // scene, a floating-origin shift, another render size or quality) and the images are the ones just made or kept.
+    const bool histValid = slot->wrote && (slot->last == 0 || slot->last == 1) && slot->serial + 1 == plan.serial &&
+                           slot->sceneKey == plan.sceneKey && slot->originShifts == plan.originShifts &&
+                           slot->configKey == configKey && plan.prevValid;
+    if (!histValid) ++resets_;
+    slot->planned = plan.serial;
+    const int readIdx = histValid ? slot->last : -1;
+    const int writeIdx = slot->last == 0 ? 1 : 0;
+    in.jitterPx = plan.jitterPx;
+    in.gamma = plan.gamma;
+    in.feedback = plan.feedback;
+    in.reactiveScale = plan.reactiveScale;
+    in.prevFromView = plan.prevFromView;
+    for (int i = 0; i < 8; ++i) in.proj[i] = plan.proj[i];
+    in.historyHasDepth = hf == SG_PIXELFORMAT_RGBA16F;
+    in.historyValid = readIdx >= 0;
+    in.history = readIdx >= 0 ? slot->img[readIdx].texView : sg_view{};
+    PassDesc pd = pass_into(slot->img[writeIdx], "upscale-resolve");
+    pd.colorLoad = SG_LOADACTION_DONTCARE;
+    if (!resolve(gpu, pd, in)) return false;
+    slot->last = writeIdx;
+    slot->wrote = true;
+    slot->serial = plan.serial;
+    slot->sceneKey = plan.sceneKey;
+    slot->originShifts = plan.originShifts;
+    slot->configKey = configKey;
+    slot->usedHistory = histValid;
+    // The sharpened history into the output image. The pipeline leaves the alpha alone, so the image is cleared to opaque first.
+    PassDesc od = pass_into(out, "upscale-output");
+    od.colorLoad = SG_LOADACTION_CLEAR;
+    od.clearColor = sg_color{0.0f, 0.0f, 0.0f, 1.0f};
+    od.colorStore = SG_STOREACTION_STORE;
+    return output(gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
 // The pass callbacks capture a plan by value (a Mat4 inside): MSVC warns (C4324) about padded closures when a member is alignas(16).

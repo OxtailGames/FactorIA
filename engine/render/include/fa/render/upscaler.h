@@ -2,8 +2,8 @@
 // It is a setting of the whole game, not of a camera: it changes the size the frame is drawn at, like Renderer::set_render_scale.
 //
 // M76-P0 defines, validates and stores it (factoria.json "render.upscaler", the command render.upscaler, `window.upscaler` in
-// scripts). The renderer draws "stretch" and "spatial" (M76-P3b); effective_upscaler_mode is the one place that says which mode
-// draws, and the packages that draw the others change it (the `temporal` and `metalfx` flags of UpscalerCaps) and read
+// scripts). The renderer draws "stretch", "spatial" (M76-P3b) and "temporal" (M76-P4); effective_upscaler_mode is the one place that says which mode
+// draws, and the package that draws the last one changes it (the `metalfx` flag of UpscalerCaps) and reads
 // Renderer::upscaler().
 #pragma once
 
@@ -60,15 +60,19 @@ struct UpscalerCaps {
     bool pixelArt =
         false;  // ScaleMode::PixelPerfect (integer scaling, Nearest): hard pixel edges are kept, nothing is filtered
     bool spatial = true;    // the "spatialUpscaler" row of render.supports: true wherever there is a GPU
-    bool temporal = false;  // the "temporalUpscaler" row (M76 P4)
-    bool metalfx = false;   // the "metalfx" row (M76 P5)
+    bool temporal = false;  // the "temporalUpscaler" row (M76 P4): the TAA shaders compiled and its histories fit
+    bool multiCamera =
+        false;  // this frame has no single full-viewport camera: the temporal upscaler (one history) cannot run
+    bool metalfx = false;  // the "metalfx" row (M76 P5)
 };
 
 // The mode the renderer really draws with, so reading the setting back never lies:
 //  - pixel art (`caps.pixelArt`): always stretch (Nearest); a filter would blur the pixels the game keeps hard;
 //  - stretch: stretch;
 //  - spatial: spatial, stretch where the backend cannot draw it (`caps.spatial` false: no GPU);
-//  - temporal and metalfx: themselves when drawable, else the next best this GPU can draw (metalfx -> temporal -> spatial);
+//  - temporal and metalfx: themselves when drawable, else the next best this GPU can draw (metalfx -> temporal -> spatial); temporal
+//    is not drawable when `caps.temporal` is false or the frame has several cameras (`caps.multiCamera`: one history per rectangle
+//    is not made), and spatial draws instead;
 //  - auto: the best drawable of metalfx, temporal, spatial; stretch when none is.
 // Without a renderer (a run with graphics=false) the host reports what a GPU would draw: caps with pixelArt taken from the project's
 // scale mode and the default `spatial` (true), so a pixel-perfect project says stretch and any other says spatial for spatial, auto,
@@ -77,7 +81,7 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
 
 // The render scale the game is drawn at and whether the upscale stage runs (docs/UPSCALING.md, "The render scale"): the player's scale
 // (window.renderScale) times the quality's, never below `minScale` (the engine's 0.25 floor). The stage is on when that scale is below 1
-// or the effective mode is not stretch (at scale 1 the spatial mode is the sharpen alone), and never above 1: a scale above 1 is a bigger
+// or the effective mode is spatial (at scale 1 it is the sharpen alone; the temporal mode has nothing to do at scale 1), and never above 1: a scale above 1 is a bigger
 // picture (a screenshot's "scale"), not an upscale. Only the renderer's `effective` mode decides: pixel art is stretch there.
 struct UpscaleScalePlan {
     float scale = 1.0f;
@@ -89,7 +93,7 @@ constexpr UpscaleScalePlan plan_upscale_scale(float windowScale, UpscalerQuality
     if (!(s >= minScale)) s = minScale;  // also a NaN
     UpscaleScalePlan p;
     p.scale = s;
-    p.stage = s <= 1.0f && (s < 1.0f || effective != UpscalerMode::Stretch);
+    p.stage = s <= 1.0f && (s < 1.0f || effective == UpscalerMode::Spatial);
     return p;
 }
 

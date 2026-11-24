@@ -99,7 +99,7 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 // The one place that decides the render scale and the upscale stage (docs/UPSCALING.md, "The render scale"): the scale the renderer draws at
 // is window.renderScale (heldScale) times the scale of the upscaler's quality, never below the engine's 0.25 floor; the stage is on when
-// that is below 1 or the mode that really draws is not stretch (render::plan_upscale_scale). A scale that is held as a size (--render-scale,
+// that is below 1 or the mode that really draws is spatial (its sharpen at scale 1; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
 // the video recorder: hold_render_scale without the player's option) is that size and no stage. The scale mode is told too: pixel art
 // keeps the plain nearest scaling (the effective mode is stretch there). A later package multiplies in the dynamic resolution here.
 void Engine::Impl::apply_render_scale() {
@@ -1754,7 +1754,13 @@ render::UpscalerMode Engine::effective_upscaler_mode() const {
 }
 
 render::UpscalerCaps Engine::upscaler_caps() const {
-    render::UpscalerCaps caps;  // no renderer: what a GPU would draw, so only the scale mode matters
+    // No renderer: what a GPU would draw for a game with one full-window camera and a history that fits (the milestone rule: a
+    // headless run and a test report what a player would see). MetalFX is not built, so `metalfx` stays false.
+    render::UpscalerCaps caps;
+    caps.spatial = true;
+    caps.temporal = true;
+    caps.multiCamera = false;
+    caps.metalfx = false;
     caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
     return caps;
 }

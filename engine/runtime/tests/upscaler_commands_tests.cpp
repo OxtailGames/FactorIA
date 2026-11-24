@@ -183,6 +183,32 @@ TEST_CASE("the project's upscaler is applied when the engine starts") {
     e.shutdown();
 }
 
+TEST_CASE("render.upscaler: a quality below native draws the game smaller with the upscale stage on, temporal says so, "
+          "native undoes it") {
+    TempProject p("quality", "", "fit");  // pixel art (the default of these projects) is always stretch
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    auto r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"performance"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["effectiveMode"] == "temporal");  // M76-P4: drawn, as the renderer can draw it
+    CHECK(e.renderer()->upscale_stage());
+    CHECK(e.renderer()->effective_upscaler_mode() == render::UpscalerMode::Temporal);
+    // Stretch at the same quality is the upscale stage with a plain scale-up.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "stretch");
+    CHECK(e.renderer()->upscale_stage());
+    // Native: the whole size, no stage.
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"temporal","quality":"native"})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(e.renderer()->upscale_stage());
+    e.shutdown();
+}
+
 namespace {
 
 std::string dump_of(const CommandResult& r) { return r.error.dump(); }
@@ -480,8 +506,15 @@ TEST_CASE("render.upscaler spatial changes the size drawn and the effective mode
     eval(e, "window.upscaler = { quality: 'performance' }; 0");
     eval(e, "window.renderScale = 1; 0");
 
-    // The scale of the quality is the same under temporal and metalfx; they draw as the spatial upscaler until their own packages land.
+    // The scale of the quality is the same under temporal, metalfx and auto; auto picks the temporal upscaler (the best drawable here), and
+    // metalfx draws as the next best until its own package lands.
     r = c.call("render.upscaler", Json::parse(R"({"mode":"auto"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "temporal");
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"metalfx"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["effectiveMode"] == "temporal");
+    r = c.call("render.upscaler", Json::parse(R"({"mode":"spatial"})"));
     REQUIRE(r.ok);
     CHECK(r.result["effectiveMode"] == "spatial");
 
@@ -552,6 +585,26 @@ TEST_CASE("without a renderer effectiveMode is what a GPU would draw: pixel perf
         r = e.commands().call("render.upscaler", Json::parse(R"({"mode":"stretch"})"));
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(r.result["effectiveMode"] == "stretch");
+        // Temporal, auto and metalfx: what a GPU here would draw (temporal; metalfx is not built).
+        for (const char* mode : {"temporal", "auto", "metalfx"}) {
+            r = e.commands().call("render.upscaler", Json::parse(std::string("{\"mode\":\"") + mode + "\"}"));
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            CHECK_MESSAGE(r.result["effectiveMode"] == "temporal", mode);
+            CHECK_MESSAGE(eval(e, "window.upscaler.effectiveMode") == "temporal", mode);
+        }
+    }
+    {
+        TempProject p("nogpu_pixel_temporal", R"(, "render": { "upscaler": { "mode": "temporal" } })", "pixelPerfect");
+        EngineConfig c = cfg(p);
+        c.graphics = false;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        for (const char* mode : {"temporal", "auto", "metalfx"}) {
+            auto r = e.commands().call("render.upscaler", Json::parse(std::string("{\"mode\":\"") + mode + "\"}"));
+            REQUIRE_MESSAGE(r.ok, r.error.dump());
+            CHECK_MESSAGE(r.result["effectiveMode"] == "stretch", mode);
+        }
     }
 }
 
