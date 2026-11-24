@@ -107,10 +107,11 @@ bool Environment::ready(Gpu& gpu) {
                   : (usable(device, gpu::PixelFormat::Rgba8) ? gpu::PixelFormat::Rgba8 : gpu::PixelFormat::None);
     bool ok = format_ != gpu::PixelFormat::None;
     if (ok) {
-        shaders_[int(Prog::Copy)] = make_shader(device, gpu::generated_shader_desc(env_copy_shader_desc), "env_copy");
+        shaders_[int(Prog::Copy)] =
+            make_shader(device, gpu::generated_shader_desc(device, env_copy_shader_desc), "env_copy");
         shaders_[int(Prog::Prefilter)] =
-            make_shader(device, gpu::generated_shader_desc(env_prefilter_shader_desc), "env_prefilter");
-        shaders_[int(Prog::Sh)] = make_shader(device, gpu::generated_shader_desc(env_sh_shader_desc), "env_sh");
+            make_shader(device, gpu::generated_shader_desc(device, env_prefilter_shader_desc), "env_prefilter");
+        shaders_[int(Prog::Sh)] = make_shader(device, gpu::generated_shader_desc(device, env_sh_shader_desc), "env_sh");
         for (gpu::Shader s : shaders_) ok = ok && device.state(s) == gpu::ResourceState::Valid;
     }
     if (ok) {

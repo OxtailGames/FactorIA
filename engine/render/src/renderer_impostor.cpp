@@ -171,9 +171,9 @@ MeshAsset* ImpostorRenderer::quad(gpu::Device& device) {
 MaterialAsset* ImpostorRenderer::material(gpu::Device& device) {
     if (matState_ != 0) return matState_ > 0 ? material_.get() : nullptr;
     device_ = &device;
-    const gpu::ShaderDesc descs[3] = {gpu::generated_shader_desc(impostor_impostor_shader_desc),
-                                      gpu::generated_shader_desc(impostor_shadow_shader_desc),
-                                      gpu::generated_shader_desc(impostor_prepass_shader_desc)};
+    const gpu::ShaderDesc descs[3] = {gpu::generated_shader_desc(device, impostor_impostor_shader_desc),
+                                      gpu::generated_shader_desc(device, impostor_shadow_shader_desc),
+                                      gpu::generated_shader_desc(device, impostor_prepass_shader_desc)};
     const char* labels[3] = {"impostor_impostor", "impostor_shadow", "impostor_prepass"};
     bool ok = true;
     for (int i = 0; i < 3; ++i) {

@@ -14,7 +14,7 @@ namespace fa::render {
 bool MetalFxPrep::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
-    shader_ = make_shader(dev, gpu::generated_shader_desc(upscale_mfx_mfx_shader_desc), "upscale_mfx");
+    shader_ = make_shader(dev, gpu::generated_shader_desc(dev, upscale_mfx_mfx_shader_desc), "upscale_mfx");
     if (dev.state(shader_) != gpu::ResourceState::Valid) {
         if (shader_.id) dev.destroy_shader(shader_);
         shader_ = {};

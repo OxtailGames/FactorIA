@@ -13,8 +13,9 @@
 // when given source) with one cached root signature per binding layout, graphics and compute pipelines with an
 // in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
 // scissors, draws and dispatches (M77-P7c1); GPU timers (timestamp queries) and asynchronous reads of buffers and
-// texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). Passes into the
-// window come in M77-P9.
+// texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). The renderer draws
+// through it offscreen (RendererDesc::backend D3d12, make_device); it has no window path yet (create_swapchain and a
+// pass into the window fail with a teaching error).
 #pragma once
 
 #include <cstddef>
@@ -765,7 +766,7 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override;
 
-    // ---- D3D12 only (tests, M77-P9) ----------------------------------------------------------------------------------
+    // ---- D3D12 only (tests) -----------------------------------------------------------------------------------------
     // The asynchronous read of a texel region: mip `mip` of layer `layer` (array layer, cube face or 3D slice), the
     // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
     // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.

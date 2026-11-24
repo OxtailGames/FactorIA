@@ -220,8 +220,9 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
         return;
     }
     if (pass.swapchain) {
-        fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) comes in M77-P9 (hint: the D3D12 "
-                                      "backend draws into images for now; present with the sokol backend)");
+        fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) on the D3D12 backend, which has "
+                                      "no window path yet (hint: draw into images here, RendererDesc::headless; pick "
+                                      "the sokol backend, GpuBackend::Default, to draw into a window)");
         return;
     }
 

@@ -96,8 +96,8 @@ bool Ssr::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
     device_ = &gpu.device();
     gpu::Device& dev = *device_;
-    shaders_[int(Prog::Trace)] = make_shader(dev, gpu::generated_shader_desc(ssr_trace_shader_desc), "ssr_trace");
-    shaders_[int(Prog::Copy)] = make_shader(dev, gpu::generated_shader_desc(ssr_copy_shader_desc), "ssr_copy");
+    shaders_[int(Prog::Trace)] = make_shader(dev, gpu::generated_shader_desc(dev, ssr_trace_shader_desc), "ssr_trace");
+    shaders_[int(Prog::Copy)] = make_shader(dev, gpu::generated_shader_desc(dev, ssr_copy_shader_desc), "ssr_copy");
     bool ok = true;
     for (gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {
