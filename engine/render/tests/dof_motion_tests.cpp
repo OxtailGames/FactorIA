@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -573,12 +574,29 @@ TEST_CASE("depth of field and motion blur: a frame with nothing to blur asks for
         PostProcess& p = s.post();
         p.motionBlurEnabled = true;
         p.motionBlurIntensity = 1.0f;
+        p.motionBlurMode = MotionBlurMode::Camera;
         fresh.draw(s.w);
         CHECK_FALSE(has_pass(fresh.order(), "prepass"));
         CHECK_FALSE(has_pass(fresh.order(), "motion-blur"));
         fresh.draw(s.w);
         CHECK(has_pass(fresh.order(), "prepass"));
         CHECK(has_pass(fresh.order(), "motion-blur"));
+    }
+    // The per-object blur asks for the velocity image from the first frame (the objects keep their models of the frame before), and blurs
+    // from the second.
+    {
+        Own fresh(g);
+        REQUIRE_MESSAGE(fresh.ok, fresh.error);
+        Scene s;
+        PostProcess& p = s.post();
+        p.motionBlurEnabled = true;
+        p.motionBlurIntensity = 1.0f;
+        fresh.draw(s.w);
+        CHECK(has_pass(fresh.order(), "prepass"));
+        CHECK_FALSE(has_pass(fresh.order(), "motion-blur"));
+        fresh.draw(s.w);
+        CHECK(has_pass(fresh.order(), "motion-blur"));
+        CHECK(has_pass(fresh.order(), "motion-velocity"));
     }
 }
 
@@ -608,4 +626,400 @@ TEST_CASE(
     s.w.reset_clock();  // the clock went back: another scene
     own.draw(s.w);
     CHECK_FALSE(has_pass(own.order(), "motion-blur"));
+}
+
+// ---- M76-P1e: the per-object motion blur (shaders/motion_object.glsl) ----------------------------------------------------------------
+
+namespace {
+
+// A camera at (0, 0, 10) and ONE unlit white cube (2 m wide, its front face 9 m away: 35 px wide at the middle of the 320 x 180 picture) on
+// a black sky: a moving white bar over a static black background, so a pixel's value is how much of the bar covers it.
+struct Bar {
+    World w;
+    Entity cam = kNullEntity;
+    Entity cube = kNullEntity;
+    Bar() {
+        cam = add_camera(w, {0, 0, 10});
+        cube = add_cube(w, {0, 0, 0}, 2.0f);
+    }
+    PostProcess& post() { return post_of(w, cam); }
+    void blur(MotionBlurMode mode, float radius = 24.0f, int samples = 16) {
+        PostProcess& p = post();
+        p.motionBlurEnabled = true;
+        p.motionBlurIntensity = 1.0f;
+        p.motionBlurSamples = samples;
+        p.motionBlurMode = mode;
+        p.motionBlurMaxRadius = radius;
+    }
+    void move_to(float x) { w.get<Transform>(cube)->position.x = x; }
+};
+
+// The first and the last x of row y whose red is above `level`; -1 when none.
+void extent(const Image& img, int y, float level, int& first, int& last) {
+    first = last = -1;
+    for (int x = 0; x < img.width; ++x)
+        if (img.pixel(x, y).r > level) {
+            if (first < 0) first = x;
+            last = x;
+        }
+}
+// The mean absolute difference of two pictures over the three channels, in 0..255 steps.
+double mean_abs_diff(const Image& a, const Image& b) {
+    REQUIRE(a.width == b.width);
+    REQUIRE(a.height == b.height);
+    double sum = 0;
+    for (std::size_t i = 0; i < a.rgba.size(); ++i) sum += std::abs(int(a.rgba[i]) - int(b.rgba[i]));
+    return sum / double(a.rgba.size());
+}
+
+}  // namespace
+
+TEST_CASE("per-object motion blur: the plan reads the mode, the radius in design pixels, and asks for the velocity "
+          "image only in object mode") {
+    World w;
+    PostProcess fx;
+    fx.motionBlurEnabled = true;
+    fx.motionBlurIntensity = 0.5f;
+    render::SceneFx fxState;
+    const CameraInfo cam = camera_info();
+    // The default is per-object; the radius is in design pixels times the render scale, in 1 .. 64 design pixels and at most 128 pixels.
+    CHECK(fx.motionBlurMode == MotionBlurMode::Object);
+    render::SceneFxPlan p = fxState.plan(w, cam, stack_of(fx), 1, 2, 0.016f, 1.0f, cam.viewProj, true);
+    CHECK(p.motion);
+    CHECK(p.objects);
+    CHECK(p.maxRadiusPx == doctest::Approx(24.0f));
+    fx.motionBlurMaxRadius = 10.0f;
+    CHECK(fxState.plan(w, cam, stack_of(fx), 1, 3, 0.016f, 2.0f, cam.viewProj, true).maxRadiusPx ==
+          doctest::Approx(20.0f));
+    fx.motionBlurMaxRadius = 1000.0f;  // out of range
+    CHECK(fxState.plan(w, cam, stack_of(fx), 1, 4, 0.016f, 1.0f, cam.viewProj, true).maxRadiusPx ==
+          doctest::Approx(64.0f));
+    CHECK(fxState.plan(w, cam, stack_of(fx), 1, 5, 0.016f, 4.0f, cam.viewProj, true).maxRadiusPx ==
+          doctest::Approx(128.0f));
+    fx.motionBlurMaxRadius = std::nanf("");
+    CHECK(fxState.plan(w, cam, stack_of(fx), 1, 6, 0.016f, 1.0f, cam.viewProj, true).maxRadiusPx ==
+          doctest::Approx(24.0f));
+    fx.motionBlurMode = MotionBlurMode::Camera;
+    CHECK_FALSE(fxState.plan(w, cam, stack_of(fx), 1, 7, 0.016f, 1.0f, cam.viewProj, true).objects);
+
+    // The velocity image: object mode asks for it (also on the frames that do not blur yet: the first, a cut), camera mode, the effect off and
+    // a null shutter do not.
+    auto wants_velocity = [&](const PostProcess& f, bool on) {
+        CameraInfo c = camera_info();
+        PostStack s = stack_of(f);
+        if (!on) s.mask = 0;
+        c.postStack = std::make_shared<const PostStack>(s);
+        return render::make_post_plan(c, false).needsVelocity;
+    };
+    PostProcess obj;
+    obj.motionBlurEnabled = true;
+    obj.motionBlurIntensity = 0.5f;
+    CHECK(wants_velocity(obj, true));
+    CHECK_FALSE(wants_velocity(obj, false));
+    PostProcess still = obj;
+    still.motionBlurIntensity = 0.0f;
+    CHECK_FALSE(wants_velocity(still, true));
+    PostProcess cameraOnly = obj;
+    cameraOnly.motionBlurMode = MotionBlurMode::Camera;
+    CHECK_FALSE(wants_velocity(cameraOnly, true));
+    PostProcess off;
+    CHECK_FALSE(wants_velocity(off, false));
+}
+
+TEST_CASE("per-object motion blur: a moving cube blurs along its motion over a background that stays sharp") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // Frame 1 at x = 0, frame 2 at x = 1: the cube moved 17 px (a full shutter: its blur reaches 8.7 px on each side).
+    auto two_frames = [&](MotionBlurMode mode, Image& out, std::vector<std::string>* order = nullptr) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        b.blur(mode);
+        own.draw(b.w);
+        b.move_to(1.0f);
+        out = own.draw(b.w);
+        if (order) *order = own.order();
+    };
+    Image sharp, object;
+    std::vector<std::string> order;
+    two_frames(MotionBlurMode::Camera, sharp);  // the camera does not move: nothing blurs, the cube is where it is
+    two_frames(MotionBlurMode::Object, object, &order);
+    INFO(joined(order));
+    CHECK(has_pass(order, "motion-velocity"));
+    CHECK(has_pass(order, "motion-tile-x"));
+    CHECK(has_pass(order, "motion-tile-y"));
+    CHECK(has_pass(order, "motion-blur"));
+    int sf, sl;
+    extent(sharp, 90, 0.5f, sf, sl);
+    REQUIRE(sf > 0);
+    CHECK(soft_pixels(sharp, 90, 0, 320) <= 4);  // the control: the camera-only blur leaves a moving cube sharp
+    // The cube is blurred along its motion: its two vertical edges are soft, wide as the streak.
+    const int soft = soft_pixels(object, 90, 0, 320);
+    MESSAGE("soft pixels " << soft << ", the cube is at " << sf << " .. " << sl);
+    CHECK(soft >= 12);
+    // Across the motion the edges stay as sharp as they were.
+    CHECK(soft_pixels_col(object, (sf + sl) / 2, 0, 90) <= 4);
+    // The background stays sharp: it is exactly black everywhere out of reach of the streak (10 px from the silhouette; the streak reaches 9).
+    int bad = 0;
+    for (int y = 0; y < object.height; ++y)
+        for (int x = 0; x < object.width; ++x)
+            if ((x < sf - 11 || x > sl + 11) && object.pixel(x, y).r > 0.01f) ++bad;
+    CHECK(bad == 0);
+    // The blur falls off over several pixels on the outside of the silhouette (the filter keeps the moving object's own edge, as McGuire's does).
+    CHECK(soft_pixels(object, 90, 0, sf) >= 5);
+    CHECK(soft_pixels(object, 90, sl + 1, 320) >= 5);
+    // The background does not smear into the cube: its middle keeps all of its light.
+    CHECK(object.pixel((sf + sl) / 2, 90).r > 0.95f);
+    // The light of the streak stays: the picture has about as much light as the sharp one (the weights are normalised, not a fade).
+    double lightSharp = 0, lightObject = 0;
+    for (int x = 0; x < 320; ++x) {
+        lightSharp += sharp.pixel(x, 90).r;
+        lightObject += object.pixel(x, 90).r;
+    }
+    CHECK(lightObject == doctest::Approx(lightSharp).epsilon(0.15));
+    // The same frame on every run.
+    Image again;
+    two_frames(MotionBlurMode::Object, again);
+    CHECK(max_diff(object, again) == 0);
+}
+
+TEST_CASE("per-object motion blur: an object farther than 65504 m (past the range of the half floats of the depth) "
+          "gives no NaN") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // A big cube 100 km away, its front face 80 km: the view depth does not fit in an RGBA16F channel (the V image of the blur), so the
+    // filter cuts it. A depth that became +inf would make inf - inf in the weights and a black (NaN) picture where the cube is.
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Bar b;
+    b.w.get<Camera>(b.cam)->farPlane = 1.0e6f;
+    b.w.get<Transform>(b.cube)->position = {0, 0, -100000.0f};
+    b.w.get<Transform>(b.cube)->scale = {40000.0f, 40000.0f, 40000.0f};
+    b.blur(MotionBlurMode::Object);
+    b.move_to(-2500.0f);
+    own.draw(b.w);
+    b.move_to(2500.0f);
+    const Image img = own.draw(b.w);
+    CHECK(has_pass(own.order(), "motion-blur"));
+    int first, last;
+    extent(img, 90, 0.5f, first, last);
+    REQUIRE(first > 0);
+    CHECK(last - first > 30);
+    // The middle of the cube keeps its light (a NaN would draw it black or as a wrong colour) and its edge is the soft one of a blur.
+    for (int x = first + 20; x < last - 20; ++x) CHECK(img.pixel(x, 90).r > 0.9f);
+    CHECK(soft_pixels(img, 90, 0, 320) >= 4);
+    // No pixel is lit that the streak cannot reach.
+    int bad = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x)
+            if ((x < first - 30 || x > last + 30) && img.pixel(x, y).r > 0.01f) ++bad;
+    CHECK(bad == 0);
+}
+
+TEST_CASE("the pipeline cache tells the prepass with and without the velocity image apart") {
+    // The two differ only in the format of the second colour attachment: a key that ignored it would hand a pass with one attachment the
+    // pipeline made for two (a sokol validation error and an abort).
+    render::PipelineKey one{0xC00u, 0u, render::TargetFormat{SG_PIXELFORMAT_RGBA32F, SG_PIXELFORMAT_DEPTH, 1}};
+    render::PipelineKey two = one;
+    two.format.color1 = SG_PIXELFORMAT_RG16F;
+    CHECK_FALSE(one == two);
+    CHECK((one < two) != (two < one));
+    std::map<render::PipelineKey, int> cache;
+    cache[one] = 1;
+    cache[two] = 2;
+    CHECK(cache.size() == 2);
+    CHECK(cache[one] == 1);
+    CHECK(cache[two] == 2);
+}
+
+TEST_CASE("per-object motion blur: the longest streak is the radius, the speed past it is cut") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // A cube that moves 3 m (52 px) in one frame, the radius 6 px: the blur reaches 6 px on each side and no farther; with the radius
+    // 40 px the streak is the whole movement (it reaches 26 px).
+    auto reach = [&](MotionBlurMode mode, float radius, int& spread) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        b.blur(mode, radius);
+        b.move_to(-1.5f);
+        own.draw(b.w);
+        b.move_to(1.5f);
+        const Image img = own.draw(b.w);
+        int first, last, f0, l0;
+        extent(img, 90, 0.004f, first, last);  // where any light is
+        extent(img, 90, 0.996f, f0, l0);       // where the cube is fully lit
+        spread =
+            (l0 - f0 + 1) < 0 ? 0 : (last - first + 1) - (l0 - f0 + 1);  // the pixels of the soft edges (both sides)
+        return img;
+    };
+    int small = 0, large = 0, none = 0;
+    const Image sharp = reach(MotionBlurMode::Camera, 6.0f, none);
+    const Image a = reach(MotionBlurMode::Object, 6.0f, small);
+    const Image b = reach(MotionBlurMode::Object, 40.0f, large);
+    int sf, sl;
+    extent(sharp, 90, 0.5f, sf, sl);
+    int af, al;
+    extent(a, 90, 0.004f, af, al);
+    INFO("sharp cube " << sf << " .. " << sl << ", with radius 6: light " << af << " .. " << al << ", soft " << small
+                       << " and with 40: soft " << large);
+    CHECK(none <= 2);
+    CHECK(af >= sf - 7);  // the blur of a pixel reaches 6 px on each side: one more for the filter of the picture
+    CHECK(al <= sl + 7);
+    CHECK(small >= 6);
+    CHECK(large > small + 10);
+}
+
+TEST_CASE("per-object motion blur: a static scene and a moving camera blur like the camera-only blur") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto run = [&](MotionBlurMode mode, Image& out) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Scene s;
+        PostProcess& p = s.post();
+        p.motionBlurEnabled = true;
+        p.motionBlurIntensity = 1.0f;
+        p.motionBlurSamples = 16;
+        p.motionBlurMode = mode;
+        own.draw(s.w);
+        s.w.get<Transform>(s.cam)->position.x = 1.0f;
+        out = own.draw(s.w);
+    };
+    Image camera, object;
+    run(MotionBlurMode::Camera, camera);
+    run(MotionBlurMode::Object, object);
+    // Both smear the vertical edges of the cubes by the camera's movement (the near one 17 px, the far one 4 px) and not the horizontal ones.
+    const int camSoft = soft_pixels(camera, 90, 60, 250);
+    const int objSoft = soft_pixels(object, 90, 60, 250);
+    MESSAGE("soft pixels: camera " << camSoft << ", object " << objSoft << "; mean difference "
+                                   << mean_abs_diff(camera, object));
+    CHECK(camSoft >= 12);
+    CHECK(objSoft >= 12);
+    CHECK(std::abs(objSoft - camSoft) <= camSoft / 2 + 4);
+    CHECK(soft_pixels_col(object, 91, 60, 85) <= 4);
+    // The two pictures differ by the weights of the taps only (a tent and a cylinder against a box), never by a shifted or a missing blur.
+    CHECK(mean_abs_diff(camera, object) < 2.0);
+    CHECK(max_diff(camera, object) < 140);
+}
+
+TEST_CASE("per-object motion blur: where no object wrote a velocity (the sky) the camera's own motion blurs it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // A physical sky with a big sun disc (20 degrees: a hard, bright edge) and no mesh at all: every pixel of the velocity image is the
+    // sentinel. The camera turns 3 degrees between the two frames.
+    auto run = [&](bool blur, MotionBlurMode mode, Image& out) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        World w;
+        Entity cam = make(w, "cam", {0, 0, 0});
+        auto& c = w.add<Camera>(cam);
+        c.projection = Projection::Perspective;
+        c.fov = 60.0f;
+        w.settings().ambientLight = Color{0, 0, 0, 1};
+        w.settings().skyModel = SkyModel::Physical;
+        add_cube(w, {0, -1.5f, -20.0f},
+                 1.0f);  // something to draw, so that the frame has a depth prepass (the sky stays the sentinel)
+        w.settings().skySunSize = 20.0f;
+        Entity sun = make(w, "sun", {0, 5, 0});
+        auto& l = w.add<Light>(sun);
+        l.type = LightType::Directional;
+        l.intensity = 1.0f;
+        l.castShadows = false;
+        w.get<Transform>(sun)->rotation = {
+            -10.0f, 180.0f, 0.0f};  // the sun 10 degrees over the horizon, on the side the camera looks to
+        if (blur) {
+            PostProcess& p = w.add<PostProcess>(cam);
+            p.motionBlurEnabled = true;
+            p.motionBlurIntensity = 1.0f;
+            p.motionBlurSamples = 16;
+            p.motionBlurMode = mode;
+        }
+        own.draw(w);
+        w.get<Transform>(cam)->rotation = {0.0f, 3.0f, 0.0f};
+        out = own.draw(w);
+    };
+    Image sharp, camera, object;
+    run(false, MotionBlurMode::Object, sharp);
+    run(true, MotionBlurMode::Camera, camera);
+    run(true, MotionBlurMode::Object, object);
+    CHECK(mean_abs_diff(sharp, camera) > 0.3);  // the camera's turn blurs the sun
+    CHECK(mean_abs_diff(sharp, object) > 0.3);  // and so does the sentinel's fall back to the depth
+    CHECK(mean_abs_diff(camera, object) < 0.6 * mean_abs_diff(sharp, camera) + 0.5);
+}
+
+TEST_CASE(
+    "per-object motion blur: off and camera mode draw as before, and a world without a PostProcess does not change") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // The effect off, in either mode: no pass of the blur, the picture of a world with no PostProcess at all.
+    Image plain;
+    {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        own.draw(b.w);
+        b.move_to(1.0f);
+        plain = own.draw(b.w);
+        CHECK_FALSE(has_pass(own.order(), "motion-"));
+    }
+    for (const MotionBlurMode mode : {MotionBlurMode::Object, MotionBlurMode::Camera}) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        b.blur(mode);
+        b.post().motionBlurEnabled = false;
+        own.draw(b.w);
+        b.move_to(1.0f);
+        const Image off = own.draw(b.w);
+        CHECK_FALSE(has_pass(own.order(), "motion-"));
+        CHECK(max_diff(off, plain) == 0);
+    }
+    // Camera mode: the passes of the camera-only blur and none of the per-object blur.
+    {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        b.blur(MotionBlurMode::Camera);
+        own.draw(b.w);
+        b.move_to(1.0f);
+        own.draw(b.w);
+        const std::vector<std::string> order = own.order();
+        INFO(joined(order));
+        CHECK(has_pass(order, "motion-blur"));
+        CHECK_FALSE(has_pass(order, "motion-velocity"));
+        CHECK_FALSE(has_pass(order, "motion-tile"));
+    }
+}
+
+TEST_CASE("per-object motion blur: with depth of field the gather reads the depth of field's picture and the frame is "
+          "the same on every run") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto run = [&](Image& out) {
+        Own own(g);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        Bar b;
+        b.blur(MotionBlurMode::Object);
+        PostProcess& p = b.post();
+        p.depthOfFieldEnabled = true;
+        p.depthOfFieldFocusDistance = 10.0f;
+        p.depthOfFieldFocusRange = 1.0f;
+        p.depthOfFieldNearBlur = 4.0f;
+        p.depthOfFieldFarBlur = 4.0f;
+        own.draw(b.w);
+        b.move_to(1.0f);
+        out = own.draw(b.w);
+        const std::vector<std::string> order = own.order();
+        INFO(joined(order));
+        CHECK(has_pass(order, "dof-composite"));
+        CHECK(has_pass(order, "motion-velocity"));
+        CHECK(has_pass(order, "motion-blur"));
+        CHECK_FALSE(has_pass(order, "dof-copy"));
+        CHECK_FALSE(has_pass(order, "motion-copy"));
+    };
+    Image a, b;
+    run(a);
+    run(b);
+    CHECK(max_diff(a, b) == 0);
 }

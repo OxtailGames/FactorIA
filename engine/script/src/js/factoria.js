@@ -2307,7 +2307,14 @@
       }
       return graphicsResult(N.graphicsPreset({ name }));
     },
-    detect() { return graphicsResult(N.graphicsDetect()); },
+    // What a script reads leaves out the times of the benchmark (benchmarkMs, benchmark.frameMs and totalMs): they differ from machine to
+    // machine and run to run, so a game that branched on one would not play the same twice. The preset, the GPU and the device class
+    // are what a game decides on; the command graphics.detect (tools, MCP) answers the times too.
+    detect() {
+      const { benchmarkMs, benchmark, ...rest } = graphicsResult(N.graphicsDetect());
+      const { frameMs, totalMs, ...bench } = benchmark;
+      return Object.freeze({ ...rest, benchmark: Object.freeze(bench) });
+    },
   });
   const game = {
     quit() { N.quit(); },

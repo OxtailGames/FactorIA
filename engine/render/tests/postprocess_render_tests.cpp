@@ -556,6 +556,44 @@ TEST_CASE("auto exposure: a capture_world between two frames does not make the e
     CHECK(after.pixel(160, 90).r > 0.9f);  // not measured again (that would be 18% grey, 0.46)
 }
 
+TEST_CASE("auto exposure: a step of the dynamic resolution keeps the adapted exposure, a change of the base scale "
+          "measures again (M76 POL-DYNRES)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    const float dt = 1.0f / 60.0f;
+    FlatScene s(0.1f);
+    PostProcess& p = s.post();
+    p.exposureEnabled = true;
+    p.exposureMode = ExposureMode::Auto;
+    p.exposureMinEv = -6.0f;
+    p.exposureMaxEv = 8.0f;
+    p.exposureAdaptationSpeed = 0.5f;  // slow: a frame moves the exposure by under 1%
+    p.exposureEnabled = false;
+    g.render(s.world, dt);
+    p.exposureEnabled = true;
+    g.render(s.world, dt);  // measured at once: 18% grey
+    s.clear(0.8f);
+    const Image before = g.render(s.world, dt);  // still the exposure of the dark picture: the bright one is white
+    REQUIRE(before.pixel(160, 90).r > 0.9f);
+    auto centre = [](const Image& img) { return img.pixel(img.width / 2, img.height / 2).r; };
+
+    // The controller steps: the render size changes, the exposure the camera has adapted to does not.
+    g.renderer.set_render_scale(0.5f, 1.0f);
+    const Image stepped = g.render(s.world, 0.0f);
+    CHECK(stepped.width < before.width);
+    CHECK(centre(stepped) > 0.9f);  // measured again it would be 18% grey (0.46)
+    g.renderer.set_render_scale(1.0f, 1.0f);
+    CHECK(g.render(s.world, 0.0f).pixel(160, 90).r > 0.9f);
+
+    // Another base scale (the player's option) is not a step: the exposure is measured again at once.
+    g.renderer.set_render_scale(0.5f, 0.5f);
+    const Image rebased = g.render(s.world, 0.0f);
+    CHECK(near_value(centre(rebased), to_srgb(0.18f), 5 * kStep));
+    g.renderer.set_render_scale(1.0f, 1.0f);
+    g.render(s.world, 0.0f);
+}
+
 TEST_CASE("final pass: a finite value over 65000 stays white and NaN or Inf in the picture is black, never a hole of "
           "the wrong colour") {
     Gfx& g = gfx();
