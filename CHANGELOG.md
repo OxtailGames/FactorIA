@@ -38,7 +38,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   sharp at the window's size. `effectiveMode` and `render.supports` `temporalUpscaler` say it is drawn; a game with `PixelPerfect`
   draws as `stretch`; a frame with more than one camera, or a history the GPU cannot make, draws as `spatial` (the spatial upscaler, and `effectiveMode` says so); native quality draws nothing extra. The camera's own `TemporalAA` pass is
   skipped while it runs (its fields still tune it). It resolves after the post stack, so the post effects see a jittered image; 2D
-  sprites have no velocity and trail when they move; the textures are not biased to a finer mip (not done: sokol samplers have no bias).
+  sprites and tiles have a velocity, particles a reactive mask (see the motion vectors below); the textures are not biased to a finer mip (not done: sokol samplers have no bias).
   The objects' motion vectors (M76-P1a) feed its reprojection (it asks the prepass for them). Off (`stretch`) is free: no pass, no
   image, no jitter, the same pixels. `UpscalerCaps` gets `temporal` (the TAA shaders compiled) and `multiCamera` (the frame has no single
   full-window camera); `kJitterPhasesMax` is 128 (was 16); `docs/UPSCALING.md`, "The temporal upscaler".
@@ -59,9 +59,22 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   second attachment, for static and moving meshes, instances, terrain, foliage and impostors (a floating-origin shift and a camera cut
   are no motion). Skinned meshes (any skin up to the 64 joints of the engine: the pose of the frame before is an RGBA32F image the vertex stage
   fetches, the current one stays in its uniform block) and materials with a custom `vertex()` (run again with the previous model and the previous frame's game time) write it
-  too; particles and sprites come in a later package. It is written only when something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
+  too; sprites, shapes, tiles and text come with the next entry, and particles are marked reactive instead. It is written only when something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
   `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
   grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".
+- Motion vectors and a reactive mask for the 2D quads (M76-P1d). With a temporal effect on (or the debug view), the sprites, shapes, tiles and
+  text of the world that are alpha-tested cutouts (coverage of one half or more) write their translation since the frame before into the
+  velocity image, in a 2D scene too (no prepass: an image of their own, the depth then is the camera's far plane, which is right for an
+  orthographic camera) and behind meshes in a perspective one (tested against the prepass's depth). Blended and additive quads never overwrite
+  a velocity: a new reactive mask (R8, the MAX of the values) marks them, and the temporal resolve and the temporal upscaler trust the
+  current frame where it is set, scaled by `PostProcess.temporalAAReactiveScale`. New fields `ParticleEmitter.reactive` (0..1, default 1; an
+  additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (0..1, default 0: an additive sprite counts as 1; a sprite
+  with a value above 0 writes the mask instead of a vector). A bright additive square moving over a busy background is six times closer to the
+  truth with the mask (`quad_motion_tests.cpp`); the mask holds the pixels a particle covers now and does not clear the trail it left.
+  Limitations: translation only, the whole box of a `Shape2D`, no velocity for particles or instanced sprites. With the temporal effects off
+  there is no pass and the frames are bit-identical. The motion vectors debug view shows the new writers. The tests of the two sentinel paths
+  of the previous joint palettes (a GPU with no RGBA32F sampling, more rows than the image holds) are in `velocity_tests.cpp`.
+  docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity".
 - The spatial upscaler (`render.upscaler {"mode":"spatial"}`): the game drawn at a lower resolution is brought to the window's size
   by an edge-adaptive upsample (12 texels, a kernel narrow across an edge and long along it, clamped so it never rings) and a
   contrast-adaptive sharpen controlled by `sharpness`, two fragment passes on every backend (no compute). A hard diagonal or a thin
