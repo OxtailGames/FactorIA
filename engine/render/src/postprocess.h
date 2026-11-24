@@ -79,7 +79,8 @@ struct PrepassRef {
 // The velocity image of a camera (M76; the contract of "Motion vectors and jitter (M76)" in docs/design/ARCHITECTURE_RENDERING_POST.md). The
 // depth prepass writes it as its second attachment when PostPlan::needsVelocity (request_velocity()); PostPlan::velocity is invalid when
 // nothing asked or the prepass did not run. What the meshes, instances, terrain, foliage and impostors write is the motion of the object; the
-// skinned meshes (of 32 joints or fewer) and custom vertex() materials write it too (M76-P1b); a skin of more than 32 joints, particles, sprites and quads hold kNone. RG16F at the render resolution of the camera's rectangle
+// skinned meshes (of up to 64 joints, the engine maximum) and custom vertex() materials write it too (M76-P1b); a skin of more than 64 joints holds kNone. The alpha-tested cutout quads of the world (sprites, shapes, tiles, text) write their translation in a
+// pass after the prepass (M76-P1d, "quad-velocity"); a blended or additive quad and a particle write none (they are in PostPlan::reactive). RG16F at the render resolution of the camera's rectangle
 // (the size of the prepass). rg = uvPrev - uvCurr: where the surface drawn at this pixel was on the previous frame's image minus where it is
 // now, in uv units (0..1 over the camera's rectangle, y down), computed from the UNJITTERED matrices (the jitter of the two frames is not part
 // of a motion; the resolve adds it back with PostPlan::jitterNdc / prevJitterNdc). A pixel no object wrote holds kNone in both channels: the
@@ -157,6 +158,10 @@ struct PostPlan {
     // The velocity image needs the prepass but not the depth or normals it holds: a consumer that reads them asks for those itself.
     bool needsVelocity = false;
     void request_velocity() { needsVelocity = true; }
+    // M76-P1d: the reactive mask (`reactive` below) is wanted too: the temporal passes (TemporalAA, the temporal upscaler) call it next to
+    // request_velocity(); the debug view and the test hook ask for the velocity alone.
+    bool needsReactive = false;
+    void request_reactive() { needsReactive = true; }
     std::uint32_t readMask =
         0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;
@@ -184,6 +189,10 @@ struct PostPlan {
     Mat4 prevJitteredViewProj;
     // The camera's velocity image (VelocityRef), valid for the passes after the pass that writes it; invalid when none does.
     VelocityRef velocity;
+    // The camera's reactive mask (M76-P1d, R8 at the size of the prepass, 0..1): where the 2D quads of the world that are not an opaque surface
+    // (blended particles, the quads flagged reactive) are, so the temporal resolve trusts the current frame there (taa_resolve lowers the
+    // weight of its history by it). Invalid when nothing asked, the GPU cannot make the image or no quad is reactive in the frame.
+    PrepassRef reactive;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.

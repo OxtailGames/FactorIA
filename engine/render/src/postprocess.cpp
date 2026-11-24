@@ -79,7 +79,10 @@ PostPlan make_post_plan(const CameraInfo& cam, bool linear, std::uint32_t forceE
     p.readMask = read;
     p.needsDepth = post_mask_needs_depth(read);
     p.needsNormals = post_mask_needs_normals(read);
-    if (post_mask_needs_velocity(read)) p.request_velocity();
+    if (post_mask_needs_velocity(read)) {
+        p.request_velocity();
+        p.request_reactive();  // only the temporal antialiasing reads the velocity here, and it reads the mask too
+    }
     if (!cam.postStack) {
         // No stack: only what the bloom and the colour filter above say (both off then), and the transient screen effects of the camera
         // (a flash or a fade of a game that has no PostProcess).
