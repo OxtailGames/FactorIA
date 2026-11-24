@@ -89,10 +89,10 @@ struct Compute::State {
         imageBytes -= std::min(imageBytes, im.bytes);
         if (im.tex) {  // retire the texture object: whatever kept its pointer sees the white texture, not freed memory
             render::TextureAsset* white = assets ? assets->white() : nullptr;
-            im.tex->image = white ? white->image : gpu::to_sg(gpu::Image{});
-            im.tex->view = white ? white->view : gpu::to_sg(gpu::View{});
+            im.tex->image = white ? white->image : gpu::Image{};
+            im.tex->view = white ? white->view : gpu::View{};
             im.tex->width = im.tex->height = 1;
-            im.tex->format = gpu::to_sg(gpu::PixelFormat::Rgba8);
+            im.tex->format = gpu::PixelFormat::Rgba8;
             im.tex->bytes = 0;
             im.tex->placeholder = true;
             retired.push_back(std::move(im.tex));
@@ -429,13 +429,13 @@ void describe_image_texture(render::TextureAsset& t, const std::string& path, gp
     // The pixels are what a shader wrote: not an sRGB-encoded file. rgba8 is shown as written (Raw, like any rgba8
     // file); the float formats hold scene values that nothing converts (Scene).
     t.enc = format == gpu::PixelFormat::Rgba8 ? render::TexEncoding::Raw : render::TexEncoding::Scene;
-    t.image = gpu::to_sg(g.image);  // TextureAsset keeps sokol handles (the asset code moves over later)
-    t.view = gpu::to_sg(g.sampled);
+    t.image = g.image;
+    t.view = g.sampled;
     t.width = width;
     t.height = height;
     t.placeholder = false;
     t.live = true;  // a shader writes it every dispatch: never a once-only copy
-    t.format = gpu::to_sg(format);
+    t.format = format;
     t.bytes = std::size_t(bytes);
 }
 
@@ -850,12 +850,11 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
         if (it == s.imgs.end())
             return make_error("images/" + def.name + ": no compute image " + std::to_string(given->second),
                               "compute.list_images lists the live images; compute.create_image makes one.");
-        if (it->second.format != gpu::from_sg(def.format))
+        if (it->second.format != def.format)
             return make_error(
                 "images/" + def.name + ": image " + std::to_string(given->second) + " was made for '" +
                     it->second.name + "' of '" + it->second.material + "' as " + image_format_name(it->second.format) +
-                    ", but '" + def.name + "' of '" + m.path + "' is " + image_format_name(gpu::from_sg(def.format)) +
-                    " now",
+                    ", but '" + def.name + "' of '" + m.path + "' is " + image_format_name(def.format) + " now",
                 "Make the image for this material (compute.create_image), or destroy and make it again if "
                 "the material's format changed.");
         for (const State::Img* other : boundImages)
@@ -937,7 +936,7 @@ Result<void> Compute::dispatch(const ComputeDispatch& d) {
                     "Sample another image (a second one the dispatch writes into next frame) or read this one with "
                     "imageLoad: declare it \"access\": \"readWrite\" and drop the texture.");
         if (!tex || !tex->gpu_view().id) tex = s.assets->white();
-        if ((prog.viewMask >> viewSlot) & 1u) bind.views[viewSlot] = gpu::from_sg(tex->gpu_view());
+        if ((prog.viewMask >> viewSlot) & 1u) bind.views[viewSlot] = tex->gpu_view();
         if ((prog.samplerMask >> i) & 1u) bind.samplers[i] = s.gpu->sampler(m.textures[i].sampler);
     }
 
@@ -989,7 +988,7 @@ Result<int> Compute::create_image(const std::string& material, const std::string
                               ? std::string("The material declares no images: add an \"images\" entry to its file "
                                             "(docs/shaders/SHADERS_COMPUTE.md, \"Storage images\").")
                               : did_you_mean(image, names));
-    const gpu::PixelFormat format = gpu::from_sg(def->format);
+    const gpu::PixelFormat format = def->format;
     if (def->readWrite) {  // imageLoad of this format is a capability of the GPU, not of the format alone
         std::string limit;
         bool loadable = true;
@@ -1000,7 +999,7 @@ Result<int> Compute::create_image(const std::string& material, const std::string
             loadable = false;
             limit = "this GPU cannot read an image in a shader (simulated by a test)";
         } else {
-            loadable = render::storage_image_loadable(def->format, &limit);
+            loadable = render::storage_image_loadable(gpu::to_sg(def->format), &limit);
         }
         if (!loadable)
             return make_error(

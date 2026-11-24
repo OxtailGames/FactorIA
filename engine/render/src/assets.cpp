@@ -211,8 +211,8 @@ gpu::Buffer make_data_buffer(gpu::Device& device, const void* data, std::size_t 
 SubMesh upload_submesh(gpu::Device& device, const std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx,
                        const char* label) {
     SubMesh m;
-    m.vb = gpu::to_sg(make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label));
-    m.ib = gpu::to_sg(make_data_buffer(device, idx.data(), idx.size() * sizeof(std::uint32_t), label, true));
+    m.vb = make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label);
+    m.ib = make_data_buffer(device, idx.data(), idx.size() * sizeof(std::uint32_t), label, true);
     m.vertexCount = int(v.size());
     m.indexCount = int(idx.size());
     compute_bounds(v, m.bmin, m.bmax);
@@ -635,19 +635,19 @@ public:
             sm.occlusionTex = texture(part.occlusion);
             sm.emissiveTex = texture(part.emissive);
             if (!part.skin.empty()) {
-                sm.skinVb = gpu::to_sg(make_data_buffer(assets_.gpu_.device(), part.skin.data(),
-                                                        part.skin.size() * sizeof(SkinVertex), "skin"));
+                sm.skinVb = make_data_buffer(assets_.gpu_.device(), part.skin.data(),
+                                             part.skin.size() * sizeof(SkinVertex), "skin");
                 sm.skin = part.skinIndex;
                 bytes += part.skin.size() * sizeof(SkinVertex);
             }
             if (!part.uv1.empty()) {
-                sm.uv1Vb = gpu::to_sg(
-                    make_data_buffer(assets_.gpu_.device(), part.uv1.data(), part.uv1.size() * sizeof(float), "uv1"));
+                sm.uv1Vb =
+                    make_data_buffer(assets_.gpu_.device(), part.uv1.data(), part.uv1.size() * sizeof(float), "uv1");
                 bytes += part.uv1.size() * sizeof(float);
             }
             if (!part.color1.empty()) {
-                sm.color1Vb = gpu::to_sg(make_data_buffer(assets_.gpu_.device(), part.color1.data(),
-                                                          part.color1.size() * sizeof(std::uint32_t), "color1"));
+                sm.color1Vb = make_data_buffer(assets_.gpu_.device(), part.color1.data(),
+                                               part.color1.size() * sizeof(std::uint32_t), "color1");
                 bytes += part.color1.size() * sizeof(std::uint32_t);
             }
             out.parts.push_back(sm);
@@ -740,8 +740,8 @@ void Assets::destroy_texture(TextureAsset& t) {
     // A texture that failed to load shares the checker's handles (use_placeholder): only the checker itself owns them.
     const bool borrowed = t.placeholder && &t != placeholderTex_.get();
     if (!t.atlas && !borrowed) {  // a packed texture borrows the GPU image of its atlas
-        if (t.view.id) gpu_.device().destroy_view(gpu::from_sg(t.view));
-        if (t.image.id) gpu_.device().destroy_image(gpu::from_sg(t.image));
+        if (t.view.id) gpu_.device().destroy_view(t.view);
+        if (t.image.id) gpu_.device().destroy_image(t.image);
     }
     t.view = {};
     t.image = {};
@@ -750,19 +750,19 @@ void Assets::destroy_texture(TextureAsset& t) {
 
 void Assets::destroy_mesh_lightmap(MeshAsset& m) {
     if (!m.lightmap) return;
-    for (sg_buffer* b : {&m.lightmap->vb, &m.lightmap->ib, &m.lightmap->uv, &m.lightmap->color1})
-        if (b->id) gpu_.device().destroy_buffer(gpu::from_sg(*b));
+    for (gpu::Buffer* b : {&m.lightmap->vb, &m.lightmap->ib, &m.lightmap->uv, &m.lightmap->color1})
+        if (b->id) gpu_.device().destroy_buffer(*b);
     m.lightmap.reset();
 }
 
 void Assets::destroy_mesh(MeshAsset& m) {
     destroy_mesh_lightmap(m);
     for (auto& p : m.parts) {
-        gpu_.device().destroy_buffer(gpu::from_sg(p.vb));
-        gpu_.device().destroy_buffer(gpu::from_sg(p.ib));
-        if (p.skinVb.id) gpu_.device().destroy_buffer(gpu::from_sg(p.skinVb));
-        if (p.uv1Vb.id) gpu_.device().destroy_buffer(gpu::from_sg(p.uv1Vb));
-        if (p.color1Vb.id) gpu_.device().destroy_buffer(gpu::from_sg(p.color1Vb));
+        gpu_.device().destroy_buffer(p.vb);
+        gpu_.device().destroy_buffer(p.ib);
+        if (p.skinVb.id) gpu_.device().destroy_buffer(p.skinVb);
+        if (p.uv1Vb.id) gpu_.device().destroy_buffer(p.uv1Vb);
+        if (p.color1Vb.id) gpu_.device().destroy_buffer(p.color1Vb);
     }
     m.parts.clear();
 }
@@ -787,7 +787,7 @@ void Assets::clear() {
     meshes_.clear();
     destroy_lightmap_set();
     lightmapSetPath_.clear();
-    if (zeroUv1_.id) gpu_.device().destroy_buffer(gpu::from_sg(zeroUv1_));
+    if (zeroUv1_.id) gpu_.device().destroy_buffer(zeroUv1_);
     zeroUv1_ = {};
     zeroUv1Vertices_ = 0;
     for (auto& [k, pm] : procedural_) destroy_procedural(pm);
@@ -807,8 +807,8 @@ void Assets::clear() {
 TextureAsset* Assets::white() { return white_.get(); }
 
 void Assets::destroy_lut(LutAsset& l) {
-    if (l.view.id) gpu_.device().destroy_view(gpu::from_sg(l.view));
-    if (l.image.id) gpu_.device().destroy_image(gpu::from_sg(l.image));
+    if (l.view.id) gpu_.device().destroy_view(l.view);
+    if (l.image.id) gpu_.device().destroy_image(l.image);
     l.view = {};
     l.image = {};
 }
@@ -877,7 +877,7 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
     d.data.mipLevels[0] = gpu::Range{strip.rgba.data(), strip.rgba.size()};
     d.label = key.c_str();
     const gpu::Image lutImage = gpu_.device().make_image(d);
-    l.image = gpu::to_sg(lutImage);
+    l.image = lutImage;
     if (gpu_.device().state(lutImage) != gpu::ResourceState::Valid) {
         destroy_lut(l);
         return fail(std::format("colour grading LUT '{}': the GPU could not make its {}x{} image", key, strip.width(),
@@ -887,7 +887,7 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
     gpu::ViewDesc vd;
     vd.texture.image = lutImage;
     vd.label = key.c_str();
-    l.view = gpu::to_sg(gpu_.device().make_view(vd));
+    l.view = gpu_.device().make_view(vd);
     l.size = strip.size;
     l.cols = strip.cols;
     l.rows = strip.rows;
@@ -900,8 +900,8 @@ const LutAsset* Assets::lut(const std::string& pathIn) {
 }
 
 void Assets::destroy_hdri(HdriAsset& h) {
-    if (h.view.id) gpu_.device().destroy_view(gpu::from_sg(h.view));
-    if (h.image.id) gpu_.device().destroy_image(gpu::from_sg(h.image));
+    if (h.view.id) gpu_.device().destroy_view(h.view);
+    if (h.image.id) gpu_.device().destroy_image(h.image);
     h.view = {};
     h.image = {};
 }
@@ -972,7 +972,7 @@ const HdriAsset* Assets::hdri(const std::string& pathIn) {
         d.data.mipLevels[i] = gpu::Range{image->mips[i].data(), image->mips[i].size() * sizeof(std::uint16_t)};
     d.label = key.c_str();
     const gpu::Image hdriImage = gpu_.device().make_image(d);
-    h.image = gpu::to_sg(hdriImage);
+    h.image = hdriImage;
     if (gpu_.device().state(hdriImage) != gpu::ResourceState::Valid) {
         destroy_hdri(h);
         return fail(std::format("environment map '{}': the GPU could not make its {}x{} image", key, image->width,
@@ -982,7 +982,7 @@ const HdriAsset* Assets::hdri(const std::string& pathIn) {
     gpu::ViewDesc vd;
     vd.texture.image = hdriImage;
     vd.label = key.c_str();
-    h.view = gpu::to_sg(gpu_.device().make_view(vd));
+    h.view = gpu_.device().make_view(vd);
     h.width = image->width;
     h.height = image->height;
     h.bytes = std::size_t(image->bytes());
@@ -1097,7 +1097,7 @@ const ProbeBakeAsset* Assets::probe_bake(const std::string& pathIn) {
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
     // In a linear scene the image is made as sRGB (upload_rgba): the mips average in linear light, as the GPU filters it.
-    const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+    const bool srgb = gpu_.texture_format(gpu::PixelFormat::Rgba8) != gpu::PixelFormat::Rgba8;
     upload_rgba(t, img, mips ? mip_chain(img, srgb) : std::vector<Image>());
 }
 
@@ -1108,8 +1108,8 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     d.height = img.height;
     // A linear scene reads colours as linear light: made as sRGB the GPU decodes them (the mip chain was averaged in linear light
     // for it, see upload_texture; one made for the other colour space stays as it was).
-    const sg_pixel_format format = gpu_.texture_format(SG_PIXELFORMAT_RGBA8);
-    d.pixelFormat = gpu::from_sg(format);
+    const gpu::PixelFormat format = gpu_.texture_format(gpu::PixelFormat::Rgba8);
+    d.pixelFormat = format;
     d.numMipmaps = chain.empty() ? 1 : int(chain.size());
     d.data.mipLevels[0] = gpu::Range{img.rgba.data(), img.rgba.size()};
     t.bytes = img.rgba.size();
@@ -1119,15 +1119,15 @@ void Assets::upload_rgba(TextureAsset& t, const Image& img, const std::vector<Im
     }
     d.label = t.path.c_str();
     const gpu::Image image = gpu_.device().make_image(d);
-    t.image = gpu::to_sg(image);
+    t.image = image;
     gpu::ViewDesc vd;
     vd.texture.image = image;
     vd.label = t.path.c_str();
-    t.view = gpu::to_sg(gpu_.device().make_view(vd));
+    t.view = gpu_.device().make_view(vd);
     t.width = img.width;
     t.height = img.height;
     t.format = format;
-    t.enc = format == SG_PIXELFORMAT_RGBA8 ? TexEncoding::Raw : TexEncoding::Srgb;
+    t.enc = format == gpu::PixelFormat::Rgba8 ? TexEncoding::Raw : TexEncoding::Srgb;
 }
 
 // Uploads transcoded KTX2 levels; false (nothing kept) when the GPU rejects them.
@@ -1135,9 +1135,9 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
     gpu::ImageDesc d;
     d.width = tex.width;
     d.height = tex.height;
-    const sg_pixel_format format =
+    const gpu::PixelFormat format =
         gpu_.texture_format(tex.format);  // the sRGB variant in a linear scene: the same blocks
-    d.pixelFormat = gpu::from_sg(format);
+    d.pixelFormat = format;
     d.numMipmaps = int(tex.levels.size());
     t.bytes = 0;
     for (std::size_t i = 0; i < tex.levels.size(); ++i) {
@@ -1146,12 +1146,12 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
     }
     d.label = t.path.c_str();
     const gpu::Image image = gpu_.device().make_image(d);
-    t.image = gpu::to_sg(image);
+    t.image = image;
     if (gpu_.device().state(image) == gpu::ResourceState::Valid) {
         gpu::ViewDesc vd;
         vd.texture.image = image;
         vd.label = t.path.c_str();
-        t.view = gpu::to_sg(gpu_.device().make_view(vd));
+        t.view = gpu_.device().make_view(vd);
         t.width = tex.width;
         t.height = tex.height;
         t.format = format;
@@ -1167,20 +1167,20 @@ bool Assets::upload_transcoded(TextureAsset& t, const TranscodedTexture& tex) {
 // Uploads a KTX2 file in the best format the GPU samples. Falls back to RGBA8 when the driver rejects a compressed one.
 bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file, std::string& error) {
     for (bool compressed : {true, false}) {
-        auto tex = transcode_ktx2(file.data(), file.size(), compressed);
+        auto tex = transcode_ktx2(gpu_.device(), file.data(), file.size(), compressed);
         if (!tex) {
             error = tex.error().message;
             return false;
         }
         if (upload_transcoded(t, *tex)) return true;
-        if (tex->format == SG_PIXELFORMAT_RGBA8) break;
+        if (tex->format == gpu::PixelFormat::Rgba8) break;
     }
     error = "the GPU rejected the texture";
     return false;
 }
 
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips) {
+                                            std::size_t size, gpu::PixelFormat ktx2Format, bool srgbMips) {
     AssetLoadScope trace("texture", key);  // the decode time (the read was the IO thread's); free without a load trace
     trace.set_bytes(size);
     PreparedTexture p;
@@ -1208,7 +1208,7 @@ std::uint64_t Assets::adopt_texture(PreparedTexture& p, std::vector<std::string>
     if (!p.ktx2) {
         // The colour space was asked when the load was requested; a linear scene may have rendered since (the format of
         // the GPU image follows it): the chain is made again, on this thread, when the two differ.
-        const bool srgb = gpu_.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+        const bool srgb = gpu_.texture_format(gpu::PixelFormat::Rgba8) != gpu::PixelFormat::Rgba8;
         if (srgb != p.srgbMips) {
             p.chain = mip_chain(p.image, srgb);
             p.srgbMips = srgb;
@@ -1379,14 +1379,14 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
         d.pixelFormat = gpu::PixelFormat::Rgba8;
         d.label = "video";
         const gpu::Image image = gpu_.device().make_image(d);
-        t.image = gpu::to_sg(image);
+        t.image = image;
         gpu::ViewDesc vd;
         vd.texture.image = image;
         vd.label = "video";
-        t.view = gpu::to_sg(gpu_.device().make_view(vd));
+        t.view = gpu_.device().make_view(vd);
         t.width = info.width;
         t.height = info.height;
-        t.format = SG_PIXELFORMAT_RGBA8;
+        t.format = gpu::PixelFormat::Rgba8;
         t.bytes = std::size_t(info.width) * std::size_t(info.height) * 4 * std::size_t(gpu::kInflightFrames);
         v.writtenFrame = 0;
     }
@@ -1396,7 +1396,7 @@ TextureAsset* Assets::video_texture(const std::shared_ptr<VideoDecoder>& decoder
         gpu_.begin_transient_writes();
         gpu::ImageWrite w;
         w.data = gpu::Range{decoder->picture(), std::size_t(info.width) * std::size_t(info.height) * 4};
-        w.dst.image = gpu::from_sg(t.image);
+        w.dst.image = t.image;
         gpu_.commands().write_image(w);
         v.writtenFrame = gpu_.frame() + 1;
     }
@@ -1694,8 +1694,8 @@ bool hdr_header_size(const std::vector<std::uint8_t>& bytes, std::int64_t& width
 void Assets::destroy_lightmap_set() {
     if (!lightmapSet_) return;
     for (LightmapPageGpu& pg : lightmapSet_->pages) {
-        if (pg.view.id) gpu_.device().destroy_view(gpu::from_sg(pg.view));
-        if (pg.image.id) gpu_.device().destroy_image(gpu::from_sg(pg.image));
+        if (pg.view.id) gpu_.device().destroy_view(pg.view);
+        if (pg.image.id) gpu_.device().destroy_image(pg.image);
     }
     lightmapSet_.reset();
 }
@@ -1803,7 +1803,7 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
         d.data.mipLevels[0] = gpu::Range{half.data(), half.size() * sizeof(std::uint16_t)};
         d.label = want.file.c_str();
         const gpu::Image pageImage = gpu_.device().make_image(d);
-        page.image = gpu::to_sg(pageImage);
+        page.image = pageImage;
         if (gpu_.device().state(pageImage) != gpu::ResourceState::Valid) {
             gpu_.device().destroy_image(pageImage);
             page.image = {};
@@ -1817,7 +1817,7 @@ const LightmapSetAsset* Assets::lightmaps(const std::string& manifestPath) {
         gpu::ViewDesc vd;
         vd.texture.image = pageImage;
         vd.label = want.file.c_str();
-        page.view = gpu::to_sg(gpu_.device().make_view(vd));
+        page.view = gpu_.device().make_view(vd);
         page.bytes = half.size() * sizeof(std::uint16_t);
         set.bytes += page.bytes;
         page.ok = true;
@@ -1871,21 +1871,20 @@ bool Assets::lightmap_use(const LightmapSetAsset& set, const std::string& entity
             lm.ok = !lm.parts.empty() && lm.parts.size() + 1 == built->geo.partFirstIndex.size();
             if (lm.ok) {
                 const LightmapBuild& b = *built;
-                lm.vb = gpu::to_sg(make_data_buffer(gpu_.device(), b.verts.data(), b.verts.size() * sizeof(MeshVertex),
-                                                    "lightmap-vb"));
-                lm.ib = gpu::to_sg(make_data_buffer(gpu_.device(), b.geo.indices.data(),
-                                                    b.geo.indices.size() * sizeof(std::uint32_t), "lightmap-ib", true));
+                lm.vb =
+                    make_data_buffer(gpu_.device(), b.verts.data(), b.verts.size() * sizeof(MeshVertex), "lightmap-vb");
+                lm.ib = make_data_buffer(gpu_.device(), b.geo.indices.data(),
+                                         b.geo.indices.size() * sizeof(std::uint32_t), "lightmap-ib", true);
                 std::vector<float> uv;
                 uv.reserve(b.geo.uv.size() * 2);
                 for (const Vec2& t : b.geo.uv) {
                     uv.push_back(t.x);
                     uv.push_back(t.y);
                 }
-                lm.uv =
-                    gpu::to_sg(make_data_buffer(gpu_.device(), uv.data(), uv.size() * sizeof(float), "lightmap-uv"));
+                lm.uv = make_data_buffer(gpu_.device(), uv.data(), uv.size() * sizeof(float), "lightmap-uv");
                 if (!b.color1.empty())
-                    lm.color1 = gpu::to_sg(make_data_buffer(
-                        gpu_.device(), b.color1.data(), b.color1.size() * sizeof(std::uint32_t), "lightmap-color1"));
+                    lm.color1 = make_data_buffer(gpu_.device(), b.color1.data(),
+                                                 b.color1.size() * sizeof(std::uint32_t), "lightmap-color1");
                 for (std::size_t i = 0; i < lm.parts.size(); ++i) {
                     SubMesh& p = lm.parts[i];
                     p.vb = lm.vb;
@@ -1930,13 +1929,13 @@ bool Assets::lightmap_use(const LightmapSetAsset& set, const std::string& entity
     return true;
 }
 
-sg_buffer Assets::zero_uv1(std::size_t vertices) {
+gpu::Buffer Assets::zero_uv1(std::size_t vertices) {
     if (vertices <= zeroUv1Vertices_ && zeroUv1_.id) return zeroUv1_;
     std::size_t cap = std::max<std::size_t>(zeroUv1Vertices_ * 2, 4096);
     while (cap < vertices) cap *= 2;
-    if (zeroUv1_.id) gpu_.device().destroy_buffer(gpu::from_sg(zeroUv1_));
+    if (zeroUv1_.id) gpu_.device().destroy_buffer(zeroUv1_);
     std::vector<float> zeros(cap * 2, 0.0f);
-    zeroUv1_ = gpu::to_sg(make_data_buffer(gpu_.device(), zeros.data(), zeros.size() * sizeof(float), "zero-uv1"));
+    zeroUv1_ = make_data_buffer(gpu_.device(), zeros.data(), zeros.size() * sizeof(float), "zero-uv1");
     zeroUv1Vertices_ = cap;
     return zeroUv1_;
 }
@@ -1945,8 +1944,8 @@ sg_buffer Assets::zero_uv1(std::size_t vertices) {
 // Procedural meshes
 // ---------------------------------------------------------------------------
 void Assets::destroy_procedural(ProceduralMesh& pm) {
-    for (sg_buffer* b : {&pm.vb, &pm.ib, &pm.vbStage, &pm.ibStage}) {
-        if (b->id) gpu_.device().destroy_buffer(gpu::from_sg(*b));
+    for (gpu::Buffer* b : {&pm.vb, &pm.ib, &pm.vbStage, &pm.ibStage}) {
+        if (b->id) gpu_.device().destroy_buffer(*b);
         *b = {};
     }
     pm.vbCap = pm.ibCap = 0;
@@ -2049,51 +2048,51 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
             bd.usage.vertexBuffer = true;
             bd.usage.copyDst = true;
             bd.label = "procedural-vb";
-            pm.vb = gpu::to_sg(gpu_.device().make_buffer(bd));
+            pm.vb = gpu_.device().make_buffer(bd);
             bd = {};
             bd.size = ibCap;
             bd.usage.indexBuffer = true;
             bd.usage.copyDst = true;
             bd.label = "procedural-ib";
-            pm.ib = gpu::to_sg(gpu_.device().make_buffer(bd));
+            pm.ib = gpu_.device().make_buffer(bd);
             bd = {};
             bd.size = vbCap;
             bd.usage.stagingBuffer = true;
             bd.usage.writeTransient = true;
             bd.usage.copySrc = true;
             bd.label = "procedural-vb-staging";
-            pm.vbStage = gpu::to_sg(gpu_.device().make_buffer(bd));
+            pm.vbStage = gpu_.device().make_buffer(bd);
             const bool separateBufferTypes = gpu_.device().features().separateBufferTypes;
             bd.size = ibCap;
             bd.usage.stagingBuffer = !separateBufferTypes;
             bd.usage.stagingIndexBuffer = separateBufferTypes;
             bd.label = "procedural-ib-staging";
-            pm.ibStage = gpu::to_sg(gpu_.device().make_buffer(bd));
+            pm.ibStage = gpu_.device().make_buffer(bd);
         }
         gpu::CommandList& list = gpu_.commands();
         gpu::BufferWrite w;
         w.data = gpu::Range{verts.data(), vbBytes};
-        w.buffer = gpu::from_sg(pm.vbStage);
+        w.buffer = pm.vbStage;
         list.write_buffer(w);
         gpu::BufferCopy c;
-        c.src = gpu::from_sg(pm.vbStage);
-        c.dst = gpu::from_sg(pm.vb);
+        c.src = pm.vbStage;
+        c.dst = pm.vb;
         c.size = vbBytes;
         list.copy_buffer_to_buffer(c);
         w = {};
         w.data = gpu::Range{d.indices.data(), ibBytes};
-        w.buffer = gpu::from_sg(pm.ibStage);
+        w.buffer = pm.ibStage;
         list.write_buffer(w);
         c = {};
-        c.src = gpu::from_sg(pm.ibStage);
-        c.dst = gpu::from_sg(pm.ib);
+        c.src = pm.ibStage;
+        c.dst = pm.ib;
         c.size = ibBytes;
         list.copy_buffer_to_buffer(c);
         pm.stagedFrame = frameTag;
     } else {
         destroy_procedural(pm);
-        pm.vb = gpu::to_sg(make_data_buffer(gpu_.device(), verts.data(), vbBytes, "procedural-vb"));
-        pm.ib = gpu::to_sg(make_data_buffer(gpu_.device(), d.indices.data(), ibBytes, "procedural-ib", true));
+        pm.vb = make_data_buffer(gpu_.device(), verts.data(), vbBytes, "procedural-vb");
+        pm.ib = make_data_buffer(gpu_.device(), d.indices.data(), ibBytes, "procedural-ib", true);
         pm.vbCap = vbBytes;
         pm.ibCap = ibBytes;
     }
@@ -2281,7 +2280,7 @@ Json Assets::report() const {
         Json entry = {{"path", k},
                       {"width", t->width},
                       {"height", t->height},
-                      {"format", pixel_format_name(t->format)},
+                      {"format", texture_format_name(t->format)},
                       {"bytes", t->bytes}};
         if (t->atlas) entry["atlas"] = t->atlas->path;  // packed: the bytes are the atlas's
         tex.push_back(std::move(entry));
@@ -2290,7 +2289,7 @@ Json Assets::report() const {
         tex.push_back({{"path", k},
                        {"width", t->width},
                        {"height", t->height},
-                       {"format", pixel_format_name(t->format)},
+                       {"format", texture_format_name(t->format)},
                        {"bytes", t->bytes},
                        {"runtime", true}});
     Json meshes = Json::array();

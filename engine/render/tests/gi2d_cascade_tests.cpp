@@ -58,7 +58,7 @@ struct Own {
         }
     }
     bool gi_ready() {
-        const bool have = Gi2dSystem::float_targets_ok();
+        const bool have = Gi2dSystem::float_targets_ok(renderer_gpu(r)->device());
         const sg_backend b = sg_query_backend();
         if (b == SG_BACKEND_GLCORE || b == SG_BACKEND_D3D11 || b == SG_BACKEND_METAL_MACOS ||
             b == SG_BACKEND_METAL_IOS) {

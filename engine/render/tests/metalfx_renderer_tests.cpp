@@ -256,7 +256,8 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     const int row = render::find_feature("metalfx");
     REQUIRE(row >= 0);
     std::string why;
-    CHECK(render::feature_supported(render::feature_env_from_sokol(), row, &why) == caps.metalfx);
+    CHECK(render::feature_supported(render::feature_env_from_device(RendererTestAccess::gpu(own.r)->device()), row,
+                                    &why) == caps.metalfx);
     if (caps.metalfx) {
         CHECK(why.empty());
         CHECK(RendererTestAccess::mfx_encoded(own.r) == 3);

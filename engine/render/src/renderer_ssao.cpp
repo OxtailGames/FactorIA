@@ -267,8 +267,4 @@ void Ssao::draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, 
     list.draw(0, 3, 1);
 }
 
-void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre, const TargetFormat& format) {
-    draw_apply(gpu.commands(), gpu, apply, ao, pre, format);
-}
-
 }  // namespace fa::render

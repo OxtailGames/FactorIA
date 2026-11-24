@@ -318,7 +318,7 @@ TEST_CASE("color space: a gradient on the 8-bit scene target keeps the ramp, and
     CHECK_FALSE(eight.r.hdr_scene());
     const gpu::PixelFormat f8 = eight.gpu().scene_format();
     CHECK((f8 == gpu::PixelFormat::Srgb8A8 || f8 == gpu::PixelFormat::Rgba8));
-    INFO("the 8-bit scene format is " << std::string(render::pixel_format_name(gpu::to_sg(f8))));
+    INFO("the 8-bit scene format is " << std::string(gpu::pixel_format_name(f8)));
     double prev = -1;
     for (int i = 0; i < 256; i += 5) {  // never darker than the pixel before it
         const double v = img8.pixel(32 + i, 90).r;
@@ -465,10 +465,12 @@ TEST_CASE("color space: colour textures are made sRGB in a linear scene, with th
         return std::string("missing");
     };
     // The format a texture is made in now, for the colour spaces: (gamma, RGBA8) and (linear, SRGB8A8 when the GPU decodes it).
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RGBA8) == SG_PIXELFORMAT_RGBA8);  // a gamma scene
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rgba8) == gpu::PixelFormat::Rgba8);  // a gamma scene
     r.gpu().set_linear(true);
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RGBA8) == (gpuDecodes ? SG_PIXELFORMAT_SRGB8A8 : SG_PIXELFORMAT_RGBA8));
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RG11B10F) == SG_PIXELFORMAT_RG11B10F);  // nothing else is converted
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rgba8) ==
+          (gpuDecodes ? gpu::PixelFormat::Srgb8A8 : gpu::PixelFormat::Rgba8));
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rg11B10F) ==
+          gpu::PixelFormat::Rg11B10F);  // nothing else is converted
     r.gpu().set_linear(false);
 
     // A texture first used by a gamma scene is RGBA8 (data and colour alike); one first used by a linear scene is SRGB8A8.
@@ -589,7 +591,7 @@ TEST_CASE("color space: a gamma scene is drawn exactly as before (no conversion 
     render::Gpu& gpu = *render::renderer_gpu(g.renderer);
     CHECK_FALSE(gpu.linear());
     CHECK((gpu.scene_format() == gpu::PixelFormat::Rgba16F || gpu.scene_format() == gpu::PixelFormat::Rgba8));
-    CHECK(gpu.texture_format(SG_PIXELFORMAT_RGBA8) == SG_PIXELFORMAT_RGBA8);
+    CHECK(gpu.texture_format(gpu::PixelFormat::Rgba8) == gpu::PixelFormat::Rgba8);
     // 50% of (0.5, 0.25, 0.75) over black, on the sRGB values.
     CHECK(at(img, 0, 0).r == doctest::Approx(0.25f).epsilon(0.03));
     CHECK(at(img, 0, 0).g == doctest::Approx(0.125f).epsilon(0.03));

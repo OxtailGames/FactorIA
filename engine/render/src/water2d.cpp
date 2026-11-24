@@ -295,11 +295,6 @@ void gather_water_fx(World& world, Frame& f) {
 // ---------------------------------------------------------------------------
 // WaterFx: the shaders, the copy and the draw
 // ---------------------------------------------------------------------------
-bool WaterFx::ready() {
-    if (state_ != 0) return state_ > 0;
-    return make_ready(device_ ? *device_ : Gpu::active_device());
-}
-
 bool WaterFx::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
     return make_ready(gpu.device());
@@ -451,7 +446,7 @@ bool WaterFx::draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const Draw
     gpu::CommandList& list = gpu.commands();  // the pass the caller opened is on this list
     list.set_pipeline(pipe);
     gpu::Bindings b;
-    b.vertexBuffers[0] = gpu::from_sg(env.vertices);
+    b.vertexBuffers[0] = env.vertices;
     b.vertexBufferOffsets[0] = int(std::size_t(firstQuad) * 4 * sizeof(Vertex2D));
     b.indexBuffer = gpu.quad_index_buffer();
     b.views[VIEW_water2d_scene_tex] = env.scene;

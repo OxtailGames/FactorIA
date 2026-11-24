@@ -483,7 +483,7 @@ TEST_CASE(
     CHECK(fx.pipeline_count() == 0);  // nothing is made before it is asked for
     const TargetFormat game{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
     fx.warm(*gpu, game);
-    REQUIRE(fx.ready());
+    REQUIRE(fx.ready(*gpu));
     // pipeline_count() counts cache entries (a failed build is one too, with id 0). Here the copy's (in the scene format) and the
     // effect's two (with and without the depth test): what the first frame draws with.
     CHECK(fx.pipeline_count() == 3);

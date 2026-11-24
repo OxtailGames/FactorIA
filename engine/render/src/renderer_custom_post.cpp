@@ -162,7 +162,7 @@ CustomPostPlan make_custom_post_plan(const PostStack& stack, Assets& assets, std
         const MaterialAsset& m = *use->material;
         e.textureCount = int(std::min<std::size_t>(m.textures.size(), std::size_t(kMaxMaterialTextures)));
         for (int i = 0; i < e.textureCount; ++i) {
-            e.views[i] = use->textures[i] ? gpu::from_sg(use->textures[i]->gpu_view()) : gpu::View{};
+            e.views[i] = use->textures[i] ? use->textures[i]->gpu_view() : gpu::View{};
             e.samplers[i] = m.textures[std::size_t(i)].sampler;
         }
         plan.entries.push_back(std::move(e));

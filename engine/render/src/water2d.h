@@ -60,11 +60,8 @@ public:
     WaterFx(const WaterFx&) = delete;
     WaterFx& operator=(const WaterFx&) = delete;
 
-    // True when the copy and effect shaders compiled (made on first use; one error line when they did not, and the effects are then not
-    // drawn).
-    bool ready();
-    // The same on `gpu`'s device (the device is remembered: warm, copy and draw take it from their Gpu too). The form without a
-    // Gpu uses the remembered device, or Gpu::active_device() when none was given yet (TRANSITIONAL, M77: its callers pass their Gpu).
+    // True when the copy and effect shaders compiled on `gpu`'s device (made on first use; one error line when they did not, and the
+    // effects are then not drawn). The device is remembered: warm, copy and draw take it from their Gpu too.
     bool ready(Gpu& gpu);
 
     // Makes the shaders and the pipelines of a frame drawn into `gameFormat` (the main pass's format) ahead of the first draw: the start-up
@@ -85,7 +82,7 @@ public:
 
     // What draw() needs of the camera and the frame.
     struct DrawEnv {
-        sg_buffer vertices{};  // the frame's quad stream
+        gpu::Buffer vertices{};  // the frame's quad stream
         const Mat4* viewProj = nullptr;
         const SceneMap* map = nullptr;
         gpu::View scene{};  // the copy

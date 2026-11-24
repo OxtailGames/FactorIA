@@ -13,7 +13,7 @@
 namespace fa::render {
 
 // The caps of one frame (deterministic work counts, not times).
-inline constexpr std::size_t kUiMaxVertices = std::size_t(1) << 22;  // 4 Mi vertices = 80 MiB, in one frame
+inline constexpr std::size_t kUiMaxVertices = std::size_t(1) << 22;    // 4 Mi vertices = 80 MiB, in one frame
 inline constexpr std::size_t kUiFirstVertices = std::size_t(1) << 16;  // what the buffers start with (as sokol_imgui)
 inline constexpr std::size_t kUiVertexBytes = sizeof(UiVertex);        // 20
 inline constexpr std::size_t kUiIndexBytes = sizeof(std::uint16_t);

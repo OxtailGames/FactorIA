@@ -56,8 +56,6 @@ public:
     TextureAsset* texture() { return &tex_; }
     // Uploads the rows baked since the last call (the image is made again). Call after the gather, before drawing.
     void sync(gpu::Device& device);
-    // The same on Gpu::active_device() (TRANSITIONAL, M77: the callers not converted yet).
-    void sync();
     void destroy();
     int rows_in_use() const { return int(byHash_.size()); }
     std::size_t bytes() const { return tex_.image.id ? std::size_t(kRampWidth) * kRampRows * 4 : 0; }

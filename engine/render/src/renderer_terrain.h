@@ -75,7 +75,8 @@ public:
         std::uint64_t serial = 0;  // Renderer::Impl::frameSerial
         Gpu* gpu =
             nullptr;  // the renderer's Gpu: its device makes the textures, its list takes the sub-rectangle copies of a sculpt (required)
-        sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;  // Gpu::texture_format(RGBA8): SRGB8A8 in a linear scene
+        gpu::PixelFormat albedoFormat =
+            gpu::PixelFormat::Rgba8;  // Gpu::texture_format(RGBA8): SRGB8A8 in a linear scene
         float lodQuality =
             1.0f;  // the graphics preset's factor on Terrain.lodQuality (QualityLimits.terrainLodQuality)
     };
@@ -117,7 +118,7 @@ private:
         std::uint64_t seenVersion = 0;
         TextureAsset tex;       // RG8 heights (r = high byte, g = low byte)
         bool copyable = false;  // `tex` was made to take copies (the first sculpt makes it so)
-        sg_buffer stage{};      // the staging buffer of the sub-rectangle copies, and its size
+        gpu::Buffer stage{};    // the staging buffer of the sub-rectangle copies, and its size
         std::size_t stageCap = 0;
         std::uint64_t stagedFrame = 0;  // Gpu::frame() + 1 of the frame whose copy wrote it (one write a frame)
         TerrainTileBounds bounds;
@@ -146,7 +147,7 @@ private:
             0;  // what its shape was made from: the maps, their sizes and serials, the heights object
         std::uint64_t splatSeen[kTerrainSplatMaps] = {0, 0};  // the version of each splat map the array holds
         bool controlCopyable = false;
-        sg_buffer controlStage{};
+        gpu::Buffer controlStage{};
         std::size_t controlStageCap = 0;
         std::uint64_t controlStagedFrame = 0;
         int splatMaps = 0, controlSide = 1;
@@ -157,10 +158,10 @@ private:
         std::uint64_t holesSeen = 0;  // the holesVersion the texture holds
         bool holesOn = false;
         bool holesCopyable = false;  // holesTex was made to take copies (the first holes stroke makes it so)
-        sg_buffer holesStage{};
+        gpu::Buffer holesStage{};
         std::size_t holesStageCap = 0;
         std::uint64_t holesStagedFrame = 0;
-        sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;
+        gpu::PixelFormat albedoFormat = gpu::PixelFormat::Rgba8;
         std::string layerNote[2], controlNote, holesNote;  // the last problem of each part (said once, with the others)
         std::string note;                                  // the last problem said about the layers (said once)
         bool failed = false;                               // the texture could not be made: said once, nothing is drawn
