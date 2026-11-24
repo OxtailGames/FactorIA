@@ -462,9 +462,10 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
                                                                : DebugView::None;
-    im.adopted = desc.adoptContext && gpu::context_open();
-    if (!im.adopted) gpu::open_context(env);
-    if (!gpu::context_open()) {
+    // A context that was already open is never this renderer's to close, whether the caller said so (adoptContext) or
+    // not (a player, a test or another Renderer opened it): only a context this call opens is closed by shutdown.
+    im.adopted = gpu::context_open();
+    if (!im.adopted && !gpu::open_context(env)) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         impl_.reset();
         return false;
@@ -605,7 +606,22 @@ render::UpscalerMode Renderer::effective_upscaler_mode() const {
 }
 float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
-    // The sokol backend's name (gles3 for WebGL2 too); Recording is sokol's dummy backend or no open context.
+    // The sokol backend's name (gles3 for WebGL2 too); "dummy" is sokol's dummy backend. With no open context (before
+    // open_context/init, after shutdown) it is the backend this build compiles, the one a context would open: callers that
+    // ask early (the CLI's graphics.detect, a log line) get a real name, never "dummy" for a build that has a GPU backend.
+    if (!gpu::context_open()) {
+#if defined(SOKOL_D3D11)
+        return "d3d11";
+#elif defined(SOKOL_METAL)
+        return "metal";
+#elif defined(SOKOL_GLES3)
+        return "gles3";
+#elif defined(SOKOL_GLCORE)
+        return "glcore";
+#else
+        return "dummy";
+#endif
+    }
     switch (gpu::context_backend()) {
         case gpu::Backend::Gl: return "glcore";
         case gpu::Backend::Gles3:

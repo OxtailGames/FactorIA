@@ -1584,7 +1584,9 @@ public:
     Gpu& operator=(const Gpu&) = delete;
     // Makes the device on the open sokol context (gpu::make_device(gpu::built_sokol_backend()) adopts the context
     // Renderer::init opened) and the frame's command list, then the built-in programs, samplers and buffers.
-    bool init(int sampleCount, std::string* error);
+    // `device` (tests): a device to use instead, such as a gpu::RecordingDevice (gpu/recording_device.h) that records what the
+    // renderer's passes call; the built-in shaders still come from the open sokol context's generated descs.
+    bool init(int sampleCount, std::string* error, std::unique_ptr<gpu::Device> device = nullptr);
     // Destroys everything init and the getters made, submits the frame's list and releases the device (the sokol
     // context stays open: it is the renderer's). Safe to call twice, and on a Gpu whose init failed.
     void shutdown();

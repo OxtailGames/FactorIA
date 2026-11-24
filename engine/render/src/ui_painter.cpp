@@ -133,6 +133,17 @@ gpu::Pipeline UiPainterImpl::pipeline_for(const gpu::TargetFormat& format) {
     return p;
 }
 
+void UiPainterImpl::note_view_format(std::uint32_t view, gpu::PixelFormat format) {
+    if (device->pixel_format_caps(format).filter)
+        unfilterableViews.erase(view);
+    else
+        unfilterableViews.insert(view);
+}
+
+gpu::Sampler UiPainterImpl::sampler_for(const UiDrawCommand& command) const {
+    return command.nearest || unfilterableViews.count(command.view) != 0 ? nearest : linear;
+}
+
 UiTexture UiPainterImpl::make_texture(int width, int height, const std::uint8_t* rgba, bool updatable,
                                       std::string* error) {
     const int maxSize = device->limits().maxImageSize2d;
@@ -173,6 +184,7 @@ UiTexture UiPainterImpl::make_texture(int width, int height, const std::uint8_t*
         set_error(error, "the device could not make a view of the picture");
         return {};
     }
+    note_view_format(view.id, d.pixelFormat);
     return UiTexture{image.id, view.id};
 }
 
@@ -207,7 +219,10 @@ void UiPainterImpl::destroy_texture(const UiTexture& texture) {
                                      [&](const Pending& p) { return p.image.id == texture.image; }),
                       pending.end());
     }
-    if (texture.view) device->destroy_view(gpu::View{texture.view});
+    if (texture.view) {
+        unfilterableViews.erase(texture.view);
+        device->destroy_view(gpu::View{texture.view});
+    }
     if (texture.image) device->destroy_image(gpu::Image{texture.image});
 }
 
@@ -349,14 +364,15 @@ void UiPainterImpl::draw(gpu::CommandList& list, const gpu::TargetFormat& format
             x1 = std::min(x1, fbW);
             y1 = std::min(y1, fbH);
             if (x1 <= x0 || y1 <= y0) continue;
-            if (!anyBound || boundView != cmd.view || boundNearest != cmd.nearest ||
+            const bool useNearest = sampler_for(cmd).id == nearest.id;
+            if (!anyBound || boundView != cmd.view || boundNearest != useNearest ||
                 boundVertexOffset != cmd.vertexOffset) {
                 anyBound = true;
                 boundView = cmd.view;
-                boundNearest = cmd.nearest;
+                boundNearest = useNearest;
                 boundVertexOffset = cmd.vertexOffset;
                 b.views[0] = gpu::View{cmd.view};
-                b.samplers[0] = cmd.nearest ? nearest : linear;
+                b.samplers[0] = sampler_for(cmd);
                 b.vertexBufferOffsets[0] =
                     int(placed[i].vertexByteOffset + std::size_t(cmd.vertexOffset) * kUiVertexBytes);
                 list.set_bindings(b);
@@ -424,7 +440,10 @@ bool UiPainter::upload(const UiFrame& frame, std::string* error) {
 void UiPainter::draw(const GfxSwapchain& swapchain, const UiFrame& frame) {
     gpu::Device& device = *impl_->device;
     const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
-    const gpu::PassDesc pass = gpu::PassDesc::for_swapchain(sc, device.environment_defaults());
+    // The same defaults Renderer::begin_window_pass makes the window pass with (the context's), so the pipeline's formats
+    // match that pass; a painter on a device with no context (a test's RecordingDevice) uses its device's.
+    const gpu::PassDesc pass =
+        gpu::PassDesc::for_swapchain(sc, gpu::context_open() ? gpu::context_defaults() : device.environment_defaults());
     gpu::CommandList& list = device.begin_commands("ui draw");
     impl_->draw(list, pass.format, frame);
     device.submit(list);

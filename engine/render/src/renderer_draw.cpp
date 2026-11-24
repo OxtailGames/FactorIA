@@ -3352,7 +3352,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         lp.colorLoad = gpu::LoadAction::Clear;
         lp.clearColor = {0, 0, 0, 0};
         lp.colorStore = gpu::StoreAction::Store;
-        begin_list_pass(cl, lp);
+        cl.begin_pass(lp);
         // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
         if (partial) apply_view(cl, px_rect(fr.cam.viewport, lightW, lightH));
         cl.set_pipeline(gpu.light_pipeline());
@@ -3396,7 +3396,7 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     sp.depthLoad = gpu::LoadAction::Clear;
     sp.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, sp);
+    cl.begin_pass(sp);
     mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
     // One draw per batch and view (a cascade of the sun, a tile of a local light), each into its own tile of the atlas: the viewport and
     // the scissor are the tile (y from the top). A batch's runs are in ascending view order, so each batch keeps a cursor.
@@ -3613,7 +3613,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
         reactive ? gpu::Color{0.0f, 0.0f, 0.0f, 0.0f} : gpu::Color{VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
     pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, pd);
+    cl.begin_pass(pd);
     const gpu::Pipeline pip = gpu.quad_motion_pipeline(pd.format, reactive);
     if (!pip.id || !ctx.vbuf.id || !ctx.vmotion.id) {
         cl.end_pass();
@@ -3730,7 +3730,7 @@ void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
     pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, pd);
+    cl.begin_pass(pd);
     // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
     draw_group(ctx, ctx.gWorld.batches, ctx.fr.cam.drawViewProj, false, Px{0, 0, t.w, t.h}, 0, &pd.format, nullptr, t.w,
                t.h);
@@ -3757,7 +3757,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
     pd.depthLoad = gpu::LoadAction::Clear;
     pd.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, pd);
+    cl.begin_pass(pd);
     mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
     copy_mat(vu.fa_light_vp,
              ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
@@ -3865,7 +3865,7 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
     pd.depthLoad = gpu::LoadAction::Clear;
     pd.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, pd);
+    cl.begin_pass(pd);
     mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
     for (const MeshBatch& batch : ctx.opaqueBatches) {
         if (batch.mainCount == 0) continue;
@@ -3928,7 +3928,7 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     dp.colorStore =
         (ctx.msaa && ctx.plan.last && !ctx.hudAfterBloom) ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, dp);
+    cl.begin_pass(dp);
     cl.set_pipeline(gpu.prepass_view_pipeline(dp.format));
     if (!ctx.postPlan.rect.whole(physW, physH)) apply_view(cl, ctx.camPx);  // the camera's rectangle of the game image
     gpu::Bindings b;
@@ -3970,7 +3970,7 @@ void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocit
     dp.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
     dp.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, dp);
+    cl.begin_pass(dp);
     cl.set_pipeline(gpu.prepass_view_pipeline(dp.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
@@ -4197,7 +4197,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             cp.depthStore = gpu::StoreAction::Store;
             cp.stencilStore = gpu::StoreAction::Store;
         }
-        begin_list_pass(cl, cp);
+        cl.begin_pass(cp);
         if (ctx.partial) apply_view(cl, ctx.camPx);
         ++sc.next;
         scissor = Rect{-1, -1, -1,
@@ -4483,7 +4483,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         mp.clearDepth = 1.0f;
         mp.stencilLoad = gpu::LoadAction::Clear;
         gpu::CommandList& cl = gpu.commands();
-        begin_list_pass(cl, mp);
+        cl.begin_pass(mp);
         if (partial) apply_view(cl, camPx);
 
         // clear of a camera that shares the target with others
@@ -4686,7 +4686,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 cp.depthStore = gpu::StoreAction::Store;
                 cp.stencilStore = gpu::StoreAction::Store;
             }
-            begin_list_pass(cl, cp);
+            cl.begin_pass(cp);
             if (partial) apply_view(cl, camPx);
         }
 
@@ -4781,7 +4781,7 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
     hp.clearDepth = 1.0f;
     hp.stencilLoad = gpu::LoadAction::Clear;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, hp);
+    cl.begin_pass(hp);
     const TargetFormat* format =
         atOutput ? &into.format : nullptr;  // the output image is not multisampled: its own pipelines
     draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0, format);
@@ -4944,7 +4944,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 "hiz-reduce", {prepassRes}, {},
                 [this, &ctx, hc, prepassRes](const PassContext& c) {
                     const Target* t = transient_targets().get(c.handle(prepassRes));
-                    if (t) hiz_reduce_pass(*c.commands(), *hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                    if (t && c.commands())
+                        hiz_reduce_pass(*c.commands(), *hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
                 },
                 true);
         }

@@ -144,11 +144,13 @@ MeshAsset* ImpostorRenderer::quad(gpu::Device& device) {
     SubMesh sm;
     gpu::BufferDesc vb;
     vb.usage.vertexBuffer = true;
-    vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
+    vb.size = v.size() * sizeof(MeshVertex);
+    vb.data = {v.data(), vb.size};
     vb.label = "impostor-card";
     sm.vb = device.make_buffer(vb);
     gpu::BufferDesc ib;
     ib.usage.indexBuffer = true;
+    ib.size = sizeof idx;
     ib.data = {idx, sizeof idx};
     ib.label = vb.label;
     sm.ib = device.make_buffer(ib);
