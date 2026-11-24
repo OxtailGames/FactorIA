@@ -1,7 +1,7 @@
 {
   "format": "factoria.shader/1",
-  "engine": "0.34.0",
-  "template": "ce0b91e9734fcf4ac8c1b91a1b8ecce8a5f820aedb471a014802996b896ad05b",
+  "engine": "0.35.2",
+  "template": "870cf8d9964906c6aff671c7b5177972e77d80cdfc2cef89e4d10c6d7b1ecdbe",
   "slang": "metal_macos",
   "params": [
     "tint"

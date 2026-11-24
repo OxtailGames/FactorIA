@@ -58,7 +58,9 @@ struct RendererTestAccess;
 // Occlusion (M75.2) draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, as wire boxes over the picture of
 // the NEXT frame, with a line of counts (the depth buffer itself is Renderer::occlusion_report's `save`). With the depth pyramid
 // (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion };
+// MotionVectors (M76) paints the per-pixel motion vectors the prepass writes (direction as hue, magnitude as brightness, grey where no mesh
+// wrote one), over the picture, with the prepass drawn only for it.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -344,16 +346,17 @@ public:
     // as before. Costs memory (one image of the design size) only while it applies; recreates no render target.
     void set_upscale_stage(bool on);
     bool upscale_stage() const;
-    // The engine-wide upscaler setting (fa/render/upscaler.h, M76). While the picture is drawn below the output size
-    // (set_upscale_stage and a render scale below 1) the renderer brings it back with effective_upscaler_mode(): "temporal"
-    // (M76-P4: the camera is jittered and the frames accumulate in an output-size history) or stretch. The caller sets the render
-    // scale of the quality (upscaler_quality_scale) itself.
+    // The engine-wide upscaler setting (fa/render/upscaler.h, M76): what the upscale stage draws with. The mode that really draws
+    // is effective_upscaler_mode(): the setting's mode where this backend can draw it, and "stretch" for pixel art (ScaleMode::PixelPerfect,
+    // set_scale_mode) so its hard edges stay. With "spatial" the stage also runs at render scale 1 when the sharpness is above 0 (the
+    // sharpen alone); with "stretch" it never does. The render scale itself is not derived here: the caller sets it (Engine does:
+    // docs/UPSCALING.md, "The render scale").
     void set_upscaler(const render::UpscalerSettings& settings);
     const render::UpscalerSettings& upscaler() const;
-    // The mode the renderer really draws with on this backend and scale mode (what render.upscaler and window.upscaler report as
-    // effectiveMode): "stretch" for stretch, spatial and metalfx (not drawn yet), for pixel art (ScaleMode::PixelPerfect) and where the
-    // temporal upscaler cannot run; "temporal" for temporal and auto. It says what would be drawn, not whether the stage is on.
-    render::UpscalerMode effective_upscaler_mode() const;
+    render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
+    render::UpscalerMode
+    effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised
+    float render_scale() const;       // the scale set by set_render_scale (1 before)
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();

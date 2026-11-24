@@ -107,8 +107,16 @@ constexpr std::size_t kParallelSortItems = 1024;
 constexpr std::size_t kSortGrain = 256;
 }  // namespace
 
+PrevModelRows prev_model_rows(const Mat4& m) {
+    PrevModelRows r;
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 4; ++col) r.rows[row * 4 + col] = m.at(col, row);
+    return r;
+}
+
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
-                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runsOut) {
+                   std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats, std::vector<ShadowRun>* runsOut,
+                   std::vector<PrevModelRows>* prevMats) {
     std::vector<ShadowRun> discarded;
     std::vector<ShadowRun>& runs = runsOut ? *runsOut : discarded;
     const std::size_t firstNewBatch = batches.size();
@@ -147,6 +155,7 @@ void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vecto
         MeshBatch& b = batches.back();
         if (items[i].visible) {
             mainMats.push_back(items[i].model);
+            if (prevMats) prevMats->push_back(prev_model_rows(items[i].hasPrev ? items[i].prevModel : items[i].model));
             ++b.mainCount;
         }
     }

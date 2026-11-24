@@ -113,6 +113,16 @@ constexpr int kMaxInstanceVec4 = 3;  // fa/tooling/shaders.h kMaterialMaxInstanc
 // and weights of a skinned program (11), in mesh_common.glsl FA_X_BASE. Up to kMaxInstanceVec4 + 2 attributes: 16 =
 // SG_MAX_VERTEX_ATTRIBUTES.
 constexpr int kExtraAttrBase = 9, kExtraAttrBaseSkinned = 11;
+// M76 motion vectors: vertex buffer 6 holds the previous model matrix of every instance of a prepass draw as the three rows of an affine
+// matrix (48 bytes, the instance matrix without its constant last row), per instance, read by attributes 3 after the extras
+// (mesh_common.glsl, fa_prev_r0..2). The prepass programs that have them: the engine's and every material's non-skinned ones, unless the
+// material draws from storage buffers or declares so many extras that 3 more would pass the 16 attributes of SG_MAX_VERTEX_ATTRIBUTES.
+constexpr int kPrevModelBuffer = 6;
+constexpr int kPrevModelBytes = 48;
+struct PrevModelRows {
+    float rows[12];
+};
+static_assert(sizeof(PrevModelRows) == kPrevModelBytes, "a previous model is three vec4");
 // The extra vertex attributes of a custom material's main, prepass and (with vertex() or alphaMode "clip") shadow
 // programs; a material without per-instance params and declared channels has none, and its pipelines are the built-in
 // layout.
@@ -125,7 +135,17 @@ struct MeshExtras {
     // 1, which holds one matrix only (Gpu: set_instance_layout).
     bool bufferInst = false;
     bool any() const { return instanceVec4 > 0 || uv1 || color1; }
+    // The vertex attributes the extras take (instance params, uv1, color1).
+    int count() const { return instanceVec4 + (uv1 ? 1 : 0) + (color1 ? 1 : 0); }
 };
+// The location of the previous model's first attribute in a prepass program (vertex buffer kPrevModelBuffer), or -1 when the program has
+// none: a skinned one (M76-P1b keeps the previous palette), one drawn from storage buffers, one with more than 4 extra attributes. The
+// same rule as `FA_PREV_BASE` in mesh_common.glsl prepass_vs; `custom` is false for the engine's own programs (no extras).
+inline int prepass_prev_attr(bool skinned, bool custom, const MeshExtras& e) {
+    if (skinned || (custom && e.bufferInst)) return -1;
+    const int n = custom ? e.count() : 0;
+    return n <= 4 ? kExtraAttrBase + n : -1;
+}
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
 // that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
@@ -1566,7 +1586,14 @@ public:
     // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
     // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
     static sg_pixel_format prepass_color_format();
-    TargetFormat prepass_target_format() const { return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1}; }
+    // `velocity`: the pass also writes the motion vectors into a second colour attachment (velocity_format(), M76).
+    TargetFormat prepass_target_format(bool velocity = false) const {
+        return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1, velocity ? velocity_format() : SG_PIXELFORMAT_NONE};
+    }
+    // The motion vector image (VelocityRef): RG16F, uvPrev - uvCurr and the sentinel 1024, both exact in half float.
+    static sg_pixel_format velocity_format() { return SG_PIXELFORMAT_RG16F; }
+    // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
+    bool velocity_ready();
     bool prepass_ready();
     // The slots (uniform blocks, views, samplers) the built-in prepass program declares, for a draw that binds only those; after prepass_ready().
     const MaterialProgram& prepass_program(bool skinned) const { return prepassProgram_[skinned ? 1 : 0]; }

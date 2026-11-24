@@ -403,12 +403,13 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     Impl& im = *impl_;
     im.desc = desc;
     if (const char* dv = std::getenv("FA_RENDER_DEBUG_VIEW"))
-        im.debugView = std::strcmp(dv, "depth") == 0       ? DebugView::Depth
-                       : std::strcmp(dv, "normals") == 0   ? DebugView::Normals
-                       : std::strcmp(dv, "ao") == 0        ? DebugView::Ao
-                       : std::strcmp(dv, "cascades") == 0  ? DebugView::Cascades
-                       : std::strcmp(dv, "occlusion") == 0 ? DebugView::Occlusion
-                                                           : DebugView::None;
+        im.debugView = std::strcmp(dv, "depth") == 0           ? DebugView::Depth
+                       : std::strcmp(dv, "normals") == 0       ? DebugView::Normals
+                       : std::strcmp(dv, "ao") == 0            ? DebugView::Ao
+                       : std::strcmp(dv, "cascades") == 0      ? DebugView::Cascades
+                       : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
+                       : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
+                                                               : DebugView::None;
     im.adopted = desc.adoptContext && sg_isvalid();
     if (!im.adopted) {
         sg_desc sd = make_sg_desc(env);
@@ -473,6 +474,7 @@ void Renderer::shutdown() {
         im.hdriSky.release();
         im.sceneFx.release();
         im.taa.release();
+        im.spatial.release();
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -519,10 +521,11 @@ void Renderer::set_upscale_stage(bool on) {
 bool Renderer::upscale_stage() const { return impl_ && impl_->upscaleStage; }
 void Renderer::set_upscaler(const render::UpscalerSettings& settings) { impl_->upscaler = settings; }
 const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upscaler; }
+render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
 render::UpscalerMode Renderer::effective_upscaler_mode() const {
-    if (!initialized()) return render::effective_upscaler_mode(impl_->upscaler);
-    return impl_->effective_upscaler();
+    return impl_ ? impl_->effective_upscaler_mode() : render::UpscalerMode::Stretch;
 }
+float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
     switch (sg_query_backend()) {
         case SG_BACKEND_GLCORE: return "glcore";
@@ -1072,6 +1075,18 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
     jitterPx = it->second.jitterPx;
     return true;
 }
+void RendererTestAccess::force_velocity(Renderer& r, bool on) {
+    if (!r.impl_) return;
+    r.impl_->forceVelocity = on;
+    if (!on) render::destroy_target(r.impl_->velocityProbe);
+}
+bool RendererTestAccess::read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_velocity(out, w, h, error);
+}
 void RendererTestAccess::force_jitter(Renderer& r, int phases) {
     if (r.impl_) r.impl_->jitterForce = std::max(phases, 0);
 }
@@ -1239,19 +1254,29 @@ void Renderer::Impl::render(World& world, float dt) {
 
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     // M76-P4: the temporal upscaler jitters the camera by the number of phases the upscale ratio asks for (the cameras are built with it) and
-    // resolves it into the output image; it works on a frame of ONE full-viewport camera (several cameras or a split screen are drawn
-    // stretched: each would need a history of its rectangle). The frame is decided here, before the cameras are built.
+    // resolves it into the output image; it works on a frame of ONE full-viewport camera (several cameras or a split screen are drawn with
+    // the spatial upscaler: each would need a history of its rectangle). The frame is decided here, before the cameras are built: the
+    // cameras are collected with the jitter the last frame's count says (none after a several-camera frame), and collected again when
+    // this frame's count says otherwise (a change of camera count, not every frame).
     temporalPhases = 0;
     temporalFrame = false;
     upscaleTaa = TaaPlan{};
     upscaleImpl = render::UpscaleImpl::Stretch;
-    if (upscale_active() && effective_upscaler() == render::UpscalerMode::Temporal)
-        temporalPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
+    int wantedPhases = 0;
+    if (upscale_active()) {
+        render::UpscalerCaps oneCamera = upscaler_caps();
+        oneCamera.multiCamera = false;
+        if (render::effective_upscaler_mode(upscaler, oneCamera) == render::UpscalerMode::Temporal)
+            wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
+    }
+    temporalPhases = temporalBlocked ? 0 : wantedPhases;
     lastCams = collect_cameras(world);
-    if (temporalPhases > 0 && !(lastCams.size() == 1 && lastCams.front().fullViewport())) {
-        temporalPhases = 0;
+    const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
+    if (wantedPhases > 0 && temporalPhases != (oneFullCamera ? wantedPhases : 0)) {
+        temporalPhases = oneFullCamera ? wantedPhases : 0;
         lastCams = collect_cameras(world);
     }
+    temporalBlocked = !oneFullCamera;
     if (temporalPhases > 0) {
         temporalFrame = true;
         upscaleImpl = render::UpscaleImpl::Temporal;

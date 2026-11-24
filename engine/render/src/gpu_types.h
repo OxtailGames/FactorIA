@@ -69,6 +69,8 @@ struct PassDesc {
     // DONTCARE when the pass resolves and nobody reads the MSAA image.
     sg_store_action colorStore = SG_STOREACTION_STORE;
     sg_color clearColor{0.0f, 0.0f, 0.0f, 0.0f};
+    sg_color clearColor1{0.0f, 0.0f, 0.0f,
+                         0.0f};  // what a CLEAR of colour attachment 1 fills it with (the velocity image: the sentinel)
     sg_load_action depthLoad = SG_LOADACTION_DONTCARE;  // CLEAR to `clearDepth`; the depth is never read after the pass
     float clearDepth = 1.0f;
     sg_load_action stencilLoad = SG_LOADACTION_DONTCARE;  // the main passes CLEAR it (to 0)
@@ -107,7 +109,7 @@ struct PassDesc {
         if (color1.id) {
             p.action.colors[1].load_action = colorLoad;
             p.action.colors[1].store_action = colorStore;
-            p.action.colors[1].clear_value = clearColor;
+            p.action.colors[1].clear_value = clearColor1;
         }
         p.action.depth.load_action = depthLoad;
         p.action.depth.clear_value = clearDepth;

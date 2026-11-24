@@ -97,21 +97,24 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
     return false;
 }
 
-// M76-P4 (P3b adds the same rule: keep one): the render scale the renderer draws at. The player's scale (window.renderScale) times the
-// share of the width and the height the upscaler's quality draws (1 at native, 1/2 at performance), never below the renderer's smallest.
-double Engine::Impl::used_render_scale() const {
-    if (!playerScale || !renderer) return heldScale;
-    const double q = double(render::upscaler_quality_scale(self->upscaler().quality));
-    return std::max(heldScale * q, double(Renderer::kMinRenderScale));
-}
-
-// Draws the game at used_render_scale(), with the upscale stage on while that is below the design size (the HUD and UI are then drawn at
-// the design size over the brought-back picture). A scale held for a screenshot is left alone.
-void Engine::Impl::apply_player_scale() {
-    if (!renderer || !playerScale) return;
-    const double used = used_render_scale();
-    renderer->set_render_scale(float(used));
-    renderer->set_upscale_stage(used < 1.0);
+// The one place that decides the render scale and the upscale stage (docs/UPSCALING.md, "The render scale"): the scale the renderer draws at
+// is window.renderScale (heldScale) times the scale of the upscaler's quality, never below the engine's 0.25 floor; the stage is on when
+// that is below 1 or the mode that really draws is spatial (its sharpen at scale 1; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
+// the video recorder: hold_render_scale without the player's option) is that size and no stage. The scale mode is told too: pixel art
+// keeps the plain nearest scaling (the effective mode is stretch there). A later package multiplies in the dynamic resolution here.
+void Engine::Impl::apply_render_scale() {
+    if (!renderer) return;
+    renderer->set_scale_mode(project.scaleMode);
+    float scale = float(heldScale);
+    bool stage = false;
+    if (playerScale || heldScale == 1.0) {
+        const render::UpscaleScalePlan plan = render::plan_upscale_scale(
+            scale, renderer->upscaler().quality, renderer->effective_upscaler_mode(), Renderer::kMinRenderScale);
+        scale = plan.scale;
+        stage = plan.stage;
+    }
+    renderer->set_render_scale(scale);
+    renderer->set_upscale_stage(stage);
     renderStale = true;
 }
 
@@ -136,6 +139,7 @@ void Engine::Impl::apply_project_settings() {
         appliedProjectUpscaler = project.upscaler;
         self->set_upscaler(render::upscaler_to_json(project.upscaler));
     }
+    apply_render_scale();  // the display's scale mode may have changed too (pixel art keeps the plain scaling); no renderer yet at the start
     // The mirror option of factoria.json, applied when it changes (a script's ui.mirrorRtl survives an unrelated reload).
     if (!appliedProjectMirrorRtl || *appliedProjectMirrorRtl != project.uiMirrorRtl) {
         appliedProjectMirrorRtl = project.uiMirrorRtl;
@@ -999,7 +1003,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
-            I.apply_player_scale();  // M76-P4: the quality of the project's upscaler draws the game below the design size
+            I.apply_render_scale();    // the project's quality draws below the window's size from the first frame
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             I.renderer->set_rich_text_style(I.richStyle);  // nor when the project settings were read
             FA_INFO("engine", "Graphics: {}",
@@ -1377,18 +1381,16 @@ bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
                     std::to_string(I.renderer->target_width()) + "x" + std::to_string(I.renderer->target_height()) +
                     "). Use a smaller scale.");
     struct
-        ScaleGuard {  // back to the used scale (1 unless hold_render_scale / an upscaler quality) afterwards; the next picture is drawn again
+        ScaleGuard {  // back to the held scale and the upscale stage (apply_render_scale) afterwards; the next picture is drawn again
         Impl& I;
         bool on;
-        bool upscale;  // the player's render scale (window.renderScale) brings the picture back to the design size
         ~ScaleGuard() {
             if (on) {
-                I.renderer->set_render_scale(float(I.used_render_scale()));
-                I.renderer->set_upscale_stage(upscale);
+                I.apply_render_scale();
                 I.renderStale = true;
             }
         }
-    } guard{I, scale != I.heldScale, I.renderer->upscale_stage()};
+    } guard{I, scale != I.heldScale};
     if (guard
             .on) {  // new images: the picture must be drawn again. A screenshot at another scale is that many pixels, not upscaled
         I.renderer->set_upscale_stage(false);
@@ -1492,10 +1494,7 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
         return capture_scaled(probe, scale, error);  // fails with the explanation
     }
     I.heldScale = scale;
-    I.playerScale = false;  // a size; Engine::set_render_scale makes it the player's again
-    I.renderer->set_upscale_stage(
-        false);  // a held screenshot scale (--render-scale) is a size; set_render_scale() below turns it on
-    I.renderer->set_render_scale(float(scale));
+    I.apply_render_scale();  // a held scale that is not the player's option (--render-scale) is a size: no upscale stage
     I.renderStale = true;
     return true;
 }
@@ -1699,11 +1698,15 @@ std::string Engine::set_render_scale(double scale) {
     Impl& I = *impl_;
     if (!I.renderer) return ScriptHost::set_render_scale(scale);  // no graphics: remembered, nothing to resize
     std::string err;
-    if (!hold_render_scale(scale, &err)) return err;
-    // The player's option: below 1 the game is drawn smaller and brought back to the design size, the HUD and UI drawn over it at that
-    // size (Renderer::set_upscale_stage), so a screenshot of it (capture_frame) is the design size.
+    // The player's option, not a size: with the upscaler's quality it gives the render scale, below 1 the game is drawn smaller and brought
+    // back to the design size, the HUD and UI drawn over it at that size (apply_render_scale), so a screenshot of it is the design size.
+    const bool wasPlayer = I.playerScale;
     I.playerScale = true;
-    I.apply_player_scale();
+    if (!hold_render_scale(scale, &err)) {
+        I.playerScale = wasPlayer;
+        return err;
+    }
+    I.apply_render_scale();  // hold_render_scale does nothing when the value is the held one already
     I.renderStale = true;
     return std::string();
 }
@@ -1712,13 +1715,20 @@ std::string Engine::set_upscaler(const Json& value, const std::string& where) {
     std::string err = ScriptHost::set_upscaler(value, where);
     if (err.empty() && impl_->renderer) {
         impl_->renderer->set_upscaler(upscaler());
-        impl_->apply_player_scale();  // the quality sets the size the frame is drawn at
+        impl_->apply_render_scale();  // the quality and the mode decide the render scale and the stage
+        impl_->renderStale = true;
     }
     return err;
 }
 
 render::UpscalerMode Engine::effective_upscaler_mode() const {
     return impl_->renderer ? impl_->renderer->effective_upscaler_mode() : ScriptHost::effective_upscaler_mode();
+}
+
+render::UpscalerCaps Engine::upscaler_caps() const {
+    render::UpscalerCaps caps;  // no renderer: what a GPU would draw, so only the scale mode matters
+    caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
+    return caps;
 }
 
 void Engine::device_overridden(const Json& device) {
@@ -1769,9 +1779,12 @@ Json Engine::render_stats_now() {
     Json j = I.renderer->stats(false).to_json();
     j.erase("cpuMs");  // wall-clock: not for scripts that must stay reproducible
     j["textureMB"] = std::round(double(I.renderer->texture_bytes()) / (1024.0 * 1024.0) * 100.0) / 100.0;
-    j["width"] = int(std::lround(I.renderer->target_width() * I.heldScale));  // the size of the picture drawn
-    j["height"] = int(std::lround(I.renderer->target_height() * I.heldScale));
-    j["renderScale"] = I.heldScale;
+    const double drawnScale =
+        I.renderer->render_scale();  // window.renderScale x the upscaler's quality (apply_render_scale)
+    j["width"] =
+        std::max(1, int(std::lround(I.renderer->target_width() * drawnScale)));  // the size of the picture drawn
+    j["height"] = std::max(1, int(std::lround(I.renderer->target_height() * drawnScale)));
+    j["renderScale"] = std::round(drawnScale * 1000.0) / 1000.0;
     return j;
 }
 
