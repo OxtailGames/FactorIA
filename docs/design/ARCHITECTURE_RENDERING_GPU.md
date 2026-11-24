@@ -41,6 +41,8 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - resources: `make_*` / `destroy_*` / `state()` for buffers, images, views, samplers, shaders and pipelines;
 - the frame: `begin_commands(label)`, `submit(list)`, `commit()`, `frame_index()`, commit listeners,
   `reset_state_cache()`;
+- queues, tokens and bindless (M77.5, below): `begin_commands(label, QueueKind)`, `submit_token`, `wait_list`,
+  `wait_queue`, `bindless_index(view)`, `Features::asyncCompute`, `multiThreadRecording`, `bindless`;
 - statistics (`enable_stats`, `total_stats`), GPU timers (`timer_*`), readbacks (`read_image_rgba8`,
   `read_image_rgba16f`, `read_storage_image`, `read_buffer`), `storage_image_loadable(format, why)` (whether a compute
   shader may load a storage image of that format: `"access": "readwrite"`) and asynchronous buffer reads (`request_buffer_read`,
@@ -107,6 +109,45 @@ images are read by waiting (`read_image_rgba8`, `read_image_rgba16f`, `read_stor
 
 **RecordingDevice ranges.** Every rectangle, mip and slice range is checked in 64-bit arithmetic: a start near
 `INT_MAX` plus a size cannot wrap around into a range that looks inside the image.
+
+## Queues, tokens, threads and bindless (M77.5)
+
+The contract is written in `gpu/device.h` (block "Queues, threads and bindless" of `Device`); this is its summary. Every
+member is virtual with a default for a device with one queue, so a backend that has not built them compiles and
+behaves as one queue: sokol, and D3D12/Vulkan until their packages override them.
+
+- **Queues.** `QueueKind { Graphics, Compute, Transfer }`; `begin_commands(label)` is `Graphics`.
+  `begin_commands(label, queue)` returns a list for that queue; `CommandList::queue()` says which one it really runs on
+  (without `Features::asyncCompute` every list is a graphics one: the default, and sokol). A compute list takes compute
+  passes and copies, a transfer list copies only (RecordingDevice reports a render pass on the former, a compute pass on
+  the latter). Lists of one queue run in `submit()` order; across queues only tokens order.
+- **Tokens.** `submit_token(list)` is `submit()` that returns a `SyncToken{queue, value}`: the queue's fence value
+  (from 1, never reset or reused, so a token of an earlier frame is simply satisfied). `wait_list(list, token)` makes the
+  list start after the token (before its first command, whenever it is called while the list is open);
+  `wait_queue(queue, token)` does it for everything submitted to the queue afterwards. The invalid token and a token of
+  the waiter's own queue wait for nothing. A token no `submit_token` returned can never be satisfied: RecordingDevice
+  reports it. Only the GPU waits. `commit()` ends the frame for the graphics queue: async work nobody waited for is
+  allowed, but the picture may depend only on async work a graphics list waited for.
+- **Resources between queues.** A buffer or image is used by one queue at a time and there is no barrier call: the
+  renderer declares a handover by ordering alone. Compute writes, graphics reads: `token = submit_token(computeList)`,
+  then `wait_list(graphicsList, token)` before the first command that touches it; before compute writes it again the
+  compute list waits for a token of the graphics list that last read it. Read-only sharing needs both waits for the
+  producer's token. The backend derives the ownership release/acquire (Vulkan) or state change (D3D12) from the views
+  the lists bind. RecordingDevice records queues, signals and waits (`CommandKind::Signal`, `WaitList`, `WaitQueue`, the
+  `queue` of each `RecordedCommand`) but does not check these ownership rules.
+- **Threads.** Render thread only: `make_*`, `destroy_*`, `submit`, `submit_token`, `wait_queue`, `commit`, the commit
+  listeners, statistics, timers, readbacks, natives. With `Features::multiThreadRecording`, any thread: `begin_commands`,
+  every call on the list the thread holds (including `wait_list`) and the read-only queries (`features`, `limits`,
+  `info`, `pixel_format_caps`, `state`, `bindless_index`...), on the condition that the renderer joins its recording
+  jobs before it creates or destroys a resource, submits or commits. One list is used by one thread at a time; the
+  render thread submits the lists after the join, in a fixed order. RecordingDevice has the feature on in its default
+  caps and its own tests record two lists on two threads; sokol does not (a second `begin_commands()` before
+  `submit()` is an `FA_ASSERT`).
+- **Bindless.** `bindless_index(view)`: the slot of a texture or storage view in the global table shaders index, stable
+  for the view's life; `kNoBindlessIndex` without the table (`Features::bindless` false) or for another view.
+  RecordingDevice answers when its `recordingFeatures.bindless` is on (the pool slot).
+- A backend class that overrides one `begin_commands` overload hides the other through its own type: add
+  `using Device::begin_commands;`.
 
 ## Barriers live inside the backends
 
