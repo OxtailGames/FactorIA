@@ -131,7 +131,8 @@ one, so it is for source builds. `ffmpeg` installs the static ffmpeg 6.0 build (
 `factoria run --record-video trailer.mp4` converts its recording with, so it works without installing ffmpeg by hand. `directstorage` downloads the NuGet package
 Microsoft.Direct3D.DirectStorage 1.3.0 (about 3 MB, pinned by SHA-256) and keeps its x64 `dstorage.dll` and `dstoragecore.dll`
 in `~/.factoria/tools/directstorage/1.3.0/`; a Windows release export with `export.pack.directStorage` copies them next to the
-game, which then reads its gdeflate files through DirectStorage (any computer can install it). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
+game, which then reads its gdeflate files through DirectStorage (any computer can install it; off Windows its status is
+`unsupported`, not needed there, and `factoria setup` without a component does not install it). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
 removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `launcher` writes an app

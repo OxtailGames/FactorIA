@@ -513,6 +513,14 @@ ticket is `{slot, generation}`: a stale or released one is ignored even after it
 is reused only once its copy finished. Every slot busy = an invalid ticket with ok. A read keeps its source alive
 through `destroy_buffer`.
 
+**Pack reads** (`d3d12_pack_reads_win32.cpp`, M77). `read_pack_to_buffer` and `read_pack_to_image` write a range of a
+`game.pak` file into a buffer or a texture region and return a ticket (`poll_pack_read`, `release_pack_read`, 64
+slots). A gdeflate file of a pack opened from disk goes through DirectStorage with the device set on its queue (GDeflate
+decoded on the GPU where it can): the texture's subresource first moves to COMMON on an internal list, the requests
+follow once that list finished, and the queue waits for DirectStorage's fence before later lists. Anything else is
+decoded on the CPU and uploaded, with one warning per reason. ARCHITECTURE_FILES.md, "DirectStorage", has the rules;
+`d3d12_pack_reads_tests.cpp` tests both paths on WARP.
+
 **GPU timers.** Timestamp queries on the direct queue (`GetTimestampFrequency`; `timer_supported` is false with the
 reason when the queue cannot give one or the query heaps cannot be made). Like GpuTimer on D3D11 and GL: a ring of 6
 timed frames, each with its own query heap and READBACK buffer (a full ring skips the frame), query 0 and 1 the

@@ -15,7 +15,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
-#include "pack_direct_storage.h"
+#include "direct_storage/pack_direct_storage.h"
 #include "pack_file.h"
 
 namespace stdfs = std::filesystem;
@@ -666,6 +666,9 @@ bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std:
     }
     const std::uint64_t base = firstK * B;
     const auto requests = detail::plan_direct_requests(blocks, B, e.size - base, from - base, out.size());
+    if (requests.empty()) return false;  // nothing DirectStorage could read: the CPU path reads (or reports) it
+    const bool verify = detail::direct_storage_verify();
+    std::vector<std::uint8_t> stored;  // FA_DIRECTSTORAGE_VERIFY=1: a compressed block's stored bytes
     const auto batches =
         detail::batch_direct_requests(requests, detail::kDirectBatchRequests, detail::kDirectBatchBytes);
     std::vector<std::uint8_t> scratch[2];  // the first and the last block when the range holds only part of them
@@ -691,10 +694,20 @@ bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std:
             const detail::DirectRequest& r = requests[i];
             const std::uint32_t k = std::uint32_t(firstK) + r.block;
             // A raw block's bytes are its stored bytes: checked as the CPU path checks them.
-            if (!r.compressed &&
-                xxh32(ios[io].dest, r.decodedSize) != blocks_[std::size_t(e.firstBlock) + k].checksum) {
+            const Block& b = blocks_[std::size_t(e.firstBlock) + k];
+            if (!r.compressed && xxh32(ios[io].dest, r.decodedSize) != b.checksum) {
                 failure = "block " + std::to_string(k + 1) + " of '" + e.path + "' does not match its checksum";
                 break;
+            }
+            // A compressed block: DirectStorage decompressed it without the checksum, which covers its stored bytes.
+            // FA_DIRECTSTORAGE_VERIFY=1 reads them too and checks them (debugging a pack).
+            if (r.compressed && verify) {
+                stored.resize(b.stored);
+                if (!read_at(b.offset, stored.data(), b.stored) || xxh32(stored.data(), b.stored) != b.checksum) {
+                    failure = "block " + std::to_string(k + 1) + " of '" + e.path +
+                              "' does not match its checksum (FA_DIRECTSTORAGE_VERIFY)";
+                    break;
+                }
             }
             if (r.scratch >= 0) std::memcpy(out.data() + r.outOffset, ios[io].dest + r.copyFrom, r.copyLength);
         }
@@ -832,7 +845,56 @@ std::vector<std::string> PackReader::data_order() const {
 PackReader::Counters PackReader::counters() const {
     return Counters{reads_.load(std::memory_order_relaxed), bytesRead_.load(std::memory_order_relaxed),
                     storedRead_.load(std::memory_order_relaxed),
-                    direct_ ? direct_->blocks.load(std::memory_order_relaxed) : 0};
+                    (direct_ ? direct_->blocks.load(std::memory_order_relaxed) : 0) +
+                        directExternal_.load(std::memory_order_relaxed)};
+}
+
+void PackReader::count_external(std::uint64_t bytes, std::uint64_t stored, std::uint64_t directBlocks) const {
+    count(bytes, stored);
+    directExternal_.fetch_add(directBlocks, std::memory_order_relaxed);
+}
+
+Result<PackReader::RangeLayout> PackReader::range_layout(std::string_view path, std::uint64_t offset,
+                                                         std::uint64_t size) const {
+    auto found = find_file(path);
+    if (!found.ok()) return found.error();
+    const Entry& e = *found.value();
+    RangeLayout out;
+    if (!inMemory_) out.packFile = file_;
+    out.codec = e.codec;
+    out.fileSize = e.size;
+    out.offset = std::min(offset, e.size);
+    out.size = std::min(size, e.size - out.offset);
+    out.blockSize = blockSize_;
+    if (e.blockCount == 0 || out.size == 0) return out;
+    const std::uint64_t firstK = out.offset / blockSize_, lastK = (out.offset + out.size - 1) / blockSize_;
+    if (lastK >= e.blockCount) return damaged(e, std::uint32_t(lastK), "is missing from the index");
+    out.firstBlock = firstK;
+    out.blocks.reserve(std::size_t(lastK - firstK + 1));
+    for (std::uint64_t k = firstK; k <= lastK; ++k) {
+        const Block& b = blocks_[std::size_t(e.firstBlock + k)];
+        out.blocks.push_back(RangeLayout::Block{b.offset, b.stored, b.checksum, b.raw});
+    }
+    return out;
+}
+
+Result<void> PackReader::check_stored(std::string_view path, std::uint64_t offset, std::uint64_t size) const {
+    auto layout = range_layout(path, offset, size);
+    if (!layout.ok()) return layout.error();
+    auto found = find_file(path);
+    if (!found.ok()) return found.error();
+    std::vector<std::uint8_t> stored;
+    for (std::size_t i = 0; i < layout.value().blocks.size(); ++i) {
+        const RangeLayout::Block& b = layout.value().blocks[i];
+        const std::uint32_t k = std::uint32_t(layout.value().firstBlock + i);
+        stored.resize(b.stored);
+        if (!read_at(b.offset, stored.data(), b.stored))
+            return make_error("Failed while reading '" + found.value()->path + "' from the game pack " + quoted(file_),
+                              "The pack may be damaged or on a drive that went away. Export the game again.");
+        if (xxh32(stored.data(), b.stored) != b.checksum)
+            return damaged(*found.value(), k, "does not match its checksum");
+    }
+    return {};
 }
 
 std::vector<std::string> PackReader::list(std::string_view dir, bool recursive) const {

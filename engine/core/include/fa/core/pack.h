@@ -239,6 +239,33 @@ public:
     };
     Counters counters() const;
 
+    // Where bytes [offset, offset + size) of a file (clamped to its end) lie in the pack: its codec and the blocks that
+    // hold them. The D3D12 backend reads them with DirectStorage straight into GPU resources (docs/design/
+    // ARCHITECTURE_FILES.md, "DirectStorage"). `packFile` is empty for a pack opened from memory; `blocks` is empty for a
+    // file of a format 1 pack (no blocks).
+    struct RangeLayout {
+        std::filesystem::path packFile;
+        Codec codec = Codec::Store;
+        std::uint64_t fileSize = 0;          // the file's decoded bytes
+        std::uint64_t offset = 0, size = 0;  // the range, clamped
+        std::uint32_t blockSize = kPackBlockSize;
+        std::uint64_t firstBlock =
+            0;  // the index within the file of blocks[0] (it decodes from firstBlock * blockSize)
+        struct Block {
+            std::uint64_t offset = 0;  // its stored bytes, from the start of the pack
+            std::uint32_t stored = 0, checksum = 0;
+            bool raw = false;
+        };
+        std::vector<Block> blocks;
+    };
+    Result<RangeLayout> range_layout(std::string_view path, std::uint64_t offset, std::uint64_t size) const;
+    // Reads the stored bytes of the blocks that hold bytes [offset, offset + size) of the file and checks them against
+    // their checksums (what a read on the CPU checks; a DirectStorage read checks them with FA_DIRECTSTORAGE_VERIFY=1).
+    Result<void> check_stored(std::string_view path, std::uint64_t offset, std::uint64_t size) const;
+    // Counts a read that another reader of the pack's bytes served (the D3D12 backend's DirectStorage reads), so the
+    // counters above stay whole. `directBlocks`: the blocks DirectStorage decompressed.
+    void count_external(std::uint64_t bytes, std::uint64_t stored, std::uint64_t directBlocks) const;
+
     // The error for a path the pack does not hold: the "did you mean" comes from the files in the same folder, else from
     // every path in the pack. `requested` is what the caller asked for, `normalized` the same, normalized.
     Error not_found(std::string_view requested, std::string_view normalized) const;
@@ -287,7 +314,7 @@ private:
     bool inMemory_ = false;              // open_memory: map_ points into memory_ and is not a file mapping to unmap
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
-    mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};
+    mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0}, directExternal_{0};
     struct Direct;  // DirectStorage state (pack.cpp): only for a pack file with gdeflate files, on Win64
     std::shared_ptr<Direct> direct_;  // shared_ptr: its type stays incomplete here
 };
