@@ -1539,7 +1539,7 @@ AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& e
     const ExportEnvLookup& env = s.env;
     std::string home = env("HOME");
     if (home.empty()) home = env("USERPROFILE");
-    auto under = [&](const char* rel) { return home.empty() ? std::string() : (stdfs::path(home) / rel).string(); };
+    [[maybe_unused]] auto under = [&](const char* rel) { return home.empty() ? std::string() : (stdfs::path(home) / rel).string(); };
     // What `factoria setup android` installs (fa/tooling/setup.h) comes first: the user asked FactorIA to provide it.
     const stdfs::path factoriaHome = factoria_home(env);
     s.jdk.push_back({(factoriaHome / "android" / "jdk").string(), "FactorIA"});
