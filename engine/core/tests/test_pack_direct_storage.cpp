@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "../src/pack_direct_storage.h"
+#include "../src/direct_storage/pack_direct_storage.h"
 #include "fa/core/compress.h"
 #include "fa/core/fs.h"
 #include "fa/core/pack.h"
@@ -133,7 +133,173 @@ TEST_CASE("directstorage: batches hold at most the queue's room and the staging 
     CHECK(alone.size() == 600);
     CHECK(batch_direct_requests(small, 0, kDirectBatchBytes).size() == 600);
     CHECK(batch_direct_requests({}, 10, 1000).empty());
-    CHECK(kDirectBatchRequests + 2 <= kDirectQueueCapacity);  // room for the status and the event of a batch
+    // A full batch, its status and its event fill an empty queue, which holds one entry less than its capacity.
+    DirectQueueRoom room(kDirectQueueCapacity);
+    CHECK(room.free_entries() == kDirectQueueCapacity - 1);
+    CHECK(room.take(kDirectBatchRequests));
+    CHECK(room.free_entries() == 0);
+    CHECK(!room.take(0));  // even an empty submission takes its status and its event
+    room.give(kDirectBatchRequests);
+    CHECK(room.free_entries() == kDirectQueueCapacity - 1);
+    CHECK(!room.take(kDirectBatchRequests + 1));  // too big for the queue: nothing taken
+    CHECK(room.free_entries() == kDirectQueueCapacity - 1);
+    CHECK(room.take(10));
+    CHECK(room.take(10));
+    CHECK(room.free_entries() == kDirectQueueCapacity - 1 - 2 * direct_queue_entries(10));
+    CHECK(DirectQueueRoom(kDirectGpuQueueCapacity).take(kDirectGpuReadRequests));
+}
+
+TEST_CASE("directstorage: a read into a GPU buffer sends whole blocks to DirectStorage, partial ones to the CPU") {
+    const auto blocks = blocks_of(5);
+    const std::uint64_t size = 4 * B + 100;
+    SUBCASE("a whole file is all GPU") {
+        const auto r = plan_direct_requests(blocks, B, size, 0, size);
+        const auto split = split_direct_buffer(r);
+        CHECK(split.gpu == std::vector<std::size_t>{0, 1, 2, 3, 4});
+        CHECK(split.cpu.empty());
+    }
+    SUBCASE("a range with partial ends") {
+        const auto r = plan_direct_requests(blocks, B, size, B / 2, 3 * B);
+        const auto split = split_direct_buffer(r);
+        REQUIRE(r.size() == 4);
+        CHECK(split.gpu == std::vector<std::size_t>{1, 2});
+        REQUIRE(split.cpu.size() == 2);
+        CHECK(split.cpu[0].outOffset == 0);
+        CHECK(split.cpu[0].length == B / 2);
+        CHECK(split.cpu[1].outOffset == 3 * B - B / 2);
+        CHECK(split.cpu[1].length == B / 2);
+    }
+    SUBCASE("a range inside one block is all CPU") {
+        const auto split = split_direct_buffer(plan_direct_requests(blocks, B, size, 7, 50));
+        CHECK(split.gpu.empty());
+        REQUIRE(split.cpu.size() == 1);
+        CHECK(split.cpu[0].outOffset == 0);
+        CHECK(split.cpu[0].length == 50);
+    }
+    CHECK(split_direct_buffer({}).gpu.empty());
+}
+
+TEST_CASE("directstorage: texture regions are laid out as D3D12's copyable footprint") {
+    CHECK(direct_texture_pitch(1) == 256);
+    CHECK(direct_texture_pitch(256) == 256);
+    CHECK(direct_texture_pitch(257) == 512);
+    CHECK(direct_texture_pitch(0) == 0);
+    CHECK(direct_texture_bytes(100, 1) == 100);  // one row: unpadded
+    CHECK(direct_texture_bytes(100, 3) == 2 * 256 + 100);
+    CHECK(direct_texture_bytes(1024, 4) == 4096);  // rows of a multiple of 256: no padding
+    CHECK(direct_texture_bytes(0, 4) == 0);
+    CHECK(direct_texture_bytes(100, 0) == 0);
+}
+
+TEST_CASE("directstorage: a texture region goes to DirectStorage only when every block holds whole rows") {
+    const auto blocks = blocks_of(8);
+    SUBCASE("64 texels of RGBA8 a row: 1024 rows a block") {
+        const std::uint32_t rowBytes = 256, rows = 2048 + 10;  // two whole blocks and a short last one
+        const std::uint64_t size = direct_texture_bytes(rowBytes, rows);
+        const auto r = plan_direct_requests(blocks, B, size, 0, size);
+        const auto spans = plan_direct_texture_rows(r, rowBytes, rows);
+        REQUIRE(spans.size() == 3);
+        CHECK(spans[0].firstRow == 0);
+        CHECK(spans[0].rowCount == 1024);
+        CHECK(spans[1].firstRow == 1024);
+        CHECK(spans[2].firstRow == 2048);
+        CHECK(spans[2].rowCount == 10);
+    }
+    SUBCASE("a region in one block, padded rows") {
+        const std::uint32_t rowBytes = 40, rows = 10;  // 10 x 10 RGBA8
+        const std::uint64_t size = direct_texture_bytes(rowBytes, rows);
+        const auto r = plan_direct_requests(blocks, B, size, 0, size);
+        const auto spans = plan_direct_texture_rows(r, rowBytes, rows);
+        REQUIRE(spans.size() == 1);
+        CHECK(spans[0].rowCount == 10);
+    }
+    SUBCASE("padded rows across blocks: the CPU path") {
+        const std::uint32_t rowBytes = 40, rows = 2000;  // 2000 rows 256 bytes apart: two blocks
+        const std::uint64_t size = direct_texture_bytes(rowBytes, rows);
+        CHECK(plan_direct_texture_rows(plan_direct_requests(blocks, B, size, 0, size), rowBytes, rows).empty());
+    }
+    SUBCASE("rows that straddle a block: the CPU path") {
+        const std::uint32_t rowBytes = 768, rows = 400;  // 256 KiB is not a whole number of 768-byte rows
+        const std::uint64_t size = direct_texture_bytes(rowBytes, rows);
+        CHECK(plan_direct_texture_rows(plan_direct_requests(blocks, B, size, 0, size), rowBytes, rows).empty());
+    }
+    SUBCASE("a region that does not start at a block: the CPU path") {
+        const std::uint32_t rowBytes = 256, rows = 16;
+        const std::uint64_t size = direct_texture_bytes(rowBytes, rows);
+        CHECK(plan_direct_texture_rows(plan_direct_requests(blocks, B, 4 * B, 512, size), rowBytes, rows).empty());
+    }
+    SUBCASE("a region shorter than the bytes (the file holds more than the region): the CPU path") {
+        const std::uint32_t rowBytes = 256, rows = 16;
+        const auto r = plan_direct_requests(blocks, B, 4 * B, 0, B);  // a whole block, 1024 rows
+        CHECK(plan_direct_texture_rows(r, rowBytes, rows).empty());
+    }
+    CHECK(plan_direct_texture_rows({}, 256, 4).empty());
+}
+
+TEST_CASE("directstorage: a pack tells where a range's blocks lie and checks their stored bytes") {
+    struct Scratch {
+        stdfs::path dir = fs::make_temp_dir("fa_test_dstorage_layout").value();
+        ~Scratch() {
+            std::error_code ec;
+            stdfs::remove_all(dir, ec);
+        }
+    } s;
+    std::vector<std::uint8_t> data(std::size_t(3 * B + 50));
+    std::uint32_t x = 7;
+    for (auto& v : data) v = std::uint8_t("abcdefgh  \n"[((x = x * 1664525u + 1013904223u) >> 24) % 11]);
+    PackWriter w;
+    REQUIRE(w.add_bytes("a/data.bin", data, Codec::GDeflate).ok());
+    REQUIRE(w.add_bytes("a/plain.txt", std::vector<std::uint8_t>(10, 'x'), Codec::Store).ok());
+    REQUIRE(w.write(s.dir / "game.pak").ok());
+    auto opened = PackReader::open(s.dir / "game.pak");
+    REQUIRE(opened.ok());
+    const PackReader& p = *opened.value();
+
+    auto layout = p.range_layout("a/data.bin", B + 10, B);
+    REQUIRE(layout.ok());
+    const auto& l = layout.value();
+    CHECK(l.packFile == s.dir / "game.pak");
+    CHECK(l.codec == Codec::GDeflate);
+    CHECK(l.fileSize == data.size());
+    CHECK(l.offset == B + 10);
+    CHECK(l.size == B);
+    CHECK(l.blockSize == B);
+    CHECK(l.firstBlock == 1);
+    REQUIRE(l.blocks.size() == 2);
+    CHECK(l.blocks[0].offset < l.blocks[1].offset);
+    CHECK(!l.blocks[0].raw);
+
+    auto clamped = p.range_layout("a/data.bin", 3 * B, 1000);
+    REQUIRE(clamped.ok());
+    CHECK(clamped.value().size == 50);
+    CHECK(clamped.value().blocks.size() == 1);
+    CHECK(p.range_layout("a/data.bin", data.size(), 10).value().blocks.empty());
+    auto missing = p.range_layout("a/date.bin", 0, 1);
+    REQUIRE(!missing.ok());
+    CHECK(missing.error().to_string().find("a/data.bin") != std::string::npos);  // did you mean
+
+    CHECK(p.check_stored("a/data.bin", 0, data.size()).ok());
+    CHECK(p.check_stored("a/plain.txt", 0, 10).ok());
+    // A damaged stored byte: check_stored names the file and the block.
+    auto bytes = fs::read_bytes(fs::path_to_utf8(s.dir / "game.pak"));
+    REQUIRE(bytes.ok());
+    std::vector<std::uint8_t> damaged = bytes.value();
+    damaged[std::size_t(l.blocks[1].offset) + 3] ^= 0x5a;
+    auto memory = PackReader::open_memory(std::move(damaged));
+    REQUIRE(memory.ok());
+    CHECK(memory.value()->range_layout("a/data.bin", 0, 1).value().packFile.empty());
+    CHECK(memory.value()->check_stored("a/data.bin", 0, B).ok());  // block 1 only
+    auto bad = memory.value()->check_stored("a/data.bin", 0, data.size());
+    REQUIRE(!bad.ok());
+    CHECK(bad.error().to_string().find("a/data.bin") != std::string::npos);
+    CHECK(bad.error().to_string().find("block 3") != std::string::npos);
+
+    const auto before = p.counters();
+    p.count_external(100, 40, 2);
+    CHECK(p.counters().reads == before.reads + 1);
+    CHECK(p.counters().bytes == before.bytes + 100);
+    CHECK(p.counters().storedBytes == before.storedBytes + 40);
+    CHECK(p.counters().directBlocks == before.directBlocks + 2);
 }
 
 #if defined(_WIN32) && defined(_WIN64)

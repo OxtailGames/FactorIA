@@ -422,6 +422,10 @@ void D3d12Device::init_caps() {
 }
 
 D3d12Device::~D3d12Device() {
+    // DirectStorage writes into this device's resources from its own queue: its reads end (bounded) and its queue and
+    // files close before anything goes.
+    if (device_ && queue_ && fence_) shutdown_pack_reads();
+    packReads_.reset();
     if (device_ && queue_ && fence_) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -592,6 +596,7 @@ D3d12Counters D3d12Device::counters() const {
     c.psos = psos_.size();
     c.rootSignatureCacheHits = rootHits_;
     c.rootSignatures = rootLayouts_.size();
+    pack_read_counters(c);
     return c;
 }
 
@@ -848,6 +853,7 @@ void D3d12Device::commit() {
         calls = listeners_;
     }
     drain_messages();
+    pump_pack_reads();  // DirectStorage submissions whose list finished, and finished reads
     for (const Listener& l : calls) l.func(l.user);
 }
 

@@ -74,6 +74,12 @@ if(TARGET fa_test_render)
     add_test(NAME render_d3d12_device
         COMMAND fa_test_render --fa-files=d3d12_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # Its DirectStorage reads of game.pak into buffers and textures (src/gpu/d3d12_pack_reads_win32.cpp): with the DLLs
+    # of `factoria setup directstorage` (FA_DIRECTSTORAGE_DIR) DirectStorage writes them, else the CPU fallback does (the
+    # DirectStorage cases say so and pass, or fail with FA_DIRECTSTORAGE_REQUIRE=1).
+    add_test(NAME render_d3d12_pack_reads
+        COMMAND fa_test_render --fa-files=d3d12_pack_reads_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
     # The engine's own Vulkan backend (src/gpu/vulkan_*): its cases run on the machine's Vulkan device (MoltenVK on
     # macOS, lavapipe on Linux CI) with the validation layer, and say so and pass where there is no loader or no device;
     # where the backend is not built one case checks the factory's error.
@@ -111,6 +117,9 @@ endif()
 if(FA_PLATFORM STREQUAL "windows")
     target_link_libraries(fa_render PRIVATE d3d12 dxgi dxguid)
 endif()
+# The D3D12 backend reads pack ranges with DirectStorage through fa_core's plan and declarations of its API: that one
+# private folder of fa_core, and nothing else of it (docs/design/ARCHITECTURE_FILES.md, "DirectStorage").
+target_include_directories(fa_render PRIVATE ${FA_ROOT}/engine/core/src/direct_storage)
 if(TARGET fa_test_render)
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
     # The text tests look at the shaped glyphs (src/text_shaper.h), which needs the private headers and HarfBuzz and stb.
