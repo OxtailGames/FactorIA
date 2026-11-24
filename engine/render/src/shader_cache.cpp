@@ -88,8 +88,24 @@ bool decode_spirv_stages(gpu::ShaderDesc& copy, std::vector<std::uint8_t> (&byte
     for (int i = 0; i < 3; ++i) {
         gpu::ShaderFunction& fn = *fns[i];
         if (fn.bytecode.ptr || !fn.source) continue;  // given as bytecode already, or no such stage
-        const std::vector<unsigned char> decoded = base64_decode(fn.source);
-        if (decoded.empty() || decoded.size() % 4 != 0) return false;
+        // base64_decode skips what is outside the alphabet, so text (GLSL given where the SPIR-V twin belongs) would
+        // decode to garbage: such a stage is rejected here.
+        const std::string_view text(fn.source);
+        const bool alphabet =
+            text.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/-_= \t\r\n") ==
+            std::string_view::npos;
+        const std::vector<unsigned char> decoded = alphabet ? base64_decode(text) : std::vector<unsigned char>();
+        if (decoded.empty() || decoded.size() % 4 != 0) {
+            log(LogLevel::Error, "render",
+                std::string("Vulkan shader stage ") +
+                    (i == 0   ? "vertex"
+                     : i == 1 ? "fragment"
+                              : "compute") +
+                    " is not base64 SPIR-V: the shader has no spirv_vk twin (it was given GLSL or other text). "
+                    "Regenerate the header with tools/shaders/compile_shaders.sh (a custom material needs its "
+                    "spirv_vk source).");
+            return false;
+        }
         bytes[i].assign(decoded.begin(), decoded.end());
         fn.bytecode = {bytes[i].data(), bytes[i].size()};
         fn.source = nullptr;
