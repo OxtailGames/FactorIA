@@ -147,14 +147,18 @@ inline int prepass_prev_attr(bool skinned, bool custom, const MeshExtras& e) {
     const int first = (skinned ? kExtraAttrBaseSkinned : kExtraAttrBase) + (custom ? e.count() : 0);
     return first + 3 <= 16 ? first : -1;
 }
-// A skinned draw of the prepass with motion vectors holds the previous palette in the same uniform block as the current one (rows 96 .. 191,
-// after the 96 of the current one: the vertex uniforms of GLES3 and WebGL2 are 256 vec4 at least and a second block would not fit), so it can
-// have it only for a skin of this many joints or fewer; a bigger skin writes the sentinel (VelocityRef::kNone).
-constexpr int kVelocitySkinJoints = 32;
+// The previous joint palette of a skinned draw of the prepass with motion vectors (M76-P1c) is read from an RGBA32F image by the vertex stage
+// (shaders/mesh_common.glsl, block fa_prev_palette: view 29, sampler 11, texelFetch), so a skin of any joint count up to kMaxSkinJoints has
+// vectors and no uniform is used. The image is a stream of texels in rows of kPrevPaletteWidth: a joint is 3 texels, a palette is
+// kPrevPaletteTexels (the 64 joints, the unused ones the identity, so a joint index the weights ignore still reads a matrix) and each
+// skinned draw of the frame has its own. At most kPrevPaletteMaxRows rows (16 MiB): 5461 skinned draws a camera and frame; the rest write the
+// sentinel (a warning, once). The image is uploaded before the first pass of the frame (Impl::upload_prev_palettes).
+constexpr int kPrevPaletteWidth = 1024, kPrevPaletteMaxRows = 1024;
 // Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
 // palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
 // that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
 constexpr int kMaxSkinJoints = 64;
+constexpr int kPrevPaletteTexels = 3 * kMaxSkinJoints;  // one previous palette in the image of the motion vectors
 struct SkinVertex {
     std::uint8_t joints[4];
     float weights[4];

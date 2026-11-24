@@ -42,8 +42,8 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   `camera.capture` cameras are not antialiased. Off, as by default: no pass, no image, no jitter, the same pixels (docs/UPSCALING.md).
 - Motion vectors: the depth prepass can write the motion of every pixel (RG16F, `uvPrev - uvCurr` from the unjittered matrices) as a
   second attachment, for static and moving meshes, instances, terrain, foliage and impostors (a floating-origin shift and a camera cut
-  are no motion). Skinned meshes (up to 32 joints: the pose of the frame before rides in the same uniform block, a bigger skin keeps "no
-  vector") and materials with a custom `vertex()` (run again with the previous model and the previous frame's game time) write it
+  are no motion). Skinned meshes (any skin up to the 64 joints of the engine: the pose of the frame before is an RGBA32F image the vertex stage
+  fetches, the current one stays in its uniform block) and materials with a custom `vertex()` (run again with the previous model and the previous frame's game time) write it
   too; particles and sprites come in a later package. It is written only when something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
   `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
   grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".

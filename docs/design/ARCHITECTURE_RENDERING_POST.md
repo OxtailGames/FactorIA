@@ -292,15 +292,24 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   first frame after a camera cut (`PostPlan::prevValid` false). Entries not touched for a frame are dropped, once per frame. The floating
   origin shift moves both models of every entry by the same shift as the camera's matrices (`origin_shifted`), so a rebase is not a
   motion. Instances of one batch keep each their own previous model: the rows are uploaded next to the instance matrices, in the same order.
-- **Skinned meshes (M76-P1b).** `prepass_vs_skin` skins the vertex twice. The previous palette is kept per skinned entity
-  (`Impl::prevPalettes`: one per skin of its Animator, the palette of the last frame it was drawn in; the same keying and lifetime as
-  `prevModels`, pruned with it) and is uploaded **in the same `fa_skin` block as the current one**: rows 0..95 hold the current palette
-  (32 joints x 3 rows), rows 96..191 the previous one (`pack_palette_pair`), read with `fa_skin_matrix_at(joints, weights, 96)`. A second
-  block would be about 404 vec4 and GLES3 / WebGL2 guarantee 256. So the previous palette exists only for a skin of `kVelocitySkinJoints`
-  (32) joints or fewer; a bigger skin writes the sentinel (`fa_vel_on.z` = 0, no wrong vector, no failed pipeline). Palettes are in model
-  space, so the origin shift does not touch them; a cut, an entity not drawn in the frame before or a change of the joint count uses the
-  current palette as the previous one (no motion of its own). The prepass's `prepass_prev_attr` for a skinned program starts after the joints
-  and weights (`kExtraAttrBaseSkinned`, 11).
+- **Skinned meshes (M76-P1b, M76-P1c).** `prepass_vs_skin` skins the vertex twice. The previous palette is kept per skinned entity
+  (`Impl::prevPalettes`: one per skin of its Animator, the palette of the last frame it was drawn in, swapped with the current one each
+  frame so the vectors keep their capacity; the same keying and lifetime as `prevModels`, pruned with it). The **current** palette stays in
+  the `fa_skin` uniform block (rows 0..191 hold the 64 joints of `kMaxSkinJoints`, read with `fa_skin_matrix`); the **previous** one is an
+  RGBA32F image read in the vertex stage with `texelFetch` (view slot 29, nearest sampler 11, block `fa_prev_palette`): 3 texels per joint, all
+  `kPrevPaletteTexels` (192) of a palette padded with identity, one palette after the other as a stream of texels, texel `t` at
+  `(t & 1023, t >> 10)`. `upload_prev_palettes` (called by `upload_instances`) writes the stream of every skinned batch of the frame with
+  `Gpu::write_light_image` (the pool of the light data, 1024 wide, rows rounded up to 16) before the frame graph runs, and the draw passes
+  the first texel of its palette in `fa_vel_on.w`. So there is no joint limit beyond the skin's own 64: the 40-joint and 64-joint fixtures of
+  the tests have real vectors. The program reads the texture only in the previous-model run (`fa_prev_model()` is called inside
+  `if (want_prev)`, so a draw with no velocity never fetches). A frame that asks for no velocity does not build, bind or upload any of this: the
+  prepass is the same as before (tested bit for bit). The image needs RGBA32F **sampling** (`sg_query_pixelformat`; every GPU backend of the
+  engine has it: GLES3 and WebGL2 vertex texture fetch of an unfilterable float texture is core, D3D11 and Metal sample it in the vertex stage,
+  and it is the format of the light data image the engine already reads that way). Where it cannot be sampled, and for the more than
+  `kPrevPaletteMaxRows` rows a frame of 5461 skinned palettes would need, the skinned draw writes the sentinel (`fa_vel_on.z` = 0) and one warning is
+  logged (`warnedPrevPalette`). Palettes are in model space, so the origin shift does not touch them; a cut, an entity not drawn in the frame
+  before or a change of the joint count uses the current palette as the previous one (no motion of its own). The prepass's `prepass_prev_attr` for
+  a skinned program starts after the joints and weights (`kExtraAttrBaseSkinned`, 11).
 - **Custom `vertex()` (M76-P1b).** The prepass vertex shader includes the material's `vertex()` and runs it **twice**: with the model of
   the frame and the game time of the frame (`fa_time`), then with the previous model (and the previous palette for a skinned mesh) and the
   **game time of the previous frame** (`world.time()` at the last frame the camera drew; the time now after a cut, or when no history is kept;
@@ -309,20 +318,28 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   previous frame's instance data and material parameters (it reads this frame's), which only matters for a `vertex()` driven by a
   parameter or per-instance data that changes from frame to frame. Terrain and impostor cards run a `vertex()` of their own that
   ignores the model matrix (the chunk, the card's corner): they define `FA_VEL_STATIC_VERTEX` and keep the static formula (previous model = model).
-- **What is not written (the sentinel `kNone`).** A skin of more than 32 joints, materials whose program passes 4 extra vec4s or draws
-  from storage buffers (the three previous-model attributes do not fit in the 16 of `SG_MAX_VERTEX_ATTRIBUTES`; `prepass_prev_attr`
-  returns -1 and the vertex shader writes the sentinel), particles, sprites and quads, and the reactive mask. The pass that reads the
-  image then reprojects those pixels from the depth with the camera's matrices (the contract above), which is right for anything static.
+  The second run changes **only `fa_time.x`**: `fa_time.yzw` is the camera position **of this frame** (what the vertex stage of a full-shader
+  material gets there) in both runs, as are the instance data and the material parameters, so a `vertex()` that moves with the distance to the
+  camera sees no motion from it.
+- **What is not written (the sentinel `kNone`).** The previous model takes 3 vertex attributes (`fa_prev_r0..2`) after the program's own, and
+  a pipeline has 16 (`SG_MAX_VERTEX_ATTRIBUTES`). Without a skin the engine's 9 mesh attributes leave room for the previous model and up to 4
+  extra `vec4`s; a program with more than 4, and a skinned one (11 attributes before the extras) with 3 or more, does not fit: `prepass_prev_attr`
+  returns -1 and the vertex shader writes the sentinel. The same for a material that draws from storage buffers, for a skinned draw whose
+  previous palette cannot be uploaded (no RGBA32F sampling, or a frame past `kPrevPaletteMaxRows`), for particles, sprites and quads, and for
+  the reactive mask. The pass that reads the image then reprojects those pixels from the depth with the camera's matrices (the contract
+  above), which is right for anything static.
 - **No RG16F.** A GPU that cannot render to RG16F (`Gpu::velocity_ready()` false) gets no second attachment and no previous-model
   work (`ctx.collectPrev` is false); the renderer logs a warning once (`warnedNoVelocity`) and the temporal passes reproject from the depth.
 - **Warm-up.** `warm_step` builds the velocity variant of the prepass pipelines (plain, double sided, skinned when an Animator exists) while
   a loading screen is up when a camera has `temporalAAEnabled`, so the first frame of the effect does not compile them.
 - **The probe.** `velocity_probe_pass` (tests and the debug view) reads the image with the debug view `prepass_view` mode 4, which is
   **test-only**: it returns the raw RG16F values; the GL row flip of the read-back is the one of `readback_rgba8` (reasoned, not measured on GL).
-- **Cost.** With the image: 4 bytes per pixel of the prepass (RG16F) plus 48 bytes per drawn opaque instance per frame, and one
-  `unordered_map` entry per visible entity (a lookup per item per frame). Without it: the prepass programs read three more vertex
-  attributes (a dummy buffer is bound, nothing is fetched from a real one) and the vertex shader tests a uniform (`fa_vel_on`); the
-  fragment shader has a second output that a pipeline without `color1` drops.
+- **Cost.** With the image: 4 bytes per pixel of the prepass (RG16F) plus 48 bytes per drawn opaque instance per frame, one
+  `unordered_map` entry per visible entity (a lookup per item per frame) and, per skinned entity, 192 texels x 16 bytes = 3 KB of previous
+  palette uploaded each frame (a skin of 2 joints costs the same as one of 64: the palette is padded to 64), plus a copy of the current one kept
+  for the next frame. Without it: the prepass programs read three more vertex attributes (a dummy buffer is bound, nothing is fetched from a
+  real one), the vertex shader tests a uniform (`fa_vel_on`) and a skinned program binds a 1 x 1 white texture it never reads; the fragment shader
+  has a second output that a pipeline without `color1` drops.
 - **Seeing it.** `render.debug_view {"view":"motionVectors"}` paints the image over the picture: the hue is the direction of the
   motion, the brightness its length (a motion of 1/40 of the image is full brightness), black for no motion and a mid grey where
   nothing wrote one (the sentinel). `RendererTestAccess::read_velocity` reads the raw floats back for the tests

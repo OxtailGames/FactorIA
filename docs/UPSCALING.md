@@ -113,6 +113,13 @@ behind moving objects. The history starts again (that frame shows its own pictur
 Changing `temporalAAFeedback`, `Sharpen`, `VarianceGamma` or `ReactiveScale` does not reset it. A fast thing that the reprojection cannot
 follow (particles, a flash) is clipped to its neighbours, so it leaves a short trail at most; lower `temporalAAFeedback` for fewer.
 
+Limitations of the motion vectors it reads: particles, sprites and quads write none (they are reprojected as if still, so a fast one
+trails), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
+than 4 extra `vec4`s; with one, 3 or more) or draws from storage buffers. Everything else, skinned meshes of up to 64 joints and a material's
+`vertex()` included, has a vector. A custom `vertex()` is run twice and only `fa_time.x` differs in the second run, so motion that depends on the
+instance data, a material parameter or the distance to the camera is not seen. A GPU with no RG16F render target has no vectors at all: one
+warning in the log, and the effect reprojects from the depth and the camera alone, which smears a moving object.
+
 Where it does not apply: the cameras of a `CameraView`, a render-target camera and `camera.capture` and the other renders of a scene
 that are not a frame of the running game (thumbnails, `capture_world`) are drawn without it (no jitter, no pass, no history); a
 screenshot of the running game is the antialiased frame it shows. The editor viewport draws like the

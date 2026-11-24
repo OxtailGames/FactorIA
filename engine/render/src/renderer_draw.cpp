@@ -149,6 +149,11 @@ struct Renderer::Impl::DrawContext {
         prevRows;  // fill_prev_models: the previous model of every opaque item (MeshItem::prevIdx)
     std::vector<PrevModelRows> prevMats;  // build_batches: the same, one per drawn instance, in the order of mainMats
     sg_buffer prevInst{};
+    // upload_prev_palettes (M76-P1c): the previous joint palettes of the skinned draws of the prepass in one RGBA32F image (`prevPalView`, empty = none);
+    // `prevPalBase` has the first texel of the palette of (batch.rep, skin), key `prev_palette_key`. `prevPalTexels` is the CPU copy (capacity kept).
+    sg_view prevPalView{};
+    std::unordered_map<std::uint64_t, int> prevPalBase;
+    std::vector<float> prevPalTexels;
     // fill_prev_models: whether the entities' histories count this frame (false after a cut: no motion of their own), and the game time of
     // the frame before in seconds, what a material's vertex() reads as fa_time.x in the prepass's second run (the time now after a cut).
     bool prevHistory = false;
@@ -331,15 +336,9 @@ mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
     return u;
 }
 
-// The palette of a skinned draw with motion vectors (M76-P1b): the current palette in rows 0..95 and the one of the frame before in rows 96..191
-// of the same block (a skin of kVelocitySkinJoints joints at most), as the prepass's vertex shader reads them (fa_skin_matrix_at, base 96).
-mesh_fa_skin_t pack_palette_pair(const std::vector<Mat4>& cur, const std::vector<Mat4>& prev) {
-    mesh_fa_skin_t u = pack_palette(cur);
-    const mesh_fa_skin_t p = pack_palette(prev);
-    static_assert(3 * kVelocitySkinJoints * 2 <= 3 * kMaxSkinJoints, "both palettes fit the skin block");
-    for (int r = 0; r < 3 * kVelocitySkinJoints; ++r)
-        for (int c = 0; c < 4; ++c) u.fa_joint_rows[3 * kVelocitySkinJoints + r][c] = p.fa_joint_rows[r][c];
-    return u;
+// The key of the previous palette of skin `skin` of the item at `item` (an index into DrawContext::opaque) in DrawContext::prevPalBase.
+std::uint64_t prev_palette_key(std::size_t item, int skin) {
+    return (std::uint64_t(item) << 8) | std::uint64_t(std::uint8_t(skin));
 }
 
 using MaterialInputs = Renderer::Impl::MaterialInputs;
@@ -1848,7 +1847,7 @@ void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
                              (ctx.postPlan.needsVelocity || debugView == DebugView::MotionVectors || forceVelocity);
     // A GPU that cannot render to the velocity format (RG16F) gets no attachment, no history and no work of its own: the temporal passes
     // read the camera alone, as they do for a draw the velocity cannot describe.
-    ctx.collectPrev = askVelocity && gpu.velocity_ready();
+    ctx.collectPrev = askVelocity && gpu.velocity_ready() && !noVelocityTarget;
     if (askVelocity && !ctx.collectPrev && !warnedNoVelocity && gpu.prepass_ready()) {
         warnedNoVelocity = true;
         FA_WARN("render", "The motion vectors need a render target of the format RG16F and this GPU cannot make one: "
@@ -1962,8 +1961,9 @@ void Renderer::Impl::fill_prev_models(DrawContext& ctx) {
     }
 }
 
-// The joint palettes of a skinned item for the motion vectors: the current frame's and the one before, one per skin of its Animator, kept only
-// for skins the prepass can draw with both (kVelocitySkinJoints joints at most; an empty palette means none). Same life rules as prevModels.
+// The joint palettes of a skinned item for the motion vectors: the current frame's and the one before, one per skin of its Animator (at most
+// kMaxSkinJoints joints each, as the palette the draw uploads). Same life rules as prevModels. The vectors keep their capacity from frame to
+// frame: the palette of the frame before is the one the frame before last wrote over.
 void Renderer::Impl::keep_prev_palette(const MeshItem& mi) {
     auto [it, fresh] = prevPalettes.try_emplace(mi.entity.bits());
     PrevPalette& p = it->second;
@@ -1971,32 +1971,97 @@ void Renderer::Impl::keep_prev_palette(const MeshItem& mi) {
         out.resize(std::max<std::size_t>(1, mi.anim->skinPalettes.size()));
         for (std::size_t skin = 0; skin < out.size(); ++skin) {
             const std::vector<Mat4>& pal = palette_of(*mi.anim, int(skin));
-            if (pal.size() <= std::size_t(kVelocitySkinJoints))
-                out[skin] = pal;
-            else
-                out[skin].clear();
+            out[skin].assign(pal.begin(),
+                             pal.begin() + std::ptrdiff_t(std::min<std::size_t>(pal.size(), kMaxSkinJoints)));
         }
     };
     if (fresh || p.frame + 1 < postSerial) {
         snapshot(p.cur);
         p.prev = p.cur;
     } else if (p.frame + 1 == postSerial) {
-        p.prev = std::move(p.cur);
+        std::swap(p.prev, p.cur);
         snapshot(p.cur);
     }
     p.frame = postSerial;
 }
 
-// The palette of skin `skin` as it was the frame before for a draw of `mi` (the current one when there is no history, after a cut or when
-// the skin changed size); null when the skin has more joints than the prepass draws with both palettes.
-const std::vector<Mat4>* Renderer::Impl::prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const {
+// The palette of skin `skin` as it was the frame before for a draw of `mi` (the current one when there is no history, after a cut or when the
+// skin changed size). Only the first kMaxSkinJoints joints count, as in the palette the draw uploads.
+const std::vector<Mat4>& Renderer::Impl::prev_palette(const DrawContext& ctx, const MeshItem& mi, int skin) const {
     const std::vector<Mat4>& cur = palette_of(*mi.anim, skin);
-    if (cur.size() > std::size_t(kVelocitySkinJoints)) return nullptr;
-    if (!ctx.prevHistory) return &cur;
+    if (!ctx.prevHistory) return cur;
     const auto it = prevPalettes.find(mi.entity.bits());
-    if (it == prevPalettes.end() || std::size_t(skin) >= it->second.prev.size()) return &cur;
+    if (it == prevPalettes.end() || std::size_t(skin) >= it->second.prev.size()) return cur;
     const std::vector<Mat4>& prev = it->second.prev[std::size_t(skin)];
-    return prev.size() == cur.size() ? &prev : &cur;
+    return prev.size() == std::min<std::size_t>(cur.size(), kMaxSkinJoints) ? prev : cur;
+}
+
+// The previous joint palettes of the skinned draws the prepass makes with motion vectors, in one RGBA32F image (kPrevPaletteWidth texels a row;
+// a palette is kPrevPaletteTexels texels from `ctx.prevPalBase`; joints past the skin's are the identity). Done before the first pass of the
+// frame, next to the instance buffers: an image cannot be written inside a pass. A GPU that cannot sample RGBA32F, and the draws past
+// kPrevPaletteMaxRows rows, get no palette and their fragments write the sentinel (one warning). Reads: ctx.collectPrev, ctx.opaque,
+// ctx.opaqueBatches, the histories. Writes: ctx.prevPalView, ctx.prevPalBase, ctx.prevPalTexels, warnedPrevPalette.
+void Renderer::Impl::upload_prev_palettes(DrawContext& ctx) {
+    static_assert(kPrevPaletteWidth == kLightTextureWidth,
+                  "the palette image is written through the light image's pool");
+    ctx.prevPalView = {};
+    ctx.prevPalBase.clear();
+    if (!ctx.collectPrev || !ctx.prevInst.id) return;
+    const bool canSample = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F).sample;
+    const std::size_t maxTexels = std::size_t(kPrevPaletteWidth) * std::size_t(kPrevPaletteMaxRows);
+    std::vector<float>& texels = ctx.prevPalTexels;
+    texels.clear();
+    bool clipped = false;
+    for (std::size_t bi = 0; bi < ctx.opaqueBatches.size(); ++bi) {
+        const MeshBatch& batch = ctx.opaqueBatches[bi];
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        if (batch.mainCount == 0 || !mi.anim) continue;
+        for (const SubMesh& part : mi.mesh->parts) {
+            if (!part.skinVb.id) continue;
+            const std::uint64_t key = prev_palette_key(batch.rep, part.skin);
+            if (ctx.prevPalBase.count(key)) continue;
+            const std::size_t first = texels.size() / 4;
+            if (!canSample || first + std::size_t(kPrevPaletteTexels) > maxTexels) {
+                clipped = true;
+                continue;
+            }
+            const std::vector<Mat4>& pal = prev_palette(ctx, mi, part.skin);
+            texels.resize(texels.size() + std::size_t(kPrevPaletteTexels) * 4);
+            float* out = texels.data() + first * 4;
+            for (int j = 0; j < kMaxSkinJoints; ++j) {
+                const Mat4 m = std::size_t(j) < pal.size() ? pal[std::size_t(j)] : Mat4::identity();
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 4; ++c) *out++ = m.at(c, r);
+            }
+            ctx.prevPalBase[key] = int(first);
+        }
+    }
+    if (clipped && !warnedPrevPalette) {
+        warnedPrevPalette = true;
+        if (canSample)
+            FA_WARN("render",
+                    "More than {} skinned draws in one camera's frame: the motion vectors of the ones past that count "
+                    "carry the "
+                    "camera's motion only (temporal antialiasing and the upscalers reproject them from the depth, so a "
+                    "moving "
+                    "character smears). Hint: draw fewer skinned meshes per camera, or share a skin between instances.",
+                    kPrevPaletteMaxRows * kPrevPaletteWidth / kPrevPaletteTexels);
+        else
+            FA_WARN("render", "This GPU cannot sample 32-bit float textures in the vertex stage, which the motion "
+                              "vectors of skinned meshes "
+                              "need: they carry the camera's motion only (temporal antialiasing and the upscalers "
+                              "reproject them from the "
+                              "depth, so a moving character smears). Hint: nothing to fix in the project; update the "
+                              "graphics driver.");
+    }
+    if (texels.empty()) return;
+    // Whole rows, rounded up to 16 of them so that the pooled image is not made again for every skinned draw that comes or goes.
+    const int rows =
+        std::min(kPrevPaletteMaxRows,
+                 int(((texels.size() / 4 + std::size_t(kPrevPaletteWidth) - 1) / std::size_t(kPrevPaletteWidth) + 15) /
+                     16 * 16));
+    texels.resize(std::size_t(rows) * std::size_t(kPrevPaletteWidth) * 4, 0.0f);
+    ctx.prevPalView = gpu.write_light_image(rows, texels.data()).view;
 }
 
 // ---- flatten quads into one vertex stream ----
@@ -2068,6 +2133,7 @@ void Renderer::Impl::upload_instances(DrawContext& ctx) {
     };
     ctx.mainInst = upload(ctx.mainMats.data(), ctx.mainMats.size() * kMeshInstanceBytes);
     ctx.prevInst = upload(ctx.prevMats.data(), ctx.prevMats.size() * kPrevModelBytes);
+    upload_prev_palettes(ctx);
     ctx.shadowInst = upload(ctx.shadowMats.data(), ctx.shadowMats.size() * kMeshInstanceBytes);
     ctx.mainExtra = upload(ctx.mainExtraData.data(), ctx.mainExtraData.size() * sizeof(float));
     ctx.shadowExtra = upload(ctx.shadowExtraData.data(), ctx.shadowExtraData.size() * sizeof(float));
@@ -3468,22 +3534,31 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             b.index_buffer = part.ib;
             b.index_buffer_offset = part.ibOffset;
             bind_textures(ctx, b, bind, prog, inputs, true);
+            // The previous palettes of the skinned programs (vertex stage). The slot is declared by every skinned prepass program, so a
+            // pass without velocity binds the white image (never read: fa_vel_on.x is 0).
+            if (skinned) {
+                if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = vel && ctx.prevPalView.id ? ctx.prevPalView : ctx.white->view;
+                if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
+                    b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
+            }
             if (mbu.active) bind_mesh_buffers(b, mbu, *prog);
             sg_apply_bindings(&b);
             if (mbu.active) apply_mesh_base_model(*prog, mi.model);
             apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-            // A skinned draw has the previous palette next to the current one when the skin is small enough and the program has the previous
-            // model (fa_vel_on.z); otherwise its fragments write the sentinel.
-            const std::vector<Mat4>* prevPalette =
-                skinned && vel && prepass_prev_attr(true, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0
-                    ? prev_palette(ctx, mi, part.skin)
-                    : nullptr;
-            velU.fa_vel_on[2] = prevPalette ? 1.0f : 0.0f;
+            // A skinned draw reads the previous palette from the image of upload_prev_palettes (fa_vel_on.z = 1, the first texel in .w) when the
+            // program has the previous model and the palette got a place in the image; otherwise its fragments write the sentinel.
+            int palBase = -1;
+            if (skinned && vel &&
+                prepass_prev_attr(true, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                const auto at = ctx.prevPalBase.find(prev_palette_key(batch.rep, part.skin));
+                if (at != ctx.prevPalBase.end()) palBase = at->second;
+            }
+            velU.fa_vel_on[2] = palBase >= 0 ? 1.0f : 0.0f;
+            velU.fa_vel_on[3] = palBase >= 0 ? float(palBase) : 0.0f;
             if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(UB_mesh_fa_vel_params, velU);
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
-                apply_uniforms(UB_mesh_fa_skin, prevPalette
-                                                    ? pack_palette_pair(palette_of(*mi.anim, part.skin), *prevPalette)
-                                                    : pack_palette(palette_of(*mi.anim, part.skin)));
+                apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
                 apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
             if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
