@@ -56,7 +56,6 @@ VkAccessFlags access_1_0(VkAccessFlags2 a) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 VulkanCommandList::~VulkanCommandList() {
-    for (VkFramebuffer fb : framebuffers_) device_.fn_.vkDestroyFramebuffer(device_.device_, fb, nullptr);
     if (pool_) device_.fn_.vkDestroyCommandPool(device_.device_, pool_, nullptr);  // frees its command buffers
 }
 
@@ -115,9 +114,8 @@ Result<void> VulkanCommandList::open(const char* label) {
     keep_.clear();
     scopes_.clear();
     scopeOpen_ = false;
-    // The GPU finished the list's last commands: its framebuffers, secondaries and uniform sets can go.
-    for (VkFramebuffer fb : framebuffers_) f.vkDestroyFramebuffer(device_.device_, fb, nullptr);
-    framebuffers_.clear();
+    // The GPU finished the list's last commands: its secondaries and uniform sets can go (the framebuffers are the
+    // device's, cached until one of their views is destroyed).
     secondaryNext_ = 0;
     uniformSets_.clear();
     clear_pass_state();
@@ -144,7 +142,7 @@ void VulkanCommandList::reset_bind_state() {
     uniformsSet_ = 0;
     bindingsSet_ = false;
     drawsFailed_ = false;
-    uniformsDirty_ = false;
+    setsDirty_ = 0;
     viewSet_ = VK_NULL_HANDLE;
     boundNeeds_.clear();
     boundNeedIndex_.clear();
@@ -377,6 +375,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         int samples = 1;
         std::uint32_t width = 0, height = 0;
         std::uint32_t mip = 0, layer = 0;  // layer 0 for a 3D image (its slice is a depth slice)
+        std::uint64_t serial = 0;          // the view's (what the framebuffer cache knows it by)
         bool bound = false;
     };
     Attachment color, color1, resolve, depth;
@@ -410,6 +409,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
             a.height = mip_extent(im->height, r->mip);
             a.mip = std::uint32_t(r->mip);
             a.layer = im->type == ImageType::Tex3d ? 0u : std::uint32_t(r->slice);
+            a.serial = r->serial;
             a.bound = true;
         };
         look(pass.color, ViewType::ColorAttachment, "the colour attachment (PassDesc::color)", color);
@@ -459,6 +459,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     RenderPassKey key;
     key.samples = VkSampleCountFlagBits(first.samples);
     std::vector<VkImageView> views;
+    std::vector<std::uint64_t> serials;  // views' serials, in the same order
     for (const Attachment* a : {&color, &color1}) {
         if (!a->bound) continue;
         const Color& c = a == &color ? pass.clearColor : pass.clearColor1;
@@ -470,6 +471,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         passClears_.push_back(v);
         key.color[key.colorCount++] = device_.vk_format(a->format);
         views.push_back(a->view);
+        serials.push_back(a->serial);
     }
     key.colorLoad = load_op(pass.colorLoad);
     key.colorStore = store_op(pass.colorStore, true);
@@ -487,11 +489,13 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         v.depthStencil.stencil = 0;
         passClears_.push_back(v);
         views.push_back(depth.view);
+        serials.push_back(depth.serial);
     }
     if (resolve.bound) {
         key.resolve = device_.vk_format(resolve.format);
         passClears_.push_back(VkClearValue{});
         views.push_back(resolve.view);
+        serials.push_back(resolve.serial);
     }
     const VkRenderPass renderPass = device_.render_pass(key, error);
     if (!renderPass) {
@@ -499,22 +503,13 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         return;
     }
     const VkFunctions& f = device_.fn_;
-    VkFramebufferCreateInfo fi{};
-    fi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fi.renderPass = renderPass;
-    fi.attachmentCount = std::uint32_t(views.size());
-    fi.pAttachments = views.data();
-    fi.width = first.width;
-    fi.height = first.height;
-    fi.layers = 1;
-    VkFramebuffer framebuffer = VK_NULL_HANDLE;
-    VkResult r = f.vkCreateFramebuffer(device_.device_, &fi, nullptr, &framebuffer);
-    if (r != VK_SUCCESS) {
-        fail("begin_pass", passName + ": vkCreateFramebuffer failed with " + result_text(r) +
-                               " (hint: the GPU ran out of memory or the device was lost)");
+    // The device's framebuffer of these views and this pass (made on first use, destroyed with one of the views).
+    const VkFramebuffer framebuffer = device_.framebuffer(renderPass, views, serials, first.width, first.height, error);
+    if (!framebuffer) {
+        fail("begin_pass", passName + ": " + error + " (hint: the GPU ran out of memory or the device was lost)");
         return;
     }
-    framebuffers_.push_back(framebuffer);
+    VkResult r = VK_SUCCESS;
 
     // What the attachments need before the pass begins.
     for (const Attachment* a : {&color, &color1, &resolve}) {
@@ -661,7 +656,7 @@ void VulkanCommandList::set_pipeline(Pipeline pipeline) {
         f.vkCmdSetStencilReference(c, VK_STENCIL_FACE_FRONT_AND_BACK, st->stencilRef);
     }
     pipeline_ = std::move(st);
-    uniformsDirty_ = true;  // ready_to_run binds sets 0, 1 and 2 (bindless) with this pipeline's layout
+    setsDirty_ = 0b111;  // ready_to_run binds sets 0, 1 and 2 (bindless) with this pipeline's layout
     empty_ = false;
 }
 
@@ -682,7 +677,8 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
     struct BoundView {
         std::shared_ptr<TrackedResource> t;
         VkImageView view = VK_NULL_HANDLE;
-        VkDeviceSize offset = 0;  // storage buffers
+        VkDeviceSize offset = 0;             // storage buffers
+        VkDeviceSize range = VK_WHOLE_SIZE;  // storage buffers: at most maxStorageBufferRange bytes
         ViewType type = ViewType::Invalid;
         std::uint32_t mip = 0, mipCount = 1, slice = 0, sliceCount = 1;
         bool writable = false;
@@ -770,6 +766,11 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
                 out.t = r->tracked;
                 out.view = r->view;
                 out.offset = VkDeviceSize(r->offset);
+                if (r->type == ViewType::StorageBuffer)
+                    if (const VulkanDevice::BufferRecord* buf = device_.buffers_.get(r->buffer.id))
+                        // the rest of the buffer, or the most one descriptor may see (128 MiB on Mali)
+                        out.range =
+                            storage_buffer_range(align_up(buf->size, 16), r->offset, limits.maxStorageBufferRange);
                 out.type = r->type;
                 out.writable = sh.viewWritable[i];
                 out.mip = std::uint32_t(r->mip);
@@ -855,7 +856,7 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
             w.descriptorCount = 1;
             if (v.type == ViewType::StorageBuffer) {
                 w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                buffers[nb] = {v.t->buffer, v.offset, VK_WHOLE_SIZE};
+                buffers[nb] = {v.t->buffer, v.offset, v.range};
                 w.pBufferInfo = &buffers[nb++];
             } else {
                 const bool storage = v.type == ViewType::StorageImage;
@@ -878,7 +879,7 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
         }
         if (n > 0) f.vkUpdateDescriptorSets(device_.device_, n, writes, 0, nullptr);
         viewSet_ = *set;  // bound by ready_to_run, after set 0
-        uniformsDirty_ = true;
+        setsDirty_ |= 0b010;
     }
 
     // The vertex and index buffers.
@@ -928,7 +929,7 @@ void VulkanCommandList::set_uniforms(int slot, Range data) {
     uniformBuffer_[slot] = a.buffer;
     uniformOffset_[slot] = std::uint32_t(a.offset);  // the ring is smaller than 4 GB; a buffer of its own starts at 0
     uniformsSet_ |= 1u << slot;
-    uniformsDirty_ = true;
+    setsDirty_ |= 0b001;  // set 0 again with the same layout: sets 1 and 2 stay bound
     empty_ = false;
 }
 
@@ -1028,8 +1029,9 @@ bool VulkanCommandList::ready_to_run(const char* what, bool compute) {
     const VkPipelineBindPoint point = compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
     // The sets are bound in order 0, 1, 2 with the pipeline's layout. Binding set N with a layout whose set N differs
     // from the one bound before disturbs every set above N, so a set 0 bound after sets 1 and 2 (or a new pipeline
-    // whose set 0 layout differs) would leave them unbound.
-    if (uniformsDirty_ && lay.hasSet[0]) {
+    // whose set 0 layout differs) would leave them unbound: set_pipeline marks all three, and set_uniforms only set 0
+    // (bound again with the same layout, which leaves sets 1 and 2 as they are).
+    if ((setsDirty_ & 0b001) && lay.hasSet[0]) {
         // Set 0: one dynamic uniform buffer per block; a set is made once per (layout, buffers) in the list and the
         // blocks' places in the buffers are its dynamic offsets.
         std::string key = std::to_string(handle_bits(lay.sets[0]));
@@ -1068,15 +1070,18 @@ bool VulkanCommandList::ready_to_run(const char* what, bool compute) {
         for (int k = 0; k < lay.uniformCount; ++k) offsets[k] = uniformOffset_[lay.uniformOrder[k]];
         device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 0, 1, &set, std::uint32_t(lay.uniformCount),
                                             offsets);
+        device_.count_descriptor_set_bind();
     }
-    if (uniformsDirty_) {
-        if (lay.hasSet[1] && viewSet_)
-            device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 1, 1, &viewSet_, 0, nullptr);
-        if (lay.bindless)
-            if (const VkDescriptorSet bindless = device_.descriptors_.bindless_set())
-                device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 2, 1, &bindless, 0, nullptr);
-        uniformsDirty_ = false;
+    if ((setsDirty_ & 0b010) && lay.hasSet[1] && viewSet_) {
+        device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 1, 1, &viewSet_, 0, nullptr);
+        device_.count_descriptor_set_bind();
     }
+    if ((setsDirty_ & 0b100) && lay.bindless)
+        if (const VkDescriptorSet bindless = device_.descriptors_.bindless_set()) {
+            device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 2, 1, &bindless, 0, nullptr);
+            device_.count_descriptor_set_bind();
+        }
+    setsDirty_ = 0;
     if (compute) {
         // A dispatch after one that wrote the bound views sees its writes (require() puts a barrier after a write).
         for (const Need& n : boundNeeds_) require(n.res, n.sub, n.state);

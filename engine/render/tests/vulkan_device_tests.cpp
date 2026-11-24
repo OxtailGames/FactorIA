@@ -11,13 +11,17 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "fa/core/fs.h"
+#include "fa/core/hash.h"
 #include "gpu/sokol_device.h"
 #include "gpu/vulkan_device.h"
 // The SPIR-V of the generated shader headers (sokol-shdc's spirv_vk output, compiled in where FA_SHADERS_SPIRV is set).
@@ -32,6 +36,18 @@ namespace {
 bool contains(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
 }  // namespace
+
+TEST_CASE("vulkan: a storage buffer view sees at most maxStorageBufferRange bytes") {
+    constexpr std::uint64_t kWhole = ~std::uint64_t(0);  // VK_WHOLE_SIZE
+    constexpr std::uint64_t kMali = std::uint64_t(128) << 20;
+    CHECK(storage_buffer_range(1024, 0, kMali) == kWhole);  // the rest fits: the whole buffer
+    CHECK(storage_buffer_range(kMali, 0, kMali) == kWhole);
+    CHECK(storage_buffer_range(kMali + 16, 0, kMali) == kMali);      // one word over: cut to the limit
+    CHECK(storage_buffer_range(kMali + 256, 256, kMali) == kWhole);  // from its offset, the rest fits again
+    CHECK(storage_buffer_range(std::uint64_t(1) << 32, 256, kMali) == kMali);
+    CHECK(storage_buffer_range(std::uint64_t(1) << 32, 0, kMali + 3) == kMali);  // whole words only
+    CHECK(storage_buffer_range(64, 128, kMali) == kWhole);                       // past the end: nothing to cut
+}
 
 #if !defined(FA_VULKAN_BACKEND)
 
@@ -231,6 +247,13 @@ TEST_CASE("vulkan: VulkanOptions contradictions are errors before any Vulkan wor
     auto f = make_vulkan_device(o);
     REQUIRE(!f);
     CHECK(contains(f.error().message, "frameDescriptors"));
+    for (int pools : {0, 65}) {
+        o = {};
+        o.frameDescriptorPools = pools;
+        auto g = make_vulkan_device(o);
+        REQUIRE(!g);
+        CHECK(contains(g.error().message, "frameDescriptorPools is " + std::to_string(pools) + ", outside 1..64"));
+    }
 }
 
 TEST_CASE("vulkan: a loaderPath that names no loader is a teaching error") {
@@ -852,6 +875,7 @@ TEST_CASE("vulkan: a full frame descriptor pool fails with a teaching error and 
     VulkanOptions o;
     o.frameDescriptorSets = 2;
     o.frameDescriptors = 3;
+    o.frameDescriptorPools = 1;  // no second pool to chain to
     o.bindlessDescriptors = 4;
     auto dev = make_vk(o);
     if (!dev) return;
@@ -926,6 +950,68 @@ TEST_CASE("vulkan: a full frame descriptor pool fails with a teaching error and 
         CHECK(!dev->bindless_add(View{}));  // not a live texture view
     }
 
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a frame that fills its descriptor pool takes the next of its chain, up to frameDescriptorPools") {
+    VulkanOptions o;
+    o.frameDescriptorSets = 2;
+    o.frameDescriptors = 3;
+    o.frameDescriptorPools = 2;
+    auto dev = make_vk(o);
+    if (!dev) return;
+    std::string step = "a layout of two sampled images";
+    INFO("step: " << step);
+    const vk::VkFunctions& f = dev->fn();
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    binding.descriptorCount = 2;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo li{};
+    li.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    li.bindingCount = 1;
+    li.pBindings = &binding;
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    REQUIRE(f.vkCreateDescriptorSetLayout(dev->vk_device(), &li, nullptr, &layout) == VK_SUCCESS);
+    vk::DescriptorCounts two;
+    two.n[vk::kDescSampledImage] = 2;
+    vk::DescriptorCounts four;
+    four.n[vk::kDescSampledImage] = 4;
+
+    step = "the first set fits the first pool, the second takes a second pool, the third finds the chain full";
+    CHECK(dev->counters().frameDescriptorPools == 1);
+    auto a = dev->descriptors().alloc(layout, two);
+    REQUIRE_MESSAGE(a, a.error().to_string());
+    auto b = dev->descriptors().alloc(layout, two);
+    REQUIRE_MESSAGE(b, b.error().to_string());
+    CHECK(dev->counters().frameDescriptorPools == 2);
+    CHECK(dev->counters().frameDescriptorSets == 2);
+    CHECK(dev->counters().frameDescriptors == 4);
+    auto c = dev->descriptors().alloc(layout, two);
+    REQUIRE(!c);
+    CHECK_MESSAGE(contains(c.error().message, "no room for 2 more"), c.error().message);
+    CHECK_MESSAGE(contains(c.error().message, "frameDescriptorPools = 2"), c.error().message);
+    CHECK(contains(c.error().hint, "frameDescriptorPools"));
+
+    step = "a set larger than a whole pool is refused at once";
+    auto big = dev->descriptors().alloc(layout, four);
+    REQUIRE(!big);
+    CHECK_MESSAGE(contains(big.error().message, "more than one descriptor pool holds"), big.error().message);
+
+    step = "two frames later the slot's chain is empty again and starts from its first pool";
+    dev->commit();
+    dev->commit();
+    CHECK(dev->counters().frameDescriptorPools == 1);
+    CHECK(dev->counters().frameDescriptorSets == 0);
+    for (int i = 0; i < 2; ++i) {
+        auto again = dev->descriptors().alloc(layout, two);
+        REQUIRE_MESSAGE(again, again.error().to_string());
+    }
+    CHECK(dev->counters().frameDescriptorPools == 2);  // the second pool, made two frames ago, is reused
+    REQUIRE(dev->wait_idle());
+    f.vkDestroyDescriptorSetLayout(dev->vk_device(), layout, nullptr);
     step = "the validation layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
@@ -1685,7 +1771,8 @@ TEST_CASE("vulkan: a CPU device (lavapipe) on request, or a teaching error") {
             MESSAGE("vulkan: skipped, " << e);
             return;
         }
-        CHECK(contains(e, "no CPU Vulkan device (VulkanOptions::cpuDevice)"));
+        // The Linux CI job installs lavapipe: there a missing CPU device is a failure, not a skip.
+        if (vulkan_required()) FAIL("vulkan: FA_VULKAN_REQUIRE=1 and no CPU device (lavapipe): " << e);
         CHECK(contains(d.error().hint, "lavapipe"));
         MESSAGE("vulkan: no CPU device here: " << e);
         return;
@@ -2181,6 +2268,512 @@ TEST_CASE("vulkan: storage_image_loadable answers per format, with a reason") {
     CHECK_MESSAGE(contains(why, "cannot use"), why);
     CHECK_MESSAGE(contains(why, "storage image"), why);
     CHECK(!dev->storage_image_loadable(PixelFormat::DepthStencil, nullptr));
+    // BGRA has no SPIR-V image format qualifier: no shader can declare such a storage image, whatever the GPU says.
+    CHECK(!dev->storage_image_loadable(PixelFormat::Bgra8, &why));
+    CHECK_MESSAGE(contains(why, "format qualifier"), why);
+    CHECK_MESSAGE(contains(why, "rgba8"), why);
+}
+
+// ---- M77-P8b2: SPIR-V checks, points, descriptor set binds, cache eviction, framebuffers, 3D views ----------------
+
+namespace {
+
+// A SPIR-V module of `body` after the five header words.
+std::vector<std::uint32_t> spirv(std::initializer_list<std::uint32_t> body) {
+    std::vector<std::uint32_t> w = {0x07230203u, 0x00010000u, 0u, 100u, 0u};
+    w.insert(w.end(), body);
+    return w;
+}
+
+constexpr std::uint32_t op(std::uint32_t code, std::uint32_t words) { return (words << 16) | code; }
+
+}  // namespace
+
+TEST_CASE("vulkan: spirv_writes_point_size finds a store to PointSize, not its declaration") {
+    // gl_PerVertex (%10) with member 1 BuiltIn PointSize, an Output variable of it (%13), an access chain to member 1.
+    const std::initializer_list<std::uint32_t> block = {
+        op(72, 5), 10, 1,  11, 1,  // OpMemberDecorate %10 1 BuiltIn PointSize
+        op(32, 4), 11, 3,  10,     // %11 = OpTypePointer Output %10
+        op(43, 4), 20, 12, 1,      // %12 = OpConstant %int 1
+        op(43, 4), 20, 16, 0,      // %16 = OpConstant %int 0
+        op(59, 4), 11, 13, 3,      // %13 = OpVariable %11 Output
+    };
+    std::vector<std::uint32_t> declared = spirv(block);
+    CHECK(!fa::gpu::vk::spirv_writes_point_size(declared));  // what glslang emits for a shader that never writes it
+    std::vector<std::uint32_t> written = declared;
+    for (std::uint32_t w : {op(65, 5), 21u, 14u, 13u, 12u, op(62, 3), 14u, 15u}) written.push_back(w);
+    CHECK(fa::gpu::vk::spirv_writes_point_size(written));
+    std::vector<std::uint32_t> position = declared;  // a store to member 0 (gl_Position) only
+    for (std::uint32_t w : {op(65, 5), 21u, 14u, 13u, 16u, op(62, 3), 14u, 15u}) position.push_back(w);
+    CHECK(!fa::gpu::vk::spirv_writes_point_size(position));
+    std::vector<std::uint32_t> whole = declared;  // a store of the whole block
+    for (std::uint32_t w : {op(62, 3), 13u, 15u}) whole.push_back(w);
+    CHECK(fa::gpu::vk::spirv_writes_point_size(whole));
+    // A variable of its own decorated BuiltIn PointSize.
+    CHECK(fa::gpu::vk::spirv_writes_point_size(spirv({op(71, 4), 30, 11, 1, op(62, 3), 30, 31})));
+    CHECK(!fa::gpu::vk::spirv_writes_point_size(spirv({op(71, 4), 30, 11, 1, op(62, 3), 32, 31})));
+}
+
+TEST_CASE("vulkan: damaged SPIR-V and a point list without gl_PointSize are teaching errors") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string step = "SPIR-V whose instruction word counts do not add up";
+    INFO("step: " << step);
+    const ShaderDesc good = fill_shader_desc();
+    const auto* begin = static_cast<const std::uint8_t*>(good.vertexFunc.bytecode.ptr);
+    const std::vector<std::uint8_t> vs(begin, begin + good.vertexFunc.bytecode.size);
+    auto with_count = [&](std::uint32_t count) {
+        std::vector<std::uint8_t> bad = vs;
+        std::uint32_t w = 0;
+        std::memcpy(&w, bad.data() + 20, 4);  // the first instruction (OpCapability)
+        w = (count << 16) | (w & 0xFFFFu);
+        std::memcpy(bad.data() + 20, &w, 4);
+        return bad;
+    };
+    for (std::uint32_t count : {0u, 0xFFFFu}) {
+        INFO("word count " << count);
+        const std::vector<std::uint8_t> bad = with_count(count);
+        ShaderDesc sd = good;
+        sd.label = "damaged";
+        sd.vertexFunc.bytecode = Range{bad.data(), bad.size()};
+        const Shader s = dev->make_shader(sd);
+        CHECK(dev->state(s) == ResourceState::Failed);
+        const std::string e = last_error(*dev);
+        CHECK_MESSAGE(contains(e, "make_shader 'damaged': the vertex stage's bytecode is damaged SPIR-V"), e);
+        CHECK_MESSAGE(
+            contains(e, "the instruction at word 5 (opcode 17) says it has " + std::to_string(count) + " words"), e);
+    }
+    std::vector<std::uint8_t> cut = vs;
+    cut.resize(cut.size() - 2);  // not whole words
+    ShaderDesc sd = good;
+    sd.vertexFunc.bytecode = Range{cut.data(), cut.size()};
+    CHECK(dev->state(dev->make_shader(sd)) == ResourceState::Failed);
+    CHECK(contains(last_error(*dev), "is not SPIR-V"));
+
+    step = "a point list whose vertex stage does not write gl_PointSize";
+    const Shader fill = dev->make_shader(good);
+    REQUIRE_MESSAGE(dev->state(fill) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd = render_desc(fill, PixelFormat::Rgba8);
+    pd.primitiveType = PrimitiveType::Points;
+    pd.label = "points";
+    const Pipeline points = dev->make_pipeline(pd);
+    CHECK(dev->state(points) == ResourceState::Failed);
+    CHECK_MESSAGE(contains(last_error(*dev), "make_pipeline 'points': it draws points and the vertex stage of shader"),
+                  last_error(*dev));
+    CHECK(contains(last_error(*dev), "gl_PointSize = 1.0;"));
+    pd.primitiveType = PrimitiveType::Lines;  // the same shader draws lines
+    CHECK_MESSAGE(dev->state(dev->make_pipeline(pd)) == ResourceState::Valid, all_errors(*dev));
+
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: new uniforms per draw bind set 0 again and leave the other sets bound") {
+    auto dev = make_vk();
+    if (!dev) return;
+    const Shader fill = dev->make_shader(fill_shader_desc());
+    const Pipeline pip = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    const auto st = dev->pipeline_state(pip);
+    REQUIRE(st);
+    REQUIRE(st->layout->hasSet[0]);
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    const std::uint64_t before = dev->counters().descriptorSetBinds;
+    constexpr int kDraws = 4;
+    CommandList& list = dev->begin_commands("uniforms per draw");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(pip);
+    for (int i = 0; i < kDraws; ++i) {
+        list.set_uniforms(0, bytes_of(Vec4{0.0f, 0.0f, 0.0f, 0.0f}));
+        list.set_uniforms(1, bytes_of(Vec4{0.25f * float(i), 0.5f, 0.75f, 1.0f}));
+        list.draw(0, 3);
+    }
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    // Set 0 per draw; set 1 (no views here) never; the bindless set 2 once, with the pipeline.
+    const std::uint64_t want = kDraws + (st->layout->hasSet[1] ? 1 : 0) + (st->layout->bindless ? 1 : 0);
+    CHECK(dev->counters().descriptorSetBinds - before == want);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{191, 128, 191, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a destroyed shader's pipelines and layouts leave the caches; one shader of equal code keeps them") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string step = "two shaders of the same code share one pipeline";
+    INFO("step: " << step);
+    const vk::VulkanCounters start = dev->counters();
+    const Shader a = dev->make_shader(fill_shader_desc());
+    const Shader b = dev->make_shader(fill_shader_desc());
+    const Pipeline pa = dev->make_pipeline(render_desc(a, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pa) == ResourceState::Valid, all_errors(*dev));
+    vk::VulkanCounters c = dev->counters();
+    CHECK(c.pipelinesCached == start.pipelinesCached + 1);
+    CHECK(c.pipelineLayoutsCached == start.pipelineLayoutsCached + 1);
+    CHECK(c.setLayoutsCached > start.setLayoutsCached);
+
+    step = "destroying one of them keeps the pipeline for the other";
+    dev->destroy_pipeline(pa);
+    dev->destroy_shader(a);
+    CHECK(dev->counters().pipelinesCached == start.pipelinesCached + 1);
+    const std::uint64_t misses = dev->counters().pipelineCacheMisses;
+    const Pipeline pb = dev->make_pipeline(render_desc(b, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pb) == ResourceState::Valid, all_errors(*dev));
+    CHECK(dev->counters().pipelineCacheMisses == misses);  // a hit
+
+    step = "destroying the last one empties the caches once the frame is done";
+    dev->destroy_pipeline(pb);
+    dev->destroy_shader(b);
+    CHECK(dev->counters().pipelinesCached == start.pipelinesCached);
+    dev->commit();
+    REQUIRE(dev->wait_idle());
+    c = dev->counters();
+    CHECK(c.pipelinesCached == start.pipelinesCached);
+    CHECK(c.pipelineLayoutsCached == start.pipelineLayoutsCached);
+    CHECK(c.setLayoutsCached == start.setLayoutsCached);
+    CHECK(c.pendingReleases == 0);
+
+    step = "the same shader again makes its pipeline and layouts again, and draws";
+    const vk::VulkanCounters before = dev->counters();
+    const Shader again = dev->make_shader(fill_shader_desc());
+    const Pipeline pip = dev->make_pipeline(render_desc(again, PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    c = dev->counters();
+    CHECK(c.pipelineCacheMisses == before.pipelineCacheMisses + 1);
+    CHECK(c.layoutCacheMisses > before.layoutCacheMisses);
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    CommandList& list = dev->begin_commands("again");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(pip);
+    list.set_uniforms(0, bytes_of(Vec4{0.0f, 0.0f, 0.0f, 0.0f}));
+    list.set_uniforms(1, bytes_of(Vec4{0.25f, 0.5f, 0.75f, 1.0f}));
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{64, 128, 191, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a pass's framebuffer is kept for the next list and leaves with one of its views") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string step = "two lists into one target: one framebuffer";
+    INFO("step: " << step);
+    const vk::VulkanCounters start = dev->counters();
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    auto clear = [&](const Target& target, const char* label) {
+        CommandList& list = dev->begin_commands(label);
+        list.begin_pass(color_pass(target, PixelFormat::Rgba8, Color{0.0f, 1.0f, 0.0f, 1.0f}));
+        list.end_pass();
+        submit_and_finish(*dev, list);
+    };
+    clear(t, "first");
+    clear(t, "second");
+    vk::VulkanCounters c = dev->counters();
+    CHECK(c.framebufferCacheMisses == start.framebufferCacheMisses + 1);
+    CHECK(c.framebufferCacheHits == start.framebufferCacheHits + 1);
+    CHECK(c.framebuffersCached == start.framebuffersCached + 1);
+
+    step = "destroying the view drops its framebuffer; a new view of another image makes one of its own";
+    dev->destroy_view(t.view);
+    CHECK(dev->counters().framebuffersCached == start.framebuffersCached);
+    const Target u = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    clear(u, "third");
+    c = dev->counters();
+    CHECK(c.framebufferCacheMisses == start.framebufferCacheMisses + 2);
+    CHECK(c.framebuffersCached == start.framebuffersCached + 1);
+    const std::string bad = first_mismatch(read_rgba8(*dev, u.image, 4, 4), 4, 4, 0,
+                                           [](int, int) { return std::array<int, 4>{0, 255, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    dev->commit();
+    REQUIRE(dev->wait_idle());
+    CHECK(dev->counters().pendingReleases == 0);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: without 2D views of a 3D image a slice of one is no colour attachment") {
+    auto dev = make_vk();
+    if (!dev) return;
+    dev->set_image_view_2d_on_3d_for_tests(false);  // what a MoltenVK without imageView2DOn3DImage answers
+    ImageDesc vol;
+    vol.type = ImageType::Tex3d;
+    vol.width = 4;
+    vol.height = 4;
+    vol.numSlices = 3;
+    vol.usage.colorAttachment = true;
+    vol.label = "volume";
+    const Image img = dev->make_image(vol);
+    REQUIRE_MESSAGE(dev->state(img) == ResourceState::Valid, all_errors(*dev));
+    ViewDesc vd;
+    vd.colorAttachment.image = img;
+    vd.colorAttachment.slice = 1;
+    const View view = dev->make_view(vd);
+    CHECK(dev->state(view) == ResourceState::Failed);
+    CHECK_MESSAGE(contains(last_error(*dev), "has no 2D views of a 3D image"), last_error(*dev));
+    CHECK(contains(last_error(*dev), "draw into a 2D array image instead"));
+    ViewDesc tex;  // sampling it is still fine
+    tex.texture.image = img;
+    CHECK_MESSAGE(dev->state(dev->make_view(tex)) == ResourceState::Valid, all_errors(*dev));
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+// ---- the pipeline cache on disk (M77-P8b2) ---------------------------------------------------------------------------
+
+namespace {
+
+using fa::gpu::vk::PipelineCacheFile;
+
+// A folder of its own for a case's cache file, removed at the end. The accent: the path never goes through the ANSI
+// code page.
+struct CacheDir {
+    std::filesystem::path path;
+    explicit CacheDir(const char* name) {
+        path = std::filesystem::temp_directory_path() / std::filesystem::path(u8"fa-vulkan-pso-caché");
+        path += std::filesystem::path(std::string("-") + name + "-" +
+                                      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        std::filesystem::create_directories(path, ec);
+    }
+    ~CacheDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+    CacheDir(const CacheDir&) = delete;
+    CacheDir& operator=(const CacheDir&) = delete;
+    std::filesystem::path file() const { return path / "vulkan-pipelines.bin"; }
+};
+
+std::unique_ptr<VulkanDevice> make_cached_vk(const std::filesystem::path& file) {
+    VulkanOptions o;
+    o.pipelineCacheFile = file;
+    return make_vk(o);
+}
+
+// Three pipelines: the fill shader into RGBA8 and into RGBA16F, and the compute shader. Returns the RGBA8 one.
+Pipeline make_cache_pipelines(VulkanDevice& dev) {
+    const Shader fill = dev.make_shader(fill_shader_desc());
+    const Pipeline rgba8 = dev.make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+    const Pipeline rgba16 = dev.make_pipeline(render_desc(fill, PixelFormat::Rgba16F));
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev.make_shader(compute_shader_desc());
+    pd.label = "compute";
+    const Pipeline compute = dev.make_pipeline(pd);
+    CHECK_MESSAGE(dev.state(rgba8) == ResourceState::Valid, all_errors(dev));
+    CHECK_MESSAGE(dev.state(rgba16) == ResourceState::Valid, all_errors(dev));
+    CHECK_MESSAGE(dev.state(compute) == ResourceState::Valid, all_errors(dev));
+    return rgba8;
+}
+
+// The fill pipeline draws (64, 128, 191, 255) over a 4x4 RGBA8 target.
+void check_fill_draws(VulkanDevice& dev, Pipeline pip) {
+    const Target t = make_target(dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    CommandList& list = dev.begin_commands("cached");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    list.set_pipeline(pip);
+    list.set_uniforms(0, bytes_of(Vec4{0.0f, 0.0f, 0.0f, 0.0f}));
+    list.set_uniforms(1, bytes_of(Vec4{0.25f, 0.5f, 0.75f, 1.0f}));
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(dev, list);
+    const std::string bad = first_mismatch(read_rgba8(dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{64, 128, 191, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+}
+
+// The device's warnings about its pipeline cache file.
+std::vector<std::string> cache_warnings(VulkanDevice& dev) {
+    std::vector<std::string> out;
+    for (const std::string& w : dev.warnings())
+        if (contains(w, "pipeline cache")) out.push_back(w);
+    return out;
+}
+
+std::vector<std::uint8_t> file_bytes(const std::filesystem::path& file) {
+    auto r = fa::fs::read_bytes(fa::fs::path_to_utf8(file));
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    return r.value();
+}
+
+void put_file(const std::filesystem::path& file, const std::vector<std::uint8_t>& bytes) {
+    auto r = fa::fs::write_bytes(fa::fs::path_to_utf8(file), bytes.data(), bytes.size());
+    REQUIRE_MESSAGE(r, r.error().to_string());
+}
+
+}  // namespace
+
+TEST_CASE("vulkan: a second device makes its pipelines with the pipeline cache file the first one wrote") {
+    const CacheDir dir("hits");
+    {
+        auto dev = make_cached_vk(dir.file());
+        if (!dev) return;
+        CHECK(dev->pipeline_cache_file() == dir.file());
+        CHECK(!dev->counters().pipelineCacheLoaded);  // no file yet, and that is no warning
+        CHECK(cache_warnings(*dev).empty());
+        make_cache_pipelines(*dev);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        REQUIRE(std::filesystem::exists(dir.file()));
+        CHECK(std::filesystem::file_size(dir.file()) >=
+              PipelineCacheFile::kHeaderBytes + PipelineCacheFile::kVkHeaderBytes);
+        saved = dev->save_pipeline_cache();  // nothing new: the file is not written again
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    const std::uint64_t size = std::filesystem::file_size(dir.file());
+    {
+        auto dev = make_cached_vk(dir.file());
+        REQUIRE(dev);
+        const vk::VulkanCounters c = dev->counters();
+        CHECK(c.pipelineCacheLoaded);
+        CHECK(c.pipelineCacheFileBytes == size);
+        CHECK(c.pipelineCacheDiscarded == 0);
+        const Pipeline pip = make_cache_pipelines(*dev);
+        check_fill_draws(*dev, pip);
+        CHECK(cache_warnings(*dev).empty());
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    // A device destroyed without a save writes the file itself.
+    std::filesystem::remove(dir.file());
+    {
+        auto dev = make_cached_vk(dir.file());
+        REQUIRE(dev);
+        make_cache_pipelines(*dev);
+    }
+    CHECK(std::filesystem::exists(dir.file()));
+}
+
+TEST_CASE(
+    "vulkan: a damaged or foreign pipeline cache file is thrown away with one warning, and pipelines still build") {
+    const CacheDir dir("discard");
+    std::vector<std::uint8_t> good;
+    {
+        auto dev = make_cached_vk(dir.file());
+        if (!dev) return;
+        make_cache_pipelines(*dev);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        good = file_bytes(dir.file());
+    }
+    using F = PipelineCacheFile;
+    REQUIRE(good.size() >= F::kHeaderBytes + F::kVkHeaderBytes);
+    struct Variant {
+        const char* name;
+        const char* why;  // in the warning
+        std::vector<std::uint8_t> bytes;
+    };
+    std::vector<Variant> variants;
+    variants.push_back({"a flipped payload byte", "checksum does not match", good});
+    variants.back().bytes.back() = std::uint8_t(good.back() ^ 0x5au);
+    variants.push_back({"another GPU's vendor id", "made on another GPU", good});
+    variants.back().bytes[F::kVendorAt] = std::uint8_t(good[F::kVendorAt] ^ 1u);
+    variants.push_back({"another driver version", "made by driver version", good});
+    variants.back().bytes[F::kDriverAt] = std::uint8_t(good[F::kDriverAt] ^ 1u);
+    variants.push_back({"another pipeline cache UUID", "made for pipeline cache", good});
+    variants.back().bytes[F::kUuidAt + 3] = std::uint8_t(good[F::kUuidAt + 3] ^ 1u);
+    variants.push_back({"not a cache file", "not a FactorIA Vulkan pipeline cache", pattern(4096, 7)});
+    variants.push_back(
+        {"a cut header", "fewer than its header", std::vector<std::uint8_t>(good.begin(), good.begin() + 40)});
+    variants.push_back(
+        {"a cut payload", "it is damaged (its header says", std::vector<std::uint8_t>(good.begin(), good.end() - 8)});
+    // The outer header rewritten to match, the checksum too, but Vulkan's own header names another GPU.
+    variants.push_back({"another GPU in Vulkan's header", "its Vulkan header names vendor", good});
+    {
+        std::vector<std::uint8_t>& b = variants.back().bytes;
+        b[F::kHeaderBytes + 8] =
+            std::uint8_t(b[F::kHeaderBytes + 8] ^ 1u);  // VkPipelineCacheHeaderVersionOne::vendorID
+        const std::string sha = fa::sha256_hex(b.data() + F::kHeaderBytes, b.size() - F::kHeaderBytes);
+        REQUIRE(sha.size() == 64);
+        std::memcpy(b.data() + F::kPayloadSha256At, sha.data(), 64);
+    }
+    for (const Variant& v : variants) {
+        INFO("file: " << v.name);
+        put_file(dir.file(), v.bytes);
+        auto dev = make_cached_vk(dir.file());
+        REQUIRE(dev);
+        const std::vector<std::string> warned = cache_warnings(*dev);
+        REQUIRE(warned.size() == 1);
+        CHECK(contains(warned[0], "was thrown away"));
+        CHECK_MESSAGE(contains(warned[0], v.why), warned[0]);
+        CHECK(contains(warned[0], "deleting the file clears the cache"));
+        CHECK(dev->counters().pipelineCacheDiscarded == 1);
+        CHECK(!dev->counters().pipelineCacheLoaded);
+        const Pipeline pip = make_cache_pipelines(*dev);  // compiled again
+        check_fill_draws(*dev, pip);
+        auto saved = dev->save_pipeline_cache();  // the file is written anew
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        CHECK(cache_warnings(*dev).size() == 1);  // once, not per pipeline
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    auto dev = make_cached_vk(dir.file());  // the rewritten file is good again
+    REQUIRE(dev);
+    CHECK(dev->counters().pipelineCacheLoaded);
+    CHECK(dev->counters().pipelineCacheDiscarded == 0);
+    CHECK(cache_warnings(*dev).empty());
+}
+
+TEST_CASE("vulkan: a pipeline cache file that cannot be written is a warning, and the old file stays") {
+    std::string step = "a directory that cannot be made (its parent is a file)";
+    INFO("step: " << step);
+    const CacheDir dir("unwritable");
+    put_file(dir.path / "blocker", {1, 2, 3});
+    const std::filesystem::path blocked = dir.path / "blocker" / "vulkan-pipelines.bin";
+    {
+        auto dev = make_cached_vk(blocked);
+        if (!dev) return;
+        make_cache_pipelines(*dev);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE(!saved);
+        CHECK_MESSAGE(contains(saved.error().message, "could not be written"), saved.error().message);
+        CHECK(contains(saved.error().message, "the old file was kept"));
+        const std::vector<std::string> warned = cache_warnings(*dev);
+        REQUIRE(warned.size() == 1);
+        CHECK(contains(warned[0], "another process may hold the file open"));
+        CHECK(dev->counters().pipelineCacheStoreFailed == 1);
+        CHECK(dev->counters().pipelineCacheStored == 0);
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    CHECK(file_bytes(dir.path / "blocker") == std::vector<std::uint8_t>{1, 2, 3});
+
+    step = "a file another reader holds open (Windows replaces no open file)";
+    if (!fa::fs::windows_rules()) {
+        MESSAGE("vulkan: the open-file case needs the Windows file rules (FA_FS_WINDOWS_RULES)");
+        return;
+    }
+    const std::vector<std::uint8_t> junk = pattern(256, 3);
+    put_file(dir.file(), junk);
+    auto dev = make_cached_vk(dir.file());
+    REQUIRE(dev);
+    CHECK(dev->counters().pipelineCacheDiscarded == 1);  // so there is something to store
+    make_cache_pipelines(*dev);
+    {
+        fa::fs::ReadStream reader(dir.file(), std::ios::binary);
+        REQUIRE(reader.is_open());
+        auto saved = dev->save_pipeline_cache();
+        CHECK_FALSE(saved);
+        if (!saved) CHECK(contains(saved.error().message, "the old file was kept"));
+        CHECK(dev->counters().pipelineCacheStoreFailed == 1);
+    }
+    CHECK(file_bytes(dir.file()) == junk);
+    auto saved = dev->save_pipeline_cache();  // the reader is gone: the data is still to store
+    REQUIRE_MESSAGE(saved, saved.error().to_string());
+    CHECK(file_bytes(dir.file()) != junk);
+    CHECK(dev->counters().pipelineCacheStored == 1);
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(dir.path, ec))  // no temporary left behind
+        CHECK_MESSAGE((e.path().filename() == "blocker" || e.path().filename() == "vulkan-pipelines.bin"),
+                      fa::fs::path_to_utf8(e.path()));
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
 #endif
