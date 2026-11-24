@@ -17,6 +17,7 @@
 #include "render_features.h"
 #include "shaders/blit.glsl.h"
 #include "test_util.h"
+#include "ui_painter_internal.h"
 
 using namespace fa::gpu;
 
@@ -1021,4 +1022,140 @@ TEST_CASE("SokolDevice: reads in flight are not limited to four: eight cameras k
     CHECK(again.value().valid());
     dev.release_buffer_read(again.value());
     dev.destroy_buffer(buf);
+}
+
+// The 2D painter (render/ui_painter.h) on a RecordingDevice: the order of the calls of a frame, without a GPU.
+TEST_CASE("UiPainter: a frame is a pipeline, bindings per texture change, and a scissor and a draw per command") {
+    RecordingDevice dev;
+    Scene s(dev);
+    std::string error;
+    std::unique_ptr<fa::render::UiPainter> painter = fa::render::make_ui_painter_on(dev, &error);
+    REQUIRE_MESSAGE(painter != nullptr, error);
+    REQUIRE(dev.errors().empty());
+
+    const std::vector<std::uint8_t> pixels(4 * 4 * 4, 255);
+    const fa::render::UiTexture a = painter->make_texture(4, 4, pixels.data(), &error);
+    const fa::render::UiTexture b = painter->make_texture(4, 4, pixels.data(), &error);
+    REQUIRE(a.valid());
+    REQUIRE(b.valid());
+    // An updatable picture (a glyph atlas) is filled by a queued update that upload() stages and copies.
+    const fa::render::UiTexture atlas = painter->make_updatable_texture(8, 8, &error);
+    REQUIRE(atlas.valid());
+    CHECK(painter->update_texture(atlas, 2, 2, 4, 4, pixels.data(), 0, &error));
+    CHECK_FALSE(painter->update_texture(fa::render::UiTexture{}, 0, 0, 1, 1, pixels.data(), 0, &error));
+    CHECK_FALSE(error.empty());
+
+    fa::render::UiVertex vertices[4];
+    for (int i = 0; i < 4; ++i) {
+        vertices[i].x = float(i % 2) * 32.0f;
+        vertices[i].y = float(i / 2) * 32.0f;
+    }
+    const std::uint16_t indices[6] = {0, 1, 2, 2, 1, 3};
+    fa::render::UiDrawCommand commands[5];
+    commands[0].view = a.view;  // the whole window
+    commands[0].clipMaxX = 64.0f;
+    commands[0].clipMaxY = 64.0f;
+    commands[0].indexOffset = 0;
+    commands[0].indexCount = 3;
+    commands[1] = commands[0];  // the same picture: no new bindings, only a smaller scissor
+    commands[1].clipMinX = 8.0f;
+    commands[1].clipMinY = 8.0f;
+    commands[1].clipMaxX = 16.0f;
+    commands[1].clipMaxY = 16.0f;
+    commands[1].indexOffset = 3;
+    commands[2] = commands[0];  // another picture, shown as it is, and a rectangle that sticks out of the window
+    commands[2].view = b.view;
+    commands[2].nearest = true;
+    commands[2].clipMinX = -10.0f;
+    commands[2].clipMaxX = 200.0f;
+    commands[2].clipMaxY = 20.0f;
+    commands[2].indexCount = 6;
+    commands[3] = commands[2];  // entirely outside the window: skipped
+    commands[3].clipMinX = 100.0f;
+    commands[3].clipMaxX = 120.0f;
+    commands[4] = commands[0];  // a picture with no view: skipped
+    commands[4].view = 0;
+    fa::render::UiDrawList list;
+    list.vertices = vertices;
+    list.vertexCount = 4;
+    list.indices = indices;
+    list.indexCount = 6;
+    list.commands = commands;
+    list.commandCount = 5;
+    fa::render::UiFrame frame;
+    frame.displayWidth = 64.0f;
+    frame.displayHeight = 64.0f;
+    frame.lists = &list;
+    frame.listCount = 1;
+
+    fa::render::UiPainterImpl& impl = fa::render::UiPainterAccess::impl(*painter);
+    CommandList& cl = dev.begin_commands("ui");
+    CHECK(impl.upload(cl, frame, &error));
+    cl.begin_pass(s.pass());
+    impl.draw(cl, s.pass().format, frame);
+    cl.end_pass();
+    dev.submit(cl);
+    INFO(joined(dev.errors()));
+    CHECK(dev.errors().empty());
+
+    std::vector<CommandKind> kinds;
+    std::vector<RecordedCommand> scissors, draws;
+    for (const RecordedCommand& c : dev.commands()) {
+        kinds.push_back(c.kind);
+        if (c.kind == CommandKind::SetScissor) scissors.push_back(c);
+        if (c.kind == CommandKind::Draw) draws.push_back(c);
+    }
+    const std::vector<CommandKind> expected = {
+        CommandKind::WriteBuffer,        // the staging buffer of the atlas update
+        CommandKind::CopyBufferToImage,  // ...copied into the atlas
+        CommandKind::WriteBuffer,        // the vertices
+        CommandKind::WriteBuffer,        // the indices
+        CommandKind::BeginPass,
+        CommandKind::PushDebugGroup,
+        CommandKind::SetPipeline,
+        CommandKind::SetViewport,
+        CommandKind::SetUniforms,
+        CommandKind::SetBindings,  // picture a, smoothed
+        CommandKind::SetScissor,
+        CommandKind::Draw,
+        CommandKind::SetScissor,  // command 1: the same bindings
+        CommandKind::Draw,
+        CommandKind::SetBindings,  // picture b, nearest
+        CommandKind::SetScissor,
+        CommandKind::Draw,
+        CommandKind::SetScissor,  // back to the whole window
+        CommandKind::PopDebugGroup,
+        CommandKind::EndPass,
+    };
+    CHECK(kinds == expected);
+    REQUIRE(scissors.size() == 4);
+    CHECK(scissors[0].args[2] == 64);
+    CHECK(scissors[1].args[0] == 8);
+    CHECK(scissors[1].args[1] == 8);
+    CHECK(scissors[1].args[2] == 8);
+    CHECK(scissors[2].args[0] == 0);  // cut to the window: x from 0 to 64, y from 0 to 20
+    CHECK(scissors[2].args[2] == 64);
+    CHECK(scissors[2].args[3] == 20);
+    CHECK(scissors[3].args[2] == 64);
+    CHECK(scissors[3].args[3] == 64);
+    REQUIRE(draws.size() == 3);
+    CHECK(draws[0].args[0] == 0);
+    CHECK(draws[0].args[1] == 3);
+    CHECK(draws[1].args[0] == 3);
+    CHECK(draws[2].args[1] == 6);
+
+    // Destroying a picture with an update still queued drops the update; the next upload writes nothing for it.
+    CHECK(painter->update_texture(atlas, 0, 0, 2, 2, pixels.data(), 0, &error));
+    painter->destroy_texture(atlas);
+    dev.clear_commands();
+    CommandList& next = dev.begin_commands("ui2");
+    CHECK(impl.upload(next, frame, &error));
+    dev.submit(next);
+    int copies = 0;
+    for (const RecordedCommand& c : dev.commands()) copies += c.kind == CommandKind::CopyBufferToImage ? 1 : 0;
+    CHECK(copies == 0);
+    CHECK(dev.errors().empty());
+
+    painter->destroy_texture(a);
+    painter->destroy_texture(b);
 }

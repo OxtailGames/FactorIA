@@ -60,7 +60,8 @@ bool can_run(mfx::Kind kind) {
     return ok;
 }
 
-gpu::Image make_data_image(int w, int h, gpu::PixelFormat format, const void* data, std::size_t bytes, const char* label) {
+gpu::Image make_data_image(int w, int h, gpu::PixelFormat format, const void* data, std::size_t bytes,
+                           const char* label) {
     gpu::ImageDesc d{};
     d.type = gpu::ImageType::Tex2d;
     d.width = w;
@@ -304,7 +305,8 @@ TEST_CASE(
     // A resize: another size makes another scaler; the old frame no longer fits it.
     const int in2W = 24, in2H = 16;
     const std::vector<std::uint8_t> in2 = scene_pixels(in2W, in2H, 0.0f, 0.0f);
-    gpu::Image color2 = make_data_image(in2W, in2H, gpu::PixelFormat::Rgba8, in2.data(), in2.size(), "metalfx-test-color2");
+    gpu::Image color2 =
+        make_data_image(in2W, in2H, gpu::PixelFormat::Rgba8, in2.data(), in2.size(), "metalfx-test-color2");
     d.inputWidth = in2W;
     d.inputHeight = in2H;
     REQUIRE_MESSAGE(scaler.configure(dev(), d, &error), error);
@@ -604,7 +606,8 @@ void moving_pattern_errors(bool vertical, double err[3]) {
             std::vector<std::uint8_t> got;
             {
                 std::vector<float> gf;
-                REQUIRE_MESSAGE(read_back_f16(out.image, outW, outH, gf, &error), error);  // commits first (see read_back)
+                REQUIRE_MESSAGE(read_back_f16(out.image, outW, outH, gf, &error),
+                                error);  // commits first (see read_back)
                 got.resize(gf.size());
                 for (std::size_t k = 0; k < gf.size(); ++k)
                     got[k] = std::uint8_t(std::lround(std::clamp(gf[k], 0.0f, 1.0f) * 255.0f));
@@ -694,8 +697,8 @@ struct SmallFrameImages {
         motion =
             make_data_image(w, h, gpu::PixelFormat::Rg16F, noMotion.data(), noMotion.size() * 2, "metalfx-test-motion");
         reactive = make_data_image(w, h, gpu::PixelFormat::R8, mask.data(), mask.size(), "metalfx-test-reactive");
-        reactiveWrongSize =
-            make_data_image(w / 2, h / 2, gpu::PixelFormat::R8, small.data(), small.size(), "metalfx-test-reactive-small");
+        reactiveWrongSize = make_data_image(w / 2, h / 2, gpu::PixelFormat::R8, small.data(), small.size(),
+                                            "metalfx-test-reactive-small");
     }
     ~SmallFrameImages() {
         dev().destroy_image(depth);
@@ -744,7 +747,8 @@ double changed_scene_error(bool reactiveDesc, int maskValue) {
                 std::uint8_t* q = &in[(std::size_t(y) * inW + x) * 4];
                 q[0] = q[1] = q[2] = v;
             }
-        gpu::Image color = make_data_image(inW, inH, gpu::PixelFormat::Rgba8, in.data(), in.size(), "metalfx-test-color");
+        gpu::Image color =
+            make_data_image(inW, inH, gpu::PixelFormat::Rgba8, in.data(), in.size(), "metalfx-test-color");
         mfx::Frame f;
         f.color = color;
         f.depth = images.depth;

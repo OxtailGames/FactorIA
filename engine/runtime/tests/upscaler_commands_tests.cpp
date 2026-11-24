@@ -250,24 +250,24 @@ TEST_CASE("window.renderScale: the same value again, with a quality that is not 
     REQUIRE(e.renderer() != nullptr);
     auto& c = e.commands();
     REQUIRE(c.call("render.upscaler", Json::parse(R"({"mode":"spatial","quality":"performance"})")).ok);
-    const std::uint32_t first = e.renderer()->game_target_image_id();
+    const std::uint32_t first = e.renderer()->game_target_texture().image;
     eval(e, "window.renderScale = 0.75; 0");  // 0.75 x 0.5: the targets are made once, at their final size
-    const std::uint32_t scaled = e.renderer()->game_target_image_id();
+    const std::uint32_t scaled = e.renderer()->game_target_texture().image;
     CHECK(scaled != first);
     CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
     // A settings menu or a slider that assigns the value it already has: nothing is rebuilt (the temporal history would start again).
     for (int i = 0; i < 3; ++i) {
         eval(e, "window.renderScale = 0.75; 0");
-        CHECK(e.renderer()->game_target_image_id() == scaled);
+        CHECK(e.renderer()->game_target_texture().image == scaled);
         CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
     }
     // A held size over the player's option, then the player's option again: each changes the size once, never through a size in between.
     REQUIRE_MESSAGE(e.hold_render_scale(0.75, &err), err);
     CHECK(e.renderer()->render_scale() == doctest::Approx(0.75f));
-    const std::uint32_t held = e.renderer()->game_target_image_id();
+    const std::uint32_t held = e.renderer()->game_target_texture().image;
     CHECK(held != scaled);
     REQUIRE_MESSAGE(e.hold_render_scale(0.75, &err), err);
-    CHECK(e.renderer()->game_target_image_id() == held);
+    CHECK(e.renderer()->game_target_texture().image == held);
     eval(e, "window.renderScale = 0.75; 0");
     CHECK(e.renderer()->render_scale() == doctest::Approx(0.375f));
     CHECK(e.renderer()->upscale_stage());

@@ -28,13 +28,6 @@ fa_embed_files(fa_editor fa_editor_fonts editor_fonts
 file(GLOB editor_icon_pngs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/icon/*.png)
 fa_embed_files(fa_editor fa_editor_icon editor_icon FILES ${editor_icon_pngs} BASE ${CMAKE_CURRENT_SOURCE_DIR}/icon)
 
-# The sokol_imgui implementation TU embeds third-party code: relax warnings there.
-if(MSVC)
-    set_source_files_properties(src/imgui_backend.cpp PROPERTIES COMPILE_OPTIONS "/w")
-else()
-    set_source_files_properties(src/imgui_backend.cpp PROPERTIES COMPILE_OPTIONS "-w")
-endif()
-
 if(FA_BUILD_TESTS)
     file(GLOB editor_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(editor_tests)

@@ -74,7 +74,8 @@ bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, sg_pixel_fo
 // (a frame that drew no mesh has none: everything is sky then) and reads the velocity when there is one.
 bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, Target& out, const PassContext& c) {
     using render::metalfx::Kind;
-    if (mfxFailed || !gpu.has_device() || !render::metalfx::on_metal(gpu.device()) || !out.valid() || !src.valid()) return false;
+    if (mfxFailed || !gpu.has_device() || !render::metalfx::on_metal(gpu.device()) || !out.valid() || !src.valid())
+        return false;
     // A command buffer of an earlier frame came back with an error (it finishes on another thread): MetalFX is given up from this frame on.
     std::string commandError;
     if (mfxScaler.command_failed(&commandError))

@@ -256,9 +256,9 @@ TEST_CASE("hdr output: the editor viewport shows a picture above paper white cla
     CHECK(fin.at(160, 90, 0) > 1.2f);
     // ... and the image the viewport shows is the 8-bit copy, which holds at most white: an EDR editor window would not show it
     // brighter than the SDR present() does. (readback_rgba8 reads RGBA8 images only: a float image would make it fail.)
-    const std::uint32_t id = g.renderer.game_target_image_id();
+    const std::uint32_t id = g.renderer.game_target_texture().image;
     REQUIRE(id != 0);
-    CHECK(g.renderer.game_target_view_id() != 0);
+    CHECK(g.renderer.game_target_texture().view != 0);
     sg_image image{};
     image.id = id;
     std::vector<std::uint8_t> px;

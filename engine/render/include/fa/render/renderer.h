@@ -40,6 +40,7 @@
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
 #include "fa/render/graphics_preset.h"
+#include "fa/render/ui_painter.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -311,6 +312,9 @@ public:
     // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
     // renderer that adopted the context closes it in shutdown().
     static void close_context();
+    // The end of a frame of a client that draws into the window itself (the editor): presents what the passes drew. False when
+    // no context is open. A game's Renderer::present() commits on its own.
+    static bool commit_context();
     // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer
     // needed; also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The
     // player's error screen uses it with red.
@@ -553,13 +557,12 @@ public:
     // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
     RenderStats stats(bool passTimes = true) const;
 
-    // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
-    // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
+    // The picture the editor viewport shows, as the ids UiPainter and the editor's ImGui take (UiTexture::image is the memory, ::view
+    // what a UiDrawCommand names; both 0 until there is one): the finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
     // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
     // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). The same copy clamps a picture
     // above paper white (an HDR output's final pass) to the standard range. Without set_editor_view they are the game image as it is.
-    std::uint32_t game_target_image_id() const;
-    std::uint32_t game_target_view_id() const;
+    render::UiTexture game_target_texture() const;
     // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game
     // never asks. false frees the copy.
     void set_editor_view(bool on);
