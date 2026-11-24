@@ -35,16 +35,16 @@ inline constexpr GUID kIidQueue = {0xcfdbd83f, 0x9e06, 0x4fda, {0x8e, 0xa5, 0x69
 inline constexpr GUID kIidQueue1 = {0xdd2f482c, 0x5eff, 0x41e8, {0x9c, 0x9e, 0xd2, 0x37, 0x4b, 0x27, 0x81, 0x28}};
 inline constexpr GUID kIidCodec = {0x84ef5121, 0x9b43, 0x4d03, {0xb5, 0xc1, 0xcc, 0x34, 0x60, 0x6b, 0x26, 0x2d}};
 
-inline constexpr std::uint64_t kSourceFile = 0;                     // DSTORAGE_REQUEST_SOURCE_FILE
-inline constexpr std::uint64_t kDestinationMemory = 0;              // DSTORAGE_REQUEST_DESTINATION_MEMORY
-inline constexpr std::uint64_t kDestinationBuffer = 1;              // DSTORAGE_REQUEST_DESTINATION_BUFFER
-inline constexpr std::uint64_t kDestinationTextureRegion = 2;       // DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION
-inline constexpr std::uint8_t kFormatNone = 0;                      // DSTORAGE_COMPRESSION_FORMAT_NONE
-inline constexpr std::uint8_t kFormatGDeflate = 1;                  // DSTORAGE_COMPRESSION_FORMAT_GDEFLATE
-inline constexpr std::int8_t kPriorityNormal = 0;                   // DSTORAGE_PRIORITY_NORMAL
-inline constexpr std::int32_t kCompressionDefault = 0;              // DSTORAGE_COMPRESSION_DEFAULT
-inline constexpr std::uint16_t kMinQueueCapacity = 0x80;            // DSTORAGE_MIN_QUEUE_CAPACITY
-inline constexpr std::uint16_t kMaxQueueCapacity = 0x2000;          // DSTORAGE_MAX_QUEUE_CAPACITY
+inline constexpr std::uint64_t kSourceFile = 0;                // DSTORAGE_REQUEST_SOURCE_FILE
+inline constexpr std::uint64_t kDestinationMemory = 0;         // DSTORAGE_REQUEST_DESTINATION_MEMORY
+inline constexpr std::uint64_t kDestinationBuffer = 1;         // DSTORAGE_REQUEST_DESTINATION_BUFFER
+inline constexpr std::uint64_t kDestinationTextureRegion = 2;  // DSTORAGE_REQUEST_DESTINATION_TEXTURE_REGION
+inline constexpr std::uint8_t kFormatNone = 0;                 // DSTORAGE_COMPRESSION_FORMAT_NONE
+inline constexpr std::uint8_t kFormatGDeflate = 1;             // DSTORAGE_COMPRESSION_FORMAT_GDEFLATE
+inline constexpr std::int8_t kPriorityNormal = 0;              // DSTORAGE_PRIORITY_NORMAL
+inline constexpr std::int32_t kCompressionDefault = 0;         // DSTORAGE_COMPRESSION_DEFAULT
+inline constexpr std::uint16_t kMinQueueCapacity = 0x80;       // DSTORAGE_MIN_QUEUE_CAPACITY
+inline constexpr std::uint16_t kMaxQueueCapacity = 0x2000;     // DSTORAGE_MAX_QUEUE_CAPACITY
 
 // DSTORAGE_QUEUE_DESC.
 struct QueueDesc {
@@ -64,7 +64,7 @@ struct MemoryDestination {  // DSTORAGE_DESTINATION_MEMORY
     std::uint32_t size = 0;
 };
 static_assert(sizeof(MemoryDestination) == 16 && offsetof(MemoryDestination, size) == 8);
-struct BufferDestination {  // DSTORAGE_DESTINATION_BUFFER
+struct BufferDestination {     // DSTORAGE_DESTINATION_BUFFER
     void* resource = nullptr;  // ID3D12Resource*
     std::uint64_t offset = 0;
     std::uint32_t size = 0;

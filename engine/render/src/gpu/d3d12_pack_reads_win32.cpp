@@ -47,8 +47,8 @@ constexpr std::uint64_t kPackWaitMs = fa::detail::kDirectGiveUpMs + fa::detail::
 struct D3d12Device::PackRead {
     enum class Stage { Free, Graphics, Direct, Done };
     Stage stage = Stage::Free;
-    std::uint32_t generation = 0;  // the ticket's; 0 = none (released or polled to the end)
-    bool direct = false;           // DirectStorage writes it (else the CPU fallback)
+    std::uint32_t generation = 0;     // the ticket's; 0 = none (released or polled to the end)
+    bool direct = false;              // DirectStorage writes it (else the CPU fallback)
     std::uint64_t graphicsFence = 0;  // Graphics: the internal list's fence value
     std::uint64_t directFence = 0;    // Direct: the value DirectStorage's signal sets
     std::uint64_t directSince = 0;    // Direct: when it was submitted (ms)
@@ -61,7 +61,7 @@ struct D3d12Device::PackRead {
     bool image = false;
     std::shared_ptr<TrackedResource> tracked;
     std::string label;
-    std::size_t dstOffset = 0;  // a buffer
+    std::size_t dstOffset = 0;                // a buffer
     PixelFormat format = PixelFormat::Rgba8;  // an image
     bool is3d = false;
     std::uint32_t mip = 0, layer = 0, sub = 0, x = 0, y = 0, width = 0, height = 0, rowBytes = 0, rows = 0;
@@ -234,10 +234,10 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
     if (!layout) return layout.error();
     const PackReader::RangeLayout& l = layout.value();
     if (src.size == 0 || l.size != src.size)
-        return make_error(where + ": " + std::to_string(src.size) + " bytes from offset " + std::to_string(src.offset) +
-                              (src.size == 0 ? " is no read" : " go past the file's " + std::to_string(l.fileSize) +
-                                                                   " bytes"),
-                          "read at least one byte, inside the file (PackReader::size_of gives its size)");
+        return make_error(
+            where + ": " + std::to_string(src.size) + " bytes from offset " + std::to_string(src.offset) +
+                (src.size == 0 ? " is no read" : " go past the file's " + std::to_string(l.fileSize) + " bytes"),
+            "read at least one byte, inside the file (PackReader::size_of gives its size)");
     if (dstOffset > size || src.size > size - dstOffset)
         return make_error(where + ": " + std::to_string(src.size) + " bytes at offset " + std::to_string(dstOffset) +
                               " go past the end of buffer '" + label + "' (" + std::to_string(size) + " bytes)",
@@ -248,8 +248,7 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
                               " blocks, more than one read takes (" +
                               std::to_string(fa::detail::kDirectGpuReadRequests) + ")",
                           "read the file in parts of at most " +
-                              std::to_string(fa::detail::kDirectGpuReadRequests * (l.blockSize >> 10) >> 10) +
-                              " MiB");
+                              std::to_string(fa::detail::kDirectGpuReadRequests * (l.blockSize >> 10) >> 10) + " MiB");
     if (!packReads_) packReads_ = std::make_shared<PackReads>();
     PackReads& p = *packReads_;
     PackRead* r = nullptr;
@@ -354,8 +353,7 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
                           "read inside the image's size");
     const std::uint32_t x = std::uint32_t(region.x), y = std::uint32_t(region.y);
     const std::uint32_t w = std::uint32_t(region.width), h = std::uint32_t(region.height);
-    if (pixel_format_compressed(rec.format) &&
-        (x % 4 || y % 4 || (w % 4 && x + w != mw) || (h % 4 && y + h != mh)))
+    if (pixel_format_compressed(rec.format) && (x % 4 || y % 4 || (w % 4 && x + w != mw) || (h % 4 && y + h != mh)))
         return make_error(into + ": the rectangle (" + std::to_string(x) + ", " + std::to_string(y) + ", " +
                               std::to_string(w) + "x" + std::to_string(h) + ") is not whole 4x4 blocks of " +
                               pixel_format_name(rec.format),
@@ -366,15 +364,14 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
     if (!layout) return layout.error();
     const PackReader::RangeLayout& l = layout.value();
     if (src.size != need || l.size != src.size)
-        return make_error(into + ": the range has " + std::to_string(src.size) + " bytes" +
-                              (l.size != src.size ? " (past the file's " + std::to_string(l.fileSize) + " bytes)"
-                                                  : std::string()) +
-                              ", the region needs " + std::to_string(need) + " (" + std::to_string(rows) +
-                              " rows of " + std::to_string(rowBytes) + " bytes, " +
-                              std::to_string(fa::detail::direct_texture_pitch(rowBytes)) +
-                              " bytes apart, the last one unpadded)",
-                          "store the region in the pack as D3D12's copyable footprint (rows 256-byte aligned) and read "
-                          "exactly its bytes");
+        return make_error(
+            into + ": the range has " + std::to_string(src.size) + " bytes" +
+                (l.size != src.size ? " (past the file's " + std::to_string(l.fileSize) + " bytes)" : std::string()) +
+                ", the region needs " + std::to_string(need) + " (" + std::to_string(rows) + " rows of " +
+                std::to_string(rowBytes) + " bytes, " + std::to_string(fa::detail::direct_texture_pitch(rowBytes)) +
+                " bytes apart, the last one unpadded)",
+            "store the region in the pack as D3D12's copyable footprint (rows 256-byte aligned) and read "
+            "exactly its bytes");
     const auto requests = plan_of(l);
     if (requests.size() > fa::detail::kDirectGpuReadRequests)
         return make_error(into + ": the region spans " + std::to_string(requests.size()) +
@@ -494,7 +491,7 @@ Result<PackReadTicket> D3d12Device::start_pack_read(PackRead& r, const char* wha
             list->require(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
             list->flush_barriers();
             list->native()->CopyBufferRegion(r.tracked->resource.get(), r.dstOffset + part.outOffset, a.resource,
-                                          a.offset, part.length);
+                                             a.offset, part.length);
             at += part.length;
         }
         r.partial.clear();
@@ -505,8 +502,10 @@ Result<PackReadTicket> D3d12Device::start_pack_read(PackRead& r, const char* wha
         execute(*list);
         if (list->fence_ <= before) {
             r = PackRead{};
-            return make_error(std::string("gpu d3d12: ") + what + ": the list before DirectStorage could not be "
-                                  "submitted" + removed_reason(),
+            return make_error(std::string("gpu d3d12: ") + what +
+                                  ": the list before DirectStorage could not be "
+                                  "submitted" +
+                                  removed_reason(),
                               "see errors() for D3D12's reason");
         }
         r.graphicsFence = list->fence_;
@@ -554,7 +553,7 @@ void D3d12Device::cpu_pack_read(PackRead& r) {
             list->require(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
             list->flush_barriers();
             list->native()->CopyBufferRegion(r.tracked->resource.get(), r.dstOffset, a.resource, a.offset,
-                                          bytes.value().size());
+                                             bytes.value().size());
         }
     }
     list->empty_ = false;
@@ -641,8 +640,8 @@ void D3d12Device::pump_pack_reads() {
         }
         if (fa::detail::direct_storage_verify())
             if (auto v = r.src.pack->check_stored(r.src.path, r.src.offset, r.src.size); !v)
-                r.result.error = "gpu d3d12: " + std::string(r.what) + " (FA_DIRECTSTORAGE_VERIFY): " +
-                                 v.error().to_string();
+                r.result.error =
+                    "gpu d3d12: " + std::string(r.what) + " (FA_DIRECTSTORAGE_VERIFY): " + v.error().to_string();
         r.result.direct = true;
         r.result.bytes = r.src.size;
         r.result.directBlocks = r.directBlocks;
@@ -686,8 +685,10 @@ bool D3d12Device::poll_pack_read(PackReadTicket ticket, PackReadResult& out, boo
 #if defined(_WIN64)
         else if (r.stage == PackRead::Stage::Direct) {
             // DirectStorage signals its fence after the read's status: a short bounded wait, then the status decides.
-            if (SUCCEEDED(p.fence->SetEventOnCompletion(r.directFence, p.event))) WaitForSingleObject(p.event, 100);
-            else Sleep(1);
+            if (SUCCEEDED(p.fence->SetEventOnCompletion(r.directFence, p.event)))
+                WaitForSingleObject(p.event, 100);
+            else
+                Sleep(1);
         }
 #endif
         pump_pack_reads();
