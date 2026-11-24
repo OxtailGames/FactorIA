@@ -65,6 +65,10 @@ if(TARGET fa_test_render)
     add_test(NAME render_frame_graph_core
         COMMAND fa_test_render --fa-files=frame_graph_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # The GPU interface (src/gpu/): RecordingDevice and the conversions need no GPU; the SokolDevice case skips itself.
+    add_test(NAME render_gpu_interface_core
+        COMMAND fa_test_render --fa-files=gpu_interface_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
 endif()
 if(TARGET fa_test_render)
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
