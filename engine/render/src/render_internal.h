@@ -1146,6 +1146,10 @@ struct CameraInfo : CameraGeometry {
     // The PostProcess stack of this camera (its own component plus the volumes it is inside, postprocess_resolve.h). Resolved every time
     // the camera is built; Null when the world has no PostProcess: the usual case costs one pointer, not a copy.
     std::shared_ptr<const PostStack> postStack;
+    // The texture LOD bias of the frame's scene materials (M76-P4b, docs/UPSCALING.md "Texture mip bias"): 0 unless this camera is jittered for the
+    // temporal upscaler or the temporal antialiasing, then log2(render size / output size) + the stack's temporalAAMipBias, in -4..0. Goes to the
+    // mesh fragment uniforms (fa_env_horizon.w, read as fa_mip_bias by mesh_common.glsl).
+    float mipBias = 0.0f;
     // What the passes draw (postprocess.h, make_post_plan): the bloom and the colour filter of postStack after clamping to the supported ranges.
     BloomSettings bloom;
     int colorFilter = 0;  // 0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia
