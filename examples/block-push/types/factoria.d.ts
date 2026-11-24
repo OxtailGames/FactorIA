@@ -1653,10 +1653,10 @@ declare module "factoria" {
   export type GraphicsPresetInfo = { preset: GraphicsPresetName; previous: GraphicsPresetName; changed: boolean; changes: { knob: string; from: unknown; to: unknown }[]; limits: Record<string, number | boolean | string>; capped: { knob: string; wanted: unknown; effective: unknown; reason: string }[]; upscaler: { mode: string; quality: string; sharpness: number; effectiveMode: string; scale: number }; headless: boolean };
 
   /**
-   * What game.graphics.detect() answers: the preset that suits this machine (preset) and why (reason), the GPU (gpu), the whole time of the benchmark in ms (benchmarkMs), the benchmark itself (benchmark: ran is false and why says it when nothing was drawn) and the device class that capped the choice (device).
+   * What game.graphics.detect() answers: the preset that suits this machine (preset) and why (reason), the GPU (gpu), the benchmark itself (benchmark: ran is false and why says it when nothing was drawn; the times are left out, they differ from machine to machine and a game must not branch on them: the command graphics.detect gives them to tools) and the device class that capped the choice (device).
    * @since unreleased
    */
-  export type GraphicsDetection = { preset: GraphicsPresetName; reason: string; gpu: { backend: string; name: string; vendor: string; driver: string; memoryMB: number; unifiedMemory: boolean; software: boolean }; benchmarkMs: number; benchmark: { ran: boolean; why?: string; samples: number; frameMs: number; totalMs: number; width: number; height: number }; device: { tier: string; formFactor: string; handheld: boolean } };
+  export type GraphicsDetection = { preset: GraphicsPresetName; reason: string; gpu: { backend: string; name: string; vendor: string; driver: string; memoryMB: number; unifiedMemory: boolean; software: boolean }; benchmark: { ran: boolean; why?: string; samples: number; width: number; height: number }; device: { tier: string; formFactor: string; handheld: boolean } };
 
   /**
    * The graphics presets (game.graphics, M76, docs/UPSCALING.md "Graphics presets").

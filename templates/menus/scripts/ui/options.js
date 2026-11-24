@@ -9,6 +9,7 @@ import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, 
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
+const round2 = (v) => Math.round(v * 100) / 100;
 const TABS = ["video", "audio", "controls", "language", "graphics"]; // Graphics last: the tabs a game's tests walk to keep their place
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
@@ -299,7 +300,7 @@ export default class Options extends Behaviour {
     });
     ui.on("change", "gfx_sharpness", (e) => {
       const value = Math.round(Math.min(1, Math.max(0, e.value)) * 100) / 100;
-      if (this.syncing || value === (g.upscaler.sharpness ?? window.upscaler.sharpness)) return;
+      if (this.syncing || value === round2(g.upscaler.sharpness ?? window.upscaler.sharpness)) return;
       this.chooseUpscaler({ sharpness: value });
     });
   }
@@ -392,8 +393,9 @@ export default class Options extends Behaviour {
       const sharp = world.find("gfx_sharpness");
       sharp.active = up.effectiveMode !== "stretch"; // the plain stretch has no sharpen stage
       const sharpness = world.find("gfx_sharpness").get("Slider");
-      if (Math.abs(sharpness.value - up.sharpness) > 0.004) sharpness.value = up.sharpness;
-      sharpness.label = t("options.gfx.sharpness", { percent: Math.round(up.sharpness * 100) });
+      const shownSharpness = round2(up.sharpness); // the engine keeps a float: the slider and its label show hundredths
+      if (Math.abs(sharpness.value - shownSharpness) > 0.004) sharpness.value = shownSharpness;
+      sharpness.label = t("options.gfx.sharpness", { percent: Math.round(shownSharpness * 100) });
       const lines = [];
       if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join("; ") }));
       if (up.effectiveMode === "stretch" && up.mode !== "stretch") lines.push(t("options.gfx.stretchNote"));
