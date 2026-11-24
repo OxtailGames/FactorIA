@@ -1240,6 +1240,13 @@ Result<void> VulkanDevice::wait_idle() {
     submit_signal(nullptr, 0, "wait_idle");
     auto r = wait_timeline(timelineValue_, "wait_idle");
     collect();
+    // The GPU finished everything submitted, so what the open frame deferred (destroyed handles, the kept objects of
+    // submitted lists) goes too. Its ring room stays held: lists still open may have written into it.
+    if (r)
+        while (!deferred_.empty()) {
+            release(deferred_.front());
+            deferred_.pop_front();
+        }
     return r;
 }
 

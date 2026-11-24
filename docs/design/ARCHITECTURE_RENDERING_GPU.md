@@ -491,7 +491,8 @@ it waits (up to 120 s, then an error) for the oldest one, whose descriptor pool 
 `destroy_*` frees the handle at once and keeps the Vulkan object, its memory and its bindless slot in a deferred list
 tagged with the current frame; they are released once the semaphore passed that frame's value
 (`counters().pendingReleases`).
-`wait_idle()` drains the queue and releases everything pending.
+`wait_idle()` drains the queue and releases everything pending, the current frame's destroyed objects included (the
+frame's upload ring room waits for its `commit()`: lists still open may have written into it).
 
 **Memory.** The engine's own suballocator: a pool of blocks (`memoryBlockBytes`) per memory type and per linear or
 optimal resource (so `bufferImageGranularity` never matters), first fit with coalescing free ranges; a resource of

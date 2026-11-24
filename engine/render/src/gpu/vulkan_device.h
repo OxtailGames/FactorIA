@@ -758,7 +758,8 @@ public:
     // The validation layer's WARNING messages so far.
     std::vector<std::string> warnings();
     void clear_messages();
-    // Waits until the GPU finished everything submitted, then releases what was waiting for it.
+    // Waits until the GPU finished everything submitted, then releases everything pending, the current frame's
+    // destroyed objects included (their upload ring room is freed by the frame's commit, as lists may still be open).
     Result<void> wait_idle();
     VulkanCounters counters() const;
     // Mip `mip` of layer `layer` (array layer, cube face or 3D slice), the rectangle (x, y, w, h), tightly packed rows
