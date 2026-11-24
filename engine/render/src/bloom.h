@@ -29,8 +29,8 @@ BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, flo
 // count): the pass then resolves at its end, and the multisampled image keeps the glow so that a later pass (the HUD
 // of PostProcess.bloomScreenSpace = false) can draw on top of it with MSAA and resolve again.
 struct BloomTarget {
-    sg_view att{};
-    sg_view resolve{};
+    gpu::View att{};
+    gpu::View resolve{};
     int samples = 1;
 };
 
@@ -50,7 +50,7 @@ public:
     // size or the format changes). Call before graph.compile(), after the passes that draw the scene. The passes are
     // named "<job>/bloom-bright" and so on when `job` is not empty (the frame graph holds the passes of every job).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
-                   int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, sg_view dirtView,
+                   int targetH, ResourceId game, gpu::View srcTex, const BloomTarget& dst, gpu::View dirtView,
                    int* drawCalls, const std::string& job = {});
 
     // Forgets that creating the intermediate targets failed (the game target was resized or recreated).
@@ -63,7 +63,7 @@ private:
     // different sizes where one fails do not make each other try again every frame. Bounded (kMaxFailed, the oldest go).
     struct Shape {
         int w = 0, h = 0;
-        sg_pixel_format fmt = SG_PIXELFORMAT_NONE;
+        gpu::PixelFormat fmt = gpu::PixelFormat::None;
         bool operator==(const Shape& o) const { return w == o.w && h == o.h && fmt == o.fmt; }
     };
     static constexpr std::size_t kMaxFailed = 16;

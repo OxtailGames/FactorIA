@@ -17,7 +17,6 @@
 #include <cstdint>
 
 #include "gpu/types.h"
-#include "gpu_types.h"
 #include "sokol_gfx.h"
 
 namespace fa::gpu {
@@ -86,7 +85,7 @@ sg_pipeline_desc to_sg(const PipelineDesc& d);
 sg_bindings to_sg(const Bindings& b);
 sg_swapchain to_sg(const Swapchain& s);
 sg_environment to_sg(const Environment& e);
-// The sokol pass of a PassDesc: the same result as render::PassDesc::to_sg() for the same values.
+// The sokol pass of a PassDesc.
 sg_pass to_sg(const PassDesc& p);
 // The generated shader headers return sokol descs: this is how they reach Device::make_shader. The strings and
 // bytecode stay the header's (static data).
@@ -102,11 +101,9 @@ Features from_sg(const sg_features& f);
 Limits from_sg(const sg_limits& l);
 ResourceTotals from_sg(const sg_total_resource_stats& t);
 
-// render::TargetFormat / render::PassDesc (gpu_types.h, today's sokol-typed pass) and the interface's: same fields.
-TargetFormat from_render(const render::TargetFormat& f);
-render::TargetFormat to_render(const TargetFormat& f);
-// `swapchain` receives the converted window surface when the pass has one (the result points at it).
-PassDesc from_render(const render::PassDesc& p, Swapchain& swapchain);
+// A pass into the window `sc`: PassDesc::for_swapchain with the defaults of the open sokol context (EnvironmentDefaults{}
+// when there is none). `sc` must outlive the pass.
+PassDesc swapchain_pass(const Swapchain& sc);
 
 // ---- generated shaders -----------------------------------------------------------------------------------------------
 // The desc function of a generated shader header (shaders/*.glsl.h), e.g. mesh_mesh_shader_desc.

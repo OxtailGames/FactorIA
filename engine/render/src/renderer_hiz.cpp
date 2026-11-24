@@ -347,7 +347,7 @@ void Renderer::Impl::hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const
     }
     gpu::Bindings bind{};
     bind.views[VIEW_hiz_hiz_cells_buf] = hc.cellsView;
-    bind.views[VIEW_hiz_prepass_tex] = gpu::from_sg(prepass.texView);  // Target is still sokol-typed (P4a converts it)
+    bind.views[VIEW_hiz_prepass_tex] = prepass.texView;  // Target is still sokol-typed (P4a converts it)
     bind.samplers[SMP_hiz_prepass_smp] = gpu.sampler(render::SamplerKind::Nearest);
     hiz_hiz_params_t u{};
     u.dims[0] = float(prepass.w);

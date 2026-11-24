@@ -33,19 +33,18 @@ constexpr float kGamma = 2.2f;
 
 // One full-screen-triangle pass of the occlusion (the search and the blur) into a transient the pass draws every texel of.
 template <class U>
-void run_pass(gpu::CommandList& list, Gpu& gpu, const Target& dst, SsaoStage stage, sg_view pre, sg_view ao,
+void run_pass(gpu::CommandList& list, Gpu& gpu, const Target& dst, SsaoStage stage, gpu::View pre, gpu::View ao,
               const U& fs, int fsSlot, const char* label) {
     PassDesc p = pass_into(dst, label);
-    p.colorLoad = SG_LOADACTION_DONTCARE;
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(p, swapchain));
+    p.colorLoad = gpu::LoadAction::DontCare;
+    p.colorStore = gpu::StoreAction::Store;
+    list.begin_pass(p);
     list.set_pipeline(gpu.ssao_pipeline(stage, p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_ssao_pre_tex] = gpu::from_sg(pre);
+    b.views[VIEW_ssao_pre_tex] = pre;
     b.views[VIEW_ssao_ao_tex] =
-        gpu::from_sg(ao.id ? ao : pre);  // the search has no occlusion image yet (its program ignores the slot)
+        ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
     b.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     ssao_ssao_vs_params_t vu{};
@@ -139,8 +138,8 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
     d.height = ah;
     // One channel is all the occlusion needs: R16F where the GPU renders it (half the memory of RGBA16F), else RGBA16F.
     const gpu::PixelFormatCaps r16 = gpu.device().pixel_format_caps(gpu::PixelFormat::R16F);
-    d.format = TargetFormat{r16.render && r16.sample && r16.filter ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F,
-                            SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{r16.render && r16.sample && r16.filter ? gpu::PixelFormat::R16F : gpu::PixelFormat::Rgba16F,
+                            gpu::PixelFormat::None, 1};
     // Make sure the GPU can have both at once (the worst case), so that a failure is one warning here and not a pass that cannot
     // run halfway through the frame. The pool keeps what it made, so the probe runs once per shape, not every frame.
     if (std::find(probed_.begin(), probed_.end(), Shape{aw, ah}) == probed_.end()) {
@@ -201,7 +200,7 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
             const Target* t = tt->get(c.handle(a));
             const Target* pt = pp.target(c);
             if (!t || !pt) return;
-            run_pass(pass_list(c, *g), *g, *t, SsaoStage::Ao, pt->texView, sg_view{}, u, UB_ssao_ssao_ao_params,
+            run_pass(pass_list(c, *g), *g, *t, SsaoStage::Ao, pt->texView, gpu::View{}, u, UB_ssao_ssao_ao_params,
                      "ssao-ao");
             ++*drawCalls;
         });
@@ -246,13 +245,13 @@ int Ssao::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, con
 #pragma warning(pop)
 #endif
 
-void Ssao::draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre,
+void Ssao::draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre,
                       const TargetFormat& format) {
     list.set_pipeline(gpu.ssao_pipeline(apply.view ? SsaoStage::View : SsaoStage::Apply, format));
     gpu::Bindings bind;
     bind.vertexBuffers[0] = gpu.fullscreen_triangle();
-    bind.views[VIEW_ssao_pre_tex] = gpu::from_sg(pre);
-    bind.views[VIEW_ssao_ao_tex] = gpu::from_sg(ao);
+    bind.views[VIEW_ssao_pre_tex] = pre;
+    bind.views[VIEW_ssao_ao_tex] = ao;
     bind.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(bind);
     ssao_ssao_vs_params_t vu{};
@@ -268,7 +267,7 @@ void Ssao::draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, 
     list.draw(0, 3, 1);
 }
 
-void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format) {
+void Ssao::draw_apply(Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre, const TargetFormat& format) {
     draw_apply(gpu.commands(), gpu, apply, ao, pre, format);
 }
 

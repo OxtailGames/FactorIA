@@ -290,14 +290,14 @@ void Renderer::close_context() {
 }
 
 void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
-    const sg_swapchain& sc = swapchain.get();
-    PassDesc pass = PassDesc::for_swapchain(sc);
+    const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
+    PassDesc pass = gpu::swapchain_pass(sc);
     pass.label = "window";
-    pass.colorLoad = SG_LOADACTION_CLEAR;
+    pass.colorLoad = gpu::LoadAction::Clear;
     pass.clearColor = {clear.r, clear.g, clear.b, clear.a};
-    pass.colorStore = SG_STOREACTION_STORE;
-    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
-    pass.stencilLoad = SG_LOADACTION_CLEAR;
+    pass.colorStore = gpu::StoreAction::Store;
+    pass.depthLoad = gpu::LoadAction::Clear;  // what sokol did for the pass it was given (a default load action clears)
+    pass.stencilLoad = gpu::LoadAction::Clear;
     Gpu::begin_pass(pass);
 }
 
@@ -317,7 +317,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     if (!im.warmBuilt) {
         im.warmBuilt = true;
         Gpu* gpu = &im.gpu;
-        const TargetFormat presentFormat = PassDesc::for_swapchain(swapchain.get()).format;
+        const TargetFormat presentFormat = gpu::swapchain_pass(gpu::from_sg(swapchain.get())).format;
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
@@ -328,10 +328,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
         if (world.settings().hdrOutput == HdrOutput::Auto &&
             (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
-            const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
+            const TargetFormat hdrFormat{gpu::PixelFormat::Rgba16F, presentFormat.depth, presentFormat.samples};
             im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
             if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
-                const TargetFormat hdr10Format{SG_PIXELFORMAT_RGB10A2, presentFormat.depth, presentFormat.samples};
+                const TargetFormat hdr10Format{gpu::PixelFormat::Rgb10A2, presentFormat.depth, presentFormat.samples};
                 im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
             }
         }
@@ -348,7 +348,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // The first screenshot (a float scene is read back through blit_keep) must not build its pipeline on the main thread.
         // The format is read when the group runs: the targets may still fall back to RGBA8, which needs no such copy.
         im.warmGroups.push_back([gpu] {
-            if (gpu->scene_format() != SG_PIXELFORMAT_RGBA8) gpu->blit_keep_pipeline();
+            if (gpu->scene_format() != gpu::PixelFormat::Rgba8) gpu->blit_keep_pipeline();
         });
         // The shaders and pipelines of Water2D and DistortionZone2D (a sprite material that calls fa_scene_color() makes them on its first
         // draw): only where the scene has one of them, so a scene without pays no compile.
@@ -417,10 +417,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         if (quads) {
             im.warmGroups.push_back([gpu] {
                 if (gpu->velocity_ready()) {
-                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1}, false);
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), gpu::PixelFormat::None, 1}, false);
                 }
                 if (gpu->reactive_ready()) {
-                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1}, true);
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), gpu::PixelFormat::None, 1}, true);
                 }
             });
         }
@@ -484,7 +484,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         return false;
     }
     int samples = std::max(1, desc.sampleCount);
-    if (samples > 1 && !sg_query_pixelformat(SG_PIXELFORMAT_RGBA8).msaa) {
+    if (samples > 1 && !sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba8)).msaa) {
         FA_WARN("render", "MSAA is not supported by this device; falling back to sampleCount 1");
         samples = 1;
     }
@@ -549,14 +549,15 @@ void Renderer::shutdown() {
         im.foliage.destroy();
         im.assets.reset();
         destroy_target(
+            im.gpu.device(),
             im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
-        destroy_target(im.reactiveProbe);
+        destroy_target(im.gpu.device(), im.reactiveProbe);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
         im.lightAtlas.destroy(im.gpu.device());  // its images are destroyed with the context still open
         im.destroy_decal_atlas();
-        destroy_target(im.shadowTarget);
+        destroy_target(im.gpu.device(), im.shadowTarget);
         im.free_retired_shadow_targets();
         im.gpu.shutdown();
         if (!im.adopted)
@@ -689,7 +690,7 @@ std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->disp
 void Renderer::set_editor_view(bool on) {
     if (!impl_) return;
     impl_->editorView = on;
-    if (!on) destroy_target(impl_->editorTarget);
+    if (!on) destroy_target(impl_->gpu.device(), impl_->editorTarget);
 }
 bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); }
 
@@ -920,7 +921,7 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     const char* note = "";
     if (want) {
         if (!im.float_display())
-            note = im.gpu.scene_format() == SG_PIXELFORMAT_RG11B10F
+            note = im.gpu.scene_format() == gpu::PixelFormat::Rg11B10F
                        ? "the scene is in R11G11B10, which holds the final picture in 8 bits, so it stays within paper "
                          "white"
                        : "this GPU draws the picture in 8 bits, so it stays within paper white";
@@ -1193,8 +1194,8 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
     if (!on) {
-        render::destroy_target(r.impl_->velocityProbe);
-        render::destroy_target(r.impl_->reactiveProbe);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->velocityProbe);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->reactiveProbe);
     }
 }
 void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
@@ -1314,7 +1315,8 @@ int RendererTestAccess::mfx_images(Renderer& r) {
 }
 bool RendererTestAccess::mfx_last_wrote(Renderer& r) { return r.impl_ && r.impl_->mfxLastWrote; }
 bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error) {
-    if (!r.impl_ || !r.impl_->mfxDepth.valid() || !r.impl_->mfxMotion.valid()) {
+    if (!r.impl_ || !r.impl_->mfxDepth.valid(r.impl_->gpu.device()) ||
+        !r.impl_->mfxMotion.valid(r.impl_->gpu.device())) {
         if (error) *error = "the MetalFX preparation images are not alive";
         return false;
     }
@@ -1324,8 +1326,10 @@ bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], 
         im.gpu.note_commit();
     }
     std::vector<std::uint8_t> depth, motion;
-    if (!render::readback_storage_image(im.mfxDepth.color, SG_PIXELFORMAT_R32F, x, y, 1, 1, depth, error) ||
-        !render::readback_storage_image(im.mfxMotion.color, SG_PIXELFORMAT_RG16F, x, y, 1, 1, motion, error))
+    if (!render::readback_storage_image(gpu::to_sg(im.mfxDepth.color), gpu::to_sg(gpu::PixelFormat::R32F), x, y, 1, 1,
+                                        depth, error) ||
+        !render::readback_storage_image(gpu::to_sg(im.mfxMotion.color), gpu::to_sg(gpu::PixelFormat::Rg16F), x, y, 1, 1,
+                                        motion, error))
         return false;
     if (depth.size() < 4 || motion.size() < 4) {
         if (error) *error = "the read-back of the MetalFX preparation images came back short";
@@ -1361,10 +1365,10 @@ render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
     render::OutputTargetsInfo o;
     if (!r.impl_) return o;
     const Renderer::Impl& im = *r.impl_;
-    o.out = im.outTarget.valid();
+    o.out = im.outTarget.valid(im.gpu.device());
     o.outDepth = o.out && im.outTarget.depth.id != 0;
-    o.filter = im.outFilterTarget.valid();
-    o.spatial = im.spatialTarget.valid();
+    o.filter = im.outFilterTarget.valid(im.gpu.device());
+    o.spatial = im.spatialTarget.valid(im.gpu.device());
     o.outW = im.outTarget.w;
     o.outH = im.outTarget.h;
     o.outSamples = im.outTarget.samples;
@@ -1372,7 +1376,7 @@ render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {
-    return r.impl_ && r.impl_->ldrMid[0].valid() ? int(r.impl_->ldrMid[0].format.color) : 0;
+    return r.impl_ && r.impl_->ldrMid[0].valid(r.impl_->gpu.device()) ? int(r.impl_->ldrMid[0].format.color) : 0;
 }
 
 void Renderer::update(World& world) {

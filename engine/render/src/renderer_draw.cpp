@@ -40,7 +40,7 @@ struct Renderer::Impl::PartDraw {
     MaterialAsset* mat = nullptr;
     bool error = false;
     TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
-    sg_view
+    gpu::View
         lightmap{};  // the lightmap page of the entity (view 26 of the engine's program); id 0 = none, a white texel is bound
 };
 
@@ -158,7 +158,7 @@ struct Renderer::Impl::DrawContext {
     // upload_prev_palettes (M76-P1c): the previous joint palettes of the skinned draws of the prepass in one RGBA32F image (`prevPalView`, empty = none);
     // `prevPalBase` has the first texel of the palette of (batch.rep, skin), key `prev_palette_key`. The CPU copy is Impl::prevPalTexels (a
     // DrawContext is made again every frame, so a vector here would not keep its capacity).
-    sg_view prevPalView{};
+    gpu::View prevPalView{};
     std::unordered_map<std::uint64_t, int> prevPalBase;
     // fill_prev_models: whether the entities' histories count this frame (false after a cut: no motion of their own), and the game time of
     // the frame before in seconds, what a material's vertex() reads as fa_time.x in the prepass's second run (the time now after a cut).
@@ -169,14 +169,14 @@ struct Renderer::Impl::DrawContext {
     // M73.2c: a light has a contact shadow and the job has its prepass (plan_job), so the main pass binds the prepass at the screen slot
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
-    sg_view screenView{};
+    gpu::View screenView{};
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
     struct {
         bool want = false, on = false;
         int levels = 0;
-        sg_view atlasView{};
+        gpu::View atlasView{};
     } xmit;
     // M74.4: the picture drawn so far, which Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() read (water2d.h).
     // main_pass plans the copies before the pass begins (`copyAt`: the batches of the world group a copy is made before); draw_group makes
@@ -186,9 +186,9 @@ struct Renderer::Impl::DrawContext {
         std::vector<std::uint32_t> copyAt;
         std::size_t next = 0;
         std::uint64_t handle = 0;  // the pooled image of the latest copy (0 = none)
-        sg_view view{};
+        gpu::View view{};
         SceneMap map;
-        sg_store_action finalStore = SG_STOREACTION_STORE;
+        gpu::StoreAction finalStore = gpu::StoreAction::Store;
         TargetFormat format;
     } sceneCopy;
     // M73.5: a mesh of this camera scatters light (MeshRenderer.subsurface) and the camera can draw it (plan_job): the job declares the "sss-draw" pass
@@ -219,11 +219,11 @@ struct Renderer::Impl::DrawContext {
     TextureAsset* white = nullptr;
     // The light data texture of the job's view (scene_uniforms): bound at view 24 of the mesh programs; the white image while the job
     // has no lights or draws no mesh.
-    sg_view lightView{};
+    gpu::View lightView{};
     // The light atlas image the lights of this job's view were laid out in (collect_lights); empty = none (view 25 binds the white image).
-    sg_view lightAtlasView{};
+    gpu::View lightAtlasView{};
     // The atlas of the decal textures (view 27 of the mesh programs): the renderer's, once this job has decals to draw; else the white image.
-    sg_view decalView{};
+    gpu::View decalView{};
     mesh_fa_mesh_vs_params_t vuScene{};
     mesh_fa_mesh_fs_params_t fuScene{};
     // fuScene with the camera's stack fog (PostProcess.fog*): the blended meshes fog themselves with it, while the opaque meshes and the sky
@@ -261,12 +261,12 @@ struct Renderer::Impl::DrawContext {
     SsaoApply ssaoApply;
     // light_pass
     int litMode = 0;
-    sg_view shadowRowsTex{};
+    gpu::View shadowRowsTex{};
     // light_plan (M74): the light buffer each layer mask of the flat lit visuals reads, and the cookies of the frame's lights (the
     // textures by atlas cell, and the atlas image while there are any).
     LightLayerPlan layerPlan;
     std::vector<TextureAsset*> cookieCells;
-    sg_view cookieView{};
+    gpu::View cookieView{};
 };
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -875,7 +875,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             // the asset cache and the table is skipped, the rest of the grade is drawn.
             const LutAsset* lut = assets->lut(pp.lut);
             if (lut && lut->view.id != 0) {
-                pp.lutInfo = LutInfo{lut->view, lut->size, lut->cols, lut->rows};
+                pp.lutInfo = LutInfo{gpu::from_sg(lut->view), lut->size, lut->cols, lut->rows};
             } else {
                 pp.fx.lut = false;
                 pp.lut.clear();
@@ -2437,7 +2437,7 @@ void Renderer::Impl::upload_lights(DrawContext& ctx) {
                     "them.",
                     decalPack.lists.clippedEntries, kMaxDecalsPerCluster, kMaxDecalIndices);
         }
-        ctx.decalView = decal_view_or(ctx.white->view);
+        ctx.decalView = decal_view_or(gpu::from_sg(ctx.white->view));
     }
     // The shadow records of the point and spot lights that got maps this frame (local_shadows.h): where each tile is in the atlas, its
     // matrix and its depth convention.
@@ -2531,9 +2531,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     ss.skyColor = to_scene(ss.skyColor, fr.linear);
     ss.horizonColor = to_scene(ss.horizonColor, fr.linear);
     ctx.white = assets->white();
-    ctx.lightView = ctx.white->view;
+    ctx.lightView = gpu::from_sg(ctx.white->view);
     // (ctx.lightAtlasView is set by collect_lights, with the rects of the lights.)
-    ctx.decalView = ctx.white->view;
+    ctx.decalView = gpu::from_sg(ctx.white->view);
     copy_mat(vuScene.fa_view_proj, fr.cam.drawViewProj);
     copy_mat(vuScene.fa_light_vp, ctx.doShadows && ctx.cascades > 0 ? ctx.fits[0].viewProj : Mat4::identity());
     fill_shadow_block(ctx, gpu.is_gl(), debugView == DebugView::Cascades, ctx.shadowU);
@@ -2814,7 +2814,7 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshI
     d.mr = d.error || !part.mrTex ? white : part.mrTex;
     d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
     d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
-    if (mi.lm.mesh && mi.lm.page) d.lightmap = mi.lm.page->view;
+    if (mi.lm.mesh && mi.lm.page) d.lightmap = gpu::from_sg(mi.lm.page->view);
     return d;
 }
 
@@ -3118,31 +3118,31 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = gpu::from_sg(d.tex->gpu_view());
-    b.views[VIEW_mesh_fa_shadow_tex] = gpu::from_sg((doShadows && !shadowPass) ? ctx.shadowTgt.texView : white->view);
+    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? ctx.shadowTgt.texView : gpu::from_sg(white->view);
     b.views[VIEW_mesh_fa_normal_tex] = gpu::from_sg((d.normal ? d.normal : white)->gpu_view());
     b.views[VIEW_mesh_fa_mr_tex] = gpu::from_sg(d.mr->gpu_view());
     b.views[VIEW_mesh_fa_occlusion_tex] = gpu::from_sg(d.occlusion->gpu_view());
     b.views[VIEW_mesh_fa_emissive_tex] = gpu::from_sg(d.emissive->gpu_view());
-    b.views[VIEW_mesh_fa_lightmap] = gpu::from_sg(d.lightmap.id ? d.lightmap : white->view);
+    b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : gpu::from_sg(white->view);
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
-    b.views[VIEW_mesh_fa_light_tex] = gpu::from_sg(shadowPass ? white->view : ctx.lightView);
+    b.views[VIEW_mesh_fa_light_tex] = shadowPass ? gpu::from_sg(white->view) : ctx.lightView;
     // The light atlas (LTC tables, cookies, IES profiles): the image the view's lights were laid out in, else the white image (nothing
     // reads it while no light has the data texture's extension texels).
     b.views[VIEW_mesh_fa_light_atlas] =
-        gpu::from_sg((!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : white->view);
-    b.views[VIEW_mesh_fa_decal_tex] = gpu::from_sg(shadowPass ? white->view : ctx.decalView);
+        (!shadowPass && ctx.lightAtlasView.id) ? ctx.lightAtlasView : gpu::from_sg(white->view);
+    b.views[VIEW_mesh_fa_decal_tex] = shadowPass ? gpu::from_sg(white->view) : ctx.decalView;
     // The screen slot (view 28): the prepass in the opaque phase of a frame with contact shadows; in the blended phase of a frame with a
     // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
-    sg_view screenSlot = white->view;
+    gpu::View screenSlot = gpu::from_sg(white->view);
     if (!shadowPass) {
         if (opaquePhase && ctx.contactOn && ctx.screenView.id)
             screenSlot = ctx.screenView;
         else if (!opaquePhase && ctx.xmit.on && ctx.xmit.atlasView.id)
             screenSlot = ctx.xmit.atlasView;
     }
-    b.views[VIEW_mesh_fa_screen_tex] = gpu::from_sg(screenSlot);
+    b.views[VIEW_mesh_fa_screen_tex] = screenSlot;
     // The sky environment (renderer_env.h): the baked cube (the reflection and the SH of the ambient), or a black one while the meshes use the gradient (every
     // mesh program of the main pass declares the slots; a custom program that does not has them dropped below).
     b.views[kMaterialEnvView] = probes.atlas.valid() ? probes.atlas.tex : gpu::from_sg(white->view);
@@ -3180,7 +3180,7 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     const SceneSettings& ss = ctx.ss;
     const DrawContext::Group& gWorld = ctx.gWorld;
     int& litMode = ctx.litMode;
-    sg_view& shadowRowsTex = ctx.shadowRowsTex;
+    gpu::View& shadowRowsTex = ctx.shadowRowsTex;
     bool anyFlatLit = false, anyLit = false;
     std::vector<std::int32_t>
         flatMasks;  // the layer masks of the flat lit batches (the receivers of the light buffers)
@@ -3195,14 +3195,14 @@ void Renderer::Impl::light_plan(DrawContext& ctx) {
     for (const QuadBatch& qb : ctx.gScreen.batches) anyLit = anyLit || qb.lit;
     // The cookies of the lights (Light2D.cookie): one cell of the atlas each, copied by the "light-cookies" pass.
     ctx.cookieCells = anyLit ? plan_cookies(fr) : std::vector<TextureAsset*>{};
-    ctx.cookieView = ctx.cookieCells.empty() ? sg_view{} : cookieTarget.texView;
+    ctx.cookieView = ctx.cookieCells.empty() ? gpu::View{} : cookieTarget.texView;
     int points = 0;
     for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
-    shadowRowsTex = upload_shadow_rows(fr);
+    shadowRowsTex = gpu::from_sg(upload_shadow_rows(fr));
     float lightScale = ss.lightScale;
     lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
     if (qualityOn) lightScale = std::max(0.25f, std::min(lightScale, quality.lightScale));  // the graphics preset's cap
-    if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
+    if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != gpu::PixelFormat::None) {
         if (points == 0) {
             litMode = 2;
         } else if (!plan.view && gpu.light_ready()) {
@@ -3303,7 +3303,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
     ctx.gi2d.active = true;
     ctx.gi2d.field = field;
     ctx.gi2d.gather = std::move(gather);
-    if (assets && assets->white()) ctx.gi2d.white = assets->white()->gpu_view();
+    if (assets && assets->white()) ctx.gi2d.white = gpu::from_sg(assets->white()->gpu_view());
 }
 
 // The light buffer's pass (light_plan chose litMode 1): every point light of the camera is a quad added into the buffer.
@@ -3312,7 +3312,7 @@ void Renderer::Impl::gi2d_plan(DrawContext& ctx) {
 void Renderer::Impl::light_pass(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const bool partial = ctx.partial;
-    const sg_view shadowRowsTex = ctx.shadowRowsTex;
+    const gpu::View shadowRowsTex = ctx.shadowRowsTex;
     static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
     static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a buffer is drawn by one draw call");
     // One buffer per set of lights the layer plan made (light_layers.h); the default scene has one, holding every point light.
@@ -3349,9 +3349,9 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         cl.write_buffer(wd);
 
         PassDesc lp = pass_into(light_buffer(int(bi)), "light-buffer");
-        lp.colorLoad = SG_LOADACTION_CLEAR;
+        lp.colorLoad = gpu::LoadAction::Clear;
         lp.clearColor = {0, 0, 0, 0};
-        lp.colorStore = SG_STOREACTION_STORE;
+        lp.colorStore = gpu::StoreAction::Store;
         begin_list_pass(cl, lp);
         // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
         if (partial) apply_view(cl, px_rect(fr.cam.viewport, lightW, lightH));
@@ -3359,8 +3359,8 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         gpu::Bindings b;
         b.vertexBuffers[0] = lb;
         b.indexBuffer = gpu.quad_index_buffer();
-        b.views[VIEW_light_shadow_tex] = gpu::from_sg(shadowRowsTex.id ? shadowRowsTex : assets->white()->view);
-        b.views[VIEW_light_cookie_tex] = gpu::from_sg(ctx.cookieView.id ? ctx.cookieView : assets->white()->view);
+        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : gpu::from_sg(assets->white()->view);
+        b.views[VIEW_light_cookie_tex] = ctx.cookieView.id ? ctx.cookieView : gpu::from_sg(assets->white()->view);
         b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
         b.samplers[SMP_light_cookie_smp] = gpu.sampler(SamplerKind::LinearClamp);
         cl.set_bindings(b);
@@ -3390,10 +3390,10 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const gpu::Buffer shadowInst = gpu::from_sg(ctx.shadowInst);
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
-    sp.colorLoad = SG_LOADACTION_CLEAR;
+    sp.colorLoad = gpu::LoadAction::Clear;
     sp.clearColor = {1, 1, 1, 1};
-    sp.colorStore = SG_STOREACTION_STORE;
-    sp.depthLoad = SG_LOADACTION_CLEAR;
+    sp.colorStore = gpu::StoreAction::Store;
+    sp.depthLoad = gpu::LoadAction::Clear;
     sp.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, sp);
@@ -3532,7 +3532,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     // cannot (or refuses the image) leaves the velocity out: PostPlan::velocity stays invalid and whoever asked reads the camera alone.
     if (pp.needsVelocity && !ctx.plan.gi && ctx.collectPrev) {
         TransientDesc vd = d;
-        vd.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+        vd.format = TargetFormat{Gpu::velocity_format(), gpu::PixelFormat::None, 1};
         vd.label = "velocity";
         if (const std::uint64_t vh = transient_targets().pool.acquire(vd)) {
             transient_targets().pool.release(vh);
@@ -3576,11 +3576,11 @@ void Renderer::Impl::plan_quad_motion(DrawContext& ctx) {
     const bool prepassVel = anyVel && ctx.doVelocity;
     const bool react = anyReact && pp.needsReactive && gpu.reactive_ready();
     if (!(ownVel || prepassVel || react) || !gpu.quad_motion_ready()) return;
-    auto can_make = [&](sg_pixel_format format, const char* label) {
+    auto can_make = [&](gpu::PixelFormat format, const char* label) {
         TransientDesc d;
         d.width = ctx.camPx.w;
         d.height = ctx.camPx.h;
-        d.format = TargetFormat{format, SG_PIXELFORMAT_NONE, 1};
+        d.format = TargetFormat{format, gpu::PixelFormat::None, 1};
         d.label = label;
         const std::uint64_t h = transient_targets().pool.acquire(d);
         if (h == 0) return false;
@@ -3608,10 +3608,10 @@ void Renderer::Impl::plan_quad_motion(DrawContext& ctx) {
 void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool reactive, const Target* depth,
                                       bool clear) {
     PassDesc pd = pass_into(t, reactive ? "quad-reactive" : "quad-velocity");
-    pd.colorLoad = clear ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
+    pd.colorLoad = clear ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
     pd.clearColor =
-        reactive ? sg_color{0.0f, 0.0f, 0.0f, 0.0f} : sg_color{VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
-    pd.colorStore = SG_STOREACTION_STORE;
+        reactive ? gpu::Color{0.0f, 0.0f, 0.0f, 0.0f} : gpu::Color{VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
+    pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, pd);
     const gpu::Pipeline pip = gpu.quad_motion_pipeline(pd.format, reactive);
@@ -3629,7 +3629,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
         vu.depth_row[c] = -fr.cam.view.at(c, 2);  // the view depth of a world point, what the prepass stores
     quad_motion_quad_motion_fs_params_t fu{};
     fu.fcfg[0] = depth && depth->texView.id ? 1.0f : 0.0f;
-    const sg_view preView = depth && depth->texView.id ? depth->texView : assets->white()->view;
+    const gpu::View preView = depth && depth->texView.id ? depth->texView : gpu::from_sg(assets->white()->view);
     for (const QuadBatch& qb : ctx.gWorld.batches) {
         if (qb.effect || qb.instances > 0 || qb.quadCount == 0) continue;
         // A scissor (a clipped item: only the screen-space quads of a ScrollList have one, and they are not in the world's list) and a
@@ -3652,7 +3652,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
             b.vertexBufferOffsets[kQuadMotionBuffer] = int((qb.firstQuad + done) * 4 * kQuadMotionStride);
             b.indexBuffer = gpu.quad_index_buffer();
             b.views[VIEW_quad_motion_tex] = gpu::from_sg(qb.tex->gpu_view());
-            b.views[VIEW_quad_motion_pre_tex] = gpu::from_sg(preView);
+            b.views[VIEW_quad_motion_pre_tex] = preView;
             b.samplers[SMP_quad_motion_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_motion_pre_smp] = gpu.sampler(SamplerKind::Nearest);
             cl.set_bindings(b);
@@ -3710,7 +3710,7 @@ void Renderer::Impl::plan_outline(DrawContext& ctx) {
     TransientDesc d;
     d.width = ctx.camPx.w;
     d.height = ctx.camPx.h;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1};
     d.label = "sprite-coverage";
     const std::uint64_t h = transient_targets().pool.acquire(d);
     if (h == 0) {
@@ -3726,9 +3726,9 @@ void Renderer::Impl::plan_outline(DrawContext& ctx) {
 // ctx.gWorld, ctx.fr.cam, ctx.camPx, the quad stream of the job. Writes: `t`; stats.drawCalls.
 void Renderer::Impl::coverage_pass(DrawContext& ctx, const Target& t) {
     PassDesc pd = pass_into(t, "sprite-coverage");
-    pd.colorLoad = SG_LOADACTION_CLEAR;
+    pd.colorLoad = gpu::LoadAction::Clear;
     pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    pd.colorStore = SG_STOREACTION_STORE;
+    pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, pd);
     // The image has the size of the camera's rectangle and the camera's matrix maps the world onto that rectangle: the whole image.
@@ -3751,10 +3751,10 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
         pd.color1 = velocity->colorAtt;
         pd.clearColor1 = {VelocityRef::kNone, VelocityRef::kNone, 0.0f, 0.0f};
     }
-    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing drawn: far depth, no normal, coverage 0
+    pd.colorLoad = gpu::LoadAction::Clear;  // nothing drawn: far depth, no normal, coverage 0
     pd.clearColor = {PrepassRef::kFarDepth, 0.0f, 0.0f, 0.0f};
-    pd.colorStore = SG_STOREACTION_STORE;
-    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.colorStore = gpu::StoreAction::Store;
+    pd.depthLoad = gpu::LoadAction::Clear;
     pd.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, pd);
@@ -3818,7 +3818,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             if (skinned) {
                 if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
                     b.views[VIEW_mesh_fa_prev_pal_tex] =
-                        gpu::from_sg(vel && ctx.prevPalView.id ? ctx.prevPalView : ctx.white->view);
+                        vel && ctx.prevPalView.id ? ctx.prevPalView : gpu::from_sg(ctx.white->view);
                 if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
                     b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
             }
@@ -3860,10 +3860,10 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
     PassDesc pd = pass_into(a, "sss-draw");
     pd.format = Gpu::sss_target_format();
     pd.color1 = b.colorAtt;
-    pd.colorLoad = SG_LOADACTION_CLEAR;  // nothing scatters: no light, depth 0, no strength
+    pd.colorLoad = gpu::LoadAction::Clear;  // nothing scatters: no light, depth 0, no strength
     pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    pd.colorStore = SG_STOREACTION_STORE;
-    pd.depthLoad = SG_LOADACTION_CLEAR;
+    pd.colorStore = gpu::StoreAction::Store;
+    pd.depthLoad = gpu::LoadAction::Clear;
     pd.clearDepth = 1.0f;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, pd);
@@ -3905,7 +3905,7 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
             bind.indexBufferOffset = part.ibOffset;
             bind_textures(ctx, bind, d, &prog, MaterialInputs{}, false, true);
             bind.views[VIEW_mesh_fa_screen_tex] =
-                gpu::from_sg(pre.texView);  // the shader's visibility test, always (contact shadows read it too)
+                pre.texView;  // the shader's visibility test, always (contact shadows read it too)
             cl.set_bindings(bind);
             apply_uniforms(cl, UB_mesh_fa_mesh_vs_params, vu);
             if (skinned && prog.has_ub(UB_mesh_fa_skin))
@@ -3924,16 +3924,17 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
 // Paints the prepass (depth or normals, Renderer::set_debug_view) over the game image the main pass drew.
 void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     PassDesc dp = pass_into(gameTarget, "prepass-view");
-    dp.colorLoad = SG_LOADACTION_LOAD;
+    dp.colorLoad = gpu::LoadAction::Load;
     // Like the main pass: only the last job may drop its multisampled colour (a camera after it loads the picture).
-    dp.colorStore = (ctx.msaa && ctx.plan.last && !ctx.hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    dp.colorStore =
+        (ctx.msaa && ctx.plan.last && !ctx.hudAfterBloom) ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, dp);
     cl.set_pipeline(gpu.prepass_view_pipeline(dp.format));
     if (!ctx.postPlan.rect.whole(physW, physH)) apply_view(cl, ctx.camPx);  // the camera's rectangle of the game image
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_prepass_view_tex] = gpu::from_sg(t.texView);
+    b.views[VIEW_prepass_view_tex] = t.texView;
     b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
     cl.set_bindings(b);
     prepass_view_prepass_view_vs_params_t vu{};
@@ -3956,25 +3957,25 @@ constexpr float kPrepassViewRaw = 4.0f;
 void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label) {
     const int w = ctx.camPx.w, h = ctx.camPx.h;
     if (!velocity.texView.id || w < 1 || h < 1) return;
-    if (!probe.valid() || probe.w != w || probe.h != h) {
-        destroy_target(probe);
+    if (!probe.valid(gpu.device()) || probe.w != w || probe.h != h) {
+        destroy_target(gpu.device(), probe);
         TargetDesc td;
         td.label = label;
         td.width = w;
         td.height = h;
-        td.colorFormat = SG_PIXELFORMAT_RGBA16F;
-        probe = make_target(td);
-        if (!probe.valid()) return;
+        td.colorFormat = gpu::PixelFormat::Rgba16F;
+        probe = make_target(gpu.device(), td);
+        if (!probe.valid(gpu.device())) return;
     }
     PassDesc dp = pass_into(probe, label);
-    dp.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    dp.colorStore = SG_STOREACTION_STORE;
+    dp.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    dp.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, dp);
     cl.set_pipeline(gpu.prepass_view_pipeline(dp.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_prepass_view_tex] = gpu::from_sg(velocity.texView);
+    b.views[VIEW_prepass_view_tex] = velocity.texView;
     b.samplers[SMP_prepass_view_smp] = gpu.sampler(SamplerKind::Nearest);
     cl.set_bindings(b);
     prepass_view_prepass_view_vs_params_t vu{};
@@ -3988,17 +3989,17 @@ void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocit
 }
 
 bool Renderer::Impl::read_reactive(std::vector<float>& out, int& w, int& h, std::string* error) {
-    if (!reactiveProbe.valid()) {
+    if (!reactiveProbe.valid(gpu.device())) {
         if (error) *error = "no reactive mask was drawn (force_velocity is off, or the frame drew no reactive quad)";
         return false;
     }
     w = reactiveProbe.w;
     h = reactiveProbe.h;
-    return render::readback_rgba16f(reactiveProbe.color, w, h, out, error);
+    return render::readback_rgba16f(gpu::to_sg(reactiveProbe.color), w, h, out, error);
 }
 
 bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
-    if (!velocityProbe.valid()) {
+    if (!velocityProbe.valid(gpu.device())) {
         if (error)
             *error =
                 "no velocity image was drawn (force_velocity is off, or the frame drew no prepass with motion vectors)";
@@ -4006,7 +4007,7 @@ bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std:
     }
     w = velocityProbe.w;
     h = velocityProbe.h;
-    return render::readback_rgba16f(velocityProbe.color, w, h, out, error);
+    return render::readback_rgba16f(gpu::to_sg(velocityProbe.color), w, h, out, error);
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
@@ -4017,7 +4018,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                                 int passW, int passH) {
     Frame& fr = ctx.fr;
     const sg_buffer vbuf = ctx.vbuf;
-    const sg_view shadowRowsTex = ctx.shadowRowsTex;
+    const gpu::View shadowRowsTex = ctx.shadowRowsTex;
     if (batches.empty()) return;
     gpu::CommandList& cl = gpu.commands();  // no frame commit happens inside a draw group
     quad_vs_params_t u{};
@@ -4140,15 +4141,15 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         fogged.fog_col[3] = litUniforms.fog_col[3] = fog->density;
     }
     const bool fogOn = fog && fog->fog;
-    const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
-    const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-    const sg_view cookieTexBound = ctx.cookieView.id ? ctx.cookieView : assets->white()->view;
+    const gpu::View lightTexBound = flatMode == 1 ? lightTarget.texView : gpu::from_sg(assets->white()->view);
+    const gpu::View shadowTexBound = shadowRowsTex.id ? shadowRowsTex : gpu::from_sg(assets->white()->view);
+    const gpu::View cookieTexBound = ctx.cookieView.id ? ctx.cookieView : gpu::from_sg(assets->white()->view);
     // M74-P3b: the irradiance of the 2D GI cascades, added to the lit quads of the camera's own world group (not the coverage image's).
     // The screen and debug groups draw in screen pixels (their world_xy is not a world position) and the clear group in 0..1: the field
     // does not apply to them, they bind the white image and gi_p.x = 0.
     const bool giOn = ctx.gi2d.active && ctx.gi2d.cascadePasses > 0 && ctx.gi2d.irradianceView.id && !format &&
                       ctx.gi2d.intensity > 0.0f && &batches == &ctx.gWorld.batches;
-    const sg_view giTexBound = giOn ? ctx.gi2d.irradianceView : assets->white()->view;
+    const gpu::View giTexBound = giOn ? ctx.gi2d.irradianceView : gpu::from_sg(assets->white()->view);
     if (giOn) {
         std::memcpy(litUniforms.gi_xf, ctx.gi2d.xf, sizeof(litUniforms.gi_xf));
         litUniforms.gi_p[0] = ctx.gi2d.intensity;
@@ -4189,13 +4190,13 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         }
         const bool last = sc.next + 1 >= sc.copyAt.size();
         PassDesc cp = pass_into(gameTarget, "game-scene");
-        cp.colorLoad = SG_LOADACTION_LOAD;
-        cp.depthLoad = SG_LOADACTION_LOAD;
-        cp.stencilLoad = SG_LOADACTION_LOAD;
-        cp.colorStore = last ? sc.finalStore : SG_STOREACTION_STORE;
+        cp.colorLoad = gpu::LoadAction::Load;
+        cp.depthLoad = gpu::LoadAction::Load;
+        cp.stencilLoad = gpu::LoadAction::Load;
+        cp.colorStore = last ? sc.finalStore : gpu::StoreAction::Store;
         if (!last) {
-            cp.depthStore = SG_STOREACTION_STORE;
-            cp.stencilStore = SG_STOREACTION_STORE;
+            cp.depthStore = gpu::StoreAction::Store;
+            cp.stencilStore = gpu::StoreAction::Store;
         }
         begin_list_pass(cl, cp);
         if (ctx.partial) apply_view(cl, ctx.camPx);
@@ -4204,11 +4205,11 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                        -1};  // the new pass starts with the base viewport: the next apply_clip sets the clip again
     };
     // What view 15 of a material shows (kMaterialSpriteSceneView).
-    sg_view sceneBound = sceneGroup && sc.view.id ? sc.view : assets->white()->view;
+    gpu::View sceneBound = sceneGroup && sc.view.id ? sc.view : gpu::from_sg(assets->white()->view);
     for (const QuadBatch& qb : batches) {
         if (sceneGroup && sc.next < sc.copyAt.size() && sc.copyAt[sc.next] == std::uint32_t(&qb - batches.data())) {
             split_for_scene();
-            sceneBound = sc.view.id ? sc.view : assets->white()->view;
+            sceneBound = sc.view.id ? sc.view : gpu::from_sg(assets->white()->view);
         }
         apply_clip(qb.clip);
         if (qb.effect) {
@@ -4295,7 +4296,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         u.cspace[2] = qb.lit && qb.normal ? float(qb.normal->tex_fix(fr.linear, false)) : 0.0f;
         u.fa_time[0] = prog ? fr.time : 0.0f;
         apply_uniforms(cl, UB_quad_vs_params, u);
-        sg_view batchLightTex = lightTexBound;
+        gpu::View batchLightTex = lightTexBound;
         if (qb.lit) {
             litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
             if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
@@ -4364,12 +4365,12 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
             b.views[VIEW_quad_tex] = gpu::from_sg(qb.tex->gpu_view());
             b.views[VIEW_quad_normal_tex] =
                 gpu::from_sg((qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view());
-            b.views[VIEW_quad_light_tex] = gpu::from_sg(batchLightTex);
-            b.views[VIEW_quad_shadow_tex] = gpu::from_sg(shadowTexBound);
+            b.views[VIEW_quad_light_tex] = batchLightTex;
+            b.views[VIEW_quad_shadow_tex] = shadowTexBound;
             b.views[VIEW_quad_fx_emissive_tex] =
                 gpu::from_sg((qb.fx.emissiveMap ? qb.fx.emissiveMap : assets->white())->gpu_view());
-            b.views[VIEW_quad_fx_cookie_tex] = gpu::from_sg(cookieTexBound);
-            b.views[VIEW_quad_fx_gi_tex] = gpu::from_sg(giTexBound);
+            b.views[VIEW_quad_fx_cookie_tex] = cookieTexBound;
+            b.views[VIEW_quad_fx_gi_tex] = giTexBound;
             b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
             b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
             b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -4383,8 +4384,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                     b.views[kMaterialSpriteVsFirstView + int(i)] = gpu::from_sg(use->textures[i]->gpu_view());
                     b.samplers[kMaterialSpriteVsFirstSampler + int(i)] = gpu.sampler(mat.textures[i].sampler);
                 }
-                b.views[kMaterialSpriteSceneView] =
-                    gpu::from_sg(sceneBound);  // its sampler is the engine's light_smp (slot 1)
+                b.views[kMaterialSpriteSceneView] = sceneBound;  // its sampler is the engine's light_smp (slot 1)
                 for (int i = 0; i < gpu::kMaxViews; ++i)
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
                 for (int i = 0; i < gpu::kMaxSamplers; ++i)
@@ -4445,16 +4445,16 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // The prepass image (M73.2c): bound at the screen slot of the opaque meshes (bind_textures) while a light has a contact shadow, and
         // read by the effects after them (below).
         const Target* preT = ctx.postPlan.prepass.target(pc);
-        ctx.screenView = preT ? preT->texView : sg_view{};
+        ctx.screenView = preT ? preT->texView : gpu::View{};
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
-        mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
+        mp.colorLoad = clearByLoad ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
         mp.clearColor = {clearScene.r, clearScene.g, clearScene.b, clearScene.a};
         // The debug view of the prepass draws over the multisampled image next, so it must be kept.
         mp.colorStore = (msaa && (plan.last || plan.view) && !hudAfterBloom && !ctx.debugPrepass)
-                            ? SG_STOREACTION_DONTCARE
-                            : SG_STOREACTION_STORE;
-        const sg_store_action finalStore = mp.colorStore;
+                            ? gpu::StoreAction::DontCare
+                            : gpu::StoreAction::Store;
+        const gpu::StoreAction finalStore = mp.colorStore;
         // A transmissive draw splits the pass after the opaque phase (below): the first half keeps the picture, the depth and the stencil for the
         // second.
         // The same for a world group that reads the picture drawn so far (Water2D, fa_scene_color; planned just below).
@@ -4478,13 +4478,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         }
         const bool sceneSplits = !ctx.sceneCopy.copyAt.empty();
         if (ctx.xmit.want || sceneSplits) {
-            mp.colorStore = SG_STOREACTION_STORE;
-            mp.depthStore = SG_STOREACTION_STORE;
-            mp.stencilStore = SG_STOREACTION_STORE;
+            mp.colorStore = gpu::StoreAction::Store;
+            mp.depthStore = gpu::StoreAction::Store;
+            mp.stencilStore = gpu::StoreAction::Store;
         }
-        mp.depthLoad = SG_LOADACTION_CLEAR;
+        mp.depthLoad = gpu::LoadAction::Clear;
         mp.clearDepth = 1.0f;
-        mp.stencilLoad = SG_LOADACTION_CLEAR;
+        mp.stencilLoad = gpu::LoadAction::Clear;
         gpu::CommandList& cl = gpu.commands();
         begin_list_pass(cl, mp);
         if (partial) apply_view(cl, camPx);
@@ -4681,13 +4681,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 ++stats.transmissionPlain;
             }
             PassDesc cp = pass_into(gameTarget, plan.view ? "view-glass" : fr.wantWorld ? "game-glass" : "game-hud");
-            cp.colorLoad = SG_LOADACTION_LOAD;
-            cp.colorStore = sceneSplits ? SG_STOREACTION_STORE : finalStore;
-            cp.depthLoad = SG_LOADACTION_LOAD;
-            cp.stencilLoad = SG_LOADACTION_LOAD;
+            cp.colorLoad = gpu::LoadAction::Load;
+            cp.colorStore = sceneSplits ? gpu::StoreAction::Store : finalStore;
+            cp.depthLoad = gpu::LoadAction::Load;
+            cp.stencilLoad = gpu::LoadAction::Load;
             if (sceneSplits) {
-                cp.depthStore = SG_STOREACTION_STORE;
-                cp.stencilStore = SG_STOREACTION_STORE;
+                cp.depthStore = gpu::StoreAction::Store;
+                cp.stencilStore = gpu::StoreAction::Store;
             }
             begin_list_pass(cl, cp);
             if (partial) apply_view(cl, camPx);
@@ -4778,11 +4778,11 @@ void Renderer::Impl::hud_pass(DrawContext& ctx, const Target& into, const char* 
         ctx.fr.linear = false;
     }
     PassDesc hp = pass_into(into, label);
-    hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
-    hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-    hp.depthLoad = SG_LOADACTION_CLEAR;
+    hp.colorLoad = gpu::LoadAction::Load;  // keep the world and its glow
+    hp.colorStore = msaa ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
+    hp.depthLoad = gpu::LoadAction::Clear;
     hp.clearDepth = 1.0f;
-    hp.stencilLoad = SG_LOADACTION_CLEAR;
+    hp.stencilLoad = gpu::LoadAction::Clear;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, hp);
     const TargetFormat* format =
@@ -4873,7 +4873,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ResourceId envRes;
     if (ctx.envActive) {
         TransientDesc envDesc =
-            import_desc(kEnvSize, kEnvSize, TargetFormat{skyEnv.format(), SG_PIXELFORMAT_NONE, 1}, "sky-env");
+            import_desc(kEnvSize, kEnvSize, TargetFormat{skyEnv.format(), gpu::PixelFormat::None, 1}, "sky-env");
         envRes = shared(sharedEnv, "sky-env", skyEnv.image_id(), envDesc);
         if (ctx.envBake)
             add("sky-env", {}, {envRes}, [this, &ctx](const PassContext&) {
@@ -4903,7 +4903,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ResourceId skyLutRes;
     if (ctx.physMainOn) {
         const TransientDesc lutDesc =
-            import_desc(kSkyViewW, kSkyViewH, TargetFormat{physSky.format(), SG_PIXELFORMAT_NONE, 1}, "sky-view");
+            import_desc(kSkyViewW, kSkyViewH, TargetFormat{physSky.format(), gpu::PixelFormat::None, 1}, "sky-view");
         skyLutRes = shared(sharedSkyLut, "sky-view", physSky.image_id(), lutDesc);
         if (skyLutFrame != frameSerial) {
             skyLutFrame = frameSerial;
@@ -4925,7 +4925,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         std::vector<ResourceId> prepassOut{prepassRes};
         if (ctx.doVelocity) {
             TransientDesc vdsc = pdsc;
-            vdsc.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+            vdsc.format = TargetFormat{Gpu::velocity_format(), gpu::PixelFormat::None, 1};
             vdsc.label = plan.name + "/velocity";
             velRes = graph.create_transient(vdsc);
             prepassOut.push_back(velRes);
@@ -4986,7 +4986,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             TransientDesc vdsc;
             vdsc.width = ctx.camPx.w;
             vdsc.height = ctx.camPx.h;
-            vdsc.format = TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1};
+            vdsc.format = TargetFormat{Gpu::velocity_format(), gpu::PixelFormat::None, 1};
             vdsc.label = plan.name + "/velocity";
             velRes = graph.create_transient(vdsc);
             ctx.postPlan.velocity = VelocityRef{PrepassRef{velRes, &transient_targets()}};
@@ -5004,7 +5004,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         TransientDesc rdsc;
         rdsc.width = ctx.camPx.w;
         rdsc.height = ctx.camPx.h;
-        rdsc.format = TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1};
+        rdsc.format = TargetFormat{Gpu::reactive_format(), gpu::PixelFormat::None, 1};
         rdsc.label = plan.name + "/reactive";
         const ResourceId reactRes = graph.create_transient(rdsc);
         ctx.postPlan.reactive = PrepassRef{reactRes, &transient_targets()};
@@ -5028,8 +5028,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             const Target* vt = transient_targets().get(c.handle(volRes));
             const Target* pt = transient_targets().get(c.handle(prepassRes));
             if (!vt || !pt) return;
-            const sg_view shadowTex =
-                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : ctx.white->view;
+            const gpu::View shadowTex =
+                ctx.doShadows && ctx.shadowTgt.texView.id ? ctx.shadowTgt.texView : gpu::from_sg(ctx.white->view);
             volFx.march(gpu, ctx.postPlan.vol, *vt, pt->texView, shadowTex, ctx.lightView, ctx.shadowU,
                         &stats.drawCalls);
         });
@@ -5108,7 +5108,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         TransientDesc cdsc;
         cdsc.width = ctx.camPx.w;
         cdsc.height = ctx.camPx.h;
-        cdsc.format = TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1};
+        cdsc.format = TargetFormat{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1};
         cdsc.label = plan.name + "/sprite-coverage";
         coverageRes = graph.create_transient(cdsc);
         ctx.postPlan.coverage = PrepassRef{coverageRes, &transient_targets()};
@@ -5121,7 +5121,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // places, as one chain (a view job has no final pass to cut). The picture is the view's resolved image, as the
     // game's is for the bloom.
     if (plan.customPost && plan.target && ctx.postPlan.custom.any()) {
-        const BloomTarget dst{ctx.msaa ? plan.target->resolveColorAtt : plan.target->colorAtt, sg_view{}, 1};
+        const BloomTarget dst{ctx.msaa ? plan.target->resolveColorAtt : plan.target->colorAtt, gpu::View{}, 1};
         customPost.add_passes(graph, transient_targets(), gpu, sceneFx, ctx.postPlan.custom,
                               (1u << kPostSlotCount) - 1u, ctx.postPlan.rect, physW, physH, game, plan.target->texView,
                               dst, gpu.scene_format(), ctx.postPlan.prepass, fr.linear, fr.time, &stats.drawCalls,
@@ -5175,8 +5175,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 graph.import_target("output-filtered", outFilterTarget.color.id,
                                     import_desc(targetW, targetH, outFilterTarget.format, "output-filtered"));
             add("output-color-filter", {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
-                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, assets->white()->view, sg_view{},
-                          outFilterTarget, "color-filter", false);
+                post_pass(pp, false, pp.colorFilter, false, outTarget.texView, gpu::from_sg(assets->white()->view),
+                          gpu::View{}, outFilterTarget, "color-filter", false);
                 outFilterActive = true;
             });
         }
@@ -5204,7 +5204,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const Target* t = use.fx.outline ? use.outline_source().target(c) : nullptr;
         if (use.fx.outline && !(t && t->texView.id))
             use.skip_outline();  // the pass did not get the image: drawn without
-        return t && use.fx.outline ? t->texView : sg_view{};
+        return t && use.fx.outline ? t->texView : gpu::View{};
     };
     // The custom post passes of PostProcess.customPasses (renderer_custom_post.h) at one place of the stack: every
     // camera's own, over its rectangle of the picture, where the built-in passes of the camera before and after leave
@@ -5213,7 +5213,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     auto game_dst = [&]() {
         return ctx.hudAfterBloom && ctx.msaa
                    ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                   : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                   : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
     };
     auto custom_slot = [&](PostSlot slot) {
         for (DrawContext* c : postCams) {
@@ -5239,7 +5239,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const BloomTarget volDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         volFx.add_apply(graph, transient_targets(), gpu, c->postPlan.vol, c->postPlan.volImage, c->postPlan.rect, physW,
                         physH, game, volDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
@@ -5250,7 +5250,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const BloomTarget ssrDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
@@ -5262,7 +5262,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const BloomTarget fogDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         fogFx.add_passes(graph, transient_targets(), gpu, c->postPlan.fogFx, c->postPlan.rect, physW, physH, game,
                          gameTarget.texView, fogDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
     }
@@ -5275,10 +5275,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const BloomTarget taaDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         taa.add_passes(graph, gpu, c->postPlan.taa, c->postPlan.rect, physW, physH, game, gameTarget.texView, taaDst,
-                       c->postPlan.prepass, c->postPlan.velocity, c->postPlan.reactive, assets->white()->view,
-                       &stats.drawCalls, c->plan.name);
+                       c->postPlan.prepass, c->postPlan.velocity, c->postPlan.reactive,
+                       gpu::from_sg(assets->white()->view), &stats.drawCalls, c->plan.name);
     }
     custom_slot(PostSlot::AfterShafts);
     // Depth of field and motion blur of every camera (renderer_dof.h), over its rectangle of the scene colour and before the bloom.
@@ -5287,7 +5287,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const BloomTarget fxDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
-                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+                : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
                            gameTarget.texView, fxDst, c->postPlan.prepass, c->postPlan.velocity, &stats.drawCalls,
                            c->plan.name);
@@ -5301,10 +5301,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             dst = BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()};
         } else {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
-            dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+            dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         }
         // The lens dirt: its texture, or a white one the composite ignores (intensity 0) when there is none.
-        const sg_view dirt = pp.bloom.dirt.empty() ? assets->white()->view : assets->texture(pp.bloom.dirt)->view;
+        const gpu::View dirt = pp.bloom.dirt.empty() ? gpu::from_sg(assets->white()->view)
+                                                     : gpu::from_sg(assets->texture(pp.bloom.dirt)->view);
         bloom.add_passes(graph, transient_targets(), gpu, pp.bloom, physW, physH, game, gameTarget.texView, dst, dirt,
                          &stats.drawCalls, plan.name);
     }
@@ -5380,7 +5381,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         for (const DrawContext* c : postCams) anyLdr = anyLdr || c->postPlan.customLdr;
         if (anyLdr)
             for (int i = 0; i < 2; ++i)
-                if (ldrMid[i].valid())
+                if (ldrMid[i].valid(gpu.device()))
                     midRes[i] = graph.import_target(i == 0 ? "post-mid-0" : "post-mid-1", ldrMid[i].colorAtt.id,
                                                     import_desc(physW, physH, ldrMid[i].format, "post-mid"));
         // One piece of a camera's final pass (all of it when no custom pass cuts it): the stages of `slice` over the
@@ -5401,16 +5402,16 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     [this, use, autoExp, exposure, outline_view, filter, rect, load, hud, slice, outline,
                      fromMid = from.mid, toMid](const PassContext& c) {
                         PostPlan drawn;
-                        sg_view aux{};
+                        gpu::View aux{};
                         if (outline)
                             aux = outline_view(use, c, drawn);
                         else
                             drawn = use;
-                        const sg_view src = fromMid < 0 ? gameTarget.texView : ldrMid[fromMid].texView;
+                        const gpu::View src = fromMid < 0 ? gameTarget.texView : ldrMid[fromMid].texView;
                         const bool lastPiece = toMid < 0;
                         Target& out = lastPiece ? (hud ? hudTarget : filterTarget) : ldrMid[toMid];
                         post_pass(drawn, true, filter, autoExp, src,
-                                  autoExp ? exposure->ev_view() : assets->white()->view, aux, out, "post",
+                                  autoExp ? exposure->ev_view() : gpu::from_sg(assets->white()->view), aux, out, "post",
                                   lastPiece && hud, rect, load, slice);
                         if (!lastPiece) return;
                         if (hud)
@@ -5427,7 +5428,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             if (slots == 0) return;
             const bool onMid = at.mid >= 0;
             const Target& pic = onMid ? ldrMid[at.mid] : gameTarget;
-            const BloomTarget to = onMid ? BloomTarget{pic.colorAtt, sg_view{}, 1} : game_dst();
+            const BloomTarget to = onMid ? BloomTarget{pic.colorAtt, gpu::View{}, 1} : game_dst();
             customPost.add_passes(graph, transient_targets(), gpu, sceneFx, c->postPlan.custom, slots, c->postPlan.rect,
                                   physW, physH, at.res, pic.texView, to, onMid ? pic.format.color : gpu.scene_format(),
                                   c->postPlan.prepass, false, fr.time, &stats.drawCalls, stats.materialFallbacks,
@@ -5498,8 +5499,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     graph.import_target("game-filtered", filterTarget.color.id,
                                         import_desc(physW, physH, filterTarget.format, "game-filtered"));
                 add("color-filter", {dest}, {filtered}, [this, pp](const PassContext&) {
-                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, assets->white()->view, sg_view{},
-                              filterTarget, "color-filter", false);
+                    post_pass(pp, false, pp.colorFilter, false, hudTarget.texView, gpu::from_sg(assets->white()->view),
+                              gpu::View{}, filterTarget, "color-filter", false);
                     filterActive = true;
                 });
                 finishRes = filtered;
@@ -5511,8 +5512,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
         add("color-filter", {game}, {filtered}, [this, pp](const PassContext&) {
-            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, assets->white()->view, sg_view{},
-                      filterTarget, "color-filter", false);
+            post_pass(pp, false, pp.colorFilter, false, gameTarget.texView, gpu::from_sg(assets->white()->view),
+                      gpu::View{}, filterTarget, "color-filter", false);
             filterActive = true;
         });
         finishRes = filtered;

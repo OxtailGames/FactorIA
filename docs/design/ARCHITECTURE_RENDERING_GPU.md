@@ -125,8 +125,8 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
 - The generated shader headers return `sg_shader_desc`: `from_sg(*name_shader_desc(sg_query_backend()))` gives the
   `ShaderDesc` for `Device::make_shader`.
 - `from_sg(const sg_pipeline_desc&)` converts the pipeline descs `Gpu::find_or_make` builds today.
-- `to_sg(const PassDesc&)` gives the same `sg_pass` as `render::PassDesc::to_sg()`; `from_render` / `to_render`
-  convert `render::PassDesc` and `render::TargetFormat` (a test checks every field).
+- `to_sg(const PassDesc&)` gives the `sg_pass` of a pass (the swapchain case included); `swapchain_pass(sc)` is
+  `PassDesc::for_swapchain` with the defaults of the open sokol context (a test checks every field).
 - `SokolDevice::create` adopts the sokol context that is open (the renderer's; left open at destruction) or opens one
   from `DeviceInit` (and shuts it down at destruction). `frame_index()` counts commits through a commit listener.
 - Timers and readbacks forward to the renderer's `GpuTimer`, `readback_*.cpp/.mm` and `AsyncBufferRead`.
@@ -232,9 +232,8 @@ sokol call:
   the list of `Gpu::active()`, the Gpu initialised last of those still alive (the editor has one per renderer, all on
   the one sokol context). With none alive (`Renderer::present_clear` runs before the renderer exists) they record on
   the sokol context itself (`gpu::begin_context_pass`).
-- **Free helpers without a Gpu at hand** (`make_target(desc)`, `destroy_target(t)`, `Target::valid()`) use
-  `Gpu::active_device()`, TRANSITIONAL until the passes that call them pass their Gpu's device
-  (`make_target(gpu.device(), desc)`). An empty target needs no device.
+- **The Target helpers take the device** (`make_target(gpu.device(), desc)`, `destroy_target(gpu.device(), t)`,
+  `Target::valid(device)`); there is no overload that asks `Gpu::active_device()` any more (P5a).
 
 Before (a sokol call site):
 
@@ -269,8 +268,7 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
 - `gpu::bridged::*` is a handle that also converts to and from its sokol twin: Gpu's getters return one (pipelines,
   samplers, buffers) so the passes that still call `sg_apply_pipeline` take it unchanged. Never put one in a ternary
   next to an `sg_*` value (`t ? t->view : sg_view{}`): each side converts to the other and the compiler cannot
-  choose; write `to_sg()` or `from_sg()` on one side. For that reason `Target` keeps `sg_image` / `sg_view` fields
-  until the passes move;
+  choose; write `to_sg()` or `from_sg()` on one side;
 - `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`;
 - `feature_env_from_sokol()` (render_features_sg.cpp) is the sokol twin of `feature_env_from_device(device)`.
 
@@ -287,7 +285,7 @@ uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp,
 renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
 `note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
 `begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
-those files: the context lifecycle (before any device exists), the `Target` and `MaterialProgram` fields (P5) and the
+those files: the context lifecycle (before any device exists), the `MaterialProgram` fields (P5) and the
 handles of `SubMesh` / `TextureAsset`, which `from_sg` turns into interface handles at the call. A pass opened on its
 own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
 state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
@@ -308,9 +306,13 @@ overloads for renderer.cpp and renderer_draw.cpp. The MetalFX wrapper itself (me
 stays on sokol until P5: `Scaler::encode` splits the frame with `sg_commit()` and orders its own MTLCommandBuffer
 against sokol's open one (`fa_sg_mtl_command_buffer()`), which the `Device` interface has no equivalent of, and its
 tests drive sokol directly.
-Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
-which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
-change with the passes (P4).
+P5a: the render targets and formats are interface types. `Target` holds `gpu::Image` / `gpu::View` made on the Gpu's
+device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
+`velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
+(`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
+`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the handles of
+`TextureAsset`, `LutAsset` and `SubMesh` (P5b), the MetalFX wrapper (P5c) and the readbacks and the storage-image
+helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
 
 ## How to convert an sg_* call site
 
@@ -326,7 +328,7 @@ change with the passes (P4).
 | `sg_query_backend()` | `backend()` / `info().metalTarget` |
 | `sg_query_desc().environment.defaults` | `environment_defaults()` |
 | `sg_mtl_device()`, `sg_d3d11_device()`, `sg_*_query_image_info`, `sg_*_query_buffer_info` | `native()`, `native_image(h)`, `native_buffer(h)` |
-| `sg_begin_pass(&pass.to_sg())` | `list.begin_pass(PassDesc)` (`from_render(pass, swapchain)` while the pass is still a `render::PassDesc`) |
+| `sg_begin_pass(&pass.to_sg())` | `list.begin_pass(PassDesc)` (`gpu::swapchain_pass(sc)` for a window pass) |
 | `sg_begin_pass` with `compute = true` | `list.begin_compute_pass(label)` |
 | `sg_end_pass()`, `sg_query_pass_state()` | `list.end_pass()`, `list.pass_state()` |
 | `sg_apply_pipeline`, `sg_apply_bindings`, `sg_apply_uniforms(slot, &SG_RANGE(u))` | `set_pipeline`, `set_bindings(Bindings)`, `set_uniforms(slot, Range{&u, sizeof u})` |

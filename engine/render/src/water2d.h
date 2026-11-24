@@ -81,14 +81,14 @@ public:
     // image. Must be called outside any pass. On success `handle` is the pooled image (give it back with TransientTargets::pool.release) and
     // `view` its texture view; false (nothing held) when the shader or the image could not be made.
     bool copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-              std::uint64_t& handle, sg_view& view);
+              std::uint64_t& handle, gpu::View& view);
 
     // What draw() needs of the camera and the frame.
     struct DrawEnv {
         sg_buffer vertices{};  // the frame's quad stream
         const Mat4* viewProj = nullptr;
         const SceneMap* map = nullptr;
-        sg_view scene{};  // the copy
+        gpu::View scene{};  // the copy
         float time = 0.0f;
         float targetInv[2]{};  // 1 / the size of the render target in pixels
         bool gl = false;       // render targets are bottom-up (OpenGL)

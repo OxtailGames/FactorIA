@@ -95,14 +95,14 @@ public:
     // `velocity`: the velocity image of the camera (PostPlan::velocity; invalid when none was drawn: the blur is the camera-only one).
     // Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
-                   const PostRect& rect, int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                   const PostRect& rect, int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, const VelocityRef& velocity, int* drawCalls, const std::string& job);
 
     // One full-screen copy of `src` (a texture view of the picture's format) into the pass `pd`; when `part` is not
     // null only into that rectangle (x, y, w, h in pixels of the destination: a camera's rectangle of the picture). The
     // copy of a custom post chain (renderer_custom_post.h) uses it. False (nothing drawn) when the target of the pass
     // is gone or the copy program is not ready.
-    bool copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view src, const int* part);
+    bool copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, gpu::View src, const int* part);
 
     // The focus distance the camera `camKey` has now (a NaN when it has none): what the tests and the debug output read.
     float focus_of(std::uint64_t camKey) const;

@@ -29,9 +29,9 @@ static_assert(SMP_taa_smp_lin == 0 && SMP_taa_smp_pt == 1 && SMP_taa_smp_o == 2,
 constexpr std::uint64_t kBudgetBytes = sizeof(void*) >= 8 ? (std::uint64_t(1) << 30) : (std::uint64_t(256) << 20);
 
 // 64-bit and saturated: a huge size cannot wrap around to a small number.
-std::uint64_t history_bytes(int w, int h, sg_pixel_format format) {
+std::uint64_t history_bytes(int w, int h, gpu::PixelFormat format) {
     constexpr std::uint64_t kCap = std::numeric_limits<std::uint64_t>::max() / 4;
-    const std::uint64_t perPixel = format == SG_PIXELFORMAT_RGBA16F ? 8 : 4;
+    const std::uint64_t perPixel = format == gpu::PixelFormat::Rgba16F ? 8 : 4;
     const std::uint64_t px = std::uint64_t(std::max(w, 0)) * std::uint64_t(std::max(h, 0));  // < 2^62
     if (px > kCap / (2 * perPixel)) return kCap;
     return 2 * perPixel * px;
@@ -144,11 +144,11 @@ gpu::Pipeline TaaFx::pipeline(Prog prog, const TargetFormat& format) {
     return p;
 }
 
-sg_pixel_format TaaFx::pick_format() {
-    sg_pixel_format f = SG_PIXELFORMAT_RGBA16F;
+gpu::PixelFormat TaaFx::pick_format() {
+    gpu::PixelFormat f = gpu::PixelFormat::Rgba16F;
     const gpu::PixelFormatCaps info = device_->pixel_format_caps(gpu::PixelFormat::Rgba16F);  // after a ready()
     if (forceRgba8_ || !(info.render && info.sample && info.filter)) {
-        f = SG_PIXELFORMAT_RGBA8;
+        f = gpu::PixelFormat::Rgba8;
         if (!warnedFormat_) {
             warnedFormat_ = true;
             FA_INFO("render",
@@ -175,7 +175,7 @@ void TaaFx::destroy(Slot& s) {
     s.last = -1;
 }
 
-std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h, sg_pixel_format format,
+std::shared_ptr<TaaFx::Slot> TaaFx::slot_for(std::uint64_t camKey, int w, int h, gpu::PixelFormat format,
                                              const std::string& job) {
     std::shared_ptr<Slot> slot;
     if (const auto it = slots_.find(camKey); it != slots_.end()) slot = it->second;
@@ -300,16 +300,15 @@ void apply_params(gpu::CommandList& list, const T& u) {
 bool TaaFx::resolve(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const TaaResolveInput& in) {
     if (!pd.color.id || !in.color.id || !in.dummy.id || !ready(gpu.device())) return false;
     const gpu::Pipeline pipe = pipeline(Prog::Resolve, pd.format);  // made before the pass opens
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(pipe);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_taa_tex_c] = gpu::from_sg(in.color);
-    b.views[VIEW_taa_tex_p] = gpu::from_sg(in.depth.id ? in.depth : in.dummy);
-    b.views[VIEW_taa_tex_v] = gpu::from_sg(in.velocity.id ? in.velocity : in.dummy);
-    b.views[VIEW_taa_tex_h] = gpu::from_sg(in.history.id && in.historyValid ? in.history : in.dummy);
-    b.views[VIEW_taa_tex_r] = gpu::from_sg(in.reactive.id ? in.reactive : in.dummy);
+    b.views[VIEW_taa_tex_c] = in.color;
+    b.views[VIEW_taa_tex_p] = in.depth.id ? in.depth : in.dummy;
+    b.views[VIEW_taa_tex_v] = in.velocity.id ? in.velocity : in.dummy;
+    b.views[VIEW_taa_tex_h] = in.history.id && in.historyValid ? in.history : in.dummy;
+    b.views[VIEW_taa_tex_r] = in.reactive.id ? in.reactive : in.dummy;
     b.samplers[SMP_taa_smp_lin] = gpu.sampler(SamplerKind::LinearClamp);
     b.samplers[SMP_taa_smp_pt] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
@@ -341,12 +340,11 @@ bool TaaFx::resolve(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, const 
     return true;
 }
 
-bool TaaFx::output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen,
+bool TaaFx::output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, gpu::View history, int w, int h, float sharpen,
                    const int* part) {
     if (!pd.color.id || !history.id || !ready(gpu.device())) return false;
     const gpu::Pipeline pipe = pipeline(Prog::Out, pd.format);  // made before the pass opens
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part[0], part[1], part[2], part[3], true);
         list.set_scissor(part[0], part[1], part[2], part[3], true);
@@ -354,7 +352,7 @@ bool TaaFx::output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view
     list.set_pipeline(pipe);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_taa_tex_o] = gpu::from_sg(history);
+    b.views[VIEW_taa_tex_o] = history;
     b.samplers[SMP_taa_smp_o] = gpu.sampler(SamplerKind::LinearClamp);
     list.set_bindings(b);
     const float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
@@ -385,7 +383,7 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
         return false;
     in.outW = out.w;
     in.outH = out.h;
-    const sg_pixel_format hf = pick_format();
+    const gpu::PixelFormat hf = pick_format();
     const std::shared_ptr<Slot> slot = slot_for(plan.camKey, in.outW, in.outH, hf, "upscale");
     if (!slot) return false;
     // The history holds the frame before when the upscaler resolved it, nothing that changes what the images mean happened since (a cut, a
@@ -403,11 +401,11 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     in.reactiveScale = plan.reactiveScale;
     in.prevFromView = plan.prevFromView;
     for (int i = 0; i < 8; ++i) in.proj[i] = plan.proj[i];
-    in.historyHasDepth = hf == SG_PIXELFORMAT_RGBA16F;
+    in.historyHasDepth = hf == gpu::PixelFormat::Rgba16F;
     in.historyValid = readIdx >= 0;
-    in.history = readIdx >= 0 ? slot->img[readIdx].texView : sg_view{};
+    in.history = readIdx >= 0 ? slot->img[readIdx].texView : gpu::View{};
     PassDesc pd = pass_into(slot->img[writeIdx], "upscale-resolve");
-    pd.colorLoad = SG_LOADACTION_DONTCARE;
+    pd.colorLoad = gpu::LoadAction::DontCare;
     if (!resolve(gpu.commands(), gpu, pd, in)) return false;
     slot->last = writeIdx;
     slot->wrote = true;
@@ -418,21 +416,21 @@ bool TaaFx::upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint
     slot->usedHistory = histValid;
     // The sharpened history into the output image. The pipeline leaves the alpha alone, so the image is cleared to opaque first.
     PassDesc od = pass_into(out, "upscale-output");
-    od.colorLoad = SG_LOADACTION_CLEAR;
-    od.clearColor = sg_color{0.0f, 0.0f, 0.0f, 1.0f};
-    od.colorStore = SG_STOREACTION_STORE;
+    od.colorLoad = gpu::LoadAction::Clear;
+    od.clearColor = gpu::Color{0.0f, 0.0f, 0.0f, 1.0f};
+    od.colorStore = gpu::StoreAction::Store;
     return output(gpu.commands(), gpu, od, slot->img[writeIdx].texView, in.outW, in.outH, plan.sharpen, nullptr);
 }
 
 int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rectIn, int picW, int picH,
-                      ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
-                      const VelocityRef& velocity, const PrepassRef& reactive, sg_view dummy, int* drawCalls,
+                      ResourceId game, gpu::View srcTex, const BloomTarget& dst, const PrepassRef& prepass,
+                      const VelocityRef& velocity, const PrepassRef& reactive, gpu::View dummy, int* drawCalls,
                       const std::string& job) {
     if (!plan.on || !srcTex.id || !dummy.id) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
     if (!ready(gpu.device()) || refused_) return 0;
-    const sg_pixel_format hf = pick_format();
+    const gpu::PixelFormat hf = pick_format();
     const std::shared_ptr<Slot> slot = slot_for(plan.camKey, rect.w, rect.h, hf, job);
     if (!slot) return 0;
 
@@ -448,7 +446,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     TransientDesc td;
     td.width = rect.w;
     td.height = rect.h;
-    td.format = TargetFormat{hf, SG_PIXELFORMAT_NONE, 1};
+    td.format = TargetFormat{hf, gpu::PixelFormat::None, 1};
     td.label = job + "/taa-history-out";
     const ResourceId outRes = graph.import_target(td.label, slot->img[writeIdx].color.id, td);
     ResourceId inRes;
@@ -473,7 +471,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     const VelocityRef vel = velocity;
     const PrepassRef react = reactive;
     const PostRectUv ruv = post_rect_uv(rectIn, picW, picH);
-    const bool historyDepth = hf == SG_PIXELFORMAT_RGBA16F;
+    const bool historyDepth = hf == gpu::PixelFormat::Rgba16F;
     TaaResolveInput base;
     base.color = srcTex;
     base.dummy = dummy;
@@ -505,7 +503,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
         if (const Target* t = react.target(c)) in.reactive = t->texView;
         if (readIdx >= 0) in.history = slot->img[readIdx].texView;
         PassDesc pd = pass_into(slot->img[writeIdx], "taa-resolve");
-        pd.colorLoad = SG_LOADACTION_DONTCARE;
+        pd.colorLoad = gpu::LoadAction::DontCare;
         if (!self->resolve(pass_list(c, *g), *g, pd, in)) return;
         slot->last = writeIdx;
         slot->wrote = true;
@@ -517,7 +515,7 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
     });
 
     // The result into the camera's rectangle of the picture, sharpened. The picture's own alpha stays (the pipeline writes red, green and blue).
-    const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{gpu.scene_format(), gpu::PixelFormat::None, dst.samples};
     const float sharpen = plan.sharpen;
     add("taa-output", {outRes, game}, {game}, [=](const PassContext& c) {
         if (!slot->wrote || slot->serial != serial || slot->last != writeIdx) return;  // the resolve did not run
@@ -526,8 +524,8 @@ int TaaFx::add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const Po
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
+        pd.colorLoad = gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
         const int part[4] = {rect.x, rect.y, rect.w, rect.h};
         if (self->output(pass_list(c, *g), *g, pd, slot->img[writeIdx].texView, rect.w, rect.h, sharpen,
                          rect.whole ? nullptr : part))

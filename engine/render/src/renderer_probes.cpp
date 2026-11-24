@@ -184,7 +184,7 @@ void Renderer::Impl::probes_write_sky() {
     if (ps.skyWrittenFrame != 0 && skyEnv.key() == ps.skyKey) return;
     int calls = 0;
     ps.gpu.write_sky(gpu, ps.atlas, ps.skyTile, skyEnv.prefiltered_view(), skyEnv.sampler(),
-                     skyEnv.format() == SG_PIXELFORMAT_RGBA8, &calls);
+                     skyEnv.format() == gpu::PixelFormat::Rgba8, &calls);
     ps.drawCalls += calls;
     ps.skyKey = skyEnv.key();
     ps.skyWrittenFrame = std::max<std::uint64_t>(ps.frame, 1);

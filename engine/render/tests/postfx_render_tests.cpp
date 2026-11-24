@@ -634,8 +634,8 @@ bool float_path(Gfx& g) {
     FxChart warm;
     g.draw(warm.world);
     render::Gpu* gpu = render::renderer_gpu(g.renderer);
-    const sg_pixel_format f = gpu ? gpu->display_format() : SG_PIXELFORMAT_NONE;
-    if (f != SG_PIXELFORMAT_RGBA16F && f != SG_PIXELFORMAT_RG11B10F) {
+    const gpu::PixelFormat f = gpu ? gpu->display_format() : gpu::PixelFormat::None;
+    if (f != gpu::PixelFormat::Rgba16F && f != gpu::PixelFormat::Rg11B10F) {
         MESSAGE("skipped: this GPU holds the picture in 8 bits (nothing above paper white can be stored)");
         return false;
     }
