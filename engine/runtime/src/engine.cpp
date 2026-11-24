@@ -159,7 +159,7 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
         sample = *injectedFrameMs;
         source = "injected";
     } else if ((windowed || injectedGpuMs) && cfg.renderMode != RenderMode::OnDemand) {
-        bool gpu = false;
+        bool fromGpu = false;
         // A frame the renderer did not draw since the last tick cannot have a GPU time: it is no miss of the timer.
         const bool drew = drawCount != tickDrawCount;
         tickDrawCount = drawCount;
@@ -178,9 +178,9 @@ void Engine::Impl::dynamic_resolution_tick(double dt) {
             } else if (drew && gpuMissFrames < kGpuMissFrames) {
                 ++gpuMissFrames;
             }
-            gpu = gpuMissFrames < kGpuMissFrames;
+            fromGpu = gpuMissFrames < kGpuMissFrames;
         }
-        if (gpu) {
+        if (fromGpu) {
             exact = true;
             source = "gpu";
         } else {
