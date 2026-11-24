@@ -6,7 +6,8 @@ The renderer's side of the big worlds of M75 (occlusion culling on the CPU and t
 
 The engine's GPU interface (`fa::gpu`: Device, CommandList, the sokol backend and RecordingDevice; M77), which the
 renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU interface](ARCHITECTURE_RENDERING_GPU.md); its Vulkan backend is on the page
-[rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md).
+[rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md) and its D3D12 backend on
+[rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md).
 
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design

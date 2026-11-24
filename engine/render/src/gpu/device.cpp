@@ -46,6 +46,27 @@ bool Device::swapchain_format_supported(PixelFormat format, std::string* why) co
     return false;
 }
 
+// ---- queues and hand-offs --------------------------------------------------------------------------------------------
+
+CommandList& Device::begin_commands(const char* label, QueueKind) { return begin_commands(label); }
+
+SyncToken Device::issue_token(QueueKind queue) {
+    const int i = std::size_t(queue) < std::size_t(kQueueKinds) ? int(queue) : 0;
+    return SyncToken{QueueKind(i), issued_[i].fetch_add(1, std::memory_order_relaxed) + 1};
+}
+
+SyncToken Device::submit_token(CommandList& list, std::span<const QueueHandoff>) {
+    const QueueKind queue = list.queue();  // before submit(): the device may recycle the list
+    submit(list);
+    return issue_token(queue);
+}
+
+void Device::wait_list(CommandList&, SyncToken) {}
+
+void Device::wait_queue(QueueKind, SyncToken) {}
+
+std::uint32_t Device::bindless_index(View) const { return kNoBindlessIndex; }
+
 // ---- make_device -----------------------------------------------------------------------------------------------------
 
 bool device_backend_compiled(Backend backend) {

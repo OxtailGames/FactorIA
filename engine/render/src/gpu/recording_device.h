@@ -43,6 +43,12 @@ enum class CommandKind : std::uint8_t {
     // Device-level reads (no list: recorded when the device is asked, between the frames' commands).
     ReadImage,   // read_image_rgba8 / read_image_rgba16f / read_storage_image: id the image, args x, y, width, height
     ReadBuffer,  // read_buffer: id the buffer, args offset, bytes (each clamped to INT_MAX)
+    // Queues (Device::submit_token / wait_list / wait_queue); args: the token's queue, the token's value (clamped to
+    // INT_MAX). `queue` of the command is the queue it runs on (a WaitQueue: the queue that waits).
+    Signal,    // the end of a list submitted with submit_token(): the token it returned
+    WaitList,  // a wait_list() of the list, emitted before the list's first command at submit()
+    Handoff,  // a QueueHandoff of submit_token(): id the resource, args from queue, to queue, token value; before Signal
+    WaitQueue,  // a wait_queue() (device level, between the commands of the frames, like the reads)
 };
 
 // The snake_case name of a command kind ("begin_pass"), as stream_text() prints it.
@@ -52,8 +58,9 @@ const char* command_kind_name(CommandKind kind);
 struct RecordedCommand {
     CommandKind kind = CommandKind::Commit;
     std::uint64_t frame = 0;  // Device::frame_index() when it was submitted (a Commit: the frame it ended)
-    std::string list;         // the label of the command list ("" for a Commit and the device-level reads)
-    std::uint32_t id = 0;     // the handle it names: the pipeline, the written or copied-to resource; 0 otherwise
+    std::string list;         // the label of the command list ("" for a Commit, a WaitQueue and the device-level reads)
+    QueueKind queue = QueueKind::Graphics;  // the queue of the list that recorded it (Features::asyncCompute)
+    std::uint32_t id = 0;  // the handle it names: the pipeline, the written or copied-to resource; 0 otherwise
     // Its numbers: draw (base, count, instances, baseVertex, baseInstance), dispatch (x, y, z), viewport and scissor
     // (x, y, width, height; fractional viewports rounded), uniforms (slot, bytes), writes and copies (bytes),
     // bindings (vertex buffers, views, samplers bound). 0 where unused.
@@ -71,6 +78,7 @@ public:
     void begin_compute_pass(const char* label) override;
     void end_pass() override;
     PassState pass_state() const override { return passState_; }
+    QueueKind queue() const override { return queue_; }
     void set_pipeline(Pipeline pipeline) override;
     void set_bindings(const Bindings& bindings) override;
     void set_uniforms(int slot, Range data) override;
@@ -101,7 +109,11 @@ private:
         bool needsBindings = false;          // the pipeline reads a vertex/index buffer, a view or a sampler
     };
 
-    void reset(const char* label);
+    void reset(const char* label, QueueKind onQueue);
+    // Notes that the list uses a resource (checked against its owner queue at submit()); mutex_ held.
+    void use_buffer(Buffer buffer);
+    void use_image(Image image);
+    void use_view(View view);
     // Appends a command to this list's stream.
     void record(CommandKind kind, std::uint32_t id, std::initializer_list<int> args, std::string text);
     // Reports a misuse at the current command, naming the list, the command's index and the open pass.
@@ -114,7 +126,15 @@ private:
     RecordingDevice& device_;
     std::string label_;
     bool open_ = false;
+    QueueKind queue_ = QueueKind::Graphics;
     std::vector<RecordedCommand> commands_;
+    std::vector<SyncToken> waitTokens_;  // the tokens wait_list() named (the handoff check reads them)
+    struct Use {
+        bool image = false;
+        std::uint32_t id = 0;
+    };
+    std::vector<Use> uses_;               // the resources the list's commands touch, once each
+    std::vector<RecordedCommand> waits_;  // the wait_list() calls, joined ahead of commands_ at submit()
     PassState passState_ = PassState::None;
     std::string passLabel_;
     TargetFormat passFormat_{};
@@ -180,6 +200,22 @@ public:
 
     CommandList& begin_commands(const char* label) override;
     void submit(CommandList& list) override;
+    // Queues: with Features::asyncCompute (default caps) a Compute or Transfer list keeps its queue, which it checks
+    // (no render pass on either, no compute pass on a Transfer list); without it every list is a graphics one. Tokens
+    // count per queue from 1; submit_token() / wait_list() / wait_queue() are recorded in the stream (Signal, WaitList,
+    // WaitQueue), and a wait for a token no submit_token() returned is reported. Ownership between queues (with asyncCompute only):
+    // every resource has an owner queue (Graphics when made); a QueueHandoff of submit_token() moves it (a Handoff
+    // command); at submit() each list's resources must be owned by its queue and, after a handoff, the list (or
+    // wait_queue()) must have waited for the handoff's token; both are reported with the resource's name. A timed
+    // scope on a Transfer list is recorded as ignored.
+    CommandList& begin_commands(const char* label, QueueKind queue) override;
+    using Device::submit_token;
+    SyncToken submit_token(CommandList& list, std::span<const QueueHandoff> handoffs) override;
+    void wait_list(CommandList& list, SyncToken token) override;
+    void wait_queue(QueueKind queue, SyncToken token) override;
+    // Features::bindless (recordingFeatures): a live Texture or storage view has index = its pool slot - 1, stable for
+    // its life; kNoBindlessIndex otherwise.
+    std::uint32_t bindless_index(View view) const override;
     void commit() override;
     std::uint64_t frame_index() const override;
     bool add_commit_listener(void (*func)(void* user), void* user) override;
@@ -222,6 +258,16 @@ private:
     friend class RecordingCommandList;
     // Adds a message to errors(); mutex_ is held.
     void report_locked(std::string message);
+    // The queue a list asked for runs on: the asked one with Features::asyncCompute, the graphics queue otherwise.
+    QueueKind resolve_queue(QueueKind asked) const;
+    // submit() of an open list of this device (mutex_ held); with `signal`, also emits and returns the list's token.
+    SyncToken submit_locked(CommandList& list, bool signal, std::span<const QueueHandoff> handoffs);
+    // The ownership checks of one list's resources (mutex_ held; asyncCompute only).
+    void check_uses_locked(RecordingCommandList& list);
+    // The handoffs of a submit_token(): checks them, moves the owners, records them (mutex_ held; asyncCompute only).
+    void apply_handoffs_locked(RecordingCommandList& list, SyncToken token, std::span<const QueueHandoff> handoffs);
+    // Reports a token no submit_token() returned (mutex_ held); true when it is fine.
+    bool check_token_locked(const char* call, const char* label, SyncToken token);
     // A message for a misuse outside any command list ("gpu: make_view 'shadow map': ... Fix: ..."); mutex_ is held.
     void fail_locked(const char* call, const char* label, const std::string& what, const std::string& fix);
     // The checks and the record of a device-level read of an image (`format` None = any 4-byte colour format; `storage`

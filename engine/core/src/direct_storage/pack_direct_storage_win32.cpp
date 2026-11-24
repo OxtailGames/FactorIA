@@ -164,7 +164,11 @@ constexpr UINT32 kStatusSlots = 32;
 
 struct Slot {
     HANDLE event = nullptr;  // auto-reset; set by DirectStorage once the read's requests and status are done
+    HANDLE probe = nullptr;  // auto-reset; the probe of a read whose status says complete before its event came
     bool busy = false;       // a read waits for its event (and consumes it before the slot is free again)
+    // The slot's last read enqueued a probe that has not come yet: the slot is free again only once it came (and was
+    // consumed), so that a late probe never ends a later read's wait. Its queue entries come back then too.
+    bool probing = false;
 };
 
 struct MemoryQueue {
@@ -209,7 +213,8 @@ void load_queue(MemoryQueue& q) {
     }
     for (Slot& s : q.slots) {
         s.event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!s.event) {
+        s.probe = s.event ? CreateEventW(nullptr, FALSE, FALSE, nullptr) : nullptr;
+        if (!s.event || !s.probe) {
             q.why = "CreateEventW failed (error " + std::to_string(GetLastError()) + ")";
             return;
         }
@@ -303,9 +308,22 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
     std::uint64_t tag = 0;
     {
         std::unique_lock<std::mutex> lock(q.mutex);
+        bool probing = false;  // a slot waits for its probe: nothing notifies when it comes, so look again soon
         auto freeSlot = [&]() -> int {
-            for (UINT32 i = 0; i < kStatusSlots; ++i)
-                if (!q.slots[i].busy) return int(i);
+            probing = false;
+            for (UINT32 i = 0; i < kStatusSlots; ++i) {
+                Slot& s = q.slots[i];
+                if (s.busy) continue;
+                if (s.probing) {
+                    if (WaitForSingleObject(s.probe, 0) != WAIT_OBJECT_0) {  // no wait: it consumes a probe that came
+                        probing = true;
+                        continue;
+                    }
+                    s.probing = false;
+                    q.room.give(0);
+                }
+                return int(i);
+            }
             return -1;
         };
         for (;;) {
@@ -314,7 +332,10 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
                 slot = UINT32(s);
                 break;
             }
-            q.freed.wait(lock);
+            if (probing)
+                q.freed.wait_for(lock, std::chrono::milliseconds(20));
+            else
+                q.freed.wait(lock);
         }
         q.slots[slot].busy = true;
         tag = ++q.nextTag;
@@ -338,48 +359,93 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
     // event decides: DirectStorage sets it after every request before it in the queue (the read's own) and its status
     // entry are done, and only this read waits for it, since the auto-reset event is consumed here before the slot is
     // used again. The status entry is not the exit condition: until DirectStorage reaches this read's EnqueueStatus, the
-    // entry may still say "complete" from the slot's previous read.
+    // entry may still say "complete" from the slot's previous read. An entry that says complete while the event does
+    // not come is checked with a probe (direct_wait_step, pack_direct_storage.h): an event enqueued now, after the read,
+    // that proves the read done when it comes, so a lost event ends once the probe comes, not with a cancellation and an
+    // abort.
+    // Only this thread touches the slot's event, probe and `probing` while the slot is busy (`probing` under the lock).
+    Slot& s = q.slots[slot];
     const std::uint64_t start = now_ms();
-    bool warned = false, cancelled = false;
-    std::uint64_t cancelAt = 0;
+    DirectWait w;
+    bool probeCame = false;
     for (;;) {
-        const DWORD waited = WaitForSingleObject(q.slots[slot].event, 1000);
+        DWORD waited = WAIT_TIMEOUT;
+        if (s.probing) {
+            const HANDLE both[2] = {s.event, s.probe};
+            waited = WaitForMultipleObjects(2, both, FALSE, 1000);  // the read's own event first, when both are set
+        } else {
+            waited = WaitForSingleObject(s.event, 1000);
+        }
         if (waited == WAIT_OBJECT_0) break;
-        if (waited == WAIT_FAILED) Sleep(1000);  // never with a valid event; the bounds below still hold
-        const std::uint64_t waitedMs = now_ms() - start;
-        if (!warned && waitedMs >= kDirectWarnMs) {
-            FA_WARN("fs", "DirectStorage has not finished a read of game.pak for {} s; still waiting",
-                    kDirectWarnMs / 1000);
-            warned = true;
+        if (waited == WAIT_OBJECT_0 + 1) {
+            probeCame = true;
+            break;
         }
-        if (!cancelled && waitedMs >= kDirectGiveUpMs) {
-            FA_ERROR("fs", "DirectStorage has not finished a read of game.pak for {} s; cancelling it",
-                     kDirectGiveUpMs / 1000);
-            std::lock_guard<std::mutex> lock(q.mutex);
-            q.queue->CancelRequestsWithTag(~std::uint64_t(0), tag);
-            cancelled = true;
-            cancelAt = now_ms();
-        }
-        if (cancelled && now_ms() - cancelAt >= kDirectGiveUpMs) {
-            // Neither finished nor cancelled: the runtime may still write into the caller's buffers, which a return
-            // would free. Stop the process rather than let it write into freed memory.
-            FA_ERROR("fs", "DirectStorage did not confirm the cancellation of a read for {} s; stopping the process",
-                     kDirectGiveUpMs / 1000);
-            std::abort();
+        if (waited == WAIT_FAILED) Sleep(1000);  // never with valid events; the bounds below still hold
+        switch (direct_wait_step(w, now_ms() - start, q.status->IsComplete(slot))) {
+            case DirectWaitStep::Wait: break;
+            case DirectWaitStep::Probe: {
+                std::lock_guard<std::mutex> lock(q.mutex);
+                // A probe is one queue entry; the room of a submission of no request is two. A full queue puts it off to the
+                // next second, and direct_wait_step still reaches the warning, the cancellation and the abort.
+                if (q.room.take(0)) {
+                    q.queue->EnqueueSetEvent(s.probe);
+                    q.queue->Submit();
+                    s.probing = true;
+                } else {
+                    w.probed = false;  // the queue is full: the next second asks again
+                }
+                break;
+            }
+            case DirectWaitStep::Warn:
+                FA_WARN("fs", "DirectStorage has not finished a read of game.pak for {} s; still waiting",
+                        kDirectWarnMs / 1000);
+                break;
+            case DirectWaitStep::Cancel: {
+                FA_ERROR("fs", "DirectStorage has not finished a read of game.pak for {} s; cancelling it",
+                         kDirectGiveUpMs / 1000);
+                std::lock_guard<std::mutex> lock(q.mutex);
+                q.queue->CancelRequestsWithTag(~std::uint64_t(0), tag);
+                break;
+            }
+            case DirectWaitStep::Abort:
+                // Neither finished nor cancelled, and no probe came either: the runtime may still write into the
+                // caller's buffers, which a return would free. Stop the process rather than let it write into freed
+                // memory.
+                FA_ERROR("fs",
+                         "DirectStorage did not confirm the cancellation of a read for {} s; stopping the process",
+                         kDirectGiveUpMs / 1000);
+                std::abort();
         }
     }
-    // The event came, so the status entry is this read's (it was enqueued before the event).
+    // The event or the probe came, so the status entry is this read's (it was enqueued before both).
+    bool retire = false;
+    if (probeCame && WaitForSingleObject(s.event, 0) != WAIT_OBJECT_0) {
+        // The probe came and the read's own event did not: lost, or late. A late one must never end a later read's
+        // wait, so the slot takes a new event; the old handle stays open (DirectStorage may still set it, and a closed
+        // handle's value can name another object). Without a new event the slot is not used again.
+        const HANDLE fresh = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (fresh) {
+            s.event = fresh;
+        } else {
+            retire = true;
+            FA_ERROR("fs", "CreateEventW failed (error {}); one of DirectStorage's {} read slots is not used again",
+                     GetLastError(), kStatusSlots);
+        }
+    }
     const bool complete = q.status->IsComplete(slot);
     const HRESULT hr = complete ? q.status->GetHResult(slot) : E_FAIL;
     {
         std::lock_guard<std::mutex> lock(q.mutex);
-        q.slots[slot].busy = false;
+        if (probeCame) {
+            s.probing = false;
+            q.room.give(0);
+        }
+        s.busy = retire;
         q.room.give(ios.size());
     }
     q.freed.notify_all();
-    if (!complete) return make_error("DirectStorage set a read's event before its status entry was complete");
-    if (FAILED(hr)) return make_error("a DirectStorage read failed with " + hresult_text(hr));
-    return {};
+    return direct_read_result(complete, std::int32_t(hr), hresult_text(hr));
 }
 
 namespace {

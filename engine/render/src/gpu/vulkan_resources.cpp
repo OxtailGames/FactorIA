@@ -207,7 +207,9 @@ Buffer VulkanDevice::make_buffer(const BufferDesc& desc) {
     std::unique_lock<std::mutex> lock(resMutex_);
     const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
     const bool ok = made != nullptr;
-    const std::uint32_t id = buffers_.add(std::move(rec));
+    // Full at the check at the top: nothing was made, so the record does not go in even when a slot was freed since
+    // (it would be a failed buffer with no error reported for it).
+    const std::uint32_t id = poolFull ? 0 : buffers_.add(std::move(rec));
     if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
         const int capacity = buffers_.capacity();
         lock.unlock();
@@ -424,7 +426,9 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
     std::unique_lock<std::mutex> lock(resMutex_);
     const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
     const bool ok = made != nullptr;
-    const std::uint32_t id = images_.add(std::move(rec));
+    // Full at the check at the top: nothing was made, so the record does not go in even when a slot was freed since
+    // (it would be a failed image with no error reported for it).
+    const std::uint32_t id = poolFull ? 0 : images_.add(std::move(rec));
     if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
         const int capacity = images_.capacity();
         lock.unlock();
@@ -695,6 +699,7 @@ View VulkanDevice::make_view(const ViewDesc& desc) {
     }
     const bool ok = rec.tracked != nullptr;
     const VkImageView made = rec.view;
+    rec.serial = ++viewSerial_;  // what the framebuffer cache knows the view by (a handle can be reused)
     const std::uint32_t id = views_.add(std::move(rec));
     if (id == 0) {
         if (made) fn_.vkDestroyImageView(device_, made, nullptr);
@@ -718,6 +723,8 @@ void VulkanDevice::destroy_view(View view) {
         }
         count_destroy(stats_.views);
     }
+    // The framebuffers made with it go first (deferred like the view: a frame in flight may draw into them).
+    if (rec.view) forget_framebuffers(rec.serial);
     if (rec.tracked || rec.view) {
         // The VkImageView goes once the frames whose descriptors may name it are finished.
         Deferred d;

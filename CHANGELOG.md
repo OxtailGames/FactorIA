@@ -51,6 +51,15 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   bound in order, the Vulkan 1.0 barriers keep the storage and sampled bits above bit 31, and a texture and a storage image view of
   one subresource in one dispatch is a teaching error. Its tests run on Linux CI on Mesa's lavapipe with the validation layers
   (`FA_VULKAN_REQUIRE=1` makes a skip fail) (M77-P8b1).
+- The Vulkan backend keeps its pipeline cache on disk (`VulkanOptions::pipelineCacheFile`): the file carries the GPU, driver
+  and cache UUID it was made with and a SHA-256 of its data, a foreign or damaged file is thrown away with one warning, and the
+  save is atomic and keeps the old file when it cannot write (a file open in another process on Windows). Its descriptor pools
+  chain up to `frameDescriptorPools` a frame instead of refusing a full one; a destroyed shader's pipelines and layouts, and a
+  destroyed view's framebuffers, leave the caches (framebuffers are now cached across lists); new uniforms bind set 0 alone.
+  `make_shader` refuses SPIR-V whose instruction word counts do not add up, a point list needs a vertex stage that writes
+  `gl_PointSize`, a storage buffer view stops at `maxStorageBufferRange`, BGRA8 is never a loadable storage image, the Windows
+  loader takes an absolute `loaderPath` written with '/', and the notices carry the Vulkan headers' Apache-2.0 and MIT texts
+  in full (M77-P8b2).
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;
@@ -77,7 +86,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   fill whole blocks or a failed request is decoded on the CPU and uploaded instead, with one warning. The game's renderer does not use
   them yet. A lost device ends a read with an error that gives the removal reason, a block-compressed mip smaller than 4x4 is
   read whole, and the device closes a pack's file once the pack and its reads are gone. The reader's waits no longer hold a lock, are bounded (a warning after 30 s, the requests cancelled after 10 minutes) and are
-  never woken by another read; `FA_DIRECTSTORAGE_VERIFY=1` also checks the stored checksums of compressed blocks (a debugging aid).
+  never woken by another read; a read whose status says complete while its event does not come is checked a second later
+  with a probe event that ends the wait once DirectStorage is past the read, instead of being cancelled and stopping the process. The 2045-block limit holds only for reads
+  DirectStorage really takes (a large read that falls back to the CPU is read whole), and a partial block that finds no
+  upload memory is an error in `errors()` that names the bytes not written; `FA_DIRECTSTORAGE_VERIFY=1` also checks the stored checksums of compressed blocks (a debugging aid).
   `factoria setup directstorage` keeps NOTICES.txt next to the license; `setup.status` reports it `unsupported` off Windows (no longer
   missing, and `factoria setup` alone skips it), and the editor's setup window has an Install button for it on Windows.
 
