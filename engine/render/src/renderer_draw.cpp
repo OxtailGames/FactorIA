@@ -779,6 +779,16 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             pp.taa = make_taa_plan(fr.cam, *fr.cam.postStack, framePost, !taa.unavailable(), camKey, postSerial,
                                    taaScene, originShifts, pp.prevViewProj, pp.prevValid);
         }
+        // M76-P4: the temporal upscaler resolves this camera's jittered picture into the output image (renderer_taa.h, TaaFx::upscale), so the
+        // camera's own TemporalAA is not drawn (its fields still tune the upscaler). One history, one resolve: the camera is the frame's only one.
+        if (temporalFrame && !plan.view && framePost) {
+            const std::uint64_t scene =
+                std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation();
+            upscaleTaa =
+                make_upscale_taa_plan(fr.cam, fr.cam.postStack.get(), framePost, !taa.unavailable(), upscaler.sharpness,
+                                      postSerial, scene, originShifts, pp.prevViewProj, pp.prevValid);
+            if (upscaleTaa.on) pp.taa = TaaPlan{};
+        }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
         // that did not is left out here, named in stats.materialFallbacks and logged once.
         if (fr.cam.postStack && fr.cam.postStack->has_custom())
@@ -924,6 +934,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             ctx.postPlan.needsDepth = true;
         else
             ctx.postPlan.sss = SssPlan{};
+    }
+    if (draws && upscaleTaa.on && !plan.view) {
+        ctx.postPlan.needsDepth = true;  // the temporal upscaler reprojects its history with the depth
+        // and with the motion of the objects (M76-P1a), where the GPU can make the image
+        ctx.postPlan.request_velocity();
     }
     plan_prepass(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
@@ -4797,7 +4812,18 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             return;
         const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
                                                       import_desc(targetW, targetH, outTarget.format, "output"));
-        add("upscale", {srcRes}, {outRes}, [this](const PassContext&) { run_upscale(outTarget); });
+        // The temporal upscaler also reads the camera's prepass (the depth that reprojects its history) and the velocity, when they exist.
+        std::vector<ResourceId> upReads{srcRes};
+        upscalePrepass = PrepassRef{};
+        upscaleVelocity = VelocityRef{};
+        if (upscaleImpl == render::UpscaleImpl::Temporal && upscaleTaa.on && !postCams.empty()) {
+            const PostPlan& cam0 = postCams.front()->postPlan;
+            upscalePrepass = cam0.prepass;
+            upscaleVelocity = cam0.velocity;
+            if (upscalePrepass.valid()) upReads.push_back(upscalePrepass.res);
+            if (upscaleVelocity.valid()) upReads.push_back(upscaleVelocity.res);
+        }
+        add("upscale", std::move(upReads), {outRes}, [this](const PassContext& c) { run_upscale(outTarget, c); });
         if (!ctx.hudOut) return;
         std::vector<ResourceId> reads{outRes};
         reads.insert(reads.end(), shown.begin(), shown.end());

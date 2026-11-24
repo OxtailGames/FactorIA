@@ -186,13 +186,25 @@ struct Renderer::Impl {
     // only when both run: a render scale below 1 and a sharpness above 0).
     render::SpatialUpscaler spatial;
     Target spatialTarget;
-    mutable int spatialSupported = -1;  // the "spatialUpscaler" row of this backend, asked once (-1 = not yet)
-    render::UpscalerCaps upscaler_caps() const;
-    render::UpscalerMode effective_upscaler_mode() const;
-    bool upscale_active() const;
+    int spatialSupported = -1;  // the "spatialUpscaler" row of this backend, asked once (-1 = not yet)
+    render::UpscalerCaps
+    upscaler_caps();  // not const: the first temporal, metalfx or auto setting compiles the TAA shaders (caps.temporal)
+    render::UpscalerMode effective_upscaler_mode();
+    bool upscale_active();
+    // M76-P4, the temporal upscaler (renderer_upscale.cpp). temporalPhases: the jitter sequence render() asks the cameras for this frame
+    // (0: none); temporalFrame: this frame's picture is jittered for the upscaler and resolved by it (plan_job: `upscaleTaa` is the
+    // plan, and the camera's own TemporalAA is not drawn); both are set by render() before the cameras are built. temporalBlocked: the
+    // last frame had no single full-viewport camera (UpscalerCaps::multiCamera), so the effective mode is spatial until one has.
+    bool temporalBlocked = false;
+    int temporalPhases = 0;
+    bool temporalFrame = false;
+    TaaPlan upscaleTaa;
+    PrepassRef upscalePrepass;
+    VelocityRef upscaleVelocity;
+    bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
     void free_output_targets();
-    void run_upscale(Target& out);
+    void run_upscale(Target& out, const PassContext& c);
     void stretch_upscale(const render::UpscaleInput& in, Target& out);
     void spatial_upscale(const render::UpscaleInput& in, Target& out);
     bool ensure_spatial_target(sg_pixel_format colorFormat);

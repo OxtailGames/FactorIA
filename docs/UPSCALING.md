@@ -1,8 +1,8 @@
 # Upscaling and temporal antialiasing (M76)
 
-This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the plain
-**stretch** and the **graphics presets** draw today (see below); the temporal upscaler and MetalFX are planned (`render.supports`
-says `planned (M76)` for each of them, and a setting that asks for one draws as the best mode that exists).
+This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the **temporal upscaler**,
+the plain **stretch** and the **graphics presets** draw today (see below); MetalFX is planned (`render.supports` says `planned
+(M76)` for it, and a setting that asks for it draws as the best mode that exists).
 
 ## The engine-wide upscaler settings
 
@@ -25,12 +25,50 @@ draws, so reading the setting back never lies:
 - `stretch` and `spatial` draw as themselves;
 - a game with `display.scaleMode` `pixelPerfect` (pixel art) is always `stretch`, drawn with the nearest-texel scaling: a filter
   would blur the pixels it keeps hard (the quality still lowers the size it is drawn at);
-- `temporal`, `metalfx` and `auto` draw as `spatial` until their packages land (then `auto` picks the best of
-  metalfx, temporal and spatial the GPU can draw, and `temporal` or `metalfx` fall back to the next one down);
-- with no renderer (`graphics=false`) `effectiveMode` is what a GPU would draw: `stretch` for a pixel-perfect project, and otherwise
-  the same as with a GPU (`spatial` for `spatial`, `auto`, `temporal` and `metalfx` until those draw).
+- `temporal` draws as itself where the renderer can (the TAA shaders compiled, histories that fit) and the frame has one camera
+  that covers the window; otherwise it draws as `spatial` (several cameras or a split screen, a history the GPU cannot make). The
+  fallback is the spatial upscaler, never a bare stretch: the picture is the one of the mode `spatial`;
+- `auto` picks the best the GPU can draw: `metalfx` (when it lands), `temporal`, `spatial`; where `temporal` cannot run it is
+  `spatial`. `metalfx` draws as `temporal` (or `spatial`) until its package lands;
+- with no renderer (`graphics=false`) `effectiveMode` is what a GPU would draw for a game with one camera and no history to
+  fail: `stretch` for a pixel-perfect project, and otherwise the setting itself (`spatial`, `temporal`), with `auto` and
+  `metalfx` reported as `temporal`. It cannot know that a particular GPU's shaders compile or that a frame has several cameras, so
+  a game that does that draws `spatial` where this reports `temporal`.
 
 The project's block is applied when the engine starts and again when `factoria.json` changes it.
+
+## The temporal upscaler
+
+`mode` `temporal` (or `auto`) draws the game below the window's size, with the camera jittered, and **accumulates a history at the
+window's size** with the same resolve as the temporal antialiasing (`taa_shared.glsl`; its Gaussian is as narrow as an output pixel when
+the picture is smaller than the output), then sharpens it (`sharpness`: 0 none, 0.5 the effect's own, 1 twice as much). The jitter has
+`ceil(8 * (output / render)^2)` phases (at most 128): 32 at half the size, 72 at a third. One seam serves it: the `upscale` stage of the
+frame graph, which the spatial upscaler (P3b) and MetalFX (P5) use too, with the HUD drawn after it at the window's size, never jittered.
+
+- **Quality.** `quality` sets the render size (`scale` above); `native` is the whole size, so the stage is off and nothing is jittered
+  (for antialiasing at the full size turn `temporalAAEnabled` on). `sharpness` is the output sharpen. A change of the output size, the
+  render size or the quality starts the history again, like a cut, a floating-origin shift and the first frame.
+- **The camera's TemporalAA.** While the upscaler draws, the camera's own render-size `TemporalAA` pass is skipped (the upscaler does
+  that job in one pass). Its fields (`temporalAAFeedback`, `Sharpen`, `VarianceGamma`, `ReactiveScale`) still tune the upscaler; without the
+  effect on the camera the defaults apply.
+- **One camera.** The frame needs exactly one camera that covers the whole window (the jitter of a camera would show in the rectangle of
+  the next one). With a split screen or an overlay camera the frame is drawn with the spatial upscaler (`effectiveMode` says `spatial`; it is `temporal` again on the first frame with one camera). Cameras that draw into a texture are not
+  jittered and are not resolved.
+- **The post stack sees a jittered image.** The history is resolved after the post stack, at the end, not before it as the antialiasing
+  does: bloom, depth of field, motion blur and the other effects work on the jittered render-size image, and the resolve smooths what they
+  leave. That is the price of one seam for every upscaler; thin bright details can shimmer through a strong bloom.
+- **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
+  (`render.supports` `motionVectors`). A 2D game has no velocity: a sprite that moves leaves a short trail; keep the quality high or
+  use `stretch` for it. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
+  as with the stretch stage (docs/RENDERING.md). The output's alpha is 1.
+- **Pixel art.** `PixelPerfect` draws as `stretch` (hard pixels, no blend, no jitter).
+- **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
+  (resolve and sharpen) in the `upscale` pass; the render-size frame plus a depth prepass for the reprojection. Off (`stretch`) costs nothing:
+  no pass, no image, no jitter, the same pixels.
+- **Not done yet: texture LOD bias.** The textures are sampled with the mip level of the render size, not biased by `log2(render / output)`
+  as the best upscalers do (sokol's samplers have no bias; it needs a uniform and a change at every `texture()` of the mesh, terrain, foliage and
+  material shaders). The accumulated frames and the sharpen recover most of the detail; very fine textures look a little softer than at
+  the full size.
 
 ## The render scale
 
@@ -47,7 +85,7 @@ The game is drawn at `window.renderScale` (0.33 to 1, the player's option) times
 
 The upscale stage is on when that scale is below 1, or when the mode that draws is `spatial` and `sharpness` is above 0: at
 scale 1 it is then the sharpen alone (one pass at the window's size, an extra cost the `stretch` mode never has; set
-`sharpness` 0 for none). The HUD, the UI and the debug text are drawn after the stage at the window's size, so text stays sharp
+`sharpness` 0 for none). The `temporal` mode at scale 1 draws nothing extra (nothing to upscale; turn `temporalAAEnabled` on for antialiasing). The HUD, the UI and the debug text are drawn after the stage at the window's size, so text stays sharp
 (unless a screen-space bloom would make them glow: docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", repository only, not in the binary).
 `game.render_stats` reports the size the game is drawn at (`width`, `height`) and the scale it used (`renderScale`);
 `window.upscaler.scale` is the quality's own scale. A size held from outside (`--render-scale` of the CLI, the video recorder, a
@@ -214,14 +252,15 @@ upscaler is not put back by itself: applying the preset again does.
 ## What a game can already ask
 
 `render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
-(the effect's row). `temporalAA` is `supported`; `spatialUpscaler` answers true on every GPU backend; `motionVectors` answers
+(the effect's row). `temporalAA`, `spatialUpscaler` and `temporalUpscaler` are `supported` on every GPU backend; `motionVectors` answers
 true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 32 joints and
 materials with a `vertex()` included, instances, terrain, foliage and impostors, and `render.debug_view {"view":"motionVectors"}`
 shows it); the others answer false with the status `planned (M76)` until their packages land.
 
 | Row | Backends | Needs |
 |---|---|---|
-| `motionVectors`, `temporalUpscaler` | every GPU backend | RGBA16F render targets that blend and filter (`half`) |
+| `motionVectors` | every GPU backend | RGBA16F render targets that blend and filter (`half`) |
+| `temporalUpscaler` | every GPU backend | nothing (RGBA16F history where the GPU can, else RGBA8, as the temporal antialiasing) |
 | `spatialUpscaler`, `dynamicResolution` | every GPU backend | nothing |
 | `metalfx` | Metal only (macOS, iOS) | nothing |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |

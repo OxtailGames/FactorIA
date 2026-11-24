@@ -112,12 +112,16 @@ int max_diff(const Image& a, const Image& b) {
 
 }  // namespace
 
-TEST_CASE("upscale stage: the selector knows 'stretch' and 'spatial' and falls back to stretch for every other name") {
+TEST_CASE("upscale stage: the selector knows 'stretch', 'spatial' and 'temporal' and falls back to stretch for every "
+          "other name") {
     bool known = true;
     CHECK(render::select_upscale_impl("stretch", &known) == render::UpscaleImpl::Stretch);
     CHECK(known);
     known = false;
     CHECK(render::select_upscale_impl("spatial", &known) == render::UpscaleImpl::Spatial);
+    CHECK(known);
+    known = false;
+    CHECK(render::select_upscale_impl("temporal", &known) == render::UpscaleImpl::Temporal);  // M76-P4
     CHECK(known);
     for (const char* name : {"", "bogus", "Stretch", "fsr2"}) {
         CAPTURE(name);
@@ -128,6 +132,7 @@ TEST_CASE("upscale stage: the selector knows 'stretch' and 'spatial' and falls b
     CHECK(render::select_upscale_impl("bogus") == render::UpscaleImpl::Stretch);  // `known` is optional
     CHECK(std::string(render::upscale_impl_name(render::UpscaleImpl::Stretch)) == "stretch");
     CHECK(std::string(render::upscale_impl_name(render::UpscaleImpl::Spatial)) == "spatial");
+    CHECK(std::string(render::upscale_impl_name(render::UpscaleImpl::Temporal)) == "temporal");
 }
 
 TEST_CASE("upscale stage: at scale 1 it is off, with no pass and no new picture, even when asked for") {

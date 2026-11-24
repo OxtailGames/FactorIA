@@ -12,18 +12,19 @@ namespace fa::render {
 
 UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCaps& caps) {
     if (caps.pixelArt) return UpscalerMode::Stretch;
-    // The best the GPU can draw from here down: a mode that cannot be drawn falls to the next (the temporal and metalfx packages of
-    // M76 set their flags in the caps, so the branches below start to answer them).
+    // The best the GPU can draw from here down: a mode that cannot be drawn falls to the next (the metalfx package of M76 sets its flag
+    // in the caps, so the branch below starts to answer it). Temporal needs a frame of one camera too (caps.multiCamera).
+    const bool temporal_ok = caps.temporal && !caps.multiCamera;
     const auto best_from_metalfx = [&]() {
         if (caps.metalfx) return UpscalerMode::MetalFx;
-        if (caps.temporal) return UpscalerMode::Temporal;
+        if (temporal_ok) return UpscalerMode::Temporal;
         return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
     };
     switch (s.mode) {
         case UpscalerMode::Stretch: return UpscalerMode::Stretch;
         case UpscalerMode::Spatial: return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
         case UpscalerMode::Temporal:
-            if (caps.temporal) return UpscalerMode::Temporal;
+            if (temporal_ok) return UpscalerMode::Temporal;
             return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
         case UpscalerMode::MetalFx:
         case UpscalerMode::Auto: return best_from_metalfx();

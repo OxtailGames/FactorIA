@@ -258,7 +258,7 @@ public:
     // The upscaler setting (`window.upscaler`, M76, docs/UPSCALING.md): how the picture drawn at a lower resolution reaches the screen.
     // set_upscaler takes a partial object ({"mode", "quality", "sharpness"}: the keys present change, the rest stays) and returns ""
     // when done, else the error sentence (what is wrong, the valid names, a "did you mean"); nothing changes on an error. Engine
-    // also hands the value to the renderer, which draws it (stretch and spatial today), and works out the render scale it implies; the
+    // also hands the value to the renderer, which draws it (stretch, spatial and temporal today), and works out the render scale it implies; the
     // default only keeps it, for hosts without a renderer.
     virtual render::UpscalerSettings upscaler() const { return upscaler_; }
     // The mode that really draws (what `window.upscaler.effectiveMode` and render.upscaler report): the setting's mode where this backend
