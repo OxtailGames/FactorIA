@@ -1,10 +1,11 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (window mode,
 // monitor, size, vsync, frame cap, the interface size and the colour filter, two accessibility options that work without a window),
-// Graphics (the quality of the screen effects, the main effects one by one, HDR output where the display can show it), Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
+// Graphics (the quality of the screen effects, the main effects one by one, HDR output where the display can show it; its second page, "Preset and upscaling":
+// the graphics preset, the upscaler mode and quality, the render scale and the sharpness), Audio (one slider per bus), Controls (rebinding every action of the game; with `players` above 1, for the player you pick) and Language
 // (cycles through the game's languages). Every change is applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen } from "factoria";
+import { Behaviour, ui, input, window, audio, world, i18n, platform, analytics, screen, game } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -84,6 +85,7 @@ export default class Options extends Behaviour {
       world.find(`${tab}_section`).active = tab === name;
       world.find(`tab_${tab}`).get("Button").color = tab === name ? TAB_SELECTED : TAB_COLOR;
     }
+    world.find("quality_section").active = false; // the Graphics tab always opens on its first page
   }
 
   // ------------------------------------------------------------------------------------------------------------ video
@@ -216,6 +218,7 @@ export default class Options extends Behaviour {
       s.graphics.hdr = e.value;
       this.changeGraphics();
     });
+    this.setupQuality();
     this.refreshGraphics();
   }
 
@@ -256,6 +259,137 @@ export default class Options extends Behaviour {
       if (none) lines.push(i18n.t("options.gfx.note"));
       if (noLight) lines.push(i18n.t("options.gfx.lightNote"));
       if (!hdrAvailable) lines.push(i18n.t("options.gfx.hdrNote"));
+      note.get("Text").text = lines.join(" ");
+    } finally {
+      this.syncing = false;
+    }
+    this.refreshQuality();
+  }
+
+  // ----------------------------------------------------------------------------------- graphics, preset and upscaling
+  /**
+   * The second page of the Graphics tab (quality_section): the preset (game.graphics), the upscaler mode, its quality (a button that cycles) and the sharpness (window.upscaler),
+   * the render scale (window.renderScale). Every choice is applied at once and saved in settings.graphics (scripts/settings.js).
+   * The preset drives the "Effects quality" row: picking a preset sets that quality and clears the effect switches and the upscaler keys the player
+   * set, so the rows always show what the preset does; a row touched afterwards is the player's own fine adjustment and wins over the preset.
+   * gfx_dynamic_slot (inactive) is where a dynamic resolution row goes.
+   */
+  setupQuality() {
+    const g = this.s.graphics;
+    ui.on("click", "gfx_page", () => this.showGraphicsPage(true));
+    ui.on("click", "gfx_page_back", () => this.showGraphicsPage(false));
+    for (const name of settings.GRAPHICS_PRESETS) ui.on("click", `gfx_preset_${name}`, () => this.choosePreset(name));
+    for (const mode of settings.UPSCALER_MODES) ui.on("click", `gfx_mode_${mode}`, () => this.chooseUpscaler({ mode }));
+    ui.on("click", "gfx_uq", () => {
+      const all = settings.UPSCALER_QUALITIES;
+      this.chooseUpscaler({ quality: all[(all.indexOf(window.upscaler.quality) + 1) % all.length] });
+    });
+    ui.on("change", "gfx_render_scale", (e) => {
+      const value = Math.round(Math.min(settings.RENDER_SCALE_MAX, Math.max(settings.RENDER_SCALE_MIN, e.value)) * 100) / 100;
+      if (this.syncing || value === (g.renderScale ?? window.renderScale)) return;
+      g.renderScale = value;
+      this.applyQuality(() => (window.renderScale = value));
+    });
+    ui.on("change", "gfx_sharpness", (e) => {
+      const value = Math.round(Math.min(1, Math.max(0, e.value)) * 100) / 100;
+      if (this.syncing || value === (g.upscaler.sharpness ?? window.upscaler.sharpness)) return;
+      this.chooseUpscaler({ sharpness: value });
+    });
+  }
+
+  /** Shows the first (effects) or the second (preset and upscaling) page of the Graphics tab, with the focus on the page's first row. */
+  showGraphicsPage(quality) {
+    world.find("graphics_section").active = !quality;
+    world.find("quality_section").active = quality;
+    if (quality) this.refreshQuality();
+    ui.focus(world.find(quality ? "gfx_preset_auto" : "gfx_page"));
+  }
+
+  /** Runs `change` (an engine call), saves and shows the result; a call the engine refuses is logged and the page shows what is in force. */
+  applyQuality(change) {
+    try {
+      change();
+    } catch (e) {
+      console.warn(`options: the graphics choice was not applied: ${e.message}`);
+    }
+    settings.save(this.s);
+    this.refreshQuality();
+  }
+
+  /** A preset button: Auto detects once and keeps the pick. The preset's quality replaces the effects quality, and the player's own switches and upscaler keys are cleared. */
+  choosePreset(name) {
+    const g = this.s.graphics;
+    const pick = name === "auto" ? settings.detectPreset(this.s) : name;
+    if (name === "auto" && !pick) return this.applyQuality(() => {}); // the detection failed (logged): nothing changes
+    const was = g.preset;
+    g.preset = name;
+    g.upscaler = {};
+    const quality = settings.PRESET_QUALITY[pick];
+    if (quality) {
+      g.quality = quality;
+      g.effects = {};
+    }
+    settings.applyRenderSettings(this.s);
+    if (name === "custom" && was && was !== "custom") {
+      // The engine put back the upscaler the game had before a preset (a manual choice made earlier included): save what the page shows,
+      // so the next start draws the same.
+      const { mode, quality, sharpness } = window.upscaler;
+      g.upscaler = { mode, quality, sharpness };
+    }
+    this.changeGraphics(); // the post stack, the save and refreshGraphics()
+  }
+
+  /** An upscaler mode, quality or sharpness: it applies at once and wins over what the preset wrote. */
+  chooseUpscaler(keys) {
+    Object.assign(this.s.graphics.upscaler, keys);
+    this.applyQuality(() => (window.upscaler = keys));
+  }
+
+  /** What the page shows: the preset and the upscaler in force, the modes this GPU cannot draw greyed out, and the notes that say why. */
+  refreshQuality() {
+    const g = this.s.graphics;
+    const up = window.upscaler;
+    const t = (key, args) => i18n.t(key, args);
+    const preset = g.preset ?? game.graphics.preset().preset; // never chose: the engine's own (the project's render.graphicsPreset, else custom)
+    const pick = settings.presetInForce(this.s);
+    const mark = (id, on) => (world.find(id).get("Button").color = on ? TAB_SELECTED : TAB_COLOR);
+    this.syncing = true;
+    try {
+      for (const name of settings.GRAPHICS_PRESETS) {
+        const button = world.find(`gfx_preset_${name}`).get("Button");
+        mark(`gfx_preset_${name}`, name === preset);
+        button.text = name === "auto" && pick ? t("options.gfx.p.autoPick", { preset: t(`options.gfx.p.${pick}`) }) : t(`options.gfx.p.${name}`);
+      }
+      world.find("gfx_preset_label").get("Text").text = t("options.gfx.presetLabel", {
+        preset: preset === "auto" ? t("options.gfx.p.autoPick", { preset: t(`options.gfx.p.${pick ?? "custom"}`) }) : t(`options.gfx.p.${preset}`),
+      });
+      const mode = t(`options.gfx.um.${up.mode}`);
+      world.find("gfx_mode_label").get("Text").text = t("options.gfx.modeLabel", {
+        mode: up.effectiveMode === up.mode ? mode : t("options.gfx.modeDrawn", { mode, drawn: t(`options.gfx.um.${up.effectiveMode}`) }),
+      });
+      const unsupported = [];
+      for (const name of settings.UPSCALER_MODES) {
+        const ok = settings.upscalerModeSupported(name);
+        const widget = world.find(`gfx_mode_${name}`).get("Button");
+        widget.interactable = ok;
+        mark(`gfx_mode_${name}`, name === up.mode);
+        if (!ok) unsupported.push(`${t(`options.gfx.um.${name}`)}: ${t(`options.gfx.unsup.${name}`)}`);
+      }
+      world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
+      const scale = world.find("gfx_render_scale").get("Slider");
+      const shownScale = g.renderScale ?? window.renderScale;
+      if (Math.abs(scale.value - shownScale) > 0.004) scale.value = shownScale;
+      scale.label = t("options.gfx.renderScale", { percent: Math.round(shownScale * 100) });
+      const sharp = world.find("gfx_sharpness");
+      sharp.active = up.effectiveMode !== "stretch"; // the plain stretch has no sharpen stage
+      const sharpness = world.find("gfx_sharpness").get("Slider");
+      if (Math.abs(sharpness.value - up.sharpness) > 0.004) sharpness.value = up.sharpness;
+      sharpness.label = t("options.gfx.sharpness", { percent: Math.round(up.sharpness * 100) });
+      const lines = [];
+      if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join("; ") }));
+      if (up.effectiveMode === "stretch" && up.mode !== "stretch") lines.push(t("options.gfx.stretchNote"));
+      const note = world.find("quality_note");
+      note.active = lines.length > 0;
       note.get("Text").text = lines.join(" ");
     } finally {
       this.syncing = false;

@@ -116,6 +116,42 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
     REQUIRE(eval("world.find('a_sprite')?.destroy(); import('scripts/settings.js').then((m) => { "
                  "m.overrideRenderSupports(null); "
                  "return 1; })")["ok"] == true);
+    // The second page of the Graphics tab (preset and upscaling) with its longest content (a mode that is not drawn, the sharpness row on):
+    // every row lies inside its section, the Back button is on screen, in each language.
+    REQUIRE(eval("world.find('graphics_section').active = false; world.find('quality_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports((x) => x === 'spatialUpscaler'); f.window.upscaler = { mode: 'spatial' }; "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    for (const char* lang : {"en", "es", "ar"}) {
+        INFO("preset and upscaling page, language " << lang);
+        REQUIRE(set_language(lang)["ok"] == true);
+        engine.step(5);
+        const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+        REQUIRE(st["ok"] == true);
+        const std::vector<float> qbox = rect_of(st, "quality_section"), qnote = rect_of(st, "quality_note"),
+                                 qback = rect_of(st, "gfx_page_back"), qsharp = rect_of(st, "gfx_sharpness"),
+                                 qend = rect_of(st, "options_back"), qroot = rect_of(st, "options");
+        for (const char* id : {"gfx_preset_auto", "gfx_preset_custom", "gfx_mode_auto", "gfx_mode_metalfx", "gfx_uq",
+                               "gfx_render_scale", "gfx_sharpness"}) {
+            CAPTURE(id);
+            const std::vector<float> r = rect_of(st, id);
+            CHECK(r[0] >= qbox[0] - 0.5f);
+            CHECK(r[0] + r[2] <= qbox[0] + qbox[2] + 0.5f);
+            CHECK(r[1] + r[3] <= qbox[1] + qbox[3] + 0.5f);
+        }
+        CHECK(qsharp[1] + qsharp[3] <= qnote[1] + 0.5f);
+        CHECK(qnote[1] + qnote[3] <= qback[1] + 0.5f);
+        CHECK(qback[1] + qback[3] <= qbox[1] + qbox[3] + 0.5f);
+        CHECK(qback[1] + qback[3] <= qend[1] + 0.5f);
+        CHECK(qroot[1] >= 0.0f);
+        CHECK(qroot[1] + qroot[3] <= 720.0f);
+        CHECK(qend[1] + qend[3] <= 720.0f);
+    }
+    REQUIRE(eval("world.find('quality_section').active = false; world.find('graphics_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(null); f.window.upscaler = { mode: 'stretch' }; return 1; })")["ok"] ==
+            true);
     REQUIRE(set_language("ar")["ok"] == true);
     engine.step(5);
     // Back to the Video tab, which the golden shows.
