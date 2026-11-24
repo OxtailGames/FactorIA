@@ -3415,6 +3415,19 @@ TEST_CASE("full material: the file is checked without a compiler, each problem a
     CHECK(reserved[0].hint.find("did you mean `fa_position`?") != std::string::npos);
     CHECK(has(errors_of(replace_in(kFullShader, "vec3 p = fa_position;", "float fa_mine = 1.0; vec3 p = fa_position;")),
               6, "fa_mine"));
+    // M76-P4b: fa_mip_bias and its neighbour in the list, fa_linear_to_srgb, are documented names (a missing comma once glued them into one
+    // name that matched neither)
+    for (const char* use : {"vec4 t = texture(sampler2D(fa_tex, fa_smp), v_normal.xy, fa_mip_bias); fa_frag_color = "
+                            "fa_base_sample(v_normal.xy) * t;",
+                            "fa_frag_color = vec4(fa_linear_to_srgb(v_normal), 1.0);",
+                            "fa_frag_color = vec4(vec3(-fa_mip_bias * 0.25), 1.0);"}) {
+        const auto used = errors_of(replace_in(kFullShader, "fa_frag_color = vec4(v_normal * 0.5 + 0.5, 1.0);", use));
+        for (const ShaderIssue& i : used) INFO(use << ": " << i.message);
+        bool unknown = false;
+        for (const ShaderIssue& i : used)
+            unknown = unknown || i.message.find("is not a name a full shader may use") != std::string::npos;
+        CHECK_FALSE(unknown);
+    }
     // FA_PASS_<NAME> of a pass the material declares is a define; of a pass it does not, a typo
     for (const ShaderIssue& i :
          errors_of(replace_in(kFullShader, "#ifdef FA_PASS_OUTLINE\n    p +=", "#ifdef FA_PASS_BODY\n    p +=")))

@@ -86,7 +86,8 @@ other `fa_` name is an error with a "did you mean" hint. Your own names must not
 | Name | Meaning |
 |---|---|
 | `fa_frag_color` | The output, a `vec4`, in the scene's colour space (`SceneSettings.colorSpace`); the pass's `blend` uses its alpha. Write it. |
-| `fa_base_sample(uv)` | The `MeshRenderer`'s base colour texture at `uv`, in the scene's colour space, times `MeshRenderer.color`. |
+| `fa_base_sample(uv)` | The `MeshRenderer`'s base colour texture at `uv`, in the scene's colour space, times `MeshRenderer.color`, read with `fa_mip_bias`. |
+| `fa_mip_bias` | `float`: the frame's texture level-of-detail bias, 0 or negative (below 0 only while the temporal upscaler or the temporal antialiasing accumulates frames, docs/UPSCALING.md "Texture mip bias"). `fa_base_sample` adds it; add it to your other reads, `texture(sampler2D(t, t_smp), uv, fa_mip_bias)`. Fragment stage only. |
 | `fa_base_color` | `MeshRenderer.color` as a `vec4`. `fa_emissive.rgb` is `MeshRenderer.emissive`. |
 | `fa_camera_pos`, `fa_ambient`, `fa_env_sky`, `fa_env_horizon` | `vec4`s: camera position, the ambient light, the sky and horizon colours (`.rgb` or `.xyz`). |
 | `fa_light_count()` | How many of the first lights of the engine's table (the directional lights first, at most 32), in its own order. With hundreds of lights in the scene, loop over `fa_cluster_light_count(world_pos)` instead. |

@@ -324,7 +324,8 @@ std::string declared_by_other_material(const std::string& name, const MapContext
 // full-shader pages): the "did you mean" of an unknown fa_ name suggests these, never an internal name of the templates (fa_in,
 // fa_quad_types...) that the author may not use.
 const std::vector<std::string>& engine_names(const MaterialDef& material) {
-    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index"},
+    static const std::vector<std::string> mesh = {"fa_time", "fa_camera_pos", "fa_tangent_normal", "fa_instance_index",
+                                                  "fa_mip_bias"},
                                           sprite = {"fa_time",       "fa_target",         "fa_sample_main",
                                                     "fa_scene_rgb",  "fa_instance_index", "fa_scene_color",
                                                     "fa_world_to_uv"},
@@ -351,6 +352,7 @@ const std::vector<std::string>& engine_names(const MaterialDef& material) {
                                                   "fa_light_count",
                                                   "fa_light_vp",
                                                   "fa_linear_to_srgb",
+                                                  "fa_mip_bias",
                                                   "fa_model",
                                                   "fa_normal",
                                                   "fa_position",

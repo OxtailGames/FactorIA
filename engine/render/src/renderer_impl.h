@@ -232,9 +232,13 @@ struct Renderer::Impl {
     std::uint64_t mfxLastSerial = 0, mfxLastScene = 0, mfxLastShifts = 0, mfxLastConfig = 0;
     bool mfxLastWrote = false;
     bool mfxLastReset = false;  // the last MetalFX temporal frame reset the scaler's history (tests)
-    // Test hooks (RendererTestAccess): the next scaler creation fails; the sign of the jitter and of the motion handed to MetalFX.
+    // Test hooks (RendererTestAccess): the next scaler creation fails; the preparation pass alone; the sign of the jitter and of the motion handed to MetalFX.
+    // mfxPrepOnly: a jittered frame draws the preparation pass (mfxDepth, mfxMotion) and then falls to the temporal upscaler without asking
+    // MetalFX for anything, so the pass can be read back on a GPU that has no MetalFX.
     bool mfxForceCreateFail = false;
+    bool mfxPrepOnly = false;
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
+    void free_mfx_images();
     const render::metalfx::Support& metalfx_support();
     bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
     bool metalfx_fail(const std::string& why);
@@ -340,6 +344,8 @@ struct Renderer::Impl {
     bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
+    // The texture LOD bias of a camera that jitters (M76-P4b): 0 when `phases` is 0 or a test forced the jitter.
+    float mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const;
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,

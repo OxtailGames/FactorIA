@@ -86,6 +86,8 @@ struct RendererTestAccess {
     static bool read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
     // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
     static std::vector<Vec2> last_jitter(Renderer& r);
+    // M76-P4b: the texture LOD bias of the cameras of the last frame (CameraInfo::mipBias), in draw order.
+    static std::vector<float> last_mip_bias(Renderer& r);
     static int ldr_cut_format(Renderer& r);
     // M76-P2: the temporal antialiasing (renderer_taa.h): the history images alive, whether `camera`'s last resolve blended with its history,
     // how often a history was started, the format of the histories (sg_pixel_format as an int), whether the renderer gave the effect up, and
@@ -110,6 +112,16 @@ struct RendererTestAccess {
     static bool mfx_reset(Renderer& r);
     static void mfx_force_create_failure(Renderer& r, bool fail);
     static void mfx_signs(Renderer& r, float jitterSign, float motionSign);
+    // M76-P5c: mfx_force_support: what the renderer believes the GPU's MetalFX can do (spatial, temporal), whatever it really can, so the
+    // fallback runs on a Metal GPU that has no MetalFX; mfx_prep_only: a MetalFX frame draws its preparation pass and then the temporal
+    // upscaler, without asking MetalFX anything; mfx_images: how many of the preparation images (depth, motion) are alive; mfx_last_wrote:
+    // the last frame's MetalFX temporal scaler drew; mfx_read_prep: the preparation pass at pixel (x, y) of the render picture, read back
+    // as out = {depth, motion x, motion y} (false + error when the images are not there).
+    static void mfx_force_support(Renderer& r, bool spatial, bool temporal);
+    static void mfx_prep_only(Renderer& r, bool only);
+    static int mfx_images(Renderer& r);
+    static bool mfx_last_wrote(Renderer& r);
+    static bool mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);
