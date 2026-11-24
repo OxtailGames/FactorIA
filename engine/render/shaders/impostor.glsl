@@ -163,7 +163,7 @@ void surface(in SurfaceInput i, inout Surface s) {
     // mip anyway), at most 3 and at most log2(frame) - 1, so a smaller card never reads a level whose texels are wider than a frame's border.
     float footprint = max(length(dFdx(i.world_pos)), length(dFdy(i.world_pos))) / (2.0 * radius) * fa_i_misc.z;
     float maxLod = max(min(3.0, floor(log2(fa_i_misc.z)) - 1.0), 0.0);
-    float lod = clamp(floor(log2(max(footprint, 1.0)) + 0.5), 0.0, maxLod);
+    float lod = clamp(floor(log2(max(footprint, 1.0)) + 0.5 + fa_mip_bias), 0.0, maxLod);  // fa_mip_bias: the frame's texture LOD bias (mesh_common.glsl)
     vec4 acc = vec4(0.0);
     vec3 nrm = vec3(0.0);
     fa_i_add(c0, w.x, xl, qc, mirror, radius, n, hemi, lod, acc, nrm);

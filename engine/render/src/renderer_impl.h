@@ -344,6 +344,8 @@ struct Renderer::Impl {
     bool qualityOn = false;  // quality != QualityLimits{}: the frame pays nothing while it is off
     // Compiles the TAA shaders the first time a camera asks for the effect (a camera must not jitter for a pass that cannot run).
     int jitter_phases(const CameraInfo& ci, bool mainFrameCamera);
+    // The texture LOD bias of a camera that jitters (M76-P4b): 0 when `phases` is 0 or a test forced the jitter.
+    float mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const;
     std::unordered_map<std::uint64_t, PrevCamera> prevViewProj;  // by Entity::bits() of the camera
     // M75.4b, the floating origin (renderer_origin.cpp; docs/BIG_WORLDS_STREAMING.md "Floating origin"). The renderer watches the world it was last
     // given (update / render_world call watch_world every frame: one pointer compare when nothing changed) and, when the world rebases,
