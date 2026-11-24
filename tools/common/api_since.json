@@ -1568,6 +1568,7 @@
     "project.create_storage_secret": "0.30.0",
     "project.examples": "0.30.0",
     "project.export": "0.1.2",
+    "project.graphics": "unreleased",
     "project.info": "0.1.0",
     "project.new_ci_workflow": "0.2.0",
     "project.new_plugin": "0.1.6",

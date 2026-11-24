@@ -301,7 +301,7 @@ public:
     // The graphics presets (`game.graphics`, M76, docs/UPSCALING.md "Graphics presets"). graphics_preset({}) answers the current preset;
     // graphics_preset({"name": "high"}) applies it and answers what changed ({preset, previous, changed, changes, limits, capped,
     // upscaler}). graphics_detect() measures the GPU (a short off-screen benchmark) and answers {preset, reason, gpu, benchmarkMs, ...}
-    // without changing anything. An error is a sentence (what is wrong, the valid names, a "did you mean") put in *error, and nothing
+    // without changing anything (game.graphics.detect() leaves the times out: factoria.js). An error is a sentence (what is wrong, the valid names, a "did you mean") put in *error, and nothing
     // changes. The defaults are for hosts without an engine (tests of the script module): no preset can be applied.
     virtual Json graphics_preset(const Json& args, std::string* error) {
         if (args.is_object() && args.contains("name")) {
