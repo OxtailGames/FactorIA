@@ -4,7 +4,6 @@
 #pragma once
 
 #include "gpu/device.h"
-#include "gpu/sg_bridge.h"
 #include "frame_graph.h"
 #include "render_internal.h"
 

@@ -14,6 +14,7 @@
 
 #include "fa/scene/animation.h"
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "frame_graph.h"
 #include "postprocess.h"
 #include "postprocess_resolve.h"

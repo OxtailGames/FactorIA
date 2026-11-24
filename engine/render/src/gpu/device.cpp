@@ -12,8 +12,8 @@ namespace fa::gpu {
 bool Device::storage_image_loadable(PixelFormat format, std::string* why) const {
     if (why)
         *why = std::string("Device::storage_image_loadable is not implemented on the ") + backend_name(backend()) +
-               " device yet (M77-P5d2 moved the question behind the device; each backend answers it for its GPU), so " +
-               pixel_format_name(format) + " storage images are write-only there: use \"access\": \"write\"";
+               " device yet, so " + pixel_format_name(format) +
+               " storage images are write-only there: use \"access\": \"write\"";
     return false;
 }
 

@@ -10,6 +10,8 @@
 #include <array>
 #include <deque>
 
+#include "gpu/sokol_context.h"
+
 #if defined(SOKOL_D3D11)
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -59,9 +61,10 @@ struct GpuTimer::State {
         stale = pending.size();
     }
 
-    ID3D11Device* device() const { return static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device())); }
+    // The open context's device and immediate context (sokol's own, through the context functions).
+    ID3D11Device* device() const { return static_cast<ID3D11Device*>(const_cast<void*>(gpu::context_native().device)); }
     ID3D11DeviceContext* context() const {
-        return static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
+        return static_cast<ID3D11DeviceContext*>(const_cast<void*>(gpu::context_native().context));
     }
 
     void init() {

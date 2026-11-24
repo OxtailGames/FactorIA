@@ -1,4 +1,4 @@
-// The Vulkan loader, opened at run time (docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend"): no Vulkan
+// The Vulkan loader, opened at run time (docs/design/ARCHITECTURE_RENDERING_VULKAN.md): no Vulkan
 // library is linked, so a binary without a Vulkan driver still starts and the error says what to install.
 #include "gpu/vulkan_device.h"
 
