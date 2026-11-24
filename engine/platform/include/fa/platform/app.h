@@ -145,9 +145,19 @@ struct MonitorInfo {
     int x = 0, y = 0, width = 0, height = 0;
     bool primary = false;
     bool current = false;  // the window is on it
+    // Its refresh rate in Hz, the largest one of a variable-rate panel (ProMotion: 120). 0 = the OS does not say (a Windows
+    // driver that answers "the hardware's default", Linux without libXrandr).
+    double refreshHz = 0.0;
 };
 // The monitors, primary first. Empty: this platform cannot list them (phones, tablets, web).
 std::vector<MonitorInfo> app_monitors();
+// The refresh rate in Hz of the display the window is on, asked of the OS each call (cheap, but not for every frame): macOS
+// NSScreen.maximumFramesPerSecond (the top of a variable rate; the display mode's rate before macOS 12), iOS the screen's
+// maximumFramesPerSecond (60 on an iPhone whose Info.plist does not set CADisableMinimumFrameDurationOnPhone), Windows the
+// frequency of the monitor's current display mode (59 read as 59.94), Linux the mode of the XRandR output under the
+// window's centre, Android Display.getRefreshRate(). 0: unknown (no window, the web, which has no API for it, a driver that
+// does not say, Linux without libXrandr). The engine estimates it from the frame times then (docs/UPSCALING.md).
+double app_display_refresh_hz();
 // Moves the window to monitor `index` of app_monitors(): centred when windowed, covering it when full screen. false: no such
 // monitor, or not possible now (a macOS window in its native full screen stays where it is).
 bool app_move_to_monitor(int index);

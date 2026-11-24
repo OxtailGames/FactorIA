@@ -168,7 +168,21 @@ struct Engine::Impl {
     float dynamic_factor() const;
     void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
     void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)
-    bool renderStale = false;                 // OnDemand: simulated since the last draw
+    // The display refresh rate a targetMs of 0 follows (M76-P6d, docs/UPSCALING.md, "The display's refresh rate"): the
+    // platform's (asked again every kRefreshPollS seconds of frames, so a move to another monitor is seen), else the estimate
+    // from the time between presented frames while vsync paces them, else kDynamicDefaultRefreshHz. Only a windowed game
+    // outside the editor tracks it; it changes the frame time the controller holds and nothing of the simulation.
+    static constexpr double kRefreshPollS = 2.0;
+    double refreshHz = 0.0;  // 0: the default
+    const char* refreshSource = "default";
+    render::RefreshRateEstimator refreshEstimator;
+    double refreshPollS = 0.0;
+    bool refreshPolled = false;  // the platform was asked once
+    bool refreshPaced = false;   // the last frame was paced by the display (vsync on, no frame cap, continuous)
+    int refreshDisplayW = 0,
+        refreshDisplayH = 0;                // the display the estimate measures (a move to another one starts it again)
+    void track_display_refresh(double dt);  // once per frame, before dynamic_resolution_tick
+    bool renderStale = false;               // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;

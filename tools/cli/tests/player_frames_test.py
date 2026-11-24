@@ -56,8 +56,38 @@ def main():
             code, out = play("--frames", bad)
             check(code == 2 and "--frames" in out, "--frames '%s' is a usage error (exit %s)" % (bad, code), out)
 
-        # A script that throws every frame.
+        # The display's refresh rate in a real window (docs/UPSCALING.md, "The display's refresh rate"): the rate a targetMs of 0
+        # follows is plausible on every runner, and where the OS says it, it is the rate of the monitor the window is on.
         os.makedirs(os.path.join(game, "scripts"), exist_ok=True)
+        with open(os.path.join(game, "scripts", "refresh.js"), "w", encoding="utf-8") as f:
+            f.write('import { Behaviour, window } from "factoria";\n'
+                    "export default class Refresh extends Behaviour {\n"
+                    "  onUpdate() {\n"
+                    "    const d = window.dynamicResolution;\n"
+                    "    const m = window.monitors().find((x) => x.current) || { refreshHz: -1 };\n"
+                    '    console.log("REFRESH " + JSON.stringify({ hz: d.refreshHz, source: d.refreshSource, monitorHz: m.refreshHz }));\n'
+                    "  }\n"
+                    "}\n")
+        scene_file = os.path.join(game, "scenes", "main.scene.json")
+        with open(scene_file, encoding="utf-8") as f:
+            scene = json.load(f)
+        scene["entities"].append({"id": "refresh", "name": "Refresh", "components": {"Script": {"path": "scripts/refresh.js"}}})
+        with open(scene_file, "w", encoding="utf-8") as f:
+            json.dump(scene, f, indent=2)
+        code, out = play("--frames", "10")
+        lines = [l[l.index("REFRESH {") + 8:] for l in out.splitlines() if "REFRESH {" in l]
+        if check(code == 0 and bool(lines), "the refresh probe ran (exit %s)" % code, out):
+            r = json.loads(lines[-1])
+            print("  info  refresh rate %s Hz (%s), monitor %s Hz on %s" % (r["hz"], r["source"], r["monitorHz"], sys.platform))
+            check(r["source"] in ("platform", "estimated", "default"), "refreshSource is one of the three (%s)" % r["source"])
+            check(20 <= r["hz"] <= 1000, "refreshHz is a display's rate (%s)" % r["hz"])
+            check(r["monitorHz"] == 0 or 20 <= r["monitorHz"] <= 1000, "the monitor's refreshHz is 0 or a rate (%s)" % r["monitorHz"])
+            if r["source"] == "platform" and r["monitorHz"] > 0:
+                check(abs(r["hz"] - r["monitorHz"]) < 0.11, "the rate followed is the window's monitor's (%s, %s)" % (r["hz"], r["monitorHz"]))
+            if r["source"] == "default":
+                check(r["hz"] == 60, "the default rate is 60 (%s)" % r["hz"])
+
+        # A script that throws every frame.
         with open(os.path.join(game, "scripts", "boom.js"), "w", encoding="utf-8") as f:
             f.write('import { Behaviour } from "factoria";\n'
                     "export default class Boom extends Behaviour {\n"

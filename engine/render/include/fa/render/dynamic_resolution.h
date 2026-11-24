@@ -25,7 +25,8 @@ inline constexpr int kDynamicResolutionSteps = 32;
 // The frame-time targets that are accepted (ms): 4 ms is 250 fps, 100 ms is 10 fps. 0 means "follow the display".
 inline constexpr double kDynamicTargetMinMs = 4.0;
 inline constexpr double kDynamicTargetMaxMs = 100.0;
-// What "follow the display" is where the platform cannot tell the refresh rate (Linux X11, Android, the web).
+// What "follow the display" is when the refresh rate is not known: no window (headless), vsync off or a frame cap (the time
+// between frames is not the display's then), or while the estimate is still measuring.
 inline constexpr double kDynamicDefaultRefreshHz = 60.0;
 
 struct DynamicResolutionSettings {
@@ -44,7 +45,8 @@ Json dynamic_resolution_to_json(const DynamicResolutionSettings& s);
 Result<DynamicResolutionSettings> parse_dynamic_resolution_settings(const Json& j, std::string_view where,
                                                                     const DynamicResolutionSettings& base);
 
-// The frame time the controller holds, in ms: `targetMs`, or one refresh of a display of `refreshHz` (0 or unknown: 60 Hz).
+// The frame time the controller holds, in ms: `targetMs`, or one refresh of a display of `refreshHz` (outside 20..1000 Hz,
+// 0 included: kDynamicDefaultRefreshHz).
 double dynamic_target_ms(const DynamicResolutionSettings& s, double refreshHz);
 
 // What the controller reports (read-only: render stats, window.upscaler, window.dynamicResolution).
@@ -54,6 +56,40 @@ struct DynamicResolutionState {
     double targetMs = 0.0;  // the frame time held, ms (0 while off)
     const char* source =
         "none";  // what is measured: "gpu" (timer queries), "interval" (the time between frames), "injected" (a test), "none"
+    // The display refresh rate a targetMs of 0 follows, in Hz, and where it comes from (reported while off too):
+    // "platform" (the OS said: fa/platform/app.h, app_display_refresh_hz), "estimated" (the median time between presented
+    // frames, where the OS does not say), "default" (kDynamicDefaultRefreshHz: no window, vsync off, a frame cap, or the
+    // estimate is still measuring or found no steady rate).
+    double refreshHz = kDynamicDefaultRefreshHz;
+    const char* refreshSource = "default";
+};
+
+// The estimate of the display's refresh rate where the platform cannot tell it (the web; a driver that does not say). It is
+// fed the time between presented frames, one call per frame, and takes the median of kSamples of them after skipping the
+// first kSkipFrames (the start, a resize) and every interval over kMaxSampleMs (a hitch, a load). With vsync on and no
+// frame cap the presents follow the display, so the median is one refresh; a game that cannot keep up while it measures
+// reads its own rate (a whole multiple of the refresh). It never reads a clock: the same intervals give the same rate.
+class RefreshRateEstimator {
+public:
+    static constexpr int kSkipFrames = 10;
+    static constexpr int kSamples = 60;
+    static constexpr double kMaxSampleMs = 50.0;  // 20 Hz: anything slower is not a display refresh
+    // It gives up (done, rate 0) after this many frames without kSamples usable ones: a deterministic count, not a time.
+    static constexpr int kMaxFrames = kSkipFrames + 4 * kSamples;
+
+    void reset();
+    // One presented frame: the time since the previous one, in ms. Returns true on the call that finished the estimate.
+    bool add(double intervalMs);
+    bool done() const { return done_; }
+    double hz() const { return hz_; }  // 0 until done(), and when no steady rate in 20..1000 Hz was found
+    int samples() const { return count_; }
+
+private:
+    double samples_[kSamples] = {};
+    int count_ = 0;
+    int frames_ = 0;
+    bool done_ = false;
+    double hz_ = 0.0;
 };
 
 // The controller. Every call of update() is one frame: the measured time and the time that passed. It never reads a clock, so the same
