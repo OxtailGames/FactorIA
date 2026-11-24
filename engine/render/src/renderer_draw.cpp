@@ -4949,7 +4949,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         sceneFx.add_passes(graph, transient_targets(), gpu, c->postPlan.sceneFx, c->postPlan.rect, physW, physH, game,
-                           gameTarget.texView, fxDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+                           gameTarget.texView, fxDst, c->postPlan.prepass, c->postPlan.velocity, &stats.drawCalls,
+                           c->plan.name);
     }
     custom_slot(PostSlot::AfterDof);
     if (pp.bloom.enabled) {
