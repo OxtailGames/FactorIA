@@ -110,7 +110,7 @@ struct Renderer::Impl {
     bool warmBuilt = false;
     std::size_t warmPipelines = 0;
     double warmMs = 0;
-    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
+    bool adopted = false;  // the graphics context was open before init: shutdown() leaves it to whoever opened it
     std::unique_ptr<Assets> assets;
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads

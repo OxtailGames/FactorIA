@@ -101,8 +101,8 @@ TEST_CASE("fog: draw_fog records one full-screen triangle inside the caller's pa
     INFO(joined(rg.dev->errors()));
     CHECK(rg.dev->errors().empty());
     using K = gpu::CommandKind;
-    const std::vector<K> expected = {K::BeginPass, K::SetPipeline, K::SetBindings, K::SetUniforms,
-                                     K::SetUniforms, K::Draw,       K::EndPass};
+    const std::vector<K> expected = {K::BeginPass,   K::SetPipeline, K::SetBindings, K::SetUniforms,
+                                     K::SetUniforms, K::Draw,        K::EndPass};
     CHECK(kinds_of(frame) == expected);
     REQUIRE(frame.size() == expected.size());
     CHECK(frame[5].args[0] == 0);  // draw(0, 3, 1): the full-screen triangle
