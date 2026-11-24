@@ -357,12 +357,13 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 
 - `"auto"` is the backend this build of the engine uses today: the sokol one it was built with (OpenGL on Linux, Direct3D 11 on
   Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web). Later M77 work makes `auto` pick the best backend of the machine.
-- A name this platform or binary cannot have (Metal on Windows, `d3d12` off Windows, `vulkan` in a build without `FA_VULKAN_BACKEND`, or
+- A name this platform or binary cannot have (Metal on Windows, `d3d12` off Windows, `vulkan` in a build without `FA_RENDER_VULKAN`, which the release players of Linux, Android and macOS leave out today, or
   another sokol backend than the one built) starts the game with one warning that says which backends the binary has, and uses `auto`.
 - The environment variable `FA_GPU_BACKEND` (same names) overrides `factoria.json`, for tests and for players that tools run;
   `EngineConfig::gpuBackend` overrides both. A wrong name in the variable fails the start with the same teaching error.
 - `d3d12` and `vulkan` draw offscreen only until their window paths land. A headless run (`factoria call`, `factoria test`, the MCP
-  server, tests) uses the one asked for. In a window the renderer cannot start on them: the engine warns once (what was asked, why
+  server, tests) uses the one asked for; on a machine with no driver for it, that run has no graphics (a warning says so: no
+  renders or captures), so leave such runs on `auto`. In a window the renderer cannot start on them: the engine warns once (what was asked, why
   it failed, what draws instead) and the window uses the `auto` backend.
 - The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
   backend of the renderer's device in `backend`, and the one asked for in `requestedBackend` when they differ.

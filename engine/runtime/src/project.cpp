@@ -694,18 +694,19 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             s.graphicsPreset = *preset;
         }
         if (auto be = it->find("backend"); be != it->end() && !be->is_null()) {
-            std::optional<GpuBackend> parsed;
-            if (be->is_string()) parsed = parse_gpu_backend_name(be->get<std::string>());
-            if (!parsed) {
+            std::optional<GpuBackend> asked;  // not `parsed`: that one is the whole file (MSVC C4456)
+            if (be->is_string()) asked = parse_gpu_backend_name(be->get<std::string>());
+            if (!asked) {
                 std::vector<std::string> names = gpu_backend_names();
                 std::string list = "\"auto\"";
                 for (const std::string& n : names) list += ", \"" + n + "\"";
-                return make_error(
-                    at("/render/backend") + ": unknown GPU backend " + describe_json_value(*be),
-                    (be->is_string() ? did_you_mean(be->get<std::string>(), names) + " " : std::string()) +
-                        "Use one of " + list + ".");
+                names.push_back("auto");
+                std::string hint = be->is_string() ? did_you_mean(be->get<std::string>(), names) : std::string();
+                if (!hint.empty()) hint += " ";
+                return make_error(at("/render/backend") + ": unknown GPU backend " + describe_json_value(*be),
+                                  hint + "Use one of " + list + ".");
             }
-            s.renderBackend = gpu_backend_name(*parsed);
+            s.renderBackend = gpu_backend_name(*asked);
         }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {

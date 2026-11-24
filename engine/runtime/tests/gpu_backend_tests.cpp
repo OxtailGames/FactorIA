@@ -115,7 +115,8 @@ TEST_CASE("gpu backend: render.backend loads, round-trips and teaches when wrong
     CHECK_FALSE(load_project(number.path()).ok());
 }
 
-TEST_CASE("gpu backend: choose_gpu_backend orders EngineConfig, the variable and the project, and warns for a missing one") {
+TEST_CASE(
+    "gpu backend: choose_gpu_backend orders EngineConfig, the variable and the project, and warns for a missing one") {
     // Nothing asked: auto, no warning.
     auto none = choose_gpu_backend("", nullptr, "auto");
     REQUIRE(none.ok());
@@ -209,7 +210,8 @@ TEST_CASE("gpu backend: a headless engine uses the asked backend and the report 
             CHECK(e.startup_report()["gpu"]["backend"] == "vulkan");
             CHECK_FALSE(e.startup_report()["gpu"].contains("requestedBackend"));
         } else {
-            MESSAGE("this machine has no Vulkan GPU or driver: the engine ran without graphics (a warning in startupProblems)");
+            MESSAGE("this machine has no Vulkan GPU or driver: the engine ran without graphics (a warning in "
+                    "startupProblems)");
         }
         e.shutdown();
     } else {
