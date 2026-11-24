@@ -1517,7 +1517,7 @@
       }
       winSet("setMode", 0, mode);
     },
-    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current })); },
+    monitors() { return N.windowMonitors().map((m, index) => ({ index, name: m.name, size: new Vec2(m.width, m.height), primary: m.primary, current: m.current, refreshHz: m.refreshHz })); },
     get monitor() { const i = N.windowMonitors().findIndex((m) => m.current); return i < 0 ? 0 : i; },
     setMonitor(index) {
       if (!Number.isInteger(index) || index < 0) {
@@ -1587,7 +1587,7 @@
       if (v === null || typeof v !== "object" || Array.isArray(v)) {
         throw new Error(`window.dynamicResolution expects an object like { enabled: true, targetMs: 16.7, minScale: 0.6, maxScale: 1 } (every key is optional), but got ${inspect(v)}`);
       }
-      const { effectiveTargetMs, scale, frameMs, source, ...settings } = v;  // what a read gave back can be written back
+      const { effectiveTargetMs, scale, frameMs, source, refreshHz, refreshSource, ...settings } = v;  // what a read gave back can be written back
       const err = N.dynamicResolutionSet(settings);
       if (err) throw new Error(`window.dynamicResolution = ${inspect(v)}: ${err}`);
     },

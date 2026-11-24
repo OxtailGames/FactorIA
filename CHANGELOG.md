@@ -88,6 +88,19 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   Save and Revert, checked by the engine's own parsers (a wrong value is named with its JSON pointer and a "did you mean"); only
   those two keys of the file are written. There is no preview of a preset or mode in the editor: press Play after Save.
 
+### The display's refresh rate (M76)
+
+- Dynamic resolution's "one display refresh" (`targetMs` 0, the menu kit's "Display refresh") now follows the display the window is
+  on: 8.3 ms on a 120 Hz display, 6.9 ms on a 144 Hz one (it was 60 Hz everywhere). The rate comes from the OS (macOS and iOS
+  `maximumFramesPerSecond`, the Windows display mode, the Linux XRandR mode, Android `Display.getRefreshRate()`), asked again every
+  2 s so a window moved to another monitor follows it. Where the OS does not say (the web) it is estimated from the median time
+  between presented frames while vsync paces them; with vsync off, a frame cap, on-demand rendering or no window that fallback is
+  60 Hz. `render.dynamic_resolution` and
+  `window.dynamicResolution` report `refreshHz` and `refreshSource` (`"platform"`, `"estimated"`, `"default"`).
+  docs/UPSCALING.md, "The display's refresh rate".
+- `window.monitors()` entries have `refreshHz`, each monitor's rate as the OS reports it (0 where it does not say), and the
+  platform layer has `app_display_refresh_hz()` and `MonitorInfo::refreshHz` (fa/platform/app.h).
+
 ## 0.35.2
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
@@ -115,8 +128,7 @@ its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engi
   most two changes a second; its factor multiplies into the render scale in one place (`apply_render_scale`). A step makes the render
   targets again (rate-limited for that reason); the temporal upscaler's history survives the steps. `game.render_stats` and
   `window.upscaler` report `dynamicScale` and `frameMs` (read-only), and `render.supports` `dynamicResolution` is drawn. No preset turns it
-  on. "One display refresh" is 60 Hz where the platform has no refresh-rate query: set `targetMs` for other displays.
-  docs/UPSCALING.md, "Dynamic resolution".
+  on. docs/UPSCALING.md, "Dynamic resolution".
 - The menu kit's Graphics page has a Dynamic resolution row (Off, 30 fps, 60 fps, Display refresh; saved as
   `settings.graphics.dynamicResolution`, `null` in an older save), and the editor's Graphics window edits `render.dynamicResolution`.
 

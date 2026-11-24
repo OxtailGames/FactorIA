@@ -63,7 +63,8 @@ struct WindowMonitor {
     std::string name;
     int width = 0, height = 0;  // logical pixels
     bool primary = false;
-    bool current = false;  // the window is on it
+    bool current = false;    // the window is on it
+    double refreshHz = 0.0;  // its refresh rate in Hz (the top of a variable one); 0 = the OS does not say
 };
 
 class WindowControl {
