@@ -161,6 +161,7 @@ void fa_sapp_window_size(int* w, int* h) {
 
 bool fa_sapp_display_size(int* w, int* h) {
 #if defined(_SAPP_WIN32)
+    if (!_sapp.win32.hwnd) return false;  // no window (a headless run): no monitor to ask
     MONITORINFO info;
     memset(&info, 0, sizeof(info));
     info.cbSize = sizeof(info);
@@ -170,6 +171,7 @@ bool fa_sapp_display_size(int* w, int* h) {
     return true;
 #elif defined(_SAPP_LINUX)
     // The whole X screen: with several monitors it spans all of them (no XRandR here).
+    if (!_sapp.x11.display) return false;  // no window (a headless run): DisplayWidth would read a null display
     const float scale = _sapp.x11.dpi / 96.0f;
     *w = (int)(DisplayWidth(_sapp.x11.display, _sapp.x11.screen) / scale + 0.5f);
     *h = (int)(DisplayHeight(_sapp.x11.display, _sapp.x11.screen) / scale + 0.5f);

@@ -230,7 +230,7 @@ void Engine::Impl::track_display_refresh(double dt) {
             return;
         }
         int w = 0, h = 0;
-        app_display_size(w, h);
+        if (windowed) app_display_size(w, h);  // a headless run (a test's injected rate) has no display to ask
         const bool restart = std::string_view(refreshSource) == "platform" || paced != refreshPaced ||
                              w != refreshDisplayW || h != refreshDisplayH;
         refreshPaced = paced;
