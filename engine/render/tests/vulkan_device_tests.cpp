@@ -710,6 +710,43 @@ TEST_CASE("vulkan: a resource destroyed while the GPU may use it is released onc
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
+TEST_CASE("vulkan: wait_idle releases what the current frame destroyed, without a commit") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string step = "make a buffer and an image with data";
+    INFO("step: " << step);
+    REQUIRE(dev->wait_idle());
+    const std::uint32_t liveBefore = dev->counters().memory.liveAllocations;
+    const std::vector<std::uint8_t> data = pattern(4096, 7);
+    BufferDesc bd;
+    bd.size = 4096;
+    bd.data = range_of(data);
+    const Buffer b = dev->make_buffer(bd);
+    REQUIRE(dev->state(b) == ResourceState::Valid);
+    ImageDesc id;
+    id.width = 32;
+    id.height = 32;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.data.mipLevels[0] = range_of(data);
+    const Image im = dev->make_image(id);
+    REQUIRE(dev->state(im) == ResourceState::Valid);
+    CHECK(dev->counters().memory.liveAllocations > liveBefore);
+
+    step = "destroyed in this frame, then wait_idle (no commit): nothing stays pending";
+    dev->destroy_buffer(b);
+    dev->destroy_image(im);
+    CHECK(dev->counters().pendingReleases >= 2);
+    REQUIRE(dev->wait_idle());
+    CHECK(dev->counters().pendingReleases == 0);
+    CHECK(dev->counters().memory.liveAllocations == liveBefore);
+
+    step = "the device still works";
+    round_trips(*dev);
+
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
 TEST_CASE("vulkan: the upload ring wraps, and an upload that does not fit takes a buffer of its own") {
     VulkanOptions o;
     o.uploadRingBytes = 64 * 1024;
