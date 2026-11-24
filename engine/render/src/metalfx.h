@@ -71,6 +71,13 @@ struct Desc {
     sg_pixel_format motionFormat = SG_PIXELFORMAT_RG16F;
     bool autoExposure = false;   // temporal: MetalFX measures the exposure itself (else Frame::preExposure is used)
     bool depthReversed = false;  // temporal: 1 is near
+    // Temporal: the scaler takes a reactive mask (an R8 image of the input's size: 0 = MetalFX's own judgement, 1 = ignore the history here)
+    // through Frame::reactive. MetalFX knows the mask from macOS 14.4 and iOS 17.4: on an older OS the scaler is made without it and
+    // Scaler::reactive_mask() says false (the pictures are what they were before the mask). The descriptor has to say so when the scaler
+    // is made and cannot change afterwards, so a caller that may have a mask in some frames asks for it from the start: a frame without
+    // one hands none and draws as a scaler made without the mask (tested), whereas making the scaler again when the first mask appears
+    // would cost its synchronous start-up and drop the history in the very frame a particle shows up.
+    bool reactiveMask = false;
     bool operator==(const Desc&) const = default;
 };
 
@@ -83,6 +90,10 @@ struct Frame {
     sg_image output{};
     sg_image depth{};   // temporal only
     sg_image motion{};  // temporal only
+    // Temporal, optional: the reactive mask of this frame (an R8 image of the input's size, read as sampled). Handed to MetalFX only when
+    // the scaler has one (Desc::reactiveMask, `reactive_mask()`); else ignored. Invalid: this frame has none. A mask of another size or
+    // format is refused like any other image.
+    sg_image reactive{};
     // Temporal: the sub-pixel shift the picture was drawn with, in render pixels: how far the drawn picture is moved, right and DOWN
     // the image (a scene sampled at (x + jx, y + jy) is moved by (-jx, -jy), so those are -jx, -jy). Measured by the tests: the
     // opposite sign converges to a worse picture.
@@ -125,6 +136,25 @@ public:
     // useful then: the caller gives MetalFX up. A new scaler (configure with another desc, release) starts clear.
     bool command_failed(std::string* why) const;
     void release();
+
+    // True when the scaler was made with a reactive mask input (Desc::reactiveMask on an OS that has it).
+    bool reactive_mask() const;
+    // The frames encoded since configure that handed a reactive mask to MetalFX.
+    int reactive_encoded() const;
+
+    // Tests only. `emptyBuffers`: the next configure makes a scaler that draws nothing (MetalFX is not asked for one, so it works on a Metal
+    // GPU without MetalFX): the frames are checked, ordered with the events and handed to command buffers that hold no MetalFX work, the
+    // output is not written. `failBuffers`: the command buffer of every encode ends as a failed one would: its completion handler reports
+    // an error and the buffer does not signal the event itself, so only the handler can release the passes that wait for it. Set before
+    // configure; they stay across configure and release.
+    struct TestHooks {
+        bool emptyBuffers = false;
+        bool failBuffers = false;
+    };
+    void set_test_hooks(const TestHooks& hooks);
+    // Waits up to `timeoutMs` for the GPU to signal the event of the last encode (the one the passes after the scaler wait for). False
+    // when it did not (a buffer that never released it): the event is then raised here so the queue goes on, and the caller fails.
+    bool test_wait_signalled(int timeoutMs);
 
 private:
     struct Impl;
