@@ -359,6 +359,7 @@ void Editor::at_section_Q(AtScript& at) {
                        .string();
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         {
             std::lock_guard<std::mutex> lock(aiMu_);
             atSavedConfig_ = aiConfig_;
@@ -438,6 +439,7 @@ void Editor::at_section_Q(AtScript& at) {
         }
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         chat_.clear();
         ai_start("Delegate the coin.");
         atWaitCount_ = 0;
@@ -494,6 +496,7 @@ void Editor::at_section_Q(AtScript& at) {
         // (3) Stop while the worker runs.
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         chat_.clear();
         aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
             return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(20000));
@@ -524,6 +527,7 @@ void Editor::at_section_Q(AtScript& at) {
         at_check(!continued, "...and the transcript does not claim one");
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         aiFactory_ = nullptr;
         if (atSavedConfig_) {
             std::lock_guard<std::mutex> lock(aiMu_);
