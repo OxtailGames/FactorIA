@@ -224,8 +224,11 @@ sokol call:
   given, valid while the pass runs (null in the CPU-only graph tests). This is where a later backend hands each pass
   (or each thread) its own list: the pass code does not change.
 - **The static pass functions**, TRANSITIONAL: do not copy them into converted code, which begins its passes on its
-  own list (`ctx.commands().begin_pass(...)`, `gpu.commands()`); P4 moves the pass state into a per-list object and
-  removes them. They (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
+  own list (`gpu::CommandList& cl = gpu.commands(); begin_list_pass(cl, pass)` while the pass is still a
+  `render::PassDesc`, `cl.end_pass()`); P4 moves the pass state into a per-list object and removes them. A pass opened
+  on the list does not set the Gpu's `inPass_` flag: `Gpu::in_pass()` and `begin_transient_writes` ask
+  `list.pass_state()` too, and the format assert of the pipeline cache (which compares with the format `Gpu::begin_pass`
+  saved) is skipped for such a pass. They (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
   the list of `Gpu::active()`, the Gpu initialised last of those still alive (the editor has one per renderer, all on
   the one sokol context). With none alive (`Renderer::present_clear` runs before the renderer exists) they record on
   the sokol context itself (`gpu::begin_context_pass`).
@@ -272,15 +275,23 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
 - `feature_env_from_sokol()` (render_features_sg.cpp) is the sokol twin of `feature_env_from_device(device)`.
 
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
-sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target
-helpers (target.cpp), shader_cache.cpp and render_features.cpp; assets.cpp, custom_shader.cpp, water2d.cpp, gi2d.cpp,
+sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target helpers
+(target.cpp), shader_cache.cpp and render_features.cpp; assets.cpp, custom_shader.cpp, water2d.cpp, gi2d.cpp,
 renderer_lights2d.cpp, fonts.cpp, gradient_ramp.cpp, postprocess.cpp and bloom.cpp (P3: their passes open on
-`gpu.commands()` or `PassContext::commands()`; a class with no Gpu member (WaterFx, GradientRamps, Gi2dSystem, AutoExposure)
-remembers the `gpu::Device` it first got, and keeps an overload without a device for the callers not converted yet);
-compute.cpp, light_atlas.cpp, renderer_hiz.cpp, renderer_probes_gpu.cpp and renderer_gi_gpu.cpp (they open their passes on
-`gpu.commands()`); the frame graph carries the list to its passes. A pass opened on its own list does not set
-`Gpu::in_pass()`, so it writes its transient buffers before it begins (gi2d.cpp, draw_list). gpu_timer.cpp stays on
-sokol: it is the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files.
+`gpu.commands()` or `PassContext::commands()`; a class with no Gpu member (WaterFx, GradientRamps, Gi2dSystem,
+AutoExposure) remembers the `gpu::Device` it first got, and keeps an overload without a device for the callers not
+converted yet); compute.cpp, light_atlas.cpp, renderer_hiz.cpp, renderer_probes_gpu.cpp and renderer_gi_gpu.cpp (they
+open their passes on `gpu.commands()`); the frame graph carries the list to its passes; the 3D geometry passes of the
+renderer (M77-P4a): renderer_draw.cpp (the light, shadow, prepass, subsurface, quad-motion, main and HUD passes, the
+uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp, renderer_decals.cpp,
+renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
+`note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
+`begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
+those files: the context lifecycle (before any device exists), the `Target` and `MaterialProgram` fields (P5) and the
+handles of `SubMesh` / `TextureAsset`, which `from_sg` turns into interface handles at the call. A pass opened on its
+own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
+state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
+the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

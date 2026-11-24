@@ -1598,6 +1598,10 @@ public:
         FA_ASSERT(device_, "Gpu::device() before Gpu::init() or after shutdown()");
         return *device_;
     }
+    const gpu::Device& device() const {
+        FA_ASSERT(device_, "Gpu::device() before Gpu::init() or after shutdown()");
+        return *device_;
+    }
     bool has_device() const { return device_ != nullptr; }
     // The command list of the frame being recorded: every pass, draw, upload and copy of the frame goes into it. Ask
     // for it again after a commit (commit_frame, begin_frame): a reference kept across one names a submitted list
@@ -1890,7 +1894,8 @@ public:
     // state into a per-list object and removes these.
     static void begin_pass(const PassDesc& pass);
     static void end_pass();
-    static bool in_pass() { return inPass_; }
+    // True while a pass is open: one begun with begin_pass above, or on the frame's list directly (converted code).
+    static bool in_pass();
     // A compute pass (Compute::dispatch): no attachments, so no PassDesc. Counts as a pass (in_pass()) until
     // end_compute_pass().
     static void begin_compute_pass();
