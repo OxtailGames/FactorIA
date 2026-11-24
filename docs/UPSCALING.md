@@ -1,7 +1,7 @@
 # Upscaling and temporal antialiasing (M76)
 
 This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the **temporal upscaler**,
-the plain **stretch** and the **graphics presets** draw today (see below); MetalFX is planned (`render.supports` says `planned
+the plain **stretch**, the **graphics presets** and the **dynamic resolution** draw today (see below); MetalFX is planned (`render.supports` says `planned
 (M76)` for it, and a setting that asks for it draws as the best mode that exists).
 
 ## The engine-wide upscaler settings
@@ -171,6 +171,73 @@ screenshot of the running game is the antialiased frame it shows. The editor vie
 game (it is the same renderer) unless the editor's view bypasses the post stack, and then it has neither the pass nor the jitter. A custom
 post pass cannot be placed `before` or `after` `temporalAA`; `before:depthOfField` runs after it.
 
+## Dynamic resolution
+
+The render scale can follow the frame time, so a game holds a target (30 fps, 60 fps, one refresh of the display) on a machine that
+cannot draw its full-size frame in time, and draws sharper on one that can. It is **off by default**, and off is the picture and the
+frame of a build without the feature, bit for bit. One setting block, three places, like the upscaler:
+
+- the project: `"render": { "dynamicResolution": { "enabled": true, "targetMs": 16.7, "minScale": 0.6, "maxScale": 1 } }` in
+  `factoria.json` (schema `schemas/project.schema.json`); every key is optional. A wrong value fails to load with the JSON pointer
+  (`/render/dynamicResolution/minScale`), what is wrong and the valid range, and a misspelt key gets a "did you mean";
+- the command `render.dynamic_resolution` (no argument reads; any key changes those and keeps the rest; a wrong value fails with
+  `invalid_argument` and changes nothing);
+- scripts: `window.dynamicResolution` reads `{enabled, targetMs, minScale, maxScale}` plus the read-only `effectiveTargetMs`, `scale`
+  (the factor in force, 1 while off), `frameMs` (the smoothed frame time the controller sees, 0 until one was measured) and `source`;
+  writing it takes any of the four keys (a read can be written back).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | the controller runs |
+| `targetMs` | unset (0) | the frame time to hold, 4 to 100 ms (33.3 = 30 fps, 16.7 = 60 fps, 8.3 = 120 fps); 0 or unset holds one refresh of the display |
+| `minScale` | 0.5 | the smallest share of the base size's width and height the controller uses, 0.25 to 1 |
+| `maxScale` | 1 | the largest share, `minScale` to 1; the controller starts here |
+
+**Where it applies.** The factor multiplies into the scale in `Engine::Impl::apply_render_scale` and nowhere else: the drawn scale is
+`window.renderScale` times the quality's scale times the factor, never below 0.25 (`plan_upscale_scale` takes it as an argument;
+1 changes nothing). So a game at `performance` quality (0.5) with the range 0.6 to 1 is drawn between 0.3 and 0.5 of the window and
+brought up by the upscaler of its choice (the `stretch` mode scales the lower picture plainly). It does not apply to a scale held as
+a size (`--render-scale`, the video recorder, a screenshot's `scale`), in the editor's own viewport, or with no renderer; there it
+reads as 1. `game.render_stats` and `window.upscaler` report `dynamicScale` (the factor) and `frameMs` (read-only; setting
+`window.upscaler` ignores them). Nothing of the simulation reads the factor, so a replay or a script's result never depends on it.
+
+**What it measures.** Where the backend has timer queries (Direct3D 11 and OpenGL), the GPU time of the frame: `source` is `"gpu"`, the
+mean of the frames the renderer timed since the last tick (a result arrives a few frames late). Elsewhere (Metal, GLES3, WebGL2) and
+whenever a window is on screen without it, the time between frames the platform measured, `"interval"`. A window that renders only
+on demand is not measured. No clock is read by the engine: the tick is fed numbers, and tests inject them (`Engine::set_dynamic_resolution_frame_ms`,
+`source` `"injected"`). "One refresh of the display" is 16.7 ms (60 Hz): the platform layer has no refresh-rate query on every
+platform yet, so the controller does not follow a 120 Hz or 144 Hz display by itself; set `targetMs` for those.
+
+**How it moves** (`render::DynamicResolutionController`, deterministic: the same numbers give the same scales on every machine):
+
+- the measured time is smoothed (an exponential average with a 0.3 s time constant, clamped to three times the target, so a load
+  hitch moves it, not the whole way);
+- the factor lives on a grid of 32 steps between `minScale` and `maxScale`. The picture's cost follows its area, so a move aims at the
+  step whose predicted time (the smoothed time times the area ratio) is the middle of a dead band, never at its edge: with a GPU
+  time the band is 80 % to 95 % of the target and it aims at 87.5 %, with the interval time 90 % to 108 % and it aims at 97 %;
+- a change needs the smoothed time to stay outside the band (down 0.3 s, up 1 s) and a hold since the last change (down 0.5 s, up 1.5 s),
+  so a one-frame hitch changes nothing and the scale changes at most twice a second. One change moves at most a quarter of the range
+  down or an eighth up;
+- with only the interval time the headroom is hidden (vsync pins it at the refresh rate while the game is fast enough), so the
+  controller goes down by prediction and tries one step up after 3 s inside the band. A try that fails (the time goes over again within
+  3 s) doubles the next wait (up to 48 s) and the step that failed is not tried again for a minute or more, so it settles under it
+  instead of swinging.
+
+**Reallocation.** A step makes the render targets again (the scene's color, depth and post chain at the new size); it does not
+change the window or the swap chain. That costs a few milliseconds at the step, which is why the controller is rate-limited to two
+changes a second and quantised, never per frame: a viewport inside fixed-size targets would avoid it at the price of every pass
+reading a sub-rectangle (the post chain, the temporal history and the bloom chain all assume the whole texture). The **temporal history
+survives the steps**: the history of the `temporal` upscaler lives at the output size and is kept, and its key follows the scale the
+game asked for, without the factor, so a step does not reset it. The jitter sequence is rounded up to a multiple of 4 phases while a
+factor is on, so the phase changes smoothly when the size does.
+
+**Presets.** No preset turns it on. A preset is a static set of limits that gives the same picture on every machine; this one decides
+at run time from a measurement of this machine, and a game that wants it says so (`factoria.json`, or the player's choice in the menu
+kit). `ultra` therefore stays the game as its author made it, bit for bit like `custom`; presets never write `dynamicResolution`, and
+the `low` preset's lower upscaler quality is the fixed answer for a weak machine.
+
+`render.supports` with `dynamicResolution` says `supported` on every GPU backend.
+
 ## Graphics presets
 
 A preset is a quality layer of the renderer, not a change of the game. Each of `low`, `medium`, `high` and `ultra` is a table of
@@ -250,25 +317,30 @@ upscaler is not put back by itself: applying the preset again does.
   `stretch`). Auto runs `game.graphics.detect()` once, keeps its pick in the save and shows it. A preset drives the tab's own
   "quality" row of the screen effects (Low, Medium, High and Ultra pick low, medium, high and high), so the two never disagree. The
   choices are saved in `settings.graphics` (`preset`, `detected`, `upscaler`, `renderScale`) and applied when a scene starts; a save
-  from before them loads as it did. Dynamic resolution is not part of this page yet (`gfx_dynamic_slot` is where its row goes).
-- **Editor.** View > Graphics edits `render.graphicsPreset` and `render.upscaler` (`mode`, `quality`, `sharpness`) of
-  `factoria.json` with Save and Revert; the values are checked by the code that loads the project and the `render.upscaler` command,
-  so a wrong one is named with its JSON pointer and a "did you mean", and Save writes only those two keys (a value at its default
-  removes its key). It does not preview: press Play after Save, or use the game's own menu, to see a preset or a mode.
+  from before them loads as it did. A **Dynamic resolution** row (`gfx_dynamic`, in `gfx_dynamic_slot`; hidden where
+  `render.supports` says `dynamicResolution` is not drawn) cycles Off, 30 fps, 60 fps and Display refresh; it turns
+  `window.dynamicResolution` on or off with that `targetMs` and keeps the game's own `minScale` and `maxScale`, and is saved as
+  `settings.graphics.dynamicResolution` (`null` until the player chooses: an older save changes nothing, and the row shows what the
+  game set, "Custom" for a target that is none of the three).
+- **Editor.** View > Graphics edits `render.graphicsPreset`, `render.upscaler` (`mode`, `quality`, `sharpness`) and
+  `render.dynamicResolution` (`enabled`, `targetMs`, `minScale`, `maxScale`) of `factoria.json` with Save and Revert; the values are
+  checked by the code that loads the project and the `render.upscaler` and `render.dynamic_resolution` commands, so a wrong one is
+  named with its JSON pointer and a "did you mean", and Save writes only those three keys (a value at its default removes its key). It does not preview: press Play after Save, or use the game's own menu, to see a preset or a mode.
 
 ## What a game can already ask
 
 `render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
-(the effect's row). `temporalAA`, `spatialUpscaler` and `temporalUpscaler` are `supported` on every GPU backend; `motionVectors` answers
+(the effect's row). `temporalAA`, `spatialUpscaler`, `temporalUpscaler` and `dynamicResolution` are `supported` on every GPU backend; `motionVectors` answers
 true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 64 joints and
 materials with a `vertex()` included, instances, terrain, foliage and impostors, the cutout sprites, shapes, tiles and glyphs of the world, and `render.debug_view {"view":"motionVectors"}`
-shows it); the others answer false with the status `planned (M76)` until their packages land.
+shows it); `metalfx` answers false with the status `planned (M76)` until its package lands.
 
 | Row | Backends | Needs |
 |---|---|---|
 | `motionVectors` | every GPU backend | RGBA16F render targets that blend and filter (`half`) |
 | `temporalUpscaler` | every GPU backend | nothing (RGBA16F history where the GPU can, else RGBA8, as the temporal antialiasing) |
-| `spatialUpscaler`, `dynamicResolution` | every GPU backend | nothing |
+| `spatialUpscaler` | every GPU backend | nothing |
+| `dynamicResolution` | every GPU backend | nothing (the GPU time needs timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) |
 | `metalfx` | Metal only (macOS, iOS) | nothing |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 

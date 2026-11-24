@@ -4412,7 +4412,28 @@ NATIVE(upscalerGet) {  // {mode, quality, sharpness, effectiveMode, scale}
     Json j = render::upscaler_to_json(s);
     j["effectiveMode"] = std::string(render::upscaler_mode_name(I->host->effective_upscaler_mode()));
     j["scale"] = std::round(double(render::upscaler_quality_scale(s.quality)) * 1000.0) / 1000.0;
+    const render::DynamicResolutionState dyn =
+        I->host->dynamic_resolution_state();  // read-only: the dynamic resolution's factor now
+    j["dynamicScale"] = std::round(double(dyn.scale) * 1000.0) / 1000.0;
+    j["frameMs"] = std::round(dyn.frameMs * 10.0) / 10.0;
     return I->from_json(j);
+}
+
+NATIVE(dynamicResolutionGet) {  // {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source}
+    SETUP;
+    Json j = render::dynamic_resolution_to_json(I->host->dynamic_resolution());
+    const render::DynamicResolutionState dyn = I->host->dynamic_resolution_state();
+    j["effectiveTargetMs"] = std::round(dyn.targetMs * 10.0) / 10.0;
+    j["scale"] = std::round(double(dyn.scale) * 1000.0) / 1000.0;
+    j["frameMs"] = std::round(dyn.frameMs * 10.0) / 10.0;
+    j["source"] = std::string(dyn.source);
+    return I->from_json(j);
+}
+
+NATIVE(dynamicResolutionSet) {  // "" or the reason it did not happen
+    SETUP;
+    const std::string err = I->host->set_dynamic_resolution(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED));
+    return JS_NewString(ctx, err.c_str());
 }
 
 NATIVE(upscalerSet) {  // "" or the reason it did not happen
@@ -5622,6 +5643,8 @@ const Reg kRegs[] = {
     R(renderScaleSet, 1),
     R(upscalerGet, 0),
     R(upscalerSet, 1),
+    R(dynamicResolutionGet, 0),
+    R(dynamicResolutionSet, 1),
     R(graphicsPreset, 1),
     R(graphicsDetect, 0),
     R(storageGet, 2),

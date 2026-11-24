@@ -88,7 +88,14 @@ struct Renderer::Impl {
     bool anyFrameRendered = false;
     int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
-    int physW = 0, physH = 0;      // size of the GPU images
+    // set_render_scale is making the targets again for a step of the dynamic resolution (the base scale is the same): the temporal upscaler's
+    // history, at the output size, is kept (destroy_targets).
+    bool keepUpscaleHistory = false;
+    float renderBaseScale =
+        1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
+    bool gpuFrameWanted = false;     // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    std::vector<double> gpuFrameMs;  // the GPU frame times it has not taken yet
+    int physW = 0, physH = 0;        // size of the GPU images
     Gpu gpu;
     GpuTimer gpuTimer;
     // Renderer::warm_step: the groups of pipelines to make before the first game frame, built on the first call.

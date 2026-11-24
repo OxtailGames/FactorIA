@@ -1,6 +1,7 @@
-// The Graphics settings window's rules (graphics_settings_model.h): reading, checking and saving render.graphicsPreset and
-// render.upscaler in factoria.json, with the engine's own validation. No window, no GPU.
+// The Graphics settings window's rules (graphics_settings_model.h): reading, checking and saving render.graphicsPreset,
+// render.upscaler and render.dynamicResolution in factoria.json, with the engine's own validation. No window, no GPU.
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -182,4 +183,67 @@ TEST_CASE("graphics settings: \"render\": null is the same as no render settings
     auto project = load_project(d.str());
     REQUIRE(project.ok());
     CHECK(project->upscaler.mode == render::UpscalerMode::Spatial);
+}
+
+TEST_CASE("graphics settings: dynamic resolution is saved as its own key, read back and read by the project loader") {
+    Dir d;
+    d.write(kBare);
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK_FALSE(s->dynamic.enabled);
+    CHECK(s->dynamic.targetMs == 0.0);
+    CHECK(s->dynamic.minScale == doctest::Approx(0.5f));
+    CHECK(s->dynamic.maxScale == doctest::Approx(1.0f));
+    s->dynamic.enabled = true;
+    s->dynamic.targetMs = 16.7;
+    s->dynamic.minScale = 0.6f;
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    const std::string text = d.read();
+    CHECK(text.find("\"dynamicResolution\"") != std::string::npos);
+    CHECK(text.find("\"physics\": { \"fixedHz\": 60 }") != std::string::npos);
+    CHECK(text.find("upscaler") == std::string::npos);  // the upscaler is at its default: no key
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == *s);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->dynamicResolution.enabled);
+    CHECK(project->dynamicResolution.targetMs == doctest::Approx(16.7));
+    CHECK(project->dynamicResolution.minScale == doctest::Approx(0.6f));
+    // Back to the defaults: the key and the empty render object go.
+    REQUIRE(write_graphics_settings(d.str(), GraphicsSettings{}).ok());
+    CHECK(d.read() == kBare);
+}
+
+TEST_CASE("graphics settings: dynamic resolution problems are named by pointer with the engine's sentence") {
+    GraphicsSettings g;
+    g.dynamic.targetMs = 2.0;  // below 4 ms
+    g.dynamic.minScale = 0.1f;
+    auto problems = check_graphics_settings(g);
+    REQUIRE(problems.size() == 2);
+    CHECK(problems[0].pointer == "/render/dynamicResolution/targetMs");
+    CHECK(problems[1].pointer == "/render/dynamicResolution/minScale");
+    g = GraphicsSettings{};
+    g.dynamic.minScale = 0.8f;
+    g.dynamic.maxScale = 0.6f;  // each alone is fine: the pair is not
+    problems = check_graphics_settings(g);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].pointer == "/render/dynamicResolution/minScale");
+    CHECK(problems[0].message.find("maxScale") != std::string::npos);
+    Dir d;
+    d.write(kBare);
+    CHECK_FALSE(write_graphics_settings(d.str(), g).ok());
+    CHECK(d.read() == kBare);
+    g = GraphicsSettings{};
+    g.dynamic.maxScale = std::nanf("");
+    CHECK(check_graphics_settings(g).size() == 1);
+}
+
+TEST_CASE("graphics settings: a hand-written wrong dynamicResolution opens with the engine's error") {
+    Dir d;
+    d.write("{\"name\":\"G\",\"render\":{\"dynamicResolution\":{\"enabeld\":true}}}");
+    auto s = read_graphics_settings(d.str());
+    REQUIRE_FALSE(s.ok());
+    CHECK(s.error().message.find("/render/dynamicResolution") != std::string::npos);
+    CHECK((s.error().hint + s.error().message).find("enabled") != std::string::npos);
 }

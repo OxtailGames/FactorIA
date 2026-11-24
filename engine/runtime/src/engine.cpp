@@ -101,21 +101,74 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 // is window.renderScale (heldScale) times the scale of the upscaler's quality, never below the engine's 0.25 floor; the stage is on when
 // that is below 1 or the mode that really draws is spatial (its sharpen at scale 1; render::plan_upscale_scale). A scale that is held as a size (--render-scale,
 // the video recorder: hold_render_scale without the player's option) is that size and no stage. The scale mode is told too: pixel art
-// keeps the plain nearest scaling (the effective mode is stretch there). A later package multiplies in the dynamic resolution here.
+// keeps the plain nearest scaling (the effective mode is stretch there). The dynamic resolution's factor multiplies in here and nowhere else
+// (dynamic_factor is 1 while it is off, so nothing changes); the renderer is also told the scale without it, which its temporal history follows.
 void Engine::Impl::apply_render_scale() {
     if (!renderer) return;
     renderer->set_scale_mode(project.scaleMode);
     float scale = float(heldScale);
+    float base = 0.0f;  // 0: no dynamic factor in `scale`
     bool stage = false;
     if (playerScale || heldScale == 1.0) {
-        const render::UpscaleScalePlan plan = render::plan_upscale_scale(
-            scale, renderer->upscaler().quality, renderer->effective_upscaler_mode(), Renderer::kMinRenderScale);
+        const render::UpscalerMode mode = renderer->effective_upscaler_mode();
+        const render::UpscalerQuality quality = renderer->upscaler().quality;
+        const float dyn = dynamic_factor();
+        const render::UpscaleScalePlan plan =
+            render::plan_upscale_scale(scale, quality, mode, Renderer::kMinRenderScale, dyn);
+        if (dyn != 1.0f) base = render::plan_upscale_scale(scale, quality, mode, Renderer::kMinRenderScale).scale;
         scale = plan.scale;
         stage = plan.stage;
     }
-    renderer->set_render_scale(scale);
+    renderer->set_render_scale(scale, base);
     renderer->set_upscale_stage(stage);
     renderStale = true;
+}
+
+float Engine::Impl::dynamic_factor() const {
+    if (!renderer || cfg.editorMode || !dynRes.settings().enabled) return 1.0f;
+    return dynRes.scale();
+}
+
+// The settings (ScriptHost's) reach the controller and the renderer's GPU timing here, and the factor reaches the render scale.
+void Engine::Impl::sync_dynamic_resolution() {
+    const render::DynamicResolutionSettings settings = self->dynamic_resolution();
+    dynRes.configure(settings);
+    if (renderer) renderer->set_gpu_frame_timing(settings.enabled && windowed && !cfg.editorMode && !injectedFrameMs);
+    dynSource = "none";
+    apply_render_scale();
+}
+
+// One frame of the controller. The sample is a GPU time where the backend has timer queries (the Renderer times the frames and answers a
+// few frames late), else the time between frames the platform measured (`dt`; a frame of a loading hitch is no sample). A test injects it.
+// Nothing here reads a clock, and nothing of the simulation reads the result: it changes the size the next picture is drawn at.
+void Engine::Impl::dynamic_resolution_tick(double dt) {
+    if (!renderer || cfg.editorMode || !dynRes.settings().enabled) return;
+    double sample = -1.0;
+    bool exact = false;
+    const char* source = "none";
+    if (injectedFrameMs) {
+        sample = *injectedFrameMs;
+        source = "injected";
+    } else if (windowed && cfg.renderMode != RenderMode::OnDemand) {
+        if (renderer->gpu_timing_supported()) {
+            gpuFrameScratch.clear();
+            renderer->take_gpu_frame_ms(gpuFrameScratch);
+            double sum = 0.0;
+            for (double v : gpuFrameScratch) sum += v;
+            if (!gpuFrameScratch.empty()) sample = sum / double(gpuFrameScratch.size());
+            exact = true;
+            source = "gpu";
+        } else {
+            if (frame > 2 && dt > 0.0 && dt < 0.25) sample = dt * 1000.0;
+            source = "interval";
+        }
+    }
+    dynSource = source;
+    if (std::string_view(source) == "none") return;
+    const double target = render::dynamic_target_ms(dynRes.settings(), 0.0);  // no display refresh rate here: 60 Hz
+    if (sample > 3.0 * target)
+        sample = 3.0 * target;  // a hitch (a load, a window drag) moves the average, not the whole way
+    if (dynRes.update(sample, dt * 1000.0, target, exact)) apply_render_scale();
 }
 
 void Engine::Impl::apply_project_settings() {
@@ -149,6 +202,11 @@ void Engine::Impl::apply_project_settings() {
                 applyingPreset = false;
             }
         }
+    }
+    // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid: load_project checked it.
+    if (!appliedProjectDynRes || *appliedProjectDynRes != project.dynamicResolution) {
+        appliedProjectDynRes = project.dynamicResolution;
+        self->set_dynamic_resolution(render::dynamic_resolution_to_json(project.dynamicResolution), "factoria.json");
     }
     // The graphics preset of factoria.json ("render.graphicsPreset"), applied when it changes (a player's choice survives an unrelated
     // reload). After the upscaler: a preset writes it. Always valid: load_project checked it.
@@ -649,6 +707,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.begin_frame();  // so a scene load applied at the end of this frame is told apart (script budget)
     inFrame = true;
     set_log_frame(frame);
+    if (profiled) dynamic_resolution_tick(dt);  // before anything draws: a new scale is drawn by this frame
     advance_pad_rumble(dt);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
     // frame's survive until the next frame starts so a screenshot still shows them.
@@ -1749,6 +1808,32 @@ std::string Engine::set_upscaler(const Json& value, const std::string& where) {
     return err;
 }
 
+std::string Engine::set_dynamic_resolution(const Json& value, const std::string& where) {
+    std::string err = ScriptHost::set_dynamic_resolution(value, where);
+    if (err.empty()) {
+        impl_->sync_dynamic_resolution();
+        impl_->renderStale = true;
+    }
+    return err;
+}
+
+render::DynamicResolutionState Engine::dynamic_resolution_state() const {
+    const Impl& I = *impl_;
+    render::DynamicResolutionState st;
+    const render::DynamicResolutionSettings& s = I.dynRes.settings();
+    if (!s.enabled) return st;
+    st.scale = I.dynamic_factor();
+    st.frameMs = I.dynRes.smoothedMs();
+    st.targetMs = render::dynamic_target_ms(s, 0.0);
+    st.source = I.dynSource;
+    return st;
+}
+
+void Engine::set_dynamic_resolution_frame_ms(std::optional<double> ms) {
+    impl_->injectedFrameMs = ms;
+    impl_->sync_dynamic_resolution();
+}
+
 render::UpscalerMode Engine::effective_upscaler_mode() const {
     return impl_->renderer ? impl_->renderer->effective_upscaler_mode() : ScriptHost::effective_upscaler_mode();
 }
@@ -1819,6 +1904,10 @@ Json Engine::render_stats_now() {
         std::max(1, int(std::lround(I.renderer->target_width() * drawnScale)));  // the size of the picture drawn
     j["height"] = std::max(1, int(std::lround(I.renderer->target_height() * drawnScale)));
     j["renderScale"] = std::round(drawnScale * 1000.0) / 1000.0;
+    const render::DynamicResolutionState dyn = dynamic_resolution_state();
+    j["dynamicScale"] =
+        std::round(double(dyn.scale) * 1000.0) / 1000.0;   // the dynamic resolution's factor (1 while off)
+    j["frameMs"] = std::round(dyn.frameMs * 10.0) / 10.0;  // the frame time it measures, ms (0 while off)
     return j;
 }
 

@@ -26,6 +26,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -306,6 +307,14 @@ public:
     std::string set_render_scale(double scale) override;
     std::string set_upscaler(const Json& value, const std::string& where = "window.upscaler")
         override;  // window.upscaler / render.upscaler: also the renderer's
+    // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
+    // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
+    std::string set_dynamic_resolution(const Json& value,
+                                       const std::string& where = "window.dynamicResolution") override;
+    render::DynamicResolutionState dynamic_resolution_state() const override;
+    // Test hook: while set, every frame of the engine (a step, headless or not) feeds the dynamic resolution controller this frame time in ms
+    // instead of a measurement (the state's source is "injected"). std::nullopt goes back to measuring. Nothing else reads it.
+    void set_dynamic_resolution_frame_ms(std::optional<double> ms);
     // game.graphics / graphics.preset / graphics.detect (M76, engine_graphics.cpp). graphics_preset({}) reads the preset,
     // graphics_preset({"name": "high"}) applies it; an error is put in *error and nothing changes.
     Json graphics_preset(const Json& args, std::string* error) override;
