@@ -3,6 +3,7 @@
 #include "fa/core/engine_version.h"
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <filesystem>
 #include <map>
 #include <random>
@@ -1047,6 +1048,35 @@ std::string read_output_file(const stdfs::path& work, const std::string& rel) {
     return tooling_detail::read_file(p).value_or(std::string());
 }
 
+// sokol-shdc writes the SPIR-V descriptor numbers as `spirv_set1_binding_n: 0;` (the semicolon is part of its text for the
+// views and samplers), which the YAML reader keeps as a string: the twin has integers.
+void normalize_spirv_numbers(Json& j) {
+    if (j.is_object()) {
+        for (auto& [key, value] : j.items()) {
+            if (key.rfind("spirv_set", 0) == 0 && value.is_string()) {
+                std::string text = value.get<std::string>();
+                while (!text.empty() && (text.back() == ';' || text.back() == ' ')) text.pop_back();
+                long long n = 0;
+                const auto r = std::from_chars(text.data(), text.data() + text.size(), n);
+                if (r.ec == std::errc() && r.ptr == text.data() + text.size()) value = n;
+            } else
+                normalize_spirv_numbers(value);
+        }
+    } else if (j.is_array()) {
+        for (Json& v : j) normalize_spirv_numbers(v);
+    }
+}
+
+// A stage of the spirv_vk twin: the bytes sokol-shdc wrote, base64 (the twin is JSON). Empty when the file is missing or is
+// not SPIR-V (the magic number 0x07230203, little endian, and a multiple of four bytes).
+std::string read_spirv_base64(const stdfs::path& work, const std::string& rel) {
+    const std::string bytes = read_output_file(work, rel);
+    const unsigned char* b = reinterpret_cast<const unsigned char*>(bytes.data());
+    if (bytes.size() < 20 || bytes.size() % 4 != 0 || b[0] != 0x03 || b[1] != 0x02 || b[2] != 0x23 || b[3] != 0x07)
+        return {};
+    return base64_encode(bytes.data(), bytes.size());
+}
+
 // OpenGL numbers a storage buffer binding point for the whole program and refuses a shader whose binding is not below
 // GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS (8 is all GL 4.3 guarantees), while sokol-shdc keeps the view slot as the GLSL binding.
 // A mesh material's buffers sit at view slots 16 and up, so its glsl430 twin counts them from 0: the vertex stage's copies
@@ -1108,6 +1138,7 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
     for (const Json& shader : (*yaml)["shaders"]) {
         const std::string slang = shader.value("slang", std::string());
         if (std::find(slangs.begin(), slangs.end(), slang) == slangs.end()) continue;
+        const bool spirv = slang == kShaderDialectVulkan;
         Json twin = Json::object({{"format", kShaderTwinFormat},
                                   {"engine", FA_ENGINE_VERSION},
                                   {"template", shader_template_hash(material.full ? "mesh-full" : material.kind)},
@@ -1117,6 +1148,7 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
         // A twin without "kind" is a mesh twin: mesh twins stay as they were before M72, so no committed or exported one is
         // made stale by the kinds.
         if (material.kind != "mesh") twin["kind"] = material.kind;
+        if (spirv) twin["binary"] = "base64";  // "vs"/"fs"/"cs" are base64 SPIR-V, not source text
         if (instLayout.vec4Count > 0) {
             twin["instanced"] = instancedSlots;
             twin["instanceVec4"] = instLayout.vec4Count;
@@ -1140,10 +1172,12 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const std::string name = prog.value("name", std::string());
             Json reflection = prog;
             reflection.erase("name");
+            if (spirv) normalize_spirv_numbers(reflection);
             if (material.kind == "compute") {  // one compute function ("cs") instead of a vertex and a fragment one
                 const Json cf = prog.value("compute_func", Json::object());
                 reflection["compute_func"] = func_reflection(cf);
-                const std::string csText = read_output_file(work, cf.value("path", std::string()));
+                const std::string csText = spirv ? read_spirv_base64(work, cf.value("path", std::string()))
+                                                 : read_output_file(work, cf.value("path", std::string()));
                 if (csText.empty())
                     return make_error(
                         "sokol-shdc did not write the " + slang + " source of program '" + name + "'",
@@ -1155,8 +1189,10 @@ Result<std::map<std::string, Json>> build_twins(const stdfs::path& work, const s
             const Json vf = prog.value("vertex_func", Json::object()), ff = prog.value("fragment_func", Json::object());
             reflection["vertex_func"] = func_reflection(vf);
             reflection["fragment_func"] = func_reflection(ff);
-            std::string vsText = read_output_file(work, vf.value("path", std::string())),
-                        fsText = read_output_file(work, ff.value("path", std::string()));
+            std::string vsText = spirv ? read_spirv_base64(work, vf.value("path", std::string()))
+                                       : read_output_file(work, vf.value("path", std::string())),
+                        fsText = spirv ? read_spirv_base64(work, ff.value("path", std::string()))
+                                       : read_output_file(work, ff.value("path", std::string()));
             if (slang == "glsl430" && (material.kind == "mesh" || material.kind == "sprite") &&
                 !material.buffers.empty()) {
                 vsText = rebase_gl_storage_bindings(std::move(vsText));
@@ -1234,8 +1270,8 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
         res.dialects = shader_dialects();
     else
         for (const std::string& d : options.dialects) {
-            if (std::find(shader_dialects().begin(), shader_dialects().end(), d) == shader_dialects().end())
-                return make_error("unknown shader dialect '" + d + "'", did_you_mean(d, shader_dialects()));
+            if (std::find(shader_dialects_all().begin(), shader_dialects_all().end(), d) == shader_dialects_all().end())
+                return make_error("unknown shader dialect '" + d + "'", did_you_mean(d, shader_dialects_all()));
             res.dialects.push_back(d);
         }
 
@@ -1252,10 +1288,12 @@ Result<ShaderCompileResult> compile_material(const std::string& projectDir, cons
     if (!mp.ok()) return res;
     if (res.material.kind == "compute" || !res.material.buffers.empty()) {
         // No glsl300es twin: GLES3 and WebGL2 have no compute shaders and no storage buffers in the vertex stage.
-        const std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
-        if (options.dialects.empty()) {  // "every dialect" means every dialect the kind has
+        std::vector<std::string> has = shader_dialects_of_kind(res.material.kind, !res.material.buffers.empty());
+        // "Every dialect" means every dialect the kind has (spirv_vk only when asked for).
+        if (options.dialects.empty()) {
             res.dialects = has;
         } else {
+            has.push_back(kShaderDialectVulkan);  // SPIR-V has compute and storage buffers
             std::vector<std::string> kept;
             for (const std::string& d : res.dialects)
                 (std::find(has.begin(), has.end(), d) != has.end() ? kept : res.skippedDialects).push_back(d);

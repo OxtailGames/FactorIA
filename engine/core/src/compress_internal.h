@@ -1,4 +1,5 @@
-// Private header of the block codecs (compress_blocks.cpp, lz4_codec.cpp, zstd_decode.cpp, zstd_encode.cpp, xxh64.cpp).
+// Private header of the block codecs (compress_blocks.cpp, lz4_codec.cpp, zstd_decode.cpp, zstd_encode.cpp,
+// gdeflate_codec.cpp, xxh64.cpp).
 // Everything here is pure: no global state, no floats in any decision, explicit little-endian loads and stores, and
 // size arithmetic in 64 bits (the web build has a 32-bit size_t).
 #pragma once
@@ -69,6 +70,8 @@ inline std::uint64_t max_decoded_size(Codec codec, std::uint64_t stored) {
         case Codec::Store: return stored;
         case Codec::Lz4: return stored * 255 + 64;
         case Codec::Zstd: return (stored / 4 + 1) * 131072;
+        // gdeflate: a tile of 64 KiB takes at least its 32 lane words (128 bytes).
+        case Codec::GDeflate: return (stored / 128 + 1) * 65536;
     }
     return stored;
 }
@@ -97,5 +100,15 @@ void zstd_compress(std::span<const std::uint8_t> input, int level, bool checksum
 // out.size() bytes exactly; without it they may produce less (written gets the count) but never more.
 Result<void> zstd_decompress(std::span<const std::uint8_t> block, std::span<std::uint8_t> out, bool exact,
                              std::size_t* written = nullptr);
+
+// ---- GDeflate (DirectStorage 1.1's GPU-friendly Deflate64, 64 KiB tiles in 32 lanes) -------------------------------
+std::size_t gdeflate_compress_bound(std::size_t size);
+// level 1..12 (already clamped). The output (the whole stream: header, tile table, tiles) is appended to `out`.
+void gdeflate_compress(std::span<const std::uint8_t> input, int level, std::vector<std::uint8_t>& out);
+// Decodes exactly out.size() bytes; the stream must describe exactly that many.
+Result<void> gdeflate_decompress(std::span<const std::uint8_t> block, std::span<std::uint8_t> out);
+// One tile (the bytes between two entries of the tile table) into out (1..65536 bytes). Returns how many bytes of the
+// tile were read: all of them for a tile this encoder wrote (a test checks it). For tests and test vectors.
+Result<std::size_t> gdeflate_decode_tile(std::span<const std::uint8_t> tile, std::span<std::uint8_t> out);
 
 }  // namespace fa::codec

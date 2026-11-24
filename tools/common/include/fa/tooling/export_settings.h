@@ -141,6 +141,14 @@ struct PackExportSettings {
     // True: the files go into the pack in the order the game first read them in play sessions (the editor's Play,
     // `factoria run`, play.auto record it in .factoria/cache/load-order.json); false, or nothing recorded: by path.
     bool useLoadOrder = true;
+    // export.pack.codec: "auto" (default) keeps the choice above per file type; "lz4", "zstd" or "gdeflate" packs every
+    // file the default would compress with that codec instead (files stored by default, and extensions named in
+    // `codecs`, keep theirs). With "auto", a Windows export with `directStorage` on packs those files as "gdeflate", the
+    // stream DirectStorage 1.1 decompresses on the GPU.
+    std::string codec = "auto";
+    // export.pack.directStorage: used by the Windows DirectStorage reader, which arrives in M77 (the option is read and
+    // saved now and has no other effect than the "auto" codec above). Default off.
+    bool directStorage = false;
     bool operator==(const PackExportSettings&) const = default;
 };
 

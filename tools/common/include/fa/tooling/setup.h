@@ -77,7 +77,8 @@ inline constexpr const char* kSetupAppImageRuntimeSha256 =
 // sokol-shdc, the shader cross-compiler of custom materials (docs/design/CUSTOM_SHADERS.md): a pinned commit of
 // github.com/floooh/sokol-tools-bin (it has no release tags) and the SHA-256 of bin/<dir>/sokol-shdc[.exe] per host.
 // tools/shaders/compile_shaders.sh uses the same pin (a test keeps them equal); the generated code must match
-// external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together.
+// external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together. This commit
+// already writes `spirv_vk` (M77: SPIR-V for the Vulkan backend), so adding that dialect did not move it.
 inline constexpr const char* kSetupSokolShdcCommit = "b975d5642093d62e76a1e088bdae945d6d8b8ff2";
 struct SokolShdcBinary {
     const char* host;  // "windows" | "linux" | "macos" (SetupContext::host_os)

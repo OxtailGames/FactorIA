@@ -53,7 +53,10 @@ cap keeps everything, and the pipelines the warm-up makes or asks for (`Renderer
 `set_warming(false)`; a fixed set of about 20) are never destroyed at all, so a rarely used one that the warm-up paid for does not hitch (D3D11, Metal) when it comes back;
 the limits count frames, never time. `pipelines`, `pipelineHits`,
 `pipelinesMade` and `pipelinesEvicted` are in the start-up report (`loading.startup.gpu`). Shaders are GLSL annotated for
-`sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
+`sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). The script also asks for `spirv_vk` (M77: the SPIR-V of the
+Vulkan backend): the arrays and the `SG_BACKEND_VULKAN` description sit behind `#if defined(SOKOL_VULKAN)`, so a player without that backend
+links none of it, and `spirv_shader_tests.cpp` defines `SOKOL_VULKAN` for itself to check the module headers and the set and binding numbers.
+Custom materials get the same dialect on request (docs/design/CUSTOM_SHADERS.md, "Dialects per target"). Every mesh program (`mesh`,
 `mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
 the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom material is the same with its own

@@ -16,8 +16,8 @@ void ExportAssets::replace(const std::string& original, const std::string& shipp
 }
 
 Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files,
-                                 ExportReport& report, const SetupContext& setup) {
-    ExportAssets ea{p, platform, files, p.dir / ".factoria" / "export-cache" / platform, Json(), report, setup};
+                                 ExportReport& report, const SetupContext& setup, bool vulkan) {
+    ExportAssets ea{p, platform, files, p.dir / ".factoria" / "export-cache" / platform, Json(), report, setup, vulkan};
     const bool hasManifest = std::find(files.begin(), files.end(), assets::kManifestFile) != files.end();
     ea.manifest = Json::object({{"format", assets::kManifestFormat}});
     if (hasManifest) {
