@@ -75,7 +75,13 @@ struct RendererTestAccess {
     static void force_velocity(Renderer& r, bool on);
     // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.
     static void force_no_velocity_target(Renderer& r, bool on);
+    // M76-P1d: behave as a GPU that cannot sample RGBA32F in the vertex stage (the previous joint palettes cannot be read: skinned draws write the
+    // sentinel, one warning), and as one whose palette image holds only `rows` rows of 1024 texels (a skinned draw takes 192 texels).
+    static void force_no_palette_sampling(Renderer& r, bool on);
+    static void set_palette_row_cap(Renderer& r, int rows);
     static bool read_velocity(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
+    // M76-P1d: the same for the reactive mask of the last camera (the first channel of each texel holds the mask, 0..1).
+    static bool read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
     // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
     static std::vector<Vec2> last_jitter(Renderer& r);
     static int ldr_cut_format(Renderer& r);

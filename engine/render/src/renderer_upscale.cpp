@@ -143,6 +143,7 @@ bool Renderer::Impl::temporal_upscale(const UpscaleInput& in, Target& out, const
     r.dummy = assets->white()->view;
     if (const Target* t = upscalePrepass.target(c)) r.depth = t->texView;
     if (const Target* t = upscaleVelocity.target(c)) r.velocity = t->texView;
+    if (const Target* t = upscaleReactive.target(c)) r.reactive = t->texView;
     r.inW = in.renderW;
     r.inH = in.renderH;
     // What the history is bound to besides the camera: the size the picture is drawn at and the quality (a change of either drops it).

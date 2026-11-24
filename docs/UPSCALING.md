@@ -58,8 +58,9 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5) use too, with the
   does: bloom, depth of field, motion blur and the other effects work on the jittered render-size image, and the resolve smooths what they
   leave. That is the price of one seam for every upscaler; thin bright details can shimmer through a strong bloom.
 - **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
-  (`render.supports` `motionVectors`). A 2D game has no velocity: a sprite that moves leaves a short trail; keep the quality high or
-  use `stretch` for it. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
+  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation since the
+  frame before) and a particle is marked in the reactive mask, so neither trails much; a sprite that turns or changes size between frames is
+  followed at its centre only. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
   as with the stretch stage (docs/RENDERING.md). The output's alpha is 1.
 - **Pixel art.** `PixelPerfect` draws as `stretch` (hard pixels, no blend, no jitter).
 - **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
@@ -151,8 +152,14 @@ behind moving objects. The history starts again (that frame shows its own pictur
 Changing `temporalAAFeedback`, `Sharpen`, `VarianceGamma` or `ReactiveScale` does not reset it. A fast thing that the reprojection cannot
 follow (particles, a flash) is clipped to its neighbours, so it leaves a short trail at most; lower `temporalAAFeedback` for fewer.
 
-Limitations of the motion vectors it reads: particles, sprites and quads write none (they are reprojected as if still, so a fast one
-trails), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
+The reactive mask (R8, `ParticleEmitter.reactive`, `Sprite.reactive`, and every additive item) tells the resolve to trust the current frame
+where a blended or additive particle is now, scaled by `temporalAAReactiveScale`. It holds the pixels the particle covers now: the trail it
+leaves behind on pixels it has left is limited by the neighbourhood clamp, not removed by the mask. Where a particle is drawn over a flat
+colour that trail is a few percent of the particle's brightness; over a busy background lower `temporalAAFeedback` if it shows.
+
+Limitations of the motion vectors it reads: the quads write a translation (a sprite that turns or changes size between two frames is
+followed at its centre, not its corners; a `Shape2D` counts as its whole box; instanced sprites and quads with a screen effect write none),
+particles write none (they are in the reactive mask), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
 than 4 extra `vec4`s; with one, 3 or more) or draws from storage buffers. Everything else, skinned meshes of up to 64 joints and a material's
 `vertex()` included, has a vector. A custom `vertex()` is run twice and only `fa_time.x` differs in the second run, so motion that depends on the
 instance data, a material parameter or the distance to the camera is not seen. A GPU with no RG16F render target has no vectors at all: one
@@ -253,8 +260,8 @@ upscaler is not put back by itself: applying the preset again does.
 
 `render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
 (the effect's row). `temporalAA`, `spatialUpscaler` and `temporalUpscaler` are `supported` on every GPU backend; `motionVectors` answers
-true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 32 joints and
-materials with a `vertex()` included, instances, terrain, foliage and impostors, and `render.debug_view {"view":"motionVectors"}`
+true where the GPU can make the image (the depth prepass writes the motion of the meshes, skinned ones of up to 64 joints and
+materials with a `vertex()` included, instances, terrain, foliage and impostors, the cutout sprites, shapes, tiles and glyphs of the world, and `render.debug_view {"view":"motionVectors"}`
 shows it); the others answer false with the status `planned (M76)` until their packages land.
 
 | Row | Backends | Needs |

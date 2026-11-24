@@ -470,6 +470,10 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     notes.pos = m.translation();
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
+    if (!screen)
+        list.set_motion_source(e.bits(), notes.pos);  // M76-P1d: the velocity image follows the sprite's translation
+    if (s.reactive > 0.0f)
+        list.set_reactive(s.reactive);  // M76-P1d: the reactive mask instead of the velocity (an Additive sprite is 1)
     if (lit) list.set_lit(prep.normal);
     {
         QuadFx fx = prep.fx;
@@ -713,6 +717,7 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
                         clip);
     else
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+    if (!screen) list.set_motion_source(e.bits(), m.translation());  // M76-P1d
     if (s.lit && !screen) {
         list.set_lit(nullptr);
         QuadFx fx;

@@ -818,6 +818,7 @@ TEST_CASE("velocity: a skinned mesh holds the motion of its pose, of its entity,
     }
 }
 
+namespace {
 // A skin of `joints` joints whose "Tip" is the last one (render/tests/data/make_skinned_two_bone.py): the vertices of the upper rings read a
 // joint far past the 32nd. The "Slide" clip moves the whole column by 1 m between two poses, the entity stays: the vector of a point of the
 // column is that motion, whichever ring (Root alone, the blend, Tip alone) the point is nearest to.
@@ -853,6 +854,7 @@ void check_big_skin(const char* file, std::size_t joints) {
     pixel_of(vp, {1.0f, 1.0f, -0.25f}, x, py);
     CHECK(o.draw(w).pixel(x, py).r > 0.5f);
 }
+}  // namespace
 
 TEST_CASE("velocity: a skin of 40 joints has real vectors (the palette of the frame before is read from an image, not "
           "a uniform block)") {
@@ -861,6 +863,144 @@ TEST_CASE("velocity: a skin of 40 joints has real vectors (the palette of the fr
 
 TEST_CASE("velocity: a skin of 64 joints has real vectors, with the joint of the upper rings at index 63") {
     check_big_skin("engine/render/tests/data/skinned_sixty_four_joints.gltf", 64);
+}
+
+namespace {
+// The warnings the engine logged (category "render") while alive.
+struct RenderWarnings {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    RenderWarnings()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level != LogLevel::Warn || e.category != "render") return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~RenderWarnings() { remove_log_sink(id); }
+    RenderWarnings(const RenderWarnings&) = delete;
+    RenderWarnings& operator=(const RenderWarnings&) = delete;
+    int count(const char* needle) const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        int n = 0;
+        for (const std::string& m : shared->lines) n += m.find(needle) != std::string::npos ? 1 : 0;
+        return n;
+    }
+};
+// A column the "Slide" clip moves by 1 m between two poses, `count` of them 2 m apart along x (the first at x = `first`), each with its own
+// animator and so its own previous palette; the camera sees them all. Returns the entities.
+std::vector<Entity> add_rig_row(World& w, int count, float first) {
+    std::vector<Entity> rigs;
+    for (int i = 0; i < count; ++i) rigs.push_back(add_rig(w, "Slide", {first + 2.0f * float(i), 0, 0}));
+    return rigs;
+}
+}  // namespace
+
+TEST_CASE(
+    "velocity: a GPU that cannot sample RGBA32F in the vertex stage gives skinned draws the sentinel, warns once, and "
+    "the picture is the same") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_forty_joints.gltf", "assets/rig.gltf");
+    RenderWarnings warnings;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const Entity cam = add_camera(w, {0, 1, 5});
+    const Entity rig = add_rig(w, "Slide");
+    (void)rig;
+    RendererTestAccess::force_no_palette_sampling(o.r, true);
+    update_animators(w, 0.0f);
+    o.frame(w);
+    update_animators(w, 0.6f);
+    const Image limited = o.draw(w);
+    const Mat4 vp = matrix_of(o, cam);
+    const Vec3 at{1.0f, 1.0f, -0.25f};
+    int x, y;
+    pixel_of(vp, at, x, y);
+    {
+        const Vel v = read_vel(o);
+        CHECK(v.none(x, y));  // not a wrong vector: the sentinel, which the resolve reprojects from the depth
+    }
+    CHECK(limited.pixel(x, y).r > 0.5f);  // the column is drawn where the pose puts it
+    CHECK(warnings.count("32-bit float") == 1);
+    update_animators(w, 0.6f);
+    o.frame(w);
+    CHECK(warnings.count("32-bit float") == 1);  // once for the renderer
+    // The same scene on a GPU that can: real vectors, and the very same picture.
+    RendererTestAccess::force_no_palette_sampling(o.r, false);
+    update_animators(w, 0.0f);
+    o.frame(w);
+    update_animators(w, 0.6f);
+    const Image full = o.draw(w);
+    const Vel v = read_vel(o);
+    REQUIRE_FALSE(v.none(x, y));
+    const Vec2 want = front_face_motion(matrix_of(o, cam), {1, 0, 0}, at);
+    CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+    REQUIRE(limited.rgba.size() == full.rgba.size());
+    CHECK(limited.rgba == full.rgba);
+}
+
+TEST_CASE("velocity: past the rows of the palette image the skinned draws get the sentinel, the ones before them real "
+          "vectors, and one warning names the count") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_forty_joints.gltf", "assets/rig.gltf");
+    RenderWarnings warnings;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const int count = 8;
+    const Entity cam = add_camera(w, {0, 1, 16});
+    const std::vector<Entity> rigs = add_rig_row(w, count, -7.0f);
+    // One row of 1024 texels holds five of the 192-texel palettes (the engine's limit is 1024 rows: 5461 draws; the test hook cuts it to one).
+    RendererTestAccess::set_palette_row_cap(o.r, 1);
+    update_animators(w, 0.0f);
+    o.frame(w);
+    update_animators(w, 0.6f);
+    o.frame(w);
+    const Mat4 vp = matrix_of(o, cam);
+    const Vel v = read_vel(o);
+    int real = 0, sentinel = 0;
+    for (int i = 0; i < count; ++i) {
+        const Vec3 at{-7.0f + 2.0f * float(i) + 1.0f, 1.0f, -0.25f};  // the column slid 1 m to the right
+        int x, y;
+        pixel_of(vp, at, x, y);
+        CAPTURE(i);
+        if (v.none(x, y)) {
+            ++sentinel;
+        } else {
+            ++real;
+            const Vec2 want = front_face_motion(vp, {1, 0, 0}, at);
+            CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+        }
+    }
+    CHECK(real == 5);
+    CHECK(sentinel == 3);
+    CHECK(warnings.count("skinned draws in one camera's frame") == 1);
+    CHECK(warnings.count("5 skinned draws") == 1);
+    // The engine's own limit (1024 rows: 5461 draws) holds all eight: every one has its vector, and nothing is warned.
+    Own full(g);
+    REQUIRE_MESSAGE(full.ok, full.error);
+    World w2;
+    const Entity cam2 = add_camera(w2, {0, 1, 16});
+    add_rig_row(w2, count, -7.0f);
+    update_animators(w2, 0.0f);
+    full.frame(w2);
+    update_animators(w2, 0.6f);
+    full.frame(w2);
+    const Vel all = read_vel(full);
+    int real2 = 0;
+    for (int i = 0; i < count; ++i) {
+        int x, y;
+        pixel_of(matrix_of(full, cam2), {-7.0f + 2.0f * float(i) + 1.0f, 1.0f, -0.25f}, x, y);
+        real2 += all.none(x, y) ? 0 : 1;
+    }
+    CHECK(real2 == count);
+    CHECK(warnings.count("skinned draws in one camera's frame") == 1);
 }
 
 TEST_CASE("velocity: a skinned mesh of 64 joints draws the same picture with and without the velocity image") {
@@ -889,33 +1029,6 @@ TEST_CASE("velocity: a skinned mesh of 64 joints draws the same picture with and
     render::renderer_force_post_effects(on.r, 0);
     render::renderer_force_post_effects(off.r, 0);
 }
-
-namespace {
-// The warnings the engine logged (category "render") while alive.
-struct RenderWarnings {
-    struct Lines {
-        std::mutex mu;
-        std::vector<std::string> lines;
-    };
-    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
-    int id;
-    RenderWarnings()
-        : id(add_log_sink([l = shared](const LogEntry& e) {
-              if (e.level != LogLevel::Warn || e.category != "render") return;
-              std::lock_guard<std::mutex> lk(l->mu);
-              l->lines.push_back(e.message);
-          })) {}
-    ~RenderWarnings() { remove_log_sink(id); }
-    RenderWarnings(const RenderWarnings&) = delete;
-    RenderWarnings& operator=(const RenderWarnings&) = delete;
-    int count(const char* needle) const {
-        std::lock_guard<std::mutex> lk(shared->mu);
-        int n = 0;
-        for (const std::string& m : shared->lines) n += m.find(needle) != std::string::npos ? 1 : 0;
-        return n;
-    }
-};
-}  // namespace
 
 TEST_CASE("velocity: a GPU with no RG16F target makes no velocity image and no prepass for it, warns once, and the TAA "
           "reprojects from the camera") {
