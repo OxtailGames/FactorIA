@@ -256,7 +256,7 @@ Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, r
 
 ## `project.graphics` (modifies state)
 
-Not released yet (on main after 0.35.2).
+Since 0.36.0.
 
 Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in factoria.json.
 

@@ -281,8 +281,7 @@ sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
               : prog == Prog::Copy      ? "dof-copy"
               : prog == Prog::ObjVel    ? "motion-velocity"
               : prog == Prog::ObjTile   ? "motion-tile"
-              : prog == Prog::ObjGather ? "motion-blur"
-                                        : "motion-blur";
+                                        : "motion-blur";  // Prog::ObjGather
     const sg_pipeline p = sg_make_pipeline(&d);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
         FA_ERROR("render", "failed to create pipeline '{}'", d.label);

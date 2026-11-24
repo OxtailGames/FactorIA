@@ -1642,35 +1642,35 @@ declare module "factoria" {
 
   /**
    * A graphics preset (M76, docs/UPSCALING.md): low, medium, high, ultra, or custom (no preset: the game as its author made it).
-   * @since unreleased
+   * @since 0.36.0
    */
   export type GraphicsPresetName = "low" | "medium" | "high" | "ultra" | "custom";
 
   /**
    * What game.graphics.preset() answers: the preset now (preset) and before the call (previous), whether anything changed, the limits and the upscaler that changed (changes: { knob, from, to }), the limits now in force (limits; a number at its largest value means no limit), the knobs this GPU capped (capped, with the reason) and headless (true without graphics: the preset is remembered, nothing is drawn).
-   * @since unreleased
+   * @since 0.36.0
    */
   export type GraphicsPresetInfo = { preset: GraphicsPresetName; previous: GraphicsPresetName; changed: boolean; changes: { knob: string; from: unknown; to: unknown }[]; limits: Record<string, number | boolean | string>; capped: { knob: string; wanted: unknown; effective: unknown; reason: string }[]; upscaler: { mode: string; quality: string; sharpness: number; effectiveMode: string; scale: number }; headless: boolean };
 
   /**
    * What game.graphics.detect() answers: the preset that suits this machine (preset) and why (reason), the GPU (gpu), the benchmark itself (benchmark: ran is false and why says it when nothing was drawn; the times are left out, they differ from machine to machine and a game must not branch on them: the command graphics.detect gives them to tools) and the device class that capped the choice (device).
-   * @since unreleased
+   * @since 0.36.0
    */
   export type GraphicsDetection = { preset: GraphicsPresetName; reason: string; gpu: { backend: string; name: string; vendor: string; driver: string; memoryMB: number; unifiedMemory: boolean; software: boolean }; benchmark: { ran: boolean; why?: string; samples: number; width: number; height: number }; device: { tier: string; formFactor: string; handheld: boolean } };
 
   /**
    * The graphics presets (game.graphics, M76, docs/UPSCALING.md "Graphics presets").
-   * @since unreleased
+   * @since 0.36.0
    */
   export interface GraphicsAPI {
     /**
      * Reads (no argument) or applies a graphics preset: a quality layer the renderer puts over what the scene asks for (shadows, ambient occlusion, reflections, depth of field, motion blur, fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. A preset only lowers settings; "custom" removes the layer and puts back the upscaler the game had. Nothing is written into the scenes or factoria.json, and the simulation is not affected. Knobs the GPU cannot draw are capped (see capped in the result). An unknown name throws with a "did you mean" and changes nothing. The engine does not save the player's choice: keep it with storage.set(). Example: game.graphics.preset("high").
-     * @since unreleased
+     * @since 0.36.0
      */
     preset(name?: GraphicsPresetName): GraphicsPresetInfo;
     /**
      * Measures this GPU with a short off-screen benchmark (a warm-up and 5 timed pictures of a fixed scene, a few hundred ms on a good GPU, seconds on a slow one or with a cold shader cache: call it behind a loading screen or on the first-run options page, never during play) and answers the preset that suits it, the reason and the GPU. Changes nothing: apply the answer with game.graphics.preset(). Does not touch the simulation, its clock or its random numbers. Headless runs and a CPU renderer are not benchmarked (benchmark.ran is false) and the device tier decides. Example: const { preset } = game.graphics.detect(); game.graphics.preset(preset).
-     * @since unreleased
+     * @since 0.36.0
      */
     detect(): GraphicsDetection;
   }
@@ -2698,7 +2698,7 @@ declare module "factoria" {
     readonly device: Readonly<{ formFactor: "desktop" | "phone" | "tablet"; gpuBackend: string; memoryGB: number; tier: "low" | "medium" | "high"; steamDeck: boolean; handheld: boolean }>;
     /**
      * The graphics presets: game.graphics.preset("high") applies one, game.graphics.detect() suggests the one that suits this machine (M76, docs/UPSCALING.md, "Graphics presets").
-     * @since unreleased
+     * @since 0.36.0
      */
     readonly graphics: GraphicsAPI;
     /**
@@ -2814,7 +2814,7 @@ declare module "factoria" {
     current: boolean;
     /**
      * Its refresh rate in Hz, rounded to 0.1 (the top of a variable-rate panel: 120 for ProMotion). 0 when the OS does not say: a run without a window, the web, a Windows driver that answers "the hardware's default", Linux without libXrandr. window.dynamicResolution.refreshHz is the rate the game follows.
-     * @since unreleased
+     * @since 0.36.0
      */
     refreshHz: number;
   }
@@ -2921,12 +2921,12 @@ declare module "factoria" {
     renderScale: number;
     /**
      * How the picture drawn at a lower resolution reaches the screen (M76, docs/UPSCALING.md). Read: { mode, quality, sharpness, effectiveMode, scale, dynamicScale, frameMs } (all seven are always there; the type marks them optional only so that the object you assign may leave keys out); effectiveMode is the mode the renderer really draws with ("stretch", "spatial" or "temporal" today: metalfx and auto draw as the best that exists until its package lands, temporal draws as "spatial" on a frame of several cameras or where its history cannot be made, and a pixel-perfect display (display.scaleMode) is always "stretch") and scale the share of the output's width and height the quality draws (native 1, quality 0.667, balanced 0.588, performance 0.5, ultraPerformance 0.333); dynamicScale is the factor the dynamic resolution (window.dynamicResolution) draws at now (1 while it is off) and frameMs the frame time it measures, in ms (0 while off or before one is measured): both read-only, never written back. Write: an object with any of mode ("stretch", "spatial", "temporal", "metalfx", "auto"), quality ("native", "quality", "balanced", "performance", "ultraPerformance") and sharpness (0 to 1); the keys left out keep their value. A wrong name, key or number throws with the valid values and a "did you mean", and changes nothing. The start value is factoria.json "render": { "upscaler": ... } (default stretch, native, 0.5). The game is drawn at window.renderScale times scale times dynamicScale (never below 0.25) and brought up to the window's size, the HUD and the UI at that size; spatial uses an edge-adaptive upscale and a contrast-adaptive sharpen (sharpness), and at native quality it is the sharpen alone (none at sharpness 0); temporal jitters the camera and accumulates the frames at the window's size (docs/UPSCALING.md, "The temporal upscaler"), and draws nothing extra at native quality; stretch is the plain scaling. The engine saves nothing: keep the player's choice with storage.set(). Example: window.upscaler = { mode: "auto", quality: "balanced" }.
-     * @since unreleased
+     * @since 0.36.0
      */
     upscaler: { mode?: "stretch" | "spatial" | "temporal" | "metalfx" | "auto"; quality?: "native" | "quality" | "balanced" | "performance" | "ultraPerformance"; sharpness?: number; readonly effectiveMode?: "stretch" | "spatial" | "temporal" | "metalfx"; readonly scale?: number; readonly dynamicScale?: number; readonly frameMs?: number };
     /**
      * Dynamic resolution (M76, docs/UPSCALING.md, "Dynamic resolution"): the render scale follows the frame time so the game holds a target. Read: { enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameMs, source, refreshHz, refreshSource }. enabled (default false: the fixed scale, bit for bit as without the feature); targetMs the frame time to hold in ms (4 to 100; 33.3 is 30 fps, 16.7 is 60 fps), 0 (default) = one refresh of the display (refreshHz); minScale and maxScale (0.25 to 1, defaults 0.5 and 1) bound a factor that multiplies with window.renderScale and window.upscaler.quality (never below 0.25 in all); it starts at maxScale. effectiveTargetMs is the frame time held now, scale the factor in force, frameMs the smoothed measured frame time in ms (0 until measured) and source what is measured: "gpu" (timer queries: D3D11 and OpenGL), "interval" (the time between frames: Metal, GLES3, WebGL2), "none" (headless, nothing measured: the factor stays at maxScale); refreshHz is the display refresh rate a targetMs of 0 follows, in Hz rounded to 0.1 (reported while off too), and refreshSource where it comes from: "platform" (the OS says, for the monitor the window is on: macOS, iOS, Windows, Linux with XRandR, Android), "estimated" (the median time between presented frames, where the OS does not say: the web, a Windows driver that answers the hardware's default, Linux without libXrandr), "default" (60: no window, vsync off, window.frameCap set, or still measuring). A window moved to another monitor follows its rate within a few seconds. The last six are read-only and are never written back. Write: an object with any of enabled, targetMs, minScale and maxScale; keys left out keep their value. A wrong key, type or number, or a minScale above the maxScale, throws with the valid values and changes nothing. The start value is factoria.json "render": { "dynamicResolution": ... }. The render targets are made again at each step of the scale (at most twice a second while it moves, never while it holds); the temporal upscaler keeps its history across the steps. The measured time is a measurement, not simulation state: do not branch gameplay on it. Example: window.dynamicResolution = { enabled: true, targetMs: 16.7, minScale: 0.6 }.
-     * @since unreleased
+     * @since 0.36.0
      */
     dynamicResolution: { enabled?: boolean; targetMs?: number; minScale?: number; maxScale?: number; readonly effectiveTargetMs?: number; readonly scale?: number; readonly frameMs?: number; readonly source?: "gpu" | "interval" | "injected" | "none"; readonly refreshHz?: number; readonly refreshSource?: "platform" | "estimated" | "default" };
     /**
@@ -6551,8 +6551,8 @@ declare module "factoria" {
      */
     instances: number;
     /**
-     * 0..1 (default 0): how much the temporal antialiasing and the temporal upscaler (PostProcess.temporalAAEnabled, render.upscaler "temporal") trust this sprite over their history, for a sprite that changes faster than its motion shows: a glowing or fading overlay, a world-space HUD element, a flash. Above 0 the sprite writes this value, times its alpha, into the reactive mask (PostProcess.temporalAAReactiveScale scales it) instead of its motion vector, so the resolve uses the current frame there. 0 = an opaque or cut-out sprite writes its motion vector and is resolved like the rest of the picture; an Additive sprite counts as 1 here. Nothing changes without a temporal effect.
-     * @since unreleased
+     * -1..1: how much the temporal antialiasing and the temporal upscaler (PostProcess.temporalAAEnabled, render.upscaler "temporal") trust this sprite over their history, for a sprite that changes faster than its motion shows: a glowing or fading overlay, a world-space HUD element, a flash. Above 0 the sprite writes this value, times its alpha, into the reactive mask (PostProcess.temporalAAReactiveScale scales it) instead of its motion vector, so the resolve uses the current frame there. 0 = never reactive, an Additive sprite too (it then writes neither the mask nor a vector: it is resolved like the rest of the picture and may leave a trail). Any negative value (the default, -1) leaves it to the blend mode: an Additive sprite counts as 1 (a glow has no velocity and would leave a trail), any other writes its motion vector. A sprite with a material of its own is marked by its quad's shape and texture alpha, not by what the material's discard or vertex() does. Nothing changes without a temporal effect.
+     * @since 0.36.0
      */
     reactive: number;
   }
@@ -7743,7 +7743,7 @@ declare module "factoria" {
     materialParams: any;
     /**
      * 0..1 (default 1): how much the temporal antialiasing and the temporal upscaler (PostProcess.temporalAAEnabled, render.upscaler "temporal") trust this emitter's particles and trails over their history. Particles are blended and carry no motion vector of their own, so a fast or fading one would leave a smeared trail in the resolved picture; the renderer writes this value, times the particle's coverage, into a reactive mask that makes the resolve use the current frame there (PostProcess.temporalAAReactiveScale scales it). 0: the particles are resolved like the rest of the picture (slow, soft smoke may look smoother). Nothing changes without a temporal effect.
-     * @since unreleased
+     * @since 0.36.0
      */
     reactive: number;
   }
@@ -11880,32 +11880,32 @@ declare module "factoria" {
     ssaoRadius: number;
     /**
      * Switches the temporal antialiasing on: the camera is shaken by a sub-pixel amount every frame (meshes, sky and HDRI move together; the HUD does not) and the frames are blended into a clean, smooth edge. It runs on the lit HDR picture at the render resolution, after the exposure slot and before the depth of field, on every backend (two fragment passes, no compute), with one history per camera (RGBA16F; RGBA8 on a GPU that cannot render to half floats, where colours above 1 are clipped in the history). The history is reprojected with the motion vectors when the frame has them, else with the depth prepass (so it needs no other setting); it starts again after a cut, a resize or render-scale change, a floating-origin shift, a scene load or a frame the camera did not draw. Not drawn (and not jittered) for CameraView, render-target and camera.capture cameras. Off: no pass, no image, no jitter. docs/UPSCALING.md has the details.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAAEnabled: boolean;
     /**
      * Only used when temporalAAEnabled. 0.5..0.98: the share of the picture taken from the frames before. Higher is smoother and ghosts more behind moving things; 0.9 is the usual choice.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAAFeedback: number;
     /**
      * Only used when temporalAAEnabled. 0..1: sharpening that gives back the detail the blend of frames softens.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAASharpen: number;
     /**
      * Only used when temporalAAEnabled. 0.5..2: how far the history colour may differ from the colours around the pixel before it is clipped to them. Lower removes ghosts and flickers more, higher keeps more detail.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAAVarianceGamma: number;
     /**
      * Only used when temporalAAEnabled. 0..4: how strongly things that change too fast to follow (particles, fast objects, flashes) shorten the history there; 0 ignores them, 1 is the default.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAAReactiveScale: number;
     /**
      * Only used when temporalAAEnabled, and by the temporal upscaler (render.upscaler "temporal" or "metalfx") for a camera whose stack has the effect on; without it the upscaler uses -0.5. -2..0: the texture detail asked of the scene's materials (meshes, terrain, impostors, custom 3D shaders that read fa_mip_bias; never sprites, UI or text) while the frames are accumulated. The textures are read at a mip level shifted by log2(render size / output size) + this value, never above 0: the accumulation of jittered frames gives back the detail a smaller picture would otherwise blur away. With the temporal antialiasing alone (render scale 1) the shift is this value. 0 turns the bias off at scale 1 and keeps the shift of the resolution ratio when upscaling; -2 is the sharpest, with more shimmer for the history to resolve. No temporal pass, no bias: the picture is the same as without the field.
-     * @since unreleased
+     * @since 0.36.0
      */
     temporalAAMipBias: number;
     /**
@@ -11966,12 +11966,12 @@ declare module "factoria" {
     motionBlurSamples: number;
     /**
      * Only used when motionBlurEnabled. object (default): the blur follows the velocity image, so moving objects blur too (a tile-max / neighbour-max filter keeps a fast object soft-edged over a sharp background); it needs a GPU that can draw the velocity image (render.supports motionVectors) and falls back to camera mode where it cannot. camera: only the camera's own movement, from the depth (cheaper: one pass, no velocity image).
-     * @since unreleased
+     * @since 0.36.0
      */
     motionBlurMode: "object" | "camera";
     /**
      * Only used when motionBlurEnabled and motionBlurMode is object. 1..64 design pixels (times the render scale): how far the blur of a pixel reaches on each side, so the longest streak is twice this. A faster motion is cut to it. Smaller is cheaper and cleaner for very fast objects.
-     * @since unreleased
+     * @since 0.36.0
      */
     motionBlurMaxRadius: number;
     /**
