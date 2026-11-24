@@ -29,7 +29,7 @@ SHDC_SHA256_osx_arm64=2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fb
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC="$ROOT/engine/render/shaders"
 OUT="$ROOT/engine/render/src/shaders"
-SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl"
+SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk"
 
 host_dir() {
     local os arch

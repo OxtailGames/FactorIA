@@ -41,7 +41,7 @@ corner is behind the farthest depth of every cell it reads. Not culled: a corner
 picture's border, a changed field of view or aspect (a cut), a cell with no mesh, a move needing more than `kHizMaxDilate` cells, a pyramid
 older than `kHizMaxAgeFrames` frames or from before a jump of the world's frame. At most `kHizMaxCameras` cameras keep a pyramid; the world
 or scene path changing drops them all. Support is `render.supports occlusionGpu` (`computeShaders`) plus `AsyncBufferRead::supported()`.
-`hiz.glsl` starts with `// shdc-slang: glsl430:metal_macos:metal_ios:metal_sim:hlsl5` (tools/shaders/compile_shaders.sh), so its generated
+`hiz.glsl` starts with `// shdc-slang: glsl430:metal_macos:metal_ios:metal_sim:hlsl5:spirv_vk` (tools/shaders/compile_shaders.sh), so its generated
 header carries no GLES3, WGSL or WebGL2 code and the web player does not grow. Tests: `hiz_tests.cpp` (CPU), `hiz_render_tests.cpp` (a GPU
 scene; they return where there is no compute). Bench: `render.hiz3d`.
 

@@ -261,12 +261,21 @@ std::vector<std::string> find_material_files(const std::string& projectDir);
 
 // windows linux macos ios android web.
 const std::vector<std::string>& shader_platforms();
-// Every dialect an export can need, in the order they are compiled: hlsl5 glsl430 glsl300es metal_macos metal_ios
-// metal_sim.
+// The dialect of the Vulkan backend (M77): SPIR-V, base64 in the twin (`"binary": "base64"`), with the descriptor set and binding
+// numbers of sokol-shdc in the reflection (`spirv_set0_binding_n`, `spirv_set1_binding_n`, as integers).
+inline constexpr const char* kShaderDialectVulkan = "spirv_vk";
+// The dialects every platform can need, in the order they are compiled: hlsl5 glsl430 glsl300es metal_macos metal_ios
+// metal_sim. spirv_vk is not in the list: nothing in the player reads it before the Vulkan backend, so it is compiled and
+// shipped only when asked for (shader_dialects_all, shader_dialects_for with `vulkan`).
 const std::vector<std::string>& shader_dialects();
-// The dialects of some platforms (union, no duplicates, in shader_dialects() order); empty = all. An unknown platform
-// is an error with a "did you mean".
-Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms);
+// shader_dialects() and spirv_vk: every dialect compile_material accepts.
+const std::vector<std::string>& shader_dialects_all();
+// True for the platforms that can run the Vulkan backend: windows, linux and android.
+bool shader_platform_has_vulkan(const std::string& platform);
+// The dialects of some platforms (union, no duplicates, in shader_dialects_all() order); empty = all of shader_dialects().
+// With `vulkan`, spirv_vk joins the platforms that can run Vulkan (empty `platforms`: it joins the list). An unknown
+// platform is an error with a "did you mean".
+Result<std::vector<std::string>> shader_dialects_for(const std::vector<std::string>& platforms, bool vulkan = false);
 // The dialects a material of `kind` is compiled for: shader_dialects() for every kind except "compute" (and a mesh material
 // with storage buffers, `storageBuffers`), which has no glsl300es (GLES3 and WebGL2, hence Android and the web, have no
 // compute shaders and no storage buffers in the vertex stage).
