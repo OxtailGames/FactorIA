@@ -130,6 +130,9 @@ This keeps every call site backend-neutral, and it is why `ViewDesc` fixes a vie
 - `SokolDevice::create` adopts the sokol context that is open (the renderer's; left open at destruction) or opens one
   from `DeviceInit` (and shuts it down at destruction). `frame_index()` counts commits through a commit listener.
 - Timers and readbacks forward to the renderer's `GpuTimer`, `readback_*.cpp/.mm` and `AsyncBufferRead`.
+- Asynchronous reads come from a pool of up to 8 `AsyncBufferRead` rings of 4 slots each, made lazily (a ticket's slot is
+  ring * 4 + slot): the Hi-Z cull of up to 8 cameras keeps 4 reads in flight each. A request takes the first ring with a
+  free slot; when all 32 are busy it returns an invalid ticket without an error.
 - sokol's `DUMMY` backend, which the engine never builds, maps to `Backend::Recording` (no GPU either way); sokol's
   WebGPU and Vulkan backends are not used.
 
@@ -270,7 +273,9 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
 
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
 sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target
-helpers (target.cpp), shader_cache.cpp and render_features.cpp; the frame graph carries the list to its passes.
+helpers (target.cpp), shader_cache.cpp and render_features.cpp; the frame graph carries the list to its passes; compute.cpp,
+light_atlas.cpp, renderer_hiz.cpp, renderer_probes_gpu.cpp and renderer_gi_gpu.cpp (they open their passes on `gpu.commands()`).
+gpu_timer.cpp stays on sokol: it is the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

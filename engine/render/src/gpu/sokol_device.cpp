@@ -1225,13 +1225,13 @@ SokolDevice::~SokolDevice() {
         // The renderer closed the context first: the timer's queries and the reads' staging buffers died with it, and
         // their destructors would call the native API on a context that is gone. Leak the two small objects instead.
         (void)timer_.release();
-        (void)asyncRead_.release();
+        for (auto& ring : asyncRead_) (void)ring.release();
         return;
     }
     // The timer and the asynchronous reads hold native queries and staging buffers of this context: release them
     // while it is open.
     timer_.reset();
-    asyncRead_.reset();
+    for (auto& ring : asyncRead_) ring.reset();
     if (listening_) sg_remove_commit_listener(sg_commit_listener{&SokolDevice::count_commit, this});
     if (ownsContext_) sg_shutdown();
 }
@@ -1580,15 +1580,20 @@ Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t o
         return make_error("gpu: request_buffer_read: offset " + std::to_string(offset) + " + bytes " +
                               std::to_string(bytes) + " is empty or overflows",
                           "ask for at least one byte inside the buffer");
-    if (!asyncRead_) asyncRead_ = std::make_unique<render::AsyncBufferRead>();
+    static_assert(render::AsyncBufferRead::kSlots == kReadSlotsPerRing, "SokolDevice::reads_ has one entry per slot");
     std::string err;
-    // AsyncBufferRead copies from the buffer's start: copy offset + bytes and drop the first offset bytes at poll.
-    const int slot = asyncRead_->request(to_sg(buffer), offset + bytes, &err);
-    static_assert(render::AsyncBufferRead::kSlots == 4, "SokolDevice::reads_ has one entry per slot");
-    if (slot >= 0 && slot < render::AsyncBufferRead::kSlots) {
-        if (++readGeneration_ == 0) ++readGeneration_;  // 0 is "no ticket"
-        reads_[std::size_t(slot)] = PendingRead{offset, readGeneration_};
-        return ReadTicket{slot, readGeneration_};
+    // AsyncBufferRead copies from the buffer's start: copy offset + bytes and drop the first offset bytes at poll. The
+    // first ring with a free slot takes the request; a new ring is made only when every earlier one is in flight.
+    for (std::size_t ring = 0; ring < asyncRead_.size(); ++ring) {
+        if (!asyncRead_[ring]) asyncRead_[ring] = std::make_unique<render::AsyncBufferRead>();
+        const int slot = asyncRead_[ring]->request(to_sg(buffer), offset + bytes, &err);
+        if (slot >= 0 && slot < kReadSlotsPerRing) {
+            const std::size_t index = ring * std::size_t(kReadSlotsPerRing) + std::size_t(slot);
+            if (++readGeneration_ == 0) ++readGeneration_;  // 0 is "no ticket"
+            reads_[index] = PendingRead{offset, readGeneration_};
+            return ReadTicket{int(index), readGeneration_};
+        }
+        if (!err.empty()) break;  // a real error: the next ring would say the same
     }
     if (err.empty()) return ReadTicket{};  // every slot is in flight: ask again next frame
     return make_error("gpu: request_buffer_read: " + err,
@@ -1597,7 +1602,8 @@ Result<ReadTicket> SokolDevice::request_buffer_read(Buffer buffer, std::size_t o
 }
 
 bool SokolDevice::read_ticket_current(ReadTicket ticket) const {
-    return asyncRead_ && ticket.valid() && ticket.slot < render::AsyncBufferRead::kSlots &&
+    return ticket.valid() && ticket.slot < int(reads_.size()) &&
+           asyncRead_[std::size_t(ticket.slot / kReadSlotsPerRing)] &&
            reads_[std::size_t(ticket.slot)].generation == ticket.generation;
 }
 
@@ -1605,7 +1611,8 @@ bool SokolDevice::poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>&
     check_thread("Device::poll_buffer_read");
     if (!read_ticket_current(ticket)) return false;  // never issued, already read or released: stale
     PendingRead& r = reads_[std::size_t(ticket.slot)];
-    if (!asyncRead_->poll(ticket.slot, out, wait)) return false;
+    if (!asyncRead_[std::size_t(ticket.slot / kReadSlotsPerRing)]->poll(ticket.slot % kReadSlotsPerRing, out, wait))
+        return false;
     const std::size_t skip = std::min(r.offset, out.size());
     out.erase(out.begin(), out.begin() + std::ptrdiff_t(skip));
     r = PendingRead{};
@@ -1615,7 +1622,7 @@ bool SokolDevice::poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>&
 void SokolDevice::release_buffer_read(ReadTicket ticket) {
     check_thread("Device::release_buffer_read");
     if (!read_ticket_current(ticket)) return;
-    asyncRead_->release(ticket.slot);
+    asyncRead_[std::size_t(ticket.slot / kReadSlotsPerRing)]->release(ticket.slot % kReadSlotsPerRing);
     reads_[std::size_t(ticket.slot)] = PendingRead{};
 }
 

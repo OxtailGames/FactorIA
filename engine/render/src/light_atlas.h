@@ -32,7 +32,8 @@
 #include "fa/core/image.h"
 #include "fa/core/math.h"
 #include "fa/render/ies.h"
-#include "sokol_gfx.h"
+#include "gpu/device.h"
+#include "gpu/sg_bridge.h"
 
 namespace fa::render {
 
@@ -121,7 +122,11 @@ class LightAtlas {
 public:
     using Loader = std::function<LightAtlasSource(const LightAtlasKey&)>;
     using FailureFn = std::function<void(const LightAtlasKey&, const std::string& message, const std::string& hint)>;
-    ~LightAtlas() { destroy(); }
+    // The images are destroyed on the device that made them: Renderer::shutdown calls destroy(device) while it is open,
+    // and the destructor does it only for an atlas that was never destroyed (it remembers the device of its last sync).
+    ~LightAtlas() {
+        if (device_) destroy(*device_);
+    }
 
     // A light uses the LTC tables (an area light) or a cookie or profile: the next sync makes the image. Cheap to call
     // every frame.
@@ -145,9 +150,9 @@ public:
     // Makes (or makes again) the image when something was requested or changed. False when there is no image (nothing
     // requested, the GPU cannot filter RGBA16F, or the GPU refused it): the lights are then drawn without the atlas. A
     // failed tile is reported to `onFailure` once and left white.
-    bool sync(const Loader& load, const FailureFn& onFailure);
+    bool sync(gpu::Device& device, const Loader& load, const FailureFn& onFailure);
     // The image to bind, or an empty view while there is none.
-    sg_view view() const { return view_; }
+    gpu::bridged::View view() const { return view_; }
     bool ready() const { return view_.id != 0; }
     // The rect of a tile in texels, null when the key was not requested or did not fit.
     const LightAtlasRect* rect(LightAtlasKind kind, const std::string& path) const;
@@ -157,13 +162,13 @@ public:
     int dropped() const { return layout_.dropped; }
     int bakes() const { return bakes_; }  // images made so far (tests)
     // Frees what an earlier sync replaced: call once a frame, when the graph of the frame before has run.
-    void free_retired();
-    void destroy();
+    void free_retired(gpu::Device& device);
+    void destroy(gpu::Device& device);
 
 private:
     struct Retired {
-        sg_image image;
-        sg_view view;
+        gpu::Image image;
+        gpu::View view;
     };
     std::set<LightAtlasKey> keys_;
     std::map<LightAtlasKey, std::uint64_t> lastUse_;  // the tick_ of the last request of each key
@@ -171,8 +176,9 @@ private:
     std::map<LightAtlasKey, std::vector<std::uint16_t>> tiles_;
     LightAtlasLayout layout_;
     std::vector<Retired> retired_;
-    sg_image image_{};
-    sg_view view_{};
+    gpu::Image image_{};
+    gpu::View view_{};
+    gpu::Device* device_ = nullptr;  // the device of the last sync, until destroy()
     bool needLtc_ = false, dirty_ = false, unsupported_ = false;
     int bakes_ = 0;
 };
