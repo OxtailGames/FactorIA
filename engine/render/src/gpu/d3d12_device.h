@@ -891,6 +891,11 @@ private:
     EnvironmentDefaults defaults_{};
     std::array<PixelFormatCaps, std::size_t(PixelFormat::Count)> caps_{};
 
+    // The bytes ID3D12PipelineLibrary was created from (libraryMutex_). The library does not copy them and reads them
+    // for its whole life, and so do the PSOs loaded from it: members die in reverse order, so this one, declared before
+    // pipelines_, psos_ and library_, is freed after all of them.
+    std::vector<std::uint8_t> libraryBlob_;
+
     // Resources (resMutex_)
     mutable std::mutex resMutex_;
     Pool<BufferRecord> buffers_;
@@ -911,11 +916,10 @@ private:
     D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;  // the device's
     bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
 
-    // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). The library reads the
-    // blob it was made from for its whole life, so libraryBlob_ lives as long as it.
+    // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). libraryBlob_, the
+    // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded from it.
     mutable std::mutex libraryMutex_;
     Com<ID3D12PipelineLibrary> library_;
-    std::vector<std::uint8_t> libraryBlob_;
     bool libraryDirty_ = false;  // holds PSOs the file does not
     std::filesystem::path pipelineCacheFile_;
     std::uint64_t libraryHits_ = 0, libraryMisses_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0;
