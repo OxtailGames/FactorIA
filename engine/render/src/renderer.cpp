@@ -125,6 +125,24 @@ int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     return on ? kJitterPhasesDefault : 0;
 }
 
+// The texture LOD bias of a camera drawn with `phases` jitter phases (M76-P4b, docs/UPSCALING.md "Texture mip bias"). The temporal upscaler
+// (temporalPhases) draws at the render size and accumulates into the output size, so the textures are read as finely as the output would:
+// log2(render width / output width) plus the offset (the stack's temporalAAMipBias when it has the effect on, else its default). The
+// temporal antialiasing alone, a picture accumulated at its own size, takes the offset. Never above 0 (no blur), never below -4. A frame that
+// is not jittered, and a jitter a test forced, have none: the picture is the one of a renderer without the feature.
+float Renderer::Impl::mip_bias(const CameraInfo& ci, bool mainFrameCamera, int phases) const {
+    if (phases <= 0) return 0.0f;
+    const bool upscaler = temporalPhases > 0 && mainFrameCamera;
+    if (!upscaler && jitterForce > 0) return 0.0f;
+    static const PostProcess kDefaults;
+    const PostProcess& f = ci.postStack && ci.postStack->has(PostEffect::TemporalAA) ? ci.postStack->fx : kDefaults;
+    const float rawOffset = f.temporalAAMipBias;
+    const double offset = std::isfinite(rawOffset) ? std::clamp(double(rawOffset), -2.0, 0.0) : -0.5;
+    double bias = offset;
+    if (upscaler && physW > 0 && targetW > 0) bias += std::log2(std::min(1.0, double(physW) / double(targetW)));
+    return float(std::clamp(bias, -4.0, 0.0));
+}
+
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget,
                                         bool blended) {
     CameraTarget target;
@@ -164,6 +182,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
         const float wPx = viewSize ? viewSize->x : float(physW) * ci.viewport.w;
         const float hPx = viewSize ? viewSize->y : float(physH) * ci.viewport.h;
         ci.apply_jitter(jitter_offset_pixels(postSerial, phases), wPx, hPx);
+        ci.mipBias = mip_bias(ci, viewSize == nullptr, phases);
     }
     // The transient screen effects (shockwave, flash, fade ...) of this camera: not part of the stack, they work with the editor's A/B
     // switch on too (it compares the stack, not the game's own effects). The camera's own and those of every camera; a camera that
@@ -589,6 +608,7 @@ void Renderer::set_quality(const render::QualityLimits& limits) {
     impl_->qualityOn = limits != render::QualityLimits{};
 }
 const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
+ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
 render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
     render::FeatureEnv env;  // headless (no GPU) until the renderer has one
     if (initialized()) env = render::feature_env_from_sokol();
@@ -1204,6 +1224,12 @@ std::vector<Vec2> RendererTestAccess::last_jitter(Renderer& r) {
     std::vector<Vec2> out;
     if (r.impl_)
         for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.jitterPx);
+    return out;
+}
+std::vector<float> RendererTestAccess::last_mip_bias(Renderer& r) {
+    std::vector<float> out;
+    if (r.impl_)
+        for (const CameraInfo& c : r.impl_->lastCams) out.push_back(c.mipBias);
     return out;
 }
 int RendererTestAccess::post_history_images(Renderer& r) {

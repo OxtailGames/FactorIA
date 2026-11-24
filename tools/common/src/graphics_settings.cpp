@@ -1,5 +1,6 @@
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -10,7 +11,7 @@
 #include "fa/render/upscaler.h"
 #include "fa/tooling/json_patch.h"
 
-namespace fa::editor {
+namespace fa {
 
 namespace {
 
@@ -107,7 +108,10 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
         if (!parsed.ok()) return parsed.error();
         s.mode = std::string(render::upscaler_mode_name(parsed->mode));
         s.quality = std::string(render::upscaler_quality_name(parsed->quality));
-        s.sharpness = double(std::round(parsed->sharpness * 100.0f)) / 100.0;
+        // The number of the file as it is (the parser's float would write 0.123 back as 0.12300000339): Save changes it only when the
+        // slider moved it, and the slider steps in hundredths.
+        const auto sh = up->find("sharpness");
+        s.sharpness = sh != up->end() && sh->is_number() ? sh->get<double>() : double(parsed->sharpness);
     }
     if (auto dr = render->find("dynamicResolution"); dr != render->end() && !dr->is_null()) {
         auto parsed = render::parse_dynamic_resolution_settings(*dr, file + "#/render/dynamicResolution", {});
@@ -194,4 +198,105 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
     return fs::write_bytes(path, out.data(), out.size());
 }
 
-}  // namespace fa::editor
+void register_graphics_settings_commands(CommandRegistry& registry, const std::string& projectDir) {
+    CommandInfo info;
+    info.name = "project.graphics";
+    info.category = "project";
+    info.readOnly = false;
+    info.summary =
+        "Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in "
+        "factoria.json.";
+    info.description =
+        "Edits the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of factoria.json "
+        "(docs/UPSCALING.md, \"Graphics presets\"): the settings the run starts with, the ones the editor's View > "
+        "Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, "
+        "ultra "
+        "or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, "
+        "maxScale}: the keys you give replace those of the file, the others stay. A value at its default removes its "
+        "key (a `render` object left empty is removed), and every other key and the formatting of the file stay as "
+        "they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON "
+        "pointer and a \"did you mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
+        "{\"upscaler\":{\"mode\":\"auto\",\"quality\":\"balanced\"}}." FA_COMMAND_DETAILS
+        "It does not change a running game: graphics.preset, render.upscaler and render.dynamic_resolution do that, "
+        "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
+        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, written}; `written` is false when "
+        "nothing changed (a read, or the same values). Errors: `invalid_argument` (unknown key or wrong value), "
+        "`failed` (no factoria.json, a file that is not valid JSON, or one that cannot be written).";
+    info.inputSchema = Json::parse(R"({"type":"object","properties":{
+        "preset":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"render.graphicsPreset: the preset a run starts with (custom removes the key)."},
+        "upscaler":{"type":"object","description":"render.upscaler: the keys given replace the file's.","properties":{
+            "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"]},
+            "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"]},
+            "sharpness":{"type":"number","minimum":0,"maximum":1}}},
+        "dynamicResolution":{"type":"object","description":"render.dynamicResolution: the keys given replace the file's.","properties":{
+            "enabled":{"type":"boolean"},"targetMs":{"type":"number","minimum":0},
+            "minScale":{"type":"number","minimum":0.1,"maximum":1},"maxScale":{"type":"number","minimum":0.1,"maximum":1}}}}})");
+    registry.add(info, [projectDir](const Json& args) {
+        if (!args.is_null() && !args.is_object())
+            throw CommandError("invalid_argument",
+                               "project.graphics takes an object, got " + std::string(args.type_name()) + ".",
+                               "Example: {\"preset\":\"medium\"}, or {} to read.");
+        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution"};
+        if (args.is_object())
+            for (auto it = args.begin(); it != args.end(); ++it)
+                if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
+                    throw CommandError("invalid_argument",
+                                       "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
+                                       "project.graphics takes `preset`, `upscaler` and `dynamicResolution`.");
+        auto current = read_graphics_settings(projectDir);
+        if (!current.ok()) throw CommandError("failed", current.error().message, current.error().hint);
+        GraphicsSettings s = *current;
+        const auto object_arg = [&](const char* key) -> const Json* {
+            if (!args.is_object()) return nullptr;
+            auto it = args.find(key);
+            if (it == args.end() || it->is_null()) return nullptr;
+            if (!it->is_object())
+                throw CommandError("invalid_argument",
+                                   std::string("`") + key + "` is an object, got " + it->type_name() + ".",
+                                   std::string("Example: {\"") + key + "\": {...}}; see the command's schema.");
+            return &*it;
+        };
+        if (args.is_object() && args.contains("preset") && !args["preset"].is_null()) {
+            if (!args["preset"].is_string())
+                throw CommandError("invalid_argument",
+                                   std::string("`preset` is a string, got ") + args["preset"].type_name() + ".",
+                                   "Use \"low\", \"medium\", \"high\", \"ultra\" or \"custom\".");
+            s.preset = args["preset"].get<std::string>();
+        }
+        if (const Json* up = object_arg("upscaler")) {
+            Json merged =
+                upscaler_json(s);  // the file's keys, replaced by the ones given (an unknown one reaches the parser)
+            for (auto it = up->begin(); it != up->end(); ++it) merged[it.key()] = it.value();
+            auto parsed = render::parse_upscaler_settings(merged, "project.graphics upscaler", {});
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            s.mode = std::string(render::upscaler_mode_name(parsed->mode));
+            s.quality = std::string(render::upscaler_quality_name(parsed->quality));
+            // A sharpness the caller gave stays as the caller wrote it (the parser's float would write 0.123 as 0.12300000339).
+            if (auto sh = up->find("sharpness"); sh != up->end() && sh->is_number()) s.sharpness = sh->get<double>();
+        }
+        if (const Json* dyn = object_arg("dynamicResolution")) {
+            auto parsed =
+                render::parse_dynamic_resolution_settings(*dyn, "project.graphics dynamicResolution", s.dynamic);
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            s.dynamic = *parsed;
+        }
+        if (auto problems = check_graphics_settings(s); !problems.empty())
+            throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
+                               "Fix the value; nothing was written.");
+        const bool changed = !(s == *current);
+        if (changed) {
+            auto written = write_graphics_settings(projectDir, s);
+            if (!written.ok()) throw CommandError("failed", written.error().message, written.error().hint);
+        }
+        Json out = Json::object();
+        out["file"] = project_file_path(projectDir);
+        out["preset"] = s.preset;
+        out["upscaler"] = upscaler_json(s);
+        out["dynamicResolution"] = dynamic_json(s);
+        out["written"] = changed;
+        return out;
+    });
+    declare_command_capabilities(registry, {{"project.graphics", capability_sets::writes_project()}});
+}
+
+}  // namespace fa

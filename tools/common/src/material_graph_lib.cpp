@@ -330,7 +330,7 @@ std::vector<GraphNodeType> build_library() {
              {in("uv", "vec2", "$uv", "Coordinates (default: the mesh's uv).")},
              {out("rgba", "vec4", "The texel."), out("rgb", "vec3", "Colour."), out("r", "float", "Red channel."),
               out("g", "float", "Green channel."), out("b", "float", "Blue channel."), out("a", "float", "Alpha.")},
-             {"texture(sampler2D({ref}, {ref}_smp), {uv})", "{self}rgba.rgb", "{self}rgba.r", "{self}rgba.g",
+             {"texture(sampler2D({ref}, {ref}_smp), {uv}, $mip_bias)", "{self}rgba.rgb", "{self}rgba.r", "{self}rgba.g",
               "{self}rgba.b", "{self}rgba.a"},
              kUvKinds),
         "texture")));
@@ -342,8 +342,8 @@ std::vector<GraphNodeType> build_library() {
                       {in("uv", "vec2", "$uv", "Coordinates (default: the mesh's uv)."),
                        in("strength", "float", 1.0, "Scales the bumps: 0 is flat, 1 as painted, 2 twice as steep.")},
                       {out("normal", "vec3", "Tangent-space normal (x right, y up the uv, z out of the surface).")},
-                      {"gn_unpack_normal(texture(sampler2D({ref}, {ref}_smp), {uv}), {strength})"}, kMeshOnly,
-                      {"gn_unpack_normal"}),
+                      {"gn_unpack_normal(texture(sampler2D({ref}, {ref}_smp), {uv}, $mip_bias), {strength})"},
+                      kMeshOnly, {"gn_unpack_normal"}),
                  "texture"),
         "sprite",
         "The output of a sprite graph has no normal: the engine's 2D lights use the sprite's own normal map. Use a "
@@ -361,13 +361,13 @@ std::vector<GraphNodeType> build_library() {
                   in("sharpness", "float", 4.0,
                      "How hard the projections separate: 1 is soft, 8 is nearly a hard edge.")},
                  {out("rgba", "vec4", "The blended texel."), out("rgb", "vec3", "Its colour.")},
-                 {"texture(sampler2D({ref}, {ref}_smp), {position}.zy * {scale}) * gn_tri_weights({normal}, "
+                 {"texture(sampler2D({ref}, {ref}_smp), {position}.zy * {scale}, $mip_bias) * gn_tri_weights({normal}, "
                   "{sharpness}).x "
                   "+ "
-                  "texture(sampler2D({ref}, {ref}_smp), {position}.xz * {scale}) * gn_tri_weights({normal}, "
+                  "texture(sampler2D({ref}, {ref}_smp), {position}.xz * {scale}, $mip_bias) * gn_tri_weights({normal}, "
                   "{sharpness}).y "
                   "+ "
-                  "texture(sampler2D({ref}, {ref}_smp), {position}.xy * {scale}) * gn_tri_weights({normal}, "
+                  "texture(sampler2D({ref}, {ref}_smp), {position}.xy * {scale}, $mip_bias) * gn_tri_weights({normal}, "
                   "{sharpness}).z",
                   "{self}rgba.rgb"},
                  kMeshOnly, {"gn_tri_weights"}),

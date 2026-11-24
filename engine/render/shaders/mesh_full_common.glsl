@@ -158,7 +158,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
                                 // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
-    vec4 fa_env_horizon;        // rgb horizon color; w unused
+    vec4 fa_env_horizon;        // rgb horizon color; w = the texture LOD bias of the frame (fa_mip_bias below; 0 = none)
     vec4 fa_time;               // x = seconds of game time since the scene started
     // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
     // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
@@ -203,6 +203,11 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_gi;
 };
 
+// The texture LOD bias of the frame (M76-P4b): negative while the temporal upscaler or the temporal antialiasing accumulates jittered
+// frames, 0 otherwise. fa_base_sample() adds it; add it to the other texture reads: texture(sampler2D(t, t_smp), uv, fa_mip_bias).
+// Fragment stage only.
+#define fa_mip_bias (fa_env_horizon.w)
+
 @include_block fa_inst_flags
 @include_block fa_inst_in
 @include_block fa_types
@@ -244,7 +249,7 @@ vec3 fa_linear_to_srgb(vec3 c) {
 }
 // The MeshRenderer's base colour texture sampled at uv, in the scene's colour space, times MeshRenderer.color.
 vec4 fa_base_sample(vec2 uv) {
-    vec4 t = texture(sampler2D(fa_tex, fa_smp), uv);
+    vec4 t = texture(sampler2D(fa_tex, fa_smp), uv, fa_mip_bias);
     float mode = mod(floor(fa_maps.w + 0.01), 4.0);
     if (mode > 1.5) {
         t.rgb = fa_linear_to_srgb(t.rgb);
