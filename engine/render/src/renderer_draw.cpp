@@ -4386,6 +4386,13 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
                     if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
                 for (int i = 0; i < gpu::kMaxSamplers; ++i)
                     if (!((prog->samplerMask >> i) & 1u)) b.samplers[i] = {};
+            } else if (plain) {
+                // The built-in lean program declares only the texture and its sampler: the other slots stay empty, as
+                // a device that checks the bindings against the shader (Vulkan, D3D12, the recording device) asks.
+                for (int i = 0; i < gpu::kMaxViews; ++i)
+                    if (i != VIEW_quad_tex) b.views[i] = {};
+                for (int i = 0; i < gpu::kMaxSamplers; ++i)
+                    if (i != SMP_quad_smp) b.samplers[i] = {};
             }
             if (sbu.active) bind_mesh_buffers(b, sbu, *prog);
             cl.set_bindings(b);

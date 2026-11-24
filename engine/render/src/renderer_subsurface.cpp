@@ -79,13 +79,15 @@ bool SssFx::ready(Gpu& gpu, Prog prog) {
     gpu::Shader s{};
     switch (prog) {
         case Prog::BlurH:
-            s = make_shader(device, gpu::generated_shader_desc(subsurface_blur_h_shader_desc), "subsurface_blur_h");
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_blur_h_shader_desc),
+                            "subsurface_blur_h");
             break;
         case Prog::BlurV:
-            s = make_shader(device, gpu::generated_shader_desc(subsurface_blur_v_shader_desc), "subsurface_blur_v");
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_blur_v_shader_desc),
+                            "subsurface_blur_v");
             break;
         default:
-            s = make_shader(device, gpu::generated_shader_desc(subsurface_add_shader_desc), "subsurface_add");
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_add_shader_desc), "subsurface_add");
             break;
     }
     if (device.state(s) != gpu::ResourceState::Valid) {

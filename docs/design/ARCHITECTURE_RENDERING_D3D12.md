@@ -6,12 +6,12 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 ## D3D12 backend
 
 The engine's own Direct3D 12 device (M77-P7a: the core; M77-P7c1: shaders, pipelines, passes and draws; M77-P7c2:
-GPU timers and asynchronous reads; M77-P9: the window). Its code is
+GPU timers and asynchronous reads; M77-P9b: the renderer on it, offscreen). Its code is
 `engine/render/src/gpu/d3d12_device.h` and `d3d12_*_win32.cpp` (the `_win32` suffix keeps it out of every other
 build); `d3d12_device.cpp` is the factory of the other platforms, which returns a teaching error ("runs on Windows
 only", hint `make_device(built_sokol_backend())`). `fa_render` links `d3d12`, `dxgi` and `dxguid` on Windows.
-`make_device(Backend::D3d12)` still answers "not built yet" until the renderer can run on it; tests and tools make it
-with `make_d3d12_device(D3d12Options)`.
+`make_device(Backend::D3d12)` makes it with `DeviceInit` and `pipelineCacheFile = d3d12_pipeline_cache_file()` (the
+renderer's `RendererDesc::backend = GpuBackend::D3d12`); tests make it with `make_d3d12_device(D3d12Options)`.
 
 **Options and start-up.** `D3d12Options` picks WARP or the first hardware adapter (high-performance preference), the
 debug layer (and GPU-based validation, which needs it), the frames in flight (1 to 3), the upload ring's size and the
@@ -181,13 +181,14 @@ it does not (also when the device is destroyed), atomically through `fs::write_b
 the file, a full disk) keeps the old file and warns. Deleting the file clears the cache. `counters()` has
 `pipelineLibrary`, `psoLibraryHits`, `psoLibraryMisses`, `pipelineCacheStored` and `pipelineCacheDiscarded`; the
 process totals are the `pipelineCache` object of the shader cache report (`ShaderBuildStats::to_json`, the `gpu` part
-of `loading.startup`). The renderer sets the option once it draws through D3D12 (M77-P9).
+of `loading.startup`). `make_device(Backend::D3d12)`, the renderer's way to the device, sets it.
 
 **Passes and draws.** `begin_pass` checks its attachments (live views of the right kind, one size, the resolve
 single-sampled with the colour format, the depth sample count equal to the colour one) and that `PassDesc::format` is
 what they are; it sets the targets, clears what `colorLoad` / `depthLoad` / `stencilLoad` say (Clear, or Default),
 and a viewport and scissor over the whole target. `end_pass` resolves an MSAA colour attachment into `resolve`. A pass
-into the window (`PassDesc::swapchain`) is an error until M77-P9. `set_pipeline` checks that the pipeline is a render
+into the window (`PassDesc::swapchain`) is an error that says the backend has no window path yet and to pick the
+sokol backend for a window. `set_pipeline` checks that the pipeline is a render
 one in a render pass and a compute one in a compute pass, and that its formats, colour count and sample count equal
 the pass's. `set_bindings` checks every slot against the shader (an empty slot the shader declares, a slot it does
 not, a view of the wrong kind, a buffer without the usage, a view of a mip and layer the pass draws into) and `set_uniforms` the block's exact size; uniforms are
@@ -197,7 +198,8 @@ block was set and `set_bindings` called since `set_pipeline`. As in sokol, once 
 inside a pass whose `begin_pass` failed is skipped. `draw_ex`'s `baseVertex` is the index offset with an index buffer
 and is added to `base` without one; dispatch counts are 0 to 65535 per dimension.
 
-**Not yet (M77-P9).** Passes into the window.
+**Not yet.** The window: `create_swapchain` and the calls after it fail with the default's teaching error (the DXGI
+swapchain is a later package).
 
 **Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
 WARP device with the debug layer and ends by checking that the layer reported no error. Resources: buffer and image

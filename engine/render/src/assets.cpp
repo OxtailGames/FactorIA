@@ -203,6 +203,8 @@ gpu::Buffer make_data_buffer(gpu::Device& device, const void* data, std::size_t 
                              bool index = false) {
     gpu::BufferDesc d;
     d.size = bytes;
+    d.usage.vertexBuffer =
+        !index;  // said, not implied: a backend that checks the usage of a bound buffer reads the flag
     d.usage.indexBuffer = index;
     d.data = gpu::Range{data, bytes};
     d.label = label;

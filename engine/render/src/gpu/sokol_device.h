@@ -213,6 +213,17 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override;
 
+    // The window: sokol_app's swapchain (gpu/device.h, "the window: swapchain and present"). The window system made it
+    // and presents it after the frame callback: create and resize record the request, acquire hands back the frame's
+    // surface as the window system gave it, present does nothing.
+    Result<void> create_swapchain(const SwapchainDesc& desc) override;
+    Result<void> resize_swapchain(int width, int height) override;
+    Result<Swapchain> acquire_swapchain(const Swapchain& windowFrame) override;
+    Result<void> present() override;
+    void destroy_swapchain() override;
+    bool has_swapchain() const override;
+    bool swapchain_format_supported(PixelFormat format, std::string* why) const override;
+
 private:
     friend class SokolCommandList;
     friend class SokolMetalNative;
@@ -253,6 +264,9 @@ private:
     };
     std::array<PendingRead, kMaxReadRings * kReadSlotsPerRing> reads_{};
     std::uint32_t readGeneration_ = 0;
+    // The window's swapchain as create_swapchain / resize_swapchain asked for it (sokol_app owns the real one).
+    bool swapchain_ = false;
+    SwapchainDesc swapchainDesc_{};
 };
 
 }  // namespace fa::gpu

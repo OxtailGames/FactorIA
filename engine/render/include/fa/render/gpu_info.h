@@ -22,8 +22,9 @@ class Renderer;
 namespace fa::render {
 
 struct GpuInfo {
-    std::string backend =
-        "none";        // Renderer::backend_name(): "glcore", "gles3", "d3d11", "metal", "dummy"; "none" = no renderer
+    // The backend the renderer draws through: Renderer::backend_name() ("glcore", "gles3", "d3d11", "metal") on the
+    // sokol context, "d3d12" or "vulkan" on the engine's own backends, "dummy" on a RecordingDevice; "none" = no renderer.
+    std::string backend = "none";
     std::string name;  // the adapter or the renderer string the API gives ("" = unknown)
     std::string
         vendor;  // "nvidia", "amd", "intel", "apple", "arm", "qualcomm", "microsoft", "mesa", "other" ("" = unknown)
