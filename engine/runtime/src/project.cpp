@@ -1916,7 +1916,7 @@ constexpr const char* kSchemaText =
               "type": "string",
               "enum": ["auto", "lz4", "zstd", "gdeflate"],
               "default": "auto",
-              "description": "The codec of every file that is compressed (not the ones stored by default, like .png and .ogg, and not an extension named in \"codecs\", which keeps its own). \"auto\" (default): each type's own choice (zstd for fonts and text, lz4 for the rest), except a Windows export with \"directStorage\" on, which packs them as gdeflate. \"lz4\", \"zstd\" or \"gdeflate\": that codec for all of them. gdeflate is Deflate64 in 64 KiB tiles of 32 lanes, the stream DirectStorage 1.1 decompresses on the GPU; other readers decode it on the CPU, about as fast as zstd and with the ratio of zlib. An older FactorIA cannot read a pack with gdeflate files."
+              "description": "The codec of every file that is compressed (not the ones stored by default, like .png and .ogg, and not an extension named in \"codecs\", which keeps its own). \"auto\" (default): each type's own choice (zstd for fonts and text, lz4 for the rest), except a Windows export with \"directStorage\" on, which packs them as gdeflate. \"lz4\", \"zstd\" or \"gdeflate\": that codec for all of them. gdeflate is Deflate64 in 64 KiB tiles of 32 lanes, the stream DirectStorage 1.1 decompresses on the GPU; other readers decode it on the CPU, somewhat slower than zstd and about half as fast as lz4, with about the ratio of zlib. An older FactorIA cannot read a pack with gdeflate files."
             },
             "directStorage": {
               "type": "boolean",

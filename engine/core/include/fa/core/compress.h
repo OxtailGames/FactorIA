@@ -8,7 +8,8 @@
 //   zstd  the Zstandard frame format (RFC 8878): slower to encode, still fast to decode, much better ratio. For
 //         larger data that compresses well (text, JSON, fonts, uncompressed texture payloads).
 //   gdeflate  the stream DirectStorage 1.1 decompresses on the GPU (Windows): Deflate64 cut into 64 KiB tiles, each
-//         dealt to 32 lanes. About the ratio of zlib, slower to decode on the CPU than lz4 and zstd; a game.pak
+//         dealt to 32 lanes. About the ratio of zlib; on the CPU it decodes somewhat slower than zstd and about half
+//         as fast as lz4 (test_gdeflate.cpp's "decode speed" case prints the three); a game.pak
 //         uses it only so that the DirectStorage reader can hand its blocks to the GPU as they are (the layout is in
 //         docs/design/ARCHITECTURE_FILES.md, "GDeflate").
 //   store no compression (data that is compressed already: PNG, OGG, QOA, KTX2 with supercompression, MP4).

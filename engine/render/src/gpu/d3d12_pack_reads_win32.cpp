@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/pack.h"
 #include "pack_direct_storage.h"
@@ -165,9 +166,9 @@ void setup_direct(D3d12Device::PackReads& p, ID3D12Device* device) {
     if (!p.event) p.why = "CreateEventW failed (error " + std::to_string(GetLastError()) + ")";
 }
 
-// DirectStorage's handle of the pack's file, opened on its first read (and while the pack lives).
-ds::File* direct_file(D3d12Device::PackReads& p, const std::shared_ptr<const PackReader>& pack,
-                      const std::filesystem::path& file, std::string& why) {
+// Closes DirectStorage's handles of the packs that are gone (every read holds its pack, so none of them is in flight):
+// on Windows an open handle keeps game.pak from being replaced or deleted.
+void prune_files(D3d12Device::PackReads& p) {
     p.files.erase(std::remove_if(p.files.begin(), p.files.end(),
                                  [](const D3d12Device::PackReads::OpenFile& f) {
                                      if (!f.pack.expired()) return false;
@@ -175,6 +176,12 @@ ds::File* direct_file(D3d12Device::PackReads& p, const std::shared_ptr<const Pac
                                      return true;
                                  }),
                   p.files.end());
+}
+
+// DirectStorage's handle of the pack's file, opened on its first read (and while the pack lives).
+ds::File* direct_file(D3d12Device::PackReads& p, const std::shared_ptr<const PackReader>& pack,
+                      const std::filesystem::path& file, std::string& why) {
+    prune_files(p);
     for (const auto& f : p.files)
         if (f.pack.lock() == pack) return f.file.get();
     std::string factoryWhy;
@@ -185,7 +192,8 @@ ds::File* direct_file(D3d12Device::PackReads& p, const std::shared_ptr<const Pac
     }
     D3d12Device::PackReads::OpenFile f;
     f.pack = pack;
-    const HRESULT hr = factory->OpenFile(file.c_str(), ds::kIidFile, f.file.put());
+    // The long-path form (fs::os_path), as the pack reader's own DirectStorage file is opened.
+    const HRESULT hr = factory->OpenFile(fa::fs::os_path(file).c_str(), ds::kIidFile, f.file.put());
     if (FAILED(hr) || !f.file) {
         why = "IDStorageFactory::OpenFile failed with " + ds::hresult_text(hr);
         return nullptr;
@@ -243,14 +251,25 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
                               " go past the end of buffer '" + label + "' (" + std::to_string(size) + " bytes)",
                           "make the buffer bigger, or read less");
     const auto requests = plan_of(l);
-    if (requests.size() > fa::detail::kDirectGpuReadRequests)
+    if (!packReads_) packReads_ = std::make_shared<PackReads>();
+    PackReads& p = *packReads_;
+    std::string why = layout_why(l);
+#if defined(_WIN64)
+    if (why.empty()) {
+        if (!p.tried) setup_direct(p, device_.get());
+        why = p.why;
+    }
+#else
+    if (why.empty()) why = "DirectStorage needs a 64-bit build";
+#endif
+    // One DirectStorage submission holds the read's requests: a limit of the direct path only (the CPU fallback reads
+    // any size, an lz4 file or a pack in memory included).
+    if (!fa::detail::direct_gpu_read_fits(requests.size(), why.empty()))
         return make_error(where + ": " + std::to_string(src.size) + " bytes span " + std::to_string(requests.size()) +
-                              " blocks, more than one read takes (" +
+                              " blocks, more than one DirectStorage read takes (" +
                               std::to_string(fa::detail::kDirectGpuReadRequests) + ")",
                           "read the file in parts of at most " +
                               std::to_string(fa::detail::kDirectGpuReadRequests * (l.blockSize >> 10) >> 10) + " MiB");
-    if (!packReads_) packReads_ = std::make_shared<PackReads>();
-    PackReads& p = *packReads_;
     PackRead* r = nullptr;
     for (PackRead& candidate : p.reads)
         if (candidate.stage == PackRead::Stage::Free) {
@@ -266,12 +285,7 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
     r->dstOffset = dstOffset;
     for (const auto& b : l.blocks) r->storedBytes += b.stored;
 
-    std::string why = layout_why(l);
 #if defined(_WIN64)
-    if (why.empty()) {
-        if (!p.tried) setup_direct(p, device_.get());
-        why = p.why;
-    }
     const auto split = fa::detail::split_direct_buffer(requests);
     if (why.empty() && split.gpu.empty()) why = "-";  // the range holds no whole block: the CPU reads it, no warning
     ds::File* file = nullptr;
@@ -306,8 +320,6 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
         }
         r->direct = true;
     }
-#else
-    if (why.empty()) why = "DirectStorage needs a 64-bit build";
 #endif
     if (!why.empty() && why != "-")
         warn_once(p.warned, why,
@@ -373,13 +385,23 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
             "store the region in the pack as D3D12's copyable footprint (rows 256-byte aligned) and read "
             "exactly its bytes");
     const auto requests = plan_of(l);
-    if (requests.size() > fa::detail::kDirectGpuReadRequests)
-        return make_error(into + ": the region spans " + std::to_string(requests.size()) +
-                              " blocks, more than one read takes (" +
-                              std::to_string(fa::detail::kDirectGpuReadRequests) + ")",
-                          "read the region in parts (rows from y)");
     if (!packReads_) packReads_ = std::make_shared<PackReads>();
     PackReads& p = *packReads_;
+    std::string why = layout_why(l);
+#if defined(_WIN64)
+    if (why.empty()) {
+        if (!p.tried) setup_direct(p, device_.get());
+        why = p.why;
+    }
+#else
+    if (why.empty()) why = "DirectStorage needs a 64-bit build";
+#endif
+    // A limit of the direct path only, as for buffers.
+    if (!fa::detail::direct_gpu_read_fits(requests.size(), why.empty()))
+        return make_error(into + ": the region spans " + std::to_string(requests.size()) +
+                              " blocks, more than one DirectStorage read takes (" +
+                              std::to_string(fa::detail::kDirectGpuReadRequests) + ")",
+                          "read the region in parts (rows from y)");
     PackRead* r = nullptr;
     for (PackRead& candidate : p.reads)
         if (candidate.stage == PackRead::Stage::Free) {
@@ -406,12 +428,7 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
     r->rows = rows;
     for (const auto& b : l.blocks) r->storedBytes += b.stored;
 
-    std::string why = layout_why(l);
 #if defined(_WIN64)
-    if (why.empty()) {
-        if (!p.tried) setup_direct(p, device_.get());
-        why = p.why;
-    }
     std::vector<fa::detail::DirectRowSpan> spans;
     if (why.empty()) {
         spans = fa::detail::plan_direct_texture_rows(requests, rowBytes, rows);
@@ -425,17 +442,18 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
         if (!file) p.why = why;
     }
     if (why.empty()) {
-        // Rows of a compressed format are rows of 4x4 blocks: 4 texel rows each, the last one clamped to the region.
-        const std::uint32_t texelRows = pixel_format_compressed(rec.format) ? 4u : 1u;
+        // Rows of a compressed format are rows of 4x4 blocks, and its boxes whole blocks of the mip's physical size.
+        const bool compressed = pixel_format_compressed(rec.format);
         for (std::size_t i = 0; i < requests.size(); ++i) {
             const fa::detail::DirectRequest& q = requests[i];
+            const fa::detail::DirectTextureBox box = fa::detail::direct_texture_box(x, y, w, h, spans[i], compressed);
             ds::TextureRegionDestination d;
             d.resource = r->tracked->resource.get();
             d.subresource = r->sub;
-            d.region.left = x;
-            d.region.right = x + w;
-            d.region.top = y + spans[i].firstRow * texelRows;
-            d.region.bottom = std::min(y + h, y + (spans[i].firstRow + spans[i].rowCount) * texelRows);
+            d.region.left = box.left;
+            d.region.right = box.right;
+            d.region.top = box.top;
+            d.region.bottom = box.bottom;
             d.region.front = is3d ? r->layer : 0;
             d.region.back = d.region.front + 1;
             ds::Request req;
@@ -450,8 +468,6 @@ Result<PackReadTicket> D3d12Device::read_pack_to_image(const PackSource& src, Im
         r->directBlocks = r->requests.size();
         r->direct = true;
     }
-#else
-    if (why.empty()) why = "DirectStorage needs a 64-bit build";
 #endif
     if (!why.empty())
         warn_once(p.warned, why,
@@ -486,7 +502,15 @@ Result<PackReadTicket> D3d12Device::start_pack_read(PackRead& r, const char* wha
         std::size_t at = 0;
         for (const auto& part : r.partialParts) {
             const UploadAlloc a = upload(part.length, 16, list);
-            if (!a.ok()) break;  // reported; the read still ends (its partial bytes are missing: errors() says why)
+            if (!a.ok()) {
+                // Reported by upload(). The whole blocks still go to DirectStorage (the read must end the same way),
+                // and the result says that the partial ones are missing.
+                r.result.error = std::string("gpu d3d12: ") + what + " of '" + r.src.path + "': no upload room for " +
+                                 std::to_string(part.length) + " bytes of a partial block at offset " +
+                                 std::to_string(r.dstOffset + part.outOffset) + " of buffer '" + r.label +
+                                 "' (see errors() for D3D12's reason): those bytes were not written";
+                break;
+            }
             std::memcpy(a.cpu, r.partial.data() + at, part.length);
             list->require(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
             list->flush_barriers();
@@ -523,6 +547,7 @@ void D3d12Device::cpu_pack_read(PackRead& r) {
     PackReads& p = *packReads_;
     r.direct = false;
     r.directBlocks = 0;
+    r.result.error.clear();  // the whole range is read again: what a DirectStorage attempt reported no longer holds
 #if defined(_WIN64)
     r.requests.clear();
     r.partial.clear();
@@ -574,9 +599,21 @@ void D3d12Device::pump_pack_reads() {
     if (!packReads_) return;
     PackReads& p = *packReads_;
     const std::uint64_t completed = fence_->GetCompletedValue();
+    // A lost device sets every fence to UINT64_MAX: its reads never finish, so each ends now with the reason.
+    auto lost = [&](PackRead& r, const char* stage) {
+        r.result.error = "gpu d3d12: " + std::string(r.what) + " of '" + r.src.path + "': the GPU device was lost " +
+                         stage + removed_reason() + " (hint: the debug layer, D3d12Options::debugLayer, says why)";
+        r.result.direct = false;
+        r.result.bytes = 0;
+        r.stage = PackRead::Stage::Done;
+    };
     for (std::size_t i = 0; i < p.reads.size(); ++i) {
         PackRead& r = p.reads[i];
-        if (r.stage == PackRead::Stage::Graphics && completed != UINT64_MAX && completed >= r.graphicsFence) {
+        if (r.stage == PackRead::Stage::Graphics && completed == UINT64_MAX) {
+            lost(r, "before the read's first list finished");
+            continue;
+        }
+        if (r.stage == PackRead::Stage::Graphics && completed >= r.graphicsFence) {
             if (!r.direct) {
                 r.result.direct = false;
                 r.result.bytes = r.src.size;
@@ -600,6 +637,14 @@ void D3d12Device::pump_pack_reads() {
         }
 #if defined(_WIN64)
         if (r.stage != PackRead::Stage::Direct) continue;
+        // DirectStorage's fence is this device's: lost with it. Its queue may never complete the status entry then.
+        const std::uint64_t dsCompleted = p.fence->GetCompletedValue();
+        if (dsCompleted == UINT64_MAX) {
+            p.room.give(r.requests.size());
+            r.requests.clear();
+            lost(r, "while DirectStorage read into the resource");
+            continue;
+        }
         if (!p.status->IsComplete(UINT32(i))) {
             const std::uint64_t waited = now_ms() - r.directSince;
             if (!r.warned && waited >= fa::detail::kDirectWarnMs) {
@@ -616,8 +661,7 @@ void D3d12Device::pump_pack_reads() {
             continue;
         }
         // The status is written; the fence signal follows it in the queue.
-        const std::uint64_t dsCompleted = p.fence->GetCompletedValue();
-        if (dsCompleted == UINT64_MAX || dsCompleted < r.directFence) continue;
+        if (dsCompleted < r.directFence) continue;
         p.room.give(r.requests.size());
         const HRESULT hr = p.status->GetHResult(UINT32(i));
         if (FAILED(hr)) {
@@ -640,8 +684,9 @@ void D3d12Device::pump_pack_reads() {
         }
         if (fa::detail::direct_storage_verify())
             if (auto v = r.src.pack->check_stored(r.src.path, r.src.offset, r.src.size); !v)
-                r.result.error =
-                    "gpu d3d12: " + std::string(r.what) + " (FA_DIRECTSTORAGE_VERIFY): " + v.error().to_string();
+                r.result.error += std::string(r.result.error.empty() ? "" : "; ") +
+                                  "gpu d3d12: " + std::string(r.what) +
+                                  " (FA_DIRECTSTORAGE_VERIFY): " + v.error().to_string();
         r.result.direct = true;
         r.result.bytes = r.src.size;
         r.result.directBlocks = r.directBlocks;
@@ -652,9 +697,12 @@ void D3d12Device::pump_pack_reads() {
         r.stage = PackRead::Stage::Done;
 #endif
     }
-    // Released reads that finished give their slot back.
+    // Released reads that finished give their slot back (and their pack, whose file may close now).
     for (PackRead& r : p.reads)
         if (r.stage == PackRead::Stage::Done && r.generation == 0) r = PackRead{};
+#if defined(_WIN64)
+    prune_files(p);
+#endif
 }
 
 bool D3d12Device::poll_pack_read(PackReadTicket ticket, PackReadResult& out, bool wait) {
@@ -672,11 +720,14 @@ bool D3d12Device::poll_pack_read(PackReadTicket ticket, PackReadResult& out, boo
         }
         if (r.stage == PackRead::Stage::Graphics) {
             const std::uint64_t completed = fence_->GetCompletedValue();
-            if (completed != UINT64_MAX && completed >= r.graphicsFence) {
+            if (completed == UINT64_MAX) {
+                // The device was lost: pump_pack_reads below ends the read with the reason.
+            } else if (completed >= r.graphicsFence) {
                 Sleep(1);  // its list finished; it waits for room in DirectStorage's queue (other reads finishing)
             } else {
                 std::lock_guard<std::mutex> lock(queueMutex_);
-                if (auto w = wait_fence(r.graphicsFence, "poll_pack_read"); !w) {
+                auto w = wait_fence(r.graphicsFence, "poll_pack_read");
+                if (!w && fence_->GetCompletedValue() != UINT64_MAX) {  // lost meanwhile: as above
                     report(w.error().to_string());
                     return false;
                 }
@@ -696,6 +747,9 @@ bool D3d12Device::poll_pack_read(PackReadTicket ticket, PackReadResult& out, boo
     if (r.stage != PackRead::Stage::Done) return false;
     out = std::move(r.result);
     r = PackRead{};
+#if defined(_WIN64)
+    prune_files(p);  // the read held the pack: its DirectStorage file closes here if that was the last holder
+#endif
     return true;
 }
 
@@ -712,6 +766,7 @@ void D3d12Device::shutdown_pack_reads() {
     PackReads& p = *packReads_;
     // DirectStorage writes into this device's resources: every read it holds ends before they go.
     const std::uint64_t start = now_ms();
+    bool cancelled = false;
     for (;;) {
         pump_pack_reads();
         bool direct = false;
@@ -723,8 +778,12 @@ void D3d12Device::shutdown_pack_reads() {
             break;
         }
 #if defined(_WIN64)
-        if (now_ms() - start >= fa::detail::kDirectWarnMs && p.queue)
+        if (!cancelled && now_ms() - start >= fa::detail::kDirectWarnMs && p.queue) {
             p.queue->CancelRequestsWithTag(0, 0);  // every request: the mask 0 matches every tag
+            cancelled = true;
+        }
+#else
+        (void)cancelled;
 #endif
         Sleep(1);
     }

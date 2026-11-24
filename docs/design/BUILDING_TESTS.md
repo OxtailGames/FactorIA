@@ -131,7 +131,8 @@ every race of the run and fails the test with its exit code.
 `tools/fuzz/` holds the fuzz targets: each feeds arbitrary bytes to one reader of data other people wrote, and the contract
 is that every input is a result or an error, never a crash, a hang, runaway memory or undefined behaviour. The targets are
 `json` (`parse_json`), `json_schema` (`validate_json` and the schema helpers), `scene` (`load_scene`), `prefab`
-(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
+(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `gdeflate` (`decompress` and
+`decompress_into` of `Codec::GDeflate`, the stream of a pack's gdeflate blocks, and its round trip), `mcp_jsonrpc` (`McpServer::handle_message`
 with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project), `translations`
 (`read_csv`, `read_xliff`) and the decoders of the files a project brings: `image` (`decode_image` and `image_size`:
 PNG, JPG, TGA, BMP, GIF...), `hdr` (`decode_hdr` and a re-encode: Radiance RGBE), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),
