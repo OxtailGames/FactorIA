@@ -188,8 +188,11 @@ transfer cannot leave `UNDEFINED`). Between two queues of one family (async comp
 only the owner changes: the timeline wait is the execution and memory dependency, and the fix-up barriers do the rest.
 `CONCURRENT` sharing was rejected for images: it turns off the compression GPUs keep on render targets and storage
 images (AMD DCC, and the like on other vendors) for the whole life of the image, and the backend cannot know at
-creation which images will cross queues. The cost of the transfers is two barriers per subresource that crosses (the
-merge joins neighbouring mips and layers), only on the frames that hand a resource over. The upload buffers (the ring
+creation which images will cross queues. The cost of the transfers is two barriers per subresource that crosses, only
+on the frames that hand a resource over; the merge joins neighbouring mips and layers in the same layout. The two
+halves must name the same subresource ranges, so a transfer merges on its layouts, families and destination state
+alone (the release's source stages and accesses differ with what the producer did to each mip; the merged barrier
+waits for their union), and both halves skip the same `UNDEFINED` subresources in the same order. The upload buffers (the ring
 and an upload too big for it) are the exception: written by the CPU and read by every queue's lists, they are
 `CONCURRENT` over the device's families when there are several (a buffer loses nothing by it).
 
@@ -372,7 +375,10 @@ pipelines and layouts, the framebuffer cache, a 3D image without 2D views and th
 the queues, on a device made with `queues = OtherFamilies` (on MoltenVK: compute family 1, transfer family 2, so the
 ownership transfers run; a GPU with no second queue skips them with a MESSAGE): a buffer and an image that go graphics
 -> compute -> graphics -> compute -> graphics with `wait_list` and `wait_queue`, a buffer written on the transfer
-queue, an image written by compute and sampled by a graphics compute pass and a fragment shader, a timed scope on the
+queue, an image written by compute and sampled by a graphics compute pass and a fragment shader, an image whose mips
+the producer left in different states (copied, sampled by compute, sampled by a fragment shader, `UNDEFINED`) handed to
+compute and back (with synchronization2 and with the 1.0 barriers, so both carry ownership transfers), rows that need
+repacking uploaded on the transfer queue (the repack buffer belongs to the list's queue) and sampled on graphics, a timed scope on the
 compute queue that is ignored, and the misuse errors (a token never issued, a resource of another queue, a handoff
 from a queue that does not own it, a render pass on a compute list); and, on every device, the `GraphicsOnly`
 fallback, two threads recording while the render thread makes and destroys other resources, `bindless_index`, and a

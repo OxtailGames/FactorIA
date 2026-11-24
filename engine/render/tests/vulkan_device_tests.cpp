@@ -2808,9 +2808,11 @@ QueueHandoff hand_buffer(Buffer buffer, QueueKind to) {
 
 // A device with a compute queue of its own, of another family where the GPU has one (OtherFamilies: the queue family
 // ownership transfers run, as on MoltenVK), or null when Vulkan or a second queue is missing here.
-std::unique_ptr<VulkanDevice> make_async_vk(const std::string& test) {
+// `synchronization2` false records the Vulkan 1.0 barriers instead.
+std::unique_ptr<VulkanDevice> make_async_vk(const std::string& test, bool synchronization2 = true) {
     VulkanOptions o;
     o.queues = VulkanOptions::Queues::OtherFamilies;
+    o.synchronization2 = synchronization2;
     auto dev = make_vk(o);
     if (!dev) return nullptr;
     if (!dev->features().asyncCompute) {
@@ -3054,6 +3056,216 @@ TEST_CASE("vulkan: an image written on the compute queue is sampled by graphics 
                          [](int, int) { return std::array<int, 4>{128, 128, 0, 255}; });  // texel (4, 4), nearest
     CHECK_MESSAGE(bad.empty(), "the fragment read: " << bad);
     CHECK(read_words(*dev, s.buffer) == words_of(1, 0));
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: an image whose mips the producer left in different states is released and acquired mip by mip") {
+    for (const bool sync2 : {true, false}) {
+        INFO("barriers: " << std::string(sync2 ? "synchronization2" : "Vulkan 1.0"));
+        auto dev =
+            make_async_vk(sync2 ? "mips in several states (synchronization2)" : "mips in several states (1.0)", sync2);
+        if (!dev) return;
+        PipelineDesc pd;
+        pd.compute = true;
+        pd.shader = dev->make_shader(sample_shader_desc());
+        pd.label = "sample";
+        const Pipeline sample = dev->make_pipeline(pd);
+        const Pipeline draw =
+            dev->make_pipeline(render_desc(dev->make_shader(two_views_shader_desc()), PixelFormat::Rgba8));
+        REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+        REQUIRE_MESSAGE(dev->state(draw) == ResourceState::Valid, all_errors(*dev));
+        // A 16x16 image of 4 mips: the producer copies mips 0 to 2 (a transfer write each), then samples mip 1 in a
+        // compute pass and mip 2 in a fragment shader (one layout, two stages); mip 3 stays UNDEFINED.
+        const std::vector<std::uint8_t> data = pattern(16 * 16 * 4 + 8 * 8 * 4 + 4 * 4 * 4, 77);
+        const std::size_t mipOffset[3] = {0, 16 * 16 * 4, 16 * 16 * 4 + 8 * 8 * 4};
+        BufferDesc bd;
+        bd.size = data.size();
+        bd.usage.copySrc = true;
+        bd.data = range_of(data);
+        const Buffer src = dev->make_buffer(bd);
+        ImageDesc id;
+        id.width = 16;
+        id.height = 16;
+        id.numMipmaps = 4;
+        id.pixelFormat = PixelFormat::Rgba8;
+        id.usage.copyDst = true;
+        id.label = "mips";
+        const Image img = dev->make_image(id);
+        REQUIRE_MESSAGE(dev->state(img) == ResourceState::Valid, all_errors(*dev));
+        id = {};
+        id.width = 8;
+        id.height = 8;
+        id.pixelFormat = PixelFormat::Rgba8;
+        id.usage.storageImage = true;
+        id.label = "fromMip1";
+        const Image fromMip1 = dev->make_image(id);
+        id.label = "fromMip0";
+        const Image fromMip0 = dev->make_image(id);
+        ViewDesc v;
+        v.texture.image = img;
+        v.texture.mipLevels = {1, 1};
+        const View mip1 = dev->make_view(v);
+        v.texture.mipLevels = {2, 1};
+        const View mip2 = dev->make_view(v);
+        v.texture.mipLevels = {};
+        const View whole = dev->make_view(v);
+        v = {};
+        v.storageImage.image = fromMip1;
+        const View fromMip1Storage = dev->make_view(v);
+        v.storageImage.image = fromMip0;
+        const View fromMip0Storage = dev->make_view(v);
+        const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+        const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+        const View black = make_texture(*dev, 1, 1, {0, 0, 0, 0});
+
+        std::string step = "graphics writes mips 0 to 2 piecewise, samples two of them, and hands the image on";
+        INFO("step: " << step);
+        CommandList& g = dev->begin_commands("piecewise", QueueKind::Graphics);
+        for (int m = 0; m < 3; ++m) {
+            BufferImageCopy c;
+            c.src = src;
+            c.srcOffset = mipOffset[m];
+            c.bytesPerRow = (16 >> m) * 4;
+            c.dst.image = img;
+            c.dst.mipLevel = m;
+            g.copy_buffer_to_image(c);
+        }
+        g.begin_compute_pass("sample-mip1");
+        g.set_pipeline(sample);
+        Bindings sb;
+        sb.views[0] = mip1;
+        sb.views[1] = fromMip1Storage;
+        sb.samplers[0] = nearest;
+        g.set_bindings(sb);
+        g.dispatch(1, 1, 1);
+        g.end_pass();
+        g.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+        g.set_pipeline(draw);
+        Bindings db;
+        db.views[0] = mip2;
+        db.views[1] = black;
+        db.samplers[0] = nearest;
+        db.samplers[1] = nearest;
+        g.set_bindings(db);
+        g.set_uniforms(0, bytes_of(Vec4{1.0f, 1.0f, 1.0f, 1.0f}));
+        g.draw(0, 3);
+        g.end_pass();
+        const QueueHandoff toCompute[] = {hand_image(img, QueueKind::Compute),
+                                          hand_image(fromMip0, QueueKind::Compute)};
+        const SyncToken t0 = dev->submit_token(g, toCompute);
+        REQUIRE(t0.valid());
+
+        step = "compute samples the whole image (mip 3 out of UNDEFINED) and hands both images back";
+        CommandList& c = dev->begin_commands("sample-all", QueueKind::Compute);
+        dev->wait_list(c, t0);
+        c.begin_compute_pass("sample-mip0");
+        c.set_pipeline(sample);
+        sb.views[0] = whole;
+        sb.views[1] = fromMip0Storage;
+        c.set_bindings(sb);
+        c.dispatch(1, 1, 1);
+        c.end_pass();
+        const QueueHandoff toGraphics[] = {hand_image(img, QueueKind::Graphics),
+                                           hand_image(fromMip0, QueueKind::Graphics)};
+        const SyncToken t1 = dev->submit_token(c, toGraphics);
+        REQUIRE(t1.valid());
+
+        step = "graphics, after the token, reads every mip the producer wrote";
+        dev->wait_queue(QueueKind::Graphics, t1);
+        CommandList& done = dev->begin_commands("after", QueueKind::Graphics);
+        submit_and_finish(*dev, done);
+        for (int m = 0; m < 3; ++m) {
+            const int s = 16 >> m;
+            std::vector<std::uint8_t> out;
+            auto r = dev->read_image_region(img, m, 0, 0, 0, s, s, out);
+            REQUIRE_MESSAGE(r, r.error().to_string());
+            const auto first = data.begin() + std::ptrdiff_t(mipOffset[m]);
+            CHECK_MESSAGE(out == std::vector<std::uint8_t>(first, first + std::ptrdiff_t(s) * s * 4), "mip " << m);
+        }
+        CHECK(read_rgba8(*dev, fromMip1, 8, 8) ==
+              std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(mipOffset[1]),
+                                        data.begin() + std::ptrdiff_t(mipOffset[2])));
+        CHECK(read_rgba8(*dev, fromMip0, 8, 8) == crop(data, 16, 4, 0, 0, 8, 8));
+        step = "the validation layer said nothing (the halves of every ownership transfer name the same ranges)";
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+}
+
+TEST_CASE("vulkan: rows that need repacking are uploaded on the transfer queue and sampled on graphics") {
+    auto dev = make_async_vk("repacked upload on the transfer queue");
+    if (!dev) return;
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev->make_shader(sample_shader_desc());
+    pd.label = "sample";
+    const Pipeline sample = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+    // 34-byte rows from offset 2: neither is a whole number of RGBA8 texels, so the list repacks them through a
+    // buffer of its own before the copy (CommandList::copy_buffer_to_image).
+    const std::vector<std::uint8_t> data = pattern(2 + 34 * 8, 91);
+    BufferDesc bd;
+    bd.size = data.size();
+    bd.usage.copySrc = true;
+    bd.data = range_of(data);
+    const Buffer src = dev->make_buffer(bd);
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.copyDst = true;
+    id.label = "uploaded";
+    const Image img = dev->make_image(id);
+    id.usage = {};
+    id.usage.storageImage = true;
+    id.label = "sampled";
+    const Image copied = dev->make_image(id);
+    ViewDesc v;
+    v.texture.image = img;
+    const View texture = dev->make_view(v);
+    v = {};
+    v.storageImage.image = copied;
+    const View storage = dev->make_view(v);
+    const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+    std::vector<std::uint8_t> expected;
+    for (int row = 0; row < 8; ++row)
+        expected.insert(expected.end(), data.begin() + 2 + row * 34, data.begin() + 2 + row * 34 + 32);
+
+    std::string step = "graphics hands the image and its source to the transfer queue";
+    INFO("step: " << step);
+    const QueueHandoff toTransfer[] = {hand_image(img, QueueKind::Transfer), hand_buffer(src, QueueKind::Transfer)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    const SyncToken t0 = dev->submit_token(give, toTransfer);
+    step = "the transfer list repacks the rows and copies them, and hands the image back";
+    CommandList& x = dev->begin_commands("upload", QueueKind::Transfer);
+    CHECK(x.queue() == dev->resolve_queue(QueueKind::Transfer));
+    dev->wait_list(x, t0);
+    BufferImageCopy c;
+    c.src = src;
+    c.srcOffset = 2;
+    c.bytesPerRow = 34;
+    c.dst.image = img;
+    x.copy_buffer_to_image(c);
+    const QueueHandoff toGraphics[] = {hand_image(img, QueueKind::Graphics), hand_buffer(src, QueueKind::Graphics)};
+    const SyncToken t1 = dev->submit_token(x, toGraphics);
+    REQUIRE(t1.valid());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));  // the repack buffer is the transfer list's own
+
+    step = "graphics samples it after the token";
+    CommandList& g = dev->begin_commands("sample", QueueKind::Graphics);
+    dev->wait_list(g, t1);
+    g.begin_compute_pass("sample");
+    g.set_pipeline(sample);
+    Bindings b;
+    b.views[0] = texture;
+    b.views[1] = storage;
+    b.samplers[0] = nearest;
+    g.set_bindings(b);
+    g.dispatch(1, 1, 1);
+    g.end_pass();
+    submit_and_finish(*dev, g);
+    CHECK(read_rgba8(*dev, copied, 8, 8) == expected);
+    CHECK(read_rgba8(*dev, img, 8, 8) == expected);
     step = "the validation layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
