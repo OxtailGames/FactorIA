@@ -1048,7 +1048,4 @@ void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
     list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
-// Begins `pass` (pass_into, the Target fields) on `list`.
-inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) { list.begin_pass(pass); }
-
 }  // namespace fa

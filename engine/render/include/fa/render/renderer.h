@@ -110,8 +110,9 @@ struct RendererDesc {
     int sampleCount = 1;    // MSAA of the game target (1 = off)
     bool headless = false;  // no swapchain; present() must not be called
     // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
-    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
-    // Ignored (a normal init) when no context is open.
+    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() leaves it open
+    // (close_context() closes it). Ignored (a normal init) when no context is open. A context that is open when init() runs
+    // is never closed by shutdown(), with this flag or without it.
     bool adoptContext = false;
 };
 
