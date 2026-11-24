@@ -567,10 +567,12 @@ jobs:
           # fallback and say so in a MESSAGE, which becomes a warning on the run here, so that nobody reads it as covered.
           log="$RUNNER_TEMP/d3d12-pack-reads.log"
           status=0
-          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*" > "$log" 2>&1 || status=$?
-          cat "$log"
+          # tee: a test that hangs until the job's timeout still shows its output.
+          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*" 2>&1 | tee "$log" \
+            || status=${PIPESTATUS[0]}
           refused=$(tr -d '\r' < "$log" | grep -m1 -o "DirectStorage loaded but did not write this WARP device.*" || true)
           if [ -n "$refused" ]; then
+            refused=${refused//%/%25}
             echo "::warning title=DirectStorage refused WARP::render's d3d12 pack reads checked the CPU fallback, not DirectStorage's writes: $refused"
           fi
           exit "$status"

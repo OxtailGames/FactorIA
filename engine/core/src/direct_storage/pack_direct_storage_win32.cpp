@@ -386,7 +386,8 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
             case DirectWaitStep::Wait: break;
             case DirectWaitStep::Probe: {
                 std::lock_guard<std::mutex> lock(q.mutex);
-                // A probe is one queue entry; the room of a submission of no request is two, never too few.
+                // A probe is one queue entry; the room of a submission of no request is two. A full queue puts it off to the
+                // next second, and direct_wait_step still reaches the warning, the cancellation and the abort.
                 if (q.room.take(0)) {
                     q.queue->EnqueueSetEvent(s.probe);
                     q.queue->Submit();
