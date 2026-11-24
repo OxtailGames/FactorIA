@@ -270,7 +270,12 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
 
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
 sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target
-helpers (target.cpp), shader_cache.cpp and render_features.cpp; the frame graph carries the list to its passes.
+helpers (target.cpp), shader_cache.cpp and render_features.cpp; assets.cpp, custom_shader.cpp, water2d.cpp, gi2d.cpp,
+renderer_lights2d.cpp, fonts.cpp, gradient_ramp.cpp, postprocess.cpp and bloom.cpp (P3: their passes open on
+`gpu.commands()` or `PassContext::commands()`; a class with no Gpu member (WaterFx, GradientRamps, Gi2dSystem, AutoExposure)
+remembers the `gpu::Device` it first got, and keeps an overload without a device for the callers not converted yet); the
+frame graph carries the list to its passes. A pass opened on its own list does not set `Gpu::in_pass()`, so it writes
+its transient buffers before it begins (gi2d.cpp, draw_list).
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

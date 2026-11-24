@@ -50,7 +50,7 @@ namespace fa::render {
 
 bool Assets::storage_buffers_available(std::string* backend, std::string* reason) const {
     if (bufferGate_) return bufferGate_(backend, reason);
-    const FeatureEnv env = feature_env_from_sokol();
+    const FeatureEnv env = feature_env_from_device(gpu_.device());
     if (backend) *backend = feature_backend_label(env.backend);
     return feature_supported(env, find_feature("computeShaders"), reason);
 }
@@ -60,20 +60,33 @@ int Assets::storage_binding_limit(bool* limited) const {
         *limited = true;
         return storageBindingLimit_;
     }
-    *limited = sg_query_backend() == SG_BACKEND_GLCORE;
-    return sg_query_limits().max_storage_buffer_bindings_per_stage;
+    *limited = gpu_.device().backend() == gpu::Backend::Gl;
+    return gpu_.device().limits().maxStorageBufferBindingsPerStage;
+}
+
+std::string backend_dialect(const gpu::DeviceInfo& info) {
+    switch (info.backend) {
+        case gpu::Backend::D3d11: return "hlsl5";
+        case gpu::Backend::Gl: return "glsl430";
+        case gpu::Backend::Gles3:
+        case gpu::Backend::WebGl2: return "glsl300es";
+        case gpu::Backend::Metal:
+            switch (info.metalTarget) {
+                case gpu::MetalTarget::MacOs: return "metal_macos";
+                case gpu::MetalTarget::Ios: return "metal_ios";
+                case gpu::MetalTarget::Simulator: return "metal_sim";
+                case gpu::MetalTarget::None: break;
+            }
+            return {};
+        default: return {};
+    }
 }
 
 std::string backend_dialect(sg_backend backend) {
-    switch (backend) {
-        case SG_BACKEND_D3D11: return "hlsl5";
-        case SG_BACKEND_GLCORE: return "glsl430";
-        case SG_BACKEND_GLES3: return "glsl300es";
-        case SG_BACKEND_METAL_MACOS: return "metal_macos";
-        case SG_BACKEND_METAL_IOS: return "metal_ios";
-        case SG_BACKEND_METAL_SIMULATOR: return "metal_sim";
-        default: return {};
-    }
+    gpu::DeviceInfo info;
+    info.backend = gpu::backend_from_sg(backend);
+    info.metalTarget = gpu::metal_target_from_sg(backend);
+    return backend_dialect(info);
 }
 
 const std::vector<const char*>& material_program_names(MaterialKind kind) {
@@ -422,16 +435,17 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup,
-                                              const std::vector<std::string>* materialTextures) {
+Result<MaterialProgram> make_material_program(gpu::Device& device, const std::string& label, const Json& program,
+                                              const int* workgroup, const std::vector<std::string>* materialTextures) {
     MaterialProgram out;
     auto made = material_shader_desc(label, program, out, workgroup, materialTextures);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
-    out.shader = make_shader(&*made, label.c_str());
-    if (sg_query_shader_state(out.shader) != SG_RESOURCESTATE_VALID) {
-        sg_destroy_shader(out.shader);
-        return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(sg_query_backend()) +
+    const gpu::Shader shader = make_shader(device, gpu::from_sg(*made), label.c_str());
+    out.shader = gpu::to_sg(shader);
+    if (device.state(shader) != gpu::ResourceState::Valid) {
+        device.destroy_shader(shader);
+        return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(device.info()) +
                               "; the sokol log lines above have the driver message)",
                           "The shaders were compiled for this backend by sokol-shdc and passed `factoria validate`, so "
                           "this is a driver problem: update the graphics driver, "
@@ -716,7 +730,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                     "buffers) from a script (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
     }
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
-    const std::string dialect = backend_dialect(sg_query_backend());
+    const std::string dialect = backend_dialect(gpu_.device().info());
     Json twin;
     if (shaderCompiler_) {
         auto r = shaderCompiler_(m.path, dialect);
@@ -866,8 +880,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers, images);
         if (!compute.ok()) return compute.error();
         // The per-material cap of this GPU: the tooling allows the portable minimum (4); a GPU may allow fewer.
-        const int imageLimit = sg_isvalid() ? sg_query_limits().max_storage_image_bindings_per_stage : 0;
-        if (sg_isvalid() && int(images.size()) > imageLimit)
+        const int imageLimit = gpu_.has_device() ? gpu_.device().limits().maxStorageImageBindingsPerStage : 0;
+        if (gpu_.has_device() && int(images.size()) > imageLimit)
             return make_error("the compute material '" + m.path + "' declares " + std::to_string(images.size()) +
                                   " storage images, but this graphics driver binds at most " +
                                   std::to_string(imageLimit) + " to one shader",
@@ -924,7 +938,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                    ? &programsJson->at(name)
                                    : nullptr;
             Result<MaterialProgram> made =
-                prog ? make_material_program(m.path + " " + name, *prog, nullptr, &textureNames)
+                prog ? make_material_program(gpu_.device(), m.path + " " + name, *prog, nullptr, &textureNames)
                      : make_error("the shader of material '" + m.path + "' has no program '" + name + "'",
                                   kReexportHint);
             if (!made.ok()) {
@@ -940,7 +954,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                ? &programsJson->at(names[i])
                                : nullptr;
         Result<MaterialProgram> made =
-            prog ? make_material_program(m.path + " " + names[i], *prog,
+            prog ? make_material_program(gpu_.device(), m.path + " " + names[i], *prog,
                                          kind == MaterialKind::Compute ? workgroup : nullptr, &textureNames)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);

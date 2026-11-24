@@ -347,7 +347,8 @@ private:
     bool ensure_targets(Gpu& gpu);
     void warn_luma_missing();  // the measuring target could not be made after the first check: a warning, once
     Target ev_[2];
-    int cur_ = 0;  // the index of the target that holds the EV
+    gpu::Device* device_ = nullptr;  // the device ev_ was made on (ensure_targets), to destroy it on
+    int cur_ = 0;                    // the index of the target that holds the EV
     bool fresh_ = true;
     // A failed attempt to make a target: no new one before this frame (`serial` of add_passes), then it tries again.
     static constexpr std::uint64_t kRetryFrames = 300;
