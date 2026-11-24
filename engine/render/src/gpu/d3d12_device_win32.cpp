@@ -234,6 +234,25 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
     bindingTier_ = o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3   ? 3
                    : o.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2 ? 2
                                                                             : 1;
+    typedUavLoadAdditional_ = o.TypedUAVLoadAdditionalFormats != FALSE;
+    // The highest feature level (tier 1's UAV limit depends on it: 8 at 11.0, 64 above).
+    const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0, D3D_FEATURE_LEVEL_11_1,
+                                        D3D_FEATURE_LEVEL_11_0};
+    D3D12_FEATURE_DATA_FEATURE_LEVELS fl{};
+    fl.NumFeatureLevels = UINT(sizeof levels / sizeof levels[0]);
+    fl.pFeatureLevelsRequested = levels;
+    if (SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &fl, sizeof fl)))
+        featureLevel_ = fl.MaxSupportedFeatureLevel;
+    // What a pipeline cache file must have been made on (the user-mode driver's version: 0 when DXGI does not say).
+    identity_.vendor = ad.VendorId;
+    identity_.device = ad.DeviceId;
+    identity_.subsys = ad.SubSysId;
+    identity_.revision = ad.Revision;
+    identity_.luidLow = ad.AdapterLuid.LowPart;
+    identity_.luidHigh = ad.AdapterLuid.HighPart;
+    LARGE_INTEGER umd{};
+    if (SUCCEEDED(adapter_->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd)))
+        identity_.driverVersion = std::uint64_t(umd.QuadPart);
     return {};
 }
 
@@ -244,14 +263,21 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     if (debugLayer_) {
         infoQueue_ = device_.as<ID3D12InfoQueue>();
         if (infoQueue_) {
-            // Not errors: a clear colour other than the one given at creation (the engine gives none) and the
-            // Map/Unmap of a whole buffer.
+            // Not errors: a clear colour other than the one given at creation (the engine gives none), the
+            // Map/Unmap of a whole buffer, and the pipeline library's answers the PSO cache handles itself (a PSO it
+            // does not hold yet, one two threads stored at once, a cache file the driver refuses: thrown away).
             D3D12_MESSAGE_SEVERITY denySeverities[] = {D3D12_MESSAGE_SEVERITY_INFO, D3D12_MESSAGE_SEVERITY_MESSAGE};
             D3D12_MESSAGE_ID denyIds[] = {
                 D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
                 D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
                 D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
                 D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
+                D3D12_MESSAGE_ID_LOADPIPELINE_NAMENOTFOUND,
+                D3D12_MESSAGE_ID_STOREPIPELINE_DUPLICATENAME,
+                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB,
+                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH,
+                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_ADAPTERVERSIONMISMATCH,
+                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_UNSUPPORTED,
             };
             D3D12_INFO_QUEUE_FILTER filter{};
             filter.DenyList.NumSeverities = UINT(sizeof denySeverities / sizeof denySeverities[0]);
@@ -338,6 +364,8 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.name = backend_name(Backend::D3d12);
     init_caps();
     init_timer();
+    pipelineCacheFile_ = options.pipelineCacheFile;
+    init_pipeline_library();
     dead_ = std::make_unique<D3d12CommandList>(*this);
     drain_messages();
     FA_INFO("render", "gpu d3d12: {} ({}{}{}), {} frames in flight", adapterName_, warp_ ? "WARP" : "hardware",
@@ -421,7 +449,46 @@ void D3d12Device::init_caps() {
     }
 }
 
+bool D3d12Device::storage_image_loadable(PixelFormat format, std::string* why) const {
+    DXGI_FORMAT dxgi = DXGI_FORMAT_UNKNOWN;
+    switch (format) {
+        case PixelFormat::Rgba8: dxgi = DXGI_FORMAT_R8G8B8A8_UNORM; break;
+        case PixelFormat::Rgba16F: dxgi = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
+        case PixelFormat::R32F: dxgi = DXGI_FORMAT_R32_FLOAT; break;
+        case PixelFormat::Rgba32F: dxgi = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
+        default: break;
+    }
+    if (dxgi == DXGI_FORMAT_UNKNOWN) {
+        if (why)
+            *why = std::string("storage image format ") + pixel_format_name(format) +
+                   " is not one the engine reads in a shader (rgba8, rgba16f, r32f or rgba32f)";
+        return false;
+    }
+    // r32f (with r32 uint and sint) loads on every D3D12 GPU; the rest are TypedUAVLoadAdditionalFormats, a group
+    // whose members each say so in their format support.
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+    support.Format = dxgi;
+    const bool supported =
+        SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof support)) &&
+        (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD) != 0;
+    if (supported && (format == PixelFormat::R32F || typedUavLoadAdditional_)) return true;
+    if (why) {
+        if (format != PixelFormat::R32F && !typedUavLoadAdditional_)
+            *why = "the D3D12 GPU " + adapterName_ +
+                   " has no typed UAV loads beyond r32 (D3D12_OPTIONS.TypedUAVLoadAdditionalFormats is false), so a "
+                   "shader cannot read a " +
+                   pixel_format_name(format) + " storage image (only r32f loads on every D3D12 GPU)";
+        else
+            *why = "the D3D12 GPU " + adapterName_ + " cannot load " + pixel_format_name(format) +
+                   " from a storage image (its format support has no UAV_TYPED_LOAD; only r32f loads on every D3D12 "
+                   "GPU)";
+    }
+    return false;
+}
+
 D3d12Device::~D3d12Device() {
+    // The PSOs made since the cache file was loaded go to it (a failure was logged as a warning: the old file stays).
+    (void)save_pipeline_cache();
     if (device_ && queue_ && fence_) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
         std::lock_guard<std::mutex> lock(queueMutex_);
@@ -586,6 +653,14 @@ D3d12Counters D3d12Device::counters() const {
     c.cpuSamplerDescriptors = cpuHeaps_[kHeapSampler].used();
     c.frameViewDescriptors = viewHeap_.frame_used();
     c.frameSamplerDescriptors = samplerHeap_.frame_used();
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        c.pipelineLibrary = library_.get() != nullptr;
+        c.psoLibraryHits = libraryHits_;
+        c.psoLibraryMisses = libraryMisses_;
+        c.pipelineCacheStored = cacheStored_;
+        c.pipelineCacheDiscarded = cacheDiscarded_;
+    }
     std::lock_guard<std::mutex> lock(cacheMutex_);
     c.psoCacheHits = psoHits_;
     c.psoCacheMisses = psoMisses_;
@@ -716,18 +791,20 @@ void D3d12Device::submit(CommandList& l) {
 void D3d12Device::execute(D3d12CommandList& list) {
     list.flush_barriers();
     if (list.scopeOpen_) list.close_scope();  // a timed scope left open ends with its list
-    if (!list.scopes_.empty()) {
-        // The scopes of the timed frame still open run before its end: timer_end_frame reports them.
+    list.open_ = false;
+    HRESULT hr = list.list_->Close();
+    if (SUCCEEDED(hr) && !list.scopes_.empty()) {
+        // The scopes of the timed frame still open run before its end: timer_end_frame reports them. Only once the
+        // list closed (a list that fails to close never runs), and only scopes of the frame their slot holds now (a
+        // list kept open over kTimerSlots timed frames names a slot another frame took since: stale, skipped).
         std::lock_guard<std::mutex> lock(timerMutex_);
         for (const D3d12CommandList::ScopeRef& s : list.scopes_) {
             if (s.slot != timerCurrent_ || s.slot < 0) continue;
             TimerSlot& slot = timerSlots_[std::size_t(s.slot)];
             if (slot.serial == s.serial && s.scope < slot.submitted.size()) slot.submitted[s.scope] = true;
         }
-        list.scopes_.clear();
     }
-    list.open_ = false;
-    HRESULT hr = list.list_->Close();
+    list.scopes_.clear();
     if (FAILED(hr)) {
         report(hr_error("ID3D12GraphicsCommandList::Close of '" + list.label_ + "'", hr,
                         "the debug layer's message before this one names the command that was wrong")

@@ -269,6 +269,17 @@ int D3d12Device::free_async_slot() const {
     return -1;
 }
 
+Result<void> D3d12Device::async_device_alive(const char* what) const {
+    // A removed device never finishes a copy, so no slot would ever free: an invalid ticket with ok would be asked for
+    // again every frame, forever.
+    if (device_->GetDeviceRemovedReason() == S_OK && fence_->GetCompletedValue() != UINT64_MAX) return {};
+    const std::string reason = removed_reason();
+    return make_error(std::string("gpu d3d12: ") + what + ": the device was lost, so no read can run" +
+                          (reason.empty() ? std::string(" (its fence reads UINT64_MAX)") : reason),
+                      "the GPU hung or was reset, or its driver was updated: make a new device (the debug layer, "
+                      "D3d12Options::debugLayer, says which command removed it)");
+}
+
 bool D3d12Device::async_ticket_current(ReadTicket ticket) const {
     return ticket.valid() && ticket.slot < kAsyncReads &&
            asyncReads_[std::size_t(ticket.slot)].generation == ticket.generation;
@@ -314,7 +325,10 @@ Result<ReadTicket> D3d12Device::request_buffer_read(Buffer buffer, std::size_t o
                               (bytes == 0 ? " is no read" : " go past its " + std::to_string(size) + " bytes"),
                           "read at least one byte, inside the buffer");
     const int slot = free_async_slot();
-    if (slot < 0) return ReadTicket{};  // every slot is busy: ask again next frame
+    if (slot < 0) {
+        if (auto alive = async_device_alive("request_buffer_read"); !alive) return alive.error();
+        return ReadTicket{};  // every slot is busy: ask again next frame
+    }
     AsyncRead& r = asyncReads_[std::size_t(slot)];
     if (r.capacity < bytes) {
         const std::uint64_t capacity = align_up(bytes, 64u * 1024u);
@@ -351,7 +365,10 @@ Result<ReadTicket> D3d12Device::request_image_read(Image image, int mip, int lay
     if (!fpr) return fpr.error();
     const TextureFootprint fp = *fpr;
     const int slot = free_async_slot();
-    if (slot < 0) return ReadTicket{};  // every slot is busy: ask again next frame
+    if (slot < 0) {
+        if (auto alive = async_device_alive("request_image_read"); !alive) return alive.error();
+        return ReadTicket{};  // every slot is busy: ask again next frame
+    }
     AsyncRead& r = asyncReads_[std::size_t(slot)];
     if (r.capacity < fp.total) {
         const std::uint64_t capacity = align_up(fp.total, 64u * 1024u);
