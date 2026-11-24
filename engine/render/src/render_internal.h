@@ -870,6 +870,8 @@ inline const char* missing_channel(const MaterialAsset& m, const SubMesh& part) 
 
 // The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
 std::string backend_dialect(sg_backend backend);
+// The same for the device the renderer runs on (Device::info(): the backend and, on Metal, its platform).
+std::string backend_dialect(const gpu::DeviceInfo& info);
 
 // The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
 // shader is not made). The desc points into `program`, which must outlive it.
@@ -880,7 +882,7 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
                                             const int* workgroup = nullptr,
                                             const std::vector<std::string>* materialTextures = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
+Result<MaterialProgram> make_material_program(gpu::Device& device, const std::string& label, const Json& program,
                                               const int* workgroup = nullptr,
                                               const std::vector<std::string>* materialTextures = nullptr);
 
