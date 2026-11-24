@@ -266,10 +266,24 @@ TEST_CASE("directstorage: a read's wait probes a status that says complete, warn
         CHECK(direct_wait_step(w, 2 * std::uint64_t(kDirectGiveUpMs) - 1, false) == DirectWaitStep::Wait);
         CHECK(direct_wait_step(w, 2 * std::uint64_t(kDirectGiveUpMs), false) == DirectWaitStep::Abort);
     }
-    SUBCASE("the probe comes before the warning when both are due") {
+    SUBCASE("the warning comes before the probe when both are due; the probe follows a second later") {
         DirectWait w;
-        CHECK(direct_wait_step(w, kDirectWarnMs, true) == DirectWaitStep::Probe);
-        CHECK(direct_wait_step(w, kDirectWarnMs + 1000, true) == DirectWaitStep::Warn);
+        CHECK(direct_wait_step(w, kDirectWarnMs, true) == DirectWaitStep::Warn);
+        CHECK(direct_wait_step(w, kDirectWarnMs + 1000, true) == DirectWaitStep::Probe);
+    }
+    SUBCASE("a probe a full queue puts off every second still lets the warning, the cancellation and the abort come") {
+        DirectWait w;
+        bool warned = false, cancelled = false, aborted = false;
+        for (std::uint64_t ms = 1000; ms <= 2 * std::uint64_t(kDirectGiveUpMs) + 1000 && !aborted; ms += 1000) {
+            const DirectWaitStep step = direct_wait_step(w, ms, true);
+            warned = warned || step == DirectWaitStep::Warn;
+            cancelled = cancelled || step == DirectWaitStep::Cancel;
+            aborted = step == DirectWaitStep::Abort;
+            if (step == DirectWaitStep::Probe) w.probed = false;  // the queue had no room for it
+        }
+        CHECK(warned);
+        CHECK(cancelled);
+        CHECK(aborted);
     }
 }
 

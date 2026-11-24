@@ -120,10 +120,6 @@ DirectTextureBox direct_texture_box(std::uint32_t x, std::uint32_t y, std::uint3
 }
 
 DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool statusComplete) {
-    if (statusComplete && !w.probed) {
-        w.probed = true;
-        return DirectWaitStep::Probe;
-    }
     if (!w.warned && waitedMs >= kDirectWarnMs) {
         w.warned = true;
         return DirectWaitStep::Warn;
@@ -134,6 +130,12 @@ DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool stat
         return DirectWaitStep::Cancel;
     }
     if (w.cancelled && waitedMs - w.cancelledAtMs >= kDirectGiveUpMs) return DirectWaitStep::Abort;
+    // After the timed steps: a probe the full queue keeps putting off (the caller clears `probed` every second) must
+    // not hold back the warning, the cancellation or the abort.
+    if (statusComplete && !w.probed) {
+        w.probed = true;
+        return DirectWaitStep::Probe;
+    }
     return DirectWaitStep::Wait;
 }
 

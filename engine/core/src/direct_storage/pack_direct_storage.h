@@ -196,8 +196,9 @@ enum class DirectWaitStep {
     Abort,   // the cancellation was not confirmed within kDirectGiveUpMs either: stop the process
 };
 // The step after a second in which neither the read's event nor its probe came: `waitedMs` since the read was
-// submitted, `statusComplete` what its status entry says now. One step per call, the first of the list above that is
-// due.
+// submitted, `statusComplete` what its status entry says now. One step per call: the first timed step that is due
+// (Warn, Cancel, Abort), else Probe when it is due, else Wait, so a probe the full queue keeps putting off never holds
+// back the bounds.
 DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool statusComplete);
 
 // How a read ends once its event or its probe came: `complete` and `hr` (an HRESULT; `hrText` names it) are what its
