@@ -17,6 +17,25 @@ bool Device::storage_image_loadable(PixelFormat format, std::string* why) const 
     return false;
 }
 
+CommandList& Device::begin_commands(const char* label, QueueKind) { return begin_commands(label); }
+
+SyncToken Device::issue_token(QueueKind queue) {
+    const int i = std::size_t(queue) < std::size_t(kQueueKinds) ? int(queue) : 0;
+    return SyncToken{QueueKind(i), issued_[i].fetch_add(1, std::memory_order_relaxed) + 1};
+}
+
+SyncToken Device::submit_token(CommandList& list, std::span<const QueueHandoff>) {
+    const QueueKind queue = list.queue();  // before submit(): the device may recycle the list
+    submit(list);
+    return issue_token(queue);
+}
+
+void Device::wait_list(CommandList&, SyncToken) {}
+
+void Device::wait_queue(QueueKind, SyncToken) {}
+
+std::uint32_t Device::bindless_index(View) const { return kNoBindlessIndex; }
+
 Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init) {
     if (backend == Backend::Recording) return std::unique_ptr<Device>(std::make_unique<RecordingDevice>(init));
     if (backend == Backend::D3d12 || backend == Backend::Vulkan)

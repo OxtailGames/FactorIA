@@ -37,13 +37,19 @@
 // (attachments become shader-readable after the pass that wrote them) and from the views a draw or dispatch binds
 // (a Texture view reads, a StorageImage/StorageBuffer view of a written binding writes), and inserts them itself.
 //
+// QUEUES, THREADS AND BINDLESS (M77.5). See the block "Queues, threads and bindless" of Device for the contract: the queue
+// a list runs on (QueueKind), the sync tokens that order work across queues and what a resource handover between
+// queues needs, which calls may run on several threads at once, and the bindless index.
+//
 // ERRORS. Creation never throws: a failed make_*() returns a handle whose state() is Failed (destroy it like any
 // other), or the invalid handle when the desc itself is unusable. Readbacks return fa::Result with a hint.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -107,6 +113,16 @@ public:
     // do nothing outside a timed frame (Device::timer_begin_frame) or on a device that cannot time.
     virtual void begin_timed_scope(const char* name) = 0;
     virtual void end_timed_scope() = 0;
+
+    // ---- queues (M77.5; see Device, "Queues, threads and bindless") ----------------------------------------------------
+    // The queue this list really runs on: the one begin_commands(label, queue) asked for, or the nearest the device has
+    // when it has no such queue of its own (Transfer, then Compute, then Graphics). Valid until submit(). A list on the
+    // Compute queue takes compute passes, copies, writes and markers (no render pass, no draw); one on the Transfer
+    // queue takes copies, writes and markers only (no pass at all, so no draw and no dispatch). Markers are debug
+    // groups and timed scopes; a timed scope on a list whose queue has no timestamps (Transfer, or a backend that says
+    // so) is accepted and ignored: it records nothing and measures nothing. The default is the graphics queue (a backend
+    // with one queue).
+    virtual QueueKind queue() const { return QueueKind::Graphics; }
 };
 
 // The command buffer of a Metal device, for code that orders its own Metal work against the frame (MetalFX,
@@ -194,6 +210,7 @@ public:
     // ---- the frame -------------------------------------------------------------------------------------------------
     // A command list for this frame, owned by the device and valid until submit(). The sokol backends return their one
     // immediate list (its commands run as they are recorded); D3D12/Vulkan return a new one per call.
+    // (The same list on a chosen hardware queue: begin_commands(label, queue) in "Queues, threads and bindless".)
     virtual CommandList& begin_commands(const char* label) = 0;
     // Hands the list back: its commands run after those of the lists submitted before it.
     virtual void submit(CommandList& list) = 0;
@@ -207,6 +224,103 @@ public:
     virtual bool remove_commit_listener(void (*func)(void* user), void* user) = 0;
     // GL: forget the cached API state after code that called GL directly (Dear ImGui, interop). No-op elsewhere.
     virtual void reset_state_cache() = 0;
+
+    // ---- queues, threads and bindless (M77.5: async compute, parallel recording, the bindless table) ------------------
+    // Every member here is virtual with a default that is right for a device with ONE queue and no bindless table
+    // (sokol, and a backend that has not built the feature yet): Compute and Transfer lists run on the graphics queue,
+    // tokens complete in submission order, waits do nothing, the features below are false. Renderer code written for
+    // the async path therefore runs unchanged on every backend. A derived class that overrides only one of the two
+    // begin_commands() overloads hides the other when it is used through its own type: write
+    // `using Device::begin_commands;` in it, or call through a Device&.
+    //
+    // QUEUES. begin_commands(label, queue) is begin_commands(label) on a chosen queue. With Features::asyncCompute a
+    // Compute or Transfer list is recorded for a queue of its own, which the GPU runs concurrently with the graphics
+    // queue; without it the list is a graphics one (list.queue() says which). Lists of ONE queue run in the order of
+    // their submit() calls; lists of different queues run in no defined order except through sync tokens.
+    virtual CommandList& begin_commands(const char* label, QueueKind queue);
+    // submit() that also returns a token for the work: it is complete once everything submitted to the list's queue up
+    // to and including this list has finished on the GPU. Plain submit() returns none (it costs no fence). The token's
+    // queue is list.queue(), as read before the call. Render thread only. `handoffs` hand resources to another queue at
+    // this submit (see RESOURCES BETWEEN QUEUES); the single-queue default accepts and ignores them (the order already
+    // holds). submit_token(list) is submit_token(list, {}); a derived class that overrides the two-argument form writes
+    // `using Device::submit_token;` to keep the short one visible through its own type.
+    virtual SyncToken submit_token(CommandList& list, std::span<const QueueHandoff> handoffs);
+    SyncToken submit_token(CommandList& list) { return submit_token(list, std::span<const QueueHandoff>{}); }
+    // Makes the work of `list` start only after `token` is complete. Called while the list is open (the owning
+    // thread's call, like a recording call); every wait of a list holds before its first command, whatever the order of
+    // the calls inside the list, and they accumulate (the list waits for all of them). The invalid token, and a token
+    // of the list's own queue, wait for nothing (the queue's order already covers them). The default does nothing,
+    // which is only right while every queue is the graphics queue: a backend with Features::asyncCompute MUST override it.
+    virtual void wait_list(CommandList& list, SyncToken token);
+    // Makes everything submitted to `queue` AFTER this call start only after `token` is complete (a wait on the queue
+    // itself, for work whose lists were recorded without knowing it). `queue` is mapped as in begin_commands: on a
+    // device without that queue it is the graphics queue. Render thread only. The default does nothing (single queue); a
+    // backend with Features::asyncCompute MUST override it.
+    virtual void wait_queue(QueueKind queue, SyncToken token);
+    //
+    // THE CONTRACT OF A TOKEN.
+    //  * A token is valid for the life of the device: it names a point of one queue's timeline and the point never
+    //    moves. A token of an earlier frame, or of work the GPU finished long ago, is satisfied at once: waiting for
+    //    it is allowed and does nothing. commit() and a swapchain resize do not reset the counters.
+    //  * Waiting for a token that no submit_token() of this device has returned (a made-up value, another device's,
+    //    one of a list not submitted yet) is a programming error: it can never be satisfied. RecordingDevice reports
+    //    it. A wait is always recorded AFTER the producer's submit_token() returned.
+    //  * Token values only grow per queue but are NOT contiguous: a backend may submit fix-up work of its own that takes
+    //    values too. Compare tokens; never compute with them. The backends implement them with timeline semaphores
+    //    (Vulkan 1.2, already required) and 64-bit fences (D3D12), so a backend without them has no asyncCompute.
+    //  * Only the GPU waits: nothing here blocks the calling thread (readbacks and commit()'s frame limiter do).
+    //  * commit() ends the frame for the graphics queue (what is presented, the frames in flight). Compute and
+    //    transfer work of the frame that no list ever waited for is allowed (an asynchronous readback's copy, say), and
+    //    the frames-in-flight limit counts the work of every queue, but the frame's picture may only depend on async
+    //    work that a graphics list of the same frame waited for (the swapchain waits for the graphics queue alone).
+    //
+    // RESOURCES BETWEEN QUEUES. A buffer or image belongs to ONE queue at a time. A new resource belongs to Graphics.
+    // The interface has no barrier call (see BARRIERS), and the backend does not guess a handover from the views the
+    // lists bind: the PRODUCER declares it when it submits, with QueueHandoff, and the CONSUMER waits for the token:
+    //   1. produce:  token = submit_token(producerList, {QueueHandoff{image or buffer, to}});  `to` is the queue that
+    //                uses the resource next; the producer's queue must own the resource at that moment (to start using
+    //                a new resource on the compute queue, a graphics list, possibly an empty one, hands it over first);
+    //   2. consume:  wait_list(consumerList, token) (or wait_queue(to, token) before the consumer is submitted), so the
+    //                consumer's first command that touches the resource runs after the token; the consumer's queue must
+    //                be `to`; submit it after the producer (the wait names a token that exists);
+    //   3. go back:  the same way in the other direction: the consumer (or a later list of `to`) hands the resource to
+    //                the next queue in its own submit_token, and the next user waits for that token. Before the
+    //                compute queue writes a resource again (the next frame's HiZ), it has been handed back and waited.
+    // Read-only sharing of one image by two queues is not a feature: hand it over in turn, or keep one copy per queue.
+    // The backend resolves a handoff on the render thread at submit: Vulkan records the queue-family release at the end
+    // of the producer's list and the acquire at the head of the consumer list that waits for the token (or makes such
+    // resources VK_SHARING_MODE_CONCURRENT, its choice); D3D12 transitions the resource on the producer queue to a state
+    // the destination queue type accepts (COMMON, or a read state) and the consumer transitions on from there. Using a
+    // resource on a queue that does not own it, or before waiting for the handoff's token, is a programming error:
+    // RecordingDevice tracks the owner of every resource (checked when a list is submitted, so lists may be recorded in
+    // parallel in any order) and reports both, naming the resource, the list and the fix. Without Features::asyncCompute
+    // handoffs are accepted and ignored. Destroying a resource that any queue's submitted list uses is allowed, as for
+    // one queue: the release is deferred until the GPU is done with it on every queue. Swapchain images belong to the
+    // graphics queue and cannot be handed off. RecordingDevice also records the queue of each list, every signal, wait
+    // and handoff in its stream, and checks the queue's capabilities and the tokens' validity.
+    //
+    // THREADS. Which calls may run at the same time on different threads:
+    //  * Render thread only (the one that made the device), never while another thread is inside any call below it:
+    //    make_*, destroy_*, submit, submit_token, wait_queue, commit, the commit listeners, the statistics, the timers,
+    //    the readbacks and asynchronous reads, the natives, reset_state_cache.
+    //  * Any thread, when Features::multiThreadRecording: begin_commands (both overloads), every CommandList call on the
+    //    list the thread holds (including wait_list), so different lists record in parallel; and the read-only queries
+    //    backend, info, features, limits, pixel_format_caps, environment_defaults, state, frame_index, bindless_index
+    //    and async_read_supported. The queries are safe because the renderer never creates or destroys a resource, submits
+    //    or commits while a recording job runs (it joins the jobs first); the backend makes them lock-free or
+    //    thread-safe on that condition.
+    //  * One list is used by one thread at a time (a hand-over to another thread needs a happens-before edge, a job
+    //    join). A list begun on one thread may be submitted by the render thread once its recorder is done with it.
+    //    submit() order is execution order per queue, so a renderer that wants a deterministic frame submits the lists
+    //    in a fixed order after the join, whatever order the jobs finished in.
+    //  * Without multiThreadRecording (sokol: one immediate list) only the render thread calls begin_commands and the
+    //    list; a second begin_commands() before submit() or a call from another thread is an FA_ASSERT.
+    //
+    // BINDLESS. The index of the view's texture (or buffer) in the global descriptor table every shader of the device
+    // can index (D3D12: the unbounded SRV range at t0 space1; Vulkan: the update-after-bind set), assigned when the view
+    // is made and valid until it is destroyed. kNoBindlessIndex when the backend has no table (Features::bindless is
+    // false), the table is full, or `view` is not a live sampled view. Never changes for a live view.
+    virtual std::uint32_t bindless_index(View view) const;
 
     // ---- statistics ------------------------------------------------------------------------------------------------
     virtual void enable_stats(bool on) = 0;
@@ -262,6 +376,14 @@ public:
     virtual Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) = 0;
     virtual bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) = 0;
     virtual void release_buffer_read(ReadTicket ticket) = 0;
+
+protected:
+    // The next token of `queue` (its fence value, from 1): the default submit_token() hands one out after submit(), so
+    // tokens complete in submission order. Thread-safe.
+    SyncToken issue_token(QueueKind queue);
+
+private:
+    std::atomic<std::uint64_t> issued_[kQueueKinds]{};
 };
 
 // Makes the device of `backend`:
