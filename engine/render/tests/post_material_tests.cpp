@@ -17,6 +17,7 @@
 #include "fa/core/json.h"
 #include "fa/render/compute.h"
 #include "fa/scene/postprocess.h"
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "frame_graph.h"
 #include "postprocess.h"
 #include "renderer_custom_post.h"

@@ -11,6 +11,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/impostor.glsl.h"
 
 namespace fa::render {

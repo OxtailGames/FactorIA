@@ -383,7 +383,7 @@ TEST_CASE("render target: the colour filter pipeline is valid as the first thing
     render::Gpu fresh;
     std::string error;
     REQUIRE(fresh.init(1, &error));
-    CHECK(sg_query_pipeline_state(fresh.colorfilter_pipeline()) == SG_RESOURCESTATE_VALID);
-    CHECK(sg_query_pipeline_state(fresh.colorfilter_pipeline()) == SG_RESOURCESTATE_VALID);
+    CHECK(fresh.device().state(fresh.colorfilter_pipeline()) == gpu::ResourceState::Valid);
+    CHECK(fresh.device().state(fresh.colorfilter_pipeline()) == gpu::ResourceState::Valid);
     fresh.shutdown();
 }

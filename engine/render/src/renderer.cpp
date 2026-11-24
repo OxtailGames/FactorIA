@@ -7,6 +7,7 @@
 #include "render_features.h"
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
+#include "gpu/sokol_context.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -115,7 +116,7 @@ void DebugDraw::clear() {
 // The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on, the renderer draws that effect
 // (post_drawn_mask), the camera is one of the game's frame (`mainFrameCamera`: a CameraView, a render-target camera and a capture draw
 // no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
-// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready()` compiles the two
+// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready(device)` compiles the two
 // programs the first time (a sokol resource creation, valid outside a pass), but only for a camera whose stack has TemporalAA that the
 // renderer draws, and on the thread that owns the GPU context (update and the frame run on it); a game without the effect never compiles them.
 int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
@@ -250,55 +251,32 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
-// The sokol_gfx setup both open_context() and init() use: one place for the pool sizes.
-sg_desc make_sg_desc(const GfxEnvironment& env) {
-    sg_desc sd{};
-    sd.environment = env.get();
-    sd.logger.func = fa_sokol_log_func;
-    sd.buffer_pool_size = 2048;
-    sd.image_pool_size = 1024;
-    sd.view_pool_size = 4096;
-    sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 12 per custom material
-    sd.pipeline_pool_size = 256;
-    sd.uniform_buffer_size = 16 * 1024 * 1024;
-    return sd;
-}
-
 Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
 Renderer::~Renderer() { shutdown(); }
 
 bool Renderer::initialized() const { return impl_ && impl_->initialized; }
 
 bool Renderer::open_context(const GfxEnvironment& env, std::string* error) {
-    if (sg_isvalid()) {
+    if (gpu::context_open()) {
         if (error) *error = "a graphics context is already open";
         return false;
     }
-    sg_desc sd = make_sg_desc(env);
-    sg_setup(&sd);
-    if (!sg_isvalid()) {
+    if (!gpu::open_context(env)) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         return false;
     }
     return true;
 }
 
-bool Renderer::context_open() { return sg_isvalid(); }
+bool Renderer::context_open() { return gpu::context_open(); }
 
-void Renderer::close_context() {
-    if (sg_isvalid()) sg_shutdown();
-}
+void Renderer::close_context() { gpu::close_context(); }
 
-bool Renderer::commit_context() {
-    if (!sg_isvalid()) return false;
-    sg_commit();
-    return true;
-}
+bool Renderer::commit_context() { return gpu::commit_context(); }
 
 void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
-    const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
-    PassDesc pass = gpu::swapchain_pass(sc);
+    const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
+    PassDesc pass = PassDesc::for_swapchain(sc, gpu::context_defaults());
     pass.label = "window";
     pass.colorLoad = gpu::LoadAction::Clear;
     pass.clearColor = {clear.r, clear.g, clear.b, clear.a};
@@ -312,11 +290,10 @@ void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
 void Renderer::end_window_pass() { gpu::end_context_pass(); }
 
 bool Renderer::present_clear(const GfxSwapchain& swapchain, Color color) {
-    if (!sg_isvalid()) return false;
+    if (!gpu::context_open()) return false;
     begin_window_pass(swapchain, color);
     end_window_pass();
-    sg_commit();
-    return true;
+    return gpu::commit_context();
 }
 
 int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
@@ -325,7 +302,8 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     if (!im.warmBuilt) {
         im.warmBuilt = true;
         Gpu* gpu = &im.gpu;
-        const TargetFormat presentFormat = gpu::swapchain_pass(gpu::from_sg(swapchain.get())).format;
+        const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
+        const TargetFormat presentFormat = PassDesc::for_swapchain(sc, gpu->device().environment_defaults()).format;
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
@@ -484,25 +462,18 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
                                                                : DebugView::None;
-    im.adopted = desc.adoptContext && sg_isvalid();
-    if (!im.adopted) {
-        sg_desc sd = make_sg_desc(env);
-        sg_setup(&sd);
-    }
-    if (!sg_isvalid()) {
+    im.adopted = desc.adoptContext && gpu::context_open();
+    if (!im.adopted) gpu::open_context(env);
+    if (!gpu::context_open()) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         impl_.reset();
         return false;
     }
-    int samples = std::max(1, desc.sampleCount);
-    if (samples > 1 && !sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba8)).msaa) {
-        FA_WARN("render", "MSAA is not supported by this device; falling back to sampleCount 1");
-        samples = 1;
-    }
+    // Gpu::init falls back to one sample where the device cannot multisample RGBA8.
     std::string gerr;
-    if (!im.gpu.init(samples, &gerr)) {
+    if (!im.gpu.init(std::max(1, desc.sampleCount), &gerr)) {
         if (error) *error = gerr;
-        if (!im.adopted) sg_shutdown();
+        if (!im.adopted) gpu::close_context();
         impl_.reset();
         return false;
     }
@@ -572,7 +543,7 @@ void Renderer::shutdown() {
         im.free_retired_shadow_targets();
         im.gpu.shutdown();
         if (!im.adopted)
-            sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
+            gpu::close_context();  // an adopted context stays open for close_context(): the player may still present
     }
     impl_.reset();
 }
@@ -634,15 +605,15 @@ render::UpscalerMode Renderer::effective_upscaler_mode() const {
 }
 float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
-    switch (sg_query_backend()) {
-        case SG_BACKEND_GLCORE: return "glcore";
-        case SG_BACKEND_GLES3: return "gles3";
-        case SG_BACKEND_D3D11: return "d3d11";
-        case SG_BACKEND_METAL_IOS:
-        case SG_BACKEND_METAL_MACOS:
-        case SG_BACKEND_METAL_SIMULATOR: return "metal";
-        case SG_BACKEND_DUMMY: return "dummy";
-        default: return "unknown";  // wgpu / vulkan: the engine never builds those sokol backends
+    // The sokol backend's name (gles3 for WebGL2 too); Recording is sokol's dummy backend or no open context.
+    switch (gpu::context_backend()) {
+        case gpu::Backend::Gl: return "glcore";
+        case gpu::Backend::Gles3:
+        case gpu::Backend::WebGl2: return "gles3";
+        case gpu::Backend::D3d11: return "d3d11";
+        case gpu::Backend::Metal: return "metal";
+        case gpu::Backend::Recording: return "dummy";
+        default: return "unknown";  // D3D12 / Vulkan: not sokol backends
     }
 }
 render::GpuInfo Renderer::gpu_info() {

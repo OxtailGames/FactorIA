@@ -33,7 +33,6 @@
 #include "fa/core/math.h"
 #include "fa/render/ies.h"
 #include "gpu/device.h"
-#include "gpu/sg_bridge.h"
 
 namespace fa::render {
 
@@ -152,7 +151,7 @@ public:
     // failed tile is reported to `onFailure` once and left white.
     bool sync(gpu::Device& device, const Loader& load, const FailureFn& onFailure);
     // The image to bind, or an empty view while there is none.
-    gpu::bridged::View view() const { return view_; }
+    gpu::View view() const { return view_; }
     bool ready() const { return view_.id != 0; }
     // The rect of a tile in texels, null when the key was not requested or did not fit.
     const LightAtlasRect* rect(LightAtlasKind kind, const std::string& path) const;

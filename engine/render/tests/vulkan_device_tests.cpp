@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "gpu/sg_bridge.h"
+#include "gpu/sokol_device.h"
 #include "gpu/vulkan_device.h"
 // The SPIR-V of the generated shader headers (sokol-shdc's spirv_vk output, compiled in where FA_SHADERS_SPIRV is set).
 #define FA_SHADERS_SPIRV

@@ -82,12 +82,12 @@ public:
 
     // Copies the picture of capture face `face` (`picture`: an upright 2D view, row 0 = the top, as the face job drew it) into face `face` of
     // the slot's S0.
-    void face_to_cube(Gpu& gpu, int slot, int face, gpu::bridged::View picture, int* drawCalls);
+    void face_to_cube(Gpu& gpu, int slot, int face, gpu::View picture, int* drawCalls);
     // The pyramid, the levels and the SH row of the tile, from the slot's S0. `gain` multiplies the light (ReflectionProbe.intensity).
     void filter(Gpu& gpu, Atlas& atlas, int slot, const ProbeTile& tile, float gain, int* drawCalls);
     // The sky's entry: levels from the lods of the environment cube, the SH row from its mip 5. `envRgba8`: the cube is RGBA8 (its SH is coded).
-    void write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::bridged::View envCube,
-                   gpu::bridged::Sampler envSampler, bool envRgba8, int* drawCalls);
+    void write_sky(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, gpu::View envCube, gpu::Sampler envSampler,
+                   bool envRgba8, int* drawCalls);
     // A baked probe: the page (the tile without its SH row) times `gain`, and the nine coefficients times `gain`.
     bool upload(Gpu& gpu, Atlas& atlas, const ProbeTile& tile, const ImageF& page, const float sh[9][3], float gain,
                 int* drawCalls);
@@ -105,12 +105,10 @@ public:
     bool dist_image(int index, int res);
     gpu::View dist_view(int index) const;
     // "gi-distance": the prepass images of one face (front faces, back faces) into the distance picture `index`.
-    void gi_dist(Gpu& gpu, int index, gpu::bridged::View front, gpu::bridged::View back, float maxDistance,
-                 int* drawCalls);
+    void gi_dist(Gpu& gpu, int index, gpu::View front, gpu::View back, float maxDistance, int* drawCalls);
     // The face of a GI capture into face `face` of the slot's S0: the colour by direction, the signed distance (negative: a back face) in alpha.
     // `dist` invalid: the face has no picture and every ray is maxDistance long.
-    void face_gi(Gpu& gpu, int slot, int face, gpu::bridged::View picture, gpu::bridged::View dist, float maxDistance,
-                 int* drawCalls);
+    void face_gi(Gpu& gpu, int slot, int face, gpu::View picture, gpu::View dist, float maxDistance, int* drawCalls);
     // Block `block` of the band (gi.h) from the slot's S0: the SH row, the depth map and the meta texel, each blended into what the block holds
     // with weight `blend` (1 replaces it: a probe's first capture; 1 - hysteresis afterwards).
     void filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolution, float blend, float maxDistance,
