@@ -72,7 +72,7 @@ void D3d12Device::timer_begin_frame() {
     std::lock_guard<std::mutex> queueLock(queueMutex_);
     std::lock_guard<std::mutex> timerLock(timerMutex_);
     if (!timerOk_) return;
-    if (timerCurrent_ >= 0) end_timer_frame_locked();  // a frame left open ends here
+    if (timerCurrent_ >= 0) end_timer_frame_locked();              // a frame left open ends here
     if (timerPending_.size() >= std::size_t(kTimerSlots)) return;  // every slot waits for its fence: not timed
     D3d12CommandList& pl = prelude();
     if (!pl.list_) return;  // reported by acquire_list
@@ -157,7 +157,8 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
             const std::uint64_t b = ticks[2 + 2 * i], e = ticks[3 + 2 * i];
             scopes.push_back({b, {slot.names[i], e > b ? double(e - b) * toMs : 0.0}});
         }
-        std::stable_sort(scopes.begin(), scopes.end(), [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
+        std::stable_sort(scopes.begin(), scopes.end(),
+                         [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
         timerLastScopes_.clear();
         for (Timed& t : scopes) timerLastScopes_.push_back(std::move(t.time));
     }
