@@ -63,9 +63,16 @@ struct Gfx {
 
     Gfx(int w = 320, int h = 180,
         int samples = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1) {
-        static const std::filesystem::path dir =
-            fs::make_temp_dir("fa_render_test_project").value();  // one per test process
-        projectDir = dir;
+        // One per test process, removed when the process ends (after every renderer that uses it is shut down).
+        struct ProcessDir {
+            std::filesystem::path path = fs::make_temp_dir("fa_render_test_project").value();
+            ~ProcessDir() {
+                std::error_code ec;
+                std::filesystem::remove_all(path, ec);
+            }
+        };
+        static const ProcessDir dir;
+        projectDir = dir.path;
         std::filesystem::create_directories(projectDir / "assets");
         fs::set_project_root(projectDir);
         if (!gpu.init(&error)) return;

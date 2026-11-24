@@ -70,6 +70,9 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
+- **Tests remove what they create in the temp folder.** A scratch folder is removed when its test ends (a small RAII struct), or
+  at the end of the process when a whole program shares it (`fs::make_temp_dir_until_exit`, and the render tests' one project
+  folder). Run the suite with `TMPDIR` pointing at an empty folder to see what a test leaves behind.
 
 ## Sanitizers
 

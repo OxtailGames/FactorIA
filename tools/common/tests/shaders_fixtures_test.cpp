@@ -18,6 +18,14 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
     SetupContext context;
     FA_SKIP_WITHOUT_SHDC(context, "sokol-shdc is not installed: the fixture twins are not checked here (CI does)");
     const stdfs::path root = stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/materials";
+    // Compiled in a copy: the compiler writes its shader cache into the project it compiles, and the source tree must stay
+    // clean (parallel test processes would otherwise share that cache, and a render test copying the folder would race it).
+    testing::TempDir work;
+    {
+        std::error_code ec;
+        stdfs::copy(root, work.path, stdfs::copy_options::recursive, ec);
+        REQUIRE_MESSAGE(!ec, "could not copy " << root.string() << ": " << ec.message());
+    }
     const char* update = std::getenv("FA_UPDATE_FIXTURES");
     const bool rewrite = update && std::string(update) == "1";
 
@@ -36,7 +44,7 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
         options.setup = context;
         options.dialects = dialects;
         options.useCache = false;
-        auto r = compile_material(root.string(), material, options);
+        auto r = compile_material(work.path.string(), material, options);
         INFO((r.ok() ? std::string() : r.error().message));
         REQUIRE(r.ok());
         const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
