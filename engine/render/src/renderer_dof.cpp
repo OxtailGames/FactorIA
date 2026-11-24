@@ -61,12 +61,11 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // (the others are not bound: a binding a program does not use is a validation error). `fu`: the program's uniform block (null: none).
 // `part`: the rectangle of the destination the pass covers (null: all of it).
 // Returns false (nothing drawn) when the target of the pass is gone.
-bool draw_fullscreen(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd, sg_view tc,
-                     sg_view tp, sg_view tg, const void* fu, std::size_t fuSize, const Rect* part) {
+bool draw_fullscreen(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd,
+                     gpu::View tc, gpu::View tp, gpu::View tg, const void* fu, std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return false;
     const gpu::Pipeline pipe = fx.pipeline(prog, pd.format);  // made before the pass opens
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part->x, part->y, part->w, part->h, true);
         list.set_scissor(part->x, part->y, part->w, part->h, true);
@@ -77,9 +76,9 @@ bool draw_fullscreen(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Pro
     const bool useC = prog != SceneFx::Prog::Gather;
     const bool useP = prog == SceneFx::Prog::Down || prog == SceneFx::Prog::Composite || prog == SceneFx::Prog::Motion;
     const bool useG = prog == SceneFx::Prog::Gather || prog == SceneFx::Prog::Composite;
-    if (useC) b.views[0] = gpu::from_sg(tc);
-    if (useP) b.views[1] = gpu::from_sg(tp);
-    if (useG) b.views[2] = gpu::from_sg(tg);
+    if (useC) b.views[0] = tc;
+    if (useP) b.views[1] = tp;
+    if (useG) b.views[2] = tg;
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
     if (useP) b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
@@ -94,11 +93,10 @@ bool draw_fullscreen(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Pro
 // One full-screen triangle with a program of the per-object blur: `views` are its texture slots (colour, V or the velocity, the prepass, the
 // tiles; an empty one is not bound), `u` its uniforms. `part`: as draw_fullscreen. False (nothing drawn) when the target of the pass is gone.
 bool draw_object_pass(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd,
-                      const sg_view (&views)[4], const motion_object_mobj_params_t& u, const Rect* part) {
+                      const gpu::View (&views)[4], const motion_object_mobj_params_t& u, const Rect* part) {
     if (!pd.color.id) return false;
     const gpu::Pipeline pipe = fx.pipeline(prog, pd.format);  // made before the pass opens
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part->x, part->y, part->w, part->h, true);
         list.set_scissor(part->x, part->y, part->w, part->h, true);
@@ -106,7 +104,7 @@ bool draw_object_pass(gpu::CommandList& list, SceneFx& fx, Gpu& gpu, SceneFx::Pr
     list.set_pipeline(pipe);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    for (int i = 0; i < 4; ++i) b.views[i] = gpu::from_sg(views[i]);
+    for (int i = 0; i < 4; ++i) b.views[i] = views[i];
     b.samplers[SMP_motion_object_smp_lin] = gpu.sampler(SamplerKind::LinearClamp);
     b.samplers[SMP_motion_object_smp_pt] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
@@ -279,7 +277,7 @@ gpu::Pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
     return p;
 }
 
-bool SceneFx::copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg_view src, const int* part) {
+bool SceneFx::copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, gpu::View src, const int* part) {
     if (!ready(gpu) || !src.id) return false;
     Rect r;
     if (part) {
@@ -289,7 +287,7 @@ bool SceneFx::copy_into(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, sg
         r.h = part[3];
         r.whole = false;
     }
-    return draw_fullscreen(list, *this, gpu, Prog::Copy, pd, src, sg_view{}, sg_view{}, nullptr, 0,
+    return draw_fullscreen(list, *this, gpu, Prog::Copy, pd, src, gpu::View{}, gpu::View{}, nullptr, 0,
                            part ? &r : nullptr);
 }
 
@@ -323,14 +321,14 @@ void SceneFx::release() {
 #pragma warning(disable : 4324)
 #endif
 int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
-                        const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
+                        const PostRect& rectIn, int picW, int picH, ResourceId game, gpu::View srcTex,
                         const BloomTarget& dst, const PrepassRef& prepass, const VelocityRef& velocity, int* drawCalls,
                         const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
     if (!ready(gpu)) return 0;
-    const sg_pixel_format fmt = gpu.scene_format();
+    const gpu::PixelFormat fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
     // Half size rounded up: with an odd size the last half-size texel covers one picture pixel and a half-texel offset of the linear
     // read is below the blur's own radius (the gather runs in this image only).
@@ -349,12 +347,12 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     TransientDesc sd;
     sd.width = rw;
     sd.height = rh;
-    sd.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
+    sd.format = TargetFormat{fmt, gpu::PixelFormat::None, 1};
     sd.label = job + "/fx-scratch";
     TransientDesc ha;
     ha.width = hw;
     ha.height = hh;
-    ha.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    ha.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
     ha.label = job + "/dof-half-a";
     TransientDesc hb = ha;
     hb.label = job + "/dof-half-b";
@@ -429,7 +427,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     TransientTargets* tt = &targets;
     auto tex = [tt](const PassContext& c, ResourceId r) {
         const Target* t = tt->get(c.handle(r));
-        return t ? t->texView : sg_view{};
+        return t ? t->texView : gpu::View{};
     };
     auto add = [&](const char* name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass gp;
@@ -451,18 +449,18 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     auto into_scratch = [tt](const PassContext& c, ResourceId r, const char* label) {
         const Target* t = tt->get(c.handle(r));
         PassDesc pd = t ? pass_into(*t, label) : PassDesc{};
-        pd.colorLoad = SG_LOADACTION_DONTCARE;
+        pd.colorLoad = gpu::LoadAction::DontCare;
         return pd;
     };
-    const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     auto into_picture = [dst, dstFormat, rect](const char* label) {
         PassDesc pd;
         pd.label = label;
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
+        pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
         return pd;
     };
     // The chain's state: the scratch holds a finished result only when the pass before the copy ran.
@@ -493,12 +491,12 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             const Target* pt = prepassRef.target(c);
             if (!pt || !srcTex.id) return;
             if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Down, into_scratch(c, halfA, "dof-down"), srcTex,
-                                pt->texView, sg_view{}, &u, sizeof(u), nullptr))
+                                pt->texView, gpu::View{}, &u, sizeof(u), nullptr))
                 ++*drawCalls;
         });
         add("dof-gather", {halfA}, {halfB}, [=](const PassContext& c) {
             if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Gather, into_scratch(c, halfB, "dof-gather"),
-                                sg_view{}, sg_view{}, tex(c, halfA), &u, sizeof(u), nullptr))
+                                gpu::View{}, gpu::View{}, tex(c, halfA), &u, sizeof(u), nullptr))
                 ++*drawCalls;
         });
         add("dof-composite", {game, pre, halfB}, {scratch}, [=](const PassContext& c) {
@@ -541,7 +539,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             const Target* vt = velRef.target(c);
             const Target* pt = prepassRef.target(c);
             if (!vt || !pt) return;
-            const sg_view views[4] = {sg_view{}, vt->texView, pt->texView, sg_view{}};
+            const gpu::View views[4] = {gpu::View{}, vt->texView, pt->texView, gpu::View{}};
             if (!draw_object_pass(pass_list(c, *g), *self, *g, Prog::ObjVel, into_scratch(c, vImg, "motion-velocity"),
                                   views, u, nullptr))
                 return;
@@ -552,7 +550,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             if (!*velReady) return;
             motion_object_mobj_params_t ux = u;
             ux.e[0] = 0.0f;
-            const sg_view views[4] = {sg_view{}, tex(c, vImg), sg_view{}, sg_view{}};
+            const gpu::View views[4] = {gpu::View{}, tex(c, vImg), gpu::View{}, gpu::View{}};
             if (draw_object_pass(pass_list(c, *g), *self, *g, Prog::ObjTile, into_scratch(c, tileA, "motion-tile-x"),
                                  views, ux, nullptr))
                 ++*drawCalls;
@@ -561,7 +559,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             if (!*velReady) return;
             motion_object_mobj_params_t uy = u;
             uy.e[0] = 1.0f;
-            const sg_view views[4] = {sg_view{}, tex(c, tileA), sg_view{}, sg_view{}};
+            const gpu::View views[4] = {gpu::View{}, tex(c, tileA), gpu::View{}, gpu::View{}};
             if (draw_object_pass(pass_list(c, *g), *self, *g, Prog::ObjTile, into_scratch(c, tileB, "motion-tile-y"),
                                  views, uy, nullptr))
                 ++*drawCalls;
@@ -570,7 +568,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             // Reads the scratch the depth of field finished and draws straight into the picture: no copy after it.
             add("motion-blur", {scratch, vImg, tileB, game}, {game}, [=](const PassContext& c) {
                 if (!*velReady || !*scratchReady) return;
-                const sg_view views[4] = {tex(c, scratch), tex(c, vImg), sg_view{}, tex(c, tileB)};
+                const gpu::View views[4] = {tex(c, scratch), tex(c, vImg), gpu::View{}, tex(c, tileB)};
                 if (draw_object_pass(pass_list(c, *g), *self, *g, Prog::ObjGather, into_picture("motion-blur"), views,
                                      u, rect.whole ? nullptr : &rect))
                     ++*drawCalls;
@@ -578,7 +576,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         } else {
             add("motion-blur", {game, vImg, tileB}, {scratch}, [=](const PassContext& c) {
                 if (!*velReady || !srcTex.id) return;
-                const sg_view views[4] = {srcTex, tex(c, vImg), sg_view{}, tex(c, tileB)};
+                const gpu::View views[4] = {srcTex, tex(c, vImg), gpu::View{}, tex(c, tileB)};
                 if (!draw_object_pass(pass_list(c, *g), *self, *g, Prog::ObjGather,
                                       into_scratch(c, scratch, "motion-blur"), views, u, nullptr))
                     return;
@@ -612,7 +610,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !*scratchReady) return;
                 if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Motion, into_picture("motion-blur"),
-                                    tex(c, scratch), pt->texView, sg_view{}, &u, sizeof(u),
+                                    tex(c, scratch), pt->texView, gpu::View{}, &u, sizeof(u),
                                     rect.whole ? nullptr : &rect))
                     ++*drawCalls;
             });
@@ -621,7 +619,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
                 const Target* pt = prepassRef.target(c);
                 if (!pt || !srcTex.id) return;
                 if (!draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Motion, into_scratch(c, scratch, "motion-blur"),
-                                     srcTex, pt->texView, sg_view{}, &u, sizeof(u), nullptr))
+                                     srcTex, pt->texView, gpu::View{}, &u, sizeof(u), nullptr))
                     return;
                 *scratchReady = true;
                 ++*drawCalls;
@@ -633,8 +631,8 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
         add(plan.dof ? "dof-copy" : "motion-copy", {scratch, game}, {game}, [=](const PassContext& c) {
             if (!*scratchReady) return;
             if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy,
-                                into_picture(plan.dof ? "dof-copy" : "motion-copy"), tex(c, scratch), sg_view{},
-                                sg_view{}, nullptr, 0, rect.whole ? nullptr : &rect))
+                                into_picture(plan.dof ? "dof-copy" : "motion-copy"), tex(c, scratch), gpu::View{},
+                                gpu::View{}, nullptr, 0, rect.whole ? nullptr : &rect))
                 ++*drawCalls;
         });
     }

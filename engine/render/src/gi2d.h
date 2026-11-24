@@ -185,12 +185,12 @@ struct Gi2dJobPlan {
     bool active = false;
     Gi2dField* field = nullptr;
     std::shared_ptr<Gi2dGather> gather;
-    sg_view white{};  // a texture view the draws of a batch without a texture bind
+    gpu::View white{};  // a texture view the draws of a batch without a texture bind
     ResourceId emission, occluder,
         distance;  // imported: the images outlive the frame graph (P3b and the command read them)
     // The result of the cascades (cascadePasses > 0): the irradiance image the lit visuals of the job sample, and where the world is in it.
     ResourceId irradiance;
-    sg_view irradianceView{};    // the image written this frame (null without cascades)
+    gpu::View irradianceView{};  // the image written this frame (null without cascades)
     float xf[4] = {0, 0, 0, 0};  // image uv = world * xf.xy + xf.zw
     float intensity = 0.0f;      // GlobalIllumination2D.intensity
     int cascadePasses = 0;       // the passes of the cascades, the priming chain and the irradiance pass

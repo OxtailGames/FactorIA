@@ -330,7 +330,7 @@ bool WaterFx::make_ready(gpu::Device& device) {
 void WaterFx::warm(Gpu& gpu, const TargetFormat& gameFormat) {
     if (!ready(gpu)) return;
     copy_pipeline(
-        TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1});  // the format copy() draws the pooled image in
+        TargetFormat{gpu.scene_format(), gpu::PixelFormat::None, 1});  // the format copy() draws the pooled image in
     fx_pipeline(gameFormat, false);
     fx_pipeline(gameFormat, true);
 }
@@ -339,7 +339,7 @@ gpu::Pipeline WaterFx::copy_pipeline(const TargetFormat& format) {
     for (const PipelineEntry& e : copyPipelines_)
         if (e.format == format) return e.pipeline;
     if (state_ <= 0) return {};
-    const gpu::TargetFormat target = gpu::from_render(format);
+    const gpu::TargetFormat target = format;
     gpu::PipelineDesc d;
     d.shader = copyShader_;
     d.layout.attrs[ATTR_water2d_copy_pos].format = gpu::VertexFormat::Float2;
@@ -366,7 +366,7 @@ gpu::Pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
     for (const PipelineEntry& e : fxPipelines_)
         if (e.format == format && e.depthTest == depthTest) return e.pipeline;
     if (state_ <= 0) return {};
-    const gpu::TargetFormat target = gpu::from_render(format);
+    const gpu::TargetFormat target = format;
     gpu::PipelineDesc d;
     d.shader = fxShader_;
     static_assert(sizeof(Vertex2D) == 48, "the stride below is that of Vertex2D");
@@ -401,14 +401,14 @@ gpu::Pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
 }
 
 bool WaterFx::copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-                   std::uint64_t& handle, sg_view& view) {
+                   std::uint64_t& handle, gpu::View& view) {
     handle = 0;
     view = {};
     if (w < 1 || h < 1 || !game.texView.id || !ready(gpu)) return false;
     TransientDesc d;
     d.width = w;
     d.height = h;
-    d.format = TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu.scene_format(), gpu::PixelFormat::None, 1};
     d.label = "scene-copy";
     const std::uint64_t got = targets.pool.acquire(d);
     if (!got) return false;
@@ -423,15 +423,14 @@ bool WaterFx::copy(TransientTargets& targets, Gpu& gpu, const Target& game, int 
         targets.pool.release(got);
         return false;
     }
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     list.set_pipeline(pipe);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_water2d_src] = gpu::from_sg(game.texView);
+    b.views[VIEW_water2d_src] = game.texView;
     b.samplers[SMP_water2d_src_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     water2d_water2d_copy_params_t cu{};
@@ -455,7 +454,7 @@ bool WaterFx::draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const Draw
     b.vertexBuffers[0] = gpu::from_sg(env.vertices);
     b.vertexBufferOffsets[0] = int(std::size_t(firstQuad) * 4 * sizeof(Vertex2D));
     b.indexBuffer = gpu.quad_index_buffer();
-    b.views[VIEW_water2d_scene_tex] = gpu::from_sg(env.scene);
+    b.views[VIEW_water2d_scene_tex] = env.scene;
     b.samplers[SMP_water2d_scene_smp] = gpu.sampler(SamplerKind::LinearClamp);
     list.set_bindings(b);
     water2d_water2d_vs_params_t vu{};

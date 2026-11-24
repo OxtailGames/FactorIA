@@ -27,12 +27,12 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
     const char* hook = std::getenv("FA_SCENE_FORMAT");
     const bool hookInvalid = hook && std::string(hook) == "rgba16f_invalid";
     auto refused = [&] {
-        return !game_targets_valid() || (hookInvalid && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F);
+        return !game_targets_valid() || (hookInvalid && gpu.scene_format() == gpu::PixelFormat::Rgba16F);
     };
-    if (!refused() || gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return;
+    if (!refused() || gpu.scene_format() == gpu::PixelFormat::Rgba8) return;
     scaleStepOnly = false;  // another scene format: every image is made again
     const int first = gpu.scene_pick();
-    const sg_pixel_format firstFormat = gpu.scene_format();
+    const gpu::PixelFormat firstFormat = gpu.scene_format();
     while (gpu.next_scene_format()) {
         destroy_targets();
         make_game_targets();
@@ -69,12 +69,12 @@ bool Renderer::Impl::editor_copy_wanted() const {
 
 // While the copy does not exist yet (the first frame, after a resize or a failed make_target) the viewport shows the image itself,
 // unencoded (too dark in a linear scene): better than the "no render target" text.
-sg_image Renderer::Impl::display_image() const {
+gpu::Image Renderer::Impl::display_image() const {
     if (!editor_copy_wanted() || !editorTarget.color.id) return final_image();
     return editorTarget.texture_image();
 }
 
-sg_view Renderer::Impl::display_view() const {
+gpu::View Renderer::Impl::display_view() const {
     if (!editor_copy_wanted() || !editorTarget.color.id) return final_view();
     return editorTarget.texView;
 }
@@ -96,7 +96,7 @@ void Renderer::Impl::update_editor_copy() {
         d.label = "editor-view";
         d.width = final_w();
         d.height = final_h();
-        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        d.colorFormat = gpu::PixelFormat::Rgba8;
         editorTarget = make_target(gpu.device(), d);
         if (!editorTarget.valid(gpu.device())) {
             destroy_target(gpu.device(),
@@ -105,14 +105,14 @@ void Renderer::Impl::update_editor_copy() {
         }
     }
     PassDesc p = pass_into(editorTarget, "editor-view");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, p);
     cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = gpu::from_sg(final_view());
+    b.views[VIEW_blit_tex] = final_view();
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
     cl.set_bindings(b);
     blit_blit_vs_params_t u{};  // flip stays 0: the copy is stored like the game image
@@ -251,8 +251,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.asset.path = renderTarget ? "target" : "view";
     t.asset.enc =
         TexEncoding::Scene;  // holds the scene's own values (linear in a linear scene): never converted when sampled
-    t.asset.image = t.flipCopy ? t.flip.color : t.main.texture_image();
-    t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
+    t.asset.image = gpu::to_sg(t.flipCopy ? t.flip.color : t.main.texture_image());
+    t.asset.view = gpu::to_sg(t.flipCopy ? t.flip.texView : t.main.texView);
     t.asset.width = w;
     t.asset.height = h;
     t.asset.live = true;
@@ -358,14 +358,14 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
     if (!t.flipCopy || !t.flip.color.id || !gpu.colorfilter_ready())
         return;  // the copy draws with the colour filter's shader
     PassDesc p = pass_into(t.flip, "target-flip");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, p);
     cl.set_pipeline(gpu.colorfilter_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = gpu::from_sg(t.main.texView);
+    b.views[VIEW_colorfilter_tex] = t.main.texView;
     b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
     cl.set_bindings(b);
     colorfilter_colorfilter_vs_params_t vu{};
@@ -386,7 +386,7 @@ bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
     buffers = std::clamp(buffers, 1, kMaxLightBuffers2D);
     const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
     const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
-    const sg_pixel_format fmt = gpu.light_format();
+    const gpu::PixelFormat fmt = gpu.light_format();
     if (lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt && lightBuffers >= buffers)
         return true;
     // M74: a size or format change remakes every buffer; a frame that needs more sets of lights only adds the missing ones.
@@ -562,7 +562,7 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
     bool all = true;
     // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A
     // change of the output makes them again.
-    const sg_pixel_format format = gpu.ldr_cut_format(frameOutput.extended());
+    const gpu::PixelFormat format = gpu.ldr_cut_format(frameOutput.extended());
     for (int i = 0; i < count; ++i) {
         if (ldrMid[i].valid(gpu.device()) && ldrMid[i].format.color == format) continue;
         destroy_target(gpu.device(), ldrMid[i]);
@@ -602,14 +602,14 @@ void Renderer::Impl::release_idle_ldr_targets() {
 }
 
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
-void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
-                               sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
+void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, gpu::View src,
+                               gpu::View expo, gpu::View aux, Target& dst, const char* label, bool keepMsaa,
                                const PostRect& rect, bool load, const PostSlice& slice) {
     PassDesc p = pass_into(dst, label);
-    p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
-    p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
-                  frameOutput, rect, slice);
+    p.colorLoad = load ? gpu::LoadAction::Load : gpu::LoadAction::DontCare;  // else every pixel is drawn
+    p.colorStore = (dst.samples > 1 && !keepMsaa) ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
+    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, gpu::from_sg(assets->white()->view), aux,
+                  dst.w, dst.h, frameOutput, rect, slice);
     ++stats.drawCalls;
     // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
     // A piece that does not end the final pass leaves it to the last one.
@@ -624,18 +624,18 @@ void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, b
 // encoded them when they were drawn), so they are read as they are too, except `premultiplied` (a world capture on a transparent
 // background): the colour must be un-premultiplied in linear light, which only the copy below does. Anything else (a float scene,
 // a linear scene in plain RGBA8) goes through blit_keep, which encodes linear light to sRGB when the scene is linear.
-bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,
+bool Renderer::Impl::read_rgba8(gpu::Image image, gpu::View view, int w, int h, std::vector<std::uint8_t>& out,
                                 std::string* error, bool premultiplied, bool displayValues) {
-    const sg_pixel_format sf = gpu.scene_format();
-    if ((sf == SG_PIXELFORMAT_RGBA8 && !gpu.linear()) || (sf == SG_PIXELFORMAT_SRGB8A8 && !premultiplied))
-        return readback_rgba8(image, w, h, out, error);
+    const gpu::PixelFormat sf = gpu.scene_format();
+    if ((sf == gpu::PixelFormat::Rgba8 && !gpu.linear()) || (sf == gpu::PixelFormat::Srgb8A8 && !premultiplied))
+        return readback_rgba8(gpu::to_sg(image), w, h, out, error);
     if (!readbackTarget.color.id || readW != w || readH != h) {
         free_read_image();
         TargetDesc d;
         d.label = "readback-rgba8";
         d.width = w;
         d.height = h;
-        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        d.colorFormat = gpu::PixelFormat::Rgba8;
         d.texture = false;  // only drawn into and read back
         readbackTarget = make_target(gpu.device(), d);
         if (!readbackTarget.valid(gpu.device())) {
@@ -650,14 +650,14 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
         readH = h;
     }
     PassDesc p = pass_into(readbackTarget, "readback-rgba8");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
     begin_list_pass(cl, p);
     cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = gpu::from_sg(view);
+    b.views[VIEW_blit_tex] = view;
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
     cl.set_bindings(b);
     blit_blit_vs_params_t u{};
@@ -673,7 +673,7 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     // The read-back waits for the GPU and on Metal only a commit submits the copy (see Renderer::capture()).
     gpu.commit_frame();
     gpu.note_commit();
-    return readback_rgba8(readbackTarget.color, w, h, out, error);
+    return readback_rgba8(gpu::to_sg(readbackTarget.color), w, h, out, error);
 }
 
 // Makes (or keeps) the shadow atlas, at least `width` x `height` texels (the part of the atlas the frame's layout uses). False when the
@@ -702,8 +702,8 @@ bool Renderer::Impl::create_shadow_targets(int width, int height) {
     d.label = "shadow";
     d.width = std::max(width, shadowTarget.color.id ? shadowTarget.w : 0);
     d.height = std::max(height, shadowTarget.color.id ? shadowTarget.h : 0);
-    d.colorFormat = SG_PIXELFORMAT_R32F;
-    d.depthFormat = SG_PIXELFORMAT_DEPTH;
+    d.colorFormat = gpu::PixelFormat::R32F;
+    d.depthFormat = gpu::PixelFormat::Depth;
     // 4 bytes of colour and 4 of depth per texel, in 64 bits: a refused size fails here, not inside the driver.
     if (std::uint64_t(d.width) * std::uint64_t(d.height) * 8u > kShadowAtlasMaxBytes) {
         shadowTargetFailed = true;

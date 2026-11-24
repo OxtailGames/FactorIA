@@ -11,7 +11,6 @@
 
 #include "gpu/device.h"
 #include "gpu/sg_bridge.h"
-#include "gpu_types.h"
 #include "sokol_gfx.h"
 
 namespace fa::render {

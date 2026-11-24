@@ -503,7 +503,7 @@ struct TextLayout {
 // Pipelines
 // ---------------------------------------------------------------------------
 // A pipeline is valid only for passes with the colour and depth formats and the sample count it was made for, so those
-// are part of its key (`format`, the TargetFormat of gpu_types.h): the same program drawn into an RGBA8 and an RGBA16F
+// are part of its key (`format`, the TargetFormat of gpu/types.h): the same program drawn into an RGBA8 and an RGBA16F
 // target, or with 1 and 4 samples, is two entries that live side by side in Gpu's cache. Nothing is flushed when a
 // target's format changes.
 struct PipelineKey {
@@ -1564,7 +1564,7 @@ private:
 };
 
 // The depth-stencil format of the game target and of every pass that draws the scene.
-constexpr sg_pixel_format kSceneDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
+constexpr gpu::PixelFormat kSceneDepthFormat = gpu::PixelFormat::DepthStencil;
 
 // Pipelines, samplers, shaders, static buffers, transient buffer pool.
 // The format of the images between the pieces of a cut final pass (Gpu::ldr_cut_format), from what the GPU can do:
@@ -1614,9 +1614,9 @@ public:
     void commit_frame();
     // The Gpu initialised last of those still alive (null: none). The static pass functions record on its list.
     static Gpu* active();
-    // The device of active() (FA_ASSERTs there is one): for the free functions that have no Gpu at hand yet, the
-    // Target helpers without a device (make_target, destroy_target). TRANSITIONAL (M77-P2..P4): the passes get the
-    // device from their Gpu once they are converted.
+    // The device of active() (FA_ASSERTs there is one): for the helpers of the passes that have no Gpu at hand yet
+    // (TaaFx::ready(), FogFx::ready(), the overloads without a device of Gi2dSystem, GradientRamps and WaterFx).
+    // TRANSITIONAL (M77-P2..P5): the passes get the device from their Gpu once they are converted.
     static gpu::Device& active_device();
 
     gpu::bridged::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
@@ -1678,19 +1678,20 @@ public:
     // the cache until they go idle.
     TargetFormat scene_target_format() const { return {scene_format(), kSceneDepthFormat, sampleCount_}; }
     // The shadow map pass: an R32F colour attachment and a DEPTH one, never multisampled.
-    static TargetFormat shadow_target_format() { return {SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_DEPTH, 1}; }
+    static TargetFormat shadow_target_format() { return {gpu::PixelFormat::R32F, gpu::PixelFormat::Depth, 1}; }
 
     // The depth and normal prepass (M71, mesh_common.glsl prepass_vs / prepass_fs): one float colour attachment (r = linear view
     // depth, gb = octahedral view-space normal, a = coverage) and a depth buffer, never multisampled. prepass_color_format() is what
     // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
     // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
-    sg_pixel_format prepass_color_format() const;
+    gpu::PixelFormat prepass_color_format() const;
     // `velocity`: the pass also writes the motion vectors into a second colour attachment (velocity_format(), M76).
     TargetFormat prepass_target_format(bool velocity = false) const {
-        return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1, velocity ? velocity_format() : SG_PIXELFORMAT_NONE};
+        return {prepass_color_format(), gpu::PixelFormat::Depth, 1,
+                velocity ? velocity_format() : gpu::PixelFormat::None};
     }
     // The motion vector image (VelocityRef): RG16F, uvPrev - uvCurr and the sentinel 1024, both exact in half float.
-    static sg_pixel_format velocity_format() { return SG_PIXELFORMAT_RG16F; }
+    static gpu::PixelFormat velocity_format() { return gpu::PixelFormat::Rg16F; }
     // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
     bool velocity_ready();
     bool prepass_ready();
@@ -1714,7 +1715,7 @@ public:
     // depth) and their scatter radius and strength into colour 1, both RGBA16F with a depth buffer, never multisampled. The shaders are made
     // on first use; sss_ready() is false when they cannot be made (the effect is skipped).
     static TargetFormat sss_target_format() {
-        return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
+        return {gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Depth, 1, gpu::PixelFormat::Rgba16F};
     }
     // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
     gpu::Shader builtin_shader(gpu::Shader& slot, gpu::GeneratedShader desc, const char* label);
@@ -1731,7 +1732,7 @@ public:
     // reactive_ready() says whether this GPU makes it. quad_motion_ready() builds the two programs (once; false with one log line when they
     // do not compile). quad_motion_pipeline() draws the quad vertices (Vertex2D in buffer 0 plus the per-vertex motion, buffer 1) into
     // `format` (velocity_format() without blending, or reactive_format() with the MAX blend); null when the shader is not ready.
-    static sg_pixel_format reactive_format() { return SG_PIXELFORMAT_R8; }
+    static gpu::PixelFormat reactive_format() { return gpu::PixelFormat::R8; }
     bool reactive_ready();
     bool quad_motion_ready();
     gpu::bridged::Pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
@@ -1782,34 +1783,34 @@ public:
     // Destroys a custom material program together with the pipelines made from it.
     void destroy_shader(gpu::bridged::Shader shader);
     gpu::bridged::Pipeline blit_pipeline(const TargetFormat& format);
-    gpu::bridged::Pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount) {
+    gpu::bridged::Pipeline blit_pipeline(gpu::PixelFormat colorFormat, gpu::PixelFormat depthFormat, int sampleCount) {
         return blit_pipeline(TargetFormat{colorFormat, depthFormat, sampleCount});
     }
     // The same copy into an RGBA8 target without depth, keeping the source's alpha: how a frame in a float scene_format() is
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
     gpu::bridged::Pipeline blit_keep_pipeline(const TargetFormat& format);
     gpu::bridged::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
-    static TargetFormat blit_keep_target_format() { return {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1}; }
+    static TargetFormat blit_keep_target_format() { return {gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
     // (MeshRenderer.emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). Linear scene
     // (SceneSettings.colorSpace): RGBA16F, else R11G11B10 (float, no alpha), else SRGB8A8, else RGBA8 (see Gpu::init).
     // FA_SCENE_FORMAT: rgba8 = the 8-bit end of the chain (gamma: RGBA8, linear: SRGB8A8), r11g11b10 = prefer the packed float one
     // (a linear scene; the gamma chain is as without it), read once at init to test a path on a GPU that would pick another.
-    sg_pixel_format scene_format() const { return gpu::to_sg(sceneFormat_); }
+    gpu::PixelFormat scene_format() const { return sceneFormat_; }
     // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB-ENCODED values, so the GPU must not
     // encode them again): RGBA16F where the scene is, else plain RGBA8. SRGB8A8 (a linear scene in 8 bits) would encode them twice;
     // R11G11B10 has a 6-bit mantissa, so encoded values near 1 step by 1/64 of the range and a gradient bands where an 8-bit image
     // does not (the linear scene needs the packed format for its dark values, the encoded picture does not). An 8-bit display image
     // cannot hold values above 1: such a window stays within paper white (Renderer::Impl::float_display).
-    sg_pixel_format display_format() const { return gpu::to_sg(display_pixel_format()); }
+    gpu::PixelFormat display_format() const { return display_pixel_format(); }
     // The format of the images a final pass cut by display-referred custom passes goes through
     // (Renderer::Impl::ldrMid): they hold DISPLAY values like display_format(), so never the scene's own SRGB8A8 (the
     // GPU would encode them again) or R11G11B10 (no alpha, banding). With an HDR output (`hdrOutput`) and a display
     // format that cannot go above 1, a float format the GPU renders to and samples with filtering (RGBA16F, else
     // RGBA32F) when there is one, so a pass that writes above paper white keeps it between the pieces. The choice is
     // pick_ldr_cut_format.
-    sg_pixel_format ldr_cut_format(bool hdrOutput) const;
+    gpu::PixelFormat ldr_cut_format(bool hdrOutput) const;
     // The scene is held in linear light (SceneSettings.colorSpace "linear"). set_linear returns true when scene_format() changed:
     // the caller (Renderer::Impl::sync_color_space) then makes the game target again. The pipelines made so far stay in the
     // cache under their own format key; the ones for the new format are made on first use, and nothing is flushed.
@@ -1840,7 +1841,7 @@ public:
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
     gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
     gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
-        return bloom_pipeline(stage, TargetFormat{scene_format(), SG_PIXELFORMAT_NONE, sampleCount});
+        return bloom_pipeline(stage, TargetFormat{scene_format(), gpu::PixelFormat::None, sampleCount});
     }
     // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
@@ -1849,7 +1850,7 @@ public:
     // shader cannot be created.
     gpu::bridged::Pipeline colorfilter_pipeline(const TargetFormat& format);
     gpu::bridged::Pipeline colorfilter_pipeline() {
-        return colorfilter_pipeline(TargetFormat{scene_format(), SG_PIXELFORMAT_NONE, 1});
+        return colorfilter_pipeline(TargetFormat{scene_format(), gpu::PixelFormat::None, 1});
     }
 
     // The final pass of the post-processing stack (post.glsl: exposure, tonemap, output encode, colour filter): one program, created on
@@ -1872,12 +1873,12 @@ public:
     // The format the light buffer is drawn in: RGBA16F where the GPU renders to it with blending and filtering, else RGBA8
     // (half the range, see light_range()), else NONE: no light buffer. The environment variable FA_LIGHT_FORMAT (rgba16f,
     // rgba8 or none) narrows the choice to that one, to test a path on a GPU that would pick another.
-    sg_pixel_format light_format() const { return gpu::to_sg(lightFormat_); }
+    gpu::PixelFormat light_format() const { return lightFormat_; }
     // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
     float light_range() const { return lightFormat_ == gpu::PixelFormat::Rgba8 ? 2.0f : 1.0f; }
     gpu::bridged::Pipeline light_pipeline(const TargetFormat& format);
     gpu::bridged::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
-    TargetFormat light_target_format() const { return {light_format(), SG_PIXELFORMAT_NONE, 1}; }
+    TargetFormat light_target_format() const { return {light_format(), gpu::PixelFormat::None, 1}; }
 
     // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour
     // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass. They
@@ -2103,48 +2104,41 @@ struct TargetDesc {
     const char* label =
         "target";  // the base of the labels of its images and views ("<label>-color", "<label>-depth"...)
     int width = 1, height = 1;
-    sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
+    gpu::PixelFormat colorFormat = gpu::PixelFormat::None;  // NONE: no colour image (a depth-only target)
     int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
     // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): the bloom adds its glow to
     // the finished, resolved game image.
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
-    sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
+    gpu::PixelFormat depthFormat = gpu::PixelFormat::None;  // NONE: no depth image
     // The colour image can also be written as a storage image (usage.storage_image next to color_attachment): what MetalFX needs of its
     // output (metalfx.h). Single-sample targets only.
     bool storage = false;
 };
-// Its images and views are made on a gpu::Device and held as the sokol handles the passes still read (the same ids:
-// gpu::from_sg gives the device's handle). TRANSITIONAL (M77-P2..P4): they become gpu:: handles with the passes, in
-// one step, since a bridged handle in the passes' many `t ? t->texView : sg_view{}` would be ambiguous.
+// Its images and views are made on a gpu::Device (make_target) and are the device's handles; destroy_target frees them
+// on the same device.
 struct Target {
-    sg_image color{}, resolve{}, depth{};
-    sg_view colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
-    sg_view resolveAtt{};       // MSAA: the resolve attachment of `resolve`
-    sg_view resolveColorAtt{};  // MSAA and resolveAsColor: `resolve` as a colour attachment
-    sg_view depthAtt{};
-    sg_view texView{};  // a texture view of texture_image()
+    gpu::Image color{}, resolve{}, depth{};
+    gpu::View colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
+    gpu::View resolveAtt{};       // MSAA: the resolve attachment of `resolve`
+    gpu::View resolveColorAtt{};  // MSAA and resolveAsColor: `resolve` as a colour attachment
+    gpu::View depthAtt{};
+    gpu::View texView{};  // a texture view of texture_image()
     int w = 0, h = 0, samples = 1;
     TargetFormat format{};  // what a pass drawing into the whole target writes (PassDesc::format)
     bool expectTexture = false, expectDepth = false;  // what make_target was asked for (valid() checks it was made)
 
     // The image that holds the finished picture: the resolve image of an MSAA target, else the colour image.
-    sg_image texture_image() const { return resolve.id ? resolve : color; }
+    gpu::Image texture_image() const { return resolve.id ? resolve : color; }
     // True when it was made (a colour image exists) and `device` accepted every image and view that was made.
     bool valid(const gpu::Device& device) const;
-    // The same on Gpu::active_device() (false, with no device asked, when there is no colour image).
-    bool valid() const;
 };
 // Makes the target on `device` (nothing is checked: a GPU that cannot make an image leaves it FAILED, see
 // Target::valid()). target.cpp.
 Target make_target(gpu::Device& device, const TargetDesc& desc);
-// The same on Gpu::active_device() (TRANSITIONAL, M77-P2..P4: for the passes not converted yet).
-Target make_target(const TargetDesc& desc);
 // Destroys the views, then the images, on `device` (the one that made them), and resets `t` to empty. Safe on an
 // empty or half-made target.
 void destroy_target(gpu::Device& device, Target& t);
-// The same on Gpu::active_device(); an empty target needs no device (destroying twice is harmless).
-void destroy_target(Target& t);
 // A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's
 // format. The caller sets what the pass does with the old contents: PassDesc's load and store actions default to
 // DONTCARE.

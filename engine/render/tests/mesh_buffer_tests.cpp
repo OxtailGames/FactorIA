@@ -599,8 +599,8 @@ TEST_CASE("mesh buffers: the pipelines of a buffers material lay out the mesh ve
     Scope s;
     render::Gpu& gpu = *render::renderer_gpu(s.g.renderer);
     render::TargetFormat format;
-    format.color = SG_PIXELFORMAT_RGBA8;
-    format.depth = SG_PIXELFORMAT_DEPTH;
+    format.color = gpu::PixelFormat::Rgba8;
+    format.depth = gpu::PixelFormat::Depth;
     sg_shader custom{};
     custom.id = 1;  // any program: the probe makes no pipeline
     render::MeshExtras extras;

@@ -37,7 +37,7 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
         d.label = "readback-rgba16f";
         d.width = fw;
         d.height = fh;
-        d.colorFormat = SG_PIXELFORMAT_RGBA16F;
+        d.colorFormat = gpu::PixelFormat::Rgba16F;
         floatTarget = make_target(gpu.device(), d);
         if (!floatTarget.valid(gpu.device())) {
             destroy_target(gpu.device(), floatTarget);
@@ -46,15 +46,14 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
         }
     }
     PassDesc p = pass_into(floatTarget, "readback-rgba16f");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(p, swapchain));
+    list.begin_pass(p);
     list.set_pipeline(present ? gpu.blit_pipeline(p.format) : gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = gpu::from_sg(final_view());
+    b.views[VIEW_blit_tex] = final_view();
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     blit_blit_vs_params_t u{};
@@ -66,30 +65,29 @@ bool Renderer::Impl::read_floats(bool present, std::vector<float>& out, std::str
     list.end_pass();
     gpu.commit_frame();
     gpu.note_commit();
-    return render::readback_rgba16f(floatTarget.color, fw, fh, out, error);
+    return render::readback_rgba16f(gpu::to_sg(floatTarget.color), fw, fh, out, error);
 }
 
 void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
     if (!initialized()) return;
     Impl& im = *impl_;
-    const sg_swapchain& sc = swapchain.get();
+    const gpu::Swapchain sc = gpu::from_sg(swapchain.get());
     im.scaleMode = mode;
     Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
-    PassDesc pass = PassDesc::for_swapchain(sc);
+    PassDesc pass = gpu::swapchain_pass(sc);
     pass.label = "present";
-    pass.colorLoad = SG_LOADACTION_CLEAR;  // the letterbox bars
+    pass.colorLoad = gpu::LoadAction::Clear;  // the letterbox bars
     pass.clearColor = {0, 0, 0, 1};
-    pass.colorStore = SG_STOREACTION_STORE;
-    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
-    pass.stencilLoad = SG_LOADACTION_CLEAR;
+    pass.colorStore = gpu::StoreAction::Store;
+    pass.depthLoad = gpu::LoadAction::Clear;  // what sokol did for the pass it was given (a default load action clears)
+    pass.stencilLoad = gpu::LoadAction::Clear;
     gpu::CommandList& list = im.gpu.commands();
-    gpu::Swapchain surface;
-    list.begin_pass(gpu::from_render(pass, surface));
+    list.begin_pass(pass);
     list.set_viewport_f(vp.x, vp.y, vp.w, vp.h, true);
     list.set_pipeline(im.gpu.blit_pipeline(pass.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = im.gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = gpu::from_sg(im.final_view());
+    b.views[VIEW_blit_tex] = im.final_view();
     bool integer = mode == ScaleMode::PixelPerfect || std::fabs(vp.scale - std::round(vp.scale)) < 1e-3f;
     b.samplers[SMP_blit_smp] = im.gpu.sampler(integer ? SamplerKind::Nearest : SamplerKind::Linear);
     list.set_bindings(b);
@@ -122,7 +120,7 @@ bool Renderer::capture(Image& out, std::string* error) {
     }
     // 8 bits: a frame drawn for an HDR output (the HDR tonemap, values above paper white) is clipped at white here, not drawn again
     // with the SDR curve (docs/RENDERING.md, "What goes above white").
-    sg_image img = im.final_image();
+    gpu::Image img = im.final_image();
     std::vector<std::uint8_t> px;
     const int w = im.final_w(), h = im.final_h();  // the output size when the upscale stage ran, else the render size
     if (!im.read_rgba8(img, im.final_view(), w, h, px, error, false, im.finalEncoded)) return false;
@@ -328,7 +326,7 @@ bool Renderer::Impl::capture_view(World& world, CameraInfo ci, int w, int h, flo
     const ViewTarget& vt = *viewTargets[kKey];
     std::vector<std::uint8_t> px;
     std::string readError;
-    const bool ok = read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError, true);
+    const bool ok = read_rgba8(gpu::from_sg(vt.asset.image), gpu::from_sg(vt.asset.view), w, h, px, &readError, true);
     release_view(*viewTargets[kKey]);
     // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
     if (readW != final_w() || readH != final_h()) free_read_image();

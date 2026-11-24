@@ -155,7 +155,7 @@ TEST_CASE("frame graph: a bloom frame with the HUD after the bloom compiles in t
 TEST_CASE("frame graph: bloom with MSAA and the HUD after the bloom keeps the same passes") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const sg_pixelformat_info info = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
+    const sg_pixelformat_info info = sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba8));
     if (!info.msaa) return;  // no multisampling on this GPU
     OwnRenderer own(g, 4);
     REQUIRE_MESSAGE(own.ok, own.error);
@@ -555,7 +555,7 @@ void check_light_buffer(OwnRenderer& own, const Image& img) {
     REQUIRE(gpu != nullptr);
     const render::FrameGraph* graph = render::renderer_frame_graph(own.r);
     REQUIRE(graph != nullptr);
-    const bool buffer = gpu->light_format() != SG_PIXELFORMAT_NONE && gpu->light_ready();
+    const bool buffer = gpu->light_format() != gpu::PixelFormat::None && gpu->light_ready();
     const bool drawn = index_of(graph->order_names(), "camera:0/light-buffer") >= 0;
     CHECK(drawn == buffer);
     CHECK(img.pixel(160, 165).r > 0.3f);  // the lamp lights the floor in both modes

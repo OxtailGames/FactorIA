@@ -16,7 +16,7 @@ bool Renderer::Impl::ensure_cookie_target() {
     d.label = "light-cookies";
     d.width = kCookieGrid * kCookieCell;
     d.height = kCookieGrid * kCookieCell;
-    d.colorFormat = SG_PIXELFORMAT_RGBA8;
+    d.colorFormat = gpu::PixelFormat::Rgba8;
     cookieTarget = make_target(gpu.device(), d);
     if (!cookieTarget.valid(gpu.device())) {
         FA_ERROR("render",
@@ -82,12 +82,11 @@ void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
         cookieStamp = std::move(stamp);
     }
     PassDesc p = pass_into(cookieTarget, "light-cookies");
-    p.colorLoad = SG_LOADACTION_CLEAR;
+    p.colorLoad = gpu::LoadAction::Clear;
     p.clearColor = {0, 0, 0, 0};  // an empty cell lets no light through
-    p.colorStore = SG_STOREACTION_STORE;
+    p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& list = gpu.commands();
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(p, swapchain));
+    list.begin_pass(p);
     list.set_pipeline(gpu.blit_keep_pipeline(p.format));
     for (std::size_t i = 0; i < cells.size(); ++i) {
         const TextureAsset* t = cells[i];

@@ -252,8 +252,8 @@ struct Renderer::Impl {
     const render::metalfx::Support& metalfx_support();
     bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
     bool metalfx_fail(const std::string& why);
-    bool ensure_mfx_target(Target& t, const char* label, sg_pixel_format format, int w, int h);
-    bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
+    bool ensure_mfx_target(Target& t, const char* label, gpu::PixelFormat format, int w, int h);
+    bool ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth);
     // The images the screen-space items need at the output size: outTarget in the format the picture has there (`display`: after a final
     // pass, so display values; else the scene format), with the depth the items are drawn with when `depth`; the render-resolution
     // filterTarget a final pass writes into (display); outFilterTarget when the colour filter runs after the items (`filter`).
@@ -264,7 +264,7 @@ struct Renderer::Impl {
     void run_upscale(Target& out, const PassContext& c);
     void stretch_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     void spatial_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
-    bool ensure_spatial_target(sg_pixel_format colorFormat);
+    bool ensure_spatial_target(gpu::PixelFormat colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
@@ -405,7 +405,7 @@ struct Renderer::Impl {
     const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
     // The images the final pass writes hold values above 1 (RGBA16F; R11G11B10 scenes keep their display picture in RGBA8, see
     // Gpu::display_format): an HDR output can go above paper white.
-    bool float_display() const { return gpu.display_format() == SG_PIXELFORMAT_RGBA16F; }
+    bool float_display() const { return gpu.display_format() == gpu::PixelFormat::Rgba16F; }
     // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
     // the frame's headroom when its final pass went above white.
     blit_blit_fs_params_t present_params() const;
@@ -600,7 +600,9 @@ struct Renderer::Impl {
     void free_retired_decal_atlases();
     void destroy_decal_atlas();
     // The image a mesh program reads at view 27: the atlas, or the white image while there is none.
-    sg_view decal_view_or(sg_view fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
+    gpu::View decal_view_or(gpu::View fallback) const {
+        return decalAtlas.view.id ? gpu::from_sg(decalAtlas.view) : fallback;
+    }
     void collect_decals(DrawContext& ctx);
     bool warnedShadowBudget =
         false;  // one warning when point or spot lights lost their shadow to the atlas or view budget
@@ -640,7 +642,7 @@ struct Renderer::Impl {
     // (cookie_pass copies only when this differs from the frame's cells; empty = the atlas holds nothing).
     std::vector<std::uint64_t> cookieStamp;
     int lightW = 0, lightH = 0;
-    sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
+    gpu::PixelFormat lightImgFormat = gpu::PixelFormat::None;
     bool lightTargetFailed = false;
     // The shadow rows of the lights with castShadows (light2d.cpp) as an image: an image is reused while its rows stay the
     // same, a new one replaces the oldest of the ring.
@@ -740,12 +742,12 @@ struct Renderer::Impl {
     // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see
     // run_post_pass); `load`: keep what `dst` holds outside the rectangle (the pass before it drew there) instead of drawing every pixel.
     // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
-    void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
-                   sg_view aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
+    void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, gpu::View src, gpu::View expo,
+                   gpu::View aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
                    bool load = false, const PostSlice& slice = {});
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
-    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
+    bool read_rgba8(gpu::Image image, gpu::View view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
                     bool premultiplied = false, bool displayValues = false);
     Target readbackTarget;  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
     void free_read_image();
@@ -760,15 +762,15 @@ struct Renderer::Impl {
     }
     int final_w() const { return final_target().w > 0 ? final_target().w : physW; }  // the size of the finished picture
     int final_h() const { return final_target().h > 0 ? final_target().h : physH; }
-    sg_image final_image() const { return final_target().texture_image(); }
-    sg_view final_view() const { return final_target().texView; }
+    gpu::Image final_image() const { return final_target().texture_image(); }
+    gpu::View final_view() const { return final_target().texView; }
     // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
     // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
     // (an empty handle until the first one exists). The final pass's picture is shown as it is, except when it went above paper white
     // (an HDR output; the editor's window never switches, but a viewport that can show extended values would show them brighter
     // than the SDR present() does): then the 8-bit copy clamps it to [0, 1].
-    sg_image display_image() const;
-    sg_view display_view() const;
+    gpu::Image display_image() const;
+    gpu::View display_view() const;
     bool editorView =
         false;  // set_editor_view(true): make the 8-bit copy of a linear scene (or of a picture above white)
     Target
@@ -931,7 +933,7 @@ struct Renderer::Impl {
     // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
     struct JobEnv {
         int targetW = 0, targetH = 0, physW = 0, physH = 0;
-        sg_view colorAtt{}, resolveAtt{}, depthAtt{};
+        gpu::View colorAtt{}, resolveAtt{}, depthAtt{};
     };
     JobEnv job_env() const;
     void set_job_env(const JobEnv& env);
@@ -1012,7 +1014,7 @@ struct Renderer::Impl {
         std::vector<std::pair<std::string, int>> byName;
     } orderScratch;
     TransientTargets& transient_targets() {
-        if (!transients) transients = std::make_unique<TransientTargets>();
+        if (!transients) transients = std::make_unique<TransientTargets>(gpu.device());
         return *transients;
     }
 };
@@ -1055,9 +1057,6 @@ void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
 }
 
 // Begins `pass`, a render::PassDesc still made of sokol handles (pass_into, the Target fields), on `list`.
-inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) {
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pass, swapchain));
-}
+inline void begin_list_pass(gpu::CommandList& list, const render::PassDesc& pass) { list.begin_pass(pass); }
 
 }  // namespace fa

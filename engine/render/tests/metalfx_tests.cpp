@@ -380,9 +380,9 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     td.label = "metalfx-test-input";
     td.width = inW;
     td.height = inH;
-    td.colorFormat = SG_PIXELFORMAT_RGBA8;
-    render::Target input = render::make_target(td);
-    REQUIRE(input.valid());
+    td.colorFormat = gpu::PixelFormat::Rgba8;
+    render::Target input = render::make_target(gpu.device(), td);
+    REQUIRE(input.valid(gpu.device()));
     Output out = make_output(outW, outH, SG_PIXELFORMAT_RGBA8);
     REQUIRE(sg_query_image_state(out.image) == SG_RESOURCESTATE_VALID);
     REQUIRE(sg_query_view_state(out.view) == SG_RESOURCESTATE_VALID);
@@ -392,10 +392,10 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
         sd.label = "metalfx-test-shown";
         sd.width = outW;
         sd.height = outH;
-        sd.colorFormat = SG_PIXELFORMAT_RGBA8;
+        sd.colorFormat = gpu::PixelFormat::Rgba8;
         sd.texture = false;
-        shown[std::size_t(i)] = render::make_target(sd);
-        REQUIRE(shown[std::size_t(i)].valid());
+        shown[std::size_t(i)] = render::make_target(gpu.device(), sd);
+        REQUIRE(shown[std::size_t(i)].valid(gpu.device()));
     }
 
     mfx::Scaler scaler;
@@ -415,20 +415,20 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     for (int i = 0; i < frames; ++i) grey[std::size_t(i)] = 0.08f + 0.07f * float(i);
     for (int i = 0; i < frames; ++i) {
         render::PassDesc p = render::pass_into(input, "metalfx-test-write-input");
-        p.colorLoad = SG_LOADACTION_CLEAR;
+        p.colorLoad = gpu::LoadAction::Clear;
         p.clearColor = {grey[std::size_t(i)], grey[std::size_t(i)], grey[std::size_t(i)], 1.0f};
-        p.colorStore = SG_STOREACTION_STORE;
+        p.colorStore = gpu::StoreAction::Store;
         gpu.begin_pass(p);
         gpu.end_pass();
 
         mfx::Frame f;
-        f.color = input.texture_image();
+        f.color = gpu::to_sg(input.texture_image());
         f.output = out.image;
         REQUIRE_MESSAGE(scaler.encode(f, &error), error);
 
         render::PassDesc q = render::pass_into(shown[std::size_t(i)], "metalfx-test-read-output");
-        q.colorLoad = SG_LOADACTION_DONTCARE;
-        q.colorStore = SG_STOREACTION_STORE;
+        q.colorLoad = gpu::LoadAction::DontCare;
+        q.colorStore = gpu::StoreAction::Store;
         gpu.begin_pass(q);
         sg_apply_pipeline(gpu.blit_keep_pipeline(q.format));
         sg_bindings b{};
@@ -452,7 +452,7 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     int wrong = 0;
     for (int i = 0; i < frames; ++i) {
         std::vector<std::uint8_t> px;
-        REQUIRE_MESSAGE(read_back(shown[std::size_t(i)].color, outW, outH, px, &error), error);
+        REQUIRE_MESSAGE(read_back(gpu::to_sg(shown[std::size_t(i)].color), outW, outH, px, &error), error);
         const std::size_t centre = (std::size_t(outH / 2) * outW + outW / 2) * 4;
         const double v = double(px[centre]) / 255.0;
         if (std::abs(v - double(grey[std::size_t(i)])) > 0.03) {
@@ -462,9 +462,9 @@ TEST_CASE("metalfx: a pass that writes the input and a pass that reads the outpu
     }
     CHECK_MESSAGE(wrong == 0, wrong << " of " << frames << " frames showed another frame's picture");
 
-    for (render::Target& t : shown) render::destroy_target(t);
+    for (render::Target& t : shown) render::destroy_target(gpu.device(), t);
     destroy_output(out);
-    render::destroy_target(input);
+    render::destroy_target(gpu.device(), input);
     sg_commit();
     gpu.shutdown();
 }

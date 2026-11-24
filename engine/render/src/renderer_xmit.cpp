@@ -14,15 +14,15 @@ namespace {
 
 constexpr std::size_t kMaxShapes = 16;
 
-std::uint64_t shape_key(int w, int h, sg_pixel_format fmt) {
+std::uint64_t shape_key(int w, int h, gpu::PixelFormat fmt) {
     return (std::uint64_t(std::uint32_t(w)) << 40) ^ (std::uint64_t(std::uint32_t(h)) << 16) ^ std::uint64_t(fmt);
 }
 
-TransientDesc desc_of(int w, int h, sg_pixel_format fmt, const char* label) {
+TransientDesc desc_of(int w, int h, gpu::PixelFormat fmt, const char* label) {
     TransientDesc d;
     d.width = w;
     d.height = h;
-    d.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{fmt, gpu::PixelFormat::None, 1};
     d.label = label;
     return d;
 }
@@ -108,8 +108,8 @@ gpu::Pipeline Xmit::pipeline(gpu::Device& device, const TargetFormat& format) {
     d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;
-    d.depth.pixelFormat = gpu::from_sg(format.depth);
-    d.colors[0].pixelFormat = gpu::from_sg(format.color);
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
     d.sampleCount = format.samples;
     d.faceWinding = gpu::FaceWinding::Ccw;
     d.label = "xmit-copy";
@@ -129,7 +129,7 @@ bool Xmit::can_make(TransientTargets& targets, Gpu& gpu, int w, int h) {
     const XmitLayout lay = xmit_layout(w, h);
     if (lay.levels < 1) return false;
     if (!ready(gpu.device())) return false;
-    const sg_pixel_format fmt = gpu.scene_format();
+    const gpu::PixelFormat fmt = gpu.scene_format();
     const std::uint64_t key = shape_key(w, h, fmt);
     if (std::find(failed_.begin(), failed_.end(), key) != failed_.end()) return false;
     if (std::find(probed_.begin(), probed_.end(), key) != probed_.end()) return true;
@@ -169,10 +169,10 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
     const XmitLayout lay = xmit_layout(w, h);
     gpu::Device& device = gpu.device();
     if (lay.levels < 1 || !ready(device) || !game.texView.id) return false;
-    const sg_pixel_format fmt = gpu.scene_format();
+    const gpu::PixelFormat fmt = gpu.scene_format();
     // The copy pipeline first: a format the GPU makes none for gives the copy up before the images are acquired (and
     // released again) every frame.
-    if (pipeline(device, TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1}).id == 0) return false;
+    if (pipeline(device, TargetFormat{fmt, gpu::PixelFormat::None, 1}).id == 0) return false;
     out.atlas = targets.pool.acquire(desc_of(lay.atlasW, lay.atlasH, fmt, "transmission-atlas"));
     bool ok = out.atlas != 0;
     for (int k = 1; ok && k < lay.levels; ++k) {
@@ -202,34 +202,31 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
     gpu::CommandList& list = gpu.commands();
     for (int k = 1; k < lay.levels; ++k) {
         PassDesc pd = pass_into(*red[k], "xmit-reduce");
-        pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-        pd.colorStore = SG_STOREACTION_STORE;
-        gpu::Swapchain swapchain;
-        list.begin_pass(gpu::from_render(pd, swapchain));
+        pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+        pd.colorStore = gpu::StoreAction::Store;
+        list.begin_pass(pd);
         list.set_pipeline(pipeline(device, pd.format));
         if (k == 1)
-            draw_rect(gpu, list, gpu::from_sg(game.texView), game.w, game.h, x, row, w, h, true, 0, 0, lay.level[1].w,
+            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, true, 0, 0, lay.level[1].w,
                       lay.level[1].h);
         else
-            draw_rect(gpu, list, gpu::from_sg(red[k - 1]->texView), red[k - 1]->w, red[k - 1]->h, 0, 0,
-                      lay.level[k - 1].w, lay.level[k - 1].h, true, 0, 0, lay.level[k].w, lay.level[k].h);
+            draw_rect(gpu, list, red[k - 1]->texView, red[k - 1]->w, red[k - 1]->h, 0, 0, lay.level[k - 1].w,
+                      lay.level[k - 1].h, true, 0, 0, lay.level[k].w, lay.level[k].h);
         list.end_pass();
     }
     // The atlas: every level into its rectangle; what no level covers is black.
     PassDesc ap = pass_into(*atlas, "xmit-atlas");
-    ap.colorLoad = SG_LOADACTION_CLEAR;
+    ap.colorLoad = gpu::LoadAction::Clear;
     ap.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    ap.colorStore = SG_STOREACTION_STORE;
-    gpu::Swapchain atlasSwapchain;
-    list.begin_pass(gpu::from_render(ap, atlasSwapchain));
+    ap.colorStore = gpu::StoreAction::Store;
+    list.begin_pass(ap);
     list.set_pipeline(pipeline(device, ap.format));
     for (int k = 0; k < lay.levels; ++k) {
         const XmitLayout::Level& v = lay.level[k];
         if (k == 0)
-            draw_rect(gpu, list, gpu::from_sg(game.texView), game.w, game.h, x, row, w, h, false, v.x, v.y, v.w, v.h);
+            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, false, v.x, v.y, v.w, v.h);
         else
-            draw_rect(gpu, list, gpu::from_sg(red[k]->texView), red[k]->w, red[k]->h, 0, 0, v.w, v.h, false, v.x, v.y,
-                      v.w, v.h);
+            draw_rect(gpu, list, red[k]->texView, red[k]->w, red[k]->h, 0, 0, v.w, v.h, false, v.x, v.y, v.w, v.h);
     }
     list.end_pass();
     out.atlasView = atlas->texView;

@@ -38,12 +38,11 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`: the colour and prepass images (the copy binds only the first).
 // `fu`: the program's uniform block (null: none). `part`: the rectangle of the destination the pass covers (null: all of it).
 // False (nothing drawn) when the target of the pass is gone.
-bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc,
-                     sg_view tp, const void* fu, std::size_t fuSize, const Rect* part) {
+bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, gpu::View tc,
+                     gpu::View tp, const void* fu, std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return false;
     const gpu::Pipeline pipe = fx.pipeline(prog, pd.format);  // made before the pass opens
-    gpu::Swapchain swapchain;
-    list.begin_pass(gpu::from_render(pd, swapchain));
+    list.begin_pass(pd);
     if (part) {
         list.set_viewport(part->x, part->y, part->w, part->h, true);
         list.set_scissor(part->x, part->y, part->w, part->h, true);
@@ -51,9 +50,9 @@ bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, 
     list.set_pipeline(pipe);
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
-    b.views[0] = gpu::from_sg(tc);
+    b.views[0] = tc;
     if (prog == Ssr::Prog::Trace) {
-        b.views[1] = gpu::from_sg(tp);
+        b.views[1] = tp;
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
@@ -157,13 +156,13 @@ void Ssr::release() {
 #pragma warning(disable : 4324)
 #endif
 int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rectIn,
-                    int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                    int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                     const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
     if (!ready(gpu)) return 0;
-    const sg_pixel_format fmt = gpu.scene_format();
+    const gpu::PixelFormat fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
     const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
 
@@ -172,7 +171,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     TransientDesc sd;
     sd.width = rw;
     sd.height = rh;
-    sd.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
+    sd.format = TargetFormat{fmt, gpu::PixelFormat::None, 1};
     sd.label = job + "/ssr-scratch";
     if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) return 0;
     if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
@@ -228,7 +227,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
     for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
 
-    const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     auto scratchReady = std::make_shared<bool>(false);  // the copy runs only after a trace that did
 
     add("ssr-trace", {game, pre}, {scratch}, [=](const PassContext& c) {
@@ -236,7 +235,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         const Target* st = tt->get(c.handle(scratch));
         if (!pt || !st || !srcTex.id) return;
         PassDesc pd = pass_into(*st, "ssr-trace");
-        pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
+        pd.colorLoad = gpu::LoadAction::DontCare;  // every texel is drawn
         if (!draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Trace, pd, srcTex, pt->texView, &u, sizeof(u), nullptr))
             return;
         *scratchReady = true;
@@ -251,9 +250,9 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
-        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0,
+        pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
+        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, nullptr, 0,
                             rect.whole ? nullptr : &rect))
             ++*drawCalls;
     });
