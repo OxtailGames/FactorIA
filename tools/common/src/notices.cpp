@@ -26,6 +26,14 @@ std::string third_party_notices(NoticeScope scope, const std::set<std::string>& 
         std::string text = bundled_read(c.licenseFile).value_or("");
         if (text.empty())
             text = "[license text missing from this build: " + c.licenseFile + " in the FactorIA repository]";
+        // A dual-licensed library's licenseFile names its licenses: their full texts follow it.
+        for (const std::string& more : c.moreLicenseFiles) {
+            std::string extra = bundled_read(more).value_or("");
+            if (extra.empty())
+                extra = "[license text missing from this build: " + more + " in the FactorIA repository]";
+            while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+            text += "\n\n" + more.substr(more.rfind('/') + 1) + ":\n\n" + extra;
+        }
         // Apache-2.0 section 4(d): a library that keeps a NOTICE file beside its LICENSE has that text reproduced too.
         if (auto notice = bundled_read(c.licenseFile.substr(0, c.licenseFile.rfind('/') + 1) + "NOTICE"))
             text += "\n\n" + *notice;

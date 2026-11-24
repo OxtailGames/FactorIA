@@ -373,31 +373,40 @@ bool DescriptorPools::bindless_supported(const VulkanDevice& device, std::uint32
     return support.supported == VK_TRUE;
 }
 
+Result<VkDescriptorPool> DescriptorPools::make_pool() const {
+    VkDescriptorPoolSize sizes[kDescKinds]{};
+    for (int k = 0; k < kDescKinds; ++k) sizes[k] = {kKindTypes[k], perKind_};
+    VkDescriptorPoolCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    ci.maxSets = maxSets_;
+    ci.poolSizeCount = kDescKinds;
+    ci.pPoolSizes = sizes;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    const VkResult r = device_->fn().vkCreateDescriptorPool(device_->vk_device(), &ci, nullptr, &pool);
+    if (r != VK_SUCCESS)
+        return make_error("gpu vulkan: vkCreateDescriptorPool (" + std::to_string(maxSets_) + " sets, " +
+                              std::to_string(perKind_) + " descriptors of each kind) failed with " + result_text(r),
+                          "lower VulkanOptions::frameDescriptorSets or frameDescriptors");
+    device_->set_name(VK_OBJECT_TYPE_DESCRIPTOR_POOL, handle_bits(pool), "fa-vulkan-frame-descriptors");
+    return pool;
+}
+
 Result<void> DescriptorPools::init(VulkanDevice& device, int frames, std::uint32_t sets, std::uint32_t perKind,
-                                   std::uint32_t bindless) {
+                                   std::uint32_t chain, std::uint32_t bindless) {
     std::lock_guard<std::mutex> lock(mutex_);
     device_ = &device;
     const VkFunctions& f = device.fn();
     const VkDevice dev = device.vk_device();
     maxSets_ = sets;
     perKind_ = perKind;
-    VkDescriptorPoolSize sizes[kDescKinds]{};
-    for (int k = 0; k < kDescKinds; ++k) sizes[k] = {kKindTypes[k], perKind};
+    chain_ = std::max<std::uint32_t>(1u, chain);
+    // Each frame slot starts with one pool; a frame that fills it takes the next of its chain (made then, kept for the
+    // frames after), up to `chain` pools.
+    pools_.assign(std::size_t(frames), {});
     for (int i = 0; i < frames; ++i) {
-        VkDescriptorPoolCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        ci.maxSets = sets;
-        ci.poolSizeCount = kDescKinds;
-        ci.pPoolSizes = sizes;
-        VkDescriptorPool pool = VK_NULL_HANDLE;
-        const VkResult r = f.vkCreateDescriptorPool(dev, &ci, nullptr, &pool);
-        if (r != VK_SUCCESS)
-            return make_error("gpu vulkan: vkCreateDescriptorPool (frame " + std::to_string(i) + ", " +
-                                  std::to_string(sets) + " sets, " + std::to_string(perKind) +
-                                  " descriptors of each kind) failed with " + result_text(r),
-                              "lower VulkanOptions::frameDescriptorSets or frameDescriptors");
-        pools_.push_back(pool);
-        device.set_name(VK_OBJECT_TYPE_DESCRIPTOR_POOL, handle_bits(pool), "fa-vulkan-frame-descriptors");
+        auto pool = make_pool();
+        if (!pool) return pool.error();
+        pools_[std::size_t(i)].push_back(FramePool{*pool, 0, {}});
     }
     if (bindless == 0) return {};
 
@@ -438,8 +447,10 @@ void DescriptorPools::destroy() {
     if (!device_) return;
     const VkFunctions& f = device_->fn();
     const VkDevice dev = device_->vk_device();
-    for (VkDescriptorPool p : pools_) f.vkDestroyDescriptorPool(dev, p, nullptr);
+    for (const auto& chain : pools_)
+        for (const FramePool& p : chain) f.vkDestroyDescriptorPool(dev, p.pool, nullptr);
     pools_.clear();
+    active_ = 0;
     if (bindlessPool_) f.vkDestroyDescriptorPool(dev, bindlessPool_, nullptr);  // frees the set
     if (bindlessLayout_) f.vkDestroyDescriptorSetLayout(dev, bindlessLayout_, nullptr);
     bindlessPool_ = VK_NULL_HANDLE;
@@ -453,33 +464,70 @@ void DescriptorPools::destroy() {
 
 Result<VkDescriptorSet> DescriptorPools::alloc(VkDescriptorSetLayout layout, const DescriptorCounts& counts) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!device_ || pools_.empty())
+    if (!device_ || pools_.empty() || pools_[std::size_t(slot_)].empty())
         return make_error("gpu vulkan: the descriptor pools are not made", "make the device with make_vulkan_device");
-    if (setsUsed_ >= maxSets_)
-        return make_error("gpu vulkan: this frame's descriptor pool has no set left (VulkanOptions::"
-                          "frameDescriptorSets = " +
-                              std::to_string(maxSets_) + ", every one taken this frame)",
-                          "raise VulkanOptions::frameDescriptorSets, or bind fewer descriptor sets in one frame");
+    // A set larger than a whole pool never fits, whatever the chain.
     for (int k = 0; k < kDescKinds; ++k)
-        if (std::uint64_t(used_.n[std::size_t(k)]) + counts.n[std::size_t(k)] > perKind_)
-            return make_error(
-                "gpu vulkan: this frame's descriptor pool has no room for " + std::to_string(counts.n[std::size_t(k)]) +
-                    " more " + kKindNames[k] + " descriptor(s) (" + std::to_string(used_.n[std::size_t(k)]) +
-                    " of VulkanOptions::frameDescriptors = " + std::to_string(perKind_) + " taken this frame)",
-                "raise VulkanOptions::frameDescriptors, or bind fewer descriptors in one frame");
+        if (counts.n[std::size_t(k)] > perKind_)
+            return make_error("gpu vulkan: a descriptor set needs " + std::to_string(counts.n[std::size_t(k)]) + " " +
+                                  kKindNames[k] + " descriptors, more than one descriptor pool holds (" +
+                                  "VulkanOptions::frameDescriptors = " + std::to_string(perKind_) + ")",
+                              "raise VulkanOptions::frameDescriptors, or give the shader fewer views");
+    std::vector<FramePool>& chain = pools_[std::size_t(slot_)];
+    auto fits = [&](const FramePool& p) {
+        if (p.setsUsed >= maxSets_) return false;
+        for (int k = 0; k < kDescKinds; ++k)
+            if (std::uint64_t(p.used.n[std::size_t(k)]) + counts.n[std::size_t(k)] > perKind_) return false;
+        return true;
+    };
+    while (!fits(chain[active_])) {
+        if (active_ + 1 >= chain_) {
+            // The whole chain is full: say what ran out in the last pool.
+            const FramePool& p = chain[active_];
+            const std::string pools = std::to_string(chain_) + " pool" + (chain_ == 1 ? "" : "s") +
+                                      " (VulkanOptions::frameDescriptorPools = " + std::to_string(chain_) + ")";
+            if (p.setsUsed >= maxSets_)
+                return make_error("gpu vulkan: this frame's descriptor pools have no set left (VulkanOptions::"
+                                  "frameDescriptorSets = " +
+                                      std::to_string(maxSets_) + " in each of " + pools +
+                                      ", every one taken this "
+                                      "frame)",
+                                  "raise VulkanOptions::frameDescriptorSets or frameDescriptorPools, or bind fewer "
+                                  "descriptor sets in one frame");
+            for (int k = 0; k < kDescKinds; ++k)
+                if (std::uint64_t(p.used.n[std::size_t(k)]) + counts.n[std::size_t(k)] > perKind_)
+                    return make_error("gpu vulkan: this frame's descriptor pools have no room for " +
+                                          std::to_string(counts.n[std::size_t(k)]) + " more " + kKindNames[k] +
+                                          " descriptor(s) (" + std::to_string(p.used.n[std::size_t(k)]) +
+                                          " of VulkanOptions::frameDescriptors = " + std::to_string(perKind_) +
+                                          " taken in the last of " + pools + " this frame)",
+                                      "raise VulkanOptions::frameDescriptors or frameDescriptorPools, or bind fewer "
+                                      "descriptors in one frame");
+        }
+        ++active_;
+        if (active_ == chain.size()) {
+            auto pool = make_pool();
+            if (!pool) {
+                --active_;
+                return pool.error();
+            }
+            chain.push_back(FramePool{*pool, 0, {}});
+        }
+    }
+    FramePool& p = chain[active_];
     VkDescriptorSetAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    ai.descriptorPool = pools_[std::size_t(slot_)];
+    ai.descriptorPool = p.pool;
     ai.descriptorSetCount = 1;
     ai.pSetLayouts = &layout;
     VkDescriptorSet set = VK_NULL_HANDLE;
     const VkResult r = device_->fn().vkAllocateDescriptorSets(device_->vk_device(), &ai, &set);
     if (r != VK_SUCCESS)
-        return make_error("gpu vulkan: vkAllocateDescriptorSets (frame slot " + std::to_string(slot_) +
-                              ") failed with " + result_text(r),
+        return make_error("gpu vulkan: vkAllocateDescriptorSets (frame slot " + std::to_string(slot_) + ", pool " +
+                              std::to_string(active_) + ") failed with " + result_text(r),
                           "raise VulkanOptions::frameDescriptorSets or frameDescriptors");
-    ++setsUsed_;
-    for (int k = 0; k < kDescKinds; ++k) used_.n[std::size_t(k)] += counts.n[std::size_t(k)];
+    ++p.setsUsed;
+    for (int k = 0; k < kDescKinds; ++k) p.used.n[std::size_t(k)] += counts.n[std::size_t(k)];
     return set;
 }
 
@@ -487,21 +535,35 @@ void DescriptorPools::begin_frame(int slot) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!device_ || slot < 0 || std::size_t(slot) >= pools_.size()) return;
     slot_ = slot;
-    device_->fn().vkResetDescriptorPool(device_->vk_device(), pools_[std::size_t(slot)], 0);
-    setsUsed_ = 0;
-    used_ = DescriptorCounts{};
+    active_ = 0;
+    // The GPU finished the frame that used this slot's chain last: every pool it took is empty again.
+    for (FramePool& p : pools_[std::size_t(slot)]) {
+        if (p.setsUsed > 0) device_->fn().vkResetDescriptorPool(device_->vk_device(), p.pool, 0);
+        p.setsUsed = 0;
+        p.used = DescriptorCounts{};
+    }
 }
 
 std::uint32_t DescriptorPools::frame_sets_used() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return setsUsed_;
+    std::uint32_t n = 0;
+    if (std::size_t(slot_) < pools_.size())
+        for (const FramePool& p : pools_[std::size_t(slot_)]) n += p.setsUsed;
+    return n;
 }
 
 std::uint32_t DescriptorPools::frame_descriptors_used() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::uint32_t n = 0;
-    for (std::uint32_t v : used_.n) n += v;
+    if (std::size_t(slot_) < pools_.size())
+        for (const FramePool& p : pools_[std::size_t(slot_)])
+            for (std::uint32_t v : p.used.n) n += v;
     return n;
+}
+
+std::uint32_t DescriptorPools::frame_pools_used() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return pools_.empty() ? 0u : std::uint32_t(active_ + 1);
 }
 
 std::uint32_t DescriptorPools::bindless_alloc() {
