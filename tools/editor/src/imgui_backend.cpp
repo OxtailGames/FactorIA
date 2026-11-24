@@ -418,7 +418,9 @@ bool handle_event(const sapp_event* ev) {
         case SAPP_EVENTTYPE_MOUSE_DOWN:
         case SAPP_EVENTTYPE_MOUSE_UP:
             add_mouse_pos(io, ev->mouse_x / scale, ev->mouse_y / scale, ImGuiMouseSource_Mouse);
-            io.AddMouseButtonEvent(int(ev->mouse_button), ev->type == SAPP_EVENTTYPE_MOUSE_DOWN);
+            // SAPP_MOUSEBUTTON_INVALID (0x100, a button sokol does not name) is not an ImGui button: only left, right, middle pass.
+            if (ev->mouse_button >= SAPP_MOUSEBUTTON_LEFT && ev->mouse_button <= SAPP_MOUSEBUTTON_MIDDLE)
+                io.AddMouseButtonEvent(int(ev->mouse_button), ev->type == SAPP_EVENTTYPE_MOUSE_DOWN);
             update_modifiers(io, ev->modifiers);
             break;
         case SAPP_EVENTTYPE_MOUSE_MOVE:

@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "fa/render/ui_painter.h"
@@ -33,6 +34,9 @@ struct UiPainterImpl {
     gpu::Buffer staging{};
     std::size_t stagingCapacity = 0;
     std::unordered_map<gpu::TargetFormat, gpu::Pipeline> pipelines;
+    // The views whose image format the device cannot filter linearly (a 32-bit float picture on some GPUs): they are
+    // always sampled with `nearest`, whatever UiDrawCommand::nearest says, because a linear sampler on them is an error.
+    std::unordered_set<std::uint32_t> unfilterableViews;
 
     // What upload() wrote for the frame it saw, per list: where its vertices and indices are in the buffers.
     struct Placed {
@@ -62,6 +66,10 @@ struct UiPainterImpl {
     void draw(gpu::CommandList& list, const gpu::TargetFormat& format, const UiFrame& frame);
 
     gpu::Pipeline pipeline_for(const gpu::TargetFormat& format);
+    // Tells the painter the format of the image behind `view` (make_texture does for its own pictures, always RGBA8).
+    void note_view_format(std::uint32_t view, gpu::PixelFormat format);
+    // The sampler `command` is drawn with: nearest when it asks for it or its view cannot be filtered, else linear.
+    gpu::Sampler sampler_for(const UiDrawCommand& command) const;
     enum class Kind { Vertex, Index, Staging };
     // Makes `buffer` at least `needed` bytes (doubling), a writeTransient buffer of `kind`. False when the device refuses.
     bool grow(gpu::Buffer& buffer, std::size_t& capacity, std::size_t needed, Kind kind, const char* label);

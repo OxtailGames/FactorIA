@@ -1,11 +1,11 @@
 // What the GPU is and how fast it draws (M76, docs/UPSCALING.md, "Graphics presets"): the data `graphics.detect` answers and the
 // graphics preset it suggests.
 //
-// Renderer::gpu_info() asks the graphics API of the renderer's device about the adapter (OpenGL: glGetString; D3D11: the DXGI adapter;
-// Metal: the MTLDevice). The
-// benchmark draws a fixed scene a few times off-screen (Renderer::capture_camera on a world of its own) and reads the pictures back,
-// which makes the GPU finish, so the wall time of a capture is the GPU time of the scene on every backend. It never touches the world
-// of the game, its simulation, its clock or its random numbers. suggest_graphics_preset() is a pure function of what was measured.
+// Renderer::gpu_info() asks the graphics API of the renderer's device about the adapter (OpenGL: glGetString; D3D11: the DXGI
+// adapter; Metal: the MTLDevice). The benchmark draws a fixed scene a few times off-screen (Renderer::capture_camera on a world of
+// its own) and reads the pictures back, which makes the GPU finish, so the wall time of a capture is the GPU time of the scene on
+// every backend. It never touches the world of the game, its simulation, its clock or its random numbers.
+// suggest_graphics_preset() is a pure function of what was measured.
 #pragma once
 
 #include <cstdint>
@@ -38,6 +38,8 @@ struct GpuInfo {
 // Fills `vendor` and `software` from the strings the API gave (`name`, and `vendorString` such as GL_VENDOR; either may be empty).
 // Case-insensitive; "other" when nothing is known and the name is not empty.
 void classify_gpu(GpuInfo& info, std::string_view vendorString = {});
+
+// The GPU the renderer is on: Renderer::gpu_info() (fa/render/renderer.h).
 
 struct GpuBenchmark {
     bool ran = false;      // false: nothing was drawn (no GPU, a software renderer, a failed capture); `why` says

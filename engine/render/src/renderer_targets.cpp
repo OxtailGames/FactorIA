@@ -108,7 +108,7 @@ void Renderer::Impl::update_editor_copy() {
     p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
     p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, p);
+    cl.begin_pass(p);
     cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
@@ -361,7 +361,7 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
     p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
     p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, p);
+    cl.begin_pass(p);
     cl.set_pipeline(gpu.colorfilter_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
@@ -653,7 +653,7 @@ bool Renderer::Impl::read_rgba8(gpu::Image image, gpu::View view, int w, int h, 
     p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
     p.colorStore = gpu::StoreAction::Store;
     gpu::CommandList& cl = gpu.commands();
-    begin_list_pass(cl, p);
+    cl.begin_pass(p);
     cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
