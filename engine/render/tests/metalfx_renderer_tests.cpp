@@ -10,8 +10,10 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -447,21 +449,36 @@ TEST_CASE("metalfx renderer: with the mode off, the picture is the same bit for 
 
 namespace {
 
-// A textured surface of high-frequency vertical stripes (assets/mfx_stripes.png, two white texels and two black ones, tiled 42 times over the
+// A textured surface of high-frequency vertical stripes (a png in a temporary directory of its own, two white texels and two black ones, tiled 42 times over the
 // quad: a period of about 2.6 render pixels at half size) that moves to the right, under a camera that pans to the right and pitches: detail a
 // single frame at half size cannot carry, that only a history aligned by the motion keeps. state(f) is the world of frame f.
 struct StripeScene {
     World w;
     Entity cam = kNullEntity, quad = kNullEntity;
+    std::filesystem::path dir;  // the texture's: not the working directory, which the tests share
     static constexpr float kTiles = 42.0f;
+    StripeScene(const StripeScene&) = delete;
+    StripeScene& operator=(const StripeScene&) = delete;
+    ~StripeScene() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
     explicit StripeScene(float f = 0.0f) {
+        static std::atomic<int> counter{0};
+        dir = std::filesystem::temp_directory_path() /
+              ("fa_mfx_stripes_" + std::to_string(counter++) + "_" +
+               std::to_string(std::uintmax_t(reinterpret_cast<std::uintptr_t>(this) & 0xffffff)));
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+        const std::filesystem::path file = dir / "mfx_stripes.png";
         Image tex;
         tex.width = 4;
         tex.height = 1;
         tex.rgba.assign(16, 255);
         for (std::size_t i = 2; i < 4; ++i)
             for (std::size_t c = 0; c < 3; ++c) tex.rgba[i * 4 + c] = 0;
-        const Result<void> saved = save_png(tex, "assets/mfx_stripes.png");
+        const Result<void> saved = save_png(tex, file.string());
         REQUIRE_MESSAGE(saved.ok(), "the stripe texture could not be written");
         cam = make(w, "cam", {0, 0, 10});
         auto& c = w.add<Camera>(cam);
@@ -473,7 +490,7 @@ struct StripeScene {
         w.get<Transform>(quad)->scale = {14.0f, 8.0f, 1.0f};
         auto& m = w.add<MeshRenderer>(quad);
         m.mesh = "quad";
-        m.texture = "assets/mfx_stripes.png";
+        m.texture = file.string();
         m.color = Color::white();
         m.unlit = true;
         m.uvScale = {kTiles, 1.0f};

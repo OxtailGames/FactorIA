@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 
 namespace fa {
@@ -1269,7 +1270,7 @@ bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], 
         [](std::uint16_t h) {  // IEEE half -> float (the values here are normal numbers, zero or small)
             const int sign = (h >> 15) & 1, exp = (h >> 10) & 0x1F, man = h & 0x3FF;
             float v = exp == 0    ? std::ldexp(float(man), -24)
-                      : exp == 31 ? INFINITY
+                      : exp == 31 ? std::numeric_limits<float>::infinity()
                                   : std::ldexp(float(man | 0x400), exp - 25);
             return sign ? -v : v;
         };

@@ -144,10 +144,11 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   render size. `metalfx_tests` checks that convention with a moving pattern: that sign is clearly better than the opposite one or none.
   The sign is proven in both places it matters: `metalfx_tests` (the wrapper, with a pattern that moves in x and one that moves in y: the
   motion image's y runs down like the picture's) and `metalfx_renderer_tests` (a high-frequency stripe texture that moves under a camera that
-  pans and pitches: the motion the renderer hands over gives about half the error of the opposite sign or of none, and beats one frame
-  stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. MetalFX itself does not
-  wait for the passes that drew its inputs, so the renderer waits for them (one CPU wait per MetalFX frame, right after the picture's
-  passes are submitted); without it the output changed from run to run. A MetalFX command buffer that finishes with an error is reported once
+  pans and pitches: the motion the renderer hands over gives clearly less error than the opposite sign or none (the test asks for under 0.8 times
+  each), and beats one frame stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. `Scaler::encode`
+  splits the sokol frame and orders its own command buffer against the passes before and after it on the GPU, with a shared event (the
+  CPU never waits); without that the same frames, queued without a wait, gave a different picture from run to run (see
+  docs/design/ARCHITECTURE_RENDERING_POST.md, "Proof of the motion (P5c)", for what was measured; repository only, not in the binary). A MetalFX command buffer that finishes with an error is reported once
   and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
 - **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,

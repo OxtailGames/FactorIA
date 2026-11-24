@@ -174,9 +174,11 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     if (mfxPrepOnly) return false;  // test hook: the preparation pass is drawn and read, MetalFX is not asked
     // After the preparation pass: a scaler MetalFX cannot make costs one preparation pass, once (the failure is for good).
     if (!mfxScaler.configure(d, &error)) return metalfx_fail(error);
-    if (temporalKind) mfxLastReset = f.reset || mfxScaler.encoded() == 0;  // a scaler made just now starts its history
+    // a scaler made just now starts its history; the spatial one has none
+    mfxLastReset = temporalKind && (f.reset || mfxScaler.encoded() == 0);
     // Encode splits the frame (sg_commit): the passes recorded so far, which wrote the picture, go first.
     if (!mfxScaler.encode(f, &error)) return metalfx_fail(error);
+    gpu.note_work();  // encode left sokol's buffer for the passes after it open and uncommitted: a read back must commit it first
     mfxLastWrote = temporalKind;
     ++stats.drawCalls;  // the scaler's own pass
     return true;

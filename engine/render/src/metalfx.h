@@ -104,8 +104,11 @@ public:
     bool configure(const Desc& desc, std::string* error);
     // Upscales `frame` now, in order with the sokol passes around it (see the top of the file). Call it OUTSIDE a pass, after the
     // pass that drew `color` ended and before the first pass that reads `output`. It commits the sokol frame so far (sg_commit):
-    // Gpu counts that commit through its listener; do not call Gpu::note_commit for it (the frame still has passes to come). Checks the images against the desc BEFORE it commits anything:
-    // false with `error` and no work done when an image is missing, of another size or format, or MetalFX could not write the output.
+    // Gpu counts that commit through its listener; do not call Gpu::note_commit for it (the frame still has passes to come). The sokol
+    // buffer of those passes is taken and left open (it waits for the scaler on the GPU): anything that reads back through a command
+    // buffer of its own (readback_rgba8) must sg_commit() first or waits behind it for ever; Gpu::note_work() says so to the renderer.
+    // Checks the images against the desc BEFORE it commits anything: false with `error` and no work done when an image is missing, of
+    // another size or format, or MetalFX could not write the output.
     bool encode(const Frame& frame, std::string* error);
 
     bool valid() const;

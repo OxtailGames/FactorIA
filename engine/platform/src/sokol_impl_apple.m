@@ -366,3 +366,14 @@ bool fa_sapp_set_class_name(const char* name) {
     (void)name;  // Linux only: the name of a macOS app comes from its bundle
     return false;
 }
+
+#if defined(SOKOL_METAL)
+// The command buffer sokol records the next passes into (the one sg_commit() submits), made now when there is none yet. sokol hands
+// out the encoder of a pass but never the buffer; the MetalFX scaler (engine/render/src/metalfx_apple.mm) needs it to order its own
+// buffer against the passes before and after it with a shared event.
+const void* fa_sg_mtl_command_buffer(void) {
+    _sg_mtl_finish_blit_cmd_encoder();  // sokol keeps a blit encoder open between passes; an event is encoded outside any encoder
+    _sg_mtl_acquire_cmd_buffer();
+    return (__bridge const void*)_sg.mtl.cmd_buffer;
+}
+#endif

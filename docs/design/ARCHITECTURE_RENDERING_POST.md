@@ -211,13 +211,24 @@ each.
 - **Headless.** Without a renderer `Engine::upscaler_caps` uses `metalfx_available_here()` (the system is asked, no window): `render.upscaler`
   reports `metalfx` for `auto` and `metalfx` on an Apple build where it is available (the P4 rule for `temporal`).
 - **Proof of the motion (P5c).** `metalfx_tests.cpp` proves the sign in x and in y with the wrapper alone; `metalfx_renderer_tests.cpp` proves it in
-  the renderer with a stripe texture that moves under a camera that pans and pitches (right sign about half the error of the opposite one or
+  the renderer with a stripe texture that moves under a camera that pans and pitches (right sign under 0.8 times the error of the opposite one or
   none), reads the prep pass back (`RendererTestAccess::mfx_read_prep`: depth d/(d+1) and the UV motion at a pixel, against values worked out
   by hand) and checks that frames queued without waiting for the GPU give the same picture every time. The earlier "output does not depend on
-  the sign" came from a race, not from the conventions: the MetalFX buffer was queued behind the sokol buffer that drew its inputs and read
-  them while they were still being written (the output differed run to run; waiting for the GPU after each frame hid it). `Scaler::encode`
-  now commits the frame (`sg_commit`), waits for an empty buffer queued behind it (the picture's passes are done) and then encodes. The wait
-  is one CPU stall per MetalFX frame; the scaler and the passes after it still overlap with the next frame's recording.
+  the sign" came from a race, not from the conventions: with the frame split in two sokol buffers (`Scaler::encode` calls `sg_commit`), the
+  same frames queued without waiting for the GPU hashed differently from run to run. What was measured on an Apple GPU (the test "frames
+  queued without waiting for the GPU", 4 repetitions of 2 and of 6 frames): without any of this it failed in nearly every run;
+  a CPU wait for an empty buffer behind the earlier passes, a CPU wait for the MetalFX buffer and a 30 ms sleep all passed; a draining wait at
+  the start of each frame, or a shared event signalled by an empty buffer, still failed (an event in a separate buffer does not wait for
+  the buffers before it). What passes without any CPU wait, and is what the code does: `Scaler::encode` takes sokol's command buffer of the
+  earlier passes (`fa_sg_mtl_command_buffer`, `engine/platform/src/sokol_impl_apple.m`: sokol hands out the encoder of a pass, never the
+  buffer), has it signal a shared event, commits the frame, has the MetalFX buffer wait for the event and signal it again at its end, and
+  takes sokol's buffer of the later passes right away (sokol takes it at their first pass) with a wait for that second signal. Taking the
+  later buffer at once is what the test needed (8 of 8 and 10 of 10 runs passed with it alone, without the events; 7 of 8 failed without it and without the events); that it
+  also has to be explicit in the GPU order is Metal's contract, and a failed buffer, which does not signal, signals from its completion
+  handler so the queue cannot stall. The exact mechanism of the race was not isolated, so the test is what guards it. No CPU wait is left.
+  The price of taking the later buffer at once: it is open and uncommitted after `encode`, and a command buffer queued behind it (a read back with
+  its own buffer, `readback_rgba8`) would wait for it for ever, so `metalfx_upscale` calls `Gpu::note_work()` (a read back commits first) and the
+  wrapper tests `sg_commit()` before they read back.
 - **Failure and clean-up.** A MetalFX command buffer finishes on another thread: its completion handler sets an atomic flag (and keeps the
   message under a mutex) in a status shared with the scaler (`Scaler::command_failed`); `metalfx_upscale` reads it at the start of the next
   frame and calls `metalfx_fail` (one warning, the temporal upscaler from then on). `metalfx_fail` and any frame of another upscaler
