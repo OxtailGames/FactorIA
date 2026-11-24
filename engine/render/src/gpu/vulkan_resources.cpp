@@ -205,16 +205,17 @@ Buffer VulkanDevice::make_buffer(const BufferDesc& desc) {
         }
     }
     std::unique_lock<std::mutex> lock(resMutex_);
-    const bool ok = rec.tracked != nullptr;
+    const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
+    const bool ok = made != nullptr;
     const std::uint32_t id = buffers_.add(std::move(rec));
     if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
         const int capacity = buffers_.capacity();
         lock.unlock();
         report("gpu vulkan: make_buffer '" + label + "': the buffer pool is full (" + std::to_string(capacity) +
                " buffers) (hint: destroy buffers you no longer use, or raise DeviceInit::bufferPoolSize)");
-        if (rec.tracked) {  // the prelude may already copy into it: released once that frame is done
+        if (made) {  // the prelude may already copy into it: released once that frame is done
             Deferred d;
-            d.tracked = std::move(rec.tracked);
+            d.tracked = made;
             defer(std::move(d));
         }
         return {};
@@ -421,16 +422,17 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
     if (rec.tracked) upload_initial_image(rec, desc);
 
     std::unique_lock<std::mutex> lock(resMutex_);
-    const bool ok = rec.tracked != nullptr;
+    const std::shared_ptr<TrackedResource> made = rec.tracked;  // still ours when the record does not go in
+    const bool ok = made != nullptr;
     const std::uint32_t id = images_.add(std::move(rec));
     if (id == 0) {  // full (the check at the top, or another thread took the last slot since)
         const int capacity = images_.capacity();
         lock.unlock();
         report("gpu vulkan: make_image '" + label + "': the image pool is full (" + std::to_string(capacity) +
                " images) (hint: destroy images you no longer use, or raise DeviceInit::imagePoolSize)");
-        if (rec.tracked) {  // the prelude may already copy into it: released once that frame is done
+        if (made) {  // the prelude may already copy into it: released once that frame is done
             Deferred d;
-            d.tracked = std::move(rec.tracked);
+            d.tracked = made;
             defer(std::move(d));
         }
         return {};
