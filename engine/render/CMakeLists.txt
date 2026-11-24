@@ -113,6 +113,31 @@ if(FA_VULKAN_BACKEND)
         target_link_libraries(fa_render PRIVATE ${CMAKE_DL_LIBS})  # dlopen of libvulkan.so.1
     endif()
 endif()
+# The renderer on the Vulkan backend (make_device(Backend::Vulkan), RendererDesc::backend): fa_render compiles the SPIR-V
+# of every built-in shader (FA_SHADERS_SPIRV opens its guard in the generated headers). A product backend on Linux,
+# Windows and Android (ON there); on macOS only in a build that builds the tests (the render tests draw a frame on
+# MoltenVK), so a macOS release build (FA_BUILD_TESTS OFF: the players, the editor) carries none of it; never on the web
+# or iOS. Needs FA_VULKAN_BACKEND.
+if(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "windows" OR FA_PLATFORM STREQUAL "android")
+    set(FA_RENDER_VULKAN_DEFAULT ON)
+elseif(FA_PLATFORM STREQUAL "macos")
+    set(FA_RENDER_VULKAN_DEFAULT ${FA_BUILD_TESTS})
+else()
+    set(FA_RENDER_VULKAN_DEFAULT OFF)
+endif()
+option(FA_RENDER_VULKAN "The renderer draws on the Vulkan backend (fa_render carries the SPIR-V of its shaders)"
+       ${FA_RENDER_VULKAN_DEFAULT})
+if(FA_RENDER_VULKAN AND NOT FA_VULKAN_BACKEND)
+    message(STATUS "FactorIA: FA_RENDER_VULKAN needs FA_VULKAN_BACKEND, which is off: the renderer has no Vulkan")
+    set(FA_RENDER_VULKAN OFF)
+endif()
+if(FA_RENDER_VULKAN)
+    target_compile_definitions(fa_render PRIVATE FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV)
+    # The tests ask whether the renderer has Vulkan; a test file that needs the SPIR-V defines FA_SHADERS_SPIRV itself.
+    if(TARGET fa_test_render)
+        target_compile_definitions(fa_test_render PRIVATE FA_RENDER_VULKAN=1)
+    endif()
+endif()
 # The D3D12 backend (src/gpu/d3d12_*_win32.cpp) links the D3D12 runtime and DXGI; fa_platform links dxgi and dxguid
 # already (D3D11), named again here because this module calls them itself.
 if(FA_PLATFORM STREQUAL "windows")

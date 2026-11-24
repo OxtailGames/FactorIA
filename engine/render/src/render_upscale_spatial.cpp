@@ -14,10 +14,10 @@ namespace fa::render {
 bool SpatialUpscaler::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
-    shaders_[int(Prog::Edge)] =
-        make_shader(dev, gpu::generated_shader_desc(upscale_spatial_spatial_edge_shader_desc), "upscale_spatial_edge");
+    shaders_[int(Prog::Edge)] = make_shader(
+        dev, gpu::generated_shader_desc(dev, upscale_spatial_spatial_edge_shader_desc), "upscale_spatial_edge");
     shaders_[int(Prog::Sharpen)] = make_shader(
-        dev, gpu::generated_shader_desc(upscale_spatial_spatial_sharpen_shader_desc), "upscale_spatial_sharpen");
+        dev, gpu::generated_shader_desc(dev, upscale_spatial_spatial_sharpen_shader_desc), "upscale_spatial_sharpen");
     bool ok = true;
     for (const gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {

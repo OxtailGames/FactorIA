@@ -295,12 +295,13 @@ void Gi2dSystem::release() {
 bool Gi2dSystem::ready(gpu::Device& device) {
     if (state_ != 0) return state_ > 0;
     device_ = &device;
-    shaders_[0] = make_shader(device, gpu::generated_shader_desc(gi2d_draw_shader_desc), "gi2d_draw");
-    shaders_[1] = make_shader(device, gpu::generated_shader_desc(gi2d_seed_shader_desc), "gi2d_seed");
-    shaders_[2] = make_shader(device, gpu::generated_shader_desc(gi2d_jfa_shader_desc), "gi2d_jfa");
-    shaders_[3] = make_shader(device, gpu::generated_shader_desc(gi2d_seed_emit_shader_desc), "gi2d_seed_emit");
-    shaders_[4] = make_shader(device, gpu::generated_shader_desc(gi2d_cascade_shader_desc), "gi2d_cascade");
-    shaders_[5] = make_shader(device, gpu::generated_shader_desc(gi2d_irradiance_shader_desc), "gi2d_irradiance");
+    shaders_[0] = make_shader(device, gpu::generated_shader_desc(device, gi2d_draw_shader_desc), "gi2d_draw");
+    shaders_[1] = make_shader(device, gpu::generated_shader_desc(device, gi2d_seed_shader_desc), "gi2d_seed");
+    shaders_[2] = make_shader(device, gpu::generated_shader_desc(device, gi2d_jfa_shader_desc), "gi2d_jfa");
+    shaders_[3] = make_shader(device, gpu::generated_shader_desc(device, gi2d_seed_emit_shader_desc), "gi2d_seed_emit");
+    shaders_[4] = make_shader(device, gpu::generated_shader_desc(device, gi2d_cascade_shader_desc), "gi2d_cascade");
+    shaders_[5] =
+        make_shader(device, gpu::generated_shader_desc(device, gi2d_irradiance_shader_desc), "gi2d_irradiance");
     bool ok = true;
     for (gpu::Shader s : shaders_) ok = ok && device.state(s) == gpu::ResourceState::Valid;
     if (!ok) {

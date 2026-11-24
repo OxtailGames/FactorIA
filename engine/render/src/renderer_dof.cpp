@@ -201,13 +201,14 @@ bool SceneFx::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
     device_ = &gpu.device();
     gpu::Device& dev = *device_;
-    shaders_[int(Prog::Down)] = make_shader(dev, gpu::generated_shader_desc(dof_down_shader_desc), "dof_down");
-    shaders_[int(Prog::Gather)] = make_shader(dev, gpu::generated_shader_desc(dof_gather_shader_desc), "dof_gather");
+    shaders_[int(Prog::Down)] = make_shader(dev, gpu::generated_shader_desc(dev, dof_down_shader_desc), "dof_down");
+    shaders_[int(Prog::Gather)] =
+        make_shader(dev, gpu::generated_shader_desc(dev, dof_gather_shader_desc), "dof_gather");
     shaders_[int(Prog::Composite)] =
-        make_shader(dev, gpu::generated_shader_desc(dof_composite_shader_desc), "dof_composite");
-    shaders_[int(Prog::Copy)] = make_shader(dev, gpu::generated_shader_desc(dof_copy_shader_desc), "dof_copy");
+        make_shader(dev, gpu::generated_shader_desc(dev, dof_composite_shader_desc), "dof_composite");
+    shaders_[int(Prog::Copy)] = make_shader(dev, gpu::generated_shader_desc(dev, dof_copy_shader_desc), "dof_copy");
     shaders_[int(Prog::Motion)] =
-        make_shader(dev, gpu::generated_shader_desc(motion_blur_motion_shader_desc), "motion_blur_motion");
+        make_shader(dev, gpu::generated_shader_desc(dev, motion_blur_motion_shader_desc), "motion_blur_motion");
     bool ok = true;
     for (int i = 0; i < int(Prog::ObjVel); ++i) ok = ok && dev.state(shaders_[i]) == gpu::ResourceState::Valid;
     if (!ok) {
@@ -235,11 +236,11 @@ bool SceneFx::ready_objects(Gpu& gpu) {
     }
     gpu::Device& dev = *device_;
     shaders_[int(Prog::ObjVel)] =
-        make_shader(dev, gpu::generated_shader_desc(motion_object_vel_shader_desc), "motion_object_vel");
+        make_shader(dev, gpu::generated_shader_desc(dev, motion_object_vel_shader_desc), "motion_object_vel");
     shaders_[int(Prog::ObjTile)] =
-        make_shader(dev, gpu::generated_shader_desc(motion_object_tile_shader_desc), "motion_object_tile");
+        make_shader(dev, gpu::generated_shader_desc(dev, motion_object_tile_shader_desc), "motion_object_tile");
     shaders_[int(Prog::ObjGather)] =
-        make_shader(dev, gpu::generated_shader_desc(motion_object_gather_shader_desc), "motion_object_gather");
+        make_shader(dev, gpu::generated_shader_desc(dev, motion_object_gather_shader_desc), "motion_object_gather");
     bool ok = true;
     for (int i = int(Prog::ObjVel); i < int(Prog::Count); ++i)
         ok = ok && dev.state(shaders_[i]) == gpu::ResourceState::Valid;

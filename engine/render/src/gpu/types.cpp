@@ -165,3 +165,60 @@ ShaderStage ShaderView::stage() const {
 }
 
 }  // namespace fa::gpu
+
+namespace fa::gpu {
+
+int vertex_format_bytes(VertexFormat f) {
+    switch (f) {
+        case VertexFormat::Invalid: return 0;
+        case VertexFormat::Float:
+        case VertexFormat::Int:
+        case VertexFormat::Uint:
+        case VertexFormat::Byte4:
+        case VertexFormat::Byte4N:
+        case VertexFormat::Ubyte4:
+        case VertexFormat::Ubyte4N:
+        case VertexFormat::Short2:
+        case VertexFormat::Short2N:
+        case VertexFormat::Ushort2:
+        case VertexFormat::Ushort2N:
+        case VertexFormat::Int10N2:
+        case VertexFormat::Uint10N2:
+        case VertexFormat::Half2: return 4;
+        case VertexFormat::Float2:
+        case VertexFormat::Int2:
+        case VertexFormat::Uint2:
+        case VertexFormat::Short4:
+        case VertexFormat::Short4N:
+        case VertexFormat::Ushort4:
+        case VertexFormat::Ushort4N:
+        case VertexFormat::Half4: return 8;
+        case VertexFormat::Float3:
+        case VertexFormat::Int3:
+        case VertexFormat::Uint3: return 12;
+        case VertexFormat::Float4:
+        case VertexFormat::Int4:
+        case VertexFormat::Uint4: return 16;
+    }
+    return 0;
+}
+
+void resolve_vertex_offsets(VertexLayout& layout) {
+    bool packed[kMaxVertexBuffers];
+    int size[kMaxVertexBuffers]{};
+    for (bool& p : packed) p = true;
+    for (const VertexAttr& a : layout.attrs) {
+        if (a.format == VertexFormat::Invalid) break;
+        if (a.bufferIndex < 0 || a.bufferIndex >= kMaxVertexBuffers) return;  // the backend reports the slot
+        if (a.offset != 0) packed[a.bufferIndex] = false;
+    }
+    for (VertexAttr& a : layout.attrs) {
+        if (a.format == VertexFormat::Invalid) break;
+        if (packed[a.bufferIndex]) a.offset = size[a.bufferIndex];
+        size[a.bufferIndex] += vertex_format_bytes(a.format);
+    }
+    for (int b = 0; b < kMaxVertexBuffers; ++b)
+        if (layout.buffers[b].stride == 0) layout.buffers[b].stride = size[b];
+}
+
+}  // namespace fa::gpu

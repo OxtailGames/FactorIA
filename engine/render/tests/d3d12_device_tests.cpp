@@ -1398,7 +1398,11 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     PassDesc window = PassDesc::for_swapchain(sc, dev->environment_defaults());
     window.label = "window";
     list.begin_pass(window);
-    CHECK(contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) comes in M77-P9"));
+    CHECK(contains(last_error(*dev),
+                   "pass 'window': a pass into the window (PassDesc::swapchain) on the D3D12 backend, "
+                   "which has no window path yet"));
+    CHECK(contains(last_error(*dev), "GpuBackend::Default"));
+    CHECK(!contains(last_error(*dev), "M77"));
     std::size_t before = dev->errors().size();
     list.set_pipeline(rgba8);  // inside a failed pass: skipped without another error
     list.draw(0, 3);

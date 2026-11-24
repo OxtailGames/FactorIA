@@ -7,7 +7,8 @@
 // client never sees a sokol or a Metal/D3D handle: pictures are UiTexture ids, the window is a GfxSwapchain, and the few
 // native objects a screenshot needs come from native_window_handles().
 //
-// One frame, on the render thread, with an open graphics context (Renderer::open_context or a Renderer that opened it):
+// One frame, on the render thread, with an open graphics context (Renderer::open_context or a Renderer that opened it;
+// a painter made on a renderer, create(Renderer&, ...), draws on that renderer's device):
 //   upload(frame)                       outside any pass: vertices, indices and the pending texture updates
 //   Renderer::begin_window_pass(...)    a pass into the window, as the editor does
 //   draw(swapchain, frame)              inside that pass, with the same `frame`
@@ -21,6 +22,10 @@
 #include <string>
 
 #include "fa/platform/app.h"
+
+namespace fa {
+class Renderer;  // fa/render/renderer.h
+}
 
 namespace fa::render {
 
@@ -92,6 +97,11 @@ public:
     // Makes a painter on the open graphics context (Renderer::open_context, or a Renderer that opened one). Null with
     // `error` when there is none or the device cannot make its pipeline.
     static std::unique_ptr<UiPainter> create(std::string* error);
+    // Makes a painter on `renderer`'s GPU device (whatever RendererDesc::backend it draws through), so its pictures
+    // and the renderer's live on the same device. The renderer must be initialized and outlive the painter: destroy
+    // the painter before Renderer::shutdown(). Null with `error` when the renderer has no device or the device cannot
+    // make the painter's pipeline.
+    static std::unique_ptr<UiPainter> create(Renderer& renderer, std::string* error);
     explicit UiPainter(std::unique_ptr<UiPainterImpl> impl);  // see ui_painter_internal.h
     ~UiPainter();
     UiPainter(const UiPainter&) = delete;
