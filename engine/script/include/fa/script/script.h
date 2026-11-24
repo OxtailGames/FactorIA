@@ -36,6 +36,7 @@
 #include "fa/core/json.h"
 #include "fa/core/log.h"
 #include "fa/platform/speech.h"
+#include "fa/render/dynamic_resolution.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/captions.h"
 #include "fa/scene/rich_text.h"
@@ -276,6 +277,25 @@ public:
         upscaler_ = r.value();
         return {};
     }
+    // The dynamic resolution setting (`window.dynamicResolution`, M76, docs/UPSCALING.md "Dynamic resolution"): the render scale follows the
+    // frame time. set_dynamic_resolution takes a partial object ({"enabled", "targetMs", "minScale", "maxScale"}) and returns "" when done, else
+    // the error sentence; nothing changes on an error. dynamic_resolution_state() is what the controller does now (read-only: the factor in
+    // force, the smoothed frame time, the target in ms and what is measured). Engine runs the controller; the defaults keep the setting and
+    // report the largest scale, for hosts without an engine.
+    virtual render::DynamicResolutionSettings dynamic_resolution() const { return dynamicResolution_; }
+    virtual std::string set_dynamic_resolution(const Json& value,
+                                               const std::string& where = "window.dynamicResolution") {
+        auto r = render::parse_dynamic_resolution_settings(value, where, dynamicResolution_);
+        if (!r.ok()) return r.error().message + " Hint: " + r.error().hint;
+        dynamicResolution_ = r.value();
+        return {};
+    }
+    virtual render::DynamicResolutionState dynamic_resolution_state() const {
+        render::DynamicResolutionState st;
+        st.scale = dynamicResolution_.enabled ? dynamicResolution_.maxScale : 1.0f;
+        st.targetMs = dynamicResolution_.enabled ? render::dynamic_target_ms(dynamicResolution_, 0.0) : 0.0;
+        return st;
+    }
     // The graphics presets (`game.graphics`, M76, docs/UPSCALING.md "Graphics presets"). graphics_preset({}) answers the current preset;
     // graphics_preset({"name": "high"}) applies it and answers what changed ({preset, previous, changed, changes, limits, capped,
     // upscaler}). graphics_detect() measures the GPU (a short off-screen benchmark) and answers {preset, reason, gpu, benchmarkMs, ...}
@@ -359,6 +379,7 @@ private:
     float uiScale_ = 1.0f;
     double renderScale_ = 1.0;
     render::UpscalerSettings upscaler_;
+    render::DynamicResolutionSettings dynamicResolution_;
     Speech speech_;
     CaptionList captions_;
 };

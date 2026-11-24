@@ -203,6 +203,7 @@ const restore = () => {
   settings.overrideRenderSupports(null);
   window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
   window.renderScale = 1;
+  window.dynamicResolution = { enabled: false, targetMs: 0, minScale: 0.5, maxScale: 1 };
   engine.graphics.preset("custom");
 };
 const saved = () => storage.get("settings").graphics;
@@ -344,6 +345,79 @@ test("graphics page: a manual upscaler choice wins over the preset's, and pickin
     game.click("gfx_preset_high");
     expect(saved().upscaler).toEqual({});
     expect(window.upscaler.quality).toBe("quality");
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the dynamic resolution row cycles off, 30 fps, 60 fps and the display's refresh, applies at once and is saved", () => {
+  openQuality();
+  try {
+    expect(world.find("gfx_dynamic_slot").active).toBe(true);
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.off"));
+    expect(saved().dynamicResolution).toBe(null); // nothing chosen yet
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 30, 2);
+    expect(saved().dynamicResolution).toBe("30");
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.30"));
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 60, 2);
+    expect(saved().dynamicResolution).toBe("60");
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBe(0); // follows the display
+    expect(saved().dynamicResolution).toBe("display");
+    expect(window.dynamicResolution.minScale).toBe(0.5); // the game's own range is kept
+    game.click("gfx_dynamic");
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(saved().dynamicResolution).toBe("off");
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.off"));
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: a game that turned dynamic resolution on itself shows it, and a row is hidden where the renderer cannot do it", () => {
+  storage.set("settings", {}); // the player chose nothing
+  window.dynamicResolution = { enabled: true, targetMs: 25 };
+  openQuality();
+  try {
+    expect(button("gfx_dynamic").text).toContain(i18n.t("options.gfx.dyn.custom"));
+    game.click("gfx_dynamic"); // custom -> the first choice, off
+    expect(window.dynamicResolution.enabled).toBe(false);
+    expect(saved().dynamicResolution).toBe("off");
+  } finally {
+    restore();
+  }
+  openQuality((feature) => feature !== "dynamicResolution");
+  try {
+    expect(world.find("gfx_dynamic_slot").active).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics settings: the saved dynamic resolution applies at the start, and an old save changes nothing", () => {
+  try {
+    storage.set("settings", { graphics: { quality: "low" } }); // a save of an older kit
+    expect(settings.load().graphics.dynamicResolution).toBe(null);
+    window.dynamicResolution = { enabled: true, targetMs: 25 }; // what the game set
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBe(25); // untouched
+    storage.set("settings", { graphics: { dynamicResolution: "60" } });
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(true);
+    expect(window.dynamicResolution.targetMs).toBeCloseTo(1000 / 60, 2);
+    storage.set("settings", { graphics: { dynamicResolution: "off" } });
+    settings.apply();
+    expect(window.dynamicResolution.enabled).toBe(false);
+    storage.set("settings", { graphics: { dynamicResolution: "bogus" } }); // a save this kit does not know: ignored
+    window.dynamicResolution = { enabled: true, targetMs: 25 };
+    settings.apply();
+    expect(window.dynamicResolution.targetMs).toBe(25);
   } finally {
     restore();
   }

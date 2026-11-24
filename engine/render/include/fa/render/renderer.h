@@ -338,7 +338,15 @@ public:
     // Recreates the targets: draw again before capturing.
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
-    void set_render_scale(float scale);
+    // `baseScale` (0: the same as `scale`) is the part of `scale` that does not come from the dynamic resolution (the player's scale times the
+    // upscaler's quality): the temporal upscaler's history is bound to it, not to the size, so a step of the dynamic resolution (a different
+    // `scale` with the same `baseScale`) keeps the history and any other change of the render size starts it again.
+    void set_render_scale(float scale, float baseScale = 0.0f);
+    // GPU frame times for the dynamic resolution (docs/UPSCALING.md): while on, and where gpu_timing_supported() (D3D11 and OpenGL), every
+    // drawn frame is timed with a timer query even with the profiler off. take_gpu_frame_ms appends the milliseconds of the frames whose
+    // result arrived since the last call (a few frames late, never waited for) and clears them; nothing while off. Measurement only.
+    void set_gpu_frame_timing(bool on);
+    void take_gpu_frame_ms(std::vector<double>& out);
     // The player's render scale (window.renderScale, and the upscalers of M76): with `on` and a render scale below 1 the picture is
     // drawn at the lower resolution, brought back to the design size by the upscale stage, and the screen-space items (HUD, UI,
     // debug text) are drawn over it at the design size, so text stays sharp, unless the post stack would have changed them (a bloom

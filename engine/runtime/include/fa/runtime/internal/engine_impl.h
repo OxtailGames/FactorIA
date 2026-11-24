@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/render/dynamic_resolution.h"
 #include "fa/runtime/internal/background_loader.h"
 #include "fa/runtime/internal/world_streamer.h"
 #include "fa/core/i18n.h"
@@ -156,7 +157,18 @@ struct Engine::Impl {
     // The ONE place that decides the render scale the renderer draws at and whether its upscale stage runs: from heldScale, the
     // upscaler's quality and the mode that really draws (docs/UPSCALING.md, "The render scale"). Called by every change of those.
     void apply_render_scale();
-    bool renderStale = false;  // OnDemand: simulated since the last draw
+    // Dynamic resolution (M76-P6c, docs/UPSCALING.md): the controller, what feeds it and what it last reported. The factor it gives is the
+    // `dynamicScale` that apply_render_scale multiplies in (1 while off, in the editor and for a scale held as a size).
+    render::DynamicResolutionController dynRes;
+    std::optional<double> injectedFrameMs;  // Engine::set_dynamic_resolution_frame_ms
+    const char* dynSource = "none";         // what the last tick measured (DynamicResolutionState::source)
+    std::vector<double> gpuFrameScratch;
+    std::optional<render::DynamicResolutionSettings>
+        appliedProjectDynRes;  // the project's render.dynamicResolution last applied
+    float dynamic_factor() const;
+    void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
+    void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)
+    bool renderStale = false;                 // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;

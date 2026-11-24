@@ -374,7 +374,7 @@
         "active": false,
         "components": {
           "Panel": {
-            "size": [712, 400],
+            "size": [712, 440],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -618,15 +618,29 @@
           },
           {
             "id": "gfx_dynamic_slot",
-            "active": false,
             "components": {
               "Panel": {
-                "size": [560, 0],
+                "size": [560, 36],
                 "layer": 302,
                 "color": [0, 0, 0, 0],
-                "layout": "column"
+                "layout": "column",
+                "fit": true
               }
-            }
+            },
+            "children": [
+              {
+                "id": "gfx_dynamic",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Dynamic resolution",
+                    "size": [560, 36],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              }
+            ]
           },
           {
             "id": "quality_note",
