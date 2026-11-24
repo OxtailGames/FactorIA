@@ -42,17 +42,18 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // One full-screen triangle with `prog` (Rays or Add) into the pass `pd`. `tc`, `tp`: the picture and prepass (or, for Add, the rays image in
 // `tc`) the program declares; a binding a program does not use is not made (it would be a validation error). `fu`: the program's uniform block.
 // `part`: the rectangle of the destination the pass covers (null: all of it).
-void draw_fullscreen(FogFx& fx, Gpu& gpu, FogFx::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
-                     std::size_t fuSize, const Rect* part) {
+void draw_fullscreen(FogFx& fx, Gpu& gpu, gpu::CommandList& list, FogFx::Prog prog, const PassDesc& pd, gpu::View tc,
+                     gpu::View tp, const void* fu, std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return;  // the target of the pass is gone
-    Gpu::begin_pass(pd);
+    gpu::Swapchain swapchain;
+    list.begin_pass(gpu::from_render(pd, swapchain));
     if (part) {
-        sg_apply_viewport(part->x, part->y, part->w, part->h, true);
-        sg_apply_scissor_rect(part->x, part->y, part->w, part->h, true);
+        list.set_viewport(part->x, part->y, part->w, part->h, true);
+        list.set_scissor(part->x, part->y, part->w, part->h, true);
     }
-    sg_apply_pipeline(fx.pipeline(prog, pd.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    list.set_pipeline(fx.pipeline(gpu.device(), prog, pd.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     switch (prog) {
         case FogFx::Prog::Rays:
             b.views[0] = tc;
@@ -65,16 +66,12 @@ void draw_fullscreen(FogFx& fx, Gpu& gpu, FogFx::Prog prog, const PassDesc& pd, 
             b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
             break;
     }
-    sg_apply_bindings(&b);
-    float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(0, &vr);
-    if (fu) {
-        sg_range fr{fu, fuSize};
-        sg_apply_uniforms(1, &fr);
-    }
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.set_bindings(b);
+    const float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    list.set_uniforms(0, gpu::Range{flip, sizeof(flip)});
+    if (fu) list.set_uniforms(1, gpu::Range{fu, fuSize});
+    list.draw(0, 3, 1);
+    list.end_pass();
 }
 
 void to_array(const Color& c, float out[3]) {
@@ -189,25 +186,30 @@ FogFxPlan make_fog_plan(const CameraGeometry& cam, const PostStack& stack, bool 
     return p;
 }
 
-bool FogFx::ready(Prog prog) {
+bool FogFx::ready(Gpu& gpu, Prog prog) { return ready(gpu.device(), prog); }
+
+// TRANSITIONAL (M77-P4b): renderer_draw.cpp asks without a Gpu at hand; it moves to ready(Gpu&, Prog) with P4a.
+bool FogFx::ready(Prog prog) { return ready(Gpu::active_device(), prog); }
+
+bool FogFx::ready(gpu::Device& device, Prog prog) {
     int& st = state_[int(prog)];
     if (st != 0) return st > 0;
-    const sg_backend backend = sg_query_backend();
-    sg_shader s{};
+    device_ = &device;
+    gpu::Shader s{};
     const char* what = "fog";
     switch (prog) {
-        case Prog::Fog: s = make_shader(fog_fog_shader_desc(backend), "fog_fog"); break;
+        case Prog::Fog: s = make_shader(device, gpu::generated_shader_desc(fog_fog_shader_desc), "fog_fog"); break;
         case Prog::Rays:
             what = "sun shafts";
-            s = make_shader(sun_shafts_rays_shader_desc(backend), "sun_shafts_rays");
+            s = make_shader(device, gpu::generated_shader_desc(sun_shafts_rays_shader_desc), "sun_shafts_rays");
             break;
         default:
             what = "sun shafts";
-            s = make_shader(sun_shafts_add_shader_desc(backend), "sun_shafts_add");
+            s = make_shader(device, gpu::generated_shader_desc(sun_shafts_add_shader_desc), "sun_shafts_add");
             break;
     }
-    if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
-        if (s.id) sg_destroy_shader(s);
+    if (device.state(s) != gpu::ResourceState::Valid) {
+        if (s.id) device.destroy_shader(s);
         st = -1;
         FA_ERROR("render",
                  "The {} effect is unavailable: its shader failed to compile for this graphics backend (see the sokol "
@@ -223,31 +225,30 @@ bool FogFx::ready(Prog prog) {
     return true;
 }
 
-sg_pipeline FogFx::pipeline(Prog prog, const TargetFormat& format) {
+gpu::Pipeline FogFx::pipeline(gpu::Device& device, Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
     if (state_[int(prog)] <= 0) return {};
-    sg_pipeline_desc d{};
+    gpu::PipelineDesc d;
     d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
+    d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.depth.pixelFormat = gpu::from_sg(format.depth);
+    d.colors[0].pixelFormat = gpu::from_sg(format.color);
+    d.sampleCount = format.samples;
+    d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Fog || prog == Prog::Add) {
         // Fog: the premultiplied "over" (fogColor * f + scene * (1 - f)); the shafts: scene + rays. Neither touches the alpha of the picture.
         d.colors[0].blend.enabled = true;
-        d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
-        d.colors[0].blend.dst_factor_rgb = prog == Prog::Fog ? SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA : SG_BLENDFACTOR_ONE;
-        d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
-        d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+        d.colors[0].blend.dstFactorRgb = prog == Prog::Fog ? gpu::BlendFactor::OneMinusSrcAlpha : gpu::BlendFactor::One;
+        d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::Zero;
+        d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::One;
     }
     d.label = prog == Prog::Fog ? "fog-blend" : prog == Prog::Rays ? "shafts-rays" : "shafts-add";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    const gpu::Pipeline p = device.make_pipeline(d);
+    if (device.state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -260,10 +261,10 @@ void FogFx::forget_targets() {
 
 void FogFx::release() {
     for (PipelineEntry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
+        if (e.pipeline.id && device_) device_->destroy_pipeline(e.pipeline);
     pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
+    for (gpu::Shader& s : shaders_) {
+        if (s.id && device_) device_->destroy_shader(s);
         s = {};
     }
     for (int& s : state_) s = 0;
@@ -272,8 +273,8 @@ void FogFx::release() {
     warnedTargets_ = false;
 }
 
-bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const TargetFormat& format) {
-    if (!plan.fog || !prepassTex.id || !ready(Prog::Fog)) return false;
+bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, gpu::bridged::View prepassTex, const TargetFormat& format) {
+    if (!plan.fog || !prepassTex.id || !ready(gpu, Prog::Fog)) return false;
     fog_fog_params_t u{};
     u.a[0] = gpu.is_gl() ? 1.0f : 0.0f;
     u.a[1] = plan.ortho ? 1.0f : 0.0f;
@@ -289,18 +290,17 @@ bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const 
     u.eye[1] = plan.eye.y;
     u.eye[2] = plan.eye.z;
     for (int i = 0; i < 3; ++i) u.ax[i] = plan.axisY[i];
-    sg_apply_pipeline(pipeline(Prog::Fog, format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    gpu::CommandList& list = gpu.commands();  // the caller's pass is open on it
+    list.set_pipeline(pipeline(gpu.device(), Prog::Fog, format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_fog_tex_p] = prepassTex;
     b.samplers[SMP_fog_smp_pt] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(UB_fog_fog_vs_params, &vr);
-    sg_range fr{&u, sizeof(u)};
-    sg_apply_uniforms(UB_fog_fog_params, &fr);
-    sg_draw(0, 3, 1);
+    list.set_bindings(b);
+    const float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    list.set_uniforms(UB_fog_fog_vs_params, gpu::Range{flip, sizeof(flip)});
+    list.set_uniforms(UB_fog_fog_params, gpu::Range{&u, sizeof(u)});
+    list.draw(0, 3, 1);
     return true;
 }
 
@@ -311,7 +311,7 @@ bool FogFx::draw_fog(Gpu& gpu, const FogFxPlan& plan, sg_view prepassTex, const 
 #pragma warning(disable : 4324)
 #endif
 int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const FogFxPlan& plan,
-                      const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
+                      const PostRect& rectIn, int picW, int picH, ResourceId game, gpu::bridged::View srcTex,
                       const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.shafts || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
@@ -320,7 +320,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     const int rw = rect.w, rh = rect.h;
     const int hw = std::max(1, (rw + 1) / 2), hh = std::max(1, (rh + 1) / 2);
     const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
-    bool doShafts = ready(Prog::Rays) && ready(Prog::Add);
+    bool doShafts = ready(gpu, Prog::Rays) && ready(gpu, Prog::Add);
     if (!doShafts) return 0;
 
     // The half-resolution image of the rays: made now (and given back to the pool) so that a GPU that refuses it is one warning here, not a
@@ -329,7 +329,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     ha.width = hw;
     ha.height = hh;
     // One channel of rays: R16F where the GPU renders to and samples it (half the memory), else RGBA16F.
-    const sg_pixelformat_info r16 = sg_query_pixelformat(SG_PIXELFORMAT_R16F);
+    const gpu::PixelFormatCaps r16 = gpu.device().pixel_format_caps(gpu::PixelFormat::R16F);
     ha.format = TargetFormat{r16.render && r16.sample && r16.filter ? SG_PIXELFORMAT_R16F : SG_PIXELFORMAT_RGBA16F,
                              SG_PIXELFORMAT_NONE, 1};
     ha.label = job + "/shafts-half";
@@ -364,7 +364,7 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     TransientTargets* tt = &targets;
     auto tex = [tt](const PassContext& c, ResourceId r) {
         const Target* t = tt->get(c.handle(r));
-        return t ? t->texView : sg_view{};
+        return t ? gpu::from_sg(t->texView) : gpu::View{};
     };
     auto add = [&](const char* name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass gp;
@@ -420,13 +420,15 @@ int FogFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             if (!pt || !ht || !srcTex.id) return;
             PassDesc pd = pass_into(*ht, "shafts-rays");
             pd.colorLoad = SG_LOADACTION_DONTCARE;
-            draw_fullscreen(*self, *g, Prog::Rays, pd, srcTex, pt->texView, &u, sizeof(u), nullptr);
+            draw_fullscreen(*self, *g, c.commands() ? *c.commands() : g->commands(), Prog::Rays, pd, srcTex,
+                            gpu::from_sg(pt->texView), &u, sizeof(u), nullptr);
             ++*drawCalls;
         });
         add("shafts-add", {half, game}, {game}, [=](const PassContext& c) {
-            const sg_view rays = tex(c, half);
+            const gpu::View rays = tex(c, half);
             if (!rays.id) return;
-            draw_fullscreen(*self, *g, Prog::Add, into_picture("shafts-add"), rays, sg_view{}, &ua, sizeof(ua),
+            draw_fullscreen(*self, *g, c.commands() ? *c.commands() : g->commands(), Prog::Add,
+                            into_picture("shafts-add"), rays, gpu::View{}, &ua, sizeof(ua),
                             rect.whole ? nullptr : &rect);
             ++*drawCalls;
         });

@@ -72,15 +72,16 @@ public:
     // Forgets the shapes that failed (the game target was resized or recreated).
     void forget_targets();
 
-    bool ready();
-    sg_pipeline pipeline(const TargetFormat& format);
+    bool ready(gpu::Device& device);
+    gpu::Pipeline pipeline(gpu::Device& device, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_shader shader_{};
+    gpu::Device* device_ = nullptr;  // what ready() made the shader on: release() has no Gpu at hand
+    gpu::Shader shader_{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shader not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;

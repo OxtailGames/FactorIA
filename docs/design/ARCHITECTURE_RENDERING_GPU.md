@@ -271,6 +271,17 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
 sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target
 helpers (target.cpp), shader_cache.cpp and render_features.cpp; the frame graph carries the list to its passes.
+The 3D light and environment passes are converted too (M77-P4b): renderer_env (the sky cube and its prefilter),
+renderer_sky_phys, renderer_subsurface, renderer_fog, renderer_volumetric, renderer_xmit (transmission), renderer_hdri
+and the read-back commits of renderer_probes. Each class makes its shaders, pipelines, images and samplers on
+`gpu.device()` and remembers the device in `ready()` (`device_`), because `release()` has no `Gpu` at hand. A pass
+declared in the frame graph records on `PassContext::commands()` (`c.commands() ? *c.commands() : g->commands()`);
+one drawn outside the graph records on `gpu.commands()`. A pass opened on its own list does not set `Gpu::in_pass()`,
+so it writes its transient buffers before it begins. Two calls keep a transitional overload that asks
+`Gpu::active_device()`, because their caller (renderer_draw.cpp, P4a) has no `Gpu` in scope yet: `FogFx::ready(Prog)`
+and `VolumetricFx::can_draw(targets, plan)`; delete them when renderer_draw.cpp moves. The probe read-back
+(`ProbeGpu::read_region_begin/end`, P2b) still hands out `sg_image`s, so renderer_probes.cpp destroys them through
+`gpu::from_sg`.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).
