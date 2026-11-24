@@ -244,8 +244,7 @@ TEST_CASE("temporal upscaler: the effective mode is temporal where it can be dra
     CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Stretch);
     s.mode = UpscalerMode::Temporal;
     CHECK(render::effective_upscaler_mode(s, can) == UpscalerMode::Temporal);
-    CHECK(render::effective_upscaler_mode(s) ==
-          UpscalerMode::Spatial);  // a host with no renderer: what the caps default to
+    CHECK(render::effective_upscaler_mode(s) == UpscalerMode::Spatial);  // the default caps: no temporal upscaler
     CHECK(render::effective_upscaler_mode(s, noTaa) == UpscalerMode::Spatial);    // the fallback, never a bare stretch
     CHECK(render::effective_upscaler_mode(s, several) == UpscalerMode::Spatial);  // several cameras
     CHECK(render::effective_upscaler_mode(s, pixel) == UpscalerMode::Stretch);    // pixel art is never blended
@@ -417,6 +416,48 @@ TEST_CASE("temporal upscaler: a still scene at half size converges to the supers
         0.75 *
             stretchError);  // the sum of the phases is as sharp as a 2 px box filter allows: the sharpen does the rest
     CHECK(temporalError < 0.75 * oneFrameError);
+}
+
+TEST_CASE("temporal upscaler: at the 0.25 floor of the render scale a still scene has no black pixels (the nearest "
+          "sample may "
+          "weigh 1e-8)") {
+    // renderScale 0.75 x ultraPerformance or 0.5 x performance: the resolve's Gaussian is 16 times narrower than a render pixel, and the
+    // closest sample of an output pixel can sit half a pixel away, so its weight is exp(-18) ~ 1e-8 (once under a threshold on the weight,
+    // which left ~4% of the pixels black in every frame).
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const std::vector<float> ref = supersampled(g);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    s.hide_marker();
+    own.upscale(0.25f, UpscalerMode::Temporal, UpscalerQuality::UltraPerformance);
+    own.frame(s.w, 20);
+    for (const int frames : {1, 140}) {  // every frame has the specks, not only the settled picture
+        own.frame(s.w, frames);
+        const std::vector<float> img = linear_plane(own.capture());
+        REQUIRE(img.size() == ref.size());
+        int inside = 0, dark = 0;
+        float lowest = 1.0f;
+        for (int y = 3; y + 3 < kOutH; ++y)
+            for (int x = 3; x + 3 < kOutW; ++x) {
+                bool in =
+                    true;  // the inside of the white square, 3 px from an edge (an edge may be soft at 1/16 of the pixels)
+                for (int j = -3; j <= 3 && in; ++j)
+                    for (int i = -3; i <= 3 && in; ++i)
+                        in = ref[std::size_t(y + j) * std::size_t(kOutW) + std::size_t(x + i)] >= 0.99f;
+                if (!in) continue;
+                const float v = img[std::size_t(y) * std::size_t(kOutW) + std::size_t(x)];
+                ++inside;
+                lowest = std::min(lowest, v);
+                if (v < 0.95f) ++dark;
+            }
+        CAPTURE(frames);
+        INFO("inside " << inside << ", dark " << dark << ", lowest " << lowest);
+        REQUIRE(inside > 500);
+        CHECK(dark == 0);
+        CHECK(lowest > 0.95f);
+    }
 }
 
 TEST_CASE("temporal upscaler: the picture is the right way up, with the marker at the top left (stretch, one frame and "

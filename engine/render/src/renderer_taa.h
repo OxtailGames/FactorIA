@@ -50,22 +50,20 @@ struct TaaPlan {
     float sharpen = 0.25f;       // temporalAASharpen, 0 .. 1
     float reactiveScale = 1.0f;  // temporalAAReactiveScale, 0 .. 4
     Vec2 jitterPx{0, 0};         // the jitter this frame's picture was drawn with, in render pixels (x right, y down)
-    bool prevValid =
-        false;  // the camera drew the frame before and no cut happened since: its history can be reprojected
-    Mat4
-        prevFromView;  // a view-space position of this frame -> the clip position it had on the frame before (unjittered)
-    float proj[8]{};                 // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
-    std::uint64_t camKey = 0;        // the camera's entity (its history is keyed by it)
-    std::uint64_t serial = 0;        // the game frame (Renderer::Impl::postSerial)
-    std::uint64_t sceneKey = 0;      // the scene's identity: another one drops the history
+    bool prevValid = false;      // the camera drew the frame before and no cut happened since: its history can be reprojected
+    Mat4 prevFromView;           // a view-space position of this frame -> the clip position it had on the frame before (unjittered)
+    float proj[8]{};             // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
+    std::uint64_t camKey = 0;    // the camera's entity (its history is keyed by it)
+    std::uint64_t serial = 0;    // the game frame (Renderer::Impl::postSerial)
+    std::uint64_t sceneKey = 0;  // the scene's identity: another one drops the history
     std::uint64_t originShifts = 0;  // the floating-origin rebases so far: another number drops the history
 };
 
 // The plan of one camera: `on` when the stack has TemporalAA, the frame is one of the game's (`gameFrame`: a capture of the world between two
 // of them is not jittered and neither reads nor writes a history) and the renderer can draw it (`available`: the shaders compiled and the
 // histories fit). Pure CPU: tested without a GPU. A number that is not finite takes the default of the field.
-TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available,
-                      std::uint64_t camKey, std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
+TaaPlan make_taa_plan(const CameraInfo& cam, const PostStack& stack, bool gameFrame, bool available, std::uint64_t camKey,
+                      std::uint64_t serial, std::uint64_t sceneKey, std::uint64_t originShifts,
                       const Mat4& prevViewProj, bool prevValid);
 
 // The history key of the temporal upscaler (M76-P4): one history for the frame, at the output resolution, in the same TaaFx as the cameras'
@@ -82,19 +80,15 @@ TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, boo
 
 // What one resolve pass reads (the temporal upscaler fills the same). A null view is not bound; `dummy` stands in for it (any texture view).
 struct TaaResolveInput {
-    sg_view color{};  // the picture of this frame, jittered
-    sg_view
-        depth{};  // the prepass of the camera (r = linear depth, a = coverage), the size of `color`; null: the depth is taken as far away
-    sg_view
-        velocity{};  // PostPlan::velocity (rg = uvPrev - uvCurr, unjittered), the size of `color`; null: the camera's own movement only
+    sg_view color{};     // the picture of this frame, jittered
+    sg_view depth{};     // the prepass of the camera (r = linear depth, a = coverage), the size of `color`; null: the depth is taken as far away
+    sg_view velocity{};  // PostPlan::velocity (rg = uvPrev - uvCurr, unjittered), the size of `color`; null: the camera's own movement only
     sg_view reactive{};  // the reactive mask (r, 0..1, the size of `color`); null: no mask
-    sg_view
-        history{};  // the resolved image of the frame before, the size of the output; null (with historyValid false): none
-    sg_view dummy{};         // bound in place of a view that is null
+    sg_view history{};   // the resolved image of the frame before, the size of the output; null (with historyValid false): none
+    sg_view dummy{};     // bound in place of a view that is null
     int inW = 1, inH = 1;    // the size of `color` in pixels (the camera's rectangle)
     int outW = 1, outH = 1;  // the size of the history and of the image the pass draws
-    float rect[4] = {
-        0, 0, 1, 1};  // the camera's rectangle of `color` as fractions of that image: x, y, w, h (0 0 1 1: all of it)
+    float rect[4] = {0, 0, 1, 1};  // the camera's rectangle of `color` as fractions of that image: x, y, w, h (0 0 1 1: all of it)
     Vec2 jitterPx{0, 0};
     bool historyValid = false;     // `history` holds the frame before (a cut, a resize, ... clear it)
     bool historyHasDepth = false;  // the alpha of `history` is the linear depth (RGBA16F history)
@@ -114,10 +108,9 @@ public:
     // its images (invalid: not read); `dst`: where the result goes, as the bloom's (BloomTarget); `dummy`: any texture view. Each pass adds
     // one to *drawCalls when it runs. Returns the number of passes declared (0: nothing is drawn: the history cannot be made or the shaders
     // failed; logged once, and unavailable() is true from then on, so the cameras are not jittered for a pass that never resolves them).
-    int add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rect, int picW, int picH,
-                   ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
-                   const VelocityRef& velocity, const PrepassRef& reactive, sg_view dummy, int* drawCalls,
-                   const std::string& job);
+    int add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rect, int picW, int picH, ResourceId game,
+                   sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass, const VelocityRef& velocity,
+                   const PrepassRef& reactive, sg_view dummy, int* drawCalls, const std::string& job);
 
     // The resolve pass of `in`, drawn into the whole of `into` (the history image of the frame, `outW` x `outH`): the entry the temporal upscaler
     // shares. False (nothing drawn) when the target is gone or the program is not ready.
@@ -167,10 +160,10 @@ private:
         Target img[2];
         int w = 0, h = 0;
         sg_pixel_format format = SG_PIXELFORMAT_NONE;
-        int last = -1;              // the image the last resolve wrote (-1: none yet)
-        bool wrote = false;         // img[last] holds a finished frame
-        std::uint64_t serial = 0;   // the frame it was written in
-        std::uint64_t planned = 0;  // the last frame that asked for it
+        int last = -1;                 // the image the last resolve wrote (-1: none yet)
+        bool wrote = false;            // img[last] holds a finished frame
+        std::uint64_t serial = 0;      // the frame it was written in
+        std::uint64_t planned = 0;     // the last frame that asked for it
         std::uint64_t sceneKey = 0;
         std::uint64_t originShifts = 0;
         std::uint64_t configKey = 0;  // the temporal upscaler's render size and quality of the frame in img[last]

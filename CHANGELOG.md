@@ -45,7 +45,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 - Fixes in the temporal resolve (`taa_shared.glsl`, antialiasing too): a NaN in the picture or in the history is dropped and never stays in
   the history for ever (on a GPU that keeps NaN through `max`), and the depth rejection no longer discards the history of the sky when the
   camera turns fast.
-- New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): they answer `not_built`.
+- New commands `graphics.preset` and `graphics.detect` (Low, Medium, High, Ultra, Custom): see "Graphics presets" below.
 - New `render.supports` rows `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`
   (`motionVectors`, `spatialUpscaler` and `temporalUpscaler` are drawn, see below; `temporalAA` is the effect's own row, drawn; the others are planned M76).
 - Temporal antialiasing is drawn: with `PostProcess.temporalAAEnabled` the camera is jittered by a sub-pixel amount every frame
@@ -57,8 +57,9 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   `camera.capture` cameras are not antialiased. Off, as by default: no pass, no image, no jitter, the same pixels (docs/UPSCALING.md).
 - Motion vectors: the depth prepass can write the motion of every pixel (RG16F, `uvPrev - uvCurr` from the unjittered matrices) as a
   second attachment, for static and moving meshes, instances, terrain, foliage and impostors (a floating-origin shift and a camera cut
-  are no motion). Skinned meshes, custom `vertex()` materials, particles and sprites come in a later package. It is written only when
-  something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
+  are no motion). Skinned meshes (any skin up to the 64 joints of the engine: the pose of the frame before is an RGBA32F image the vertex stage
+  fetches, the current one stays in its uniform block) and materials with a custom `vertex()` (run again with the previous model and the previous frame's game time) write it
+  too; particles and sprites come in a later package. It is written only when something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
   `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
   grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".
 - The spatial upscaler (`render.upscaler {"mode":"spatial"}`): the game drawn at a lower resolution is brought to the window's size
@@ -79,6 +80,18 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
 its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engine is the same as 0.35.1.
+
+### Graphics presets (M76)
+
+- `graphics.preset {"name"}` applies Low, Medium, High or Ultra, and `custom` takes the layer away; with no arguments it reads. A
+  preset is a set of limits the renderer applies over what the scene asks for (post effects, shadows, volumetric fog, level of detail,
+  foliage, terrain, 2D lighting, realtime GI) and the upscaler; nothing is written into the scene or the project, so `custom` and
+  `ultra` give the game's own look back bit for bit. Knobs a backend cannot draw are capped, and the answer lists each with its reason.
+  The per-preset table is in docs/UPSCALING.md, "Graphics presets".
+- `graphics.detect` reads the GPU (backend, adapter, vendor, memory) and runs a bounded benchmark (a fixed scene, about a second at
+  most, never on a software renderer), and suggests a preset with the reason. It changes nothing.
+- New script API `game.graphics` (`preset(name?)`, `detect()`) with typings, and the project key `"render": {"graphicsPreset"}` with
+  validation and a "did you mean".
 
 ### Fixes
 

@@ -107,9 +107,7 @@ struct Scene {
     }
     PostProcess& post() { return camera_post(w, cam); }
     void taa(bool on = true) { post().temporalAAEnabled = on; }
-    void move_x(float x) {
-        w.get<Transform>(cam)->position.x = x;
-    }
+    void move_x(float x) { w.get<Transform>(cam)->position.x = x; }
 };
 
 // The picture's red channel as values 0..1, row 0 on top. The headless target is linear (a coverage of one half is a value of one half), so a
@@ -128,7 +126,8 @@ std::vector<float> reference_plane(const Image& big, int k) {
         for (int x = 0; x < w; ++x) {
             float s = 0;
             for (int j = 0; j < k; ++j)
-                for (int i = 0; i < k; ++i) s += src[std::size_t(y * k + j) * std::size_t(big.width) + std::size_t(x * k + i)];
+                for (int i = 0; i < k; ++i)
+                    s += src[std::size_t(y * k + j) * std::size_t(big.width) + std::size_t(x * k + i)];
             out[std::size_t(y) * std::size_t(w) + std::size_t(x)] = s / float(k * k);
         }
     return out;
@@ -153,12 +152,15 @@ int ghost_pixels(const std::vector<float>& img, const std::vector<float>& ref, i
         for (int x = 1; x + 1 < w; ++x) {
             bool dark = true;
             for (int j = -1; j <= 1; ++j)
-                for (int i = -1; i <= 1; ++i) dark = dark && ref[std::size_t(y + j) * std::size_t(w) + std::size_t(x + i)] < 0.005f;
+                for (int i = -1; i <= 1; ++i)
+                    dark = dark && ref[std::size_t(y + j) * std::size_t(w) + std::size_t(x + i)] < 0.005f;
             if (dark && img[std::size_t(y) * std::size_t(w) + std::size_t(x)] > lit) ++n;
         }
     return n;
 }
-bool same_pixels(const Image& a, const Image& b) { return a.width == b.width && a.height == b.height && a.rgba == b.rgba; }
+bool same_pixels(const Image& a, const Image& b) {
+    return a.width == b.width && a.height == b.height && a.rgba == b.rgba;
+}
 
 // The 4 x 4 supersampled picture of the scene (a renderer of 1280 x 720 draws it), averaged down to 320 x 180; the camera at `cameraX`.
 std::vector<float> supersampled(Gfx& g, float cameraX = 0.0f) {
@@ -171,7 +173,8 @@ std::vector<float> supersampled(Gfx& g, float cameraX = 0.0f) {
 
 }  // namespace
 
-TEST_CASE("temporal antialiasing: the plan is off without the effect, off for a frame that is not the game's, and clamps its numbers") {
+TEST_CASE("temporal antialiasing: the plan is off without the effect, off for a frame that is not the game's, and "
+          "clamps its numbers") {
     CameraInfo cam;
     cam.view = Mat4::translate({0, 0, -10});
     cam.proj = Mat4::perspective(60.0f, 16.0f / 9.0f, 0.1f, 1000.0f, true);
@@ -183,7 +186,8 @@ TEST_CASE("temporal antialiasing: the plan is off without the effect, off for a 
     on.mask = 1u << int(PostEffect::TemporalAA);
     const Mat4 prev = cam.viewProj;
     CHECK_FALSE(render::make_taa_plan(cam, off, true, true, 7, 5, 1, 0, prev, true).on);
-    CHECK_FALSE(render::make_taa_plan(cam, on, false, true, 7, 5, 1, 0, prev, true).on);  // a capture of the world between two frames
+    CHECK_FALSE(render::make_taa_plan(cam, on, false, true, 7, 5, 1, 0, prev, true)
+                    .on);  // a capture of the world between two frames
     CHECK_FALSE(render::make_taa_plan(cam, on, true, false, 7, 5, 1, 0, prev, true).on);  // the shaders failed
     const render::TaaPlan p = render::make_taa_plan(cam, on, true, true, 7, 5, 11, 3, prev, true);
     CHECK(p.on);
@@ -298,7 +302,8 @@ TEST_CASE("temporal antialiasing: the jitter and the passes exist only while the
     }
 }
 
-TEST_CASE("temporal antialiasing: a still diagonal edge converges to the supersampled picture far better than without it") {
+TEST_CASE(
+    "temporal antialiasing: a still diagonal edge converges to the supersampled picture far better than without it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::vector<float> ref = supersampled(g);
@@ -325,7 +330,8 @@ TEST_CASE("temporal antialiasing: a still diagonal edge converges to the supersa
     CHECK(taaError < 0.4 * plainError);
 }
 
-TEST_CASE("temporal antialiasing: an 8-bit history (a GPU without half-float targets) converges too, and says so once") {
+TEST_CASE(
+    "temporal antialiasing: an 8-bit history (a GPU without half-float targets) converges too, and says so once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const std::vector<float> ref = supersampled(g);
@@ -348,7 +354,8 @@ TEST_CASE("temporal antialiasing: an 8-bit history (a GPU without half-float tar
     CHECK(taaError < 0.5 * plainError);
 }
 
-TEST_CASE("temporal antialiasing: a panning camera leaves no ghost behind the edge (reprojected from the prepass depth)") {
+TEST_CASE(
+    "temporal antialiasing: a panning camera leaves no ghost behind the edge (reprojected from the prepass depth)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const float step = 0.06f;  // 1.5 px a frame
@@ -385,7 +392,61 @@ TEST_CASE("temporal antialiasing: a panning camera leaves no ghost behind the ed
     CHECK(err < 0.8 * plainErr);
 }
 
-TEST_CASE("temporal antialiasing: a cut, a resize and a render scale change start the history again; a still frame keeps it") {
+TEST_CASE("temporal antialiasing: a moving object leaves no ghost behind its edge (the motion vector of the prepass, "
+          "M76-P1b)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const float step =
+        0.06f;  // 1.7 px a frame, the camera does not move: the depth reprojection alone would find no motion at all
+    const int frames = 40;
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    RendererTestAccess::force_velocity(own.r,
+                                       true);  // also keeps the velocity image of the last frame for the check below
+    Scene s;
+    s.taa();
+    Image img;
+    for (int f = 1; f <= frames; ++f) {
+        s.w.get<Transform>(s.box)->position.x = step * float(f);
+        img = own.draw(s.w);
+    }
+    // The vector the resolve read at the middle of the square: the square's own motion (uvPrev - uvCurr, so to the left), not the sentinel.
+    // The front face is 8.5 m from the camera: 4.9 m of half height over 90 px.
+    std::vector<float> vel;
+    int vw = 0, vh = 0;
+    std::string err;
+    REQUIRE_MESSAGE(RendererTestAccess::read_velocity(own.r, vel, vw, vh, &err), err);
+    const float pxPerMetre = 90.0f / (8.5f * std::tan(30.0f * 3.14159265f / 180.0f));
+    const int cx = 160 + int(step * float(frames) * pxPerMetre), cy = 90;
+    const std::size_t at = (std::size_t(cy) * std::size_t(vw) + std::size_t(cx)) * 4;
+    REQUIRE(vw == img.width);
+    CHECK_FALSE(render::VelocityRef::is_none(vel[at]));
+    CHECK(vel[at] == doctest::Approx(-step * pxPerMetre / float(vw)).epsilon(0.1));
+    CHECK(std::fabs(vel[at + 1]) < 5.0e-4f);
+    // The reference: the square at its last place, supersampled.
+    const std::vector<float> got = linear_plane(img);
+    Own bigOwn(g, 1280, 720);
+    REQUIRE_MESSAGE(bigOwn.ok, bigOwn.error);
+    Scene bigScene;
+    bigScene.w.get<Transform>(bigScene.box)->position.x = step * float(frames);
+    const std::vector<float> truth = reference_plane(bigOwn.draw(bigScene.w), 4);
+    const int ghosts = ghost_pixels(got, truth, img.width, img.height);
+    const double e = edge_error(got, truth);
+    double plainErr = 0;
+    {
+        Own plainOwn(g);
+        REQUIRE_MESSAGE(plainOwn.ok, plainOwn.error);
+        Scene p;
+        p.w.get<Transform>(p.box)->position.x = step * float(frames);
+        plainErr = edge_error(linear_plane(plainOwn.draw(p.w, 3)), truth);
+    }
+    INFO("ghost pixels " << ghosts << ", edge error " << e << ", without the effect " << plainErr);
+    CHECK(ghosts < 25);  // a ghost of ten frames is a band of 17 px along the trailing edges: hundreds
+    CHECK(e < 0.8 * plainErr);
+}
+
+TEST_CASE("temporal antialiasing: a cut, a resize and a render scale change start the history again; a still frame "
+          "keeps it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -470,7 +531,8 @@ TEST_CASE("temporal antialiasing: a floating-origin shift starts the history aga
     bigScene.move_x(step * 21.0f);
     const std::vector<float> truth = reference_plane(bigOwn.draw(bigScene.w), 4);
     CHECK(ghost_pixels(got, truth, after.width, after.height) < 25);
-    CHECK(edge_error(got, truth) < 0.45);  // no history yet: an aliased edge, but in the right place (a smear or a jump is far over this)
+    CHECK(edge_error(got, truth) <
+          0.45);  // no history yet: an aliased edge, but in the right place (a smear or a jump is far over this)
     own.frame(s.w);
     CHECK(RendererTestAccess::taa_used_history(own.r, s.cam));
 }

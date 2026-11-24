@@ -16,9 +16,16 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
+#include "fa/core/engine_version.h"
+#include "fa/core/log.h"
+#include "fa/scene/animation.h"
 #include "fa/scene/foliage.h"
 #include "fa/scene/impostor.h"
 #include "fa/scene/jitter.h"
@@ -78,7 +85,9 @@ struct Own {
 struct Vel {
     std::vector<float> px;
     int w = 0, h = 0;
-    bool none(int x, int y) const { return VelocityRef::is_none(px[idx(x, y)]) || VelocityRef::is_none(px[idx(x, y) + 1]); }
+    bool none(int x, int y) const {
+        return VelocityRef::is_none(px[idx(x, y)]) || VelocityRef::is_none(px[idx(x, y) + 1]);
+    }
     Vec2 at(int x, int y) const { return {px[idx(x, y)], px[idx(x, y) + 1]}; }
     std::size_t idx(int x, int y) const { return (std::size_t(y) * std::size_t(w) + std::size_t(x)) * 4; }
 };
@@ -175,12 +184,55 @@ void pixel_of(const Mat4& vp, Vec3 at, int& x, int& y) {
     y = int(std::floor(uv.y * float(kH)));
 }
 
+// The rig of the tests (render/tests/data), a material of the fixtures, in the project's files.
+void install_file_from_repo(const char* repoRelative, const char* projectPath) {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/" + repoRelative, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(!text.empty());
+    REQUIRE(fs::write_text(projectPath, text).ok());
+}
+// The fixtures' materials with their committed shader twins, made current for this engine version.
+struct MaterialScope {
+    MaterialScope() {
+        namespace sfs = std::filesystem;
+        gfx().renderer.clear_asset_cache();
+        const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
+        for (const auto& e : sfs::recursive_directory_iterator(src)) {
+            if (!e.is_regular_file()) continue;
+            std::ifstream in(e.path(), std::ios::binary);
+            std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (e.path().extension() == ".shader") {
+                Json twin = Json::parse(bytes);
+                twin["engine"] = FA_ENGINE_VERSION;
+                bytes = twin.dump();
+            }
+            REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
+        }
+    }
+    ~MaterialScope() {
+        gfx().renderer.set_shader_compiler({});
+        gfx().renderer.clear_asset_cache();
+    }
+};
+
+// The column of the tests (a skinned mesh 0.5 wide and 2 tall, assets/rig.gltf) with the clip `clip`; the caller poses it.
+Entity add_rig(World& w, const char* clip, Vec3 pos = {0, 0, 0}) {
+    Entity rig = make(w, "rig", pos);
+    auto& m = w.add<MeshRenderer>(rig);
+    m.mesh = "assets/rig.gltf";
+    m.unlit = true;
+    m.color = Color::white();
+    w.add<Animator>(rig).clip = clip;
+    return rig;
+}
+
 }  // namespace
 
 TEST_CASE("velocity: the layout of the previous model's attributes follows the same rule as the shader") {
     MeshExtras none;
-    CHECK(prepass_prev_attr(false, false, none) == kExtraAttrBase);  // the engine's program: straight after the 9 mesh attributes
-    CHECK(prepass_prev_attr(true, false, none) == -1);               // skinned: P1b
+    CHECK(prepass_prev_attr(false, false, none) ==
+          kExtraAttrBase);  // the engine's program: straight after the 9 mesh attributes
+    CHECK(prepass_prev_attr(true, false, none) == kExtraAttrBaseSkinned);  // skinned: after its joints and weights
     MeshExtras e;
     e.instanceVec4 = 2;
     e.uv1 = true;
@@ -193,6 +245,19 @@ TEST_CASE("velocity: the layout of the previous model's attributes follows the s
     buf.bufferInst = true;  // drawn from storage buffers: no previous model
     CHECK(prepass_prev_attr(false, true, buf) == -1);
     CHECK(kExtraAttrBase + 4 + 3 <= 16);
+    CHECK(prepass_prev_attr(true, true, MeshExtras{}) == kExtraAttrBaseSkinned);
+    e = MeshExtras{};
+    e.instanceVec4 = 2;
+    CHECK(prepass_prev_attr(true, true, e) == kExtraAttrBaseSkinned + 2);
+    e.uv1 = true;
+    e.color1 = true;  // four extras: 11 + 4 + 3 passes 16
+    CHECK(prepass_prev_attr(true, true, e) == -1);
+    buf.bufferInst = true;
+    CHECK(prepass_prev_attr(true, true, buf) == -1);
+    // The previous palette is an image of 192 texels a skinned draw (the 64 joints of the loader, 3 texels each), in rows of the same width as
+    // the light data image whose pool writes it, and the shader reads texel t at (t & 1023, t >> 10).
+    CHECK(kPrevPaletteTexels == 3 * kMaxSkinJoints);
+    CHECK(kPrevPaletteWidth == 1024);
     // Only the temporal antialiasing asks for it, and only a frame that draws it.
     CHECK(post_effect_needs_velocity(PostEffect::TemporalAA));
     CHECK_FALSE(post_effect_needs_velocity(PostEffect::Ssao));
@@ -281,7 +346,8 @@ TEST_CASE("velocity: a mesh moved by a known amount holds uvPrev - uvCurr, a sti
         for (int dx = -8; dx <= 8; dx += 4) {
             if (v.none(x + dx, y + dy)) continue;
             ++onFace;
-            if (std::fabs(v.at(x + dx, y + dy).x - want.x) > 3.0e-3f || std::fabs(v.at(x + dx, y + dy).y - want.y) > 3.0e-3f)
+            if (std::fabs(v.at(x + dx, y + dy).x - want.x) > 3.0e-3f ||
+                std::fabs(v.at(x + dx, y + dy).y - want.y) > 3.0e-3f)
                 ++off;
         }
     CHECK(onFace >= 20);
@@ -333,7 +399,8 @@ TEST_CASE("velocity: an entity that was not drawn in the frame before has no mot
     o.frame(w);
     move_to(w, e, {400, 0, 0});  // out of the view: not drawn, so the renderer forgets its history
     o.frame(w);
-    move_to(w, e, {0.5f, 0, 0});  // back: the frame before did not draw it, so it did not move as far as the picture knows
+    move_to(w, e,
+            {0.5f, 0, 0});  // back: the frame before did not draw it, so it did not move as far as the picture knows
     o.frame(w);
     const Mat4 vp = matrix_of(o, cam);
     const Vel v = read_vel(o);
@@ -475,8 +542,8 @@ TEST_CASE("velocity: terrain, foliage and impostor cards hold the camera's motio
         for (int r = 0; r < kN; ++r)
             for (int c = 0; c < kN; ++c) {
                 const double dx = (c - 32) / 32.0, dz = (r - 32) / 32.0;
-                gi.samples[std::size_t(r) * kN + std::size_t(c)] =
-                    std::uint16_t(std::clamp(0.3 + 0.2 * std::max(0.0, 1.0 - std::sqrt(dx * dx + dz * dz)), 0.0, 1.0) * 65535.0);
+                gi.samples[std::size_t(r) * kN + std::size_t(c)] = std::uint16_t(
+                    std::clamp(0.3 + 0.2 * std::max(0.0, 1.0 - std::sqrt(dx * dx + dz * dz)), 0.0, 1.0) * 65535.0);
             }
         const auto png = encode_png_gray16(gi);
         const std::string file = fs::path_to_utf8(g.projectDir / "velocity_terrain.png");
@@ -565,10 +632,13 @@ TEST_CASE("velocity: terrain, foliage and impostor cards hold the camera's motio
             }
         for (auto [img, path] : {std::pair<const Image*, std::string>{&albedo, a.albedo}, {&normal, a.normal}}) {
             const auto png = encode_png(*img);
-            REQUIRE(fs::write_bytes(fs::path_to_utf8(g.projectDir / fs::path_from_utf8(path)), png.data(), png.size()).ok());
+            REQUIRE(fs::write_bytes(fs::path_to_utf8(g.projectDir / fs::path_from_utf8(path)), png.data(), png.size())
+                        .ok());
         }
         const std::string json = impostor_to_json(a).dump(2);
-        REQUIRE(fs::write_bytes(fs::path_to_utf8(g.projectDir / "assets/imp/velocity.impostor.json"), json.data(), json.size()).ok());
+        REQUIRE(fs::write_bytes(fs::path_to_utf8(g.projectDir / "assets/imp/velocity.impostor.json"), json.data(),
+                                json.size())
+                    .ok());
         Own o(g);
         REQUIRE_MESSAGE(o.ok, o.error);
         World w;
@@ -595,7 +665,8 @@ TEST_CASE("velocity: terrain, foliage and impostor cards hold the camera's motio
     }
 }
 
-TEST_CASE("velocity: with nothing asking there is no velocity pass and the picture is the same, bit for bit") {
+TEST_CASE(
+    "velocity: asking for the velocity changes nothing of the picture, and with no consumer there is no prepass") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     // `on` asks for the velocity; `off` does not, but draws the prepass for an effect that reads the depth (so the only difference is the
@@ -656,7 +727,8 @@ TEST_CASE("velocity: with nothing asking there is no velocity pass and the pictu
     CHECK_FALSE(RendererTestAccess::read_velocity(plain.r, px, w, h, &err));
 }
 
-TEST_CASE("velocity: the debug view motionVectors paints the vectors over the picture and grey where nothing wrote one") {
+TEST_CASE(
+    "velocity: the debug view motionVectors paints the vectors over the picture and grey where nothing wrote one") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g, false);  // no force: the debug view asks for the velocity itself
@@ -688,4 +760,251 @@ TEST_CASE("velocity: the debug view motionVectors paints the vectors over the pi
     CHECK(sky.r < 0.7f);
     // The same view without anything drawn: the motion of a paused scene is black on the cubes.
     CHECK(o.r.supports("motionVectors"));
+}
+
+TEST_CASE("velocity: a skinned mesh holds the motion of its pose, of its entity, and none for a still one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_two_bone.gltf", "assets/rig.gltf");
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const Entity cam = add_camera(w, {0, 1, 5});
+    const Entity rig = add_rig(w, "Slide");  // the whole column slides along x: 0 m at t = 0, 1 m from t = 0.5
+    update_animators(w, 0.0f);
+    REQUIRE(w.get<Animator>(rig)->palette.size() == 2);
+    // A still pose over two frames: a vector (not the sentinel) and no motion.
+    o.frame(w);
+    o.frame(w);
+    {
+        const Mat4 vp = matrix_of(o, cam);
+        const Vel v = read_vel(o);
+        int x, y;
+        pixel_of(vp, {0, 1, -0.25f}, x, y);
+        REQUIRE_FALSE(v.none(x, y));
+        CHECK(std::fabs(v.at(x, y).x) < 5.0e-4f);
+        CHECK(std::fabs(v.at(x, y).y) < 5.0e-4f);
+    }
+    // The pose moves the column by 1 m between two frames, the entity does not.
+    update_animators(w, 0.6f);
+    o.frame(w);
+    {
+        const Mat4 vp = matrix_of(o, cam);
+        const Vel v = read_vel(o);
+        const Vec3 at{1.0f, 1.0f, -0.25f};  // the column's faces wind inwards: the one seen is the far one (z = -0.25)
+        const Vec2 want = front_face_motion(vp, {1, 0, 0}, at);
+        int x, y;
+        pixel_of(vp, at, x, y);
+        REQUIRE_FALSE(v.none(x, y));
+        CHECK(std::fabs(want.x) > 0.05f);
+        CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+        CHECK(v.at(x, y).y == doctest::Approx(want.y).epsilon(0.0).scale(1.0).epsilon(0.003));
+    }
+    // A still pose and an entity that moves: the model's motion.
+    o.frame(w);
+    move_to(w, rig, {0, 0.5f, 0});
+    o.frame(w);
+    {
+        const Mat4 vp = matrix_of(o, cam);
+        const Vel v = read_vel(o);
+        const Vec3 at{1.0f, 1.5f, -0.25f};
+        const Vec2 want = front_face_motion(vp, {0, 0.5f, 0}, at);
+        int x, y;
+        pixel_of(vp, at, x, y);
+        REQUIRE_FALSE(v.none(x, y));
+        CHECK(std::fabs(want.y) > 0.03f);
+        CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+        CHECK(v.at(x, y).y == doctest::Approx(want.y).epsilon(0.0).scale(1.0).epsilon(0.003));
+    }
+}
+
+// A skin of `joints` joints whose "Tip" is the last one (render/tests/data/make_skinned_two_bone.py): the vertices of the upper rings read a
+// joint far past the 32nd. The "Slide" clip moves the whole column by 1 m between two poses, the entity stays: the vector of a point of the
+// column is that motion, whichever ring (Root alone, the blend, Tip alone) the point is nearest to.
+void check_big_skin(const char* file, std::size_t joints) {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo(file, "assets/rig.gltf");
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const Entity cam = add_camera(w, {0, 1, 5});
+    const Entity rig = add_rig(w, "Slide");
+    update_animators(w, 0.0f);
+    REQUIRE(w.get<Animator>(rig)->palette.size() == joints);
+    o.frame(w);
+    update_animators(w, 0.6f);
+    o.frame(w);
+    const Mat4 vp = matrix_of(o, cam);
+    const Vel v = read_vel(o);
+    for (const float y : {0.3f, 1.0f, 1.7f}) {
+        const Vec3 at{1.0f, y, -0.25f};
+        const Vec2 want = front_face_motion(vp, {1, 0, 0}, at);
+        int x, py;
+        pixel_of(vp, at, x, py);
+        CAPTURE(y);
+        REQUIRE_FALSE(v.none(x, py));  // a vector, not the sentinel
+        CHECK(std::fabs(want.x) > 0.05f);
+        CHECK(v.at(x, py).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+        CHECK(v.at(x, py).y == doctest::Approx(want.y).epsilon(0.0).scale(1.0).epsilon(0.003));
+    }
+    // The picture itself is the skinned one: the column is where the pose puts it.
+    int x, py;
+    pixel_of(vp, {1.0f, 1.0f, -0.25f}, x, py);
+    CHECK(o.draw(w).pixel(x, py).r > 0.5f);
+}
+
+TEST_CASE("velocity: a skin of 40 joints has real vectors (the palette of the frame before is read from an image, not "
+          "a uniform block)") {
+    check_big_skin("engine/render/tests/data/skinned_forty_joints.gltf", 40);
+}
+
+TEST_CASE("velocity: a skin of 64 joints has real vectors, with the joint of the upper rings at index 63") {
+    check_big_skin("engine/render/tests/data/skinned_sixty_four_joints.gltf", 64);
+}
+
+TEST_CASE("velocity: a skinned mesh of 64 joints draws the same picture with and without the velocity image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    install_file_from_repo("engine/render/tests/data/skinned_sixty_four_joints.gltf", "assets/rig.gltf");
+    Own on(g, true), off(g, false);
+    REQUIRE_MESSAGE(on.ok, on.error);
+    REQUIRE_MESSAGE(off.ok, off.error);
+    render::renderer_force_post_effects(
+        on.r, 1u << int(PostEffect::Ssao));  // `off` draws the prepass too, so only the second attachment differs
+    render::renderer_force_post_effects(off.r, 1u << int(PostEffect::Ssao));
+    auto run = [&](Own& o) {
+        World w;
+        add_camera(w, {0, 1, 5});
+        add_rig(w, "Slide");
+        update_animators(w, 0.0f);
+        o.frame(w);
+        update_animators(w, 0.6f);
+        return o.draw(w);
+    };
+    const Image a = run(on);
+    const Image b = run(off);
+    REQUIRE(a.rgba.size() == b.rgba.size());
+    CHECK(a.rgba == b.rgba);
+    render::renderer_force_post_effects(on.r, 0);
+    render::renderer_force_post_effects(off.r, 0);
+}
+
+namespace {
+// The warnings the engine logged (category "render") while alive.
+struct RenderWarnings {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    RenderWarnings()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level != LogLevel::Warn || e.category != "render") return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~RenderWarnings() { remove_log_sink(id); }
+    RenderWarnings(const RenderWarnings&) = delete;
+    RenderWarnings& operator=(const RenderWarnings&) = delete;
+    int count(const char* needle) const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        int n = 0;
+        for (const std::string& m : shared->lines) n += m.find(needle) != std::string::npos ? 1 : 0;
+        return n;
+    }
+};
+}  // namespace
+
+TEST_CASE("velocity: a GPU with no RG16F target makes no velocity image and no prepass for it, warns once, and the TAA "
+          "reprojects from the camera") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    RenderWarnings warnings;
+    auto has = [](Own& o, const char* needle) {
+        const FrameGraph* gr = renderer_frame_graph(o.r);
+        REQUIRE(gr != nullptr);
+        for (const std::string& n : gr->order_names())
+            if (n.find(needle) != std::string::npos) return true;
+        return false;
+    };
+    std::vector<float> px;
+    int vw = 0, vh = 0;
+    std::string err;
+    {
+        // The temporal antialiasing asks for the velocity (and, for its depth reprojection, for the prepass): the prepass is drawn with one
+        // attachment, the effect runs with its history, and nothing reads a velocity image.
+        Own o(g, true);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        RendererTestAccess::force_no_velocity_target(o.r, true);
+        World w;
+        const Entity cam = add_camera(w, {0, 0, 10});
+        const Entity cube = add_cube(w, {0, 0, 0});
+        camera_post(w, cam).temporalAAEnabled = true;
+        for (int f = 1; f <= 4; ++f) {
+            w.advance_clock(1.0 / 60.0);
+            move_to(w, cube, {0.05f * float(f), 0, 0});
+            o.frame(w);
+        }
+        CHECK(has(o, "taa-resolve"));
+        CHECK(RendererTestAccess::taa_used_history(o.r, cam));
+        CHECK(has(o, "prepass"));
+        CHECK_FALSE(has(o, "velocity-probe"));
+        CHECK_FALSE(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 1);  // one warning for the four frames
+        // The same renderer with the target back: the image exists, and no second warning.
+        RendererTestAccess::force_no_velocity_target(o.r, false);
+        w.advance_clock(1.0 / 60.0);
+        o.frame(w);
+        CHECK(has(o, "velocity-probe"));
+        CHECK(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 1);
+    }
+    {
+        // Nothing but the velocity asks (the test hook): there is no reason for a prepass, so none is drawn.
+        Own o(g, true);
+        REQUIRE_MESSAGE(o.ok, o.error);
+        RendererTestAccess::force_no_velocity_target(o.r, true);
+        World w;
+        add_camera(w, {0, 0, 10});
+        add_cube(w, {0, 0, 0});
+        o.frame(w);
+        o.frame(w);
+        CHECK_FALSE(has(o, "prepass"));
+        CHECK_FALSE(RendererTestAccess::read_velocity(o.r, px, vw, vh, &err));
+        CHECK(warnings.count("RG16F") == 2);  // one a renderer
+    }
+}
+
+TEST_CASE("velocity: a material's vertex() runs for the previous position with the game time of the frame before") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    Own o(g);
+    REQUIRE_MESSAGE(o.ok, o.error);
+    World w;
+    const Entity cam = add_camera(w, {0, 0, 10});
+    const Entity cube = add_cube(w, {0, 0, 0});
+    w.get<MeshRenderer>(cube)->material = "materials/wave.material.json";  // vertex(): x += fa_time.x * 0.5
+    w.advance_clock(1.0);
+    o.frame(w);
+    w.advance_clock(2.0);  // 1 s -> 3 s: the vertices slid from x = 0.5 to x = 1.5
+    o.frame(w);
+    const Mat4 vp = matrix_of(o, cam);
+    const Vel v = read_vel(o);
+    const Vec3 d{1.0f, 0, 0};
+    const Vec3 at{1.5f, 0, 1};
+    const Vec2 want = front_face_motion(vp, d, at);
+    int x, y;
+    pixel_of(vp, at, x, y);
+    REQUIRE_FALSE(v.none(x, y));
+    CHECK(std::fabs(want.x) > 0.05f);
+    CHECK(v.at(x, y).x == doctest::Approx(want.x).epsilon(0.0).scale(1.0).epsilon(0.003));
+    CHECK(v.at(x, y).y == doctest::Approx(want.y).epsilon(0.0).scale(1.0).epsilon(0.003));
+    // The game time stands still: the vertex() puts every vertex where it was, no motion (the time is not the frame's counter).
+    o.frame(w);
+    const Vel still = read_vel(o);
+    REQUIRE_FALSE(still.none(x, y));
+    CHECK(std::fabs(still.at(x, y).x) < 5.0e-4f);
 }

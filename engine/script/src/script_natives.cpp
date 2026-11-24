@@ -4421,6 +4421,22 @@ NATIVE(upscalerSet) {  // "" or the reason it did not happen
     return JS_NewString(ctx, err.c_str());
 }
 
+NATIVE(graphicsPreset) {  // (args object): {ok: true, value} or {ok: false, error}
+    SETUP;
+    std::string err;
+    const Json value = I->host->graphics_preset(argc > 0 ? I->to_json(argv[0]) : Json::object(), &err);
+    return I->from_json(err.empty() ? Json::object({{"ok", true}, {"value", value}})
+                                    : Json::object({{"ok", false}, {"error", err}}));
+}
+
+NATIVE(graphicsDetect) {  // {ok: true, value} or {ok: false, error}
+    SETUP;
+    std::string err;
+    const Json value = I->host->graphics_detect(&err);
+    return I->from_json(err.empty() ? Json::object({{"ok", true}, {"value", value}})
+                                    : Json::object({{"ok", false}, {"error", err}}));
+}
+
 NATIVE(
     testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
     SETUP;
@@ -5606,6 +5622,8 @@ const Reg kRegs[] = {
     R(renderScaleSet, 1),
     R(upscalerGet, 0),
     R(upscalerSet, 1),
+    R(graphicsPreset, 1),
+    R(graphicsDetect, 0),
     R(storageGet, 2),
     R(storageIsEncrypted, 1),
     R(storageSet, 4),

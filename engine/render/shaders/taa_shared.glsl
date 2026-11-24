@@ -137,7 +137,9 @@ TaaResult taa_resolve(vec2 u, vec2 inSize, vec2 outSize, vec2 jit) {
             }
         }
     }
-    vec3 cur = wsum > 1e-6 ? acc / wsum : vec3(0.0);   // every sample NaN: black, with no history
+    // Every sample NaN: black, with no history. The test is the count of samples, not the weight: at a quarter of the size (kern 16) the nearest
+    // sample can sit at d^2 = 0.5 and weigh exp(-18) ~ 1e-8, which a threshold on the weight would take for none (black specks).
+    vec3 cur = valid > 0.0 ? acc / max(wsum, 1e-30) : vec3(0.0);
     vec3 mu = m1 / max(valid, 1.0);
     vec3 sigma = sqrt(max(m2 / max(valid, 1.0) - mu * mu, vec3(0.0)));
 

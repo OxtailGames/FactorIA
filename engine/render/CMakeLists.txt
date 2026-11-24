@@ -56,7 +56,7 @@ else()
     set_source_files_properties(src/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
 endif()
 if(APPLE)
-    set_source_files_properties(src/readback_metal.mm src/metalfx_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_source_files_properties(src/readback_metal.mm src/gpu_info_metal.mm src/metalfx_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 fa_add_tests(render LABELS gpu)  # REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`
