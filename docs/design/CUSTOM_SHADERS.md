@@ -207,7 +207,7 @@ The twin `materials/water.material.json.hlsl5.shader`:
 }
 ```
 
-The runtime builds `sg_shader_desc` from it (`engine/render/src/custom_shader.cpp`). Attribute locations are the
+The runtime builds `gpu::ShaderDesc` from it (`engine/render/src/custom_shader.cpp`). Attribute locations are the
 template's, so `Gpu::mesh_pipeline` and `shadow_pipeline` keep their vertex layout code and only take the shader as a
 new argument. A twin whose `engine` or `template` differs from the running player is refused with a teaching error
 ("re-export the game with this factoria version"); an export always makes players and twins of one version.

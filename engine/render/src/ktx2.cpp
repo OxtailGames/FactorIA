@@ -10,6 +10,7 @@
 #include "fa/core/image.h"
 #include "fa/core/strings.h"
 #include "fa/render/ktx2.h"
+#include "gpu/device.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -17,16 +18,16 @@ namespace fa::render {
 namespace {
 
 struct TranscodeTarget {
-    sg_pixel_format gpu;
+    gpu::PixelFormat format;
     basist::transcoder_texture_format basis;
     const char* name;  // what FA_TEXTURE_FORMAT calls it
 };
 
 // Best first: ASTC 4x4 is what mobile GPUs sample, BC7 what desktop GPUs sample, and every GLES3 device samples ETC2.
 constexpr TranscodeTarget kTargets[] = {
-    {SG_PIXELFORMAT_ASTC_4x4_RGBA, basist::transcoder_texture_format::cTFASTC_4x4_RGBA, "astc"},
-    {SG_PIXELFORMAT_BC7_RGBA, basist::transcoder_texture_format::cTFBC7_RGBA, "bc7"},
-    {SG_PIXELFORMAT_ETC2_RGBA8, basist::transcoder_texture_format::cTFETC2_RGBA, "etc2"},
+    {gpu::PixelFormat::Astc4x4Rgba, basist::transcoder_texture_format::cTFASTC_4x4_RGBA, "astc"},
+    {gpu::PixelFormat::Bc7Rgba, basist::transcoder_texture_format::cTFBC7_RGBA, "bc7"},
+    {gpu::PixelFormat::Etc2Rgba8, basist::transcoder_texture_format::cTFETC2_RGBA, "etc2"},
 };
 
 std::uint32_t readle32(const std::uint8_t* p) {
@@ -84,12 +85,12 @@ bool etc1s_tables_sound(const basist::ktx2_transcoder& ktx, const std::uint8_t* 
     return !bits.read_huffman_table(table) || huffman_table_sound(table);
 }
 
-const TranscodeTarget* pick_target() {
+const TranscodeTarget* pick_target(gpu::Device& device) {
     const char* forced = std::getenv("FA_TEXTURE_FORMAT");
     const std::string only = forced ? to_lower(forced) : std::string();
     for (const TranscodeTarget& t : kTargets) {
         if (!only.empty() && only != t.name) continue;
-        const sg_pixelformat_info info = sg_query_pixelformat(t.gpu);
+        const gpu::PixelFormatCaps info = device.pixel_format_caps(t.format);
         if (info.sample && info.filter) return &t;
     }
     return nullptr;
@@ -97,31 +98,32 @@ const TranscodeTarget* pick_target() {
 
 }  // namespace
 
-const char* pixel_format_name(sg_pixel_format format) {
+const char* texture_format_name(gpu::PixelFormat format) {
     switch (format) {
-        case SG_PIXELFORMAT_ASTC_4x4_RGBA: return "ASTC_4x4";
-        case SG_PIXELFORMAT_BC7_RGBA: return "BC7";
-        case SG_PIXELFORMAT_ETC2_RGBA8: return "ETC2_RGBA8";
-        case SG_PIXELFORMAT_SRGB8A8: return "SRGB8A8";
-        case SG_PIXELFORMAT_BC7_SRGBA: return "BC7_SRGB";
-        case SG_PIXELFORMAT_ASTC_4x4_SRGBA: return "ASTC_4x4_SRGB";
-        case SG_PIXELFORMAT_ETC2_SRGB8A8: return "ETC2_SRGB8A8";
-        case SG_PIXELFORMAT_RGBA16F: return "RGBA16F";
-        case SG_PIXELFORMAT_RG11B10F: return "R11G11B10";
+        case gpu::PixelFormat::Astc4x4Rgba: return "ASTC_4x4";
+        case gpu::PixelFormat::Bc7Rgba: return "BC7";
+        case gpu::PixelFormat::Etc2Rgba8: return "ETC2_RGBA8";
+        case gpu::PixelFormat::Srgb8A8: return "SRGB8A8";
+        case gpu::PixelFormat::Bc7Srgba: return "BC7_SRGB";
+        case gpu::PixelFormat::Astc4x4Srgba: return "ASTC_4x4_SRGB";
+        case gpu::PixelFormat::Etc2Srgb8A8: return "ETC2_SRGB8A8";
+        case gpu::PixelFormat::Rgba16F: return "RGBA16F";
+        case gpu::PixelFormat::Rg11B10F: return "R11G11B10";
         default: return "RGBA8";
     }
 }
 
-sg_pixel_format ktx2_target_format() {
-    const TranscodeTarget* t = pick_target();
-    return t ? t->gpu : SG_PIXELFORMAT_RGBA8;
+gpu::PixelFormat ktx2_target_format(gpu::Device& device) {
+    const TranscodeTarget* t = pick_target(device);
+    return t ? t->gpu : gpu::PixelFormat::Rgba8;
 }
 
-Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed) {
-    return transcode_ktx2_as(data, size, allowCompressed ? ktx2_target_format() : SG_PIXELFORMAT_RGBA8);
+Result<TranscodedTexture> transcode_ktx2(gpu::Device& device, const std::uint8_t* data, std::size_t size,
+                                         bool allowCompressed) {
+    return transcode_ktx2_as(data, size, allowCompressed ? ktx2_target_format(device) : gpu::PixelFormat::Rgba8);
 }
 
-Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format) {
+Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, gpu::PixelFormat format) {
     static std::once_flag once;
     std::call_once(once, [] { basist::basisu_transcoder_init(); });
 
@@ -165,11 +167,11 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     const TranscodeTarget* target = nullptr;
     if (blockAligned)
         for (const TranscodeTarget& t : kTargets)
-            if (t.gpu == format) target = &t;
+            if (t.format == format) target = &t;
     TranscodedTexture out;
     out.width = int(ktx.get_width());
     out.height = int(ktx.get_height());
-    out.format = target ? target->gpu : SG_PIXELFORMAT_RGBA8;
+    out.format = target ? target->gpu : gpu::PixelFormat::Rgba8;
     for (std::uint32_t level = 0; level < ktx.get_levels(); ++level) {
         basist::ktx2_image_level_info info{};
         if (!ktx.get_image_level_info(info, level, 0, 0))
@@ -190,7 +192,7 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
 namespace fa {
 
 Result<Image> decode_ktx2(const std::uint8_t* data, std::size_t size) {
-    auto tex = render::transcode_ktx2_as(data, size, SG_PIXELFORMAT_RGBA8);
+    auto tex = render::transcode_ktx2_as(data, size, gpu::PixelFormat::Rgba8);
     if (!tex) return tex.error();
     if (tex->levels.empty() || tex->levels.front().size() != std::size_t(tex->width) * std::size_t(tex->height) * 4)
         return make_error("the KTX2 file has no base level",

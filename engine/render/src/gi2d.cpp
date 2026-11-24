@@ -156,7 +156,7 @@ void draw_list(Gi2dSystem& sys, Gpu& gpu, const Target& t, const char* label, Gi
             if (batch.count == 0) continue;
             gpu::Bindings b;
             b.vertexBuffers[0] = buf;
-            b.views[0] = batch.tex ? gpu::from_sg(batch.tex->gpu_view()) : white;
+            b.views[0] = batch.tex ? batch.tex->gpu_view() : white;
             b.samplers[0] = gpu.sampler(batch.sampler);
             list.set_bindings(b);
             apply_vec4(list, 1, float(batch.mode), batch.threshold, float(batch.fix), 0.0f);

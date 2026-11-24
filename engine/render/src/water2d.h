@@ -85,7 +85,7 @@ public:
 
     // What draw() needs of the camera and the frame.
     struct DrawEnv {
-        sg_buffer vertices{};  // the frame's quad stream
+        gpu::Buffer vertices{};  // the frame's quad stream
         const Mat4* viewProj = nullptr;
         const SceneMap* map = nullptr;
         gpu::View scene{};  // the copy

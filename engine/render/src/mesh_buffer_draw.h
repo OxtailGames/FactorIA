@@ -23,7 +23,7 @@ struct MeshBufferUse {
     bool skip = false;  // draw nothing: a buffer is missing or does not fit, or the backend cannot (logged once)
     int instances = 1;  // the instance count of every draw call (1 = MeshRenderer.instances 0)
     int count = 0;      // the material's buffers
-    sg_view views[kMaxMeshBuffers]{};
+    gpu::View views[kMaxMeshBuffers]{};
 };
 
 // The buffers `mi` is drawn with: the compute buffer ids of `mi.mr->materialParams` checked against the layouts the

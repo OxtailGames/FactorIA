@@ -23,7 +23,7 @@ namespace {
 // The slots a built-in program declares (as Gpu's program_slots).
 MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
     MaterialProgram out;
-    out.shader = gpu::to_sg(shader);
+    out.shader = shader;
     for (int i = 0; i < gpu::kMaxUniformBlocks; ++i) {
         if (desc.uniformBlocks[i].stage == gpu::ShaderStage::None) continue;
         out.ubMask |= 1u << i;
@@ -77,8 +77,8 @@ std::vector<TerrainLayerInfo> terrain_layers(const Terrain3D& t) {
 namespace {
 
 void free_texture(gpu::Device& device, TextureAsset& t) {
-    if (t.view.id) device.destroy_view(gpu::from_sg(t.view));
-    if (t.image.id) device.destroy_image(gpu::from_sg(t.image));
+    if (t.view.id) device.destroy_view(t.view);
+    if (t.image.id) device.destroy_image(t.image);
     t.view = {};
     t.image = {};
     t.bytes = 0;
@@ -118,12 +118,12 @@ bool finish_array(gpu::Device& device, TextureAsset& out, const gpu::ImageDesc& 
                   std::size_t bytes) {
     const gpu::Image image = make_valid_image(device, d);
     if (!image.id) return false;
-    out.image = gpu::to_sg(image);
-    out.view = gpu::to_sg(make_texture_view(device, image, label));
+    out.image = image;
+    out.view = make_texture_view(device, image, label);
     out.path = label;
     out.width = d.width;
     out.height = d.height;
-    out.format = gpu::to_sg(d.pixelFormat);
+    out.format = d.pixelFormat;
     out.bytes = bytes;
     return true;
 }
@@ -196,7 +196,7 @@ void pack_picture_levels(TerrainLayerImages& li, bool srgbMips, TerrainLayerBuil
 
 // The GPU half: one RGBA8 array from the packed levels of `b`. False, with `why`, when it does not fit this GPU or cannot be made.
 bool make_picture_array(gpu::Device& device, TextureAsset& out, const char* label, const char* kind,
-                        const TerrainLayerBuild& b, sg_pixel_format format, Error& why) {
+                        const TerrainLayerBuild& b, gpu::PixelFormat format, Error& why) {
     if (b.levels.empty() || b.levels.size() > std::size_t(gpu::kMaxMipmaps)) {
         why = make_error("there is no picture to make the array from", "Check the paths of the layers' pictures.");
         return false;
@@ -210,7 +210,7 @@ bool make_picture_array(gpu::Device& device, TextureAsset& out, const char* labe
     d.height = b.height;
     d.numSlices = b.slices;
     d.numMipmaps = int(b.levels.size());
-    d.pixelFormat = gpu::from_sg(format);
+    d.pixelFormat = format;
     d.label = label;
     std::size_t bytes = 0;
     for (std::size_t m = 0; m < b.levels.size(); ++m) {
@@ -321,11 +321,11 @@ bool make_holes_texture(gpu::Device& device, TextureAsset& out, const TerrainHei
             "Use a smaller heightmap, or remove the holes.");
         return false;
     }
-    out.image = gpu::to_sg(image);
-    out.view = gpu::to_sg(make_texture_view(device, image, "terrain-holes"));
+    out.image = image;
+    out.view = make_texture_view(device, image, "terrain-holes");
     out.path = "<terrain-holes>";
     out.width = out.height = cells;
-    out.format = SG_PIXELFORMAT_R8;
+    out.format = gpu::PixelFormat::R8;
     out.bytes = px.size();
     return true;
 }
@@ -344,9 +344,9 @@ TerrainRenderer::Entry::~Entry() {
     free_texture(*device, normalArr);
     free_texture(*device, controlArr);
     free_texture(*device, holesTex);
-    if (stage.id) device->destroy_buffer(gpu::from_sg(stage));
-    if (controlStage.id) device->destroy_buffer(gpu::from_sg(controlStage));
-    if (holesStage.id) device->destroy_buffer(gpu::from_sg(holesStage));
+    if (stage.id) device->destroy_buffer(stage);
+    if (controlStage.id) device->destroy_buffer(controlStage);
+    if (holesStage.id) device->destroy_buffer(holesStage);
 }
 
 void TerrainRenderer::destroy() {
@@ -354,8 +354,8 @@ void TerrainRenderer::destroy() {
     for (std::unique_ptr<MeshAsset>* slot : {&patch_, &splitPatch_}) {
         if (!*slot) continue;
         for (SubMesh& p : (*slot)->parts) {
-            if (p.vb.id) device_->destroy_buffer(gpu::from_sg(p.vb));
-            if (p.ib.id) device_->destroy_buffer(gpu::from_sg(p.ib));
+            if (p.vb.id) device_->destroy_buffer(p.vb);
+            if (p.ib.id) device_->destroy_buffer(p.ib);
         }
         slot->reset();
     }
@@ -444,12 +444,12 @@ MeshAsset* TerrainRenderer::patch(gpu::Device& device, bool split) {
     vb.usage.vertexBuffer = true;
     vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
     vb.label = split ? "terrain-patch-split" : "terrain-patch";
-    sm.vb = gpu::to_sg(device.make_buffer(vb));
+    sm.vb = device.make_buffer(vb);
     gpu::BufferDesc ib;
     ib.usage.indexBuffer = true;
     ib.data = {idx.data(), idx.size() * sizeof(std::uint32_t)};
     ib.label = vb.label;
-    sm.ib = gpu::to_sg(device.make_buffer(ib));
+    sm.ib = device.make_buffer(ib);
     sm.vertexCount = int(v.size());
     sm.indexCount = int(idx.size());
     sm.bmin = {0, 0, 0};
@@ -543,8 +543,8 @@ bool TerrainRenderer::copy_rect(Entry& en, const View& v, const TerrainRect& rec
     const TerrainRect& r = convert ? whole : rect;
     const std::vector<std::uint8_t> px = pack_heights(h, r);
     v.gpu->begin_transient_writes();  // before the first write of the frame (render_internal.h)
-    gpu::Image target = gpu::from_sg(en.tex.image);
-    const gpu::View targetView = gpu::from_sg(en.tex.view);
+    gpu::Image target = en.tex.image;
+    const gpu::View targetView = en.tex.view;
     if (convert) {
         gpu::ImageDesc d;
         d.width = d.height = h.samples;
@@ -555,7 +555,7 @@ bool TerrainRenderer::copy_rect(Entry& en, const View& v, const TerrainRect& rec
         if (!target.id) return false;
     }
     const std::size_t need = px.size();
-    gpu::Buffer stage = gpu::from_sg(en.stage);
+    gpu::Buffer stage = en.stage;
     if (!stage.id || en.stageCap < need) {
         const std::size_t newCap =
             convert ? need : std::min(std::size_t(h.samples) * std::size_t(h.samples) * 2, need + need / 2);
@@ -564,9 +564,9 @@ bool TerrainRenderer::copy_rect(Entry& en, const View& v, const TerrainRect& rec
             if (convert) device.destroy_image(target);
             return false;
         }
-        if (en.stage.id) device.destroy_buffer(gpu::from_sg(en.stage));
+        if (en.stage.id) device.destroy_buffer(en.stage);
         stage = fresh;
-        en.stage = gpu::to_sg(fresh);
+        en.stage = fresh;
         en.stageCap = newCap;
     }
     gpu::CommandList& list = v.gpu->commands();
@@ -589,12 +589,12 @@ bool TerrainRenderer::copy_rect(Entry& en, const View& v, const TerrainRect& rec
     if (convert) {
         const gpu::View fresh = make_texture_view(device, target, "terrain-heights");
         if (targetView.id) device.destroy_view(targetView);
-        device.destroy_image(gpu::from_sg(en.tex.image));
-        en.tex.image = gpu::to_sg(target);
-        en.tex.view = gpu::to_sg(fresh);
+        device.destroy_image(en.tex.image);
+        en.tex.image = target;
+        en.tex.view = fresh;
         en.copyable = true;
         // The staging buffer of the whole texture is not kept: the later copies are rectangles.
-        device.destroy_buffer(gpu::from_sg(en.stage));
+        device.destroy_buffer(en.stage);
         en.stage = {};
         en.stageCap = 0;
         en.stagedFrame = 0;
@@ -630,7 +630,7 @@ bool TerrainRenderer::copy_holes(Entry& en, const View& v, const TerrainRect& re
             px[std::size_t(y) * std::size_t(w) + std::size_t(x)] =
                 h.holes[std::size_t(r.r0 + y) * std::size_t(cells) + std::size_t(r.c0 + x)] ? 255 : 0;
     v.gpu->begin_transient_writes();  // before the first write of the frame (render_internal.h)
-    gpu::Image target = gpu::from_sg(en.holesTex.image);
+    gpu::Image target = en.holesTex.image;
     if (convert) {
         gpu::ImageDesc d;
         d.width = d.height = cells;
@@ -648,17 +648,17 @@ bool TerrainRenderer::copy_holes(Entry& en, const View& v, const TerrainRect& re
             if (convert) device.destroy_image(target);
             return false;
         }
-        if (en.holesStage.id) device.destroy_buffer(gpu::from_sg(en.holesStage));
-        en.holesStage = gpu::to_sg(fresh);
+        if (en.holesStage.id) device.destroy_buffer(en.holesStage);
+        en.holesStage = fresh;
         en.holesStageCap = newCap;
     }
     gpu::CommandList& list = v.gpu->commands();
     gpu::BufferWrite wd;
     wd.data = gpu::Range{px.data(), px.size()};
-    wd.buffer = gpu::from_sg(en.holesStage);
+    wd.buffer = en.holesStage;
     list.write_buffer(wd);
     gpu::BufferImageCopy c;
-    c.src = gpu::from_sg(en.holesStage);
+    c.src = en.holesStage;
     c.bytesPerRow = w;
     c.bytesPerSlice = w * rows;
     c.dst.image = target;
@@ -671,13 +671,13 @@ bool TerrainRenderer::copy_holes(Entry& en, const View& v, const TerrainRect& re
     en.holesStagedFrame = frameTag;
     if (convert) {
         const gpu::View fresh = make_texture_view(device, target, "terrain-holes");
-        if (en.holesTex.view.id) device.destroy_view(gpu::from_sg(en.holesTex.view));
-        device.destroy_image(gpu::from_sg(en.holesTex.image));
-        en.holesTex.image = gpu::to_sg(target);
-        en.holesTex.view = gpu::to_sg(fresh);
+        if (en.holesTex.view.id) device.destroy_view(en.holesTex.view);
+        device.destroy_image(en.holesTex.image);
+        en.holesTex.image = target;
+        en.holesTex.view = fresh;
         en.holesCopyable = true;
         // The staging buffer of the whole mask is not kept: the later copies are rectangles.
-        device.destroy_buffer(gpu::from_sg(en.holesStage));
+        device.destroy_buffer(en.holesStage);
         en.holesStage = {};
         en.holesStageCap = 0;
         en.holesStagedFrame = 0;
@@ -724,7 +724,7 @@ bool TerrainRenderer::upload(Entry& en, const View& v, const TerrainRect* rect) 
     d.label = "terrain-heights";
     en.tex.path = "<terrain-heights>";
     const gpu::Image image = make_valid_image(device, d);
-    en.tex.image = gpu::to_sg(image);
+    en.tex.image = image;
     if (!image.id) {
         en.failed = true;
         FA_ERROR(
@@ -735,9 +735,9 @@ bool TerrainRenderer::upload(Entry& en, const View& v, const TerrainRect* rect) 
             h.samples, px.size() / (1024 * 1024), limit, std::max(33, h.samples / 2 + 1));
         return false;
     }
-    en.tex.view = gpu::to_sg(make_texture_view(device, image, "terrain-heights"));
+    en.tex.view = make_texture_view(device, image, "terrain-heights");
     en.tex.width = en.tex.height = h.samples;
-    en.tex.format = SG_PIXELFORMAT_RG8;
+    en.tex.format = gpu::PixelFormat::Rg8;
     en.tex.bytes = px.size();
     ++uploads_;
     return true;
@@ -773,11 +773,11 @@ TextureAsset* TerrainRenderer::dummy_holes(gpu::Device& device, TextureAsset* fa
     // Not made (the GPU is out of memory): the terrain's own height texture is also a 2D texture the vertex stage can sample, and
     // the draw does not read the holes of a terrain without any, so the slot is never bound to nothing.
     if (!image.id) return fallback;
-    dummyHoles_.image = gpu::to_sg(image);
-    dummyHoles_.view = gpu::to_sg(make_texture_view(device, image, "terrain-dummy-holes"));
+    dummyHoles_.image = image;
+    dummyHoles_.view = make_texture_view(device, image, "terrain-dummy-holes");
     dummyHoles_.path = "<terrain-dummy-holes>";
     dummyHoles_.width = dummyHoles_.height = 1;
-    dummyHoles_.format = SG_PIXELFORMAT_R8;
+    dummyHoles_.format = gpu::PixelFormat::R8;
     dummyHoles_.bytes = 1;
     return &dummyHoles_;
 }
@@ -807,7 +807,7 @@ void TerrainRenderer::update_layers(Entry& en, const View& v, Entity e, const Te
         holes ? mix(0x7f4a7c159e3779b9ull, reinterpret_cast<std::uintptr_t>(en.heights.get())) : 0;
     auto rebuild = [&] {
         free_texture(*device_, en.holesTex);
-        if (en.holesStage.id) device_->destroy_buffer(gpu::from_sg(en.holesStage));
+        if (en.holesStage.id) device_->destroy_buffer(en.holesStage);
         en.holesStage = {};
         en.holesStageCap = 0;
         en.holesCopyable = false;
@@ -857,7 +857,7 @@ void TerrainRenderer::update_pictures(Entry& en, const View& v, const Terrain3D&
     for (int kind = 0; kind < 2; ++kind) {
         const bool albedo = kind == 0;
         const char* name = albedo ? "albedo" : "normal";
-        const sg_pixel_format fmt = albedo ? v.albedoFormat : SG_PIXELFORMAT_RGBA8;
+        const gpu::PixelFormat fmt = albedo ? v.albedoFormat : gpu::PixelFormat::Rgba8;
         std::uint64_t key = mix(0x517cc1b727220a95ull, std::uint64_t(fmt));
         key = mix(key, layers.size());
         for (const TerrainLayerInfo& l : layers) key = hash_string(key, albedo ? l.albedo : l.normal);
@@ -911,7 +911,7 @@ void TerrainRenderer::update_pictures(Entry& en, const View& v, const Terrain3D&
                     Error why;
                     if (make_picture_array(*device_, arr, albedo ? "terrain-albedo" : "terrain-normal", name, *b, fmt,
                                            why)) {
-                        arr.enc = fmt == SG_PIXELFORMAT_RGBA8 ? TexEncoding::Raw : TexEncoding::Srgb;
+                        arr.enc = fmt == gpu::PixelFormat::Rgba8 ? TexEncoding::Raw : TexEncoding::Srgb;
                         mask = b->mask;
                         ++layerBuilds_;
                     } else {
@@ -939,7 +939,7 @@ void TerrainRenderer::update_pictures(Entry& en, const View& v, const Terrain3D&
         job.key = key;
         job.stale = false;
         ++layerLoads_;
-        const bool srgbMips = albedo && fmt != SG_PIXELFORMAT_RGBA8;
+        const bool srgbMips = albedo && fmt != gpu::PixelFormat::Rgba8;
         job.handle = jobs::submit("render.terrain_layers",
                                   [build, copy = std::move(copy), kindName = std::string(name), srgbMips] {
                                       auto imgs = load_terrain_layer_images(copy, kindName);
@@ -980,7 +980,7 @@ void TerrainRenderer::update_control(Entry& en, const View& v, const std::vector
     auto whole = [&] {
         free_texture(*device_, en.controlArr);
         en.controlCopyable = false;
-        if (en.controlStage.id) device_->destroy_buffer(gpu::from_sg(en.controlStage));
+        if (en.controlStage.id) device_->destroy_buffer(en.controlStage);
         en.controlStage = {};
         en.controlStageCap = 0;
         en.controlStagedFrame = 0;
@@ -1042,8 +1042,8 @@ bool TerrainRenderer::copy_splat(Entry& en, const View& v, int maps, int side) {
         return true;
     }
     v.gpu->begin_transient_writes();  // before the first write of the frame (render_internal.h)
-    gpu::Image target = gpu::from_sg(en.controlArr.image);
-    const gpu::View targetView = gpu::from_sg(en.controlArr.view);
+    gpu::Image target = en.controlArr.image;
+    const gpu::View targetView = en.controlArr.view;
     if (convert) {
         gpu::ImageDesc d;
         d.type = gpu::ImageType::Array;
@@ -1055,7 +1055,7 @@ bool TerrainRenderer::copy_splat(Entry& en, const View& v, int maps, int side) {
         target = make_valid_image(device, d);
         if (!target.id) return false;
     }
-    gpu::Buffer stage = gpu::from_sg(en.controlStage);
+    gpu::Buffer stage = en.controlStage;
     if (!stage.id || en.controlStageCap < need) {
         const std::size_t whole = std::size_t(side) * std::size_t(side) * 4 * std::size_t(maps);
         const std::size_t newCap = convert ? need : std::min(whole, need + need / 2);
@@ -1064,9 +1064,9 @@ bool TerrainRenderer::copy_splat(Entry& en, const View& v, int maps, int side) {
             if (convert) device.destroy_image(target);
             return false;
         }
-        if (en.controlStage.id) device.destroy_buffer(gpu::from_sg(en.controlStage));
+        if (en.controlStage.id) device.destroy_buffer(en.controlStage);
         stage = fresh;
-        en.controlStage = gpu::to_sg(fresh);
+        en.controlStage = fresh;
         en.controlStageCap = newCap;
     }
     std::vector<std::uint8_t> px(need);
@@ -1107,12 +1107,12 @@ bool TerrainRenderer::copy_splat(Entry& en, const View& v, int maps, int side) {
     if (convert) {
         const gpu::View fresh = make_texture_view(device, target, "terrain-control");
         if (targetView.id) device.destroy_view(targetView);
-        device.destroy_image(gpu::from_sg(en.controlArr.image));
-        en.controlArr.image = gpu::to_sg(target);
-        en.controlArr.view = gpu::to_sg(fresh);
+        device.destroy_image(en.controlArr.image);
+        en.controlArr.image = target;
+        en.controlArr.view = fresh;
         en.controlCopyable = true;
         // The staging buffer of the whole array is not kept: the later copies are rectangles.
-        device.destroy_buffer(gpu::from_sg(en.controlStage));
+        device.destroy_buffer(en.controlStage);
         en.controlStage = {};
         en.controlStageCap = 0;
         en.controlStagedFrame = 0;
@@ -1243,7 +1243,7 @@ int TerrainRenderer::gather(const View& v, std::deque<TerrainDraw>& draws, std::
         const float p5[4] = {j.grid.cellX, j.grid.cellZ, j.grid.heightScale * (1.0f / kTerrainRawMax),
                              j.grid.heightOffset};
         // The albedo array is sRGB8 in a linear scene where the GPU decodes it (nothing to fix); else the shader converts it.
-        const bool albedoSrgb = en->albedoFormat != SG_PIXELFORMAT_RGBA8;
+        const bool albedoSrgb = en->albedoFormat != gpu::PixelFormat::Rgba8;
         const int albedoFix = v.linear ? (albedoSrgb ? 0 : 1) : (albedoSrgb ? 2 : 0);
         const float p6[4] = {float(en->splatMaps), en->holesOn ? 1.0f : 0.0f,
                              en->albedoMask ? 1.0f + float(albedoFix) : 0.0f, en->normalMask ? 1.0f : 0.0f};

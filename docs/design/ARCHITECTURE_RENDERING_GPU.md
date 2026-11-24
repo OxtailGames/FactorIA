@@ -269,8 +269,7 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
   samplers, buffers) so the passes that still call `sg_apply_pipeline` take it unchanged. Never put one in a ternary
   next to an `sg_*` value (`t ? t->view : sg_view{}`): each side converts to the other and the compiler cannot
   choose; write `to_sg()` or `from_sg()` on one side;
-- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`;
-- `feature_env_from_sokol()` (render_features_sg.cpp) is the sokol twin of `feature_env_from_device(device)`.
+- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`.
 
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
 sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target helpers
@@ -285,8 +284,7 @@ uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp,
 renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
 `note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
 `begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
-those files: the context lifecycle (before any device exists), the `MaterialProgram` fields (P5) and the
-handles of `SubMesh` / `TextureAsset`, which `from_sg` turns into interface handles at the call. A pass opened on its
+those files: the context lifecycle (before any device exists), the readbacks. A pass opened on its
 own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
 state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
 the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files. The 3D light and environment passes
@@ -308,9 +306,17 @@ P5a: the render targets and formats are interface types. `Target` holds `gpu::Im
 device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
 `velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
 (`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
-`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the handles of
-`TextureAsset`, `LutAsset` and `SubMesh` (P5b) and the readbacks and the storage-image helpers (`readback_*`,
-`storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the readbacks and the
+storage-image helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+P5b: the asset and material types are interface types. `TextureAsset` and `LutAsset` hold a `gpu::Image` / `gpu::View`
+and a `gpu::PixelFormat`, `SubMesh` its `gpu::Buffer`s, `MaterialProgram` a `gpu::Shader`; ktx2.cpp picks the target
+format from the device's pixel-format caps (`ktx2_target_format(device)`) and `transcode_ktx2` takes the device.
+`material_shader_desc` returns a `gpu::ShaderDesc` built from the twin's reflection, with the binding numbers of every
+backend the reflection names (hlsl register, msl index, wgsl and spir-v group and binding, glsl binding), and
+`make_material_program` creates it with `gpu.device().make_shader`. The sokol overloads of `make_shader`
+(shader_cache_sg.cpp) and `feature_env_from_sokol` (render_features_sg.cpp) are deleted: nothing called them. Draws
+bind the interface handles as they are; `draw_group` no longer converts its bindings twice. The files of this list
+call no `from_sg` any more; `to_sg` is left only in front of the sokol-only readbacks and storage-image helpers.
 
 ## P5c: native_metal and the 2D painter
 
