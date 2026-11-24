@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "frame_graph.h"
+#include "gpu/device.h"
 
 using namespace fa;
 using namespace fa::render;
@@ -729,4 +730,25 @@ TEST_CASE("frame graph: a pass hook that throws in end() does not terminate") {
     FakePool fp;
     CHECK(g.execute(fp.pool).ok());
     CHECK(g.hook_failures() == 1);  // only "b" has a callback; its lost sample is counted
+}
+
+TEST_CASE("frame graph: PassContext::commands is the list given to execute, only while it runs") {
+    auto device = gpu::make_device(gpu::Backend::Recording);
+    REQUIRE(device.ok());
+    gpu::CommandList& list = (*device)->begin_commands("frame");
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    std::vector<gpu::CommandList*> seen;
+    GraphPass p = pass("p", {}, {screen});
+    p.execute = [&](const PassContext& c) { seen.push_back(c.commands()); };
+    g.add_pass(std::move(p));
+    REQUIRE(g.compile().ok());
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool, &list).ok());
+    REQUIRE(g.compile().ok());
+    REQUIRE(g.execute(fp.pool).ok());  // the CPU-only tests give none: the pass sees null, not the last frame's
+    REQUIRE(seen.size() == 2);
+    CHECK(seen[0] == &list);
+    CHECK(seen[1] == nullptr);
+    (*device)->submit(list);
 }

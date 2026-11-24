@@ -1,5 +1,6 @@
 #include "shader_cache.h"
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -8,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/log.h"
+#include "gpu/device.h"
 
 #if defined(SOKOL_D3D11)
 #define WIN32_LEAN_AND_MEAN
@@ -25,10 +27,12 @@ namespace fa::render {
 namespace {
 
 ShaderBuildStats g_stats;
+// Whether the last program was made on D3D11 (the one backend whose stages the engine compiles and caches itself).
+std::atomic<bool> g_lastWasD3d11{false};
 
 bool engine_caches_here() {
 #if defined(SOKOL_D3D11)
-    return sg_query_backend() == SG_BACKEND_D3D11;
+    return g_lastWasD3d11.load(std::memory_order_relaxed);
 #else
     return false;
 #endif
@@ -46,7 +50,7 @@ constexpr UINT kCompileFlags =
     D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_PREFER_FLOW_CONTROL;
 constexpr const char* kCompileFlagsText = "column_major+O3+flow";
 
-bool d3d_compile_stage(const sg_shader_function& fn, std::vector<std::uint8_t>& out, std::string& error) {
+bool d3d_compile_stage(const gpu::ShaderFunction& fn, std::vector<std::uint8_t>& out, std::string& error) {
     static HMODULE dll = LoadLibraryA("d3dcompiler_47.dll");
     static PD3DCompile compile =
         dll ? reinterpret_cast<PD3DCompile>(reinterpret_cast<void*>(GetProcAddress(dll, "D3DCompile"))) : nullptr;
@@ -56,8 +60,8 @@ bool d3d_compile_stage(const sg_shader_function& fn, std::vector<std::uint8_t>& 
     }
     ID3DBlob* code = nullptr;
     ID3DBlob* messages = nullptr;
-    const HRESULT hr = compile(fn.source, strlen(fn.source), fn.d3d11_filepath, nullptr, nullptr,
-                               fn.entry ? fn.entry : "main", fn.d3d11_target, kCompileFlags, 0, &code, &messages);
+    const HRESULT hr = compile(fn.source, strlen(fn.source), fn.d3d11Filepath, nullptr, nullptr,
+                               fn.entry ? fn.entry : "main", fn.d3d11Target, kCompileFlags, 0, &code, &messages);
     if (messages)
         messages
             ->Release();  // warnings: sokol shows them when it compiles; here a failure falls back to sokol, which reports it
@@ -109,7 +113,7 @@ std::string shader_cache_file_name(std::string_view label, std::string_view stag
 }
 
 bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase, std::string_view label,
-                           std::string_view stage, const sg_shader_function& fn, const StageCompiler& compile,
+                           std::string_view stage, const gpu::ShaderFunction& fn, const StageCompiler& compile,
                            std::vector<std::uint8_t>& out, ShaderBuildStats& stats) {
     ++stats.stages;
     Sha256 h;
@@ -117,7 +121,7 @@ bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase
     h.update(std::string_view("\0", 1));
     h.update(fn.entry ? std::string_view(fn.entry) : std::string_view());
     h.update(std::string_view("\0", 1));
-    h.update(fn.d3d11_target ? std::string_view(fn.d3d11_target) : std::string_view());
+    h.update(fn.d3d11Target ? std::string_view(fn.d3d11Target) : std::string_view());
     const std::string key = std::string(keyBase) + "|src:" + h.finish_hex();
     const BlobCache cache(cacheDir, key);
     const std::string name = shader_cache_file_name(label, stage, sha256_hex(key));
@@ -148,25 +152,27 @@ bool cached_stage_bytecode(const stdfs::path& cacheDir, std::string_view keyBase
     return true;
 }
 
-sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
+gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, const char* label,
+                            const std::function<gpu::Shader(const gpu::ShaderDesc* prepared)>& make) {
     const auto start = std::chrono::steady_clock::now();
-    sg_shader shader{};
+    g_lastWasD3d11.store(backend == gpu::Backend::D3d11, std::memory_order_relaxed);
+    gpu::Shader shader{};
 #if defined(SOKOL_D3D11)
     // D3D11: the engine compiles every stage with its own flags (kCompileFlags), through the disk cache when there is a cache
-    // folder and directly when there is none; sokol compiles a stage only when this fails, and reports why.
-    if (engine_caches_here() && desc) {
+    // folder and directly when there is none; the backend compiles a stage only when this fails, and reports why.
+    if (backend == gpu::Backend::D3d11) {
         const bool cached = !fs::cache_dir().empty();
-        const std::string name = label ? label : desc->label ? desc->label : "shader";
+        const std::string name = label && *label ? label : desc.label && *desc.label ? desc.label : "shader";
         const std::string keyBase = std::string("d3d11|") + FA_ENGINE_VERSION + "|" + kCompileFlagsText;
-        sg_shader_desc copy = *desc;
+        gpu::ShaderDesc copy = desc;
         std::vector<std::uint8_t> vs, fsb;
         bool viaCache = true;
         struct Stage {
-            sg_shader_function* fn;
+            gpu::ShaderFunction* fn;
             std::vector<std::uint8_t>* bytes;
             const char* name;
         };
-        const Stage stages[] = {{&copy.vertex_func, &vs, "vs"}, {&copy.fragment_func, &fsb, "fs"}};
+        const Stage stages[] = {{&copy.vertexFunc, &vs, "vs"}, {&copy.fragmentFunc, &fsb, "fs"}};
         for (const Stage& st : stages) {
             if (st.fn->bytecode.ptr || !st.fn->source) continue;  // given as bytecode already, or no such stage
             std::string error;
@@ -174,23 +180,30 @@ sg_shader make_shader(const sg_shader_desc* desc, const char* label) {
                                                              *st.fn, d3d_compile_stage, *st.bytes, g_stats)
                                      : d3d_compile_stage(*st.fn, *st.bytes, error);
             if (!made) {
-                viaCache = false;  // sokol compiles it and reports what is wrong
+                viaCache = false;  // the backend compiles it and reports what is wrong
                 break;
             }
             st.fn->bytecode = {st.bytes->data(), st.bytes->size()};
             st.fn->source = nullptr;
         }
-        shader = sg_make_shader(viaCache ? &copy : desc);  // copy's bytes (vs, fsb) outlive this call
+        shader = make(viaCache ? &copy : nullptr);  // copy's bytes (vs, fsb) outlive this call
     } else {
-        shader = sg_make_shader(desc);
+        shader = make(nullptr);
     }
 #else
+    (void)desc;
     (void)label;
-    shader = sg_make_shader(desc);
+    shader = make(nullptr);
 #endif
     ++g_stats.programs;
     g_stats.createMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     return shader;
+}
+
+gpu::Shader make_shader(gpu::Device& device, const gpu::ShaderDesc& desc, const char* label) {
+    return make_shader_via(device.backend(), desc, label, [&](const gpu::ShaderDesc* prepared) {
+        return device.make_shader(prepared ? *prepared : desc);
+    });
 }
 
 const ShaderBuildStats& shader_build_stats() { return g_stats; }

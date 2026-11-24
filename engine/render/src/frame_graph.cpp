@@ -366,7 +366,7 @@ Result<void> FrameGraph::compile() {
     return {};
 }
 
-Result<void> FrameGraph::execute(TargetPool& pool) {
+Result<void> FrameGraph::execute(TargetPool& pool, gpu::CommandList* commands) {
     if (released_) {
         return make_error("Frame graph: execute() called on a graph whose pass callbacks were released.",
                           "Declare the passes again (clear(), add_pass(), compile()) before executing.");
@@ -381,6 +381,11 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
     }
     stats_.clear();
     hookFailures_ = 0;
+    commands_ = commands;
+    struct ForgetCommands {  // PassContext::commands() is null again once execute() returns, whatever the way out
+        gpu::CommandList*& list;
+        ~ForgetCommands() { list = nullptr; }
+    } forgetCommands{commands_};
     // Gives every transient still held back to the pool on any way out (an error, a pass that throws).
     struct Release {
         const std::vector<Resource>& resources;

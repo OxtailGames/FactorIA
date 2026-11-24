@@ -419,6 +419,10 @@ int pixel_format_bytes(PixelFormat f);
 bool pixel_format_compressed(PixelFormat f);
 // True for Depth and DepthStencil.
 bool pixel_format_depth(PixelFormat f);
+// True for the unnormalized integer formats (R8UI, RGBA32SI...): no filtering, no blending.
+bool pixel_format_integer(PixelFormat f);
+// True for the uncompressed signed normalized formats (R8SN, RGBA16SN...).
+bool pixel_format_signed_normalized(PixelFormat f);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Resource descs
@@ -1003,10 +1007,12 @@ struct TotalStats {
     ResourceTotals pipelines{};
 };
 
-// A pending asynchronous buffer readback (Device::request_buffer_read): `slot` -1 = none.
+// A pending asynchronous buffer readback (Device::request_buffer_read): `slot` -1 = none. `generation` tells this request
+// from a later one in the same slot: a ticket that was polled to the end or released is stale and is ignored.
 struct ReadTicket {
     int slot = -1;
-    bool valid() const { return slot >= 0; }
+    std::uint32_t generation = 0;
+    bool valid() const { return slot >= 0 && generation != 0; }
 };
 
 }  // namespace fa::gpu

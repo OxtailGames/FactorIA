@@ -77,7 +77,32 @@ uniforms and `dispatch`; outside a pass the copies. Writes, debug groups and tim
   testable before those backends exist.
 - A resource may be destroyed while a submitted list still uses it: a backend with frames in flight defers the
   release (sokol does; the explicit backends keep a per-frame deletion queue).
-- A list is not used after `submit()`.
+- A list is not used after `submit()`: a `CommandList&` kept across a `submit()` (or a `Gpu::commit_frame()`) names
+  a list the device may already have recycled. Ask for the current one again (`Gpu::commands()`).
+- SokolDevice checks the thread (`FA_ASSERT` in every build) in every entry that reaches the sokol context: the
+  resources, `state()`, the frame, the statistics, the timers, the readbacks, the natives and every call of its list.
+  The cached queries (`backend()`, `info()`, `features()`, `limits()`, `async_read_supported()`) do not reach the
+  context and are not checked.
+- `SokolDevice::create` adopts the context that is open and then ignores its `DeviceInit` entirely (environment, pool
+  sizes, uniform buffer size are the open context's); it opens a context from `DeviceInit` only when none is open,
+  and closes only a context it opened. Its destructor asks `sg_isvalid()` BEFORE it releases its timer and its
+  asynchronous reads, so neither touches a context that is already closed.
+
+**Uploads inside a pass.** `write_buffer` and `write_image` may be recorded inside a pass: sokol copies at once (GL,
+D3D11) or into a per-frame transient slot (Metal). The explicit backends (D3D12, Vulkan, not built yet) cannot copy
+into a resource a pass is using: they will stage such a write in a host-visible ring buffer of the frame and copy it
+before the pass (or read the ring directly), so a write inside a pass costs them a ring allocation. Keep uploads
+before the pass where the code allows it.
+
+**Asynchronous reads.** `request_buffer_read(buffer, offset, bytes)` returns a `ReadTicket{slot, generation}`: the
+generation changes with every request, so a ticket that was already read or released is stale (`poll_buffer_read`
+returns false, `release_buffer_read` does nothing) even when a later request reuses its slot. A ticket with
+`valid() == false` and no error means every slot is in flight: ask again next frame. The offset is applied by the
+backend (sokol copies `offset + bytes` and drops the first `offset`). Only buffers are read in the background;
+images are read by waiting (`read_image_rgba8`, `read_image_rgba16f`, `read_storage_image`).
+
+**RecordingDevice ranges.** Every rectangle, mip and slice range is checked in 64-bit arithmetic: a start near
+`INT_MAX` plus a size cannot wrap around into a range that looks inside the image.
 
 ## Barriers live inside the backends
 
@@ -182,6 +207,71 @@ reason (the timed scopes are still recorded).
 - **M77.2 / M77.3** add `D3d12Device` and `VulkanDevice` behind the same interface; `make_device(Backend::D3d12)` and
   `Backend::Vulkan` stop returning "not built yet". RecordingDevice's checks are the contract they implement: a frame
   that RecordingDevice accepts must run on them.
+
+## How the renderer reaches the device
+
+`render::Gpu` (engine/render/src/render_internal.h) owns the renderer's `gpu::Device` from `init()` to `shutdown()`
+and the command list of the frame being recorded. Code reaches them in one of three ways, never through a global
+sokol call:
+
+- **Code that has the Gpu** (its own resources, the pipeline cache, uploads): `gpu.device()` for resources and
+  queries, `gpu.commands()` for what goes into the frame. `Gpu::commit_frame()` submits the list, commits and begins
+  the next one, so a `CommandList&` is asked for again after it (see "Threading and lifetime").
+- **A frame-graph pass**: `PassContext::commands()` is the list `FrameGraph::execute(pool, &gpu.commands())` was
+  given, valid while the pass runs (null in the CPU-only graph tests). This is where a later backend hands each pass
+  (or each thread) its own list: the pass code does not change.
+- **The static pass functions** (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
+  the list of `Gpu::active()`, the Gpu initialised last of those still alive (the editor has one per renderer, all on
+  the one sokol context). With none alive (`Renderer::present_clear` runs before the renderer exists) they record on
+  the sokol context itself (`gpu::begin_context_pass`).
+- **Free helpers without a Gpu at hand** (`make_target(desc)`, `destroy_target(t)`, `Target::valid()`) use
+  `Gpu::active_device()`, TRANSITIONAL until the passes that call them pass their Gpu's device
+  (`make_target(gpu.device(), desc)`). An empty target needs no device.
+
+Before (a sokol call site):
+
+```cpp
+sg_buffer_desc d{};
+d.usage.vertex_buffer = true;
+d.data = SG_RANGE(verts);
+quad_ = sg_make_buffer(&d);
+...
+sg_write_buffer_transient(buf, SG_RANGE(data));
+sg_commit();
+```
+
+After (on the interface):
+
+```cpp
+gpu::BufferDesc d;
+d.usage.vertexBuffer = true;
+d.data = gpu::Range{verts, sizeof(verts)};
+quad_ = gpu.device().make_buffer(d);
+...
+gpu::BufferWrite w;
+w.buffer = buf;
+w.data = gpu::Range{data, sizeof(data)};
+gpu.commands().write_buffer(w);
+gpu.commit_frame();
+```
+
+While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the last sg_* call site, M77-P5):
+
+- `to_sg` / `from_sg` convert handles (the same id), enums (the same value) and descs (field by field);
+- `gpu::bridged::*` is a handle that also converts to and from its sokol twin: Gpu's getters return one (pipelines,
+  samplers, buffers) so the passes that still call `sg_apply_pipeline` take it unchanged. Never put one in a ternary
+  next to an `sg_*` value (`t ? t->view : sg_view{}`): each side converts to the other and the compiler cannot
+  choose; write `to_sg()` or `from_sg()` on one side. For that reason `Target` keeps `sg_image` / `sg_view` fields
+  until the passes move;
+- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`;
+- `feature_env_from_sokol()` (render_features_sg.cpp) is the sokol twin of `feature_env_from_device(device)`.
+
+A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
+sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target
+helpers (target.cpp), shader_cache.cpp and render_features.cpp; the frame graph carries the list to its passes.
+Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
+which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
+change with the passes (P4).
 
 ## How to convert an sg_* call site
 

@@ -1,11 +1,11 @@
 #include "render_features.h"
 
 #include <cstring>
+#include <functional>
 #include <string_view>
 
 #include "fa/core/log.h"
 #include "fa/scene/postprocess.h"
-#include "sokol_gfx.h"
 
 #include "metalfx.h"
 
@@ -562,49 +562,55 @@ void set_hdr_env(FeatureEnv& env, const HdrDisplay& display) {
     env.hdrWhy = d.why;
 }
 
-FeatureEnv feature_env_from_sokol() {
-    FeatureEnv env;
-    switch (sg_query_backend()) {
-        case SG_BACKEND_GLCORE: env.backend = FeatureBackend::Gl; break;
-        case SG_BACKEND_GLES3:
-#if defined(__EMSCRIPTEN__)
-            env.backend = FeatureBackend::WebGl2;
-#else
-            env.backend = FeatureBackend::Gles3;
-#endif
-            break;
-        case SG_BACKEND_D3D11: env.backend = FeatureBackend::D3d11; break;
-        case SG_BACKEND_METAL_IOS:
-        case SG_BACKEND_METAL_MACOS:
-        case SG_BACKEND_METAL_SIMULATOR: env.backend = FeatureBackend::Metal; break;
-        default:
-            env.backend = FeatureBackend::Headless;
-            break;  // the dummy backend (and any sokol backend the engine never builds)
+FeatureBackend feature_backend_of(gpu::Backend backend) {
+    switch (backend) {
+        case gpu::Backend::Gl: return FeatureBackend::Gl;
+        case gpu::Backend::Gles3: return FeatureBackend::Gles3;
+        case gpu::Backend::WebGl2: return FeatureBackend::WebGl2;
+        case gpu::Backend::D3d11: return FeatureBackend::D3d11;
+        case gpu::Backend::Metal: return FeatureBackend::Metal;
+        // D3D12 and Vulkan get their own rows with their backends (M77.2, M77.3); Recording draws nothing.
+        case gpu::Backend::D3d12:
+        case gpu::Backend::Vulkan:
+        case gpu::Backend::Recording: return FeatureBackend::Headless;
     }
-    const sg_limits limits = sg_query_limits();
-    env.maxTextureSize = limits.max_image_size_2d;
-    env.maxArrayLayers = limits.max_image_array_layers;
-    env.maxArrayTextureSize = limits.max_image_size_array;
-    const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+    return FeatureBackend::Headless;
+}
+
+FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& limits, bool compute,
+                                    const std::function<gpu::PixelFormatCaps(gpu::PixelFormat)>& caps,
+                                    bool askMetalFx) {
+    using gpu::PixelFormat;
+    FeatureEnv env;
+    env.backend = feature_backend_of(backend);
+    env.maxTextureSize = limits.maxImageSize2d;
+    env.maxArrayLayers = limits.maxImageArrayLayers;
+    env.maxArrayTextureSize = limits.maxImageSizeArray;
+    const gpu::PixelFormatCaps half = caps(PixelFormat::Rgba16F);
     env.halfTargets = half.render && half.blend && half.filter;
-    const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
+    const gpu::PixelFormatCaps packed = caps(PixelFormat::Rg11B10F);
     // The rule of Gpu::init: sokol-gfx reports no blend flag for RG11B10F on GL, where the format blends when it renders at all.
     env.r11g11b10 = packed.render && packed.filter && (packed.blend || env.backend == FeatureBackend::Gl);
     // sampledDepth: the renderer's prepass (Gpu::prepass_color_format) writes the depth into a float colour image, because a depth buffer
     // cannot be sampled when it is multisampled and its range differs per backend; so the answer follows that image's format.
-    const sg_pixelformat_info depth = sg_query_pixelformat(SG_PIXELFORMAT_DEPTH);
-    const sg_pixelformat_info f32 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA32F);
-    const sg_pixelformat_info f16 = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
-    env.sampledDepth = depth.render && ((f32.render && f32.sample) || (f16.render && f16.sample));
-    const sg_pixelformat_info r32 = sg_query_pixelformat(SG_PIXELFORMAT_R32F);
+    const gpu::PixelFormatCaps depth = caps(PixelFormat::Depth);
+    const gpu::PixelFormatCaps f32 = caps(PixelFormat::Rgba32F);
+    env.sampledDepth = depth.render && ((f32.render && f32.sample) || (half.render && half.sample));
+    const gpu::PixelFormatCaps r32 = caps(PixelFormat::R32F);
     env.float32 = r32.render && r32.sample && f32.render && f32.sample;
-    env.compute = sg_query_features().compute;
-    if (env.backend == FeatureBackend::Metal && sg_isvalid()) {
+    env.compute = compute;
+    if (env.backend == FeatureBackend::Metal && askMetalFx) {
         const metalfx::Support s = metalfx::support();
         env.metalfx = s.spatial || s.temporal;
         env.metalfxWhy = s.reason;
     }
     return env;
+}
+
+FeatureEnv feature_env_from_device(const gpu::Device& device) {
+    return feature_env_from_queries(
+        device.backend(), device.limits(), device.features().compute,
+        [&](gpu::PixelFormat f) { return device.pixel_format_caps(f); }, true);
 }
 
 Json feature_report(const FeatureEnv& env, const char* backendName) {

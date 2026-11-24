@@ -14,12 +14,24 @@
 // belongs to the thread that called begin_commands() until it is submitted: a backend that records in parallel
 // (D3D12, Vulkan, M77.5) lets several threads each hold one list of the same frame; the sokol backends have a single
 // immediate list, so a second begin_commands() before submit() and a call from another thread are programming errors
-// (FA_ASSERT). Resource creation and destruction stay on the render thread on every backend.
+// (FA_ASSERT). Resource creation and destruction stay on the render thread on every backend. What SokolDevice checks:
+// every entry that touches the sokol context (make_*, destroy_*, state, pixel_format_caps, environment_defaults, the
+// natives, begin_commands, submit, commit, the commit listeners, the statistics, the readbacks and timers, and every
+// CommandList call) asserts the calling thread, in every build (one thread-id compare); the queries that answer from
+// values cached at creation (backend, info, features, limits, async_read_supported) do not.
 //
 // LIFETIME. A resource lives from make_*() to destroy_*(). Destroying one that a submitted command list still uses
 // is allowed: a backend with frames in flight defers the release until the GPU is done with it (sokol does). A handle
 // that was destroyed never names another resource (its generation changes), so a stale handle is Invalid, never a
-// different object. A CommandList is valid from begin_commands() to submit() and must not be used after it.
+// different object. A CommandList is valid from begin_commands() to submit(): a `CommandList&` kept past submit() is
+// dangling (D3D12/Vulkan recycle the object for a later begin_commands()), so code that holds the frame's list (the
+// renderer's Gpu::commands()) takes it again after each commit.
+//
+// UPLOADS INSIDE A PASS. write_buffer / write_image may run inside a pass here because sokol copies at once (GL, D3D11)
+// or into a per-frame transient slot (Metal). The explicit backends (D3D12, Vulkan) cannot copy into a resource a
+// pass is using: they will stage such a write in a host-visible ring buffer of the frame and copy it before the pass
+// (or read the ring directly), so a write inside a pass costs them a ring allocation; keep uploads before the pass
+// where the code allows it.
 //
 // BARRIERS. None in this interface. A backend that needs them (D3D12, Vulkan) derives them from the pass boundaries
 // (attachments become shader-readable after the pass that wrote them) and from the views a draw or dispatch binds
@@ -213,12 +225,15 @@ public:
     // `bytes` bytes of a storage buffer from `offset`.
     virtual Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                                      std::vector<std::uint8_t>& out) = 0;
-    // Asynchronous readback of the start of a storage buffer, frames in flight: request() queues a copy behind the
-    // committed work and returns a ticket (an invalid ticket with ok = every slot is busy, ask again next frame);
-    // poll() hands the bytes over once the GPU is done (wait = block until then, bounded); release() frees a ticket
-    // without reading it. Render thread only.
+    // Asynchronous readback of `bytes` bytes of a storage buffer from `offset`, frames in flight: request() queues a
+    // copy behind the committed work and returns a ticket (an invalid ticket with ok = every slot is busy, ask again
+    // next frame); poll() hands the bytes over once the GPU is done (wait = block until then, bounded); release()
+    // frees a ticket without reading it. A ticket names one request: once it was polled to the end or released, it is
+    // stale (its generation no longer matches the slot's) and poll() / release() ignore it, even after the slot was
+    // reused. The sokol backends copy the first offset + bytes bytes and drop the first `offset`. Only buffers are read
+    // in the background: an image is read with the blocking read_image_* / read_storage_image. Render thread only.
     virtual bool async_read_supported() const = 0;
-    virtual Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t bytes) = 0;
+    virtual Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) = 0;
     virtual bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) = 0;
     virtual void release_buffer_read(ReadTicket ticket) = 0;
 };

@@ -623,7 +623,7 @@ void Renderer::Impl::run_frame_graph() {
     if (beforeFrameGraph) beforeFrameGraph();
     if (Result<void> r = graph.compile(); !r)
         report(r.error(), false);
-    else if (Result<void> e = graph.execute(transient_targets().pool); !e)
+    else if (Result<void> e = graph.execute(transient_targets().pool, gpu.has_device() ? &gpu.commands() : nullptr); !e)
         report(e.error(), true);
     graph.release_callbacks();
     jobContexts.clear();

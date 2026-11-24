@@ -42,7 +42,7 @@ struct FakeCompiler {
     int calls = 0;
     bool fail = false;
     StageCompiler fn() {
-        return [this](const sg_shader_function& f, std::vector<std::uint8_t>& out, std::string& error) {
+        return [this](const gpu::ShaderFunction& f, std::vector<std::uint8_t>& out, std::string& error) {
             ++calls;
             if (fail) {
                 error = "boom";
@@ -55,11 +55,11 @@ struct FakeCompiler {
     }
 };
 
-sg_shader_function func(const char* source) {
-    sg_shader_function f{};
+gpu::ShaderFunction func(const char* source) {
+    gpu::ShaderFunction f{};
     f.source = source;
     f.entry = "main";
-    f.d3d11_target = "vs_5_0";
+    f.d3d11Target = "vs_5_0";
     return f;
 }
 
@@ -70,7 +70,7 @@ TEST_CASE("shader cache: the first run compiles and stores, the second reads the
     FakeCompiler c;
     ShaderBuildStats stats;
     std::vector<std::uint8_t> out;
-    const sg_shader_function f = func("float4 main() { return 0; }");
+    const gpu::ShaderFunction f = func("float4 main() { return 0; }");
     REQUIRE(cached_stage_bytecode(t.dir, "d3d11|1|flags", "quad", "vs", f, c.fn(), out, stats));
     CHECK(c.calls == 1);
     CHECK(stats.cacheMisses == 1);
@@ -154,7 +154,7 @@ TEST_CASE("shader cache: a damaged or cut-short file is recompiled and stored ag
     FakeCompiler c;
     std::vector<std::uint8_t> out;
     ShaderBuildStats stats;
-    const sg_shader_function f = func("src");
+    const gpu::ShaderFunction f = func("src");
     REQUIRE(cached_stage_bytecode(t.dir, "k", "mesh", "fs", f, c.fn(), out, stats));
     const auto files = cache_files(t.dir);
     REQUIRE(files.size() == 1);

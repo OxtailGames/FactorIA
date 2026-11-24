@@ -613,18 +613,18 @@ TEST_CASE("mesh buffers: the pipelines of a buffers material lay out the mesh ve
     // `vertex` = the attributes of buffer 0 that are not the instance matrix, in location order (MeshVertex order).
     auto check = [&](const char* what, int firstInst, const std::vector<int>& vertex) {
         INFO(what);
-        const sg_vertex_layout_state& lay = gpu.probed_layout();
+        const fa::gpu::VertexLayout& lay = gpu.probed_layout();
         CHECK(lay.buffers[0].stride == 52);
         const int expected[5] = {0, 12, 24, 32, 48};
         for (std::size_t i = 0; i < vertex.size(); ++i) {
-            CHECK(lay.attrs[vertex[i]].buffer_index == 0);
+            CHECK(lay.attrs[vertex[i]].bufferIndex == 0);
             CHECK(lay.attrs[vertex[i]].offset == expected[i]);
         }
         bool anyOffset = false;
         for (int i = 0; i < 4; ++i) {
-            const sg_vertex_attr_state& a = lay.attrs[firstInst + i];
-            CHECK(a.format == SG_VERTEXFORMAT_FLOAT4);
-            CHECK(a.buffer_index == 0);
+            const fa::gpu::VertexAttr& a = lay.attrs[firstInst + i];
+            CHECK(a.format == fa::gpu::VertexFormat::Float4);
+            CHECK(a.bufferIndex == 0);
             CHECK(a.offset + 16 <= lay.buffers[0].stride);  // inside the vertex, so inside the buffer
             anyOffset = anyOffset || a.offset != 0;
         }
@@ -650,5 +650,5 @@ TEST_CASE("mesh buffers: the pipelines of a buffers material lay out the mesh ve
     // Without "buffers" the matrix comes from vertex buffer 1, one per instance.
     (void)gpu.mesh_pipeline(format, false, false, false, custom, render::MeshExtras{});
     CHECK(gpu.probed_layout().buffers[1].stride == 64);
-    CHECK(gpu.probed_layout().attrs[5].buffer_index == 1);
+    CHECK(gpu.probed_layout().attrs[5].bufferIndex == 1);
 }
