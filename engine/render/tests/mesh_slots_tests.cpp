@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "render_internal.h"
 
 using namespace fa::render;

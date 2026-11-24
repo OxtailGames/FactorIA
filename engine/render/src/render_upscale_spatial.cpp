@@ -6,6 +6,7 @@
 
 #include "fullscreen_gpu.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/upscale_spatial.glsl.h"
 
 namespace fa::render {

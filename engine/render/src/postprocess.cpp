@@ -7,6 +7,7 @@
 
 #include "postprocess_resolve.h"
 #include "render_features.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/exposure.glsl.h"
 #include "shaders/post.glsl.h"
 

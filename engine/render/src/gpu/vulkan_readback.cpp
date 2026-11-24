@@ -1,5 +1,5 @@
 // The Vulkan backend's blocking readbacks: a copy into a host-visible buffer, a timeline wait, a read of the mapped
-// memory (docs/design/ARCHITECTURE_RENDERING_GPU.md, "Vulkan backend").
+// memory (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
 #include "gpu/vulkan_device.h"
 
 #if defined(FA_VULKAN_BACKEND)

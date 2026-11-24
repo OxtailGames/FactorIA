@@ -10,6 +10,7 @@
 
 #include "frame_graph.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/gi2d.glsl.h"
 
 namespace fa::render {

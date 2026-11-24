@@ -30,7 +30,6 @@
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
 #include "gpu/device.h"
-#include "gpu/sg_bridge.h"
 #include "gpu_types.h"
 #include "postprocess_resolve.h"
 
@@ -1573,9 +1572,8 @@ constexpr gpu::PixelFormat kSceneDepthFormat = gpu::PixelFormat::DepthStencil;
 gpu::PixelFormat pick_ldr_cut_format(gpu::PixelFormat display, bool hdrOutput, bool half, bool full);
 
 // The renderer's shared GPU state: the device (gpu::Device), the frame's command list, the pipeline cache, the samplers,
-// the static buffers and the transient pools. It reaches the GPU only through the device (gpu/device.h); the handles it
-// hands to code that still calls sokol are gpu::bridged::* (gpu/sg_bridge.h), which convert to the sg_* types.
-// docs/design/ARCHITECTURE_RENDERING_GPU.md, "How the renderer reaches the device".
+// the static buffers and the transient pools. It reaches the GPU only through the device (gpu/device.h) and hands out
+// the interface's handles (gpu/types.h). docs/design/ARCHITECTURE_RENDERING_GPU.md, "How the renderer reaches the device".
 class Gpu {
 public:
     Gpu() = default;
@@ -1612,7 +1610,7 @@ public:
     // Ends the frame on the device: submits the frame's list, commits (Device::commit) and begins the next list.
     void commit_frame();
 
-    gpu::bridged::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
+    gpu::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
     // `opaque` = blending off (QuadBatch::opaque).
     //
@@ -1623,14 +1621,13 @@ public:
     // that stage for the others.
     // `shader` = a program of a sprite material (quad or quad_plain; the pipeline is keyed by it); default = the
     // built-in one.
-    gpu::bridged::Pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
-                                         BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
-                                         gpu::bridged::Shader shader = {}, int instanceVec4 = 0);
+    gpu::Pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
+                                BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
+                                gpu::Shader shader = {}, int instanceVec4 = 0);
     // `instanceVec4` = the vec4 of per-quad instanced params of that material (MaterialUse::instVec4): vertex buffer 1
     // (kQuadInstBuffer), attributes 7.. (the quad vertex shader's fa_inst_d0..2), one value per vertex.
-    gpu::bridged::Pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha,
-                                         bool plain = false, bool opaque = false, gpu::bridged::Shader shader = {},
-                                         int instanceVec4 = 0) {
+    gpu::Pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
+                                bool opaque = false, gpu::Shader shader = {}, int instanceVec4 = 0) {
         return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader, instanceVec4);
     }
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
@@ -1642,28 +1639,23 @@ public:
     // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     // `lod` = the built-in program (no `shader`) of a draw that cross-fades between two levels of detail: mesh_lod / mesh_skin_lod, the
     // programs with the dither's discard (mesh_common.glsl fa_lod_dither). A custom material dithers inside its own alphaMode "clip".
-    gpu::bridged::Pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided,
-                                         bool skinned = false, gpu::bridged::Shader shader = {}, MeshExtras extras = {},
-                                         bool glass = false, bool lod = false);
-    gpu::bridged::Pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false,
-                                         gpu::bridged::Shader shader = {}, MeshExtras extras = {}, bool glass = false,
-                                         bool lod = false) {
+    gpu::Pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
+                                gpu::Shader shader = {}, MeshExtras extras = {}, bool glass = false, bool lod = false);
+    gpu::Pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, gpu::Shader shader = {},
+                                MeshExtras extras = {}, bool glass = false, bool lod = false) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass, lod);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
-    gpu::bridged::Pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
-                                         gpu::bridged::Shader shader, MeshExtras extras);
-    gpu::bridged::Pipeline full_pipeline(const MaterialPassState& state, bool skinned, gpu::bridged::Shader shader,
-                                         MeshExtras extras) {
+    gpu::Pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                                gpu::Shader shader, MeshExtras extras);
+    gpu::Pipeline full_pipeline(const MaterialPassState& state, bool skinned, gpu::Shader shader, MeshExtras extras) {
         return full_pipeline(scene_target_format(), state, skinned, shader, extras);
     }
     // `shader`: the program of a sky material (id 0 = the built-in gradient).
-    gpu::bridged::Pipeline sky_pipeline(const TargetFormat& format, gpu::bridged::Shader shader = {});
-    gpu::bridged::Pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
-    gpu::bridged::Pipeline sky_pipeline(gpu::bridged::Shader shader) {
-        return sky_pipeline(scene_target_format(), shader);
-    }
+    gpu::Pipeline sky_pipeline(const TargetFormat& format, gpu::Shader shader = {});
+    gpu::Pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
+    gpu::Pipeline sky_pipeline(gpu::Shader shader) { return sky_pipeline(scene_target_format(), shader); }
 
     // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
     // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the
@@ -1697,11 +1689,11 @@ public:
     // whose first hit is a back face is inside geometry).
     // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
     // the prepass with the dither); it declares the slots of prepass_program().
-    gpu::bridged::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                            gpu::bridged::Shader shader = {}, MeshExtras extras = {},
-                                            bool cullFront = false, bool lod = false);
-    gpu::bridged::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::bridged::Shader shader = {},
-                                            MeshExtras extras = {}) {
+    gpu::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
+                                   gpu::Shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
+                                   bool lod = false);
+    gpu::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::Shader shader = {},
+                                   MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
     // The subsurface pass (M73.5, mesh_common.glsl fs_sss): the diffuse light of the meshes that scatter into colour 0 (rgb light, a = linear
@@ -1711,15 +1703,17 @@ public:
         return {gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Depth, 1, gpu::PixelFormat::Rgba16F};
     }
     // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
-    gpu::Shader builtin_shader(gpu::Shader& slot, gpu::GeneratedShader desc, const char* label);
+    // `desc` as in make_builtin (defined and used in gpu.cpp only).
+    template <class GeneratedShader>
+    gpu::Shader builtin_shader(gpu::Shader& slot, GeneratedShader desc, const char* label);
     bool sss_ready();
     // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
     const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }
     // The main pass's vertex layout and culling, no blending, depth written: the draw of the prepass's depth plus the two colours.
-    gpu::bridged::Pipeline sss_pipeline(bool doubleSided, bool skinned);
+    gpu::Pipeline sss_pipeline(bool doubleSided, bool skinned);
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
-    gpu::bridged::Pipeline prepass_view_pipeline(const TargetFormat& format);
+    gpu::Pipeline prepass_view_pipeline(const TargetFormat& format);
     // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world (shaders/quad_motion.glsl). The mask is an R8 image
     // (reactive_format(): renderable and sampleable on GLES3, WebGL2, D3D11 and Metal; the MAX blend is core on all of them), and
     // reactive_ready() says whether this GPU makes it. quad_motion_ready() builds the two programs (once; false with one log line when they
@@ -1728,11 +1722,11 @@ public:
     static gpu::PixelFormat reactive_format() { return gpu::PixelFormat::R8; }
     bool reactive_ready();
     bool quad_motion_ready();
-    gpu::bridged::Pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
+    gpu::Pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
     // The full-screen triangle of a post material's program (post_common.glsl) into `format`, no blending (the pass
     // writes every pixel of its rectangle) and no depth; keyed by the program, so a reload that destroys it
     // (destroy_shader) drops the pipeline too.
-    gpu::bridged::Pipeline post_material_pipeline(const TargetFormat& format, gpu::bridged::Shader shader);
+    gpu::Pipeline post_material_pipeline(const TargetFormat& format, gpu::Shader shader);
 
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than
@@ -1766,23 +1760,22 @@ public:
     // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
     // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
     // `extras` count only with `fullVertex` (the shadow programs without vertex() and clip do not read them).
-    gpu::bridged::Pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false,
-                                           gpu::bridged::Shader shader = {}, bool fullVertex = false,
-                                           MeshExtras extras = {});
-    gpu::bridged::Pipeline shadow_pipeline(bool skinned = false, gpu::bridged::Shader shader = {},
-                                           bool fullVertex = false, MeshExtras extras = {}) {
+    gpu::Pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false, gpu::Shader shader = {},
+                                  bool fullVertex = false, MeshExtras extras = {});
+    gpu::Pipeline shadow_pipeline(bool skinned = false, gpu::Shader shader = {}, bool fullVertex = false,
+                                  MeshExtras extras = {}) {
         return shadow_pipeline(shadow_target_format(), skinned, shader, fullVertex, extras);
     }
     // Destroys a custom material program together with the pipelines made from it.
-    void destroy_shader(gpu::bridged::Shader shader);
-    gpu::bridged::Pipeline blit_pipeline(const TargetFormat& format);
-    gpu::bridged::Pipeline blit_pipeline(gpu::PixelFormat colorFormat, gpu::PixelFormat depthFormat, int sampleCount) {
+    void destroy_shader(gpu::Shader shader);
+    gpu::Pipeline blit_pipeline(const TargetFormat& format);
+    gpu::Pipeline blit_pipeline(gpu::PixelFormat colorFormat, gpu::PixelFormat depthFormat, int sampleCount) {
         return blit_pipeline(TargetFormat{colorFormat, depthFormat, sampleCount});
     }
     // The same copy into an RGBA8 target without depth, keeping the source's alpha: how a frame in a float scene_format() is
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
-    gpu::bridged::Pipeline blit_keep_pipeline(const TargetFormat& format);
-    gpu::bridged::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
+    gpu::Pipeline blit_keep_pipeline(const TargetFormat& format);
+    gpu::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
     static TargetFormat blit_keep_target_format() { return {gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
@@ -1832,8 +1825,8 @@ public:
     // cannot be created, in which case the bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
-    gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
-    gpu::bridged::Pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
+    gpu::Pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
+    gpu::Pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
         return bloom_pipeline(stage, TargetFormat{scene_format(), gpu::PixelFormat::None, sampleCount});
     }
     // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
@@ -1841,8 +1834,8 @@ public:
     bool colorfilter_ready();
     // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
     // shader cannot be created.
-    gpu::bridged::Pipeline colorfilter_pipeline(const TargetFormat& format);
-    gpu::bridged::Pipeline colorfilter_pipeline() {
+    gpu::Pipeline colorfilter_pipeline(const TargetFormat& format);
+    gpu::Pipeline colorfilter_pipeline() {
         return colorfilter_pipeline(TargetFormat{scene_format(), gpu::PixelFormat::None, 1});
     }
 
@@ -1852,13 +1845,13 @@ public:
     int post_ready_calls() const {
         return postReadyCalls_;
     }  // how often a frame asked for it: 0 for a world without a stack (tests)
-    gpu::bridged::Pipeline post_pipeline(const TargetFormat& format);
+    gpu::Pipeline post_pipeline(const TargetFormat& format);
     // The automatic exposure (exposure.glsl), the same way.
     bool exposure_ready();
-    gpu::bridged::Pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
+    gpu::Pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
     // The ambient occlusion (ssao.glsl, renderer_ssao.cpp), the same way: false + one logged error when its shaders cannot be made.
     bool ssao_ready();
-    gpu::bridged::Pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
+    gpu::Pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
 
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
     // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
@@ -1869,27 +1862,20 @@ public:
     gpu::PixelFormat light_format() const { return lightFormat_; }
     // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
     float light_range() const { return lightFormat_ == gpu::PixelFormat::Rgba8 ? 2.0f : 1.0f; }
-    gpu::bridged::Pipeline light_pipeline(const TargetFormat& format);
-    gpu::bridged::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
+    gpu::Pipeline light_pipeline(const TargetFormat& format);
+    gpu::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
     TargetFormat light_target_format() const { return {light_format(), gpu::PixelFormat::None, 1}; }
 
-    // Begins and ends a render pass on this Gpu's frame list (commands()) and remembers the pass's TargetFormat: in a
-    // debug build every pipeline getter then checks that the pipeline it hands out was made for that format (a mismatch
-    // GL and D3D11 validation reject, Metal only draws wrong). Outside a pass (warm-up, a getter called before the pass
-    // begins) nothing is checked. A pass begun straight on commands() (what the frame-graph passes do:
-    // `ctx.commands().begin_pass(...)`) is not remembered here, so it is not checked: begin it here to get the check.
-    void begin_pass(const PassDesc& pass);
-    void end_pass();
-    // True while a pass is open on this Gpu's list: one begun with begin_pass above, or on commands() directly.
+    // True while a pass is open on this Gpu's frame list (commands()). The list checks that every pipeline set in a
+    // render pass was made for the pass's PassDesc::format (CommandList::set_pipeline: a debug assertion on the sokol
+    // backends, an errors() entry on RecordingDevice).
     bool in_pass() const;
     // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others
     // (destroy_shader drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
-    gpu::bridged::Pipeline compute_pipeline(gpu::bridged::Shader shader);
-    // The format of the pass begun last with begin_pass; meaningful while in_pass().
-    const TargetFormat& pass_format() const { return passFormat_; }
+    gpu::Pipeline compute_pipeline(gpu::Shader shader);
 
-    gpu::bridged::Buffer quad_index_buffer() const { return quadIndices_; }
-    gpu::bridged::Buffer fullscreen_triangle() const { return fsTriangle_; }
+    gpu::Buffer quad_index_buffer() const { return quadIndices_; }
+    gpu::Buffer fullscreen_triangle() const { return fsTriangle_; }
     // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
     // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
     // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
@@ -1903,13 +1889,13 @@ public:
     // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
     void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
-    gpu::bridged::Buffer acquire_transient(std::size_t bytes);
+    gpu::Buffer acquire_transient(std::size_t bytes);
     // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
     // that holds `texels` (width * rows * 4 floats), written now and valid until the pool restarts like the buffers' (after a
     // commit). Call it once per view and frame, outside a pass, and bind the view this frame.
     struct LightImage {
-        gpu::bridged::Image image{};
-        gpu::bridged::View view{};
+        gpu::Image image{};
+        gpu::View view{};
     };
     LightImage write_light_image(int rows, const float* texels);
     // The image of the previous joint palettes of the motion vectors (M76-P1c, kPrevPaletteWidth wide, the same format and the same rules as
@@ -1969,8 +1955,11 @@ public:
     gpu::Shader light_shader_{};
 
 private:
-    // A generated program (shaders/*.glsl.h) made on the device through the cache layer (shader_cache.h).
-    gpu::Shader make_builtin(gpu::GeneratedShader desc, const char* label);
+    // A generated program (shaders/*.glsl.h) made on the device through the cache layer (shader_cache.h). `desc` is the
+    // header's desc function (gpu::GeneratedShader, gpu/sokol_shaders.h): a template so this header stays sokol-free;
+    // defined and used in gpu.cpp only.
+    template <class GeneratedShader>
+    gpu::Shader make_builtin(GeneratedShader desc, const char* label);
     // Destroys `s` when it was made and clears it.
     void drop_shader(gpu::Shader& s);
     bool shader_valid(gpu::Shader s) const;
@@ -1986,11 +1975,9 @@ private:
     gpu::CommandList* list_ = nullptr;  // the frame's (device_->begin_commands), until commit_frame
     // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
     // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
-    gpu::bridged::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
+    gpu::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
     void sweep_pipelines();
 
-    bool inPass_ = false;
-    TargetFormat passFormat_{};
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int postReadyCalls_ = 0;
