@@ -57,7 +57,7 @@ Built (2026-10-18), with what the real tool showed:
 ## P3. Materials in the renderer and runtime (L, render + runtime + scene)
 
 - `MeshRenderer.material`, `MeshRenderer.materialParams` (docs, COMPONENTS.md, typings).
-- `MaterialAsset` cache, `custom_shader.cpp` (twin JSON -> `sg_shader_desc`), the error material, pipelines keyed by
+- `MaterialAsset` cache, `custom_shader.cpp` (twin JSON -> `gpu::ShaderDesc`), the error material, pipelines keyed by
   shader, `material_key`, bindings and uniforms, alpha modes, shadow variants, hot reload through `Assets::reload`.
 - `EngineConfig::shaderCompiler`; the CLI and editor pass the tooling's compiler; render stats count materials and
   fallbacks.

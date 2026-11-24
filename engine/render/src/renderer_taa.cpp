@@ -105,8 +105,6 @@ TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, boo
     return p;
 }
 
-bool TaaFx::ready() { return ready(Gpu::active_device()); }
-
 bool TaaFx::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
@@ -368,8 +366,8 @@ bool TaaFx::output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, gpu::Vi
     return true;
 }
 
-bool TaaFx::reserve_upscale(int outW, int outH, std::uint64_t serial) {
-    if (outW < 1 || outH < 1 || !ready() || upscaleRefused_) return false;
+bool TaaFx::reserve_upscale(gpu::Device& device, int outW, int outH, std::uint64_t serial) {
+    if (outW < 1 || outH < 1 || !ready(device) || upscaleRefused_) return false;
     const std::shared_ptr<Slot> slot = slot_for(kUpscaleCamKey, outW, outH, pick_format(), "upscale");
     if (!slot) return false;
     // A history made now counts as planned in the frame that is about to be drawn: a sweep between this call and the resolve (the frame's end

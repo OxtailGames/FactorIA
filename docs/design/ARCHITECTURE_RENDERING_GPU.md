@@ -216,7 +216,7 @@ reason (the timed scopes are still recorded).
 ## How the renderer reaches the device
 
 `render::Gpu` (engine/render/src/render_internal.h) owns the renderer's `gpu::Device` from `init()` to `shutdown()`
-and the command list of the frame being recorded. Code reaches them in one of four ways (the last two TRANSITIONAL), never through a global
+and the command list of the frame being recorded. Code reaches them in one of four ways, never through a global
 sokol call:
 
 - **Code that has the Gpu** (its own resources, the pipeline cache, uploads): `gpu.device()` for resources and
@@ -225,17 +225,15 @@ sokol call:
 - **A frame-graph pass**: `PassContext::commands()` is the list `FrameGraph::execute(pool, &gpu.commands())` was
   given, valid while the pass runs (null in the CPU-only graph tests). This is where a later backend hands each pass
   (or each thread) its own list: the pass code does not change.
-- **The static pass functions**, TRANSITIONAL: do not copy them into converted code, which begins its passes on its
-  own list (`gpu::CommandList& cl = gpu.commands(); begin_list_pass(cl, pass)` while the pass is still a
-  `render::PassDesc`, `cl.end_pass()`); P4 moves the pass state into a per-list object and removes them. A pass opened
-  on the list does not set the Gpu's `inPass_` flag: `Gpu::in_pass()` and `begin_transient_writes` ask
-  `list.pass_state()` too, and the format assert of the pipeline cache (which compares with the format `Gpu::begin_pass`
-  saved) is skipped for such a pass. They (`Gpu::begin_pass`, `end_pass`, `begin_compute_pass`, `end_compute_pass`) record on
-  the list of `Gpu::active()`, the Gpu initialised last of those still alive (the editor has one per renderer, all on
-  the one sokol context). With none alive (`Renderer::present_clear` runs before the renderer exists) they record on
-  the sokol context itself (`gpu::begin_context_pass`).
+- **`Gpu::begin_pass` / `end_pass`**: non-static members that record on this Gpu's own list (`commands()`) and remember
+  the pass's `TargetFormat` for the debug check of the pipeline cache (a pipeline fetched inside the pass must be for its
+  format). Converted code mostly begins its passes straight on its list (`gpu::CommandList& cl = gpu.commands();
+  begin_list_pass(cl, pass)`, `cl.end_pass()`); such a pass does not set the Gpu's `inPass_` flag, so that check is skipped
+  for it, while `Gpu::in_pass()` and `begin_transient_writes` also ask `list.pass_state()`. A window pass
+  (`Renderer::begin_window_pass`, `present_clear`) is a pass on the sokol context itself (`gpu::begin_context_pass`),
+  because it runs with no renderer.
 - **The Target helpers take the device** (`make_target(gpu.device(), desc)`, `destroy_target(gpu.device(), t)`,
-  `Target::valid(device)`); there is no overload that asks `Gpu::active_device()` any more (P5a).
+  `Target::valid(device)`); there is no overload that asks a global device (P5a, P5d1).
 
 Before (a sokol call site):
 
@@ -271,8 +269,7 @@ While the move runs, gpu/sg_bridge.h connects the two sides (it goes with the la
   samplers, buffers) so the passes that still call `sg_apply_pipeline` take it unchanged. Never put one in a ternary
   next to an `sg_*` value (`t ? t->view : sg_view{}`): each side converts to the other and the compiler cannot
   choose; write `to_sg()` or `from_sg()` on one side;
-- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`;
-- `feature_env_from_sokol()` (render_features_sg.cpp) is the sokol twin of `feature_env_from_device(device)`.
+- `generated_shader_desc(fn)` turns a generated shader header's desc (shaders/*.glsl.h) into a `gpu::ShaderDesc`.
 
 A converted file includes no `sokol_gfx.h` directly; it may still see sokol's types through render_internal.h and
 sg_bridge.h until P5. Converted so far: gpu.cpp (Gpu, its pipelines and samplers), render_internal.h, the target helpers
@@ -287,8 +284,7 @@ uploads and the bindings of a draw), renderer_terrain.cpp, renderer_targets.cpp,
 renderer_impostor.cpp, mesh_buffer_draw.cpp and renderer.cpp's `sg_commit`s (now `Gpu::commit_frame()` followed by
 `note_commit()`; `present_clear` keeps its own, it runs with no Gpu). `apply_uniforms(list, slot, u)` and
 `begin_list_pass(list, pass)` (renderer_impl.h) are the two helpers a converted pass uses. What still touches sokol in
-those files: the context lifecycle (before any device exists), the `MaterialProgram` fields (P5) and the
-handles of `SubMesh` / `TextureAsset`, which `from_sg` turns into interface handles at the call. A pass opened on its
+those files: the context lifecycle (before any device exists), the readbacks. A pass opened on its
 own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
 state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
 the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files. The 3D light and environment passes
@@ -297,22 +293,28 @@ renderer_volumetric, renderer_xmit (transmission), renderer_hdri and the read-ba
 those classes makes its shaders, pipelines, images and samplers on `gpu.device()` and remembers the device in `ready()`
 (`device_`), because `release()` has no `Gpu` at hand. A pass declared in the frame graph records on
 `PassContext::commands()` (`c.commands() ? *c.commands() : g->commands()`); one drawn outside the graph records on
-`gpu.commands()`. Two calls keep a transitional overload that asks `Gpu::active_device()`: `FogFx::ready(Prog)` and
-`VolumetricFx::can_draw(targets, plan)`; delete them now that renderer_draw.cpp has moved. P4c: the 3D post-process and
+`gpu.commands()`. P4c: the 3D post-process and
 upscale passes and the present (renderer_dof, renderer_ssr, renderer_ssao, renderer_taa, renderer_custom_post,
 renderer_upscale, render_upscale_spatial, render_upscale_metalfx, renderer_present and the preparation pass of
 renderer_metalfx). They share fullscreen_gpu.h: `pass_list(c, gpu)` (the frame's list, or the Gpu's own when a CPU-only
 graph has none) and `make_triangle_pipeline`. Each class remembers the `gpu::Device` of its `ready(...)` call and makes
-its pipelines before the pass begins; TaaFx::ready() and Ssao::draw_apply(Gpu&, ...) without a list are the transitional
-overloads for renderer.cpp and renderer_draw.cpp. The MetalFX wrapper (metalfx.h, metalfx_apple.mm, metalfx.cpp) moved in
+its pipelines before the pass begins. The MetalFX wrapper (metalfx.h, metalfx_apple.mm, metalfx.cpp) moved in
 P5c, see "P5c: native_metal and the 2D painter" below.
 P5a: the render targets and formats are interface types. `Target` holds `gpu::Image` / `gpu::View` made on the Gpu's
 device (target.cpp; `TransientTargets` takes the device), `TargetDesc`, the format getters (`scene_format()`,
 `velocity_format()`...) and the pass headers use `gpu::PixelFormat`, and `TargetFormat` / `PassDesc` have one definition
 (`gpu/types.h`; gpu_types.h only brings them into `fa::render`). A window pass is `gpu::swapchain_pass(sc)` over a
-`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the handles of
-`TextureAsset`, `LutAsset` and `SubMesh` (P5b) and the readbacks and the storage-image helpers (`readback_*`,
-`storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+`gpu::Swapchain` converted from the platform's `sg_swapchain`. Still on sokol types at their edges: the readbacks and the
+storage-image helpers (`readback_*`, `storage_image_loadable`), which take `gpu::to_sg(...)` of a `Target`'s handles.
+P5b: the asset and material types are interface types. `TextureAsset` and `LutAsset` hold a `gpu::Image` / `gpu::View`
+and a `gpu::PixelFormat`, `SubMesh` its `gpu::Buffer`s, `MaterialProgram` a `gpu::Shader`; ktx2.cpp picks the target
+format from the device's pixel-format caps (`ktx2_target_format(device)`) and `transcode_ktx2` takes the device.
+`material_shader_desc` returns a `gpu::ShaderDesc` built from the twin's reflection, with the binding numbers of every
+backend the reflection names (hlsl register, msl index, wgsl and spir-v group and binding, glsl binding), and
+`make_material_program` creates it with `gpu.device().make_shader`. The sokol overloads of `make_shader`
+(shader_cache_sg.cpp) and `feature_env_from_sokol` (render_features_sg.cpp) are deleted: nothing called them. Draws
+bind the interface handles as they are; `draw_group` no longer converts its bindings twice. The files of this list
+call no `from_sg` any more; `to_sg` is left only in front of the sokol-only readbacks and storage-image helpers.
 
 ## P5c: native_metal and the 2D painter
 
@@ -353,6 +355,18 @@ imgui_backend.cpp holds no `sg_` or `simgui_` call (its input still comes from `
 
 Still on sokol after P5c: `Gpu::begin_pass`, the window pass of `Renderer::begin_window_pass` (P5d), and the context lifecycle
 (`open_context`, `close_context`, `commit_context`).
+
+**P5d1: no global device.** `Gpu::active()` and `Gpu::active_device()` (and the list of live Gpus behind them) are gone,
+with every overload that asked them: `TaaFx::ready()`, `FogFx::ready(Prog)`, `VolumetricFx::can_draw(targets, plan)`,
+`WaterFx::ready()`, `GradientRamps::sync()`, `Gi2dSystem::acquire(n, ...)`, `Gi2dSystem::float_targets_ok()` and
+`Ssao::draw_apply(Gpu&, ...)`. A pass gets its device from the `Gpu&` (or `gpu::Device&`) its caller holds: the renderer's
+passes pass `gpu` (or `gpu.device()`) down from `Renderer::Impl`, and a caller that can run before the Gpu has a device
+(`Impl::jitter_phases`, `upscaler_caps`) checks `gpu.has_device()` first and treats "no device" as "not ready". The
+`Gpu::begin_pass` / `end_pass` / `in_pass` / `pass_format` functions are members of the Gpu that owns the list they
+record on; `begin_compute_pass` / `end_compute_pass` had no caller and went. `Renderer::begin_window_pass` and
+`end_window_pass` use `gpu::begin_context_pass` / `end_context_pass`, which need no Gpu. Still on sokol after P5d1: the
+readbacks, the storage-image helpers and `sg_bridge.h` (P5d2), and the context lifecycle (`open_context`, `close_context`,
+`commit_context`).
 
 ## How to convert an sg_* call site
 

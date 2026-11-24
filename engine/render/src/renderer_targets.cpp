@@ -251,8 +251,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.asset.path = renderTarget ? "target" : "view";
     t.asset.enc =
         TexEncoding::Scene;  // holds the scene's own values (linear in a linear scene): never converted when sampled
-    t.asset.image = gpu::to_sg(t.flipCopy ? t.flip.color : t.main.texture_image());
-    t.asset.view = gpu::to_sg(t.flipCopy ? t.flip.texView : t.main.texView);
+    t.asset.image = t.flipCopy ? t.flip.color : t.main.texture_image();
+    t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
     t.asset.height = h;
     t.asset.live = true;
@@ -428,8 +428,8 @@ bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
 // The jobs of a frame are planned before any draws, so the image returned stays valid until the frame graph ran: a slot
 // used in this frame (frameSerial) is never replaced in it. The result does not depend on timing: a hit is by key, a
 // miss replaces the slot with the lowest usedFrame (the first of them), or adds one when all were used this frame.
-sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
-    if (fr.shadowRows <= 0) return sg_view{};
+gpu::View Renderer::Impl::upload_shadow_rows(const Frame& fr) {
+    if (fr.shadowRows <= 0) return gpu::View{};
     for (ShadowRowsSlot& s : shadowRowsRing)
         if (s.view.id && s.key == fr.shadowKey) {
             s.usedFrame = frameSerial;
@@ -446,20 +446,20 @@ sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     }
     ShadowRowsSlot& slot = *victim;
     gpu::Device& device = gpu.device();
-    if (slot.view.id) device.destroy_view(gpu::from_sg(slot.view));
-    if (slot.img.id) device.destroy_image(gpu::from_sg(slot.img));
+    if (slot.view.id) device.destroy_view(slot.view);
+    if (slot.img.id) device.destroy_image(slot.img);
     gpu::ImageDesc d;
     d.width = kShadowAngles;
     d.height = fr.shadowRows;
     d.pixelFormat = gpu::PixelFormat::Rgba8;
     d.data.mipLevels[0] = gpu::Range{fr.shadowData.data(), fr.shadowData.size()};
     d.label = "light-shadow-rows";
-    slot.img = gpu::to_sg(device.make_image(d));
+    slot.img = device.make_image(d);
     ++shadowRowUploads;
     gpu::ViewDesc tv;
-    tv.texture.image = gpu::from_sg(slot.img);
+    tv.texture.image = slot.img;
     tv.label = "light-shadow-rows-tex";
-    slot.view = gpu::to_sg(device.make_view(tv));
+    slot.view = device.make_view(tv);
     slot.key = fr.shadowKey;
     slot.usedFrame = frameSerial;
     return slot.view;
@@ -485,8 +485,8 @@ void Renderer::Impl::trim_shadow_rows() {
         auto oldest = shadowRowsRing.begin();
         for (auto it = shadowRowsRing.begin(); it != shadowRowsRing.end(); ++it)
             if (it->usedFrame < oldest->usedFrame) oldest = it;
-        if (oldest->view.id) gpu.device().destroy_view(gpu::from_sg(oldest->view));
-        if (oldest->img.id) gpu.device().destroy_image(gpu::from_sg(oldest->img));
+        if (oldest->view.id) gpu.device().destroy_view(oldest->view);
+        if (oldest->img.id) gpu.device().destroy_image(oldest->img);
         shadowRowsRing.erase(oldest);
     }
 }
@@ -495,8 +495,8 @@ void Renderer::Impl::destroy_light_resources() {
     destroy_target(gpu.device(), cookieTarget);
     cookieStamp.clear();
     for (ShadowRowsSlot& s : shadowRowsRing) {
-        if (s.view.id) gpu.device().destroy_view(gpu::from_sg(s.view));
-        if (s.img.id) gpu.device().destroy_image(gpu::from_sg(s.img));
+        if (s.view.id) gpu.device().destroy_view(s.view);
+        if (s.img.id) gpu.device().destroy_image(s.img);
     }
     shadowRowsRing.clear();
     shadowRowsKeep = kShadowRowsRing;
@@ -608,8 +608,8 @@ void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, b
     PassDesc p = pass_into(dst, label);
     p.colorLoad = load ? gpu::LoadAction::Load : gpu::LoadAction::DontCare;  // else every pixel is drawn
     p.colorStore = (dst.samples > 1 && !keepMsaa) ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
-    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, gpu::from_sg(assets->white()->view), aux,
-                  dst.w, dst.h, frameOutput, rect, slice);
+    run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
+                  frameOutput, rect, slice);
     ++stats.drawCalls;
     // A colour filter clamps to paper white (also when it follows the HDR picture); the conversion alone goes above it.
     // A piece that does not end the final pass leaves it to the last one.

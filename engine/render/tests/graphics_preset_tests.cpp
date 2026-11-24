@@ -12,6 +12,7 @@
 #include "fa/render/graphics_preset.h"
 #include "postprocess_resolve.h"
 #include "quality.h"
+#include "render_internal.h"
 #include "render_features.h"
 #include "renderer_test_access.h"
 
@@ -371,8 +372,9 @@ TEST_CASE("graphics presets on a GPU: custom brings back the game's own picture 
     const Image back = g.draw(w);
     CHECK(differing(own, back) == 0);
     CHECK(differing(own, ultraPic) == 0);
-    const bool anyFeature = feature_supported(feature_env_from_sokol(), find_feature("ssao")) ||
-                            feature_supported(feature_env_from_sokol(), find_feature("cascadedShadows"));
+    const FeatureEnv env = feature_env_from_device(RendererTestAccess::gpu(g.renderer)->device());
+    const bool anyFeature =
+        feature_supported(env, find_feature("ssao")) || feature_supported(env, find_feature("cascadedShadows"));
     if (anyFeature) {
         CHECK(differing(own, lowPic) > 0);
     } else {

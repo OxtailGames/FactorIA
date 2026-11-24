@@ -77,9 +77,6 @@ public:
     // the viewport and the scissor to the camera's rectangle), reading the occlusion image `ao` and the prepass `pre`.
     static void draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre,
                            const TargetFormat& format);
-    // The same on the Gpu's own frame list (gpu.commands()). TRANSITIONAL (M77-P4a/P5): the main pass still opens its pass with
-    // Gpu::begin_pass, which records on that list.
-    static void draw_apply(Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre, const TargetFormat& format);
 
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
     void release() {

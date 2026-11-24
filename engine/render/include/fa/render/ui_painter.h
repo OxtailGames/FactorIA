@@ -65,9 +65,9 @@ struct UiDrawList {
 
 // What one frame draws.
 struct UiFrame {
-    float displayWidth = 0.0f;   // the size of the display in the units of the vertex positions
+    float displayWidth = 0.0f;  // the size of the display in the units of the vertex positions
     float displayHeight = 0.0f;
-    float scaleX = 1.0f;         // window pixels per display unit (the dpi scale)
+    float scaleX = 1.0f;  // window pixels per display unit (the dpi scale)
     float scaleY = 1.0f;
     const UiDrawList* lists = nullptr;
     int listCount = 0;

@@ -183,10 +183,10 @@ bool Gpu::scene_is_float() const {
     return sceneFormat_ == gpu::PixelFormat::Rgba16F || sceneFormat_ == gpu::PixelFormat::Rg11B10F;
 }
 
-sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
+gpu::PixelFormat Gpu::texture_format(gpu::PixelFormat unorm) const {
     if (!linear_) return unorm;
     gpu::PixelFormat srgb = gpu::PixelFormat::None;
-    switch (gpu::from_sg(unorm)) {
+    switch (unorm) {
         case gpu::PixelFormat::Rgba8: srgb = gpu::PixelFormat::Srgb8A8; break;
         case gpu::PixelFormat::Bc7Rgba: srgb = gpu::PixelFormat::Bc7Srgba; break;
         case gpu::PixelFormat::Astc4x4Rgba: srgb = gpu::PixelFormat::Astc4x4Srgba; break;
@@ -195,7 +195,7 @@ sg_pixel_format Gpu::texture_format(sg_pixel_format unorm) const {
     }
     if (srgb == gpu::PixelFormat::None) return unorm;
     const gpu::PixelFormatCaps info = caps(srgb);
-    return info.sample && info.filter ? gpu::to_sg(srgb) : unorm;
+    return info.sample && info.filter ? srgb : unorm;
 }
 
 gpu::PixelFormatCaps Gpu::caps(gpu::PixelFormat f) const {
@@ -222,15 +222,7 @@ void Gpu::commit_frame() {
     list_ = &device_->begin_commands("frame");
 }
 
-Gpu::~Gpu() { live_.erase(std::remove(live_.begin(), live_.end(), this), live_.end()); }
-
-Gpu* Gpu::active() { return live_.empty() ? nullptr : live_.back(); }
-
-gpu::Device& Gpu::active_device() {
-    Gpu* g = active();
-    FA_ASSERT(g, "no render::Gpu is initialised: make the resource on a Gpu's device (Gpu::device()) instead");
-    return g->device();
-}
+Gpu::~Gpu() = default;
 
 bool Gpu::init(int sampleCount, std::string* error) {
     sampleCount_ = std::max(1, sampleCount);
@@ -242,7 +234,6 @@ bool Gpu::init(int sampleCount, std::string* error) {
     }
     device_ = std::move(made.value());
     list_ = &device_->begin_commands("frame");
-    if (std::find(live_.begin(), live_.end(), this) == live_.end()) live_.push_back(this);
     const gpu::Backend backend = device_->backend();
     isGl_ = backend == gpu::Backend::Gl || backend == gpu::Backend::Gles3 || backend == gpu::Backend::WebGl2;
     zeroToOne_ = !isGl_;
@@ -426,7 +417,6 @@ void Gpu::shutdown() {
     light_shader_ = {};
     lightState_ = 0;
     // The frame's list goes back to the device before it is released (the sokol context stays: it is the renderer's).
-    live_.erase(std::remove(live_.begin(), live_.end(), this), live_.end());
     device_->submit(*list_);
     list_ = nullptr;
     device_.reset();
@@ -462,49 +452,20 @@ void Gpu::destroy_shader(gpu::bridged::Shader shader) {
 }
 
 void Gpu::begin_pass(const PassDesc& pass) {
+    FA_ASSERT(list_, "Gpu::begin_pass() before Gpu::init() or after shutdown()");
 #ifndef NDEBUG
     FA_ASSERT(!inPass_, "Gpu::begin_pass: a pass is already open (end_pass it first)");
 #endif
-    const gpu::PassDesc p = pass;
-    if (Gpu* g = active())
-        g->list_->begin_pass(p);
-    else
-        gpu::begin_context_pass(p);  // no Gpu yet (Renderer::present_clear)
+    list_->begin_pass(pass);
     inPass_ = true;
     passFormat_ = pass.format;
 }
 
-bool Gpu::in_pass() {
-    if (inPass_) return true;
-    const Gpu* g = active();
-    return g && g->list_ && g->list_->pass_state() != gpu::PassState::None;
-}
+bool Gpu::in_pass() const { return inPass_ || (list_ && list_->pass_state() != gpu::PassState::None); }
 
 void Gpu::end_pass() {
-    if (Gpu* g = active())
-        g->list_->end_pass();
-    else
-        gpu::end_context_pass();
-    inPass_ = false;
-}
-
-void Gpu::begin_compute_pass() {
-#ifndef NDEBUG
-    FA_ASSERT(!inPass_, "Gpu::begin_compute_pass: a pass is already open (end_pass it first)");
-#endif
-    if (Gpu* g = active())
-        g->list_->begin_compute_pass("compute");
-    else
-        gpu::begin_context_compute_pass("compute");
-    inPass_ = true;
-    passFormat_ = TargetFormat{};
-}
-
-void Gpu::end_compute_pass() {
-    if (Gpu* g = active())
-        g->list_->end_pass();
-    else
-        gpu::end_context_pass();
+    FA_ASSERT(list_, "Gpu::end_pass() before Gpu::init() or after shutdown()");
+    list_->end_pass();
     inPass_ = false;
 }
 
@@ -931,7 +892,7 @@ namespace {
 // The slots a built-in program declares, as the twin of a custom one says them (MaterialProgram).
 MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
     MaterialProgram out;
-    out.shader = gpu::to_sg(shader);
+    out.shader = shader;
     for (int i = 0; i < gpu::kMaxUniformBlocks; ++i) {
         if (desc.uniformBlocks[i].stage == gpu::ShaderStage::None) continue;
         out.ubMask |= 1u << i;
