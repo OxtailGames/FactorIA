@@ -526,7 +526,7 @@ jobs:
           cli=$(find build/windows-release/tools/cli -maxdepth 2 -type f -name factoria.exe | head -n 1)
           test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
           "$cli" setup directstorage --json > "$RUNNER_TEMP/directstorage.json"
-          dir=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['paths']['directstorage'])" "$RUNNER_TEMP/directstorage.json")
+          dir=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['paths']['directstorage'])" "$RUNNER_TEMP/directstorage.json" | tr -d '\r')
           test -n "$dir" || { echo "::error::factoria setup directstorage reported no folder"; cat "$RUNNER_TEMP/directstorage.json"; exit 1; }
           tests=$(find build/windows-release/engine/core -type f -name fa_test_core.exe | head -n 1)
           test -n "$tests" || { echo "::error::fa_test_core.exe was not built under build/windows-release/engine/core"; exit 1; }
