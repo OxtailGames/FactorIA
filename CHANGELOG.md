@@ -73,6 +73,14 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   `gl_PointSize`, a storage buffer view stops at `maxStorageBufferRange`, BGRA8 is never a loadable storage image, the Windows
   loader takes an absolute `loaderPath` written with '/', and the notices carry the Vulkan headers' Apache-2.0 and MIT texts
   in full (M77-P8b2).
+- The Vulkan backend runs lists on three queues (M77-P10c): graphics, async compute (a compute-only family, else a second
+  graphics-family queue) and transfer, each with its own timeline semaphore and command pools, through
+  `begin_commands(label, queue)`, `submit_token`, `wait_list` and `wait_queue`; a GPU without them runs every list on the
+  graphics queue. A resource handed to a queue of another family moves by a queue family ownership transfer (images stay
+  `EXCLUSIVE`, which keeps their compression), and using a resource of another queue, or one whose handoff token the list did
+  not wait for, is reported. Lists record on several threads (`multiThreadRecording`), every texture view gets a bindless slot
+  (`bindless_index`), timed scopes off the graphics queue are ignored, and a pipeline destroyed while an open list binds it is
+  no longer freed by `wait_idle` before that list is submitted.
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;

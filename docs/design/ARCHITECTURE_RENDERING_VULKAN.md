@@ -32,7 +32,8 @@ and dedicated threshold, the per-frame descriptor pools, the bindless table and 
 errors before any Vulkan call. The instance asks for Vulkan 1.3 where the loader has it (1.2 at least), with
 `VK_EXT_debug_utils` and portability enumeration when present; the device needs Vulkan 1.2, timeline semaphores and a
 graphics + compute queue, and enables `VK_KHR_portability_subset` where the driver lists it (MoltenVK:
-`portability_subset()`). A GPU with a transfer-only queue family also gets that queue (`transfer_queue()`). Without the
+`portability_subset()`). It also takes an async compute queue and a transfer queue where the GPU has them ("Queues"
+below). Without the
 validation layer installed, or with a layer the loader lists but cannot open, the device is made without it, warns, and
 `validation_active()` is false. On macOS, Homebrew's layer manifest names its library by a bare file name dyld does not
 find; once per process the device writes a copy of the manifest with the absolute path into the temporary directory and
@@ -45,14 +46,15 @@ debug messenger (also chained into `vkCreateInstance`) sends ERROR messages to `
 buffer's end, a destroyed handle, an image used with a usage it was not made with) is reported the same way and
 records nothing.
 
-**Frames, the timeline, deferred destruction.** One graphics + compute queue and one timeline semaphore: each submit
-signals the next value. `commit()` signals the frame's value, and once more frames than `framesInFlight` were committed
-it waits (up to 120 s, then an error) for the oldest one, whose descriptor pool and ring room the new frame reuses.
-`destroy_*` frees the handle at once and keeps the Vulkan object, its memory and its bindless slot in a deferred list
-tagged with the current frame; they are released once the semaphore passed that frame's value
-(`counters().pendingReleases`). `wait_idle()` drains the queue and releases everything pending, the current frame's
-destroyed objects included (the frame's upload ring room waits for its `commit()`: lists still open may have written
-into it).
+**Frames, the timeline, deferred destruction.** One timeline semaphore per queue: each submit signals that queue's
+next value. `commit()` records every queue's value for the frame, and once more frames than `framesInFlight` were
+committed it waits (up to 120 s, then an error) for the oldest one on every queue, whose descriptor pool and ring room
+the new frame reuses. `destroy_*` frees the handle at once and keeps the Vulkan object, its memory and its bindless slot
+in a deferred list tagged with the current frame; they are released once every queue passed that frame's value
+(`counters().pendingReleases`). `wait_idle()` drains every queue and releases everything pending, the current frame's
+destroyed objects included, unless a list is still open (its command buffer may name a view, sampler or framebuffer
+destroyed since it recorded it: those wait for the frame). The frame's upload ring room waits for its `commit()`
+either way: lists still open may have written into it.
 
 **Memory.** The engine's own suballocator: a pool of blocks (`memoryBlockBytes`) per memory type and per linear or
 optimal resource (so `bufferImageGranularity` never matters), first fit with coalescing free ranges; a resource of
@@ -137,7 +139,9 @@ begin ends the open one, submit ends the last). `timer_poll` reads, without wait
 passed: ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
 list was not submitted before the frame ended is never read, so no query that was never written is asked for.
 `timer_forget` drops the frames in flight. A queue family without timestamps (`timestampValidBits` 0) or a driver
-without a timestamp period makes `timer_supported()` false with a reason naming the device.
+without a timestamp period makes `timer_supported()` false with a reason naming the device. The timers time the
+graphics queue: `begin_timed_scope` on a list of the compute or transfer queue, or of any queue whose family has no
+timestamps, is ignored (its list records no query).
 
 **`storage_image_loadable(format)`** is true where the format has `VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT` with optimal
 tiling: the engine's shaders always declare a storage image's format, so a load needs nothing more
@@ -150,6 +154,73 @@ made while another thread took the last slot is released with its frame, never w
 list Vulkan could not give is a dead list that ignores everything and lives as long as the device. A device whose
 driver lacks a function is destroyed through `vkGetDeviceProcAddr`'s own `vkDestroyDevice`. On Windows the loader is
 opened with `LoadLibraryExW`: `vulkan-1.dll` from System32 only, an absolute `loaderPath` from its own directory.
+
+## Queues (M77-P10c)
+
+The contract is `gpu/device.h`'s "Queues, threads and bindless"; this is how the Vulkan backend keeps it.
+
+**Which queues.** `VulkanOptions::queues`. `Auto`: the graphics queue is queue 0 of the chosen graphics + compute
+family; async compute takes a compute-only family, else a second queue of the graphics family, else there is none
+(`Features::asyncCompute` false, and a `QueueKind::Compute` list runs on the graphics queue). The transfer queue exists
+only next to an async compute queue: a transfer-only family whose `minImageTransferGranularity` is 1x1x1, else a
+transfer list runs on the compute queue. `GraphicsOnly`: every list on the graphics queue. `OtherFamilies`: as `Auto`,
+but without a compute-only family or a second graphics queue it takes another family that computes (one that draws
+too), and without a transfer-only family a third family that copies single texels. It exists for the tests: MoltenVK
+exposes identical families of one queue each, so `Auto` finds no async compute there and `OtherFamilies` runs the queue
+family ownership transfers. `queue(kind)`, `queue_family(kind)`, `queue_index(kind)`, `resolve_queue(kind)` and
+`timestamp_valid_bits(kind)` answer for the queue a kind maps to.
+
+**Lists, tokens and waits.** Each queue has a timeline semaphore and up to 64 lists (`kMaxLists`), each list a command
+pool of its queue's family (and a second command buffer for its fix-ups), so `Features::multiThreadRecording` is true:
+`begin_commands` picks (or makes) and opens a list under the queue lock, and recording touches the list's own pool and
+the shared state behind its locks (the upload ring, the resource pools). A list's
+`queue()` is the queue it runs on, after the fallback. `submit_token(list, handoffs)` submits and returns `{queue,
+value}` of that submission's timeline signal. `wait_list(list, token)` (any thread, while the list is open) and
+`wait_queue(queue, token)` (render thread; every later submission on that queue) add a wait for the token's timeline
+value, with stage `ALL_COMMANDS`, to the submission; a wait on the list's own queue is dropped (the queue's order holds),
+and a token whose value its queue has not signalled yet is a teaching error ("was never returned by submit_token()")
+and is left out. Internal lists (the prelude of initial uploads, readbacks, the timers' frame queries) run on the
+graphics queue.
+
+**Resources between queues: EXCLUSIVE and ownership transfers.** Every image and buffer is made with
+`VK_SHARING_MODE_EXCLUSIVE`; a `QueueHandoff` to a queue of another family is a queue family ownership transfer. The
+producer's list ends with the release (from the state the list leaves each subresource in, the layout unchanged), and
+the consumer's first list that uses the resource starts with the acquire in its fix-up command buffer, followed by the
+usual fix-up into the state that list needs. A resource handed over but not used by the next list of its new queue
+stays waiting for its acquire, and a list that hands it on without using it records that acquire just before its own
+release. Image subresources still `UNDEFINED`, and buffers the GPU never used, take no part (nothing is kept, and a
+transfer cannot leave `UNDEFINED`). Between two queues of one family (async compute on a second graphics-family queue)
+only the owner changes: the timeline wait is the execution and memory dependency, and the fix-up barriers do the rest.
+`CONCURRENT` sharing was rejected for images: it turns off the compression GPUs keep on render targets and storage
+images (AMD DCC, and the like on other vendors) for the whole life of the image, and the backend cannot know at
+creation which images will cross queues. The cost of the transfers is two barriers per subresource that crosses, only
+on the frames that hand a resource over; the merge joins neighbouring mips and layers in the same layout. The two
+halves must name the same subresource ranges, so a transfer merges on its layouts, families and destination state
+alone (the release's source stages and accesses differ with what the producer did to each mip; the merged barrier
+waits for their union), and both halves skip the same `UNDEFINED` subresources in the same order. The upload buffers (the ring
+and an upload too big for it) are the exception: written by the CPU and read by every queue's lists, they are
+`CONCURRENT` over the device's families when there are several (a buffer loses nothing by it).
+
+**What is checked.** At submit, a resource a list of another queue owns ("belongs to the graphics queue, but the list
+runs on the compute queue") and a resource handed to this queue whose token the list did not wait for (through
+`wait_list` or `wait_queue`) are reported; the list still runs. A handoff that names no live resource, both or neither
+of image and buffer, a resource the list's queue does not own, or a resource twice is reported and left out. A render
+pass on a list that is not of the graphics queue, and a compute pass on a transfer list, fail as other command list
+misuse does. Not checked: the readbacks and asynchronous reads run on the graphics queue whoever owns the resource, so
+a resource is handed back to the graphics queue before it is read.
+
+**Locks.** `queueMutex_` guards the queues, lists and timelines; `resMutex_` the resource pools and their tracked
+states. `resMutex_` may be taken while `queueMutex_` is held (submit validating handoffs, the owner checks naming a
+resource), never the other way round.
+
+**Bindless.** Where the bindless table exists (`Features::bindless`), `make_view` gives every texture view a slot of it
+and `bindless_index(view)` answers it (any thread, under the resource lock); storage views, attachments and destroyed
+views answer `kNoBindlessIndex`. A full table leaves the view without an index and warns once per device. `destroy_view` frees
+the slot with the view's frame.
+
+**A pipeline destroyed while a list binds it.** Each list holds the pipeline state of every `set_pipeline` it recorded
+until it is submitted or dropped, so `destroy_pipeline` and `wait_idle` never free a `VkPipeline` an unsubmitted command
+buffer names.
 
 ## Shaders (M77-P8c)
 
@@ -309,7 +380,19 @@ pipeline cache file (a second device made with the first one's file, the destruc
 driver, with a changed UUID, cut, corrupt or of another format thrown away and written anew, a directory that cannot
 be made and a file another reader holds open: a warning and the old file kept), the descriptor pool chain, damaged
 SPIR-V, a point list without `gl_PointSize`, the binds of set 0 alone per draw, the eviction of a destroyed shader's
-pipelines and layouts, the framebuffer cache, a 3D image without 2D views and the storage buffer range. A machine with no
+pipelines and layouts, the framebuffer cache, a 3D image without 2D views and the storage buffer range. M77-P10c added
+the queues, on a device made with `queues = OtherFamilies` (on MoltenVK: compute family 1, transfer family 2, so the
+ownership transfers run; a GPU with no second queue skips them with a MESSAGE): a buffer and an image that go graphics
+-> compute -> graphics -> compute -> graphics with `wait_list` and `wait_queue`, a buffer written on the transfer
+queue, an image written by compute and sampled by a graphics compute pass and a fragment shader, an image whose mips
+the producer left in different states (copied, sampled by compute, sampled by a fragment shader, `UNDEFINED`) handed to
+compute and back (with synchronization2 and with the 1.0 barriers, so both carry ownership transfers), rows that need
+repacking uploaded on the transfer queue (the repack buffer belongs to the list's queue) and sampled on graphics, a timed scope on the
+compute queue that is ignored, and the misuse errors (a token never issued, a resource of another queue, a handoff
+from a queue that does not own it, a render pass on a compute list); and, on every device, the `GraphicsOnly`
+fallback, two threads recording while the render thread makes and destroys other resources, `bindless_index`, and a
+pipeline destroyed while an open list binds it, across `wait_idle`. The path of a second queue of the graphics family
+runs on no machine of the project (MoltenVK and lavapipe expose one queue per family). A machine with no
 loader, no Vulkan device, a loader older than 1.2 or a driver that does not start (`VK_ERROR_INITIALIZATION_FAILED`)
 says so with a MESSAGE and passes, and one case checks the factory's errors (bad options, a missing loader). They run on
 macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationlayers`), on Windows where a Vulkan

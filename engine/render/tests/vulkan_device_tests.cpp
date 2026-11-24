@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/fs.h"
@@ -931,15 +932,26 @@ TEST_CASE("vulkan: a full frame descriptor pool fails with a teaching error and 
         vd.texture.image = img;
         const View view = dev->make_view(vd);
         REQUIRE(dev->state(view) == ResourceState::Valid);
+        CHECK(dev->bindless_index(view) < 4u);  // the view took a slot of its own
         std::vector<std::uint32_t> slots;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 3; ++i) {
             auto s = dev->bindless_add(view);
             REQUIRE_MESSAGE(s, s.error().to_string());
+            CHECK(s.value() != dev->bindless_index(view));
             slots.push_back(s.value());
         }
         auto full = dev->bindless_add(view);
         REQUIRE(!full);
         CHECK(contains(full.error().message, "the bindless table is full (4 slots)"));
+        // A texture view made while the table is full has no index, and says so once (a warning).
+        const View late = dev->make_view(vd);
+        REQUIRE(dev->state(late) == ResourceState::Valid);
+        CHECK(dev->bindless_index(late) == kNoBindlessIndex);
+        std::string warned;
+        for (const std::string& w : dev->warnings())
+            if (contains(w, "the bindless table is full")) warned += w;
+        CHECK(contains(warned, "no bindless index"));
+        dev->destroy_view(late);
         dev->bindless_remove(slots[2]);
         CHECK(!dev->bindless_add(view));  // the frame in flight may still read the slot
         dev->commit();
@@ -2774,6 +2786,708 @@ TEST_CASE("vulkan: a pipeline cache file that cannot be written is a warning, an
         CHECK_MESSAGE((e.path().filename() == "blocker" || e.path().filename() == "vulkan-pipelines.bin"),
                       fa::fs::path_to_utf8(e.path()));
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+// ---- queues, threads and bindless (ARCHITECTURE_RENDERING_VULKAN.md, "Queues") -----------------------------------
+
+namespace {
+
+QueueHandoff hand_image(Image image, QueueKind to) {
+    QueueHandoff h;
+    h.image = image;
+    h.to = to;
+    return h;
+}
+
+QueueHandoff hand_buffer(Buffer buffer, QueueKind to) {
+    QueueHandoff h;
+    h.buffer = buffer;
+    h.to = to;
+    return h;
+}
+
+// A device with a compute queue of its own, of another family where the GPU has one (OtherFamilies: the queue family
+// ownership transfers run, as on MoltenVK), or null when Vulkan or a second queue is missing here.
+// `synchronization2` false records the Vulkan 1.0 barriers instead.
+std::unique_ptr<VulkanDevice> make_async_vk(const std::string& test, bool synchronization2 = true) {
+    VulkanOptions o;
+    o.queues = VulkanOptions::Queues::OtherFamilies;
+    o.synchronization2 = synchronization2;
+    auto dev = make_vk(o);
+    if (!dev) return nullptr;
+    if (!dev->features().asyncCompute) {
+        MESSAGE("vulkan: " << test << ": skipped, " << dev->device_name() << " has no queue for async compute");
+        return nullptr;
+    }
+    const bool cross = dev->queue_family(QueueKind::Compute) != dev->queue_family(QueueKind::Graphics);
+    MESSAGE("vulkan: " << test << " on " << dev->device_name() << ": compute queue family "
+                       << dev->queue_family(QueueKind::Compute) << " index " << dev->queue_index(QueueKind::Compute)
+                       << ", graphics family " << dev->queue_family(QueueKind::Graphics)
+                       << std::string(cross ? " (queue family ownership transfers)"
+                                            : " (one family: timeline waits only)"));
+    return dev;
+}
+
+// The compute test shader's pipeline, an 8x8 storage image and a 64-word storage buffer, bound as its views 0 and 1.
+struct ComputeSet {
+    Pipeline pipeline{};
+    Image image{};
+    Buffer buffer{};
+    Bindings bindings{};
+};
+
+ComputeSet make_compute_set(VulkanDevice& dev, const char* label) {
+    ComputeSet s;
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev.make_shader(compute_shader_desc());
+    pd.label = "compute";
+    s.pipeline = dev.make_pipeline(pd);
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = label;
+    s.image = dev.make_image(id);
+    BufferDesc bd;
+    bd.size = 64 * 4;
+    bd.usage.storageBuffer = true;
+    bd.label = label;
+    s.buffer = dev.make_buffer(bd);
+    ViewDesc iv;
+    iv.storageImage.image = s.image;
+    ViewDesc bv;
+    bv.storageBuffer.buffer = s.buffer;
+    s.bindings.views[0] = dev.make_view(iv);
+    s.bindings.views[1] = dev.make_view(bv);
+    return s;
+}
+
+// One compute pass of the compute test shader in `mode`: 0 writes the image and words[i] = i, 1 makes each word
+// 2 * word + 1.
+void dispatch_mode(CommandList& list, const ComputeSet& s, int mode) {
+    const std::int32_t m[4] = {mode, 0, 0, 0};
+    list.begin_compute_pass("compute");
+    list.set_pipeline(s.pipeline);
+    list.set_bindings(s.bindings);
+    list.set_uniforms(0, Range{m, sizeof m});
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+}
+
+std::vector<std::uint32_t> read_words(VulkanDevice& dev, Buffer buffer) {
+    std::vector<std::uint8_t> raw;
+    auto r = dev.read_buffer(buffer, 0, 64 * 4, raw);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    REQUIRE(raw.size() == 64 * 4);
+    std::vector<std::uint32_t> words(64);
+    std::memcpy(words.data(), raw.data(), raw.size());
+    return words;
+}
+
+std::vector<std::uint32_t> words_of(std::uint32_t mul, std::uint32_t add) {
+    std::vector<std::uint32_t> w(64);
+    for (std::uint32_t i = 0; i < 64; ++i) w[i] = i * mul + add;
+    return w;
+}
+
+std::array<int, 4> pattern8(int x, int y) { return {x * 32, y * 32, 0, 255}; }
+
+}  // namespace
+
+TEST_CASE("vulkan: a buffer and an image written on the compute queue are used on the graphics queue after its token") {
+    auto dev = make_async_vk("compute -> graphics -> compute -> graphics");
+    if (!dev) return;
+    const ComputeSet s = make_compute_set(*dev, "shared");
+    REQUIRE_MESSAGE(dev->state(s.pipeline) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(s.bindings.views[1]) == ResourceState::Valid, all_errors(*dev));
+    const QueueHandoff toCompute[] = {hand_image(s.image, QueueKind::Compute),
+                                      hand_buffer(s.buffer, QueueKind::Compute)};
+    const QueueHandoff toGraphics[] = {hand_image(s.image, QueueKind::Graphics),
+                                       hand_buffer(s.buffer, QueueKind::Graphics)};
+    std::string step = "an empty graphics list hands the new resources to the compute queue";
+    INFO("step: " << step);
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    CHECK(give.queue() == QueueKind::Graphics);
+    const SyncToken t0 = dev->submit_token(give, toCompute);
+    CHECK(t0.valid());
+    CHECK(t0.queue == QueueKind::Graphics);
+
+    step = "the compute queue writes them and hands them back";
+    CommandList& c1 = dev->begin_commands("compute-1", QueueKind::Compute);
+    CHECK(c1.queue() == QueueKind::Compute);
+    dev->wait_list(c1, t0);
+    dispatch_mode(c1, s, 0);
+    dispatch_mode(c1, s, 1);  // 2i + 1
+    const SyncToken t1 = dev->submit_token(c1, toGraphics);
+    CHECK(t1.valid());
+    CHECK(t1.queue == QueueKind::Compute);
+
+    step = "the graphics queue waits for the token, reads and writes them, and hands them to compute again";
+    CommandList& g1 = dev->begin_commands("graphics-1", QueueKind::Graphics);
+    dev->wait_list(g1, t1);
+    dispatch_mode(g1, s, 1);  // 4i + 3
+    const SyncToken t2 = dev->submit_token(g1, toCompute);
+    CHECK(t2.queue == QueueKind::Graphics);
+    CHECK(t2.value > t0.value);
+
+    step = "a second compute round; the graphics queue waits for it with wait_queue";
+    CommandList& c2 = dev->begin_commands("compute-2", QueueKind::Compute);
+    dev->wait_list(c2, t2);
+    dispatch_mode(c2, s, 1);  // 8i + 7
+    const SyncToken t3 = dev->submit_token(c2, toGraphics);
+    CHECK(t3.queue == QueueKind::Compute);
+    CHECK(t3.value > t1.value);
+    dev->wait_queue(QueueKind::Graphics, t3);
+    CommandList& g2 = dev->begin_commands("graphics-2", QueueKind::Graphics);
+    dispatch_mode(g2, s, 1);  // 16i + 15
+    submit_and_finish(*dev, g2);
+    CHECK(read_words(*dev, s.buffer) == words_of(16, 15));
+    const std::string bad = first_mismatch(read_rgba8(*dev, s.image, 8, 8), 8, 8, 0, pattern8);
+    CHECK_MESSAGE(bad.empty(), bad);  // what the first compute list wrote, through every transfer
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a buffer written on the transfer queue is used on the graphics queue after its token") {
+    auto dev = make_async_vk("transfer -> graphics");
+    if (!dev) return;
+    MESSAGE("vulkan: transfer queue family " << dev->queue_family(QueueKind::Transfer) << " index "
+                                             << dev->queue_index(QueueKind::Transfer));
+    const ComputeSet s = make_compute_set(*dev, "uploaded");
+    const QueueHandoff toTransfer[] = {hand_buffer(s.buffer, QueueKind::Transfer)};
+    const QueueHandoff toGraphics[] = {hand_buffer(s.buffer, QueueKind::Graphics)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    dispatch_mode(give, s, 0);  // words[i] = i: contents the release carries over
+    const SyncToken t0 = dev->submit_token(give, toTransfer);
+    CommandList& x = dev->begin_commands("upload", QueueKind::Transfer);
+    CHECK(x.queue() == dev->resolve_queue(QueueKind::Transfer));
+    dev->wait_list(x, t0);
+    const std::vector<std::uint32_t> top = words_of(1, 100);  // the second half of the buffer, i + 100
+    BufferWrite w;
+    w.data = Range{top.data() + 32, 32 * sizeof(std::uint32_t)};
+    w.buffer = s.buffer;
+    w.dstOffset = 32 * sizeof(std::uint32_t);
+    x.write_buffer(w);
+    const SyncToken t1 = dev->submit_token(x, toGraphics);
+    REQUIRE(t1.valid());
+    CommandList& g = dev->begin_commands("double", QueueKind::Graphics);
+    dev->wait_list(g, t1);
+    dispatch_mode(g, s, 1);
+    submit_and_finish(*dev, g);
+    std::vector<std::uint32_t> expected(64);
+    for (std::uint32_t i = 0; i < 64; ++i) expected[i] = (i < 32 ? i : i + 100) * 2 + 1;
+    CHECK(read_words(*dev, s.buffer) == expected);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: an image written on the compute queue is sampled by graphics compute and fragment shaders") {
+    auto dev = make_async_vk("compute-written texture");
+    if (!dev) return;
+    const ComputeSet s = make_compute_set(*dev, "written");
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev->make_shader(sample_shader_desc());
+    pd.label = "sample";
+    const Pipeline sample = dev->make_pipeline(pd);
+    const Pipeline draw =
+        dev->make_pipeline(render_desc(dev->make_shader(two_views_shader_desc()), PixelFormat::Rgba8));
+    REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(draw) == ResourceState::Valid, all_errors(*dev));
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "copied";
+    const Image copied = dev->make_image(id);
+    ViewDesc v;
+    v.texture.image = s.image;
+    const View writtenTexture = dev->make_view(v);
+    v = {};
+    v.storageImage.image = copied;
+    const View copiedStorage = dev->make_view(v);
+    const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    const View black = make_texture(*dev, 1, 1, {0, 0, 0, 0});
+
+    std::string step = "graphics hands the image and the buffer to compute, compute writes them and hands them back";
+    INFO("step: " << step);
+    const QueueHandoff toCompute[] = {hand_image(s.image, QueueKind::Compute),
+                                      hand_buffer(s.buffer, QueueKind::Compute)};
+    const QueueHandoff toGraphics[] = {hand_image(s.image, QueueKind::Graphics),
+                                       hand_buffer(s.buffer, QueueKind::Graphics)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    const SyncToken t0 = dev->submit_token(give, toCompute);
+    CommandList& c = dev->begin_commands("write", QueueKind::Compute);
+    dev->wait_list(c, t0);
+    dispatch_mode(c, s, 0);
+    const SyncToken t1 = dev->submit_token(c, toGraphics);
+    REQUIRE(t1.valid());
+
+    step = "graphics samples it in a compute pass and in a fragment shader";
+    CommandList& g = dev->begin_commands("sample", QueueKind::Graphics);
+    dev->wait_list(g, t1);
+    g.begin_compute_pass("sample");
+    g.set_pipeline(sample);
+    Bindings sb;
+    sb.views[0] = writtenTexture;
+    sb.views[1] = copiedStorage;
+    sb.samplers[0] = nearest;
+    g.set_bindings(sb);
+    g.dispatch(1, 1, 1);
+    g.end_pass();
+    g.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+    g.set_pipeline(draw);
+    Bindings db;
+    db.views[0] = writtenTexture;
+    db.views[1] = black;
+    db.samplers[0] = nearest;
+    db.samplers[1] = nearest;
+    g.set_bindings(db);
+    g.set_uniforms(0, bytes_of(Vec4{1.0f, 1.0f, 1.0f, 1.0f}));
+    g.draw(0, 3);
+    g.end_pass();
+    submit_and_finish(*dev, g);
+    std::string bad = first_mismatch(read_rgba8(*dev, copied, 8, 8), 8, 8, 0, pattern8);
+    CHECK_MESSAGE(bad.empty(), "the compute read: " << bad);
+    bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 1,
+                         [](int, int) { return std::array<int, 4>{128, 128, 0, 255}; });  // texel (4, 4), nearest
+    CHECK_MESSAGE(bad.empty(), "the fragment read: " << bad);
+    CHECK(read_words(*dev, s.buffer) == words_of(1, 0));
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: an image whose mips the producer left in different states is released and acquired mip by mip") {
+    for (const bool sync2 : {true, false}) {
+        INFO("barriers: " << std::string(sync2 ? "synchronization2" : "Vulkan 1.0"));
+        auto dev =
+            make_async_vk(sync2 ? "mips in several states (synchronization2)" : "mips in several states (1.0)", sync2);
+        if (!dev) return;
+        PipelineDesc pd;
+        pd.compute = true;
+        pd.shader = dev->make_shader(sample_shader_desc());
+        pd.label = "sample";
+        const Pipeline sample = dev->make_pipeline(pd);
+        const Pipeline draw =
+            dev->make_pipeline(render_desc(dev->make_shader(two_views_shader_desc()), PixelFormat::Rgba8));
+        REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+        REQUIRE_MESSAGE(dev->state(draw) == ResourceState::Valid, all_errors(*dev));
+        // A 16x16 image of 4 mips: the producer copies mips 0 to 2 (a transfer write each), then samples mip 1 in a
+        // compute pass and mip 2 in a fragment shader (one layout, two stages); mip 3 stays UNDEFINED.
+        const std::vector<std::uint8_t> data = pattern(16 * 16 * 4 + 8 * 8 * 4 + 4 * 4 * 4, 77);
+        const std::size_t mipOffset[3] = {0, 16 * 16 * 4, 16 * 16 * 4 + 8 * 8 * 4};
+        BufferDesc bd;
+        bd.size = data.size();
+        bd.usage.copySrc = true;
+        bd.data = range_of(data);
+        const Buffer src = dev->make_buffer(bd);
+        ImageDesc id;
+        id.width = 16;
+        id.height = 16;
+        id.numMipmaps = 4;
+        id.pixelFormat = PixelFormat::Rgba8;
+        id.usage.copyDst = true;
+        id.label = "mips";
+        const Image img = dev->make_image(id);
+        REQUIRE_MESSAGE(dev->state(img) == ResourceState::Valid, all_errors(*dev));
+        id = {};
+        id.width = 8;
+        id.height = 8;
+        id.pixelFormat = PixelFormat::Rgba8;
+        id.usage.storageImage = true;
+        id.label = "fromMip1";
+        const Image fromMip1 = dev->make_image(id);
+        id.label = "fromMip0";
+        const Image fromMip0 = dev->make_image(id);
+        ViewDesc v;
+        v.texture.image = img;
+        v.texture.mipLevels = {1, 1};
+        const View mip1 = dev->make_view(v);
+        v.texture.mipLevels = {2, 1};
+        const View mip2 = dev->make_view(v);
+        v.texture.mipLevels = {};
+        const View whole = dev->make_view(v);
+        v = {};
+        v.storageImage.image = fromMip1;
+        const View fromMip1Storage = dev->make_view(v);
+        v.storageImage.image = fromMip0;
+        const View fromMip0Storage = dev->make_view(v);
+        const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+        const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+        const View black = make_texture(*dev, 1, 1, {0, 0, 0, 0});
+
+        std::string step = "graphics writes mips 0 to 2 piecewise, samples two of them, and hands the image on";
+        INFO("step: " << step);
+        CommandList& g = dev->begin_commands("piecewise", QueueKind::Graphics);
+        for (int m = 0; m < 3; ++m) {
+            BufferImageCopy c;
+            c.src = src;
+            c.srcOffset = mipOffset[m];
+            c.bytesPerRow = (16 >> m) * 4;
+            c.dst.image = img;
+            c.dst.mipLevel = m;
+            g.copy_buffer_to_image(c);
+        }
+        g.begin_compute_pass("sample-mip1");
+        g.set_pipeline(sample);
+        Bindings sb;
+        sb.views[0] = mip1;
+        sb.views[1] = fromMip1Storage;
+        sb.samplers[0] = nearest;
+        g.set_bindings(sb);
+        g.dispatch(1, 1, 1);
+        g.end_pass();
+        g.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{}));
+        g.set_pipeline(draw);
+        Bindings db;
+        db.views[0] = mip2;
+        db.views[1] = black;
+        db.samplers[0] = nearest;
+        db.samplers[1] = nearest;
+        g.set_bindings(db);
+        g.set_uniforms(0, bytes_of(Vec4{1.0f, 1.0f, 1.0f, 1.0f}));
+        g.draw(0, 3);
+        g.end_pass();
+        const QueueHandoff toCompute[] = {hand_image(img, QueueKind::Compute),
+                                          hand_image(fromMip0, QueueKind::Compute)};
+        const SyncToken t0 = dev->submit_token(g, toCompute);
+        REQUIRE(t0.valid());
+
+        step = "compute samples the whole image (mip 3 out of UNDEFINED) and hands both images back";
+        CommandList& c = dev->begin_commands("sample-all", QueueKind::Compute);
+        dev->wait_list(c, t0);
+        c.begin_compute_pass("sample-mip0");
+        c.set_pipeline(sample);
+        sb.views[0] = whole;
+        sb.views[1] = fromMip0Storage;
+        c.set_bindings(sb);
+        c.dispatch(1, 1, 1);
+        c.end_pass();
+        const QueueHandoff toGraphics[] = {hand_image(img, QueueKind::Graphics),
+                                           hand_image(fromMip0, QueueKind::Graphics)};
+        const SyncToken t1 = dev->submit_token(c, toGraphics);
+        REQUIRE(t1.valid());
+
+        step = "graphics, after the token, reads every mip the producer wrote";
+        dev->wait_queue(QueueKind::Graphics, t1);
+        CommandList& done = dev->begin_commands("after", QueueKind::Graphics);
+        submit_and_finish(*dev, done);
+        for (int m = 0; m < 3; ++m) {
+            const int s = 16 >> m;
+            std::vector<std::uint8_t> out;
+            auto r = dev->read_image_region(img, m, 0, 0, 0, s, s, out);
+            REQUIRE_MESSAGE(r, r.error().to_string());
+            const auto first = data.begin() + std::ptrdiff_t(mipOffset[m]);
+            CHECK_MESSAGE(out == std::vector<std::uint8_t>(first, first + std::ptrdiff_t(s) * s * 4), "mip " << m);
+        }
+        CHECK(read_rgba8(*dev, fromMip1, 8, 8) ==
+              std::vector<std::uint8_t>(data.begin() + std::ptrdiff_t(mipOffset[1]),
+                                        data.begin() + std::ptrdiff_t(mipOffset[2])));
+        CHECK(read_rgba8(*dev, fromMip0, 8, 8) == crop(data, 16, 4, 0, 0, 8, 8));
+        step = "the validation layer said nothing (the halves of every ownership transfer name the same ranges)";
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+}
+
+TEST_CASE("vulkan: rows that need repacking are uploaded on the transfer queue and sampled on graphics") {
+    auto dev = make_async_vk("repacked upload on the transfer queue");
+    if (!dev) return;
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = dev->make_shader(sample_shader_desc());
+    pd.label = "sample";
+    const Pipeline sample = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(sample) == ResourceState::Valid, all_errors(*dev));
+    // 34-byte rows from offset 2: neither is a whole number of RGBA8 texels, so the list repacks them through a
+    // buffer of its own before the copy (CommandList::copy_buffer_to_image).
+    const std::vector<std::uint8_t> data = pattern(2 + 34 * 8, 91);
+    BufferDesc bd;
+    bd.size = data.size();
+    bd.usage.copySrc = true;
+    bd.data = range_of(data);
+    const Buffer src = dev->make_buffer(bd);
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.copyDst = true;
+    id.label = "uploaded";
+    const Image img = dev->make_image(id);
+    id.usage = {};
+    id.usage.storageImage = true;
+    id.label = "sampled";
+    const Image copied = dev->make_image(id);
+    ViewDesc v;
+    v.texture.image = img;
+    const View texture = dev->make_view(v);
+    v = {};
+    v.storageImage.image = copied;
+    const View storage = dev->make_view(v);
+    const Sampler nearest = make_clamped_sampler(*dev, Filter::Nearest);
+    std::vector<std::uint8_t> expected;
+    for (int row = 0; row < 8; ++row)
+        expected.insert(expected.end(), data.begin() + 2 + row * 34, data.begin() + 2 + row * 34 + 32);
+
+    std::string step = "graphics hands the image and its source to the transfer queue";
+    INFO("step: " << step);
+    const QueueHandoff toTransfer[] = {hand_image(img, QueueKind::Transfer), hand_buffer(src, QueueKind::Transfer)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    const SyncToken t0 = dev->submit_token(give, toTransfer);
+    step = "the transfer list repacks the rows and copies them, and hands the image back";
+    CommandList& x = dev->begin_commands("upload", QueueKind::Transfer);
+    CHECK(x.queue() == dev->resolve_queue(QueueKind::Transfer));
+    dev->wait_list(x, t0);
+    BufferImageCopy c;
+    c.src = src;
+    c.srcOffset = 2;
+    c.bytesPerRow = 34;
+    c.dst.image = img;
+    x.copy_buffer_to_image(c);
+    const QueueHandoff toGraphics[] = {hand_image(img, QueueKind::Graphics), hand_buffer(src, QueueKind::Graphics)};
+    const SyncToken t1 = dev->submit_token(x, toGraphics);
+    REQUIRE(t1.valid());
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));  // the repack buffer is the transfer list's own
+
+    step = "graphics samples it after the token";
+    CommandList& g = dev->begin_commands("sample", QueueKind::Graphics);
+    dev->wait_list(g, t1);
+    g.begin_compute_pass("sample");
+    g.set_pipeline(sample);
+    Bindings b;
+    b.views[0] = texture;
+    b.views[1] = storage;
+    b.samplers[0] = nearest;
+    g.set_bindings(b);
+    g.dispatch(1, 1, 1);
+    g.end_pass();
+    submit_and_finish(*dev, g);
+    CHECK(read_rgba8(*dev, copied, 8, 8) == expected);
+    CHECK(read_rgba8(*dev, img, 8, 8) == expected);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: two threads record lists while the render thread makes and destroys other resources") {
+    auto dev = make_vk();
+    if (!dev) return;
+    REQUIRE(dev->features().multiThreadRecording);
+    const ComputeSet a = make_compute_set(*dev, "thread-a");
+    REQUIRE_MESSAGE(dev->state(a.pipeline) == ResourceState::Valid, all_errors(*dev));
+    BufferDesc bd;
+    bd.size = 64 * 4;
+    bd.usage.storageBuffer = true;
+    bd.label = "thread-b";
+    const Buffer b = dev->make_buffer(bd);
+    const std::vector<std::uint32_t> bWords = words_of(3, 5);
+    CommandList* listA = nullptr;
+    CommandList* listB = nullptr;
+    std::thread ta([&] {
+        CommandList& l = dev->begin_commands("thread-a", QueueKind::Graphics);
+        for (int i = 0; i < 4; ++i) {
+            dispatch_mode(l, a, 0);
+            dispatch_mode(l, a, 1);  // 2i + 1 each round: mode 0 starts it again
+        }
+        listA = &l;
+    });
+    std::thread tb([&] {
+        CommandList& l = dev->begin_commands("thread-b", QueueKind::Graphics);
+        for (std::size_t i = 0; i < 64; i += 8) {  // eight writes of 8 words, each through the upload ring
+            BufferWrite w;
+            w.data = Range{bWords.data() + i, 8 * sizeof(std::uint32_t)};
+            w.buffer = b;
+            w.dstOffset = i * sizeof(std::uint32_t);
+            l.write_buffer(w);
+        }
+        listB = &l;
+    });
+    int made = 0;
+    for (int i = 0; i < 64; ++i) {  // unrelated resources come and go on the render thread meanwhile
+        BufferDesc other;
+        other.size = 256;
+        other.usage.storageBuffer = true;
+        other.label = "other";
+        const std::vector<std::uint8_t> data = pattern(256, std::uint32_t(i));
+        other.data = range_of(data);
+        const Buffer o = dev->make_buffer(other);
+        made += dev->state(o) == ResourceState::Valid ? 1 : 0;
+        ViewDesc ov;
+        ov.storageBuffer.buffer = o;
+        const View view = dev->make_view(ov);
+        dev->destroy_view(view);
+        dev->destroy_buffer(o);
+    }
+    ta.join();
+    tb.join();
+    CHECK(made == 64);
+    REQUIRE(listA != nullptr);
+    REQUIRE(listB != nullptr);
+    dev->submit(*listB);
+    submit_and_finish(*dev, *listA);
+    CHECK(read_words(*dev, a.buffer) == words_of(2, 1));
+    CHECK(read_words(*dev, b) == bWords);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: bindless_index names a texture view's slot in the global table") {
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!dev->features().bindless) {
+        MESSAGE("vulkan: " << dev->device_name() << " has no bindless table (no descriptor indexing)");
+        CHECK(dev->bindless_index(make_texture(*dev, 1, 1, {1, 2, 3, 4})) == kNoBindlessIndex);
+        return;
+    }
+    const View t1 = make_texture(*dev, 1, 1, {1, 2, 3, 4});
+    const View t2 = make_texture(*dev, 1, 1, {5, 6, 7, 8});
+    const std::uint32_t i1 = dev->bindless_index(t1);
+    const std::uint32_t i2 = dev->bindless_index(t2);
+    CHECK(i1 != kNoBindlessIndex);
+    CHECK(i2 != kNoBindlessIndex);
+    CHECK(i1 != i2);
+    CHECK(i1 < dev->counters().bindlessCapacity);
+    CHECK(i2 < dev->counters().bindlessCapacity);
+    CHECK(dev->bindless_index(t1) == i1);  // stable
+    const ComputeSet s = make_compute_set(*dev, "storage");
+    CHECK(dev->bindless_index(s.bindings.views[0]) == kNoBindlessIndex);  // a storage image view has no slot
+    CHECK(dev->bindless_index(s.bindings.views[1]) == kNoBindlessIndex);  // nor a storage buffer view
+    CHECK(dev->bindless_index(View{}) == kNoBindlessIndex);
+    dev->destroy_view(t1);
+    CHECK(dev->bindless_index(t1) == kNoBindlessIndex);  // the handle is gone; its slot is freed with its frame
+    CHECK(dev->bindless_index(t2) == i2);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a timed scope on a list of a queue that does not time is ignored") {
+    auto dev = make_async_vk("timed scope on the compute queue");
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("vulkan: the graphics queue cannot time either: " << why);
+        CHECK(dev->timestamp_valid_bits(QueueKind::Graphics) == 0);
+    }
+    const ComputeSet s = make_compute_set(*dev, "timed");
+    const QueueHandoff toCompute[] = {hand_image(s.image, QueueKind::Compute),
+                                      hand_buffer(s.buffer, QueueKind::Compute)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    const SyncToken t0 = dev->submit_token(give, toCompute);
+    dev->timer_begin_frame();
+    CommandList& c = dev->begin_commands("timed-compute", QueueKind::Compute);
+    dev->wait_list(c, t0);
+    c.begin_timed_scope("compute-scope");  // ignored: the timers time the graphics queue only
+    dispatch_mode(c, s, 0);
+    c.end_timed_scope();
+    dev->submit(c);
+    dev->timer_end_frame();
+    dev->commit();
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    std::vector<double> frames;
+    dev->timer_poll(frames);
+    for (const Device::ScopeTime& st : dev->timer_last_scopes()) CHECK(st.name != "compute-scope");
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a pipeline destroyed while an open list binds it survives wait_idle until the list is submitted") {
+    auto dev = make_vk();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    PipelineDesc first = render_desc(shader, PixelFormat::Rgba8);
+    first.label = "retired";
+    PipelineDesc second = render_desc(shader, PixelFormat::Rgba8);
+    second.label = "kept";
+    second.colors[0].writeMask = ColorMask::Rgb;  // another pipeline, not the cached first one
+    const Pipeline a = dev->make_pipeline(first);
+    const Pipeline b = dev->make_pipeline(second);
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    REQUIRE_MESSAGE(dev->state(a) == ResourceState::Valid, all_errors(*dev));
+    REQUIRE_MESSAGE(dev->state(b) == ResourceState::Valid, all_errors(*dev));
+    CommandList& list = dev->begin_commands("retired-pipeline");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    for (const Pipeline p : {a, b}) {  // after b the list no longer has `a` bound, but its command buffer names it
+        list.set_pipeline(p);
+        list.set_uniforms(0, bytes_of(Vec4{0.0f, 0.0f, 0.0f, 0.0f}));
+        list.set_uniforms(1, bytes_of(Vec4{1.0f, 0.0f, 0.0f, 1.0f}));
+        list.draw(0, 3);
+    }
+    list.end_pass();
+    dev->destroy_pipeline(a);
+    auto r = dev->wait_idle();  // used to free a's VkPipeline here
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 1,
+                                           [](int, int) { return std::array<int, 4>{255, 0, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: without a queue of its own a compute or transfer list runs on the graphics queue") {
+    VulkanOptions o;
+    o.queues = VulkanOptions::Queues::GraphicsOnly;
+    auto dev = make_vk(o);
+    if (!dev) return;
+    CHECK_FALSE(dev->features().asyncCompute);
+    CHECK(dev->queue(QueueKind::Compute) == dev->queue(QueueKind::Graphics));
+    CHECK(dev->queue(QueueKind::Transfer) == dev->queue(QueueKind::Graphics));
+    const ComputeSet s = make_compute_set(*dev, "fallback");
+    CommandList& c = dev->begin_commands("compute", QueueKind::Compute);
+    CHECK(c.queue() == QueueKind::Graphics);
+    dispatch_mode(c, s, 0);
+    const QueueHandoff h[] = {hand_buffer(s.buffer, QueueKind::Compute)};  // the same queue: nothing to hand over
+    const SyncToken t = dev->submit_token(c, h);
+    CHECK(t.valid());
+    CHECK(t.queue == QueueKind::Graphics);
+    CommandList& x = dev->begin_commands("transfer", QueueKind::Transfer);
+    CHECK(x.queue() == QueueKind::Graphics);
+    dev->wait_list(x, t);  // the queue's own order
+    dev->wait_queue(QueueKind::Compute, t);
+    dispatch_mode(x, s, 1);
+    submit_and_finish(*dev, x);
+    CHECK(read_words(*dev, s.buffer) == words_of(2, 1));
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a wait for a token never issued, a resource of another queue and a pass of the wrong kind are "
+          "teaching errors") {
+    auto dev = make_async_vk("queue misuse");
+    if (!dev) return;
+    std::string step = "a token no submit_token returned";
+    INFO("step: " << step);
+    CommandList& g = dev->begin_commands("made-up", QueueKind::Graphics);
+    SyncToken madeUp;
+    madeUp.queue = QueueKind::Compute;
+    madeUp.value = 1000000;
+    dev->wait_list(g, madeUp);
+    CHECK(contains(last_error(*dev), "was never returned by submit_token()"));
+    dev->wait_queue(QueueKind::Graphics, madeUp);
+    CHECK(contains(last_error(*dev), "wait_queue"));
+    submit_and_finish(*dev, g);  // the wait was left out: the list runs
+
+    step = "a compute list that uses a buffer of the graphics queue";
+    const ComputeSet s = make_compute_set(*dev, "graphics-owned");
+    CommandList& c = dev->begin_commands("stolen", QueueKind::Compute);
+    dispatch_mode(c, s, 0);
+    submit_and_finish(*dev, c);
+    CHECK(contains(all_errors(*dev), "belongs to the graphics queue, but the list runs on the compute queue"));
+
+    step = "a handoff from a queue that does not own the resource";
+    CommandList& c2 = dev->begin_commands("not-mine", QueueKind::Compute);
+    const QueueHandoff h[] = {hand_buffer(s.buffer, QueueKind::Graphics)};
+    const SyncToken t = dev->submit_token(c2, h);
+    CHECK(t.valid());  // the list ran; the handoff was left out
+    CHECK(contains(last_error(*dev), "so this list cannot hand it over"));
+
+    step = "a render pass on a compute list";
+    const Target target = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    CommandList& p = dev->begin_commands("pass", QueueKind::Compute);
+    p.begin_pass(color_pass(target, PixelFormat::Rgba8, Color{}));
+    p.end_pass();
+    submit_and_finish(*dev, p);
+    CHECK(contains(all_errors(*dev), "queue, which has no render passes"));
+
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
 #endif

@@ -64,7 +64,7 @@ Result<void> VulkanCommandList::create(const char* what) {
     VkCommandPoolCreateInfo pi{};
     pi.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     pi.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    pi.queueFamilyIndex = device_.queueFamily_;
+    pi.queueFamilyIndex = device_.queues_[int(queue_)].family;
     VkResult r = f.vkCreateCommandPool(device_.device_, &pi, nullptr, &pool_);
     if (r != VK_SUCCESS) {
         pool_ = VK_NULL_HANDLE;
@@ -112,6 +112,8 @@ Result<void> VulkanCommandList::open(const char* label) {
     useIndex_.clear();
     pending_.clear();
     keep_.clear();
+    boundPipelines_.clear();
+    for (std::uint64_t& w : waits_) w = 0;
     scopes_.clear();
     scopeOpen_ = false;
     // The GPU finished the list's last commands: its secondaries and uniform sets can go (the framebuffers are the
@@ -172,10 +174,13 @@ void VulkanCommandList::clear_pass_state() {
 
 // A timed scope: a timestamp in the open timed frame's query pool at each end (vulkan_timers.cpp reads them), written
 // where the list records now (inside a render pass, its secondary command buffer). Outside a timed frame, past its
-// kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded.
+// kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded. Nor on a list of another queue than
+// Graphics: the frame's query pool is reset and read on the graphics queue, timestamps compare only within one queue,
+// and a family may have none (timestampValidBits 0); such a scope is accepted and measures nothing.
 void VulkanCommandList::begin_timed_scope(const char* name) {
     FA_VK_REQUIRE_OPEN("begin_timed_scope");
     if (scopeOpen_) close_scope();  // scopes do not nest
+    if (queue_ != QueueKind::Graphics || device_.queues_[int(queue_)].timestampBits == 0) return;
     ScopeRef ref;
     {
         std::lock_guard<std::mutex> lock(device_.timerMutex_);
@@ -360,6 +365,12 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     clear_pass_state();
     passState_ = PassState::Render;
     passFailed_ = true;
+    if (queue_ != QueueKind::Graphics) {
+        fail("begin_pass", std::string("the list runs on the ") + queue_name(queue_) +
+                               " queue, which has no render passes (hint: record render passes on a "
+                               "QueueKind::Graphics list; the pass's commands are skipped)");
+        return;
+    }
     passFormat_ = pass.format;
     const std::string passName = std::string("pass '") + (pass.label && *pass.label ? pass.label : "(no label)") + "'";
     if (pass.swapchain) {
@@ -568,6 +579,12 @@ void VulkanCommandList::begin_compute_pass(const char* label) {
     }
     clear_pass_state();
     passState_ = PassState::Compute;
+    if (queue_ == QueueKind::Transfer) {
+        passFailed_ = true;  // open, so end_pass() closes it; its commands are skipped
+        fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
+                                       "': the list runs on the transfer queue, which has no compute passes (hint: "
+                                       "record compute passes on a QueueKind::Compute or Graphics list)");
+    }
 }
 
 void VulkanCommandList::end_pass() {
@@ -651,6 +668,9 @@ void VulkanCommandList::set_pipeline(Pipeline pipeline) {
     const VkCommandBuffer c = recording();
     const VkPipelineBindPoint point = st->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
     f.vkCmdBindPipeline(c, point, st->pipeline);
+    // The list holds the state until it is submitted (or dropped): destroy_pipeline() and wait_idle() cannot free the
+    // VkPipeline its command buffer names before it runs.
+    boundPipelines_.insert(st);
     if (!st->compute) {
         f.vkCmdSetBlendConstants(c, st->blendColor);
         f.vkCmdSetStencilReference(c, VK_STENCIL_FACE_FRONT_AND_BACK, st->stencilRef);
@@ -1237,8 +1257,24 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
     if (barriers.empty()) return;
     // Merge the barriers of one image that go the same way: adjacent mips first, then adjacent layers of equal mip
     // ranges (require() walks mips inside layers, so a whole image becomes one barrier).
-    auto same = [](const Barrier& a, const Barrier& b) {
-        return a.image && a.image == b.image && a.aspects == b.aspects && a.from == b.from && a.to == b.to;
+    // The two halves of a queue family ownership transfer must name the same subresource ranges, but the release's
+    // source stages and accesses differ per subresource (what the producer did with each) while the acquire's are
+    // none: so a transfer merges on its layouts, families and destination state alone, the merged source the union
+    // of the parts (waiting for more is still right). Both halves skip the same subresources and walk them in the
+    // same order, so their ranges come out equal.
+    auto transfer = [](const Barrier& b) {
+        return b.srcFamily != b.dstFamily && b.srcFamily != VK_QUEUE_FAMILY_IGNORED &&
+               b.dstFamily != VK_QUEUE_FAMILY_IGNORED;
+    };
+    auto same = [&transfer](const Barrier& a, const Barrier& b) {
+        if (!a.image || a.image != b.image || a.aspects != b.aspects || !(a.to == b.to) || a.srcFamily != b.srcFamily ||
+            a.dstFamily != b.dstFamily)
+            return false;
+        return transfer(a) ? a.from.layout == b.from.layout : a.from == b.from;
+    };
+    auto join = [](Barrier& into, const Barrier& b) {
+        into.from.stages |= b.from.stages;
+        into.from.access |= b.from.access;
     };
     std::vector<Barrier> mips;
     for (const Barrier& b : barriers) {
@@ -1247,6 +1283,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
             if (same(last, b) && last.layer == b.layer && last.layerCount == b.layerCount &&
                 last.mip + last.mipCount == b.mip) {
                 last.mipCount += b.mipCount;
+                join(last, b);
                 continue;
             }
         }
@@ -1259,6 +1296,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
             if (same(last, b) && last.mip == b.mip && last.mipCount == b.mipCount &&
                 last.layer + last.layerCount == b.layer) {
                 last.layerCount += b.layerCount;
+                join(last, b);
                 continue;
             }
         }
@@ -1278,8 +1316,8 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
                 x.dstAccessMask = b.to.access;
                 x.oldLayout = b.from.layout;
                 x.newLayout = b.to.layout;
-                x.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                x.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                x.srcQueueFamilyIndex = b.srcFamily;
+                x.dstQueueFamilyIndex = b.dstFamily;
                 x.image = b.image;
                 x.subresourceRange = {b.aspects, b.mip, b.mipCount, b.layer, b.layerCount};
                 images.push_back(x);
@@ -1290,8 +1328,8 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
                 x.srcAccessMask = b.from.access;
                 x.dstStageMask = b.to.stages;
                 x.dstAccessMask = b.to.access;
-                x.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                x.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                x.srcQueueFamilyIndex = b.srcFamily;
+                x.dstQueueFamilyIndex = b.dstFamily;
                 x.buffer = b.buffer;
                 x.offset = 0;
                 x.size = VK_WHOLE_SIZE;
@@ -1323,8 +1361,8 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
                 x.dstAccessMask = dstAccess;
                 x.oldLayout = b.from.layout;
                 x.newLayout = b.to.layout;
-                x.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                x.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                x.srcQueueFamilyIndex = b.srcFamily;
+                x.dstQueueFamilyIndex = b.dstFamily;
                 x.image = b.image;
                 x.subresourceRange = {b.aspects, b.mip, b.mipCount, b.layer, b.layerCount};
                 images.push_back(x);
@@ -1333,8 +1371,8 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
                 x.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
                 x.srcAccessMask = srcAccess;
                 x.dstAccessMask = dstAccess;
-                x.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                x.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                x.srcQueueFamilyIndex = b.srcFamily;
+                x.dstQueueFamilyIndex = b.dstFamily;
                 x.buffer = b.buffer;
                 x.offset = 0;
                 x.size = VK_WHOLE_SIZE;
@@ -1597,6 +1635,7 @@ void VulkanCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
                        "': the buffer that repacks the rows could not be made: " + error);
         return;
     }
+    scratch->owner = queue_;  // the list's own: born on its queue, never handed to another
     require(scratch, 0, transfer_write_state(false));
     flush_barriers();
     std::vector<VkBufferCopy> rows;
