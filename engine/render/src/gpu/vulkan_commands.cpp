@@ -26,6 +26,29 @@ std::uint32_t extent_or_rest(int size, int at, std::uint32_t level) {
 
 constexpr SubState kUnused{kUnknownLayout, 0, 0};
 
+// The Vulkan 1.0 stage mask of a synchronization2 one: the low 32 bits are the same, and each stage above them is
+// mapped to the 1.0 stage that contains it.
+VkPipelineStageFlags stages_1_0(VkPipelineStageFlags2 s) {
+    auto out = VkPipelineStageFlags(s & 0xFFFFFFFFull);
+    if (s & (VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT |
+             VK_PIPELINE_STAGE_2_CLEAR_BIT))
+        out |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+    if (s & (VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT))
+        out |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+    if (s & VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT)
+        out |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;  // the engine has no tessellation or geometry shaders
+    return out;
+}
+
+// The Vulkan 1.0 access mask of a synchronization2 one (the shader sampled and storage bits are above bit 31).
+VkAccessFlags access_1_0(VkAccessFlags2 a) {
+    auto out = VkAccessFlags(a & 0xFFFFFFFFull);
+    if (a & (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT))
+        out |= VK_ACCESS_SHADER_READ_BIT;
+    if (a & VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT) out |= VK_ACCESS_SHADER_WRITE_BIT;
+    return out;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -90,6 +113,8 @@ Result<void> VulkanCommandList::open(const char* label) {
     useIndex_.clear();
     pending_.clear();
     keep_.clear();
+    scopes_.clear();
+    scopeOpen_ = false;
     // The GPU finished the list's last commands: its framebuffers, secondaries and uniform sets can go.
     for (VkFramebuffer fb : framebuffers_) f.vkDestroyFramebuffer(device_.device_, fb, nullptr);
     framebuffers_.clear();
@@ -120,7 +145,9 @@ void VulkanCommandList::reset_bind_state() {
     bindingsSet_ = false;
     drawsFailed_ = false;
     uniformsDirty_ = false;
+    viewSet_ = VK_NULL_HANDLE;
     boundNeeds_.clear();
+    boundNeedIndex_.clear();
     for (int i = 0; i < kMaxUniformBlocks; ++i) {
         uniformBuffer_[i] = VK_NULL_HANDLE;
         uniformOffset_[i] = 0;
@@ -145,10 +172,42 @@ void VulkanCommandList::clear_pass_state() {
     reset_bind_state();
 }
 
-// GPU timers come in M77-P8b (timer_supported() is false until then): a timed scope does nothing, as the interface
-// says.
-void VulkanCommandList::begin_timed_scope(const char*) {}
-void VulkanCommandList::end_timed_scope() {}
+// A timed scope: a timestamp in the open timed frame's query pool at each end (vulkan_timers.cpp reads them), written
+// where the list records now (inside a render pass, its secondary command buffer). Outside a timed frame, past its
+// kMaxTimedScopes scopes or on a device that cannot time, nothing is recorded.
+void VulkanCommandList::begin_timed_scope(const char* name) {
+    FA_VK_REQUIRE_OPEN("begin_timed_scope");
+    if (scopeOpen_) close_scope();  // scopes do not nest
+    ScopeRef ref;
+    {
+        std::lock_guard<std::mutex> lock(device_.timerMutex_);
+        if (!device_.timerOk_ || device_.timerCurrent_ < 0) return;
+        VulkanDevice::TimerSlot& slot = device_.timerSlots_[std::size_t(device_.timerCurrent_)];
+        if (slot.names.size() >= std::size_t(VulkanDevice::kMaxTimedScopes)) return;  // drawn, not measured
+        ref.serial = slot.serial;
+        ref.slot = device_.timerCurrent_;
+        ref.scope = std::uint32_t(slot.names.size());
+        ref.pool = slot.pool;
+        slot.names.emplace_back(name ? name : "");
+        slot.submitted.push_back(false);
+    }
+    device_.fn_.vkCmdWriteTimestamp(recording(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, ref.pool, 2 + 2 * ref.scope);
+    empty_ = false;
+    scopes_.push_back(ref);
+    scopeOpen_ = true;
+}
+
+void VulkanCommandList::end_timed_scope() {
+    FA_VK_REQUIRE_OPEN("end_timed_scope");
+    if (scopeOpen_) close_scope();
+}
+
+void VulkanCommandList::close_scope() {
+    scopeOpen_ = false;
+    if (scopes_.empty() || !cmd_) return;
+    const ScopeRef& ref = scopes_.back();
+    device_.fn_.vkCmdWriteTimestamp(recording(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, ref.pool, 3 + 2 * ref.scope);
+}
 
 namespace {
 
@@ -246,21 +305,26 @@ bool VulkanCommandList::need(const std::shared_ptr<TrackedResource>& t, std::uin
     for (std::uint32_t l = layer; l < layer + layerCount && l < t->layers; ++l)
         for (std::uint32_t m = mip; m < mip + mipCount && m < t->mips; ++m) {
             const std::uint32_t sub = t->subresource(m, l);
-            if (passState_ == PassState::Compute) {
-                boundNeeds_.push_back({t, sub, state});
-                continue;
-            }
-            auto [it, added] = passNeedIndex_.try_emplace({t.get(), sub}, passNeeds_.size());
+            // A render pass merges what its attachments and every draw need; a compute pass what one set_bindings
+            // binds (each dispatch applies it). One subresource in two layouts cannot be: a descriptor would see the
+            // wrong one.
+            const bool compute = passState_ == PassState::Compute;
+            std::vector<Need>& needs = compute ? boundNeeds_ : passNeeds_;
+            auto& index = compute ? boundNeedIndex_ : passNeedIndex_;
+            auto [it, added] = index.try_emplace({t.get(), sub}, needs.size());
             if (added) {
-                passNeeds_.push_back({t, sub, state});
+                needs.push_back({t, sub, state});
                 continue;
             }
-            Need& n = passNeeds_[it->second];
+            Need& n = needs[it->second];
             if (n.state.layout != state.layout) {
                 error = std::string("mip ") + std::to_string(m) + " of layer " + std::to_string(l) + " is used as " +
                         layout_use(n.state.layout) + " and as " + layout_use(state.layout) +
-                        " in the same pass (hint: an image is drawn into in one pass and read in a later one; read "
-                        "another mip or layer, or a copy)";
+                        (compute ? " in the same dispatch (hint: a texture view and a storage image view of one "
+                                   "subresource cannot be bound together; bind another mip or layer, read the storage "
+                                   "image in the shader instead of a texture, or copy the image)"
+                                 : " in the same pass (hint: an image is drawn into in one pass and read in a later "
+                                   "one; read another mip or layer, or a copy)");
                 return false;
             }
             n.state.stages |= state.stages;
@@ -592,16 +656,12 @@ void VulkanCommandList::set_pipeline(Pipeline pipeline) {
     const VkCommandBuffer c = recording();
     const VkPipelineBindPoint point = st->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
     f.vkCmdBindPipeline(c, point, st->pipeline);
-    if (st->layout->bindless) {
-        const VkDescriptorSet bindless = device_.descriptors_.bindless_set();
-        if (bindless) f.vkCmdBindDescriptorSets(c, point, st->layout->layout, 2, 1, &bindless, 0, nullptr);
-    }
     if (!st->compute) {
         f.vkCmdSetBlendConstants(c, st->blendColor);
         f.vkCmdSetStencilReference(c, VK_STENCIL_FACE_FRONT_AND_BACK, st->stencilRef);
     }
     pipeline_ = std::move(st);
-    uniformsDirty_ = true;
+    uniformsDirty_ = true;  // ready_to_run binds sets 0, 1 and 2 (bindless) with this pipeline's layout
     empty_ = false;
 }
 
@@ -742,7 +802,10 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
     }
 
     // What the views and buffers need: before the render pass begins, or before each dispatch.
-    if (passState_ == PassState::Compute) boundNeeds_.clear();
+    if (passState_ == PassState::Compute) {
+        boundNeeds_.clear();
+        boundNeedIndex_.clear();
+    }
     for (int i = 0; i < kMaxViews && error.empty(); ++i) {
         const BoundView& v = views[i];
         if (!v.t) continue;
@@ -771,7 +834,6 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
     // Set 1: the views and samplers, written into a set of this frame's descriptor pool.
     const VkFunctions& f = device_.fn_;
     const VkCommandBuffer c = recording();
-    const VkPipelineBindPoint point = st.compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
     if (lay.hasSet[1]) {
         Result<VkDescriptorSet> set = device_.descriptors_.alloc(lay.sets[1], lay.counts[1]);
         if (!set) {
@@ -815,8 +877,8 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
             w.pImageInfo = &images[ni++];
         }
         if (n > 0) f.vkUpdateDescriptorSets(device_.device_, n, writes, 0, nullptr);
-        const VkDescriptorSet s = *set;
-        f.vkCmdBindDescriptorSets(c, point, lay.layout, 1, 1, &s, 0, nullptr);
+        viewSet_ = *set;  // bound by ready_to_run, after set 0
+        uniformsDirty_ = true;
     }
 
     // The vertex and index buffers.
@@ -964,7 +1026,10 @@ bool VulkanCommandList::ready_to_run(const char* what, bool compute) {
     }
     if (!compute && viewportEmpty_) return false;  // nothing to draw into
     const VkPipelineBindPoint point = compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS;
-    if (lay.hasSet[0] && uniformsDirty_) {
+    // The sets are bound in order 0, 1, 2 with the pipeline's layout. Binding set N with a layout whose set N differs
+    // from the one bound before disturbs every set above N, so a set 0 bound after sets 1 and 2 (or a new pipeline
+    // whose set 0 layout differs) would leave them unbound.
+    if (uniformsDirty_ && lay.hasSet[0]) {
         // Set 0: one dynamic uniform buffer per block; a set is made once per (layout, buffers) in the list and the
         // blocks' places in the buffers are its dynamic offsets.
         std::string key = std::to_string(handle_bits(lay.sets[0]));
@@ -1003,6 +1068,13 @@ bool VulkanCommandList::ready_to_run(const char* what, bool compute) {
         for (int k = 0; k < lay.uniformCount; ++k) offsets[k] = uniformOffset_[lay.uniformOrder[k]];
         device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 0, 1, &set, std::uint32_t(lay.uniformCount),
                                             offsets);
+    }
+    if (uniformsDirty_) {
+        if (lay.hasSet[1] && viewSet_)
+            device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 1, 1, &viewSet_, 0, nullptr);
+        if (lay.bindless)
+            if (const VkDescriptorSet bindless = device_.descriptors_.bindless_set())
+                device_.fn_.vkCmdBindDescriptorSets(recording(), point, lay.layout, 2, 1, &bindless, 0, nullptr);
         uniformsDirty_ = false;
     }
     if (compute) {
@@ -1081,24 +1153,43 @@ void VulkanCommandList::transition(Use& u, std::uint32_t sub, const SubState& wa
         cur = want;
         return;
     }
+    const TrackedResource& t = *u.res;
+    auto push = [&](const SubState& from, const SubState& to) {
+        Barrier b;
+        b.buffer = t.buffer;
+        b.image = t.image;
+        b.aspects = t.aspects;
+        b.mip = sub % t.mips;
+        b.layer = sub / t.mips;
+        b.from = from;
+        b.to = to;
+        pending_.push_back(b);
+        u.since[sub] = from;
+    };
     if (cur.layout == want.layout && !access_writes(cur.access) && !access_writes(want.access)) {
-        // Read after read in the same layout: no barrier; the next write waits for every stage that read.
-        const bool untouched = u.first[sub] == cur;  // no barrier yet: the list's first reads grow too
+        // Read after read in the same layout; the next write waits for every stage that read.
+        SubState& since = u.since[sub];
+        if (since.layout == kUnknownLayout) {
+            // No barrier in this list yet: the list's first reads grow, and submit()'s fix-up barrier makes what came
+            // before visible to all of them.
+            cur.stages |= want.stages;
+            cur.access |= want.access;
+            u.first[sub] = cur;
+            return;
+        }
+        // A barrier made the last write (or layout change) visible to cur's stages and access only. A read in another
+        // stage, or with another access, waits for it again: the barrier chains from the stages the first one reached
+        // (an execution dependency chain), and its source scope keeps the write's.
+        if ((want.stages & ~cur.stages) != 0 || (want.access & ~cur.access) != 0) {
+            const SubState from{cur.layout, since.stages | cur.stages, since.access};
+            const SubState to{cur.layout, want.stages, want.access};
+            push(from, to);
+        }
         cur.stages |= want.stages;
         cur.access |= want.access;
-        if (untouched) u.first[sub] = cur;
         return;
     }
-    const TrackedResource& t = *u.res;
-    Barrier b;
-    b.buffer = t.buffer;
-    b.image = t.image;
-    b.aspects = t.aspects;
-    b.mip = sub % t.mips;
-    b.layer = sub / t.mips;
-    b.from = cur;
-    b.to = want;
-    pending_.push_back(b);
+    push(cur, want);
     cur = want;
 }
 
@@ -1110,6 +1201,7 @@ void VulkanCommandList::require(const std::shared_ptr<TrackedResource>& t, std::
         u.res = t;
         u.first.assign(t->subresource_count(), kUnused);
         u.current.assign(t->subresource_count(), kUnused);
+        u.since.assign(t->subresource_count(), kUnused);
         uses_.push_back(std::move(u));
     }
     Use& u = uses_[it->second];
@@ -1209,15 +1301,16 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
         di.pImageMemoryBarriers = images.data();
         fn_.vkCmdPipelineBarrier2(cmd, &di);
     } else {
-        // Vulkan 1.0: one stage mask for every barrier; the stage and access bits used here all fit in 32 bits.
+        // Vulkan 1.0: one stage mask for every barrier, and the synchronization2 bits above bit 31 (which have no
+        // 1.0 value) mapped to the 1.0 bits that cover them (stages_1_0, access_1_0).
         VkPipelineStageFlags src = 0, dst = 0;
         std::vector<VkImageMemoryBarrier> images;
         std::vector<VkBufferMemoryBarrier> buffers;
         for (const Barrier& b : merged) {
-            src |= VkPipelineStageFlags(b.from.stages & 0xFFFFFFFFull);
-            dst |= VkPipelineStageFlags(b.to.stages & 0xFFFFFFFFull);
-            const auto srcAccess = VkAccessFlags(b.from.access & 0xFFFFFFFFull);
-            const auto dstAccess = VkAccessFlags(b.to.access & 0xFFFFFFFFull);
+            src |= stages_1_0(b.from.stages);
+            dst |= stages_1_0(b.to.stages);
+            const VkAccessFlags srcAccess = access_1_0(b.from.access);
+            const VkAccessFlags dstAccess = access_1_0(b.to.access);
             if (b.image) {
                 VkImageMemoryBarrier x{};
                 x.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;

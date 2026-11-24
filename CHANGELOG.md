@@ -26,6 +26,12 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   dispatches, with automatic barriers and errors that name what is wrong. On it a custom material takes its `spirv_vk` twin, whose
   base64 stages `render::make_shader` decodes. GPU timers and asynchronous reads come next (until then they say so), passes into
   the window after that. docs/design/ARCHITECTURE_RENDERING_VULKAN.md.
+- The Vulkan backend measures GPU time (timestamp query pools, the D3D12 backend's timed frames and scopes) and reads buffers and
+  image regions in the background (32 generation-checked tickets), answers `storage_image_loadable` per format, and passes the
+  validation layer's synchronization validation: a read in a second stage after a write waits for the write, descriptor sets are
+  bound in order, the Vulkan 1.0 barriers keep the storage and sampled bits above bit 31, and a texture and a storage image view of
+  one subresource in one dispatch is a teaching error. Its tests run on Linux CI on Mesa's lavapipe with the validation layers
+  (`FA_VULKAN_REQUIRE=1` makes a skip fail) (M77-P8b1).
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;

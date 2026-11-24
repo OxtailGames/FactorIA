@@ -20,9 +20,9 @@
 // What M77-P8c built (vulkan_pipelines.cpp, vulkan_commands.cpp): shaders from SPIR-V with sokol-shdc's descriptor
 // layout, cached descriptor set layouts, pipeline layouts, render passes and pipelines (a VkPipelineCache under them),
 // render passes recorded into secondary command buffers, compute passes, bindings, uniforms through dynamic uniform
-// buffers, viewports, scissors, draws and dispatches. GPU timers and asynchronous reads come in M77-P8b (until then
-// timer_supported() and async_read_supported() are false, a timed scope does nothing and request_buffer_read returns an
-// error naming the package); a pass into the window comes in M77-P9 (until then begin_pass reports an error naming it).
+// buffers, viewports, scissors, draws and dispatches. What M77-P8b1 built: GPU timers (timestamp query pools,
+// vulkan_timers.cpp), asynchronous buffer and image reads (vulkan_readback.cpp) and storage_image_loadable. A pass into
+// the window comes in M77-P9 (until then begin_pass reports an error naming it).
 #pragma once
 
 #include <cstddef>
@@ -44,6 +44,10 @@ struct VulkanOptions {
     // message, the ERROR ones go to VulkanDevice::errors() (and the log), the WARNING ones to warnings(). Without the
     // layer installed the device is made without it (a warning says so) and validation_active() is false.
     bool validation = false;
+    // With validation: the layer's synchronization validation too (VK_EXT_validation_features), so a missing or wrong
+    // barrier between two commands is an error in errors(). Slow: for tests. Without the extension (an old layer) a
+    // warning says so and synchronization_validation_active() is false.
+    bool synchronizationValidation = false;
     // Frames the CPU may record ahead of the GPU: 1 to 3.
     int framesInFlight = kInflightFrames;
     // Pool sizes (buffers, images, views, samplers, shaders, pipelines) and the environment defaults (the default
@@ -224,7 +228,12 @@ std::string prepare_validation_layer();
     X(vkCmdSetStencilReference)                                                                                        \
     X(vkCmdDraw)                                                                                                       \
     X(vkCmdDrawIndexed)                                                                                                \
-    X(vkCmdDispatch)
+    X(vkCmdDispatch)                                                                                                   \
+    X(vkCreateQueryPool)                                                                                               \
+    X(vkDestroyQueryPool)                                                                                              \
+    X(vkCmdResetQueryPool)                                                                                             \
+    X(vkCmdWriteTimestamp)                                                                                             \
+    X(vkGetQueryPoolResults)
 
 // Every function the backend calls (VK_NO_PROTOTYPES: there are no others).
 struct VkFunctions {
@@ -715,6 +724,9 @@ private:
         std::shared_ptr<TrackedResource> res;
         std::vector<SubState> first;    // the state the list needs at its start; kUnknownLayout = not used
         std::vector<SubState> current;  // the state the list leaves it in; kUnknownLayout = not used
+        // The source of the last barrier the list recorded for the subresource (kUnknownLayout = none yet): a read in a
+        // stage that barrier did not reach waits for it again.
+        std::vector<SubState> since;
     };
     Result<void> create(const char* what);
     // Opens the list for recording (its previous commands must be finished).
@@ -738,6 +750,8 @@ private:
     void record_draw(const char* what, int base, int count, int instances, int baseVertex, int baseInstance);
     void apply_viewport(const char* what, float x, float y, float width, float height, bool originTopLeft);
     void transition(Use& u, std::uint32_t sub, const SubState& state);
+    // Writes the end timestamp of the open timed scope.
+    void close_scope();
     // Copies texels from CPU memory into an image through the upload ring: a width x height region at (x, y) of mip
     // `mip`, `count` layers from `layer` (2D, cube, array) or `count` depth slices from `layer` (3D). Source rows are
     // `srcRowPitch` apart, slices `srcSlicePitch`. False (and errors()) when no upload room could be had.
@@ -767,6 +781,15 @@ private:
     std::vector<Barrier> pending_;
     std::vector<std::shared_ptr<TrackedResource>> keep_;
     std::uint64_t openFrame_ = 0;  // the frame it was opened in (its uniforms and descriptors are that frame's)
+    // The timed scopes recorded in this list (reset by open()); the last one is still open when scopeOpen_.
+    struct ScopeRef {
+        int slot = -1;             // the timed frame's slot
+        std::uint64_t serial = 0;  // the timed frame
+        std::uint32_t scope = 0;   // the scope's index in it
+        VkQueryPool pool = VK_NULL_HANDLE;
+    };
+    std::vector<ScopeRef> scopes_;
+    bool scopeOpen_ = false;
 
     // The pass
     struct Need {
@@ -787,7 +810,8 @@ private:
     std::vector<VkClearValue> passClears_;
     std::vector<Need> passNeeds_;  // render pass: the states its attachments and draws need, merged
     std::map<std::pair<const TrackedResource*, std::uint32_t>, std::size_t> passNeedIndex_;  // -> passNeeds_
-    std::vector<Need> boundNeeds_;  // compute pass: what the bound views need before each dispatch
+    std::vector<Need> boundNeeds_;  // compute pass: what the bound views need before each dispatch, merged
+    std::map<std::pair<const TrackedResource*, std::uint32_t>, std::size_t> boundNeedIndex_;  // -> boundNeeds_
     std::vector<VkCommandBuffer> secondaries_;
     std::size_t secondaryNext_ = 0;
     std::vector<VkFramebuffer> framebuffers_;  // destroyed when the list is reused (its GPU work is done)
@@ -798,7 +822,8 @@ private:
     std::shared_ptr<const PipelineState> pipeline_;
     std::uint32_t uniformsSet_ = 0;  // bit i = uniform slot i was set since set_pipeline
     bool bindingsSet_ = false;
-    bool uniformsDirty_ = false;  // the uniform set must be bound again before the next draw
+    bool uniformsDirty_ = false;  // the descriptor sets (0, 1, 2) must be bound again before the next draw or dispatch
+    VkDescriptorSet viewSet_ = VK_NULL_HANDLE;  // set 1 of the last set_bindings (this frame's pool)
     VkBuffer uniformBuffer_[kMaxUniformBlocks]{};
     std::uint32_t uniformOffset_[kMaxUniformBlocks]{};
     std::unordered_map<std::string, VkDescriptorSet> uniformSets_;  // set 0 by (layout, buffers): reset with the list
@@ -882,12 +907,17 @@ public:
     bool stats_enabled() const override { return statsEnabled_; }
     TotalStats total_stats() const override;
 
+    // GPU timers (vulkan_timers.cpp): timestamp queries on the graphics queue, a ring of kTimerSlots timed frames each
+    // with its own query pool, read once the frame's timeline value passed (never waited for).
     bool timer_supported(std::string* why) const override;
-    void timer_begin_frame() override {}
-    void timer_end_frame() override {}
-    void timer_poll(std::vector<double>&) override {}
-    std::vector<ScopeTime> timer_last_scopes() const override { return {}; }
-    void timer_forget() override {}
+    void timer_begin_frame() override;
+    void timer_end_frame() override;
+    void timer_poll(std::vector<double>& frameMs) override;
+    std::vector<ScopeTime> timer_last_scopes() const override;
+    void timer_forget() override;
+    // Rgba8, Rgba16F, R32F and Rgba32F where the format's optimal tiling has STORAGE_IMAGE (sokol-shdc's SPIR-V names
+    // the image's format, so no shaderStorageImageReadWithoutFormat is needed).
+    bool storage_image_loadable(PixelFormat format, std::string* why) const override;
 
     Result<void> read_image_rgba8(Image image, int width, int height, std::vector<std::uint8_t>& out) override;
     Result<void> read_image_rgba16f(Image image, int width, int height, std::vector<float>& out) override;
@@ -895,10 +925,13 @@ public:
                                     std::vector<std::uint8_t>& out) override;
     Result<void> read_buffer(Buffer buffer, std::size_t offset, std::size_t bytes,
                              std::vector<std::uint8_t>& out) override;
-    bool async_read_supported() const override { return false; }
+    // Asynchronous reads (vulkan_readback.cpp): kAsyncReads slots, each with a host-visible buffer it keeps while it is
+    // big enough. A request records the copy on an internal list and submits it at once (no wait); the slot's timeline
+    // value says when the bytes are there. A released slot is reused only once its copy finished.
+    bool async_read_supported() const override { return true; }
     Result<ReadTicket> request_buffer_read(Buffer buffer, std::size_t offset, std::size_t bytes) override;
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
-    void release_buffer_read(ReadTicket) override {}
+    void release_buffer_read(ReadTicket ticket) override;
 
     // ---- Vulkan only (tests, the backend's own code) ------------------------------------------------------------------
     const VkFunctions& fn() const { return fn_; }
@@ -918,6 +951,7 @@ public:
     std::uint32_t api_version() const { return apiVersion_; }
     bool cpu_device() const { return cpuDevice_; }
     bool validation_active() const { return validation_; }
+    bool synchronization_validation_active() const { return syncValidation_; }
     bool synchronization2_active() const { return fn_.vkCmdPipelineBarrier2 != nullptr; }
     // VK_KHR_portability_subset is on (MoltenVK).
     bool portability_subset() const { return portability_; }
@@ -936,6 +970,14 @@ public:
     // top first, in the image's own format. Waits for the GPU.
     Result<void> read_image_region(Image image, int mip, int layer, int x, int y, int width, int height,
                                    std::vector<std::uint8_t>& out);
+    // The asynchronous read of the same region: poll_buffer_read() hands it over tightly packed, top row first, in the
+    // image's own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread
+    // only.
+    Result<ReadTicket> request_image_read(Image image, int mip, int layer, int x, int y, int width, int height);
+    // The ticks of a timestamp that are valid (the queue family's timestampValidBits; 0 = no timers) and the
+    // nanoseconds per tick.
+    std::uint32_t timestamp_valid_bits() const { return timestampBits_; }
+    float timestamp_period() const { return props_.limits.timestampPeriod; }
     // Upload room for this frame: from the ring, else a buffer of its own (kept by `keeper` until its frame is done).
     // !ok() only when Vulkan could not make that buffer (reported in errors()).
     UploadAlloc upload(std::size_t size, std::size_t align, VulkanCommandList* keeper);
@@ -947,7 +989,7 @@ public:
     MemoryAllocator& memory() { return memory_; }
     // The VkFormat of `f` on this device (DepthStencil: D24S8 where it is a depth attachment, else D32S8).
     VkFormat vk_format(PixelFormat f) const;
-    // The VkPipelineCache every pipeline is made through (M77-P8b saves and loads its data).
+    // The VkPipelineCache every pipeline is made through (M77-P8b2 saves and loads its data).
     VkPipelineCache pipeline_cache() const { return pipelineCache_; }
     // A pipeline's state (null when `pipeline` names nothing or failed).
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
@@ -1026,8 +1068,10 @@ private:
     void init_caps();
     // A free command list (open for recording), from the pool or new; null with errors() when Vulkan failed.
     VulkanCommandList* acquire_list(const char* label, bool internal);
-    // Ends `list`, records its fix-up barriers, submits both and signals the timeline. Under queueMutex_.
-    void execute(VulkanCommandList& list);
+    // Ends `list`, records its fix-up barriers, submits both and signals the timeline (list.fence_). The resources'
+    // tracked states and the list's timed scopes change only when the submission worked; false (reported) otherwise.
+    // Under queueMutex_.
+    bool execute(VulkanCommandList& list);
     // Submits `count` command buffers and signals ++timelineValue_. Under queueMutex_.
     bool submit_signal(const VkCommandBuffer* cmds, std::uint32_t count, const char* what);
     // The device's own list for initial uploads and readbacks, opened on first use. Under queueMutex_.
@@ -1047,9 +1091,28 @@ private:
     // The image's record copied out (under resMutex_): false when `image` names nothing or failed.
     bool image_info(Image image, ImageRecord& out) const;
     void upload_initial_image(const ImageRecord& rec, const ImageDesc& desc);
+    // Checks a read of a region of the image: the error names `what` and the image.
+    Result<void> check_texture_read(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y,
+                                    int width, int height, const char* what) const;
+    // Records the copy of a checked region into `dst` (tightly packed rows) and the host-read barrier.
+    void record_texture_read(VulkanCommandList& list, const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer,
+                             int x, int y, int width, int height, const std::shared_ptr<TrackedResource>& dst);
     // Copies a region of the image into a host-visible buffer and waits; the rows come back tightly packed.
     Result<void> read_texture(const ImageRecord& rec, std::uint32_t mip, std::uint32_t layer, int x, int y, int width,
                               int height, std::vector<std::uint8_t>& out, const char* what);
+    // GPU timers: the query pools (init), their release (the destructor).
+    void init_timer();
+    void destroy_timer();
+    // Ends the open timed frame: its end timestamp and the prelude's submission. Under queueMutex_ and timerMutex_.
+    void end_timer_frame_locked();
+    // Asynchronous reads: a slot no ticket holds whose copy finished (-1 = every one is busy); whether a ticket names
+    // its slot's current read; the copy recorded by `copy` on an internal list, submitted now.
+    int free_async_slot() const;
+    bool async_ticket_current(ReadTicket ticket) const;
+    template <class Copy>
+    Result<ReadTicket> start_async_read(int slot, const char* what, const Copy& copy);
+    // A host-visible buffer of at least `bytes` for slot `slot` (kept while big enough).
+    Result<void> async_buffer(int slot, std::uint64_t bytes, const std::string& where);
     // A descriptor set layout of `bindings` (cached by `key`); null with `error` set when Vulkan refused.
     VkDescriptorSetLayout set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings,
                                      std::string& error);
@@ -1069,6 +1132,7 @@ private:
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     std::uint32_t queueFamily_ = 0;
+    std::uint32_t timestampBits_ = 0;  // the queue family's timestampValidBits
     VkQueue transferQueue_ = VK_NULL_HANDLE;
     std::uint32_t transferFamily_ = 0;
     VkSemaphore timeline_ = VK_NULL_HANDLE;
@@ -1077,6 +1141,7 @@ private:
     std::uint32_t apiVersion_ = 0;
     bool cpuDevice_ = false;
     bool validation_ = false;
+    bool syncValidation_ = false;
     bool debugUtils_ = false;
     bool portability_ = false;
     bool imageView2DOn3D_ = true;
@@ -1131,12 +1196,49 @@ private:
     std::atomic<std::uint64_t> dedicatedUploads_{0};
     std::atomic<std::uint64_t> barriers_{0};
     std::vector<Listener> listeners_;
+    // The lists handed out when Vulkan could not give one (they ignore everything): kept until the device goes, as the
+    // caller still holds each one.
+    std::vector<std::unique_ptr<VulkanCommandList>> deadLists_;
+
+    // GPU timers (timerMutex_; taken after queueMutex_ when both are held). A timed frame takes the next slot of the
+    // ring: query 0 is its start, 1 its end, 2 + 2i and 3 + 2i scope i's.
+    static constexpr int kTimerSlots = 6;       // timed frames in flight; a full ring skips the frame
+    static constexpr int kMaxTimedScopes = 64;  // scopes measured per frame (as GpuTimer::kMaxTimedPasses)
+    struct TimerSlot {
+        VkQueryPool pool = VK_NULL_HANDLE;
+        std::uint64_t serial = 0;  // the timed frame it holds
+        std::uint64_t fence = 0;   // the timeline value after its end timestamp
+        std::vector<std::string> names;
+        std::vector<bool> submitted;  // scope i's list ran before timer_end_frame (else it is not reported)
+    };
+    mutable std::mutex timerMutex_;
+    bool timerOk_ = false;
+    std::string timerWhy_;
+    std::array<TimerSlot, kTimerSlots> timerSlots_;
+    std::deque<int> timerPending_;  // ended frames waiting for their timeline value, oldest first
+    int timerCurrent_ = -1;         // the slot of the open timed frame; -1 = none
+    std::uint64_t timerSerial_ = 0;
+    std::uint64_t timerNext_ = 0;
+    std::size_t timerStale_ = 0;  // results still to arrive that timer_forget() dropped
+    std::vector<ScopeTime> timerLastScopes_;
+
+    // Asynchronous reads (render thread only; the copy itself under queueMutex_)
+    static constexpr int kAsyncReads = 32;  // as SokolDevice and the D3D12 backend
+    struct AsyncRead {
+        std::shared_ptr<TrackedResource> buffer;  // host-visible (MemoryUse::Readback), kept while big enough
+        std::uint64_t capacity = 0;
+        std::uint64_t fence = 0;       // the copy is done once the timeline reaches it
+        std::uint32_t generation = 0;  // the ticket's; 0 = no ticket (free once the copy finished)
+        std::size_t bytes = 0;         // the bytes handed over (tightly packed)
+    };
+    std::array<AsyncRead, kAsyncReads> asyncReads_;
+    std::uint32_t readGeneration_ = 0;
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
-    std::vector<std::string> notYetReported_;  // each call not built yet (M77-P8b, M77-P9) is reported once
+    std::vector<std::string> notYetReported_;  // each call not built yet (M77-P9) is reported once
 
     // Statistics (resMutex_)
     bool statsEnabled_ = false;
