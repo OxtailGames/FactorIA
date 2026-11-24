@@ -154,8 +154,8 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         list.set_pipeline(prepPipeline);
         gpu::Bindings b;
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
-        b.views[VIEW_upscale_mfx_tex_p] = prepass ? prepass->texView : gpu::from_sg(assets->white()->view);
-        b.views[VIEW_upscale_mfx_tex_v] = velocity ? velocity->texView : gpu::from_sg(assets->white()->view);
+        b.views[VIEW_upscale_mfx_tex_p] = prepass ? prepass->texView : assets->white()->view;
+        b.views[VIEW_upscale_mfx_tex_v] = velocity ? velocity->texView : assets->white()->view;
         b.samplers[SMP_upscale_mfx_smp_pt] = gpu.sampler(SamplerKind::Nearest);
         list.set_bindings(b);
         upscale_mfx_mfx_params_t u{};

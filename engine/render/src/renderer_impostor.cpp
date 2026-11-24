@@ -28,7 +28,7 @@ constexpr float kImpostorRoughness = 0.85f;
 // The slots a built-in program declares (as Gpu's program_slots).
 MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
     MaterialProgram out;
-    out.shader = gpu::to_sg(shader);
+    out.shader = shader;
     for (int i = 0; i < gpu::kMaxUniformBlocks; ++i) {
         if (desc.uniformBlocks[i].stage == gpu::ShaderStage::None) continue;
         out.ubMask |= 1u << i;
@@ -107,8 +107,8 @@ void ImpostorRenderer::destroy() {
     entries_.clear();
     if (quad_) {
         for (SubMesh& p : quad_->parts) {
-            if (p.vb.id) device_->destroy_buffer(gpu::from_sg(p.vb));
-            if (p.ib.id) device_->destroy_buffer(gpu::from_sg(p.ib));
+            if (p.vb.id) device_->destroy_buffer(p.vb);
+            if (p.ib.id) device_->destroy_buffer(p.ib);
         }
         quad_.reset();
     }
@@ -145,12 +145,12 @@ MeshAsset* ImpostorRenderer::quad(gpu::Device& device) {
     vb.usage.vertexBuffer = true;
     vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
     vb.label = "impostor-card";
-    sm.vb = gpu::to_sg(device.make_buffer(vb));
+    sm.vb = device.make_buffer(vb);
     gpu::BufferDesc ib;
     ib.usage.indexBuffer = true;
     ib.data = {idx, sizeof idx};
     ib.label = vb.label;
-    sm.ib = gpu::to_sg(device.make_buffer(ib));
+    sm.ib = device.make_buffer(ib);
     sm.vertexCount = 4;
     sm.indexCount = 6;
     sm.bmin = {-1, -1, 0};

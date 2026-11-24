@@ -17,6 +17,7 @@
 #include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
+#include "gpu/recording_device.h"
 #include "render_internal.h"  // material_shader_desc
 #include "renderer_env.h"     // kEnvPasses: the draws of one bake of the sky environment
 #include "renderer_test_access.h"
@@ -713,56 +714,63 @@ void add_stage(World& w, bool shadows = true) {
     w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f))->castShadows = shadows;
 }
 
-// Everything of a shader desc that does not point at source text, as text.
-std::string describe_desc(const sg_shader_desc& d) {
+// Everything of a shader desc that does not point at source text, as text: the stages, the reflection and the binding
+// numbers of every backend (hlsl, msl, wgsl, spirv, glsl) of every slot the shader uses.
+std::string describe_desc(const gpu::ShaderDesc& d) {
     std::string o;
     auto s = [&](const char* p) {
         o += p ? p : "<null>";
         o += ';';
     };
     auto n = [&](long long v) { o += std::to_string(v) + ';'; };
-    for (const sg_shader_function* f : {&d.vertex_func, &d.fragment_func}) {
+    auto bind = [&](const gpu::BackendBinding& b) {
+        n(b.hlslRegister);
+        n(b.hlslSpace);
+        n(b.mslIndex);
+        n(b.wgslBinding);
+        n(b.spirvSet);
+        n(b.spirvBinding);
+        n(b.glslBinding);
+    };
+    for (const gpu::ShaderFunction* f : {&d.vertexFunc, &d.fragmentFunc}) {
         s(f->entry);
-        s(f->d3d11_target);
+        s(f->d3d11Target);
     }
     for (const auto& a : d.attrs) {
-        n(a.base_type);
-        s(a.glsl_name);
-        s(a.hlsl_sem_name);
-        n(a.hlsl_sem_index);
+        n((long long)(a.baseType));
+        s(a.glslName);
+        s(a.hlslSemName);
+        n(a.hlslSemIndex);
     }
-    for (const auto& u : d.uniform_blocks) {
-        n(u.stage);
+    for (const auto& u : d.uniformBlocks) {
+        n((long long)(u.stage));
         n(u.size);
-        n(u.hlsl_register_b_n);
-        n(u.msl_buffer_n);
-        n(u.layout);
-        for (const auto& g : u.glsl_uniforms) {
-            n(g.type);
-            n(g.array_count);
-            s(g.glsl_name);
+        n((long long)(u.layout));
+        if (u.stage != gpu::ShaderStage::None) bind(u.binding);
+        for (const auto& g : u.glslUniforms) {
+            n((long long)(g.type));
+            n(g.arrayCount);
+            s(g.glslName);
         }
     }
     for (const auto& v : d.views) {
         const auto& t = v.texture;
-        n(t.stage);
-        n(t.image_type);
-        n(t.sample_type);
+        n((long long)(t.stage));
+        n((long long)(t.imageType));
+        n((long long)(t.sampleType));
         n(t.multisampled);
-        n(t.hlsl_register_t_n);
-        n(t.msl_texture_n);
+        if (t.stage != gpu::ShaderStage::None) bind(t.binding);
     }
     for (const auto& m : d.samplers) {
-        n(m.stage);
-        n(m.sampler_type);
-        n(m.hlsl_register_s_n);
-        n(m.msl_sampler_n);
+        n((long long)(m.stage));
+        n((long long)(m.samplerType));
+        if (m.stage != gpu::ShaderStage::None) bind(m.binding);
     }
-    for (const auto& p : d.texture_sampler_pairs) {
-        n(p.stage);
-        n(p.view_slot);
-        n(p.sampler_slot);
-        s(p.glsl_name);
+    for (const auto& p : d.textureSamplerPairs) {
+        n((long long)(p.stage));
+        n(p.viewSlot);
+        n(p.samplerSlot);
+        s(p.glslName);
     }
     return o;
 }
@@ -783,7 +791,7 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     // when the material declares "uv1".
     sg_shader_desc builtin = *mesh_mesh_shader_desc(sg_query_backend());
     builtin.attrs[ATTR_mesh_mesh_fa_attr_uv1] = {};
-    CHECK(describe_desc(*desc) == describe_desc(builtin));
+    CHECK(describe_desc(*desc) == describe_desc(gpu::from_sg(builtin)));
     CHECK(slots.ubMask == 0b10000011);  // vs params, fs params, and the shadows (binding 7); the lights are in view 24
     CHECK(
         slots.viewMask ==
@@ -808,6 +816,52 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("uniform block slot") != std::string::npos);
     CHECK_FALSE(bad.error().hint.empty());
+}
+
+TEST_CASE("materials: a custom material program is created on a RecordingDevice with the bindings of its twin") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto twin = load_json_file("materials/empty.material.json." + g.renderer.shader_dialect() + ".shader");
+    REQUIRE(twin.ok());
+    const Json& program = (*twin)["programs"]["mesh"];
+    render::MaterialProgram slots;
+    auto desc = render::material_shader_desc("empty mesh", program, slots);
+    REQUIRE(desc.ok());
+    // The desc is the gpu one, with the binding numbers of every backend where the reflection has them.
+    sg_shader_desc builtin = *mesh_mesh_shader_desc(sg_query_backend());
+    const gpu::ShaderDesc generated = gpu::from_sg(builtin);
+    REQUIRE(desc->uniformBlocks[0].stage == gpu::ShaderStage::Vertex);
+    CHECK(desc->uniformBlocks[0].size == sizeof(mesh_fa_mesh_vs_params_t));
+    CHECK(desc->uniformBlocks[1].size == sizeof(mesh_fa_mesh_fs_params_t));
+    CHECK(desc->uniformBlocks[7].size == sizeof(mesh_fa_shadows_t));
+    for (int i : {0, 1, 7}) {
+        const auto& a = desc->uniformBlocks[std::size_t(i)];
+        const auto& b = generated.uniformBlocks[std::size_t(i)];
+        CHECK(a.stage == b.stage);
+        CHECK(a.binding.hlslRegister == b.binding.hlslRegister);
+        CHECK(a.binding.mslIndex == b.binding.mslIndex);
+        CHECK(a.binding.wgslBinding == b.binding.wgslBinding);
+        CHECK(a.binding.spirvBinding == b.binding.spirvBinding);
+        CHECK(a.binding.glslBinding == b.binding.glslBinding);
+    }
+
+    // A RecordingDevice validates the desc like a real one: no misuse, a valid shader, the same slots.
+    auto made = gpu::make_device(gpu::Backend::Recording);
+    REQUIRE(made.ok());
+    gpu::Device& device = **made;
+    auto program2 = render::make_material_program(device, "empty mesh", program);
+    if (!program2.ok()) MESSAGE(program2.error().message);
+    REQUIRE(program2.ok());
+    CHECK(device.state(program2->shader) == gpu::ResourceState::Valid);
+    CHECK(program2->ubMask == slots.ubMask);
+    CHECK(program2->viewMask == slots.viewMask);
+    CHECK(program2->samplerMask == slots.samplerMask);
+    CHECK(program2->ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
+    auto* recording = dynamic_cast<gpu::RecordingDevice*>(&device);
+    REQUIRE(recording != nullptr);
+    CHECK(recording->errors().empty());
+    device.destroy_shader(program2->shader);
 }
 
 TEST_CASE(

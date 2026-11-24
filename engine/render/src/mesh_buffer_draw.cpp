@@ -116,10 +116,9 @@ void bind_mesh_buffers(gpu::Bindings& b, const MeshBufferUse& use, const Materia
     for (int i = 0; i < use.count; ++i) {
         const int vertexSlot = kMeshBufferFirstView + i;
         const int fragmentSlot = kMeshBufferFirstView + use.count + i;
-        if (vertexSlot < gpu::kMaxViews && ((prog.viewMask >> vertexSlot) & 1u))
-            b.views[vertexSlot] = gpu::from_sg(use.views[i]);
+        if (vertexSlot < gpu::kMaxViews && ((prog.viewMask >> vertexSlot) & 1u)) b.views[vertexSlot] = use.views[i];
         if (fragmentSlot < gpu::kMaxViews && ((prog.viewMask >> fragmentSlot) & 1u))
-            b.views[fragmentSlot] = gpu::from_sg(use.views[i]);
+            b.views[fragmentSlot] = use.views[i];
     }
 }
 

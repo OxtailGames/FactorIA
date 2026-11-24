@@ -577,8 +577,8 @@ struct Renderer::Impl {
     // (a texture that failed or did not fit is not asked for again until then). A replaced image is kept in decalRetired until the next
     // frame's graph begins (an earlier job of the same frame may still draw with it).
     struct DecalAtlasState {
-        sg_image image{};
-        sg_view view{};
+        gpu::Image image{};
+        gpu::View view{};
         render::DecalAtlasLayout layout;
         std::set<std::string> known;
         std::uint64_t generation = 0;
@@ -587,7 +587,7 @@ struct Renderer::Impl {
         std::uint64_t bytes = 0;
     };
     DecalAtlasState decalAtlas;
-    std::vector<std::pair<sg_image, sg_view>> decalRetired;
+    std::vector<std::pair<gpu::Image, gpu::View>> decalRetired;
     bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false, warnedDecalPaths = false;
     std::set<std::string> warnedDecalTextures;  // the textures reported as unreadable or left out (once each)
     // Makes sure the atlas holds `paths` (every texture of every Decal of the world); false when decals cannot be drawn with textures.
@@ -600,9 +600,7 @@ struct Renderer::Impl {
     void free_retired_decal_atlases();
     void destroy_decal_atlas();
     // The image a mesh program reads at view 27: the atlas, or the white image while there is none.
-    gpu::View decal_view_or(gpu::View fallback) const {
-        return decalAtlas.view.id ? gpu::from_sg(decalAtlas.view) : fallback;
-    }
+    gpu::View decal_view_or(gpu::View fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
     void collect_decals(DrawContext& ctx);
     bool warnedShadowBudget =
         false;  // one warning when point or spot lights lost their shadow to the atlas or view budget
@@ -661,8 +659,8 @@ struct Renderer::Impl {
     int shadowRowsWindow = 0;                      // frames of the current window
     std::uint64_t shadowRowUploads = 0;            // images made since the renderer was (a test counts them)
     struct ShadowRowsSlot {
-        sg_image img{};
-        sg_view view{};
+        gpu::Image img{};
+        gpu::View view{};
         std::uint64_t key = 0;
         std::uint64_t usedFrame = 0;
     };
@@ -787,7 +785,7 @@ struct Renderer::Impl {
     std::vector<TextureAsset*> plan_cookies(Frame& fr);
     void cookie_pass(const std::vector<TextureAsset*>& cells);
     bool ensure_cookie_target();
-    sg_view upload_shadow_rows(const Frame& fr);
+    gpu::View upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
     // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
     CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false,

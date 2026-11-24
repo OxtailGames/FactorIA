@@ -96,7 +96,7 @@ void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
         list.set_scissor(cx * kCookieCell, cy * kCookieCell, kCookieCell, kCookieCell, true);
         gpu::Bindings b;
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
-        b.views[VIEW_blit_tex] = gpu::from_sg(t->gpu_view());
+        b.views[VIEW_blit_tex] = t->gpu_view();
         b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::LinearClamp);
         list.set_bindings(b);
         blit_blit_vs_params_t u{};
