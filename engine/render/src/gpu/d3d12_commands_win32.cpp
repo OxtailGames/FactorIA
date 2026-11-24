@@ -1,6 +1,9 @@
 // The D3D12 backend's command lists: opening and reusing them, resource-state tracking and barriers, the transfers
-// (write_buffer, write_image, the copies) and debug groups (docs/design/ARCHITECTURE_RENDERING_GPU.md, "D3D12 backend").
-// Passes, pipelines, bindings, uniforms, draws and dispatches come in M77-P7c.
+// (write_buffer, write_image, the copies), debug groups, render and compute passes, pipelines, bindings, uniforms,
+// viewports, scissors, draws and dispatches (docs/design/ARCHITECTURE_RENDERING_GPU.md, "D3D12 backend").
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -59,6 +62,17 @@ Result<void> D3d12CommandList::open(const char* label) {
     useIndex_.clear();
     pending_.clear();
     keep_.clear();
+    // Every list sees the two shader-visible heaps (the bindings' tables and the bindless table point into them).
+    ID3D12DescriptorHeap* heaps[2] = {device_.viewHeap_.heap(), device_.samplerHeap_.heap()};
+    list_->SetDescriptorHeaps(2, heaps);
+    passState_ = PassState::None;
+    passFailed_ = false;
+    passFormat_ = {};
+    passColors_ = 0;
+    passWidth_ = passHeight_ = 0;
+    resolveSrc_.reset();
+    resolveDst_.reset();
+    reset_bind_state();
     return {};
 }
 
@@ -73,27 +87,718 @@ Result<void> D3d12CommandList::open(const char* label) {
         }                                                                                                              \
     } while (false)
 
-void D3d12CommandList::not_yet(const char* what) {
-    device_.report_once(what, std::string("gpu d3d12: CommandList::") + what +
-                                  " is not built yet (M77-P7c) (hint: the D3D12 backend records transfers and debug "
-                                  "groups for now; draw with the sokol backend until M77-P7c)");
+void D3d12CommandList::fail(const char* what, const std::string& error) {
+    device_.report(std::string("gpu d3d12: CommandList::") + what + " in list '" + label_ + "': " + error);
 }
 
-void D3d12CommandList::begin_pass(const PassDesc&) { not_yet("begin_pass"); }
-void D3d12CommandList::begin_compute_pass(const char*) { not_yet("begin_compute_pass"); }
-void D3d12CommandList::end_pass() { not_yet("end_pass"); }
-void D3d12CommandList::set_pipeline(Pipeline) { not_yet("set_pipeline"); }
-void D3d12CommandList::set_bindings(const Bindings&) { not_yet("set_bindings"); }
-void D3d12CommandList::set_uniforms(int, Range) { not_yet("set_uniforms"); }
-void D3d12CommandList::set_viewport(int, int, int, int, bool) { not_yet("set_viewport"); }
-void D3d12CommandList::set_viewport_f(float, float, float, float, bool) { not_yet("set_viewport_f"); }
-void D3d12CommandList::set_scissor(int, int, int, int, bool) { not_yet("set_scissor"); }
-void D3d12CommandList::draw(int, int, int) { not_yet("draw"); }
-void D3d12CommandList::draw_ex(int, int, int, int, int) { not_yet("draw_ex"); }
-void D3d12CommandList::dispatch(int, int, int) { not_yet("dispatch"); }
-// The device cannot time yet (timer_supported() is false): a timed scope does nothing, as the interface says.
+void D3d12CommandList::reset_bind_state() {
+    pipeline_.reset();
+    rootSignature_ = nullptr;
+    rootCompute_ = false;
+    uniformsSet_ = 0;
+    bindingsSet_ = false;
+    drawsFailed_ = false;
+    boundUavs_.clear();
+    uavsWritten_ = false;
+}
+
+// GPU timers come in M77-P7c2 (timer_supported() is false until then): a timed scope does nothing, as the interface
+// says.
 void D3d12CommandList::begin_timed_scope(const char*) {}
 void D3d12CommandList::end_timed_scope() {}
+
+namespace {
+
+const char* view_type_name(ViewType t) {
+    switch (t) {
+        case ViewType::StorageBuffer: return "storage buffer";
+        case ViewType::StorageImage: return "storage image";
+        case ViewType::Texture: return "texture";
+        case ViewType::ColorAttachment: return "colour attachment";
+        case ViewType::ResolveAttachment: return "resolve attachment";
+        case ViewType::DepthStencilAttachment: return "depth-stencil attachment";
+        default: return "invalid";
+    }
+}
+
+std::string target_format_text(const TargetFormat& f) {
+    std::string s = std::string("colour ") + pixel_format_name(f.color);
+    if (f.color1 != PixelFormat::None) s += std::string(", colour1 ") + pixel_format_name(f.color1);
+    return s + ", depth " + pixel_format_name(f.depth) + ", " + std::to_string(f.samples) + " sample(s)";
+}
+
+bool clears(LoadAction a) { return a == LoadAction::Clear || a == LoadAction::Default; }
+
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Passes
+// ---------------------------------------------------------------------------------------------------------------------
+
+void D3d12CommandList::begin_pass(const PassDesc& pass) {
+    FA_D3D12_REQUIRE_OPEN("begin_pass");
+    if (passState_ != PassState::None) {
+        fail("begin_pass", "a pass is open already (hint: end_pass() first; passes do not nest)");
+        return;
+    }
+    // From here on the pass is open, even when it fails (end_pass then closes it and its commands are skipped).
+    passState_ = PassState::Render;
+    passFailed_ = true;
+    passFormat_ = pass.format;
+    passColors_ = 0;
+    passWidth_ = passHeight_ = 0;
+    resolveSrc_.reset();
+    resolveDst_.reset();
+    reset_bind_state();
+    const std::string passName = std::string("pass '") + (pass.label && *pass.label ? pass.label : "(no label)") + "'";
+    if (pass.swapchain) {
+        fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) comes in M77-P9 (hint: the D3D12 "
+                                      "backend draws into images for now; present with the sokol backend)");
+        return;
+    }
+
+    struct Attachment {
+        std::shared_ptr<TrackedResource> t;
+        D3D12_CPU_DESCRIPTOR_HANDLE handle{};
+        PixelFormat format = PixelFormat::None;
+        int samples = 1;
+        std::uint32_t width = 0, height = 0;
+        std::uint32_t mip = 0, layer = 0;  // layer 0 for a 3D image (its slice is a depth slice)
+        bool bound = false;
+    };
+    Attachment color, color1, resolve, depth;
+    std::string error;
+    {
+        std::lock_guard<std::mutex> lock(device_.resMutex_);
+        auto look = [&](View v, ViewType type, const char* what, Attachment& a) {
+            if (!error.empty() || v.id == 0) return;
+            const D3d12Device::ViewRecord* r = device_.views_.get(v.id);
+            const D3d12Device::ImageRecord* im = r ? device_.images_.get(r->image.id) : nullptr;
+            if (!r || !r->tracked || !im || !im->tracked) {
+                error = std::string(what) + " (view " + std::to_string(v.id) +
+                        ") is not a live view of a live image (hint: views die with destroy_view, and a view whose "
+                        "image was destroyed cannot be drawn into)";
+                return;
+            }
+            if (r->type != type) {
+                error = std::string(what) + " is a " + view_type_name(r->type) +
+                        " view (hint: make it with ViewDesc::" +
+                        (type == ViewType::ColorAttachment     ? "colorAttachment"
+                         : type == ViewType::ResolveAttachment ? "resolveAttachment"
+                                                               : "depthStencilAttachment") +
+                        ")";
+                return;
+            }
+            a.t = r->tracked;
+            if (r->heap >= 0 && r->descriptor != kNoDescriptor)
+                a.handle = device_.cpuHeaps_[std::size_t(r->heap)].cpu(r->descriptor);
+            a.format = im->format;
+            a.samples = im->samples;
+            a.width = mip_extent(im->width, r->mip);
+            a.height = mip_extent(im->height, r->mip);
+            a.mip = std::uint32_t(r->mip);
+            a.layer = im->type == ImageType::Tex3d ? 0u : std::uint32_t(r->slice);
+            a.bound = true;
+        };
+        look(pass.color, ViewType::ColorAttachment, "the colour attachment (PassDesc::color)", color);
+        look(pass.color1, ViewType::ColorAttachment, "colour attachment 1 (PassDesc::color1)", color1);
+        look(pass.resolve, ViewType::ResolveAttachment, "the resolve attachment (PassDesc::resolve)", resolve);
+        look(pass.depth, ViewType::DepthStencilAttachment, "the depth attachment (PassDesc::depth)", depth);
+    }
+    if (error.empty() && !color.bound && !depth.bound)
+        error = "it has no attachment (hint: set PassDesc::color or PassDesc::depth to a view)";
+    if (error.empty() && color1.bound && !color.bound)
+        error = "it has colour attachment 1 without colour attachment 0 (hint: PassDesc::color first)";
+    if (error.empty() && resolve.bound && !color.bound)
+        error = "it resolves (PassDesc::resolve) without a colour attachment to resolve";
+    const Attachment& first = color.bound ? color : depth;
+    if (error.empty()) {
+        for (const Attachment* a : {&color1, &resolve, &depth})
+            if (a->bound && (a->width != first.width || a->height != first.height))
+                error = "its attachments differ in size (" + std::to_string(first.width) + "x" +
+                        std::to_string(first.height) + " and " + std::to_string(a->width) + "x" +
+                        std::to_string(a->height) + ") (hint: every attachment of a pass has the same size)";
+    }
+    if (error.empty() && resolve.bound && (color.samples < 2 || resolve.format != color.format))
+        error = std::string("it resolves a colour attachment that ") +
+                (color.samples < 2 ? "is not multisampled" : "has another format than the resolve attachment") +
+                " (hint: a resolve takes a multisampled colour attachment into a single-sampled image of its format)";
+    TargetFormat expected;
+    expected.color = color.bound ? color.format : PixelFormat::None;
+    expected.color1 = color1.bound ? color1.format : PixelFormat::None;
+    expected.depth = depth.bound ? depth.format : PixelFormat::None;
+    expected.samples = first.samples;
+    if (error.empty() && pass.format != expected)
+        error = "PassDesc::format (" + target_format_text(pass.format) + ") is not what its attachments are (" +
+                target_format_text(expected) +
+                ") (hint: set format to the attachments' formats and sample count; the pipelines drawn in it must "
+                "match it)";
+    if (error.empty() && color1.bound && color1.samples != color.samples)
+        error = "its colour attachments differ in sample count";
+    if (error.empty() && depth.bound && color.bound && depth.samples != color.samples)
+        error = "its depth attachment has " + std::to_string(depth.samples) + " sample(s), its colour attachment " +
+                std::to_string(color.samples);
+    if (!error.empty()) {
+        fail("begin_pass", passName + ": " + error);
+        return;
+    }
+
+    // The attachments' states, then the targets and the clears.
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2]{};
+    UINT rtvCount = 0;
+    for (const Attachment* a : {&color, &color1}) {
+        if (!a->bound) continue;
+        require(a->t, a->t->subresource(a->mip, a->layer, 0), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        rtvs[rtvCount++] = a->handle;
+    }
+    const bool stencil = depth.bound && format_info(depth.format).planes > 1;
+    if (depth.bound)
+        for (std::uint32_t p = 0; p < depth.t->planes; ++p)
+            require(depth.t, depth.t->subresource(depth.mip, depth.layer, p), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    flush_barriers();
+    list_->OMSetRenderTargets(rtvCount, rtvCount ? rtvs : nullptr, FALSE, depth.bound ? &depth.handle : nullptr);
+    if (color.bound && clears(pass.colorLoad)) {
+        const float c[4] = {pass.clearColor.r, pass.clearColor.g, pass.clearColor.b, pass.clearColor.a};
+        list_->ClearRenderTargetView(color.handle, c, 0, nullptr);
+    }
+    if (color1.bound && clears(pass.colorLoad)) {
+        const float c[4] = {pass.clearColor1.r, pass.clearColor1.g, pass.clearColor1.b, pass.clearColor1.a};
+        list_->ClearRenderTargetView(color1.handle, c, 0, nullptr);
+    }
+    if (depth.bound) {
+        D3D12_CLEAR_FLAGS flags = D3D12_CLEAR_FLAGS(0);
+        if (clears(pass.depthLoad)) flags |= D3D12_CLEAR_FLAG_DEPTH;
+        if (stencil && clears(pass.stencilLoad)) flags |= D3D12_CLEAR_FLAG_STENCIL;
+        const float clearDepth = std::isfinite(pass.clearDepth) ? std::clamp(pass.clearDepth, 0.0f, 1.0f) : 1.0f;
+        if (flags) list_->ClearDepthStencilView(depth.handle, flags, clearDepth, 0, 0, nullptr);
+    }
+    passWidth_ = first.width;
+    passHeight_ = first.height;
+    passColors_ = int(rtvCount);
+    const D3D12_VIEWPORT vp{0.0f, 0.0f, float(passWidth_), float(passHeight_), 0.0f, 1.0f};
+    list_->RSSetViewports(1, &vp);
+    const D3D12_RECT all{0, 0, LONG(passWidth_), LONG(passHeight_)};
+    list_->RSSetScissorRects(1, &all);
+    if (resolve.bound) {
+        resolveSrc_ = color.t;
+        resolveDst_ = resolve.t;
+        resolveSrcSub_ = color.t->subresource(color.mip, color.layer, 0);
+        resolveDstSub_ = resolve.t->subresource(resolve.mip, resolve.layer, 0);
+        resolveFormat_ = format_info(color.format).rtv;
+    }
+    passFailed_ = false;
+    empty_ = false;
+}
+
+void D3d12CommandList::begin_compute_pass(const char* label) {
+    FA_D3D12_REQUIRE_OPEN("begin_compute_pass");
+    if (passState_ != PassState::None) {
+        fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
+                                       "': a pass is open already (hint: end_pass() first; passes do not nest)");
+        return;
+    }
+    passState_ = PassState::Compute;
+    passFailed_ = false;
+    reset_bind_state();
+}
+
+void D3d12CommandList::end_pass() {
+    FA_D3D12_REQUIRE_OPEN("end_pass");
+    if (passState_ == PassState::None) {
+        fail("end_pass", "no pass is open (hint: one end_pass() per begin_pass() or begin_compute_pass())");
+        return;
+    }
+    if (passState_ == PassState::Render && !passFailed_ && resolveSrc_ && resolveDst_) {
+        require(resolveSrc_, resolveSrcSub_, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        require(resolveDst_, resolveDstSub_, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        flush_barriers();
+        list_->ResolveSubresource(resolveDst_->resource.get(), resolveDstSub_, resolveSrc_->resource.get(),
+                                  resolveSrcSub_, resolveFormat_);
+        empty_ = false;
+    }
+    passState_ = PassState::None;
+    passFailed_ = false;
+    passFormat_ = {};
+    passColors_ = 0;
+    passWidth_ = passHeight_ = 0;
+    resolveSrc_.reset();
+    resolveDst_.reset();
+    reset_bind_state();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pipelines, bindings, uniforms
+// ---------------------------------------------------------------------------------------------------------------------
+
+void D3d12CommandList::set_pipeline(Pipeline pipeline) {
+    FA_D3D12_REQUIRE_OPEN("set_pipeline");
+    if (passState_ == PassState::None) {
+        fail("set_pipeline", "outside a pass (hint: begin_pass() or begin_compute_pass() first)");
+        return;
+    }
+    ID3D12RootSignature* const previousRoot = rootSignature_;
+    const bool previousCompute = rootCompute_;
+    reset_bind_state();
+    if (passFailed_) return;
+    std::shared_ptr<const PipelineState> st = device_.pipeline_state(pipeline);
+    std::string error;
+    if (!st)
+        error = "pipeline " + std::to_string(pipeline.id) +
+                " is not a live pipeline, or its creation failed (make_pipeline reported why in errors())";
+    else if (st->compute != (passState_ == PassState::Compute))
+        error = "pipeline '" + st->label + "' is a " + (st->compute ? "compute" : "render") + " pipeline inside a " +
+                (passState_ == PassState::Compute ? "compute" : "render") +
+                " pass (hint: compute pipelines go in begin_compute_pass(), render pipelines in begin_pass())";
+    else if (!st->compute && (st->format != passFormat_ || st->colorCount != passColors_))
+        error = "pipeline '" + st->label + "' draws into " + target_format_text(st->format) + " with " +
+                std::to_string(st->colorCount) + " colour target(s), the pass has " + target_format_text(passFormat_) +
+                " with " + std::to_string(passColors_) +
+                " (hint: a pipeline's colour targets, depth format and sampleCount must equal its pass's)";
+    if (!error.empty()) {
+        drawsFailed_ = true;
+        fail("set_pipeline", error);
+        return;
+    }
+    ID3D12RootSignature* root = st->layout->signature.get();
+    // Restore what reset_bind_state forgot: the list keeps its root signature across set_pipeline calls.
+    rootSignature_ = previousRoot;
+    rootCompute_ = previousCompute;
+    if (root != rootSignature_ || rootCompute_ != st->compute) {
+        if (st->compute)
+            list_->SetComputeRootSignature(root);
+        else
+            list_->SetGraphicsRootSignature(root);
+        rootSignature_ = root;
+        rootCompute_ = st->compute;
+    }
+    list_->SetPipelineState(st->pso.get());
+    if (st->layout->bindlessTable >= 0) {
+        const D3D12_GPU_DESCRIPTOR_HANDLE bindless = device_.viewHeap_.reserved().gpu;
+        if (st->compute)
+            list_->SetComputeRootDescriptorTable(UINT(st->layout->bindlessTable), bindless);
+        else
+            list_->SetGraphicsRootDescriptorTable(UINT(st->layout->bindlessTable), bindless);
+    }
+    if (!st->compute) {
+        list_->IASetPrimitiveTopology(st->topology);
+        list_->OMSetBlendFactor(st->blendColor);
+        list_->OMSetStencilRef(st->stencilRef);
+    }
+    pipeline_ = std::move(st);
+    empty_ = false;
+}
+
+void D3d12CommandList::uav_barrier_if_written(const std::shared_ptr<TrackedResource>& t) {
+    auto it = useIndex_.find(t.get());
+    if (it == useIndex_.end()) return;
+    const Use& u = uses_[it->second];
+    for (StateBits s : u.current)
+        if (s == StateBits(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)) {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            b.UAV.pResource = t->resource.get();
+            pending_.push_back(b);
+            return;
+        }
+}
+
+void D3d12CommandList::set_bindings(const Bindings& b) {
+    FA_D3D12_REQUIRE_OPEN("set_bindings");
+    if (passFailed_ || drawsFailed_) return;
+    if (!pipeline_) {
+        fail("set_bindings", "no pipeline is set (hint: set_pipeline() first, inside a pass)");
+        return;
+    }
+    const PipelineState& st = *pipeline_;
+    const ShaderInfo& sh = *st.shader;
+    const RootLayout& lay = *st.layout;
+    struct BoundBuffer {
+        std::shared_ptr<TrackedResource> t;
+        std::uint64_t offset = 0, size = 0;
+    };
+    struct BoundView {
+        std::shared_ptr<TrackedResource> t;
+        D3D12_CPU_DESCRIPTOR_HANDLE src{};
+        ViewType type = ViewType::Invalid;
+        std::uint32_t mip = 0, mipCount = 1, slice = 0, sliceCount = 1;
+        bool writable = false;
+    };
+    BoundBuffer vbs[kMaxVertexBuffers];
+    BoundBuffer ib;
+    BoundView views[kMaxViews];
+    D3D12_CPU_DESCRIPTOR_HANDLE samplers[kMaxSamplers]{};
+    std::string error;
+    auto bad = [&](const std::string& e) {
+        if (error.empty()) error = e;
+    };
+    const std::string shaderName = "shader '" + sh.label + "'";
+    {
+        std::lock_guard<std::mutex> lock(device_.resMutex_);
+        auto buffer = [&](Buffer buf, int offset, bool wanted, bool usageOk, const char* what, const char* usage,
+                          BoundBuffer& out) {
+            if (!wanted) {
+                if (buf.id != 0)
+                    bad(std::string(what) + " is bound and pipeline '" + st.label +
+                        "' reads nothing there (hint: bind only the slots its vertex layout or index type uses)");
+                return;
+            }
+            const D3d12Device::BufferRecord* r = device_.buffers_.get(buf.id);
+            if (buf.id == 0) {
+                bad(std::string(what) + " is empty and pipeline '" + st.label + "' reads it");
+            } else if (!r || !r->tracked) {
+                bad(std::string(what) + " (buffer " + std::to_string(buf.id) + ") is not a live buffer");
+            } else if (!usageOk) {
+                bad(std::string(what) + " is buffer '" + r->label + "', which was not made with BufferUsage::" + usage);
+            } else if (offset < 0 || std::size_t(offset) >= r->size) {
+                bad(std::string(what) + "'s offset " + std::to_string(offset) + " is outside buffer '" + r->label +
+                    "''s " + std::to_string(r->size) + " bytes");
+            } else {
+                out.t = r->tracked;
+                out.offset = std::uint64_t(offset);
+                out.size = r->size;
+            }
+        };
+        for (int i = 0; i < kMaxVertexBuffers; ++i) {
+            const D3d12Device::BufferRecord* r = device_.buffers_.get(b.vertexBuffers[i].id);
+            const std::string what = "vertex buffer slot " + std::to_string(i);
+            buffer(b.vertexBuffers[i], b.vertexBufferOffsets[i], (st.buffersUsed >> i) & 1u, r && r->usage.vertexBuffer,
+                   what.c_str(), "vertexBuffer", vbs[i]);
+        }
+        {
+            const D3d12Device::BufferRecord* r = device_.buffers_.get(b.indexBuffer.id);
+            buffer(b.indexBuffer, b.indexBufferOffset, st.indexType != IndexType::None, r && r->usage.indexBuffer,
+                   "the index buffer", "indexBuffer", ib);
+        }
+        for (int i = 0; i < kMaxViews && error.empty(); ++i) {
+            const ViewType want = sh.viewType[i];
+            const View v = b.views[i];
+            const std::string what = "view slot " + std::to_string(i);
+            if (want == ViewType::Invalid) {
+                if (v.id != 0) bad(what + " is bound and " + shaderName + " declares nothing there");
+                continue;
+            }
+            const D3d12Device::ViewRecord* r = device_.views_.get(v.id);
+            if (v.id == 0) {
+                bad(what + " is empty and " + shaderName + " declares a " + view_type_name(want) + " there");
+            } else if (!r || !r->tracked || r->heap < 0) {
+                bad(what + " (view " + std::to_string(v.id) + ") is not a live view");
+            } else if (r->type != want) {
+                bad(what + " is a " + view_type_name(r->type) + " view and " + shaderName + " declares a " +
+                    view_type_name(want) + " there");
+            } else {
+                BoundView& out = views[i];
+                out.t = r->tracked;
+                out.type = r->type;
+                out.writable = sh.viewWritable[i];
+                const std::uint32_t d =
+                    out.writable && r->type == ViewType::StorageBuffer ? r->uavDescriptor : r->descriptor;
+                out.src = device_.cpuHeaps_[std::size_t(r->heap)].cpu(d);
+                out.mip = std::uint32_t(r->mip);
+                out.mipCount = std::uint32_t(r->mipCount);
+                out.slice = std::uint32_t(r->slice);
+                out.sliceCount = std::uint32_t(r->sliceCount);
+            }
+        }
+        for (int i = 0; i < kMaxSamplers && error.empty(); ++i) {
+            const bool wanted = (lay.samplerUsed >> i) & 1u;
+            const Sampler s = b.samplers[i];
+            const std::string what = "sampler slot " + std::to_string(i);
+            if (!wanted) {
+                if (s.id != 0) bad(what + " is bound and " + shaderName + " declares nothing there");
+                continue;
+            }
+            const D3d12Device::SamplerRecord* r = device_.samplers_.get(s.id);
+            if (s.id == 0)
+                bad(what + " is empty and " + shaderName + " declares a sampler there");
+            else if (!r || r->descriptor == kNoDescriptor)
+                bad(what + " (sampler " + std::to_string(s.id) + ") is not a live sampler");
+            else
+                samplers[i] = device_.cpuHeaps_[D3d12Device::kHeapSampler].cpu(r->descriptor);
+        }
+    }
+    if (!error.empty()) {
+        drawsFailed_ = true;
+        fail("set_bindings", error);
+        return;
+    }
+
+    // The descriptors: copied into this frame's part of the shader-visible heaps, one table per stage.
+    ID3D12Device* dev = device_.device_.get();
+    ShaderVisibleHeap::Span viewSpan[2], samplerSpan[2];
+    for (std::size_t s = 0; s < 2; ++s) {
+        if (lay.viewCount[s] > 0) {
+            viewSpan[s] = device_.viewHeap_.alloc(lay.viewCount[s]);
+            if (!viewSpan[s].ok()) {
+                drawsFailed_ = true;
+                fail("set_bindings",
+                     "this frame used up its " + std::to_string(device_.viewHeap_.per_frame()) +
+                         " shader-visible view descriptors (hint: raise D3d12Options::frameViewDescriptors)");
+                return;
+            }
+        }
+        if (lay.samplerCount[s] > 0) {
+            samplerSpan[s] = device_.samplerHeap_.alloc(lay.samplerCount[s]);
+            if (!samplerSpan[s].ok()) {
+                drawsFailed_ = true;
+                fail("set_bindings",
+                     "this frame used up its " + std::to_string(device_.samplerHeap_.per_frame()) +
+                         " shader-visible sampler descriptors (hint: raise D3d12Options::frameSamplerDescriptors; "
+                         "D3D12 allows 2048 in all)");
+                return;
+            }
+        }
+    }
+    const std::uint32_t viewInc = device_.viewHeap_.increment(), samplerInc = device_.samplerHeap_.increment();
+    boundUavs_.clear();
+    uavsWritten_ = false;
+    for (int i = 0; i < kMaxViews; ++i) {
+        const BoundView& v = views[i];
+        if (!v.t) continue;
+        D3D12_CPU_DESCRIPTOR_HANDLE dst = viewSpan[lay.viewStage[i]].cpu;
+        dst.ptr += std::size_t(lay.viewOffset[i]) * viewInc;
+        dev->CopyDescriptorsSimple(1, dst, v.src, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        const bool flat = v.t->layers == 1;  // a 3D image or a buffer: one layer
+        const std::uint32_t layer = flat ? 0u : v.slice, layers = flat ? 1u : v.sliceCount;
+        if (v.writable) {
+            uav_barrier_if_written(v.t);
+            if (v.type == ViewType::StorageBuffer)
+                require(v.t, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            else
+                require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            if (std::find(boundUavs_.begin(), boundUavs_.end(), v.t) == boundUavs_.end()) boundUavs_.push_back(v.t);
+        } else {
+            const auto read = D3D12_RESOURCE_STATES(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                                                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            if (v.type == ViewType::StorageBuffer)
+                require(v.t, 0, read);
+            else
+                require_range(v.t, v.mip, v.mipCount, layer, layers, read);
+        }
+    }
+    for (int i = 0; i < kMaxSamplers; ++i) {
+        if (!samplers[i].ptr) continue;
+        D3D12_CPU_DESCRIPTOR_HANDLE dst = samplerSpan[lay.samplerStage[i]].cpu;
+        dst.ptr += std::size_t(lay.samplerOffset[i]) * samplerInc;
+        dev->CopyDescriptorsSimple(1, dst, samplers[i], D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+    }
+    for (std::size_t s = 0; s < 2; ++s) {
+        if (lay.viewTable[s] >= 0) {
+            if (st.compute)
+                list_->SetComputeRootDescriptorTable(UINT(lay.viewTable[s]), viewSpan[s].gpu);
+            else
+                list_->SetGraphicsRootDescriptorTable(UINT(lay.viewTable[s]), viewSpan[s].gpu);
+        }
+        if (lay.samplerTable[s] >= 0) {
+            if (st.compute)
+                list_->SetComputeRootDescriptorTable(UINT(lay.samplerTable[s]), samplerSpan[s].gpu);
+            else
+                list_->SetGraphicsRootDescriptorTable(UINT(lay.samplerTable[s]), samplerSpan[s].gpu);
+        }
+    }
+
+    // The vertex and index buffers.
+    for (int i = 0; i < kMaxVertexBuffers; ++i) {
+        const BoundBuffer& v = vbs[i];
+        if (!v.t) continue;
+        require(v.t, 0, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+        D3D12_VERTEX_BUFFER_VIEW vbv{};
+        vbv.BufferLocation = v.t->resource->GetGPUVirtualAddress() + v.offset;
+        vbv.SizeInBytes = UINT(std::min<std::uint64_t>(v.size - v.offset, 0xFFFFFFFFu));
+        vbv.StrideInBytes = st.strides[i];
+        list_->IASetVertexBuffers(UINT(i), 1, &vbv);
+    }
+    if (ib.t) {
+        require(ib.t, 0, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+        D3D12_INDEX_BUFFER_VIEW ibv{};
+        ibv.BufferLocation = ib.t->resource->GetGPUVirtualAddress() + ib.offset;
+        ibv.SizeInBytes = UINT(std::min<std::uint64_t>(ib.size - ib.offset, 0xFFFFFFFFu));
+        ibv.Format = st.indexType == IndexType::Uint16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
+        list_->IASetIndexBuffer(&ibv);
+    }
+    bindingsSet_ = true;
+    empty_ = false;
+}
+
+void D3d12CommandList::set_uniforms(int slot, Range data) {
+    FA_D3D12_REQUIRE_OPEN("set_uniforms");
+    if (passFailed_ || drawsFailed_) return;
+    if (!pipeline_) {
+        fail("set_uniforms", "no pipeline is set (hint: set_pipeline() first, inside a pass)");
+        return;
+    }
+    const ShaderInfo& sh = *pipeline_->shader;
+    const std::uint32_t size = slot >= 0 && slot < kMaxUniformBlocks ? sh.uniformSize[slot] : 0;
+    std::string error;
+    if (size == 0)
+        error = "uniform block slot " + std::to_string(slot) + " is not one shader '" + sh.label + "' declares";
+    else if (!data.ptr || data.size != size)
+        error = "uniform block slot " + std::to_string(slot) + " of shader '" + sh.label + "' has " +
+                std::to_string(size) + " bytes and the data has " + std::to_string(data.ptr ? data.size : 0) +
+                " (hint: pass exactly the block's size)";
+    if (!error.empty()) {
+        drawsFailed_ = true;
+        fail("set_uniforms", error);
+        return;
+    }
+    const UploadAlloc a = device_.upload(std::size_t(align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)),
+                                         D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, this);
+    if (!a.ok()) {
+        drawsFailed_ = true;  // reported
+        return;
+    }
+    std::memcpy(a.cpu, data.ptr, size);
+    const UINT param = UINT(pipeline_->layout->cbvParam[slot]);
+    if (pipeline_->compute)
+        list_->SetComputeRootConstantBufferView(param, a.gpu);
+    else
+        list_->SetGraphicsRootConstantBufferView(param, a.gpu);
+    uniformsSet_ |= 1u << slot;
+    empty_ = false;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Viewports, scissors, draws, dispatches
+// ---------------------------------------------------------------------------------------------------------------------
+
+void D3d12CommandList::apply_viewport(const char* what, float x, float y, float width, float height,
+                                      bool originTopLeft) {
+    FA_D3D12_REQUIRE_OPEN(what);
+    if (passState_ != PassState::Render) {
+        fail(what, "outside a render pass (hint: begin_pass() first)");
+        return;
+    }
+    if (passFailed_) return;
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height)) {
+        fail(what, "the rectangle is not finite");
+        return;
+    }
+    width = std::max(width, 0.0f);
+    height = std::max(height, 0.0f);
+    D3D12_VIEWPORT vp{};
+    vp.TopLeftX = x;
+    vp.TopLeftY = originTopLeft ? y : float(passHeight_) - (y + height);
+    vp.Width = width;
+    vp.Height = height;
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    list_->RSSetViewports(1, &vp);
+    empty_ = false;
+}
+
+void D3d12CommandList::set_viewport(int x, int y, int width, int height, bool originTopLeft) {
+    apply_viewport("set_viewport", float(x), float(y), float(width), float(height), originTopLeft);
+}
+
+void D3d12CommandList::set_viewport_f(float x, float y, float width, float height, bool originTopLeft) {
+    apply_viewport("set_viewport_f", x, y, width, height, originTopLeft);
+}
+
+void D3d12CommandList::set_scissor(int x, int y, int width, int height, bool originTopLeft) {
+    FA_D3D12_REQUIRE_OPEN("set_scissor");
+    if (passState_ != PassState::Render) {
+        fail("set_scissor", "outside a render pass (hint: begin_pass() first)");
+        return;
+    }
+    if (passFailed_) return;
+    // In 64 bits: x + width of two large ints does not overflow.
+    const std::int64_t w = std::max(width, 0), h = std::max(height, 0);
+    const std::int64_t top = originTopLeft ? std::int64_t(y) : std::int64_t(passHeight_) - (std::int64_t(y) + h);
+    const std::int64_t limit = 0x7FFFFFFF;
+    D3D12_RECT r{};
+    r.left = LONG(std::clamp<std::int64_t>(x, 0, limit));
+    r.top = LONG(std::clamp<std::int64_t>(top, 0, limit));
+    r.right = LONG(std::clamp<std::int64_t>(std::int64_t(x) + w, r.left, limit));
+    r.bottom = LONG(std::clamp<std::int64_t>(top + h, r.top, limit));
+    list_->RSSetScissorRects(1, &r);
+    empty_ = false;
+}
+
+bool D3d12CommandList::ready_to_run(const char* what, bool compute) {
+    if (passState_ != (compute ? PassState::Compute : PassState::Render)) {
+        fail(what, compute ? "outside a compute pass (hint: begin_compute_pass() first)"
+                           : "outside a render pass (hint: begin_pass() first)");
+        return false;
+    }
+    if (passFailed_ || drawsFailed_) return false;  // reported when it failed
+    if (!pipeline_) {
+        fail(what, "no pipeline is set (hint: set_pipeline() after beginning the pass)");
+        return false;
+    }
+    const PipelineState& st = *pipeline_;
+    const ShaderInfo& sh = *st.shader;
+    for (int i = 0; i < kMaxUniformBlocks; ++i)
+        if (sh.uniformSize[i] > 0 && !((uniformsSet_ >> i) & 1u)) {
+            fail(what, "uniform block slot " + std::to_string(i) + " of shader '" + sh.label +
+                           "' was not set since set_pipeline (hint: set_uniforms(" + std::to_string(i) +
+                           ", ...) after set_pipeline)");
+            return false;
+        }
+    const RootLayout& lay = *st.layout;
+    const bool needsBindings = lay.viewCount[0] + lay.viewCount[1] + lay.samplerCount[0] + lay.samplerCount[1] > 0 ||
+                               st.buffersUsed != 0 || st.indexType != IndexType::None;
+    if (needsBindings && !bindingsSet_) {
+        fail(what, "shader '" + sh.label +
+                       "' reads buffers, views or samplers and set_bindings was not called since set_pipeline");
+        return false;
+    }
+    // A command after one that wrote the bound UAVs sees its writes.
+    if (uavsWritten_)
+        for (const std::shared_ptr<TrackedResource>& t : boundUavs_) {
+            D3D12_RESOURCE_BARRIER b{};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            b.UAV.pResource = t->resource.get();
+            pending_.push_back(b);
+        }
+    flush_barriers();
+    return true;
+}
+
+void D3d12CommandList::record_draw(const char* what, int base, int count, int instances, int baseVertex,
+                                   int baseInstance) {
+    FA_D3D12_REQUIRE_OPEN(what);
+    if (base < 0 || count < 0 || instances < 0 || baseInstance < 0) {
+        fail(what, "base " + std::to_string(base) + ", count " + std::to_string(count) + ", instances " +
+                       std::to_string(instances) + " or baseInstance " + std::to_string(baseInstance) + " is negative");
+        return;
+    }
+    if (count == 0 || instances == 0) return;  // nothing to draw (sokol skips it too)
+    if (!ready_to_run(what, false)) return;
+    if (pipeline_->indexType != IndexType::None) {
+        list_->DrawIndexedInstanced(UINT(count), UINT(instances), UINT(base), INT(baseVertex), UINT(baseInstance));
+    } else {
+        const std::int64_t first = std::int64_t(base) + baseVertex;
+        if (first < 0) {
+            fail(what, "base " + std::to_string(base) + " + baseVertex " + std::to_string(baseVertex) +
+                           " is negative (a draw without indices starts at that vertex)");
+            return;
+        }
+        list_->DrawInstanced(UINT(count), UINT(instances), UINT(first), UINT(baseInstance));
+    }
+    uavsWritten_ = !boundUavs_.empty();
+    empty_ = false;
+}
+
+void D3d12CommandList::draw(int base, int count, int instances) { record_draw("draw", base, count, instances, 0, 0); }
+
+void D3d12CommandList::draw_ex(int base, int count, int instances, int baseVertex, int baseInstance) {
+    record_draw("draw_ex", base, count, instances, baseVertex, baseInstance);
+}
+
+void D3d12CommandList::dispatch(int x, int y, int z) {
+    FA_D3D12_REQUIRE_OPEN("dispatch");
+    const int most = D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
+    if (x < 0 || y < 0 || z < 0 || x > most || y > most || z > most) {
+        fail("dispatch", "(" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) +
+                             ") thread groups: each count is 0 to " + std::to_string(most) +
+                             " (hint: split the work into several dispatches)");
+        return;
+    }
+    if (x == 0 || y == 0 || z == 0) return;  // nothing to run
+    if (!ready_to_run("dispatch", true)) return;
+    list_->Dispatch(UINT(x), UINT(y), UINT(z));
+    uavsWritten_ = !boundUavs_.empty();
+    empty_ = false;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // States and barriers
@@ -414,6 +1119,7 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     auto scratch = std::make_shared<TrackedResource>();
     scratch->resource = raw;
     scratch->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
+    scratch->buffer = true;
     require(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     flush_barriers();
     for (std::uint32_t i = 0; i < r.count; ++i)

@@ -155,23 +155,36 @@ gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, c
     const auto start = std::chrono::steady_clock::now();
     gpu::Shader shader{};
 #if defined(SOKOL_D3D11)
-    // D3D11: the engine compiles every stage with its own flags (kCompileFlags), through the disk cache when there is a cache
-    // folder and directly when there is none; the backend compiles a stage only when this fails, and reports why.
-    if (backend == gpu::Backend::D3d11) {
+    // D3D11 and D3D12: the engine compiles every stage with its own flags (kCompileFlags), through the disk cache when
+    // there is a cache folder and directly when there is none; the backend compiles a stage only when this fails, and
+    // reports why. D3D12 compiles to shader model 5.1 (register spaces), so its stages have targets of their own and
+    // keys of their own.
+    const bool d3d12 = backend == gpu::Backend::D3d12;
+    if (backend == gpu::Backend::D3d11 || d3d12) {
         const bool cached = !fs::cache_dir().empty();
         const std::string name = label && *label ? label : desc.label && *desc.label ? desc.label : "shader";
-        const std::string keyBase = std::string("d3d11|") + FA_ENGINE_VERSION + "|" + kCompileFlagsText;
+        const std::string keyBase =
+            std::string(d3d12 ? "d3d12|" : "d3d11|") + FA_ENGINE_VERSION + "|" + kCompileFlagsText;
         gpu::ShaderDesc copy = desc;
-        std::vector<std::uint8_t> vs, fsb;
+        if (d3d12) {
+            copy.vertexFunc.d3d11Target = "vs_5_1";
+            copy.fragmentFunc.d3d11Target = "ps_5_1";
+            copy.computeFunc.d3d11Target = "cs_5_1";
+        }
+        std::vector<std::uint8_t> vs, fsb, csb;
         bool viaCache = true;
         struct Stage {
             gpu::ShaderFunction* fn;
             std::vector<std::uint8_t>* bytes;
             const char* name;
         };
-        const Stage stages[] = {{&copy.vertexFunc, &vs, "vs"}, {&copy.fragmentFunc, &fsb, "fs"}};
+        // sokol's D3D11 backend compiles compute itself: only D3D12 takes a compute stage from here.
+        const Stage stages[] = {{&copy.vertexFunc, &vs, "vs"},
+                                {&copy.fragmentFunc, &fsb, "fs"},
+                                {d3d12 ? &copy.computeFunc : nullptr, &csb, "cs"}};
         for (const Stage& st : stages) {
-            if (st.fn->bytecode.ptr || !st.fn->source) continue;  // given as bytecode already, or no such stage
+            if (!st.fn || st.fn->bytecode.ptr || !st.fn->source)
+                continue;  // given as bytecode already, or no such stage
             std::string error;
             const bool made = cached ? cached_stage_bytecode(fs::cache_dir() / "shaders", keyBase, name, st.name,
                                                              *st.fn, d3d_compile_stage, *st.bytes, g_stats)

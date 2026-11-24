@@ -280,6 +280,8 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     images_.init(in.imagePoolSize);
     views_.init(in.viewPoolSize);
     samplers_.init(in.samplerPoolSize);
+    shaders_.init(in.shaderPoolSize);
+    pipelines_.init(in.pipelinePoolSize);
     auto count = [](int option, int fallback) { return std::uint32_t(option > 0 ? option : std::max(fallback, 16)); };
     const struct {
         D3D12_DESCRIPTOR_HEAP_TYPE type;
@@ -300,6 +302,18 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
                                 framesInFlight_, "fa-d3d12-shader-views");
         !r)
         return r;
+    bindlessDescriptors_ = std::uint32_t(options.bindlessDescriptors);
+    if (const ShaderVisibleHeap::Span bindless = viewHeap_.reserved(); bindless.ok()) {
+        // Null textures until something is put there: a table the GPU may read holds no uninitialized descriptor.
+        D3D12_SHADER_RESOURCE_VIEW_DESC none{};
+        none.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        none.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        none.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        none.Texture2D.MipLevels = 1;
+        D3D12_CPU_DESCRIPTOR_HANDLE at = bindless.cpu;
+        for (std::uint32_t i = 0; i < bindless.count; ++i, at.ptr += viewHeap_.increment())
+            device_->CreateShaderResourceView(nullptr, &none, at);
+    }
     if (auto r = samplerHeap_.init(device_.get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 0,
                                    std::uint32_t(options.frameSamplerDescriptors), framesInFlight_,
                                    "fa-d3d12-shader-samplers");
@@ -316,6 +330,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::D3d12);
     init_caps();
+    dead_ = std::make_unique<D3d12CommandList>(*this);
     drain_messages();
     FA_INFO("render", "gpu d3d12: {} ({}{}{}), {} frames in flight", adapterName_, warp_ ? "WARP" : "hardware",
             debugLayer_ ? ", debug layer" : "", gpuValidation_ ? ", GPU-based validation" : "", framesInFlight_);
@@ -469,50 +484,22 @@ TotalStats D3d12Device::total_stats() const {
     pool(s.images, images_.alive(), images_.capacity());
     pool(s.views, views_.alive(), views_.capacity());
     pool(s.samplers, samplers_.alive(), samplers_.capacity());
+    pool(s.shaders, shaders_.alive(), shaders_.capacity());
+    pool(s.pipelines, pipelines_.alive(), pipelines_.capacity());
     return s;
 }
 
 bool D3d12Device::timer_supported(std::string* why) const {
-    if (why) *why = "the D3D12 backend measures GPU time from M77-P7c on (timestamp queries are not built yet)";
+    if (why) *why = "the D3D12 backend measures GPU time from M77-P7c2 on (timestamp queries are not built yet)";
     return false;
 }
 
 Result<ReadTicket> D3d12Device::request_buffer_read(Buffer, std::size_t, std::size_t) {
-    return make_error("gpu d3d12: request_buffer_read is not built yet (M77-P7c)",
+    return make_error("gpu d3d12: request_buffer_read is not built yet (M77-P7c2)",
                       "async_read_supported() is false on this device: read with read_buffer(), which waits");
 }
 
 bool D3d12Device::poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) { return false; }
-
-Shader D3d12Device::make_shader(const ShaderDesc& desc) {
-    report(std::string("gpu d3d12: make_shader('") + (desc.label ? desc.label : "") +
-           "') is not built yet (M77-P7c) (hint: the D3D12 backend makes buffers, images, views and samplers and "
-           "records transfers for now; draw with the sokol backend until M77-P7c)");
-    return {};
-}
-
-Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {
-    report(std::string("gpu d3d12: make_pipeline('") + (desc.label ? desc.label : "") +
-           "') is not built yet (M77-P7c) (hint: the D3D12 backend makes buffers, images, views and samplers and "
-           "records transfers for now; draw with the sokol backend until M77-P7c)");
-    return {};
-}
-
-void D3d12Device::destroy_shader(Shader shader) {
-    if (shader.valid())
-        report("gpu d3d12: destroy_shader: shader " + std::to_string(shader.id) +
-               " names nothing "
-               "(this device makes no shaders before M77-P7c)");
-}
-
-void D3d12Device::destroy_pipeline(Pipeline pipeline) {
-    if (pipeline.valid())
-        report("gpu d3d12: destroy_pipeline: pipeline " + std::to_string(pipeline.id) +
-               " names nothing (this device makes no pipelines before M77-P7c)");
-}
-
-ResourceState D3d12Device::state(Shader) const { return ResourceState::Invalid; }
-ResourceState D3d12Device::state(Pipeline) const { return ResourceState::Invalid; }
 
 void D3d12Device::report(const std::string& message) {
     FA_ERROR("render", "{}", message);
@@ -603,6 +590,12 @@ D3d12Counters D3d12Device::counters() const {
     c.cpuSamplerDescriptors = cpuHeaps_[kHeapSampler].used();
     c.frameViewDescriptors = viewHeap_.frame_used();
     c.frameSamplerDescriptors = samplerHeap_.frame_used();
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    c.psoCacheHits = psoHits_;
+    c.psoCacheMisses = psoMisses_;
+    c.psos = psos_.size();
+    c.rootSignatureCacheHits = rootHits_;
+    c.rootSignatures = rootLayouts_.size();
     return c;
 }
 
@@ -621,6 +614,7 @@ D3d12CommandList* D3d12Device::acquire_list(const char* label, bool internal) {
                     return nullptr;
                 }
                 l->internal_ = internal;
+                l->openFrame_ = frame_;
                 return l.get();
             }
         if (lists_.size() < kMaxLists) break;
@@ -649,6 +643,7 @@ D3d12CommandList* D3d12Device::acquire_list(const char* label, bool internal) {
         return nullptr;
     }
     l->internal_ = internal;
+    l->openFrame_ = frame_;
     lists_.push_back(std::move(l));
     return lists_.back().get();
 }
@@ -656,18 +651,13 @@ D3d12CommandList* D3d12Device::acquire_list(const char* label, bool internal) {
 CommandList& D3d12Device::begin_commands(const char* label) {
     std::lock_guard<std::mutex> lock(queueMutex_);
     if (D3d12CommandList* l = acquire_list(label ? label : "", false)) return *l;
-    // D3D12 could not give a list (reported): hand out one that ignores everything, so the frame goes on.
-    static thread_local std::unique_ptr<D3d12CommandList> dead;
-    dead = std::make_unique<D3d12CommandList>(*this);
-    return *dead;
+    // D3D12 could not give a list (reported): hand out the one that ignores everything, so the frame goes on.
+    return *dead_;
 }
 
 D3d12CommandList& D3d12Device::prelude() {
     if (!prelude_) prelude_ = acquire_list("fa-d3d12-uploads", true);
-    if (prelude_) return *prelude_;
-    static thread_local std::unique_ptr<D3d12CommandList> dead;
-    dead = std::make_unique<D3d12CommandList>(*this);
-    return *dead;
+    return prelude_ ? *prelude_ : *dead_;
 }
 
 void D3d12Device::flush_prelude() {
@@ -697,6 +687,32 @@ void D3d12Device::submit(CommandList& l) {
                " debug group(s) open (hint: pop_debug_group() once for each push_debug_group())");
         for (; list->debugDepth_ > 0; --list->debugDepth_) list->list_->EndEvent();
     }
+    if (list->passState_ != PassState::None) {
+        report("gpu d3d12: submit: list '" + list->label_ +
+               "' is still inside a pass (hint: end_pass() before submit(); it was ended here)");
+        list->end_pass();
+    }
+    if (list->openFrame_ != frame_) {
+        // Its uniforms and descriptors are in the ring room and the descriptor segment of the frame it was opened in,
+        // which commit() handed back to the frames after it: running it could read what a later frame wrote there.
+        report("gpu d3d12: submit: list '" + list->label_ + "' was begun in frame " + std::to_string(list->openFrame_) +
+               " and submitted in frame " + std::to_string(frame_) +
+               "; it was dropped (hint: submit() every list in the frame begin_commands() returned it, before "
+               "commit())");
+        list->list_->Close();
+        list->open_ = false;
+        list->uses_.clear();
+        list->useIndex_.clear();
+        list->pending_.clear();
+        for (Com<ID3D12Resource>& r : list->keep_) {
+            Deferred d;
+            d.frame = frame_;
+            d.raw = std::move(r);
+            deferred_.push_back(std::move(d));
+        }
+        list->keep_.clear();
+        return;
+    }
     flush_prelude();  // the initial uploads of resources this list may use go first
     execute(*list);
 }
@@ -716,10 +732,13 @@ void D3d12Device::execute(D3d12CommandList& list) {
         drain_messages();
         return;
     }
-    // The fix-up barriers: from the state the queue leaves each resource in to the state the list starts with.
+    // The fix-up barriers: from the state the queue leaves each resource in to the state the list starts with. Not for
+    // buffers: the queue decayed them to COMMON and their first use promotes them (a COMMON -> state barrier would
+    // also be one the debug layer checks against a state it promoted itself, BEFORE_AFTER_MISMATCH #527).
     std::vector<D3D12_RESOURCE_BARRIER> fix;
     for (D3d12CommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
+        if (t.buffer) continue;
         for (std::uint32_t s = 0; s < std::uint32_t(u.first.size()); ++s) {
             if (u.first[s] == kStateUnknown || t.states[s] == u.first[s]) continue;
             D3D12_RESOURCE_BARRIER b{};
@@ -762,11 +781,19 @@ void D3d12Device::execute(D3d12CommandList& list) {
     }
     lists[n++] = list.list_.get();
     queue_->ExecuteCommandLists(n, lists);
+    // What the list leaves each resource in; buffers decay to COMMON once the queue finished ExecuteCommandLists.
+    Deferred held;
+    held.frame = frame_;
+    held.held.reserve(list.uses_.size());
     for (D3d12CommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
         for (std::size_t s = 0; s < u.current.size(); ++s)
-            if (u.current[s] != kStateUnknown) t.states[s] = u.current[s];
+            if (u.current[s] != kStateUnknown)
+                t.states[s] = t.buffer ? StateBits(D3D12_RESOURCE_STATE_COMMON) : u.current[s];
+        held.held.push_back(std::move(u.res));
     }
+    // The resources stay alive until the frame it was submitted in is finished, even when destroyed meanwhile.
+    if (!held.held.empty()) deferred_.push_back(std::move(held));
     list.uses_.clear();
     list.useIndex_.clear();
     for (Com<ID3D12Resource>& r : list.keep_) {
@@ -844,7 +871,21 @@ Result<void> D3d12Device::wait_idle() {
     if (FAILED(hr)) return hr_error("ID3D12CommandQueue::Signal (wait_idle)", hr, "the device was lost");
     auto r = wait_fence(fenceValue_, "wait_idle");
     collect();
+    if (r) {
+        // The GPU finished everything submitted: what waits for the open frame can go too (a list still recording
+        // holds its own references, and the descriptors it bound were copied when it bound them).
+        for (Deferred& d : deferred_) release(d);
+        deferred_.clear();
+    }
     return r;
+}
+
+void D3d12Device::release(Deferred& d) {
+    if (d.heap >= 0) {
+        if (d.descriptor != kNoDescriptor) cpuHeaps_[std::size_t(d.heap)].free(d.descriptor);
+        if (d.descriptor2 != kNoDescriptor) cpuHeaps_[std::size_t(d.heap)].free(d.descriptor2);
+    }
+    d.heap = -1;
 }
 
 void D3d12Device::collect() {
@@ -856,11 +897,7 @@ void D3d12Device::collect() {
         frameFences_.pop_front();
     }
     while (!deferred_.empty() && deferred_.front().frame < completedFrames_) {
-        Deferred& d = deferred_.front();
-        if (d.heap >= 0) {
-            if (d.descriptor != kNoDescriptor) cpuHeaps_[std::size_t(d.heap)].free(d.descriptor);
-            if (d.descriptor2 != kNoDescriptor) cpuHeaps_[std::size_t(d.heap)].free(d.descriptor2);
-        }
+        release(deferred_.front());
         deferred_.pop_front();
     }
 }
