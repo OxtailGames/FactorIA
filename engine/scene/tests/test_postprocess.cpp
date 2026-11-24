@@ -146,7 +146,7 @@ TEST_CASE("PostProcess: temporalAA (M76) sits after the exposure and before the 
     PostProcess p;
     CHECK_FALSE(p.temporalAAEnabled);
     for (const char* name : {"temporalAAEnabled", "temporalAAFeedback", "temporalAASharpen", "temporalAAVarianceGamma",
-                             "temporalAAReactiveScale"}) {
+                             "temporalAAReactiveScale", "temporalAAMipBias"}) {
         INFO(name);
         const FieldInfo* f = t->field(name);
         REQUIRE(f);

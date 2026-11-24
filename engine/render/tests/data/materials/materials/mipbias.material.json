@@ -1,0 +1,6 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: paints the frame's texture LOD bias (fa_mip_bias, 0 or negative) as a grey, -bias / 4, so a test reads the bias that reached the shader.",
+  "shader": "shaders/mipbias.surface.glsl",
+  "lighting": "unlit"
+}

@@ -464,7 +464,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_counts;             // x = light count, y = first texel of the decal region (0 = no decals), z = 1 on OpenGL backends,
                                 // w = what this mesh takes of the decals: 0 = none, else 1 + MeshRenderer.decalLayer
     vec4 fa_env_sky;            // rgb sky color (top of the environment); w = 1 when the sky's tile of the probe atlas holds the baked sky
-    vec4 fa_env_horizon;        // rgb horizon color; w unused
+    vec4 fa_env_horizon;        // rgb horizon color; w = the texture LOD bias of the frame (fa_mip_bias below; 0 = none)
     vec4 fa_time;               // x = seconds of game time since the scene started
     // Clustered lighting (M73.1; src/light_clusters.h): the rows of the view-projection matrix that give a fragment's tile, the
     // camera's forward depth and the grid; all zero (fa_cl_info.x = -1) while the frame has no local lights.
@@ -514,6 +514,11 @@ layout(binding=1) uniform fa_mesh_fs_params {
                                 // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce),
                                 // w = the LOD cross-fade of the draw (fa_lod_dither): 0 = none, +a = the level fading in, -a = the level fading out
 };
+
+// The texture LOD bias of the frame (M76-P4b, docs/UPSCALING.md "Texture mip bias"): negative while the temporal upscaler or the temporal
+// antialiasing accumulates jittered frames, so the textures keep the detail of the accumulated picture; 0 everywhere else (an image drawn
+// without them is the same bit for bit). The scene's texture reads add it: texture(sampler2D(t, t_smp), uv, fa_mip_bias). Fragment stage only.
+#define fa_mip_bias (fa_env_horizon.w)
 
 // The varyings are declared in the order of the vertex stage's outputs (the instance values first): sokol-shdc matches them
 // by that order.
@@ -584,25 +589,25 @@ float fa_fix_of(float packed, float scale) { return mod(floor(packed / scale + 0
 // emissive. surface() starts from it.
 Surface fa_standard_surface(in SurfaceInput i) {
     Surface s;
-    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv);
+    vec4 base_t = texture(sampler2D(fa_tex, fa_smp), i.uv, fa_mip_bias);
     base_t.rgb = fa_tex_fix(base_t.rgb, fa_fix_of(fa_maps.w, 1.0));
     vec4 albedo4 = base_t * fa_base_color * i.vertex_color;
     s.albedo = albedo4.rgb;
     s.alpha = albedo4.a;
     s.normal = i.world_normal;
     if (fa_maps.z > 0.5) {
-        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
+        vec3 m = fa_tex_fix(texture(sampler2D(fa_normal_tex, fa_smp), i.uv, fa_mip_bias).xyz, fa_fix_of(fa_maps.w, 16.0)) * 2.0 - 1.0;
         m.xy *= fa_maps.x;
         s.normal = fa_tangent_normal(i, m);
     }
-    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
+    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv, fa_mip_bias);
     mrt.rgb = fa_tex_fix(mrt.rgb, fa_fix_of(fa_maps.w, 64.0));
     s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
     s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv);
+    vec4 occ_t = texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv, fa_mip_bias);
     vec3 occ_f = fa_tex_fix(occ_t.rgb, fa_fix_of(fa_maps.w, 256.0));
     s.occlusion = 1.0 + fa_maps.y * (occ_f.r - 1.0);
-    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb, fa_fix_of(fa_maps.w, 4.0));
+    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * fa_tex_fix(texture(sampler2D(fa_emissive_tex, fa_smp), i.uv, fa_mip_bias).rgb, fa_fix_of(fa_maps.w, 4.0));
     // The material layers: the factors of the MeshRenderer / glTF material, times the textures the importer packed into the maps.
     s.clearcoat = fa_layers_a.x;
     s.clearcoat_roughness = fa_layers_a.y;

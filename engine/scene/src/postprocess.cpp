@@ -469,6 +469,18 @@ void register_postprocess_component(TypeRegistry& r) {
                "Only used when temporalAAEnabled. 0..4: how strongly things that change too fast to follow (particles, "
                "fast objects, flashes) shorten the history there; 0 ignores them, 1 is the default.")
         .range(0, 4)
+        .field("temporalAAMipBias", &PostProcess::temporalAAMipBias,
+               "Only used when temporalAAEnabled, and by the temporal upscaler (render.upscaler \"temporal\" or "
+               "\"metalfx\") for a camera whose stack has the effect on; without it the upscaler uses -0.5. -2..0: "
+               "the texture detail asked of the scene's materials (meshes, terrain, impostors, custom 3D shaders "
+               "that read fa_mip_bias; never sprites, UI or text) while the frames are accumulated. The textures are "
+               "read at a mip level shifted by log2(render size / output size) + this value, never above 0: the "
+               "accumulation of jittered frames gives back the detail a smaller picture would otherwise blur away. "
+               "With the temporal antialiasing alone (render scale 1) the shift is this value. 0 turns the bias off "
+               "at scale 1 and keeps the shift of the resolution ratio when upscaling; -2 is the sharpest, with more "
+               "shimmer for the history to resolve. No temporal pass, no bias: the picture is the same as without "
+               "the field.")
+        .range(-2, 0)
 
         // depthOfField
         .field("depthOfFieldEnabled", &PostProcess::depthOfFieldEnabled,

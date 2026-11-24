@@ -308,6 +308,25 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   depth rejection of the history is not applied to the sky (the pixels no mesh drew), whose depth changes with every turn of the camera.
   `kJitterPhasesMax` is 128 (the upscaler at a third of the size needs 72).
 
+### Texture LOD bias (M76-P4b)
+
+- **Where it is computed.** `Renderer::Impl::mip_bias` (renderer.cpp), called by `build_camera` right after `apply_jitter`, so only a
+  camera that was jittered has a bias: `CameraInfo::mipBias`. The temporal upscaler frame (`temporalPhases > 0`, the one full-window main
+  camera) takes `log2(physW / targetW) + offset`, the temporal antialiasing alone takes `offset`, a jitter a test forced (`jitterForce`)
+  none. The offset is the stack's `temporalAAMipBias` (the camera's TemporalAA on; else the PostProcess default, -0.5), clamped to -2..0; the
+  sum to -4..0. The camera is built every frame after the render size is known, so a dynamic-resolution step moves the bias with it.
+- **How it reaches the shader.** No new uniform block and no layout change: the free `w` lane of `fa_env_horizon` in `fa_mesh_fs_params`
+  (`mesh_common.glsl` and its copy in `mesh_full_common.glsl`) holds it, filled once per camera by `plan_job` (`fuScene`, so `fuBlend` and
+  every `fill_fs` copy carry it) and set back to 0 by the shadow pass. A fragment-stage `#define fa_mip_bias (fa_env_horizon.w)` names it.
+  GLSL ES 3.0 and WebGL2 have `texture(sampler, uv, bias)` in the fragment stage only, which is the only place it is used; sokol-shdc turns
+  it into `SampleBias` (HLSL) and `bias()` (MSL).
+- **Reads that take it.** `fa_standard_surface` (five maps), `fa_base_sample` of the full template, the graph's `texture`, `texture.normal`
+  and `triplanar` nodes (`$mip_bias`: `fa_mip_bias` in a mesh graph, `0.0` in sprite and post graphs), `terrain.glsl` (it scales the
+  `textureGrad` derivatives by `exp2(bias)`) and `impostor.glsl` (it adds to the explicit level). Not touched: `quad_common.glsl`
+  (sprites, UI, text), the post passes, the shadow passes, the splat control maps. A twin made with another template is refused as before: the template
+  hashes of the mesh and full templates changed, so the committed fixture twins were made again (`FA_UPDATE_FIXTURES=1`).
+- **Off is the same picture.** A camera without a jitter has `mipBias` 0 and `texture(s, uv, 0.0)` samples as `texture(s, uv)`.
+
 ### Who writes the velocity (M76-P1a)
 
 - **Asking.** There is one request: `PostPlan::request_velocity()`. `make_post_plan` calls it for an effect that needs the motion

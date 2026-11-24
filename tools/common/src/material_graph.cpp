@@ -49,6 +49,7 @@ const SurfaceValue kSurfaceValues[] = {
     {"view_dir", 3, "i.view_dir", nullptr},
     {"camera_pos", 3, "fa_camera_pos.xyz", nullptr},
     {"time", 1, "fa_time.x", "fa_time.x"},
+    {"mip_bias", 1, "fa_mip_bias", nullptr},  // the frame's texture LOD bias (M76-P4b); the texture nodes add it
 };
 
 // The same for a sprite material (QuadInput, QuadSurface and QuadVertex of the sprite template). "sprite_color" is what the engine drew
@@ -62,14 +63,13 @@ const SurfaceValue kSpriteSurfaceValues[] = {
     {"custom", 4, "i.custom", nullptr},
     {"sprite_pos", 2, "i.world_pos", nullptr},
     {"screen_uv", 2, "i.screen_uv", nullptr},
+    {"mip_bias", 1, "0.0", nullptr},  // sprites never take a texture LOD bias: pixel art and UI stay as drawn
 };
 
 // The same for a post material (PostInput of the post template; post() has no vertex stage, so nothing is read there).
 const SurfaceValue kPostSurfaceValues[] = {
-    {"uv", 2, "i.uv", nullptr},
-    {"time", 1, "fa_time.x", nullptr},
-    {"texel", 2, "i.texel", nullptr},
-    {"size", 2, "i.size", nullptr},
+    {"uv", 2, "i.uv", nullptr},     {"time", 1, "fa_time.x", nullptr}, {"texel", 2, "i.texel", nullptr},
+    {"size", 2, "i.size", nullptr}, {"mip_bias", 1, "0.0", nullptr},  // a post pass reads the picture at its own size: no bias
 };
 
 // How the generator writes the snippet of one material kind: the entry points of its template and the surface values its nodes read.

@@ -241,6 +241,8 @@ struct PostProcess {
         1.0f;  // 0.5..2: how far the history may stray from the neighbours before it is clipped
     float temporalAAReactiveScale =
         1.0f;  // 0..4: how much the reactive mask (particles, fast objects) shortens the history
+    float temporalAAMipBias =
+        -0.5f;  // -2..0: mip levels added to the textures' level of detail while the frames are accumulated (docs/UPSCALING.md "Texture mip bias")
 
     // --- motionBlur: smear from the camera's movement (from depth) ---------------------------------------------------------------
     bool motionBlurEnabled = false;

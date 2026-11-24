@@ -86,6 +86,8 @@ struct RendererTestAccess {
     static bool read_reactive(Renderer& r, std::vector<float>& out, int& w, int& h, std::string* error);
     // M76: what the cameras of the last frame were jittered by, in render pixels (CameraInfo::jitterPx), in draw order.
     static std::vector<Vec2> last_jitter(Renderer& r);
+    // M76-P4b: the texture LOD bias of the cameras of the last frame (CameraInfo::mipBias), in draw order.
+    static std::vector<float> last_mip_bias(Renderer& r);
     static int ldr_cut_format(Renderer& r);
     // M76-P2: the temporal antialiasing (renderer_taa.h): the history images alive, whether `camera`'s last resolve blended with its history,
     // how often a history was started, the format of the histories (sg_pixel_format as an int), whether the renderer gave the effect up, and

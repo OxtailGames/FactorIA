@@ -2504,6 +2504,8 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     fuScene.fa_env_horizon[0] = ss.horizonColor.r;
     fuScene.fa_env_horizon[1] = ss.horizonColor.g;
     fuScene.fa_env_horizon[2] = ss.horizonColor.b;
+    fuScene.fa_env_horizon[3] =
+        fr.cam.mipBias;  // the texture LOD bias of the frame (fa_mip_bias): 0 unless the camera is jittered
     fuScene.fa_pbr[3] = 0.0015f;
     fuScene.fa_time[0] = float(world.time());
     plan_env(ctx);  // before fuBlend is copied: it sets the environment flag of fuScene
@@ -3370,8 +3372,12 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
                     if (skinned && declares(prog, UB_mesh_fa_skin))
                         apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                     if (prog) {
-                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
+                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) {
+                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd);
+                            fu.fa_env_horizon[3] =
+                                0.0f;  // a shadow map is not the jittered picture: no texture LOD bias
+                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fu);
+                        }
                         if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(UB_mesh_fa_shadows, ctx.shadowU);
                         apply_material_params(*prog, inputs);
                     }
