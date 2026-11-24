@@ -71,7 +71,8 @@ TEST_CASE("project: render.dynamicResolution loads, round-trips, defaults to off
     CHECK(s->dynamicResolution == render::DynamicResolutionSettings{});
     CHECK_FALSE(s->to_json().contains("render"));
 
-    TempProject set("set", R"(, "render": { "dynamicResolution": { "enabled": true, "targetMs": 33.3, "minScale": 0.6 } })");
+    TempProject set("set",
+                    R"(, "render": { "dynamicResolution": { "enabled": true, "targetMs": 33.3, "minScale": 0.6 } })");
     auto t = load_project(set.path());
     REQUIRE_MESSAGE(t.ok(), t.error().message);
     CHECK(t->dynamicResolution.enabled);
@@ -115,7 +116,8 @@ TEST_CASE("render.dynamic_resolution: reads, sets, and refuses without changing 
     CHECK(r.result["effectiveTargetMs"].get<double>() == doctest::Approx(16.7));
 
     // Wrong calls teach and change nothing.
-    for (const char* bad : {R"({"minScale":0.9,"maxScale":0.5})", R"({"targetMs":2})", R"({"enabled":"yes"})", R"({"enable":true})"}) {
+    for (const char* bad :
+         {R"({"minScale":0.9,"maxScale":0.5})", R"({"targetMs":2})", R"({"enabled":"yes"})", R"({"enable":true})"}) {
         const Json before = c.call("render.dynamic_resolution", Json::object()).result;
         auto f = c.call("render.dynamic_resolution", Json::parse(bad));
         INFO(bad);
@@ -164,7 +166,8 @@ TEST_CASE("the project's dynamic resolution is applied when the engine starts") 
     e.shutdown();
 }
 
-TEST_CASE("dynamic resolution with injected frame times: the scale follows the time, the stats report it, and it comes back") {
+TEST_CASE("dynamic resolution with injected frame times: the scale follows the time, the stats report it, and it comes "
+          "back") {
     TempProject p("inject");
     Engine e;
     std::string err;
@@ -226,7 +229,8 @@ TEST_CASE("dynamic resolution multiplies into window.renderScale and the upscale
     e.shutdown();
 }
 
-TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the same size; off and not measured are bit identical") {
+TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the same size; off and not measured are bit "
+          "identical") {
     TempProject p("image");
     std::string err;
     // One engine at a time: the graphics layer is one per process.
@@ -247,17 +251,27 @@ TEST_CASE("dynamic resolution: the picture is the one of a fixed scale of the sa
 
     // Off with the other keys set (enabled false), and on with nothing measured yet: the same pixels as a build without the feature.
     Image off, notMeasured;
-    REQUIRE(picture([](Engine& e) { REQUIRE(e.commands().call("render.dynamic_resolution", Json::parse(R"({"targetMs":20,"minScale":0.3})")).ok); }, off));
+    REQUIRE(picture(
+        [](Engine& e) {
+            REQUIRE(
+                e.commands().call("render.dynamic_resolution", Json::parse(R"({"targetMs":20,"minScale":0.3})")).ok);
+        },
+        off));
     CHECK(off.width == reference.width);
     CHECK(off.rgba == reference.rgba);
-    REQUIRE(picture([](Engine& e) { REQUIRE(e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true})")).ok); }, notMeasured));
+    REQUIRE(picture(
+        [](Engine& e) {
+            REQUIRE(e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true})")).ok);
+        },
+        notMeasured));
     CHECK(notMeasured.rgba == reference.rgba);
 
     // The controller at its floor draws what window.renderScale 0.5 draws.
     Image dynamic, fixed;
     REQUIRE(picture(
         [](Engine& e) {
-            REQUIRE(e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"minScale":0.5})")).ok);
+            REQUIRE(
+                e.commands().call("render.dynamic_resolution", Json::parse(R"({"enabled":true,"minScale":0.5})")).ok);
             e.set_dynamic_resolution_frame_ms(60.0);
             e.step(60 * 8);
             REQUIRE(e.renderer()->render_scale() == doctest::Approx(0.5f));

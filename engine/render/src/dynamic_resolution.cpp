@@ -21,18 +21,20 @@ std::string num(double v) {
 }
 
 // The controller's constants (docs/UPSCALING.md, "Dynamic resolution"). Seconds unless noted.
-constexpr double kTau = 0.30;            // smoothing time of the measured frame time
-constexpr double kDownHold = 0.5;        // the least time between a change and a change down
-constexpr double kUpHold = 1.5;          // ... and a change up
-constexpr double kDownPersist = 0.3;     // the smoothed time stays over the band this long before a change down (a one-frame hitch is no cause)
-constexpr double kUpPersist = 1.0;       // ... and under it this long before a change up
+constexpr double kTau = 0.30;      // smoothing time of the measured frame time
+constexpr double kDownHold = 0.5;  // the least time between a change and a change down
+constexpr double kUpHold = 1.5;    // ... and a change up
+constexpr double kDownPersist =
+    0.3;  // the smoothed time stays over the band this long before a change down (a one-frame hitch is no cause)
+constexpr double kUpPersist = 1.0;                          // ... and under it this long before a change up
 constexpr int kMaxDownSteps = kDynamicResolutionSteps / 4;  // a quarter of the range per change
 constexpr int kMaxUpSteps = kDynamicResolutionSteps / 8;    // an eighth
-constexpr double kProbeFirst = 3.0;      // quiet time before the first try up (interval measure)
+constexpr double kProbeFirst = 3.0;                         // quiet time before the first try up (interval measure)
 constexpr double kProbeMax = 48.0;
 constexpr double kProbeFailWindow = 3.0;  // a drop this soon after a try up means the try failed
 constexpr double kProbeKeep = 10.0;       // a try up that holds this long resets the wait
-constexpr double kCeilingLife = 60.0;     // a step whose try failed is not tried again for this long when the wait was 3 s (more with a longer wait)
+constexpr double kCeilingLife =
+    60.0;  // a step whose try failed is not tried again for this long when the wait was 3 s (more with a longer wait)
 
 }  // namespace
 
@@ -71,12 +73,14 @@ Result<DynamicResolutionSettings> parse_dynamic_resolution_settings(const Json& 
     } else if (it != j.end()) {
         const std::string ptr = std::string(where) + "/targetMs";
         if (!it->is_number())
-            return make_error(ptr + ": expected a number of milliseconds, got " + describe_json_value(*it),
-                              "Use 33.3 for 30 fps, 16.7 for 60 fps, 8.3 for 120 fps, or 0 to follow the display's refresh rate.");
+            return make_error(
+                ptr + ": expected a number of milliseconds, got " + describe_json_value(*it),
+                "Use 33.3 for 30 fps, 16.7 for 60 fps, 8.3 for 120 fps, or 0 to follow the display's refresh rate.");
         const double d = it->get<double>();
         if (!(d == 0.0 || (d >= kDynamicTargetMinMs && d <= kDynamicTargetMaxMs)))
-            return make_error(ptr + ": " + describe_json_value(*it) + " is outside 4..100 ms (and not 0)",
-                              "Use 33.3 for 30 fps, 16.7 for 60 fps, 8.3 for 120 fps, or 0 to follow the display's refresh rate.");
+            return make_error(
+                ptr + ": " + describe_json_value(*it) + " is outside 4..100 ms (and not 0)",
+                "Use 33.3 for 30 fps, 16.7 for 60 fps, 8.3 for 120 fps, or 0 to follow the display's refresh rate.");
         s.targetMs = d;
     }
     auto read_scale = [&](const char* key, float& out) -> Result<void> {
@@ -85,7 +89,8 @@ Result<DynamicResolutionSettings> parse_dynamic_resolution_settings(const Json& 
         const std::string ptr = std::string(where) + "/" + key;
         if (!it->is_number())
             return make_error(ptr + ": expected a number from 0.25 to 1, got " + describe_json_value(*it),
-                              "A scale is the share of the base render size's width and height: 1 is the full size, 0.5 a quarter of the pixels.");
+                              "A scale is the share of the base render size's width and height: 1 is the full size, "
+                              "0.5 a quarter of the pixels.");
         const double d = it->get<double>();
         if (!(d >= double(kDynamicScaleFloor) && d <= double(kDynamicScaleCeiling)))
             return make_error(ptr + ": " + describe_json_value(*it) + " is outside 0.25..1",
@@ -98,9 +103,10 @@ Result<DynamicResolutionSettings> parse_dynamic_resolution_settings(const Json& 
     if (s.minScale > s.maxScale) {
         const bool minGiven = j.contains("minScale");
         const std::string a = std::string(where) + "/minScale", b = std::string(where) + "/maxScale";
-        return make_error((minGiven ? a : b) + ": minScale " + num(double(s.minScale)) + " is above maxScale " +
-                              num(double(s.maxScale)),
-                          "The controller moves between the two: set minScale at or below maxScale (for example 0.6 and 1).");
+        return make_error(
+            (minGiven ? a : b) + ": minScale " + num(double(s.minScale)) + " is above maxScale " +
+                num(double(s.maxScale)),
+            "The controller moves between the two: set minScale at or below maxScale (for example 0.6 and 1).");
     }
     return s;
 }
@@ -171,7 +177,8 @@ bool DynamicResolutionController::update(double sampleMs, double elapsedMs, doub
         const double before = double(scale_of(step_)), after = double(scale_of(newStep));
         const bool failedProbe = !probe && lastWasProbe_ && sinceChange_ < kProbeFailWindow && newStep < step_;
         if (failedProbe) {
-            probeCeiling_ = step_;  // the step that failed: no try reaches it again for a while, so the scale settles under it
+            probeCeiling_ =
+                step_;  // the step that failed: no try reaches it again for a while, so the scale settles under it
             ceilingAge_ = 0.0;
         }
         step_ = newStep;

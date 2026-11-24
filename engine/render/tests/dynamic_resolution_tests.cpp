@@ -40,8 +40,9 @@ struct Run {
 };
 
 // Ticks the controller for `seconds`; `cost(scale, t)` is the frame time the game would take at that scale (ms), `measure` turns it into the sample.
-Run drive(DynamicResolutionController& c, double seconds, bool exact, const std::function<double(float, double)>& cost,
-          const std::function<double(double)>& measure = [](double ms) { return ms; }, double targetMs = 16.7) {
+Run drive(
+    DynamicResolutionController& c, double seconds, bool exact, const std::function<double(float, double)>& cost,
+    const std::function<double(double)>& measure = [](double ms) { return ms; }, double targetMs = 16.7) {
     Run run;
     const int frames = int(std::lround(seconds * 60.0));
     for (int i = 0; i < frames; ++i) {
@@ -66,7 +67,8 @@ TEST_CASE("dynamic resolution: the defaults are off, 0.5..1, and the JSON round-
     REQUIRE(back.ok());
     CHECK(back.value() == d);
     // A partial object changes only its keys.
-    auto part = parse_dynamic_resolution_settings(Json::parse(R"({"enabled": true, "minScale": 0.6})"), "x", on(0.5f, 0.9f, 33.3));
+    auto part = parse_dynamic_resolution_settings(Json::parse(R"({"enabled": true, "minScale": 0.6})"), "x",
+                                                  on(0.5f, 0.9f, 33.3));
     REQUIRE(part.ok());
     CHECK(part->enabled);
     CHECK(part->minScale == doctest::Approx(0.6f));
@@ -93,7 +95,8 @@ TEST_CASE("dynamic resolution: a wrong setting teaches with the pointer, the num
     CHECK(order.find("minScale 0.9 is above maxScale 0.6") != std::string::npos);
     CHECK(fail(R"({"enable": true})").find("enabled") != std::string::npos);  // did you mean
     CHECK(fail("[1]").find("expected an object") != std::string::npos);
-    CHECK(fail("{\"enabled\": 3}", "render.dynamic_resolution").find("render.dynamic_resolution/enabled") != std::string::npos);
+    CHECK(fail("{\"enabled\": 3}", "render.dynamic_resolution").find("render.dynamic_resolution/enabled") !=
+          std::string::npos);
 }
 
 TEST_CASE("dynamic resolution: the target follows the display when it is unset") {
@@ -127,10 +130,10 @@ TEST_CASE("dynamic resolution: with a GPU time it converges to the target, then 
     const auto cost = [](float s, double) { return 24.0 * double(s) * double(s); };
     const Run run = drive(c, 40.0, true, cost);
     const double settled = cost(c.scale(), 0.0);
-    CHECK(settled <= 16.7 * 0.95);  // under the top of the band
-    CHECK(settled >= 16.7 * 0.80);  // and not wastefully low
-    CHECK(run.changesBetween(0.0, 40.0) <= 6);                // a few moves, not a search
-    CHECK(run.changesBetween(10.0, 40.0) == 0);               // and then it holds
+    CHECK(settled <= 16.7 * 0.95);               // under the top of the band
+    CHECK(settled >= 16.7 * 0.80);               // and not wastefully low
+    CHECK(run.changesBetween(0.0, 40.0) <= 6);   // a few moves, not a search
+    CHECK(run.changesBetween(10.0, 40.0) == 0);  // and then it holds
     // The limit of the changes per second: the hold times.
     for (size_t i = 1; i < run.changeAt.size(); ++i) CHECK(run.changeAt[i] - run.changeAt[i - 1] >= 0.5 - 1e-9);
     for (double t = 0.0; t < 39.0; t += 1.0) CHECK(run.changesBetween(t, t + 1.0) <= 2);
@@ -181,8 +184,9 @@ TEST_CASE("dynamic resolution: a light game stays at the largest scale and never
     CHECK(c.scale() == 1.0f);
     DynamicResolutionController v;  // the interval measure: vsync pins the frame at the refresh rate
     v.configure(on());
-    const Run vs = drive(v, 60.0, false, [](float s, double) { return 8.0 * double(s) * double(s); },
-                         [](double ms) { return std::max(ms, 16.7); });
+    const Run vs = drive(
+        v, 60.0, false, [](float s, double) { return 8.0 * double(s) * double(s); },
+        [](double ms) { return std::max(ms, 16.7); });
     CHECK(vs.changeAt.empty());
     CHECK(v.scale() == 1.0f);
 }
@@ -220,7 +224,8 @@ TEST_CASE("dynamic resolution: a one-frame hitch changes nothing, a sustained lo
     CHECK(c.scale() == doctest::Approx(1.0f));
 }
 
-TEST_CASE("dynamic resolution: with the interval measure it goes down by prediction, tries one step up when quiet, and a failed try waits longer") {
+TEST_CASE("dynamic resolution: with the interval measure it goes down by prediction, tries one step up when quiet, and "
+          "a failed try waits longer") {
     DynamicResolutionController c;
     c.configure(on());
     // The game costs 24 ms at full size; the sample is the vsync-pinned interval (a multiple of 16.7 ms is not modelled: one refresh).
@@ -239,7 +244,9 @@ TEST_CASE("dynamic resolution: the same numbers give the same scales (no clock, 
     auto once = [] {
         DynamicResolutionController c;
         c.configure(on());
-        return drive(c, 20.0, true, [](float s, double t) { return (20.0 + 5.0 * std::sin(t)) * double(s) * double(s); }).scaleAt;
+        return drive(c, 20.0, true,
+                     [](float s, double t) { return (20.0 + 5.0 * std::sin(t)) * double(s) * double(s); })
+            .scaleAt;
     };
     CHECK(once() == once());
 }
@@ -265,7 +272,8 @@ TEST_CASE("dynamic resolution: changing the range or turning it off starts at th
     CHECK(c.scale() == 1.0f);
 }
 
-TEST_CASE("dynamic resolution: plan_upscale_scale multiplies the factor in, floors it at 0.25, and off is the same arithmetic") {
+TEST_CASE("dynamic resolution: plan_upscale_scale multiplies the factor in, floors it at 0.25, and off is the same "
+          "arithmetic") {
     constexpr float kMin = 0.25f;
     CHECK(plan_upscale_scale(1.0f, UpscalerQuality::Performance, UpscalerMode::Spatial, kMin, 1.0f).scale ==
           plan_upscale_scale(1.0f, UpscalerQuality::Performance, UpscalerMode::Spatial, kMin).scale);
