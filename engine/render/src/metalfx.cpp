@@ -58,6 +58,7 @@ bool Scaler::valid() const { return false; }
 const Desc& Scaler::desc() const { return impl_->desc; }
 int Scaler::generation() const { return 0; }
 int Scaler::encoded() const { return 0; }
+bool Scaler::command_failed(std::string*) const { return false; }
 void Scaler::release() {}
 
 }  // namespace fa::render::metalfx

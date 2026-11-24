@@ -8,8 +8,10 @@
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 
 namespace fa {
@@ -1271,6 +1273,54 @@ void RendererTestAccess::mfx_signs(Renderer& r, float jitterSign, float motionSi
     if (!r.impl_) return;
     r.impl_->mfxJitterSign = jitterSign;
     r.impl_->mfxMotionSign = motionSign;
+}
+void RendererTestAccess::mfx_force_support(Renderer& r, bool spatial, bool temporal) {
+    if (!r.impl_) return;
+    r.impl_->mfxSupport = render::metalfx::Support{};
+    r.impl_->mfxSupport.spatial = spatial;
+    r.impl_->mfxSupport.temporal = temporal;
+    r.impl_->mfxSupportKnown = true;
+}
+void RendererTestAccess::mfx_prep_only(Renderer& r, bool only) {
+    if (r.impl_) r.impl_->mfxPrepOnly = only;
+}
+int RendererTestAccess::mfx_images(Renderer& r) {
+    return r.impl_ ? int(r.impl_->mfxDepth.color.id != 0) + int(r.impl_->mfxMotion.color.id != 0) : 0;
+}
+bool RendererTestAccess::mfx_last_wrote(Renderer& r) { return r.impl_ && r.impl_->mfxLastWrote; }
+bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error) {
+    if (!r.impl_ || !r.impl_->mfxDepth.valid() || !r.impl_->mfxMotion.valid()) {
+        if (error) *error = "the MetalFX preparation images are not alive";
+        return false;
+    }
+    Renderer::Impl& im = *r.impl_;
+    if (!im.gpu.committed()) {  // the frame's work must be submitted before a read-back waits for it
+        sg_commit();
+        im.gpu.note_commit();
+    }
+    std::vector<std::uint8_t> depth, motion;
+    if (!render::readback_storage_image(im.mfxDepth.color, SG_PIXELFORMAT_R32F, x, y, 1, 1, depth, error) ||
+        !render::readback_storage_image(im.mfxMotion.color, SG_PIXELFORMAT_RG16F, x, y, 1, 1, motion, error))
+        return false;
+    if (depth.size() < 4 || motion.size() < 4) {
+        if (error) *error = "the read-back of the MetalFX preparation images came back short";
+        return false;
+    }
+    std::memcpy(&out[0], depth.data(), 4);
+    auto half_to_float =
+        [](std::uint16_t h) {  // IEEE half -> float (the values here are normal numbers, zero or small)
+            const int sign = (h >> 15) & 1, exp = (h >> 10) & 0x1F, man = h & 0x3FF;
+            float v = exp == 0    ? std::ldexp(float(man), -24)
+                      : exp == 31 ? std::numeric_limits<float>::infinity()
+                                  : std::ldexp(float(man | 0x400), exp - 25);
+            return sign ? -v : v;
+        };
+    for (int i = 0; i < 2; ++i) {
+        std::uint16_t h;
+        std::memcpy(&h, &motion[std::size_t(i) * 2], 2);
+        out[1 + i] = half_to_float(h);
+    }
+    return true;
 }
 int RendererTestAccess::taa_format(Renderer& r) { return r.impl_ ? int(r.impl_->taa.history_format()) : 0; }
 bool RendererTestAccess::taa_unavailable(Renderer& r) { return r.impl_ && r.impl_->taa.unavailable(); }

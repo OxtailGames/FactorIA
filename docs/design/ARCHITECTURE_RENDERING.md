@@ -437,7 +437,7 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
 - **Capture and present.** `final_target()` is the output image when the stage ran, `scene_target()` the game image;
   `capture()`, `read_floats`, the editor copy and `present()` use `final_w()/final_h()` and `final_view()`, so screenshots are
   the design size and include the HUD.
-- **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_POST.md,
+- **Temporal antialiasing under the stage.** `TemporalAA` resolves at the render resolution (docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md,
   "Temporal antialiasing"), before the stage; the stage then brings the resolved picture to the design size like any other, with the
   same HUD rule (`hudAfterBloom` counts the effect). With the temporal upscaler (below) the camera's own pass is skipped instead.
 - **Temporal upscaler (M76-P4, `UpscaleImpl::Temporal`).** The seam exists so that one stage serves the spatial upscaler, this one and

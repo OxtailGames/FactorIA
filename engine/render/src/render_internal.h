@@ -959,11 +959,17 @@ struct QuadItem {
     std::uint32_t effect =
         0;  // QuadList::set_effect(): 1 + the index in QuadList::effects of the built-in 2D effect; 0 = none
     // M76-P1d, the motion of the item for the velocity image. QuadList::set_motion_source(): the owner's Entity::bits() (0 = the item is
-    // still in the world: Text) and where the item's origin is in the world now; Renderer::Impl::fill_quad_motion turns them,
-    // with the history of the owners, into `motion` (the origin now minus the origin on the frame before; 0 without history).
+    // still in the world: Text) and the matrix its quads were placed with in the world now (`xform`; its translation is the item's origin).
+    // Renderer::Impl::fill_quad_motion turns them, with the history of the owners, into the motion of a vertex `p` since the frame before:
+    //   motion(p) = `motion` + `turn` * (p - origin)
+    // where `motion` is the origin now minus the origin on the frame before (0 without history) and `turn` is I - R, R being the rotation
+    // and scale the item made between the two frames (`turned` false: R is the identity and every vertex moves by `motion`).
     std::uint64_t motionKey = 0;
-    Vec3 origin{};
+    Mat4 xform = Mat4::identity();
     Vec3 motion{};
+    float turn[9] = {};  // I - R, column-major (the same layout as Mat4's upper 3x3)
+    bool turned = false;
+    Vec3 origin() const { return xform.translation(); }
     // QuadList::set_reactive(): 0..1, how much the temporal resolve trusts these quads over its history (a blended particle); -1 = not set:
     // an Additive item is then reactive 1 (a glow has no velocity and leaves a trail), any other 0. An explicit 0 opts out, additive or not.
     float reactive = -1.0f;
@@ -1056,11 +1062,12 @@ public:
     // vertex() moves, drawn `instances` times in one call. Call it after set_material, with the item's one quad still
     // to come or done.
     void set_buffer_draw(int instances) { cur_.instances = instances; }
-    // M76-P1d: the item opened by begin_item() moves with `key` (an Entity::bits(); 0 = it does not) whose origin is at `origin` in the
-    // world now. Renderer::Impl::fill_quad_motion reads both before flatten().
-    void set_motion_source(std::uint64_t key, const Vec3& origin) {
+    // M76-P1d: the item opened by begin_item() moves with `key` (an Entity::bits(); 0 = it does not), whose matrix in the world now is `xform`
+    // (the one its quads were placed with: its translation, rotation and scale are followed, so a sprite that turns has the velocity of
+    // its corners). Renderer::Impl::fill_quad_motion reads both before flatten().
+    void set_motion_source(std::uint64_t key, const Mat4& xform) {
         cur_.motionKey = key;
-        cur_.origin = origin;
+        cur_.xform = xform;
     }
     // M76-P1d: the quads of the item are reactive by `amount` (0..1, clamped): the temporal resolve uses the current frame there.
     void set_reactive(float amount) { cur_.reactive = std::clamp(amount, 0.0f, 1.0f); }
@@ -1079,8 +1086,8 @@ public:
     // `instOut` (when not null) receives, for every batch of a material with instanced params, the values of each of
     // its quads repeated for its four vertices (QuadBatch::instFirst says where); without it such a batch has no
     // instance data.
-    // `motionOut` (when not null, M76-P1d) receives kQuadMotionStride bytes for every vertex appended to `out` (QuadItem::motion, then the
-    // reactive value), so the two streams stay index for index; the caller passes it to every flatten() of the stream or to none.
+    // `motionOut` (when not null, M76-P1d) receives kQuadMotionStride bytes for every vertex appended to `out` (how far the vertex moved: QuadItem::motion and
+    // QuadItem::turn, then the reactive value), so the two streams stay index for index; the caller passes it to every flatten() of the stream or to none.
     void flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batches, std::vector<float>* instOut = nullptr,
                  std::vector<float>* motionOut = nullptr);
     void clear() {

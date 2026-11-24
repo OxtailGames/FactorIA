@@ -104,22 +104,23 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   fetches, the current one stays in its uniform block) and materials with a custom `vertex()` (run again with the previous model and the previous frame's game time) write it
   too; sprites, shapes, tiles and text come with the next entry, and particles are marked reactive instead. It is written only when something asks (the new debug view, the temporal antialiasing); otherwise frames are bit-identical. New debug view
   `render.debug_view {"view":"motionVectors"}` (`FA_RENDER_DEBUG_VIEW=motionVectors`): hue is the direction, brightness the length,
-  grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity (M76-P1a)".
+  grey where nothing wrote a vector. docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Who writes the velocity (M76-P1a)".
 - Motion vectors and a reactive mask for the 2D quads (M76-P1d). With a temporal effect on (or the debug view), the sprites, shapes, tiles and
   text of the world that are alpha-tested cutouts (coverage of one half or more) write their translation since the frame before into the
   velocity image, in a 2D scene too (no prepass: an image of their own, the depth then is the camera's far plane, which is right for an
   orthographic camera) and behind meshes in a perspective one (tested against the prepass's depth). Blended and additive quads never overwrite
   a velocity: a new reactive mask (R8, the MAX of the values) marks them, and the temporal resolve and the temporal upscaler trust the
   current frame where it is set, scaled by `PostProcess.temporalAAReactiveScale`. New fields `ParticleEmitter.reactive` (0..1, default 1; an
-  additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (0..1, default 0: an additive sprite counts as 1; a sprite
+  additive or blended particle or trail is marked; 0 opts out) and `Sprite.reactive` (-1..1, default -1 = by blend: an additive sprite counts as 1; 0 opts out, an additive sprite too; a sprite
   with a value above 0 writes the mask instead of a vector). A bright additive square moving over a busy background is six times closer to the
   truth with the mask (`quad_motion_tests.cpp`); the mask holds the pixels a particle covers now and does not clear the trail it left.
-  Limitations: translation only, the whole box of a `Shape2D`, no velocity for particles or instanced sprites, and a batch with a clip rectangle or a
-  sprite material of its own is skipped. The passes rasterise with the jittered matrix of the colour, so they cover the colour's pixels. A tilemap moved by its
+  The vectors follow the entity's rotation and scale per corner (a sprite that turns has tangential vectors), a sprite
+  material of its own writes the mask but no velocity, and a capture with `taa.on` false builds neither pass.
+  Limitations: a change of `size` or `region` is not followed, the whole box of a `Shape2D`, no velocity for particles or instanced sprites, and a batch with a clip rectangle is skipped. The passes rasterise with the jittered matrix of the colour, so they cover the colour's pixels. A tilemap moved by its
   Transform has its own velocity. With the temporal effects off
   there is no pass and the frames are bit-identical. The motion vectors debug view shows the new writers. The tests of the two sentinel paths
   of the previous joint palettes (a GPU with no RGBA32F sampling, more rows than the image holds) are in `velocity_tests.cpp`. Every camera job of a frame has its own previous-palette image now (a second camera used to overwrite the first one's).
-  docs/design/ARCHITECTURE_RENDERING_POST.md, "Who writes the velocity".
+  docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Who writes the velocity".
 - The spatial upscaler (`render.upscaler {"mode":"spatial"}`): the game drawn at a lower resolution is brought to the window's size
   by an edge-adaptive upsample (12 texels, a kernel narrow across an edge and long along it, clamped so it never rings) and a
   contrast-adaptive sharpen controlled by `sharpness`, two fragment passes on every backend (no compute). A hard diagonal or a thin
@@ -132,7 +133,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   to 0 for none). `game.render_stats` `width`, `height` and `renderScale` are the size and scale really drawn, quality included.
 - Renderer: the projection of the drawn picture can be jittered (Halton 2,3, 8 phases) and keeps the previous frame's
   jittered matrices; culling, picking and every query use the unjittered ones. Nothing jitters while no effect needs it,
-  so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_POST.md.
+  so frames are unchanged. The velocity image contract is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md.
 
 ### Graphics page of the menu kit and the editor's Graphics window (M76)
 

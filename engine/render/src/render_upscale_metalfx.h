@@ -21,13 +21,14 @@ public:
     void release();
 
 private:
-    sg_shader shader_{};
-    int state_ = 0;  // 0 = not tried, 1 = ready, -1 = failed
+    // Used on Metal only (the other backends build the stubs of the .cpp): marked so clang's -Wunused-private-field stays quiet there.
+    [[maybe_unused]] sg_shader shader_{};
+    [[maybe_unused]] int state_ = 0;  // 0 = not tried, 1 = ready, -1 = failed
     struct Entry {
         TargetFormat format;
         sg_pipeline pipeline;
     };
-    std::vector<Entry> pipelines_;
+    [[maybe_unused]] std::vector<Entry> pipelines_;
 };
 
 }  // namespace fa::render

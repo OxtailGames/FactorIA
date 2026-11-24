@@ -66,9 +66,9 @@ frame graph, which the spatial upscaler (P3b) and MetalFX (P5b) use too, with th
   compute is off by up to half a render-size pixel from one frame to the next: a faint shimmer on their edges that the resolve mostly
   averages away. The same holds for the camera's own `TemporalAA`.
 - **Motion.** The resolve reprojects with the camera's movement and, where the renderer wrote them, with per-object velocities
-  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation since the
-  frame before) and a particle is marked in the reactive mask, so neither trails much; a sprite that turns or changes size between frames is
-  followed at its centre only. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
+  (`render.supports` `motionVectors`). In a 2D game a sprite, tile or glyph that moves has its own velocity (its translation, rotation and scale since the
+  frame before, per corner) and a particle is marked in the reactive mask, so neither trails much; a change of the sprite's `size` or `region`
+  is not followed. The HUD stays in the game image (blurred like the game) when a glowing bloom (`bloomScreenSpace` true) is on,
   as with the stretch stage (docs/RENDERING.md). The output's alpha is 1.
 - **Pixel art.** `PixelPerfect` draws as `stretch` (hard pixels, no blend, no jitter).
 - **Costs.** One RGBA16F history of the window's size, two images (RGBA8 on a GPU without float targets, softer), and two draws
@@ -150,9 +150,15 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   draw in between, and a new scaler (a change of the window's size). `sharpness` has no effect on MetalFX (it sharpens as it sees fit).
   The motion image is in UV units as MetalFX reads it: from the pixel to where it was (previous minus current position), scaled by the
   render size. `metalfx_tests` checks that convention with a moving pattern: that sign is clearly better than the opposite one or none.
-  **Open:** in the renderer's own scenes `metalfx_renderer_tests` could not make the output depend on the sign of the motion image (a
-  square that moves leaves the same few pixels of ghost with either sign, or none), although the image has the right values and the
-  history does not reset; the tests there check what holds (no trail, the history resets and converges, the fallbacks) and not the sign.
+  The sign is proven in both places it matters: `metalfx_tests` (the wrapper, with a pattern that moves in x and one that moves in y: the
+  motion image's y runs down like the picture's) and `metalfx_renderer_tests` (a high-frequency stripe texture that moves under a camera that
+  pans and pitches: the motion the renderer hands over gives clearly less error than the opposite sign or none (the test asks for under 0.8 times
+  each), and beats one frame stretched). The preparation pass's depth and motion are read back and checked against the values worked out by hand. `Scaler::encode`
+  splits the sokol frame and orders its own command buffer against the passes before and after it on the GPU, with shared events (the
+  CPU has no wait of its own: taking sokol's buffer of the later passes may take sokol's frame semaphore a little earlier in the frame); before
+  this the same frames, queued without a wait, gave a different picture from run to run (see
+  docs/design/ARCHITECTURE_RENDERING_POST.md, "Proof of the motion (P5c)", for what was measured; repository only, not in the binary). A MetalFX command buffer that finishes with an error is reported once
+  and from the next frame the temporal upscaler draws instead.
   If a moving scene shows ghosts on a Mac, `render.upscaler` mode `temporal` is the same upscale without MetalFX.
 - **Spatial scaler.** A GPU that has only this one (or a frame the temporal one cannot take: no camera plan) draws the picture, unjittered,
   through it. At `native` quality the stage is off and MetalFX has nothing to do, like the other modes.
@@ -203,9 +209,10 @@ where a blended or additive particle is now, scaled by `temporalAAReactiveScale`
 leaves behind on pixels it has left is limited by the neighbourhood clamp, not removed by the mask. Where a particle is drawn over a flat
 colour that trail is a few percent of the particle's brightness; over a busy background lower `temporalAAFeedback` if it shows.
 
-Limitations of the motion vectors it reads: the quads write a translation (a sprite that turns or changes size between two frames is
-followed at its centre, not its corners; a `Shape2D` counts as its whole box; instanced sprites and quads with a screen effect write none),
-particles write none (they are in the reactive mask), and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
+Limitations of the motion vectors it reads: the quads write the movement of their matrix (translation, rotation and scale, per corner; a
+change of `size`, `region` or of the vertices themselves is not followed; a `Shape2D` counts as its whole box; instanced sprites, quads with a
+screen effect and batches with a clip rectangle or a material of their own write none; a material batch still writes the reactive mask),
+particles write none (they are in the reactive mask), a teleporting sprite gets a long vector that the resolve rejects, and neither do a mesh whose material needs more vertex attributes than the previous position leaves room for (without a skin, more
 than 4 extra `vec4`s; with one, 3 or more) or draws from storage buffers. Everything else, skinned meshes of up to 64 joints and a material's
 `vertex()` included, has a vector. A custom `vertex()` is run twice and only `fa_time.x` differs in the second run, so motion that depends on the
 instance data, a material parameter or the distance to the camera is not seen. A GPU with no RG16F render target has no vectors at all: one
@@ -477,4 +484,4 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing) |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
 
-How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_POST.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).
+How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).

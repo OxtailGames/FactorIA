@@ -1,4 +1,4 @@
-// The sub-pixel camera jitter of the temporal antialiasing and the temporal upscaler (M76, docs/design/ARCHITECTURE_RENDERING_POST.md,
+// The sub-pixel camera jitter of the temporal antialiasing and the temporal upscaler (M76, docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md,
 // "Motion vectors and jitter (M76)"). One Halton(2,3) sequence, a pure function of the frame index (no clock, no random numbers), so a
 // run draws the same pictures every time and a recorded replay matches.
 //
