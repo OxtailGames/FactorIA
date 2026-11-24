@@ -89,6 +89,25 @@ private:
     std::size_t free_;
 };
 
+// The status slots of the memory queue that no read can use again. A read that cannot make a new event for its slot
+// (CreateEventW failed after a lost or late event) retires the slot: it stays busy for good, as DirectStorage may still
+// set its old event. With every slot retired a read would wait for a free slot that never comes, so it fails instead.
+class DirectSlotRetirement {
+public:
+    explicit DirectSlotRetirement(std::size_t slots) : slots_(slots) {}
+    void retire() {
+        if (retired_ < slots_) ++retired_;
+    }
+    std::size_t retired() const { return retired_; }
+    // No slot is left for any read.
+    bool exhausted() const { return retired_ >= slots_; }
+
+private:
+    std::size_t slots_, retired_ = 0;
+};
+// The error of a read that finds every one of `slots` slots retired: what happened and what to do.
+Error direct_slots_exhausted_error(std::size_t slots);
+
 // The memory queue of the pack reader: its size and how much one batch may ask for (32 MiB is DirectStorage's default
 // staging buffer).
 inline constexpr std::size_t kDirectQueueCapacity = 256;
@@ -221,7 +240,8 @@ std::shared_ptr<DirectStorageFile> direct_storage_open(const std::filesystem::pa
 // several threads run side by side: each has its own status entry and event, and the queue's lock is held only while
 // it enqueues and submits. The error names the HRESULT; the destinations hold anything on failure. A read that has not
 // finished after kDirectGiveUpMs is cancelled and fails once DirectStorage confirms it (it never returns while
-// DirectStorage may still write into `ios`).
+// DirectStorage may still write into `ios`). With every status slot retired
+// (direct_slots_exhausted_error) it fails at once instead of waiting for a slot that never frees up.
 Result<void> direct_storage_read(DirectStorageFile& file, std::span<const DirectIo> ios);
 // The runtime loads (see direct_storage_open), or why not. Tests use it to skip.
 Result<void> direct_storage_available();

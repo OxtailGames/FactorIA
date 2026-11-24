@@ -181,8 +181,11 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
         const double computeToMs =
             side_[0].timestampFrequency > 0 ? 1000.0 / double(side_[0].timestampFrequency) : toMs;
         if (ticks[1] >= ticks[0]) frameMs.push_back(double(ticks[1] - ticks[0]) * toMs);
+        // The queues count in different clocks (own frequency, own epoch): the scopes are ordered by queue (the
+        // graphics ones first) and, within a queue, by start time in ms, never by ticks across queues.
         struct Timed {
-            std::uint64_t begin;
+            bool compute;
+            double beginMs;
             ScopeTime time;
         };
         std::vector<Timed> scopes;
@@ -190,10 +193,12 @@ void D3d12Device::timer_poll(std::vector<double>& frameMs) {
             if (!slot.submitted[i]) continue;
             const std::uint64_t b = ticks[2 + 2 * i], e = ticks[3 + 2 * i];
             const bool compute = i < slot.scopeQueue.size() && slot.scopeQueue[i] == QueueKind::Compute;
-            scopes.push_back({b, {slot.names[i], e > b ? double(e - b) * (compute ? computeToMs : toMs) : 0.0}});
+            const double perTick = compute ? computeToMs : toMs;
+            scopes.push_back({compute, double(b) * perTick, {slot.names[i], e > b ? double(e - b) * perTick : 0.0}});
         }
-        std::stable_sort(scopes.begin(), scopes.end(),
-                         [](const Timed& a, const Timed& b) { return a.begin < b.begin; });
+        std::stable_sort(scopes.begin(), scopes.end(), [](const Timed& a, const Timed& b) {
+            return a.compute != b.compute ? b.compute : a.beginMs < b.beginMs;
+        });
         timerLastScopes_.clear();
         for (Timed& t : scopes) timerLastScopes_.push_back(std::move(t.time));
     }

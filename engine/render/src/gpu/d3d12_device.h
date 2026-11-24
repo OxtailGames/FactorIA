@@ -39,9 +39,9 @@ struct D3d12Options {
     bool gpuValidation = false;
     // Frames the CPU may record ahead of the GPU: 1 to 3.
     int framesInFlight = kInflightFrames;
-    // A COMPUTE queue (Features::asyncCompute: QueueKind::Compute lists run on it) and a COPY queue (QueueKind::Transfer
-    // lists, the copy engine). False = only the direct queue, every list runs there (CommandList::queue() is Graphics),
-    // as when D3D12 cannot make them.
+    // A COMPUTE queue (Features::asyncCompute: QueueKind::Compute lists run on it) and a COPY queue
+    // (QueueKind::Transfer lists, the copy engine). False = only the direct queue, every list runs there
+    // (CommandList::queue() is Graphics), as when D3D12 cannot make them.
     bool asyncQueues = true;
     // Pool sizes (buffers, images, views, samplers, shaders, pipelines) and the environment defaults (the default
     // colour and depth formats and the sample count of a swapchain pass).
@@ -218,6 +218,10 @@ struct TrackedResource {
     QueueKind owner = QueueKind::Graphics;
     SyncToken handoff{};
     std::string label;  // "buffer 'x'" or "image 'x'", for the ownership errors of submit_token
+    // What the errors call it: the label, or a default for a resource nothing named.
+    std::string display_name() const {
+        return !label.empty() ? label : buffer ? "an unnamed buffer" : "an unnamed image";
+    }
     std::uint32_t subresource(std::uint32_t mip, std::uint32_t layer, std::uint32_t plane) const {
         return mip + layer * mips + plane * mips * layers;
     }
@@ -475,7 +479,7 @@ public:
     // The queue it runs on: the one begin_commands asked for, or the queue that stands in for it (map_queue).
     QueueKind queue() const override { return kind_; }
 
-    // ---- the backend's side ------------------------------------------------------------------------------------------
+    // ---- the backend's side -----------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
     static constexpr std::uint32_t kAllSubresources = 0xFFFFFFFFu;
     void require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
@@ -765,7 +769,7 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override;
 
-    // ---- D3D12 only (tests, M77-P9) ----------------------------------------------------------------------------------
+    // ---- D3D12 only (tests, M77-P9) ---------------------------------------------------------------------------------
     // The asynchronous read of a texel region: mip `mip` of layer `layer` (array layer, cube face or 3D slice), the
     // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
     // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.
@@ -1086,7 +1090,8 @@ private:
     bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
 
     // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). libraryBlob_, the
-    // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded from it.
+    // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded
+    // from it.
     mutable std::mutex libraryMutex_;
     Com<ID3D12PipelineLibrary> library_;
     bool libraryDirty_ = false;  // holds PSOs the file does not
@@ -1178,7 +1183,8 @@ private:
     ShaderVisibleHeap samplerHeap_;
     std::vector<Listener> listeners_;
     // What begin_commands hands out when D3D12 gives no list: never opened, so it ignores every call (and holds no
-    // state, so every thread can share it).
+    // state, so every thread can share it). Its queue() is always Graphics, whatever queue
+    // begin_commands was asked for: a list that never runs has no queue.
     std::unique_ptr<D3d12CommandList> dead_;
 
     // The bindless table's free slots (bindlessMutex_, taken last): slots [0, bindlessNext_) were handed out once,

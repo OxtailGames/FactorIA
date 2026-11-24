@@ -179,6 +179,7 @@ struct MemoryQueue {
     std::condition_variable freed;  // a slot or queue room came back
     DirectQueueRoom room{kDirectQueueCapacity};
     Slot slots[kStatusSlots];
+    DirectSlotRetirement retired{kStatusSlots};  // under `mutex`
     std::uint64_t nextTag = 0;
 };
 
@@ -311,6 +312,9 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
         bool probing = false;  // a slot waits for its probe: nothing notifies when it comes, so look again soon
         auto freeSlot = [&]() -> int {
             probing = false;
+            int first = -1;
+            // Every slot is looked at, not only up to the first free one: a probe that came is consumed (and its queue
+            // entries given back) whichever slot it belongs to.
             for (UINT32 i = 0; i < kStatusSlots; ++i) {
                 Slot& s = q.slots[i];
                 if (s.busy) continue;
@@ -322,11 +326,13 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
                     s.probing = false;
                     q.room.give(0);
                 }
-                return int(i);
+                if (first < 0) first = int(i);
             }
-            return -1;
+            return first;
         };
         for (;;) {
+            // Retired slots stay busy for good: with all of them gone no slot ever frees up.
+            if (q.retired.exhausted()) return direct_slots_exhausted_error(kStatusSlots);
             const int s = freeSlot();
             if (s >= 0 && q.room.take(ios.size())) {
                 slot = UINT32(s);
@@ -442,6 +448,7 @@ Result<void> direct_storage_read(DirectStorageFile& file, std::span<const Direct
             q.room.give(0);
         }
         s.busy = retire;
+        if (retire) q.retired.retire();
         q.room.give(ios.size());
     }
     q.freed.notify_all();
