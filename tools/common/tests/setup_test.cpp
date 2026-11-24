@@ -469,7 +469,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupStatus all = setup_status(c, {}, false);
     REQUIRE(all.components.size() == 11);
     CHECK(all.components[10].id == "directstorage");
-    CHECK(all.components[10].state == "missing");
+    CHECK(all.components[10].state == (c.host_os() == "windows" ? "missing" : "unsupported"));  // Windows only
     CHECK(all.components[9].id == "launcher");
     CHECK(all.components[8].id == "webplayer");
     CHECK(all.components[8].state == "unsupported");  // the test world has no checkout

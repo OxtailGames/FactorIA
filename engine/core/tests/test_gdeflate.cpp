@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "../src/compress_internal.h"
-#include "../src/pack_direct_storage.h"
+#include "../src/direct_storage/pack_direct_storage.h"
 #include "fa/core/compress.h"
 #include "fa/core/fs.h"
 #include "fa/core/pack.h"

@@ -487,6 +487,10 @@ bool D3d12Device::storage_image_loadable(PixelFormat format, std::string* why) c
 }
 
 D3d12Device::~D3d12Device() {
+    // DirectStorage writes into this device's resources from its own queue: its reads end (bounded) and its queue and
+    // files close before anything goes.
+    if (device_ && queue_ && fence_) shutdown_pack_reads();
+    packReads_.reset();
     // The PSOs made since the cache file was loaded go to it (a failure was logged as a warning: the old file stays).
     (void)save_pipeline_cache();
     if (device_ && queue_ && fence_) {
@@ -667,6 +671,7 @@ D3d12Counters D3d12Device::counters() const {
     c.psos = psos_.size();
     c.rootSignatureCacheHits = rootHits_;
     c.rootSignatures = rootLayouts_.size();
+    pack_read_counters(c);
     return c;
 }
 
@@ -925,6 +930,7 @@ void D3d12Device::commit() {
         calls = listeners_;
     }
     drain_messages();
+    pump_pack_reads();  // DirectStorage submissions whose list finished, and finished reads
     for (const Listener& l : calls) l.func(l.user);
 }
 

@@ -52,6 +52,15 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   1.3.0 (pinned SHA-256) and keeps the two x64 DLLs; a Windows `--release` export with `export.pack.directStorage` copies them next
   to the executable, or warns to run that command and still succeeds. The Windows CI job checks the GDeflate test vectors against
   DirectStorage's own codec both ways. docs/design/ARCHITECTURE_FILES.md, "DirectStorage".
+- **DirectStorage writes into D3D12 buffers and textures (M77):** the D3D12 backend's `read_pack_to_buffer` and `read_pack_to_image`
+  read a range of a `game.pak` file into a buffer or a texture region and return a ticket that is polled. A gdeflate file goes through
+  DirectStorage on a queue tied to the device, so GDeflate is decompressed on the GPU where the GPU can; DirectStorage writes in the
+  COMMON state, which the backend's state tracking follows. A pack in memory, another codec, no DLLs, a texture region whose rows do not
+  fill whole blocks or a failed request is decoded on the CPU and uploaded instead, with one warning. The game's renderer does not use
+  them yet. The reader's waits no longer hold a lock, are bounded (a warning after 30 s, the requests cancelled after 10 minutes) and are
+  never woken by another read; `FA_DIRECTSTORAGE_VERIFY=1` also checks the stored checksums of compressed blocks (a debugging aid).
+  `factoria setup directstorage` keeps NOTICES.txt next to the license; `setup.status` reports it `unsupported` off Windows (no longer
+  missing, and `factoria setup` alone skips it), and the editor's setup window has an Install button for it on Windows.
 
 ## 0.36.0
 

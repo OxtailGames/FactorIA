@@ -416,8 +416,11 @@ the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the 
 option cannot read it. With `"auto"`, a Windows export with `export.pack.directStorage: true` packs those files as
 `gdeflate`. `directStorage` (default `false`) also makes a Windows `--release` export copy `dstorage.dll` and
 `dstoragecore.dll`, which `factoria setup directstorage` installs, next to the game's executable; the game then reads the
-blocks of its gdeflate files through Microsoft's DirectStorage (one queue that batches the reads; for now DirectStorage
-decompresses them on its own CPU threads, decompression on the GPU comes with GPU destinations in a later update). When the
+blocks of its gdeflate files through Microsoft's DirectStorage (one queue that batches the reads; DirectStorage
+decompresses them on its own CPU threads, since the game's renderer does not run on the engine's D3D12 backend yet, the
+one that has DirectStorage write GPU buffers and textures and decompress on the GPU). Shipping the DLLs with a game
+redistributes Microsoft's files under the DirectStorage license: read `LICENSE.txt` and `NOTICES.txt`, which `factoria
+setup directstorage` keeps next to the DLLs (the export copies only the DLLs). When the
 DLLs are not installed the export still succeeds, with a warning that says to run `factoria setup directstorage`, and the
 game decodes those files on the CPU; the game does the same, and logs why once, when the DLLs are missing, older than
 DirectStorage 1.1 or a read through them fails (`FA_DIRECTSTORAGE=0` turns it off; docs/design/ARCHITECTURE_FILES.md,

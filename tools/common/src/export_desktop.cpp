@@ -381,8 +381,9 @@ Result<void> copy_directstorage(const ExportOptions& options, const stdfs::path&
         if (ec)
             return err("export: cannot copy " + fs::path_to_utf8(from) + " next to the game (" +
                            fs::path_to_utf8(exeDir) + "): " + ec.message(),
-                       "Check that the output folder is writable, or run `factoria setup directstorage --force` if the "
-                       "installed DLLs are damaged.");
+                       "Close the game exported there before if it still runs (Windows keeps a loaded DLL from being "
+                       "replaced), check that the output folder is writable, or run `factoria setup directstorage "
+                       "--force` if the installed DLLs are damaged.");
     }
     return {};
 }

@@ -55,4 +55,54 @@ std::vector<DirectBatch> batch_direct_requests(std::span<const DirectRequest> re
     return out;
 }
 
+DirectBufferSplit split_direct_buffer(std::span<const DirectRequest> requests) {
+    DirectBufferSplit out;
+    for (std::size_t i = 0; i < requests.size(); ++i) {
+        const DirectRequest& r = requests[i];
+        if (r.scratch < 0)
+            out.gpu.push_back(i);
+        else if (r.copyLength > 0)
+            out.cpu.push_back({r.outOffset, r.copyLength});
+    }
+    return out;
+}
+
+std::uint32_t direct_texture_pitch(std::uint32_t rowBytes) {
+    const std::uint64_t a = kDirectTexturePitchAlign;
+    const std::uint64_t p = (std::uint64_t(rowBytes) + a - 1) / a * a;
+    return p > 0xffffffffull ? 0xffffffffu : std::uint32_t(p);
+}
+
+std::uint64_t direct_texture_bytes(std::uint32_t rowBytes, std::uint32_t rows) {
+    if (rows == 0 || rowBytes == 0) return 0;
+    return std::uint64_t(rows - 1) * direct_texture_pitch(rowBytes) + rowBytes;
+}
+
+std::vector<DirectRowSpan> plan_direct_texture_rows(std::span<const DirectRequest> requests, std::uint32_t rowBytes,
+                                                    std::uint32_t rows) {
+    std::vector<DirectRowSpan> out;
+    if (requests.empty() || rowBytes == 0 || rows == 0) return out;
+    const std::uint64_t pitch = direct_texture_pitch(rowBytes);
+    std::uint64_t nextOut = 0;
+    std::uint32_t nextRow = 0;
+    out.reserve(requests.size());
+    for (const DirectRequest& r : requests) {
+        // A request writes its whole decoded block: it must start a row and end one (the last row unpadded).
+        if (r.scratch >= 0 || r.outOffset != nextOut || r.outOffset % pitch != 0 || r.decodedSize == 0) return {};
+        const std::uint64_t first = r.outOffset / pitch;
+        if (std::uint64_t(r.decodedSize) < rowBytes || (r.decodedSize - std::uint64_t(rowBytes)) % pitch != 0)
+            return {};
+        const std::uint64_t count = (r.decodedSize - std::uint64_t(rowBytes)) / pitch + 1;
+        if (first != nextRow || first + count > rows) return {};
+        out.push_back({std::uint32_t(first), std::uint32_t(count)});
+        nextRow = std::uint32_t(first + count);
+        // The next request starts the row after this block's last one: when the pitch is wider than the row, the padding
+        // after this block's last row is not in any block, so only a pitch equal to the row joins two blocks.
+        nextOut = r.outOffset + r.decodedSize;
+        if (nextRow < rows && pitch != rowBytes) return {};
+    }
+    if (nextRow != rows) return {};
+    return out;
+}
+
 }  // namespace fa::detail

@@ -2,13 +2,15 @@
 // (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"), and `setup directstorage`, which fetches its two redistributable
 // DLLs. The pinned package and its hash are in fa/tooling/setup.h.
 //
-//   <home>/tools/directstorage/<version>/dstorage.dll, dstoragecore.dll (+ LICENSE.txt, the package's license)
+//   <home>/tools/directstorage/<version>/dstorage.dll, dstoragecore.dll (+ LICENSE.txt and NOTICES.txt, the package's
+//   license and third-party notices)
 //
 // The download is the NuGet package Microsoft.Direct3D.DirectStorage at the pinned version (a .nupkg is a zip), checked
 // against the SHA-256 kept in setup.h and unpacked; only native/bin/x64/dstorage.dll and dstoragecore.dll are kept (the
 // package's distributable_files.txt lists them as redistributable). Any host can install it: the DLLs are data a Windows
-// export copies next to the game (export.pack.directStorage), not programs this computer runs. Folders of older versions
-// are removed once the new one is in place.
+// export copies next to the game (export.pack.directStorage), not programs this computer runs. Off Windows the component
+// is "unsupported" (nothing here needs it; `setup` installs it only when asked by name). Folders of older versions are
+// removed once the new one is in place.
 #include "fa/core/fs.h"
 #include "setup_internal.h"
 
@@ -52,12 +54,21 @@ SetupComponent directstorage_status(const SetupContext& ctx) {
                     ": a Windows release export with export.pack.directStorage copies them next to the game.";
         return c;
     }
-    c.state = "missing";
     c.installSizeMb = kSetupDirectStorage.sizeMb;
     c.details = std::string("The install downloads the NuGet package Microsoft.Direct3D.DirectStorage ") +
                 kSetupDirectStorage.version +
                 " (SHA-256 checked) and keeps its x64 dstorage.dll and dstoragecore.dll in " +
                 directstorage_install_dir(ctx) + ".";
+    if (ctx.host_os() != "windows") {
+        // Not needed here: nothing on this computer runs it. `factoria setup directstorage` still installs it, for a
+        // Windows release export made on this computer.
+        c.state = "unsupported";
+        c.details = "Not needed on this computer (DirectStorage is Windows only). " + c.details +
+                    " Install it here only to make Windows release exports with export.pack.directStorage on this "
+                    "computer: `factoria setup directstorage`.";
+        return c;
+    }
+    c.state = "missing";
     c.problems.push_back(
         "A Windows release export with export.pack.directStorage ships the game without DirectStorage (its gdeflate "
         "blocks are then decompressed on the CPU): run `factoria setup directstorage`.");
@@ -108,8 +119,10 @@ SetupResult directstorage_install_package(const SetupContext& ctx, const SetupIn
                                                     fs::path_to_utf8(ready) + ": " + ec.message(),
                                                 writable));
     }
-    if (is_file(unpacked / "LICENSE.txt"))
-        stdfs::copy_file(unpacked / "LICENSE.txt", ready / "LICENSE.txt", stdfs::copy_options::overwrite_existing, ec);
+    // The package's license and its third-party notices go with the DLLs (a game that ships them ships these too).
+    for (const char* text : {"LICENSE.txt", "NOTICES.txt"})
+        if (is_file(unpacked / text))
+            stdfs::copy_file(unpacked / text, ready / text, stdfs::copy_options::overwrite_existing, ec);
     if (auto f = replace_dir(ready, dir)) return in.fail(*f);
     in.report.changed = true;
     s.outcome = "installed";
