@@ -25,6 +25,15 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   Internally the scale-up is a frame-graph stage (`src/render_upscale.h`) that the temporal antialiasing and the open upscalers
   of M76 plug into; docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)".
 
+- Upscale stage polish (M76): the decision to draw the HUD at the output size looks at the same cameras the frame draws (a camera whose
+  viewport has no pixel does not count) and at whether the post program can run, the output depth image is made only for a frame that has
+  items to draw, a frame without a HUD no longer declares an empty game-HUD pass, the output images are freed when the stage turns off
+  by itself (the render scale went back to 1), and a temporal upscaler whose history does not fit the memory budget draws the spatial
+  upscaler from the first frame (one log line) without turning off the `TemporalAA` of the cameras. `Engine::hold_render_scale` (the CLI's
+  `--render-scale`, the video recorder) is a size again after the player set `window.renderScale`: the quality no longer multiplies into
+  it. A temporal or MetalFX mode at `native` quality keeps the stage flag on so that a frame with several cameras (which draws `spatial`)
+  gets its sharpen.
+
 - Polish: an Occluder whose mesh could not be read is tried again after 600 frames (it was never read again until the game restarted), and the error for an unknown mesh name no longer says "collider mesh" when an Occluder asked for it.
 
 ### Per-object motion blur (M76-P1e)

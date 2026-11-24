@@ -671,6 +671,32 @@ void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
     }
 }
 
+// Whether this frame's screen-space items are drawn over the upscaled picture, at the output size (M76-P3a). render_world asks it before
+// the gather, because the glyphs are rasterized for the size they are drawn at, and plan_job decides again with what it then knows (the
+// items it gathered, the custom passes). The two see the same cameras: those whose rectangle has a pixel, the first of which gives the
+// frame's bloom and colour filter. A frame that runs no final pass (its program did not compile) has no final pass here either. What
+// plan_job knows and this does not (a custom pass after the tonemap) can only turn its answer to "no": the glyphs are then drawn at the
+// output scale into the game image, sharper than needed and still right (the geometry is in design units).
+bool Renderer::Impl::decide_hud_at_output(World& world) {
+    if (!upscale_active()) return false;
+    const bool linearScene = world.settings().colorSpace == ColorSpace::Linear;
+    const CameraInfo* fc = nullptr;
+    bool anyFinal = false;
+    bool filter = false;
+    for (const CameraInfo& cam : lastCams) {
+        const Px r = px_rect(cam.viewport, physW, physH);
+        if (r.w < 1 || r.h < 1) continue;
+        if (!fc) fc = &cam;
+        const PostPlan pp = make_post_plan(cam, linearScene, forceEffects, world.frame(), renderScale, fc);
+        const bool runs = (pp.final_pass() || pp.colorFilter != 0) && gpu.post_ready();
+        anyFinal = anyFinal || (runs && pp.final_pass());
+        if (&cam == fc) filter = runs && pp.colorFilter != 0;
+    }
+    if (!fc) return false;  // no camera draws a pixel: the items are drawn where they always were
+    const bool glows = fc->bloom.enabled && fc->bloom.intensity > 0.0f && fc->bloom.screenSpace && !anyFinal;
+    return !glows && ensure_hud_output(anyFinal, filter, false);
+}
+
 // Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also gets the post effects.
 // The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
@@ -790,9 +816,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         if (temporalFrame && !plan.view && framePost) {
             const std::uint64_t scene =
                 std::hash<std::string>{}(world.scene_path()) * 1099511628211ull + world.scene_generation();
-            upscaleTaa =
-                make_upscale_taa_plan(fr.cam, fr.cam.postStack.get(), framePost, !taa.unavailable(), upscaler.sharpness,
-                                      postSerial, scene, originShifts, pp.prevViewProj, pp.prevValid);
+            upscaleTaa = make_upscale_taa_plan(fr.cam, fr.cam.postStack.get(), framePost, !taa.upscale_unavailable(),
+                                               upscaler.sharpness, postSerial, scene, originShifts, pp.prevViewProj,
+                                               pp.prevValid);
             if (upscaleTaa.on) pp.taa = TaaPlan{};
         }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
@@ -1014,23 +1040,23 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // edges stay sharp when the game is drawn below that size. Only when no pass after them in the old order would have changed their
     // pixels: hudAfterBloom (they are drawn over the bloom) and the final pass (they are drawn over its result) already keep them out of
     // every effect; with neither, the bloom is the only effect left, and a HUD that glows (bloomScreenSpace) stays in the game image at
-    // the render resolution, as it always was. render_world decided it (hudAtOutput) before the glyphs were rasterized, for the size they are drawn at.
+    // the render resolution, as it always was. render_world decided it (hudAtOutput) before the glyphs were rasterized, for the size they are
+    // drawn at; this is the same decision with what the job knows, and the output images are made only once there are items to draw.
     bool hudOutOk = false;
-    if (plan.last && !plan.view && fr.wantScreen && hudAtOutput && upscale_active()) {
-        const bool glowsOnHud =
-            !ctx.hudAfterBloom && !frameFinal && frameCam.bloom.enabled && frameCam.bloom.intensity > 0.0f;
-        // The format the picture has when it reaches the stage: display values after the final pass (its destination is filterTarget when the
-        // items are not drawn into it), the scene format otherwise.
-        if (!glowsOnHud && (!frameFinal || ensure_filter_target()) &&
-            ensure_output_target(outTarget, "output", frameFinal ? gpu.display_format() : gameTarget.format.color,
-                                 true)) {
-            hudOutOk = true;
-        }
-    }
+    if (plan.last && !plan.view && fr.wantScreen && hudAtOutput && upscale_active())
+        hudOutOk = ctx.hudAfterBloom || frameFinal || !frameCam.bloom.enabled || !(frameCam.bloom.intensity > 0.0f);
     build_quad_stream(ctx);
     if (hudOutOk && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
-        ctx.hudOut = true;
-        ctx.hudDisplay = frameFinal;  // the picture holds display values: the items are drawn as in hudAfterPost
+        // The format the picture has when it reaches the stage: display values after the final pass (its destination is filterTarget when the
+        // items are not drawn into it), the scene format otherwise. When an image cannot be made the picture stays at the render resolution
+        // and the items stay in it (one logged error, ensure_output_target).
+        const bool filter = !postCams.empty() && postCams.front()->postPlan.colorFilter != 0;
+        if (ensure_hud_output(frameFinal, filter, true)) {
+            ctx.hudOut = true;
+            ctx.hudDisplay = frameFinal;  // the picture holds display values: the items are drawn as in hudAfterPost
+            // The items are not drawn in the game image: a job with no world (the screen job of a split frame) has no main pass to declare.
+            ctx.doMainPass = fr.wantWorld;
+        }
     }
     // The final pass converts the picture (exposure, tonemap, the encode of a linear scene): the screen-space items go over its result, in
     // display space, and are drawn after it instead of in the main pass. Only when there is something to draw, and the image for it exists.

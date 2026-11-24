@@ -24,11 +24,11 @@ struct Own {
     Renderer r;
     bool ok = false;
     std::string error;
-    explicit Own(Gfx& gx) : g(gx) {
+    explicit Own(Gfx& gx, int samples = 1) : g(gx) {
         RendererDesc d;
         d.designWidth = 320;
         d.designHeight = 180;
-        d.sampleCount = 1;
+        d.sampleCount = samples;
         d.headless = true;
         d.adoptContext = true;
         ok = r.init(d, g.gpu.environment(), &error);
@@ -337,5 +337,199 @@ TEST_CASE(
         CHECK(hud.x0 == hudFull.x0);
         CHECK(hud.w() == hudFull.w());
         CHECK(hud.h() == hudFull.h());
+    }
+}
+
+// ---- M76 POL-UPSCALE: what the HUD at the output size decides, and the images it keeps ------------------------------------------------------
+
+namespace {
+
+// The worst difference of the red channel between two pictures over the HUD's corner (the first 140 x 65 pixels).
+int corner_diff(const Image& a, const Image& b) {
+    int worst = 0;
+    for (int y = 0; y < 65; ++y)
+        for (int x = 0; x < 140; ++x)
+            worst = std::max(worst, int(std::abs(a.pixel(x, y).r - b.pixel(x, y).r) * 255.0f + 0.5f));
+    return worst;
+}
+
+// The brightest pixel of the corner, whatever the channel.
+float corner_peak(const Image& img) {
+    float peak = 0.0f;
+    for (int y = 0; y < 65; ++y)
+        for (int x = 0; x < 140; ++x) {
+            const Color p = img.pixel(x, y);
+            peak = std::max(peak, std::max(p.r, std::max(p.g, p.b)));
+        }
+    return peak;
+}
+
+}  // namespace
+
+TEST_CASE("upscale stage: a final pass and the colour filter reach the HUD at the output size, sharp, as at scale 1") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    for (const bool linear : {false, true}) {
+        CAPTURE(linear);
+        Scene s;
+        s.w.settings().colorSpace = linear ? ColorSpace::Linear : ColorSpace::Gamma;
+        s.w.get<Text>(s.w.find("hud"))->color = Color{1, 0.2f, 0.1f, 1};
+        PostProcess& p = s.w.add<PostProcess>(s.w.find("cam"));
+        p.tonemapEnabled = true;
+        p.colorFilterEnabled = true;
+        p.colorFilterMode = ColorFilter::Greyscale;
+        own.r.set_render_scale(1.0f);
+        own.r.set_upscale_stage(false);
+        const Image full = own.draw(s.w);
+        own.r.set_render_scale(0.5f);
+        own.r.set_upscale_stage(true);
+        const Image out = own.draw(s.w);
+        REQUIRE(out.width == 320);
+        CHECK(own.has_pass("upscale"));
+        CHECK(own.has_pass("hud-over-upscale"));
+        CHECK(own.has_pass("output-color-filter"));  // after the items: the HUD is grey too
+        REQUIRE(corner_peak(out) > 0.1f);
+        // The filter reached the HUD: no pixel of the corner has a colour (grey: the three channels within the 8-bit noise).
+        for (int y = 0; y < 65; ++y)
+            for (int x = 0; x < 140; ++x) {
+                const Color c = out.pixel(x, y);
+                REQUIRE(std::abs(c.r - c.g) < 0.02f);
+                REQUIRE(std::abs(c.g - c.b) < 0.02f);
+            }
+        CHECK(corner_diff(out, full) <= 3);  // the same glyph raster and the same pipeline as at scale 1
+        const Ink a = ink(out, 0, 0, 140, 65, 0.1f), b = ink(full, 0, 0, 140, 65, 0.1f);
+        REQUIRE(a.any());
+        CHECK(a.x0 == b.x0);
+        CHECK(a.w() == b.w());
+        CHECK(a.h() == b.h());
+    }
+}
+
+TEST_CASE("upscale stage: a split screen keeps the HUD at the output size, and a first camera with no pixel does not "
+          "decide for "
+          "the bloom of the second") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    // Two halves, a HUD over both: sharp at the output size, in the same place as at scale 1.
+    World split;
+    for (int i = 0; i < 2; ++i) {
+        Entity e = make(split, i == 0 ? "left" : "right", {0, 0, 0});
+        auto& c = split.add<Camera>(e);
+        c.viewport = {i == 0 ? 0.0f : 0.5f, 0, 0.5f, 1};
+        c.clearColor = Color::black();
+        c.depth = i;
+    }
+    put_text(split, "hud", {10, 10, 0}, RenderSpace::Screen);
+    const Image full = own.draw(split);
+    const Ink hudFull = ink(full, 0, 0, 140, 65);
+    REQUIRE(hudFull.any());
+    own.r.set_render_scale(0.5f);
+    own.r.set_upscale_stage(true);
+    const Image out = own.draw(split);
+    CHECK(own.has_pass("hud-over-upscale"));
+    const Ink hudOut = ink(out, 0, 0, 140, 65);
+    REQUIRE(hudOut.any());
+    CHECK(hudOut.x0 == hudFull.x0);
+    CHECK(hudOut.w() == hudFull.w());
+    CHECK(hudOut.h() == hudFull.h());
+
+    // The bloom of the frame is the first camera that draws a pixel. A camera with an empty rectangle first and a glowing camera second
+    // give the picture of the glowing camera alone: the HUD glows in the game image in both, there is no HUD pass over the upscale.
+    own.r.set_render_scale(0.5f);
+    Scene alone;
+    add_bloom(alone, true);
+    const Image ref = own.draw(alone.w);
+    CHECK_FALSE(own.has_pass("hud-over-upscale"));
+    Scene twice;
+    add_bloom(twice, true);
+    Entity empty = make(twice.w, "empty", {0, 0, 0});
+    auto& ec = twice.w.add<Camera>(empty);
+    ec.viewport = {0, 0, 0.0005f, 0.0005f};  // valid, but under half a pixel: draws nothing
+    ec.depth = -5;                           // drawn first
+    const Image two = own.draw(twice.w);
+    CHECK_FALSE(own.has_pass("hud-over-upscale"));
+    CHECK(max_diff(ref, two) <= 2);
+}
+
+TEST_CASE("upscale stage: a camera with a scene-colour effect and a glowing HUD keeps the HUD in the game image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    add_bloom(s, true);
+    PostProcess& p = *s.w.get<PostProcess>(s.w.find("cam"));
+    p.depthOfFieldEnabled = true;
+    own.r.set_render_scale(0.5f);
+    const Image base = own.draw(s.w);
+    own.r.set_upscale_stage(true);
+    const Image out = own.draw(s.w);
+    REQUIRE(out.width == 320);
+    CHECK(own.has_pass("upscale"));
+    CHECK_FALSE(own.has_pass("hud-over-upscale"));
+    const Ink hudBase = ink(base, 0, 0, 70, 33), hudOut = ink(out, 0, 0, 140, 65);
+    REQUIRE(hudBase.any());
+    REQUIRE(hudOut.any());
+    CHECK(std::abs(hudOut.w() - 2 * hudBase.w()) <= 3);  // drawn at the render resolution, as without the stage
+}
+
+TEST_CASE("upscale stage: the images at the output size are made for the items, the depth only when there are items, "
+          "and they go "
+          "when the stage is off") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    for (const int samples : {1, 4}) {
+        CAPTURE(samples);
+        Own own(g, samples);
+        REQUIRE_MESSAGE(own.ok, own.error);
+        // A world with no screen-space item.
+        World w;
+        w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+        put_text(w, "world", {70, -30, 0}, RenderSpace::World);
+        const auto none = RendererTestAccess::output_targets(own.r);
+        CHECK_FALSE(none.out);
+        own.r.set_render_scale(0.5f);
+        own.r.set_upscale_stage(true);
+        (void)own.draw(w);
+        const auto idle = RendererTestAccess::output_targets(own.r);
+        CHECK(
+            idle.out);  // made for the decision of the frame (the glyphs' size), before there is anything to draw in it
+        CHECK_FALSE(idle.outDepth);
+        CHECK(idle.outW == 320);
+        CHECK(idle.outH == 180);
+        CHECK(idle.outSamples == 1);  // the upscaled picture is a single-sample image, whatever the game image has
+        CHECK_FALSE(idle.filter);
+        // A HUD item appears: the depth image is made, and kept when the item goes away again.
+        const Entity hud = make(w, "hud", {10, 10, 0});
+        auto& t = w.add<Text>(hud);
+        t.text = "HHHH";
+        t.fontSize = 20;
+        t.space = RenderSpace::Screen;
+        t.pivot = {0, 1};
+        const Image with = own.draw(w);
+        CHECK(own.has_pass("hud-over-upscale"));
+        CHECK(ink(with, 0, 0, 140, 65).any());
+        CHECK(RendererTestAccess::output_targets(own.r).outDepth);
+        w.destroy(hud);
+        (void)own.draw(w);
+        CHECK_FALSE(own.has_pass("hud-over-upscale"));
+        CHECK(RendererTestAccess::output_targets(own.r).outDepth);
+        // The colour filter after the items gets its own image.
+        PostProcess& p = w.add<PostProcess>(w.find("cam"));
+        p.colorFilterEnabled = true;
+        p.colorFilterMode = ColorFilter::Greyscale;
+        (void)own.draw(w);
+        CHECK(RendererTestAccess::output_targets(own.r).out);
+        // Back to the whole picture: nothing of the stage is kept.
+        own.r.set_render_scale(1.0f);
+        (void)own.draw(w);
+        const auto off = RendererTestAccess::output_targets(own.r);
+        CHECK_FALSE(off.out);
+        CHECK_FALSE(off.filter);
+        CHECK_FALSE(off.spatial);
     }
 }

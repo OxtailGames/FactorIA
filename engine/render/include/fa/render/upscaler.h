@@ -95,8 +95,10 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
 
 // The render scale the game is drawn at and whether the upscale stage runs (docs/UPSCALING.md, "The render scale"): the player's scale
 // (window.renderScale) times the quality's, never below `minScale` (the engine's 0.25 floor). The stage is on when that scale is below 1
-// or the effective mode is spatial (at scale 1 it is the sharpen alone; the temporal mode has nothing to do at scale 1), and never above 1: a scale above 1 is a bigger
-// picture (a screenshot's "scale"), not an upscale. Only the renderer's `effective` mode decides: pixel art is stretch there.
+// or the effective mode is not stretch (at scale 1 the renderer decides every frame, Renderer::upscale_stage: only the spatial sharpen has
+// something to draw there, and a frame with several cameras makes a temporal mode spatial; the temporal and MetalFX modes draw nothing at
+// scale 1), and never above 1: a scale above 1 is a bigger picture (a screenshot's "scale"), not an upscale. Only the renderer's
+// `effective` mode decides: pixel art is stretch there.
 // `dynamicScale` is the factor of the dynamic resolution (fa/render/dynamic_resolution.h, 1 while it is off): the one place it multiplies in.
 struct UpscaleScalePlan {
     float scale = 1.0f;
@@ -109,7 +111,7 @@ constexpr UpscaleScalePlan plan_upscale_scale(float windowScale, UpscalerQuality
     if (!(s >= minScale)) s = minScale;           // also a NaN
     UpscaleScalePlan p;
     p.scale = s;
-    p.stage = s <= 1.0f && (s < 1.0f || effective == UpscalerMode::Spatial);
+    p.stage = s <= 1.0f && (s < 1.0f || effective != UpscalerMode::Stretch);
     return p;
 }
 
