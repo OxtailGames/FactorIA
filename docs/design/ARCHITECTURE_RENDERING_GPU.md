@@ -291,7 +291,14 @@ those files: the context lifecycle (before any device exists), the `Target` and 
 handles of `SubMesh` / `TextureAsset`, which `from_sg` turns into interface handles at the call. A pass opened on its
 own list does not set `Gpu::inPass_`: `Gpu::in_pass()` and `begin_transient_writes` also ask the list for its pass
 state, and gi2d.cpp's draw_list writes its transient buffers before its pass begins. gpu_timer.cpp stays on sokol: it is
-the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files.
+the sokol backend's own timer (the D3D11 device calls), like the `readback_*` files. The 3D light and environment passes
+(M77-P4b): renderer_env (the sky cube and its prefilter), renderer_sky_phys, renderer_subsurface, renderer_fog,
+renderer_volumetric, renderer_xmit (transmission), renderer_hdri and the read-back commits of renderer_probes. Each of
+those classes makes its shaders, pipelines, images and samplers on `gpu.device()` and remembers the device in `ready()`
+(`device_`), because `release()` has no `Gpu` at hand. A pass declared in the frame graph records on
+`PassContext::commands()` (`c.commands() ? *c.commands() : g->commands()`); one drawn outside the graph records on
+`gpu.commands()`. Two calls keep a transitional overload that asks `Gpu::active_device()`: `FogFx::ready(Prog)` and
+`VolumetricFx::can_draw(targets, plan)`; delete them now that renderer_draw.cpp has moved.
 Still on sokol types: `render::TargetFormat`, `PassDesc`, `TargetDesc` and `Target` (gpu_types.h, render_internal.h),
 which every pass builds, and the format getters the passes call (`scene_format()`, `velocity_format()`...): they
 change with the passes (P4).

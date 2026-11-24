@@ -13,101 +13,106 @@ namespace fa::render {
 
 namespace {
 
-bool usable(sg_pixel_format f) {
-    const sg_pixelformat_info i = sg_query_pixelformat(f);
+bool usable(gpu::Device& device, gpu::PixelFormat f) {
+    const gpu::PixelFormatCaps i = device.pixel_format_caps(f);
     return i.sample && i.filter && i.render;
 }
-bool valid(sg_image i) { return i.id && sg_query_image_state(i) == SG_RESOURCESTATE_VALID; }
-bool valid(sg_view v) { return v.id && sg_query_view_state(v) == SG_RESOURCESTATE_VALID; }
+bool valid(gpu::Device& device, gpu::Image i) { return i.id && device.state(i) == gpu::ResourceState::Valid; }
+bool valid(gpu::Device& device, gpu::View v) { return v.id && device.state(v) == gpu::ResourceState::Valid; }
 
-sg_image make_table(int w, int h, sg_pixel_format format, const char* label) {
-    sg_image_desc d{};
-    d.usage.color_attachment = true;
+gpu::Image make_table(gpu::Device& device, int w, int h, gpu::PixelFormat format, const char* label) {
+    gpu::ImageDesc d;
+    d.usage.colorAttachment = true;
     d.width = w;
     d.height = h;
-    d.pixel_format = format;
+    d.pixelFormat = format;
     d.label = label;
-    return make_image(d);
+    return device.make_image(d);
 }
-sg_view texture_view(sg_image image, const char* label) {
-    sg_view_desc v{};
+gpu::View texture_view(gpu::Device& device, gpu::Image image, const char* label) {
+    gpu::ViewDesc v;
     v.texture.image = image;
     v.label = label;
-    return sg_make_view(&v);
+    return device.make_view(v);
 }
-sg_view attachment_view(sg_image image, const char* label) {
-    sg_view_desc v{};
-    v.color_attachment.image = image;
+gpu::View attachment_view(gpu::Device& device, gpu::Image image, const char* label) {
+    gpu::ViewDesc v;
+    v.colorAttachment.image = image;
     v.label = label;
-    return sg_make_view(&v);
+    return device.make_view(v);
 }
-void destroy(sg_view& v) {
-    if (v.id) sg_destroy_view(v);
+void destroy(gpu::Device& device, gpu::View& v) {
+    if (v.id) device.destroy_view(v);
     v = {};
 }
-void destroy(sg_image& i) {
-    if (i.id) sg_destroy_image(i);
+void destroy(gpu::Device& device, gpu::Image& i) {
+    if (i.id) device.destroy_image(i);
     i = {};
 }
 
 }  // namespace
 
-bool PhysicalSky::ready(Gpu&) {
+bool PhysicalSky::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
+    gpu::Device& device = gpu.device();
+    device_ = &device;
     // The tables hold optical depths (up to about 20) and radiances: they need a float format that renders and filters.
     // FA_PHYSICAL_SKY=invalid is a test hook: the GPU "cannot" render the tables, as on a device without filterable RGBA16F.
     const char* hook = std::getenv("FA_PHYSICAL_SKY");
     const bool forcedOff = hook && std::string(hook) == "invalid";
-    format_ = !forcedOff && usable(SG_PIXELFORMAT_RGBA16F) ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_NONE;
-    bool ok = format_ != SG_PIXELFORMAT_NONE;
+    format_ =
+        !forcedOff && usable(device, gpu::PixelFormat::Rgba16F) ? gpu::PixelFormat::Rgba16F : gpu::PixelFormat::None;
+    bool ok = format_ != gpu::PixelFormat::None;
     if (ok) {
-        const sg_backend backend = sg_query_backend();
-        shaders_[Transmittance] = make_shader(skyphys_transmittance_shader_desc(backend), "sky_transmittance");
-        shaders_[MultiScatter] = make_shader(skyphys_multiscatter_shader_desc(backend), "sky_multiscatter");
-        shaders_[SkyView] = make_shader(skyphys_skyview_shader_desc(backend), "sky_view");
-        shaders_[Sky] = make_shader(skyphys_sky_shader_desc(backend), "sky_physical");
-        for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+        shaders_[Transmittance] =
+            make_shader(device, gpu::generated_shader_desc(skyphys_transmittance_shader_desc), "sky_transmittance");
+        shaders_[MultiScatter] =
+            make_shader(device, gpu::generated_shader_desc(skyphys_multiscatter_shader_desc), "sky_multiscatter");
+        shaders_[SkyView] = make_shader(device, gpu::generated_shader_desc(skyphys_skyview_shader_desc), "sky_view");
+        shaders_[Sky] = make_shader(device, gpu::generated_shader_desc(skyphys_sky_shader_desc), "sky_physical");
+        for (gpu::Shader s : shaders_) ok = ok && device.state(s) == gpu::ResourceState::Valid;
     }
     if (ok) {
-        sg_sampler_desc sd{};
-        sd.min_filter = SG_FILTER_LINEAR;
-        sd.mag_filter = SG_FILTER_LINEAR;
-        sd.mipmap_filter = SG_FILTER_NEAREST;
-        sd.wrap_u = sd.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
+        gpu::SamplerDesc sd;
+        sd.minFilter = gpu::Filter::Linear;
+        sd.magFilter = gpu::Filter::Linear;
+        sd.mipmapFilter = gpu::Filter::Nearest;
+        sd.wrapU = sd.wrapV = gpu::Wrap::ClampToEdge;
         sd.label = "sky-tables";
-        sampler_ = sg_make_sampler(&sd);
-        trImage_ = make_table(kSkyTransmittanceW, kSkyTransmittanceH, format_, "sky-transmittance");
-        msImage_ = make_table(kSkyMultiScatterSize, kSkyMultiScatterSize, format_, "sky-multiscatter");
-        view_[0] = make_table(kSkyViewW, kSkyViewH, format_, "sky-view");
-        view_[1] = make_table(kSkyViewW, kSkyViewH, format_, "sky-view-env");
-        ok = ok && valid(trImage_) && valid(msImage_) && valid(view_[0]) && valid(view_[1]);
+        sampler_ = device.make_sampler(sd);
+        trImage_ = make_table(device, kSkyTransmittanceW, kSkyTransmittanceH, format_, "sky-transmittance");
+        msImage_ = make_table(device, kSkyMultiScatterSize, kSkyMultiScatterSize, format_, "sky-multiscatter");
+        view_[0] = make_table(device, kSkyViewW, kSkyViewH, format_, "sky-view");
+        view_[1] = make_table(device, kSkyViewW, kSkyViewH, format_, "sky-view-env");
+        ok = ok && valid(device, trImage_) && valid(device, msImage_) && valid(device, view_[0]) &&
+             valid(device, view_[1]);
         if (ok) {
-            trTex_ = texture_view(trImage_, "sky-transmittance");
-            trAtt_ = attachment_view(trImage_, "sky-transmittance");
-            msTex_ = texture_view(msImage_, "sky-multiscatter");
-            msAtt_ = attachment_view(msImage_, "sky-multiscatter");
+            trTex_ = texture_view(device, trImage_, "sky-transmittance");
+            trAtt_ = attachment_view(device, trImage_, "sky-transmittance");
+            msTex_ = texture_view(device, msImage_, "sky-multiscatter");
+            msAtt_ = attachment_view(device, msImage_, "sky-multiscatter");
             for (int i = 0; i < 2; ++i) {
-                viewTex_[i] = texture_view(view_[i], "sky-view");
-                viewAtt_[i] = attachment_view(view_[i], "sky-view");
-                ok = ok && valid(viewTex_[i]) && valid(viewAtt_[i]);
+                viewTex_[i] = texture_view(device, view_[i], "sky-view");
+                viewAtt_[i] = attachment_view(device, view_[i], "sky-view");
+                ok = ok && valid(device, viewTex_[i]) && valid(device, viewAtt_[i]);
             }
-            ok = ok && valid(trTex_) && valid(trAtt_) && valid(msTex_) && valid(msAtt_);
+            ok = ok && valid(device, trTex_) && valid(device, trAtt_) && valid(device, msTex_) && valid(device, msAtt_);
         }
     }
     if (ok) {
         for (int p = 0; p < Sky; ++p) {
-            sg_pipeline_desc d{};
+            gpu::PipelineDesc d;
             d.shader = shaders_[p];
-            d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
-            d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-            d.depth.write_enabled = false;
-            d.depth.pixel_format = SG_PIXELFORMAT_NONE;
-            d.colors[0].pixel_format = format_;
-            d.sample_count = 1;
-            d.face_winding = SG_FACEWINDING_CCW;
+            d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
+            d.depth.compare = gpu::CompareFunc::Always;
+            d.depth.writeEnabled = false;
+            d.depth.pixelFormat = gpu::PixelFormat::None;
+            d.colors[0].pixelFormat = format_;
+            d.sampleCount = 1;
+            d.faceWinding = gpu::FaceWinding::Ccw;
             d.label = p == Transmittance ? "sky-transmittance" : p == MultiScatter ? "sky-multiscatter" : "sky-view";
-            lutPipelines_[p] = sg_make_pipeline(&d);
-            ok = ok && sg_query_pipeline_state(lutPipelines_[p]) == SG_RESOURCESTATE_VALID;
+            lutPipelines_[p] = device.make_pipeline(d);
+            ok = ok && device.state(lutPipelines_[p]) == gpu::ResourceState::Valid;
         }
     }
     if (!ok) {
@@ -124,18 +129,19 @@ bool PhysicalSky::ready(Gpu&) {
     return true;
 }
 
-void PhysicalSky::pass(Gpu& gpu, Prog prog, sg_view target, const char* label, const PhysicalSkyState& st,
+void PhysicalSky::pass(Gpu& gpu, Prog prog, gpu::View target, const char* label, const PhysicalSkyState& st,
                        int* drawCalls) {
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = label;
     pd.color = target;
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(lutPipelines_[prog]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every texel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(pd);
+    list.set_pipeline(lutPipelines_[prog]);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.samplers[SMP_skyphys_sky_smp] = sampler_;
     if (prog == MultiScatter) {
         b.views[VIEW_skyphys_sky_tr_tex] = trTex_;
@@ -143,15 +149,14 @@ void PhysicalSky::pass(Gpu& gpu, Prog prog, sg_view target, const char* label, c
         b.views[VIEW_skyphys_sky_tr_tex] = trTex_;
         b.views[VIEW_skyphys_sky_ms_tex] = msTex_;
     }
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     skyphys_sky_params_t fu{};
     const SkyShaderParams p = sky_shader_params(st, false);
     static_assert(sizeof(fu.q) == sizeof(p.v), "the shader's block and the CPU's packing are the same size");
     std::memcpy(fu.q, p.v, sizeof(fu.q));
-    sg_range r{&fu, sizeof(fu)};
-    sg_apply_uniforms(UB_skyphys_sky_params, &r);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.set_uniforms(UB_skyphys_sky_params, gpu::Range{&fu, sizeof(fu)});
+    list.draw(0, 3, 1);
+    list.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
@@ -182,50 +187,52 @@ void PhysicalSky::draw(Gpu& gpu, int slot, const PhysicalSkyState& st, bool sunD
                        const float camPos[3], const TargetFormat* format) {
     if (state_ <= 0) return;
     slot &= 1;
-    sg_apply_pipeline(format ? gpu.sky_pipeline(*format, shaders_[Sky]) : gpu.sky_pipeline(shaders_[Sky]));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    gpu::CommandList& list = gpu.commands();  // the pass being drawn is open on it
+    list.set_pipeline(format ? gpu.sky_pipeline(*format, shaders_[Sky]) : gpu.sky_pipeline(shaders_[Sky]));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_skyphys_sky_tr_tex] = trTex_;
     b.views[VIEW_skyphys_sky_ms_tex] = msTex_;
     b.views[VIEW_skyphys_sky_sv_tex] = viewTex_[slot];
     b.samplers[SMP_skyphys_sky_smp] = sampler_;
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     skyphys_sky_vs_params_t vu{};
     std::memcpy(vu.inv_view_proj, invViewProj, sizeof(vu.inv_view_proj));
     for (int i = 0; i < 3; ++i) vu.cam_pos[i] = camPos[i];
-    sg_range vr{&vu, sizeof(vu)};
-    sg_apply_uniforms(UB_skyphys_sky_vs_params, &vr);
+    list.set_uniforms(UB_skyphys_sky_vs_params, gpu::Range{&vu, sizeof(vu)});
     skyphys_sky_params_t fu{};
     const SkyShaderParams p = sky_shader_params(st, sunDisc);
     std::memcpy(fu.q, p.v, sizeof(fu.q));
-    sg_range fr{&fu, sizeof(fu)};
-    sg_apply_uniforms(UB_skyphys_sky_params, &fr);
-    sg_draw(0, 3, 1);
+    list.set_uniforms(UB_skyphys_sky_params, gpu::Range{&fu, sizeof(fu)});
+    list.draw(0, 3, 1);
 }
 
 void PhysicalSky::release() {
-    for (sg_pipeline& p : lutPipelines_) {
-        if (p.id) sg_destroy_pipeline(p);
-        p = {};
+    if (device_) {
+        gpu::Device& device = *device_;
+        for (gpu::Pipeline& p : lutPipelines_) {
+            if (p.id) device.destroy_pipeline(p);
+            p = {};
+        }
+        for (gpu::Shader& s : shaders_) {
+            if (s.id) device.destroy_shader(s);
+            s = {};
+        }
+        destroy(device, trAtt_);
+        destroy(device, trTex_);
+        destroy(device, trImage_);
+        destroy(device, msAtt_);
+        destroy(device, msTex_);
+        destroy(device, msImage_);
+        for (int i = 0; i < 2; ++i) {
+            destroy(device, viewAtt_[i]);
+            destroy(device, viewTex_[i]);
+            destroy(device, view_[i]);
+        }
+        if (sampler_.id) device.destroy_sampler(sampler_);
+        sampler_ = {};
     }
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
-        s = {};
-    }
-    destroy(trAtt_);
-    destroy(trTex_);
-    destroy(trImage_);
-    destroy(msAtt_);
-    destroy(msTex_);
-    destroy(msImage_);
-    for (int i = 0; i < 2; ++i) {
-        destroy(viewAtt_[i]);
-        destroy(viewTex_[i]);
-        destroy(view_[i]);
-        viewDrawn_[i] = false;
-    }
-    if (sampler_.id) sg_destroy_sampler(sampler_);
-    sampler_ = {};
+    for (int i = 0; i < 2; ++i) viewDrawn_[i] = false;
     airDrawn_ = false;
     state_ = 0;
 }

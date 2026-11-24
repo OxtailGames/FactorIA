@@ -34,9 +34,10 @@ public:
     void release();
 
 private:
-    int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
-    sg_shader shader_{};
-    sg_sampler sampler_{};
+    int state_ = 0;                  // 0 = not made, 1 = ready, -1 = failed (logged)
+    gpu::Device* device_ = nullptr;  // what ready() made them on: release() has no Gpu at hand
+    gpu::Shader shader_{};
+    gpu::Sampler sampler_{};
 };
 
 }  // namespace fa::render
