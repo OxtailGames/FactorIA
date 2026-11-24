@@ -862,6 +862,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         pp.custom.history = plan.history;
     }
 
+    // The temporal upscalers also reproject with the motion of the objects (M76-P1a), where the GPU can make the image: asked before
+    // cull_and_batch, which decides whether the draws collect their previous models.
+    if (draws && upscaleTaa.on && !plan.view) ctx.postPlan.request_velocity();
     gather_meshes(ctx);
     collect_lights(ctx);
     collect_decals(ctx);
@@ -937,8 +940,6 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     }
     if (draws && upscaleTaa.on && !plan.view) {
         ctx.postPlan.needsDepth = true;  // the temporal upscaler reprojects its history with the depth
-        // and with the motion of the objects (M76-P1a), where the GPU can make the image
-        ctx.postPlan.request_velocity();
     }
     plan_prepass(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
@@ -4812,11 +4813,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             return;
         const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
                                                       import_desc(targetW, targetH, outTarget.format, "output"));
-        // The temporal upscaler also reads the camera's prepass (the depth that reprojects its history) and the velocity, when they exist.
+        // The temporal upscalers (the TAA resolve and MetalFX) also read the camera's prepass (depth) and the velocity, when they exist.
         std::vector<ResourceId> upReads{srcRes};
         upscalePrepass = PrepassRef{};
         upscaleVelocity = VelocityRef{};
-        if (upscaleImpl == render::UpscaleImpl::Temporal && upscaleTaa.on && !postCams.empty()) {
+        if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx) &&
+            upscaleTaa.on && !postCams.empty()) {
             const PostPlan& cam0 = postCams.front()->postPlan;
             upscalePrepass = cam0.prepass;
             upscaleVelocity = cam0.velocity;

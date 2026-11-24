@@ -1,6 +1,7 @@
-// The Graphics settings window (View > Graphics): the project's graphics preset and upscaler, the keys
-// `render.graphicsPreset` and `render.upscaler` {mode, quality, sharpness} of factoria.json (M76, docs/UPSCALING.md). It
-// edits a working copy: Save writes only those two keys (graphics_settings_model.h, validated by the engine's own parsers),
+// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler and dynamic resolution, the keys
+// `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness} and `render.dynamicResolution` {enabled, targetMs,
+// minScale, maxScale} of factoria.json (M76, docs/UPSCALING.md). It
+// edits a working copy: Save writes only those three keys (graphics_settings_model.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
@@ -74,7 +75,7 @@ bool Editor::graphics_settings_save(std::string* error) {
 }
 
 void Editor::draw_graphics_settings_panel() {
-    first_floating_window(ImVec2(200, 80), ImVec2(520, 400));
+    first_floating_window(ImVec2(200, 80), ImVec2(520, 500));
     if (!ImGui::Begin("Graphics", &showGraphics_)) {
         ImGui::End();
         return;
@@ -86,8 +87,9 @@ void Editor::draw_graphics_settings_panel() {
     }
     if (graphicsDir_ != projectDir_) graphics_settings_reload();
     ImGui::TextWrapped(
-        "The preset and the upscaler a run of this game starts with (factoria.json: render.graphicsPreset and "
-        "render.upscaler). A game can let the player change them at run time (the menu kit's Graphics tab).");
+        "The preset, the upscaler and the dynamic resolution a run of this game starts with (factoria.json: "
+        "render.graphicsPreset, render.upscaler and render.dynamicResolution). A game can let the player change them "
+        "at run time (the menu kit's Graphics tab).");
     draw_play_banner(*this);
     if (!graphicsLoadError_.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
@@ -140,7 +142,37 @@ void Editor::draw_graphics_settings_panel() {
     gfx_tip("render.upscaler.sharpness, 0 to 1. The contrast-adaptive sharpen of the spatial and temporal modes; the "
             "plain stretch has none.");
     show_problem("/render/upscaler/sharpness");
-    ImGui::TextDisabled("Dynamic resolution is not part of these settings yet.");
+
+    ImGui::SeparatorText("Dynamic resolution");
+    ImGui::Checkbox("Enabled", &g.dynamic.enabled);
+    at_track("gfx:dynEnabled");
+    gfx_tip(
+        "render.dynamicResolution.enabled. The render scale follows the frame time so the game holds the target: it "
+        "multiplies into the render scale and the upscaler's quality, between the two scales below, in steps and at "
+        "most twice a second. Off (the default) draws at the fixed render scale. It runs in the player, not in the "
+        "editor's own viewport.");
+    ImGui::BeginDisabled(!g.dynamic.enabled);
+    float target = float(g.dynamic.targetMs);
+    if (ImGui::DragFloat("Target (ms)", &target, 0.1f, 0.0f, 100.0f, target == 0.0f ? "display refresh" : "%.1f ms"))
+        g.dynamic.targetMs = double(std::round(target * 10.0f)) / 10.0;
+    at_track("gfx:dynTarget", g.dynamic.enabled);
+    gfx_tip("render.dynamicResolution.targetMs. The frame time to hold: 33.3 is 30 fps, 16.7 is 60 fps, 8.3 is 120 fps "
+            "(4 to 100). 0, the default, follows one refresh of the display (60 Hz where the platform cannot tell).");
+    show_problem("/render/dynamicResolution/targetMs");
+    float lo = g.dynamic.minScale, hi = g.dynamic.maxScale;
+    if (ImGui::SliderFloat("Min scale", &lo, render::kDynamicScaleFloor, render::kDynamicScaleCeiling, "%.2f"))
+        g.dynamic.minScale = std::round(lo * 100.0f) / 100.0f;
+    at_track("gfx:dynMin", g.dynamic.enabled);
+    gfx_tip(
+        "render.dynamicResolution.minScale, 0.25 to 1. The smallest share of the render size's width and height the "
+        "controller may use; 0.5 is a quarter of the pixels.");
+    show_problem("/render/dynamicResolution/minScale");
+    if (ImGui::SliderFloat("Max scale", &hi, render::kDynamicScaleFloor, render::kDynamicScaleCeiling, "%.2f"))
+        g.dynamic.maxScale = std::round(hi * 100.0f) / 100.0f;
+    at_track("gfx:dynMax", g.dynamic.enabled);
+    gfx_tip("render.dynamicResolution.maxScale, 0.25 to 1. The largest share, and where the controller starts.");
+    show_problem("/render/dynamicResolution/maxScale");
+    ImGui::EndDisabled();
 
     ImGui::Separator();
     const bool dirty = !(g == graphicsSaved_);
@@ -156,7 +188,8 @@ void Editor::draw_graphics_settings_panel() {
     if (ImGui::Button("Save", ImVec2(110, 0))) graphics_settings_save();
     ImGui::EndDisabled();
     at_track("gfx:save", canSave);
-    gfx_tip("Writes render.graphicsPreset and render.upscaler of factoria.json; nothing else in the file changes. "
+    gfx_tip("Writes render.graphicsPreset, render.upscaler and render.dynamicResolution of factoria.json; nothing else "
+            "in the file changes. "
             "Settings at their default are removed from the file.");
     ImGui::SameLine();
     ImGui::BeginDisabled(!dirty);

@@ -39,7 +39,7 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   "Temporal antialiasing" below); `render.supports` says `supported` on every backend.
 - New engine-wide upscaler settings: `"render": {"upscaler": {mode, quality, sharpness}}` in `factoria.json`, the command
   `render.upscaler` and `window.upscaler` in scripts (docs/UPSCALING.md). `effectiveMode` says what draws: `stretch`, `spatial` and
-  `temporal` today; `metalfx` and `auto` draw as the best that exists until its upscaler lands, and `temporal` draws as `spatial`
+  `temporal`, and `metalfx` on Apple GPUs (M76-P5b); `auto` draws as the best that exists, and `temporal` draws as `spatial`
   where it cannot run.
 - The temporal upscaler is drawn (M76-P4): `render.upscaler` / `window.upscaler` / `factoria.json` with mode `temporal` (or `auto`)
   draw the game at the quality's size (`quality` 1/1.5, 1/1.7, 1/2 or 1/3 of the window, times `window.renderScale`, at least 0.25) with
@@ -52,6 +52,20 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   The objects' motion vectors (M76-P1a) feed its reprojection (it asks the prepass for them). Off (`stretch`) is free: no pass, no
   image, no jitter, the same pixels. `UpscalerCaps` gets `temporal` (the TAA shaders compiled) and `multiCamera` (the frame has no single
   full-window camera); `kJitterPhasesMax` is 128 (was 16); `docs/UPSCALING.md`, "The temporal upscaler".
+- MetalFX is drawn (M76-P5b): on the Metal backend (macOS 13 or iOS 16 or later, a GPU with the MetalFX scalers; not the iOS simulator),
+  `render.upscaler` / `window.upscaler` / `factoria.json` with mode `metalfx` (and `auto`, which now prefers it) hand the upscale to
+  Apple's MetalFX. Its temporal scaler takes the jittered picture at the render size (the same phases and quality sizes as `temporal`),
+  a 0..1 depth and a motion image that a small pass makes from the prepass and the velocity image (where no object wrote a velocity
+  the camera's own movement is reprojected, as the temporal upscaler does), and keeps its history at the window's size; the spatial
+  scaler draws a frame the temporal one cannot take. The history resets on a camera cut, another scene, a floating-origin shift, a change
+  of the render size or quality and a new scaler. A frame with more than one camera draws `spatial`, as for `temporal`. If MetalFX cannot be
+  made or fails in a frame, the renderer drops to `temporal` (then `spatial`) for the rest of the run with one warning, and
+  `effectiveMode` says it. `render.supports` `metalfx` is `supported` where it is available, with the reason where not;
+  `render.upscaler` reports `metalfx` also for a headless project on an Apple build where it is available. `sharpness` does not apply to it.
+  The CI machines have no MetalFX (the macOS VM has a paravirtual GPU): its tests skip there with a message. Docs/UPSCALING.md, "MetalFX".
+- Fix: the motion vectors the temporal upscaler reprojects with (M76-P1a) were asked for after the culling had decided whether the draws
+  keep their previous models, so with the upscaler alone (no motion blur, no TemporalAA effect) the image was never made and every pixel
+  reprojected from the camera. It is asked for before, and moving objects now reproject with their own motion.
 - Fixes in the temporal resolve (`taa_shared.glsl`, antialiasing too): a NaN in the picture or in the history is dropped and never stays in
   the history for ever (on a GPU that keeps NaN through `max`), and the depth rejection no longer discards the history of the sky when the
   camera turns fast.
@@ -98,6 +112,19 @@ Older versions, one file per minor version with its patch releases: [0.34](chang
   Save and Revert, checked by the engine's own parsers (a wrong value is named with its JSON pointer and a "did you mean"); only
   those two keys of the file are written. There is no preview of a preset or mode in the editor: press Play after Save.
 
+### The display's refresh rate (M76)
+
+- Dynamic resolution's "one display refresh" (`targetMs` 0, the menu kit's "Display refresh") now follows the display the window is
+  on: 8.3 ms on a 120 Hz display, 6.9 ms on a 144 Hz one (it was 60 Hz everywhere). The rate comes from the OS (macOS and iOS
+  `maximumFramesPerSecond`, the Windows display mode, the Linux XRandR mode, Android `Display.getRefreshRate()`), asked again every
+  2 s so a window moved to another monitor follows it. Where the OS does not say (the web) it is estimated from the median time
+  between presented frames while vsync paces them; with vsync off, a frame cap, on-demand rendering or no window that fallback is
+  60 Hz. `render.dynamic_resolution` and
+  `window.dynamicResolution` report `refreshHz` and `refreshSource` (`"platform"`, `"estimated"`, `"default"`).
+  docs/UPSCALING.md, "The display's refresh rate".
+- `window.monitors()` entries have `refreshHz`, each monitor's rate as the OS reports it (0 where it does not say), and the
+  platform layer has `app_display_refresh_hz()` and `MonitorInfo::refreshHz` (fa/platform/app.h).
+
 ## 0.35.2
 
 FactorIA 0.35.2 publishes the fixes of 0.35.1: the release workflow of 0.35.1 cancelled the macOS universal package at
@@ -114,6 +141,20 @@ its 60-minute limit, so neither 0.35.0 nor 0.35.1 has a GitHub release. The engi
   most, never on a software renderer), and suggests a preset with the reason. It changes nothing.
 - New script API `game.graphics` (`preset(name?)`, `detect()`) with typings, and the project key `"render": {"graphicsPreset"}` with
   validation and a "did you mean".
+
+### Dynamic resolution (M76)
+
+- The render scale can follow the frame time so a game holds a target. Off by default (the picture and the frame are those of a build
+  without it, bit for bit). Settings: `"render": {"dynamicResolution": {enabled, targetMs, minScale, maxScale}}` in `factoria.json`, the
+  command `render.dynamic_resolution` and `window.dynamicResolution` in scripts, with errors that name the JSON pointer and the valid
+  range. The controller measures the GPU time where the backend has timer queries (Direct3D 11, OpenGL) and the time between frames
+  elsewhere, smooths it, and moves a factor between `minScale` and `maxScale` on a grid of 32 steps with a dead band, hold times and at
+  most two changes a second; its factor multiplies into the render scale in one place (`apply_render_scale`). A step makes the render
+  targets again (rate-limited for that reason); the temporal upscaler's history survives the steps. `game.render_stats` and
+  `window.upscaler` report `dynamicScale` and `frameMs` (read-only), and `render.supports` `dynamicResolution` is drawn. No preset turns it
+  on. docs/UPSCALING.md, "Dynamic resolution".
+- The menu kit's Graphics page has a Dynamic resolution row (Off, 30 fps, 60 fps, Display refresh; saved as
+  `settings.graphics.dynamicResolution`, `null` in an older save), and the editor's Graphics window edits `render.dynamicResolution`.
 
 ### Fixes
 

@@ -18,5 +18,10 @@ void mobile_show_keyboard(bool show);
 void mobile_poll(Input& input);
 // sapp_desc.android.native_event_cb: true when the event is consumed. Android only; the other platforms never call it.
 bool mobile_native_event(const void* nativeEvent);
+#if defined(__ANDROID__)
+// Android only: the refresh rate of the display the activity is on (Display.getRefreshRate() of its WindowManager's
+// display), 0 when it cannot be read. iOS answers through sokol_window.h (fa_sapp_display_refresh_hz).
+double mobile_display_refresh_hz();
+#endif
 
 }  // namespace fa

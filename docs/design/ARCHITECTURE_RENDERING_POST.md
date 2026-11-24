@@ -151,8 +151,8 @@ each.
 ## MetalFX (M76)
 
 `src/metalfx.h` (`fa::render::metalfx`; the Metal side is `src/metalfx_apple.mm`, every other backend builds the stubs of
-`src/metalfx.cpp`) wraps Apple's `MTLFXSpatialScaler` and `MTLFXTemporalScaler` over sokol images. It is a building block: the `metalfx`
-upscaler mode that calls it from `present()` is a later package. What exists and what it costs:
+`src/metalfx.cpp`) wraps Apple's `MTLFXSpatialScaler` and `MTLFXTemporalScaler` over sokol images. The `metalfx` upscaler mode
+(M76-P5b, "The renderer's MetalFX stage" below) calls it from `run_upscale`. What exists and what it costs:
 
 - **Support** (`support()`). The framework is loaded at run time (`NSBundle`, classes by name), so nothing links against it and a player starts
   on an OS without it; an SDK without the headers builds the same "not available" answer. `Support` has `spatial` and `temporal` (each from
@@ -192,6 +192,39 @@ upscaler mode that calls it from `present()` is a later package. What exists and
   its first frame is already scaled; the price is a hitch when it is made (at start and on a resize).
 - **Limits.** `configure` refuses an output smaller than the input and formats outside the list in `metalfx_apple.mm`; MetalFX itself limits
   the ratio (the error says so). A scaler made again on a resize starts its history again.
+- **Motion convention.** The motion image is UV units from the pixel to where it was (`uvPrev - uvCurr`), `motionScaleX/Y` the render size in
+  pixels; `metalfx: the temporal scaler follows a moving pattern ...` shows the right sign beats the opposite and none. The wrapper's
+  `Gpu::committed` flag is false after the split (`encode` does not call `note_commit`); code that asks it mid-frame must not rely on it.
+
+### The renderer's MetalFX stage (M76-P5b)
+
+`UpscaleImpl::MetalFx` (`render_upscale.h`) is the first case of `run_upscale`; the code is `src/renderer_metalfx.cpp`
+(`Impl::metalfx_upscale`), the preparation program `shaders/upscale_mfx.glsl` (Metal dialects only; `src/render_upscale_metalfx.*`, class
+`MetalFxPrep`) and the tests `metalfx_renderer_tests.cpp` (they skip with a MESSAGE where MetalFX is missing) and the P5b cases of
+`upscale_tests.cpp`.
+
+- **Which frame.** `Renderer::render` decides, with the rest of the upscale frame, `mfxFrame` (effective mode MetalFx with the temporal
+  scaler, `UpscalerCaps::metalfxTemporal`, and the TAA shaders for the fallback) and `outStorage` (the upscale output image is made with
+  `TargetDesc::storage`, `usage.storage_image`, which the temporal scaler writes). The jittered frame is the temporal upscaler's (same
+  phases, `TaaPlan`); a frame of several cameras draws the spatial upscaler (`effective_upscaler_mode`: `metalfx_ok = caps.metalfx &&
+  (!multiCamera || !metalfxTemporal)`). A GPU with the spatial scaler only draws an unjittered frame through it.
+- **Preparation pass.** One pass at the render size (`upscale-metalfx-prep`, two colour targets): `R32F` depth `d/(d+1)` from the prepass
+  (1 for the sky and for pixels without coverage) and `RG16F` motion from the velocity image, or, where it holds the sentinel
+  (`VelocityRef::kNone`) or there is none, the camera's reprojection from the depth with the matrices of `TaaPlan` (`prevFromView`, `proj`) as
+  `taa_resolve` does. The uniform `motionSign` (`mfxMotionSign`, default 1, tests only) flips it. `Frame::jitterX/Y` are `jitterPx *
+  mfxJitterSign`, the motion scale the render size.
+- **History.** `f.reset` is `!histValid` with `histValid` = a MetalFX frame just before (`mfxLastSerial + 1 == upscaleTaa.serial`), the same
+  `sceneKey`, `originShifts` and render size and quality (`mfxLastConfig`), and `upscaleTaa.prevValid`; a new scaler resets itself. These are
+  the events of `TaaFx::upscale`. `RendererTestAccess::mfx_reset/mfx_generation/mfx_encoded` expose them.
+- **Failure.** `metalfx_fail` (a scaler that cannot be made, `encode` that fails, the prep shader that does not compile) sets `mfxFailed`: one
+  warning, and `run_upscale` falls to the temporal upscaler, then the spatial one, for the rest of the run; `upscaler_caps().metalfx` is
+  then false so `effectiveMode` says it. `mfx_force_create_failure` is the test hook.
+- **Velocity ordering (a fix).** The velocity image is asked for (`PostPlan::request_velocity`) before `cull_and_batch`, which decides whether
+  the draws collect their previous models; before P5b it was asked after, and the temporal upscaler alone never had object motion.
+- **Headless.** Without a renderer `Engine::upscaler_caps` uses `metalfx_available_here()` (the system is asked, no window): `render.upscaler`
+  reports `metalfx` for `auto` and `metalfx` on an Apple build where it is available (the P4 rule for `temporal`).
+- **Open.** In the renderer's scenes the output of the temporal scaler did not depend on the sign of the motion image, while the wrapper test
+  does; the image has the expected values (read back) and the history does not reset. Unexplained; the tests of the stage do not claim the sign.
 
 ## Motion vectors and jitter (M76)
 
@@ -234,9 +267,10 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
 - **Settings and rows.** The upscaler settings (`UpscalerSettings`, `render/upscaler.h`) are read by the upscale stage (`Renderer::upscaler()`);
   `effective_upscaler_mode(settings, caps)` is the one place that says which mode draws: `stretch`, `spatial` (M76-P3b) and `temporal`
   (M76-P4); the caps carry the pixel-art flag, what the backend can draw (`temporal`: the TAA shaders compiled) and whether the frame has
-  one camera (`multiCamera`), and the MetalFX package sets its own. A temporal mode that cannot run draws as `spatial`. `render.supports`
+  one camera (`multiCamera`), and `metalfx` / `metalfxTemporal` (M76-P5b, from `metalfx::support()` on Metal, false after a failure). A
+  temporal mode that cannot run draws as `spatial`. `render.supports`
   has the rows `motionVectors` (drawn since M76-P1a), `spatialUpscaler` (drawn since M76-P3b), `temporalUpscaler` (drawn since M76-P4),
-  `metalfx`, `dynamicResolution` (planned M76); `temporalAA` is the row of the effect itself (`PostEffect::TemporalAA`, supported on every
+  `metalfx` (drawn since M76-P5b where Metal has it), `dynamicResolution` (drawn since M76-P6c: the controller lives in `render/dynamic_resolution.*`, the engine feeds it and multiplies its factor into `apply_render_scale`; the renderer remakes its targets at a step and keeps the temporal history of the base scale); `temporalAA` is the row of the effect itself (`PostEffect::TemporalAA`, supported on every
   backend), not a second engine row.
 
 ### Temporal antialiasing (`src/renderer_taa.h`, `shaders/taa.glsl`, `shaders/taa_shared.glsl`)

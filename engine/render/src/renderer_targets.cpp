@@ -33,6 +33,7 @@ Target make_target(const TargetDesc& d) {
     if (d.colorFormat != SG_PIXELFORMAT_NONE) {
         sg_image_desc cd{};
         cd.usage.color_attachment = true;
+        cd.usage.storage_image = d.storage && !msaa;
         cd.width = d.width;
         cd.height = d.height;
         cd.pixel_format = d.colorFormat;
@@ -258,7 +259,7 @@ void Renderer::Impl::destroy_targets() {
     xmit.forget_targets();
     ssao.release();
     sceneFx.forget_targets();
-    taa.forget_targets();
+    taa.forget_targets(keepUpscaleHistory);
     gi2d.free_images();
     fogFx.forget_targets();
     volFx.forget_targets();

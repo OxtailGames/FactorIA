@@ -617,9 +617,19 @@ std::vector<MonitorInfo> app_monitors() {
         m.height = raw[i].h;
         m.primary = raw[i].primary;
         m.current = raw[i].current;
+        m.refreshHz = raw[i].refresh_hz >= 1.5 && raw[i].refresh_hz <= 1000.0 ? raw[i].refresh_hz : 0.0;
         list.push_back(std::move(m));
     }
     return list;
+}
+
+double app_display_refresh_hz() {
+#if defined(__ANDROID__)
+    const double hz = mobile_display_refresh_hz();
+#else
+    const double hz = fa_sapp_display_refresh_hz();
+#endif
+    return hz >= 1.5 && hz <= 1000.0 ? hz : 0.0;  // NaN and nonsense are "unknown" too
 }
 
 bool app_move_to_monitor(int index) { return !app_is_mobile() && fa_sapp_move_to_monitor(index); }

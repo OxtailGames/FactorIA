@@ -2,9 +2,8 @@
 // It is a setting of the whole game, not of a camera: it changes the size the frame is drawn at, like Renderer::set_render_scale.
 //
 // M76-P0 defines, validates and stores it (factoria.json "render.upscaler", the command render.upscaler, `window.upscaler` in
-// scripts). The renderer draws "stretch", "spatial" (M76-P3b) and "temporal" (M76-P4); effective_upscaler_mode is the one place that says which mode
-// draws, and the package that draws the last one changes it (the `metalfx` flag of UpscalerCaps) and reads
-// Renderer::upscaler().
+// scripts). The renderer draws "stretch", "spatial" (M76-P3b), "temporal" (M76-P4) and "metalfx" (M76-P5b, Apple's MetalFX on Metal);
+// effective_upscaler_mode is the one place that says which mode draws; the renderer reads Renderer::upscaler().
 #pragma once
 
 #include <array>
@@ -63,8 +62,22 @@ struct UpscalerCaps {
     bool temporal = false;  // the "temporalUpscaler" row (M76 P4): the TAA shaders compiled and its histories fit
     bool multiCamera =
         false;  // this frame has no single full-viewport camera: the temporal upscaler (one history) cannot run
-    bool metalfx = false;  // the "metalfx" row (M76 P5)
+    bool metalfx =
+        false;  // the "metalfx" row (M76-P5b): the Metal backend, an OS and a GPU with a MetalFX scaler, and none failed yet
+    // MetalFX has its temporal scaler here (else only the spatial one, which needs no history and so draws on a frame of several cameras
+    // too). Read only with `metalfx`.
+    bool metalfxTemporal = true;
 };
+
+// Whether the default Metal GPU of this machine can run MetalFX, and why not when it cannot (a sentence that says what is missing and
+// what to do). What a run without a renderer reports (Engine::upscaler_caps: "what a GPU here would draw"); false on every backend that is
+// not Metal. `temporal` says the temporal scaler is there too. Asks the system (a Metal device is made), so call it once, not per frame.
+struct MetalFxHere {
+    bool available = false;  // at least the spatial scaler
+    bool temporal = false;
+    std::string reason;  // empty when both scalers are available
+};
+MetalFxHere metalfx_available_here();
 
 // The mode the renderer really draws with, so reading the setting back never lies:
 //  - pixel art (`caps.pixelArt`): always stretch (Nearest); a filter would blur the pixels the game keeps hard;
@@ -72,7 +85,8 @@ struct UpscalerCaps {
 //  - spatial: spatial, stretch where the backend cannot draw it (`caps.spatial` false: no GPU);
 //  - temporal and metalfx: themselves when drawable, else the next best this GPU can draw (metalfx -> temporal -> spatial); temporal
 //    is not drawable when `caps.temporal` is false or the frame has several cameras (`caps.multiCamera`: one history per rectangle
-//    is not made), and spatial draws instead;
+//    is not made), and spatial draws instead; metalfx is not drawable when `caps.metalfx` is false (not on Metal, no MetalFX on this
+//    GPU, or it failed) or, with its temporal scaler, on a frame of several cameras: the same rule as temporal;
 //  - auto: the best drawable of metalfx, temporal, spatial; stretch when none is.
 // Without a renderer (a run with graphics=false) the host reports what a GPU would draw: caps with pixelArt taken from the project's
 // scale mode and the default `spatial` (true), so a pixel-perfect project says stretch and any other says spatial for spatial, auto,
@@ -83,14 +97,16 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
 // (window.renderScale) times the quality's, never below `minScale` (the engine's 0.25 floor). The stage is on when that scale is below 1
 // or the effective mode is spatial (at scale 1 it is the sharpen alone; the temporal mode has nothing to do at scale 1), and never above 1: a scale above 1 is a bigger
 // picture (a screenshot's "scale"), not an upscale. Only the renderer's `effective` mode decides: pixel art is stretch there.
+// `dynamicScale` is the factor of the dynamic resolution (fa/render/dynamic_resolution.h, 1 while it is off): the one place it multiplies in.
 struct UpscaleScalePlan {
     float scale = 1.0f;
     bool stage = false;
 };
 constexpr UpscaleScalePlan plan_upscale_scale(float windowScale, UpscalerQuality quality, UpscalerMode effective,
-                                              float minScale) {
+                                              float minScale, float dynamicScale = 1.0f) {
     float s = windowScale * upscaler_quality_scale(quality);
-    if (!(s >= minScale)) s = minScale;  // also a NaN
+    if (dynamicScale != 1.0f) s *= dynamicScale;  // off is the same arithmetic as before: bit-identical
+    if (!(s >= minScale)) s = minScale;           // also a NaN
     UpscaleScalePlan p;
     p.scale = s;
     p.stage = s <= 1.0f && (s < 1.0f || effective == UpscalerMode::Spatial);

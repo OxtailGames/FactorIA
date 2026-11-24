@@ -114,6 +114,8 @@
       "uqLabel": "Upscaling quality: {quality}",
       "renderScale": "Render scale: {percent} %",
       "sharpness": "Sharpness: {percent} %",
+      "dynLabel": "Dynamic resolution: {choice}",
+      "dyn": { "off": "Off", "30": "30 fps", "60": "60 fps", "display": "Display refresh", "custom": "Custom" },
       "unsupNote": "Not available here: {modes}.",
       "stretchNote": "This game is drawn with plain scaling (pixel art), whatever the mode."
     },

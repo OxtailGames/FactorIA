@@ -93,6 +93,15 @@ struct RendererTestAccess {
     static int upscale_phases(Renderer& r);
     static int upscale_impl(Renderer& r);
     static bool upscale_used_history(Renderer& r);
+    // M76-P5b: MetalFX. mfx_failed: the renderer gave it up (creation or a frame failed); mfx_encoded: frames the scaler encoded since it was
+    // made; mfx_generation: scalers made; mfx_reset: the last MetalFX temporal frame reset the scaler's history. Hooks: the next scaler
+    // creation fails, and the sign of the jitter and of the motion handed to MetalFX (-1 flips it, to show the sign matters).
+    static bool mfx_failed(Renderer& r);
+    static int mfx_encoded(Renderer& r);
+    static int mfx_generation(Renderer& r);
+    static bool mfx_reset(Renderer& r);
+    static void mfx_force_create_failure(Renderer& r, bool fail);
+    static void mfx_signs(Renderer& r, float jitterSign, float motionSign);
     static void set_post_history_budget(Renderer& r, std::uint64_t bytes);
     static void refuse_post_history(Renderer& r, bool refuse);
     static int post_history_attempts(Renderer& r);
