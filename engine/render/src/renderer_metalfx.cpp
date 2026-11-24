@@ -32,7 +32,8 @@ const render::metalfx::Support& Renderer::Impl::metalfx_support() {
 bool Renderer::Impl::metalfx_fail(const std::string& why) {
     if (!mfxFailed) {
         FA_WARN("render",
-                "MetalFX failed: {} The upscaler continues with the temporal TAA upscaler (the spatial one on a frame that cannot "
+                "MetalFX failed: {} The upscaler continues with the temporal TAA upscaler (the spatial one on a frame "
+                "that cannot "
                 "use it) for the rest of this run. Hint: set render.upscaler mode to \"temporal\" to silence this.",
                 why);
     }
@@ -67,8 +68,10 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     if (mfxFailed || !sg_isvalid() || !render::metalfx::on_metal() || !out.valid() || !src.valid()) return false;
     const render::metalfx::Support& support = metalfx_support();
     const bool temporalKind = temporalFrame && mfxFrame && upscaleTaa.on && support.temporal;
-    if (temporalFrame && !temporalKind) return false;  // a jittered frame without a plan: the next implementation draws it
-    if (!temporalKind && !support.spatial) return false;  // a GPU with the temporal scaler only: the next implementation draws this frame
+    if (temporalFrame && !temporalKind)
+        return false;  // a jittered frame without a plan: the next implementation draws it
+    if (!temporalKind && !support.spatial)
+        return false;  // a GPU with the temporal scaler only: the next implementation draws this frame
     if (temporalKind && (!assets || !assets->white())) return false;
     if (temporalKind && !mfxPrep.ready()) return metalfx_fail("the input preparation shader did not compile.");
 
@@ -81,7 +84,7 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     d.colorFormat = src.format.color;
     d.outputFormat = out.format.color;
     // Spatial: linear light above 1 in a float scene, linear light in a smaller one, else display values.
-    d.colorSpace = !in.linear                                    ? render::metalfx::ColorSpace::Perceptual
+    d.colorSpace = !in.linear                                   ? render::metalfx::ColorSpace::Perceptual
                    : src.format.color == SG_PIXELFORMAT_RGBA16F ? render::metalfx::ColorSpace::Hdr
                                                                 : render::metalfx::ColorSpace::Linear;
     d.depthFormat = SG_PIXELFORMAT_R32F;
@@ -97,7 +100,8 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
     if (temporalKind) {
         const Target* prepass = upscalePrepass.target(c);
         const Target* velocity = upscaleVelocity.target(c);
-        if (prepass && (prepass->w != in.renderW || prepass->h != in.renderH)) prepass = nullptr;  // not the picture's size: every pixel is sky
+        if (prepass && (prepass->w != in.renderW || prepass->h != in.renderH))
+            prepass = nullptr;  // not the picture's size: every pixel is sky
         if (velocity && (velocity->w != in.renderW || velocity->h != in.renderH)) velocity = nullptr;
         if (!ensure_mfx_target(mfxDepth, "mfx-depth", SG_PIXELFORMAT_R32F, in.renderW, in.renderH) ||
             !ensure_mfx_target(mfxMotion, "mfx-motion", SG_PIXELFORMAT_RG16F, in.renderW, in.renderH))
@@ -109,8 +113,9 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         const std::uint64_t config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
                                      (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 |
                                      (std::uint64_t(int(upscaler.quality)) & 0xFF);
-        const bool histValid = mfxLastWrote && mfxLastSerial + 1 == upscaleTaa.serial && mfxLastScene == upscaleTaa.sceneKey &&
-                               mfxLastShifts == upscaleTaa.originShifts && mfxLastConfig == config && upscaleTaa.prevValid;
+        const bool histValid = mfxLastWrote && mfxLastSerial + 1 == upscaleTaa.serial &&
+                               mfxLastScene == upscaleTaa.sceneKey && mfxLastShifts == upscaleTaa.originShifts &&
+                               mfxLastConfig == config && upscaleTaa.prevValid;
 
         PassDesc p = pass_into(mfxDepth, "upscale-metalfx-prep");
         p.color1 = mfxMotion.colorAtt;

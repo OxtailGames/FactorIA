@@ -16,9 +16,9 @@ bool MetalFxPrep::ready() {
         if (shader_.id) sg_destroy_shader(shader_);
         shader_ = {};
         state_ = -1;
-        FA_ERROR("render",
-                 "The MetalFX input preparation shader failed to compile (see the sokol log lines above); MetalFX is not used, the "
-                 "temporal TAA upscaler draws instead. Hint: set render.upscaler mode to \"temporal\".");
+        FA_ERROR("render", "The MetalFX input preparation shader failed to compile (see the sokol log lines above); "
+                           "MetalFX is not used, the "
+                           "temporal TAA upscaler draws instead. Hint: set render.upscaler mode to \"temporal\".");
         return false;
     }
     state_ = 1;
@@ -42,7 +42,8 @@ sg_pipeline MetalFxPrep::pipeline(const TargetFormat& format) {
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "upscale-metalfx-prep";
     const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
+        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({format, p});
     return p;
 }
