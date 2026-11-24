@@ -371,6 +371,7 @@ The linear HDR frame, the `PostProcess` stack, its CPU resolve and the passes th
 
 - **The 2D global illumination field** (M74.3: the emission, occluder and distance images of a 2D camera and the contract the radiance cascades read) is on the page [rendering, the 2D GI field](ARCHITECTURE_RENDERING_GI2D.md).
 - **The lighting of M73** (shader files, texture slot table, feature rows, new fields) is on the page [rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md).
+- **Motion vectors, jitter and temporal antialiasing** (M76: the velocity image, the camera jitter, the temporal passes' history, the texture LOD bias) are on the page [rendering, motion vectors and temporal antialiasing](ARCHITECTURE_RENDERING_TEMPORAL.md).
 
 ## Upscale stage (M76)
 
