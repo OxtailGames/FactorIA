@@ -1205,8 +1205,9 @@ void VulkanDevice::destroy_pipeline(Pipeline pipeline) {
         }
         count_destroy(stats_.pipelines);
     }
-    // A list that set it holds its state until the list is reused; the VkPipeline stays in the cache while a live
-    // shader has its code, and goes with the last holder after that, once the frames that used it are done (the
+    // Every list that bound it holds its state until the list is submitted or dropped (boundPipelines_), so no wait
+    // frees the VkPipeline an unsubmitted command buffer names; the VkPipeline stays in the cache while a live shader
+    // has its code, and goes with the last holder after that, once the frames that used it are done (the
     // state's last holder may let go of the shader modules: the record is released outside the lock).
 }
 
