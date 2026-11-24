@@ -38,6 +38,11 @@ enum class OutlineMode : std::int32_t { Depth, Sprite };
 // PostProcess.ssaoQuality: the number of directions and steps of the ambient occlusion (GTAO), cost grows with each level.
 enum class SsaoQuality : std::int32_t { Low, Medium, High, Ultra };
 
+// PostProcess.motionBlurMode: what the motion blur smears by. Object: the velocity image (the motion of every moving object, skinned meshes
+// and custom vertex() materials included; where nothing wrote a velocity, the camera's own motion from the depth); Camera: the camera's
+// own motion only, from the depth.
+enum class MotionBlurMode : std::int32_t { Object, Camera };
+
 // The effects of the stack in the canonical ORDER they run in, written once. Everything up to Bloom works on scene-linear HDR
 // colour (before the tonemap); Tonemap brings it to the display range; the rest work on the display-referred picture.
 // Why this order: ambient occlusion, reflections, fog and sun shafts belong to the lighting of the scene; the exposure scales
@@ -242,10 +247,13 @@ struct PostProcess {
     float temporalAAReactiveScale =
         1.0f;  // 0..4: how much the reactive mask (particles, fast objects) shortens the history
 
-    // --- motionBlur: smear from the camera's movement (from depth) ---------------------------------------------------------------
+    // --- motionBlur: smear from the motion of the objects (the velocity image) and of the camera (from depth) ---------------------
     bool motionBlurEnabled = false;
     float motionBlurIntensity = 0.5f;    // 0..1: the part of the frame the shutter is open
     std::int32_t motionBlurSamples = 8;  // 4 .. 32 taps along the movement
+    MotionBlurMode motionBlurMode = MotionBlurMode::Object;
+    float motionBlurMaxRadius =
+        24.0f;  // 1 .. 64 design pixels: how far a pixel's blur reaches on each side (object mode)
 
     // --- ssr: screen-space reflections (3D) --------------------------------------------------------------------------------------
     bool ssrEnabled = false;

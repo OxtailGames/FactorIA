@@ -6,7 +6,7 @@
 
 #include "autotest_common.h"
 #include "editor_internal.h"
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 
 namespace fa::editor {
 

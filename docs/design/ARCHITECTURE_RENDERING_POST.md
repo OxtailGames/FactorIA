@@ -120,6 +120,19 @@ each.
   bloom does. A pass cannot read what it writes, so the chain goes through one scratch transient and ends with a copy (or the last
   effect writes the picture itself). The focus per camera is state of `SceneFx` keyed by the camera entity, moved by the engine clock
   (`smooth_focus`), never by wall time. It owns its shaders and pipelines (made on first use, `release()` on shutdown).
+  **Per-object motion blur (M76-P1e, `shaders/motion_object.glsl`).** `PostProcess.motionBlurMode` `object` (the default; `SceneFxPlan::objects`)
+  draws, instead of the one `motion-blur` pass, `motion-velocity` (reads `PostPlan::velocity` and the prepass: writes RGBA16F `rg` = the
+  blur vector in pixels = `uvPrev - uvCurr` times the shutter cut to the longest streak, `b` = the linear depth; where the velocity is the sentinel
+  it rebuilds the camera's motion from the depth exactly as `motion_blur.glsl`), `motion-tile-x` and `motion-tile-y` (the longest vector
+  of every K x K block, K = the clamped radius in pixels, `SceneFxPlan::maxRadiusPx`, in two passes) and `motion-blur` (the gather: the longest
+  vector of the 3 x 3 blocks gives the line, the pixel's own vector a second line; the McGuire weights, `cone` and `cylinder`, up to 32
+  taps, `motionBlurSamples` at most). It runs after the temporal antialiasing and the `after:shafts` custom passes, on the render-size
+  image, and so before the temporal upscaler resolves; the velocity image is unjittered, so the jitter never reaches the blur. It needs the
+  velocity image (`velocity.valid()`), its three programs (`ready_objects`, lazily made, one `FA_ERROR` on failure) and an RGBA16F transient
+  for each of the three intermediates; missing any of them the frame draws the camera path (`objects` false), so a GPU that cannot do it
+  loses the object blur only. `make_post_plan` calls `request_velocity()` for a drawn motion blur in object mode with an intensity above 0,
+  on the first frame and a cut too (the previous models of the objects are kept only on frames that asked). The camera mode and the effect
+  off request nothing and build none of this: their frames are bit-identical to before (tested).
 - **Fog and sun shafts** (`src/renderer_fog.*`, `shaders/fog.glsl`, `sun_shafts.glsl`). `FogFx` (a member of `Impl`) owns the shaders and
   pipelines; `make_fog_plan` is pure CPU (clamped numbers, the sun's screen place from `sun_screen_position`). `plan_job` plans it right after
   `collect_lights` and before `plan_prepass`: the sun is slot 0 of `select_lights` when that is a directional light that shines, and shafts with
@@ -334,6 +347,9 @@ see "Who writes the velocity"), and the data they keep from one frame to the nex
   `kJitterPhasesMax` is 128 (the upscaler at a third of the size needs 72).
 
 ### Who writes the velocity (M76-P1a)
+
+The readers of the image: the temporal antialiasing and the temporal upscaler (renderer_taa), and since M76-P1e the per-object motion blur
+(`src/renderer_dof.cpp`, "Depth of field and motion blur" above).
 
 - **Asking.** There is one request: `PostPlan::request_velocity()`. `make_post_plan` calls it for an effect that needs the motion
   (`post_effect_needs_velocity`: the temporal antialiasing; `post_mask_needs_velocity` for a mask of effects), and

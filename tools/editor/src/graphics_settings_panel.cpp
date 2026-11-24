@@ -1,14 +1,14 @@
 // The Graphics settings window (View > Graphics): the project's graphics preset, upscaler and dynamic resolution, the keys
 // `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness} and `render.dynamicResolution` {enabled, targetMs,
 // minScale, maxScale} of factoria.json (M76, docs/UPSCALING.md). It
-// edits a working copy: Save writes only those three keys (graphics_settings_model.h, validated by the engine's own parsers),
+// edits a working copy: Save writes only those three keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
 #include <cmath>
 
 #include "editor_internal.h"
-#include "graphics_settings_model.h"
+#include "fa/tooling/graphics_settings.h"
 #include "imgui_internal.h"
 
 namespace fa::editor {
@@ -112,6 +112,11 @@ void Editor::draw_graphics_settings_panel() {
         }
     };
 
+    // The settings scroll in their own region, so a small window (or a few lines of problems under the fields) never pushes Save and
+    // Revert out of reach: they stay in a footer under it.
+    const float footer = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing() +
+                         ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    ImGui::BeginChild("##gfx_body", ImVec2(0.0f, -footer));
     ImGui::SeparatorText("Graphics preset");
     gfx_combo("Preset", g.preset, graphics_presets(),
               "render.graphicsPreset. low, medium, high and ultra lower what the scenes ask for (shadows, ambient "
@@ -157,7 +162,8 @@ void Editor::draw_graphics_settings_panel() {
         g.dynamic.targetMs = double(std::round(target * 10.0f)) / 10.0;
     at_track("gfx:dynTarget", g.dynamic.enabled);
     gfx_tip("render.dynamicResolution.targetMs. The frame time to hold: 33.3 is 30 fps, 16.7 is 60 fps, 8.3 is 120 fps "
-            "(4 to 100). 0, the default, follows one refresh of the display (60 Hz where the platform cannot tell).");
+            "(4 to 100). 0, the default, follows one refresh of the display (the OS's rate, else an estimate from the "
+            "frame times, else 60 Hz).");
     show_problem("/render/dynamicResolution/targetMs");
     float lo = g.dynamic.minScale, hi = g.dynamic.maxScale;
     if (ImGui::SliderFloat("Min scale", &lo, render::kDynamicScaleFloor, render::kDynamicScaleCeiling, "%.2f"))
@@ -173,6 +179,7 @@ void Editor::draw_graphics_settings_panel() {
     gfx_tip("render.dynamicResolution.maxScale, 0.25 to 1. The largest share, and where the controller starts.");
     show_problem("/render/dynamicResolution/maxScale");
     ImGui::EndDisabled();
+    ImGui::EndChild();
 
     ImGui::Separator();
     const bool dirty = !(g == graphicsSaved_);

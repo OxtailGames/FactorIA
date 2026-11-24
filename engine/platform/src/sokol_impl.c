@@ -428,6 +428,31 @@ static int fa_x11_current(const fa_x11_mon* list, int count) {
     }
     return current;
 }
+
+// The refresh rate of the mode in use under the window's centre (0: unknown). The engine asks every two seconds, so this reads only the
+// CRTCs (one XRandR resources query and one call per CRTC), not the whole monitor list with names, outputs and the primary's move. A
+// window on no CRTC gets the first one that shows something.
+static double fa_x11_window_hz(void) {
+    if (!fa_xrr_load()) return 0.0;
+    fa_xrr_resources* res = fa_XRRGetScreenResourcesCurrent(_sapp.x11.display, _sapp.x11.root);
+    if (!res) return 0.0;
+    int cx, cy;
+    fa_x11_window_centre(&cx, &cy);
+    double under = 0.0, first = 0.0;
+    for (int i = 0; i < res->ncrtc; i++) {
+        fa_xrr_crtc* c = fa_XRRGetCrtcInfo(_sapp.x11.display, res, res->crtcs[i]);
+        if (!c) continue;
+        if (c->mode != 0 && c->noutput > 0 && c->width > 0 && c->height > 0) {
+            const double hz = fa_xrr_mode_hz(res, c->mode);
+            if (first == 0.0) first = hz;
+            if (hz > 0.0 && cx >= c->x && cx < c->x + (int)c->width && cy >= c->y && cy < c->y + (int)c->height)
+                under = hz;
+        }
+        fa_XRRFreeCrtcInfo(c);
+    }
+    fa_XRRFreeScreenResources(res);
+    return under > 0.0 ? under : first;
+}
 #endif
 
 int fa_sapp_monitors(fa_sapp_monitor* out, int max) {
@@ -478,10 +503,7 @@ double fa_sapp_display_refresh_hz(void) {
     return fa_win_monitor_hz(MonitorFromWindow(_sapp.win32.hwnd, MONITOR_DEFAULTTONEAREST));
 #elif defined(_SAPP_LINUX)
     if (_sapp.x11.display == NULL || _sapp.x11.window == 0) return 0.0;
-    fa_x11_mon list[16];
-    const int count = fa_x11_collect(list, 16);
-    if (count <= 0) return 0.0;
-    return list[fa_x11_current(list, count)].hz;
+    return fa_x11_window_hz();
 #else
     return 0.0;  // the web has no API for it (the engine estimates it), Android asks through JNI (app.cpp)
 #endif

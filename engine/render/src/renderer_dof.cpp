@@ -11,6 +11,7 @@
 #include "shader_cache.h"
 #include "shaders/dof.glsl.h"
 #include "shaders/motion_blur.glsl.h"
+#include "shaders/motion_object.glsl.h"
 
 namespace fa::render {
 
@@ -33,6 +34,12 @@ static_assert(VIEW_motion_blur_tex_p == 1, "the motion blur program second view 
 static_assert(SMP_dof_smp_lin == 0 && SMP_dof_smp_pt == 1, "the dof program sampler slots");
 static_assert(SMP_motion_blur_smp_lin == 0, "the motion blur program linear sampler slot");
 static_assert(SMP_motion_blur_smp_pt == 1, "the motion blur program point sampler slot");
+static_assert(UB_motion_object_mobj_vs_params == 0 && UB_motion_object_mobj_params == 1,
+              "the per-object blur uniform slots");
+static_assert(VIEW_motion_object_tex_c == 0 && VIEW_motion_object_tex_v == 1 && VIEW_motion_object_tex_p == 2 &&
+                  VIEW_motion_object_tex_t == 3,
+              "the per-object blur view slots");
+static_assert(SMP_motion_object_smp_lin == 0 && SMP_motion_object_smp_pt == 1, "the per-object blur sampler slots");
 
 template <class T>
 void apply_uniforms(int slot, const T& u) {
@@ -86,6 +93,33 @@ bool draw_fullscreen(SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& 
         sg_range fr{fu, fuSize};
         sg_apply_uniforms(1, &fr);
     }
+    sg_draw(0, 3, 1);
+    Gpu::end_pass();
+    return true;
+}
+
+// One full-screen triangle with a program of the per-object blur: `views` are its texture slots (colour, V or the velocity, the prepass, the
+// tiles; an empty one is not bound), `u` its uniforms. `part`: as draw_fullscreen. False (nothing drawn) when the target of the pass is gone.
+bool draw_object_pass(SceneFx& fx, Gpu& gpu, SceneFx::Prog prog, const PassDesc& pd, const sg_view (&views)[4],
+                      const motion_object_mobj_params_t& u, const Rect* part) {
+    if (!pd.color.id) return false;
+    Gpu::begin_pass(pd);
+    if (part) {
+        sg_apply_viewport(part->x, part->y, part->w, part->h, true);
+        sg_apply_scissor_rect(part->x, part->y, part->w, part->h, true);
+    }
+    sg_apply_pipeline(fx.pipeline(prog, pd.format));
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    for (int i = 0; i < 4; ++i) b.views[i] = views[i];
+    b.samplers[SMP_motion_object_smp_lin] = gpu.sampler(SamplerKind::LinearClamp);
+    b.samplers[SMP_motion_object_smp_pt] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    sg_range vr{flip, sizeof(flip)};
+    sg_apply_uniforms(0, &vr);
+    sg_range fr{&u, sizeof(u)};
+    sg_apply_uniforms(1, &fr);
     sg_draw(0, 3, 1);
     Gpu::end_pass();
     return true;
@@ -147,6 +181,9 @@ SceneFxPlan SceneFx::plan(World& world, const CameraInfo& cam, const PostStack& 
     if (stack.has(PostEffect::MotionBlur) && prevValid) {
         p.shutter = std::clamp(finite_or(f.motionBlurIntensity, 0.5f), 0.0f, 1.0f);
         p.motionTaps = std::clamp(int(f.motionBlurSamples), 4, 32);
+        p.objects = f.motionBlurMode == MotionBlurMode::Object;
+        p.maxRadiusPx = std::clamp(finite_or(f.motionBlurMaxRadius, 24.0f), 1.0f, 64.0f) * scale;
+        p.maxRadiusPx = std::clamp(p.maxRadiusPx, 1.0f, 128.0f);
         // A view-space position of this frame -> the clip position of the frame before. (viewProj)^-1 * proj = view^-1, whatever the
         // depth range of the matrices (a backend's), which only the z row of the clip position sees.
         const Mat4 invView = cam.view.inverse();
@@ -177,7 +214,7 @@ bool SceneFx::ready() {
     shaders_[int(Prog::Copy)] = make_shader(dof_copy_shader_desc(backend), "dof_copy");
     shaders_[int(Prog::Motion)] = make_shader(motion_blur_motion_shader_desc(backend), "motion_blur_motion");
     bool ok = true;
-    for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    for (int i = 0; i < int(Prog::ObjVel); ++i) ok = ok && sg_query_shader_state(shaders_[i]) == SG_RESOURCESTATE_VALID;
     if (!ok) {
         for (sg_shader& s : shaders_) {
             if (s.id) sg_destroy_shader(s);
@@ -195,10 +232,40 @@ bool SceneFx::ready() {
     return true;
 }
 
+bool SceneFx::ready_objects() {
+    if (objState_ != 0) return objState_ > 0;
+    if (!ready()) {
+        objState_ = -1;
+        return false;
+    }
+    const sg_backend backend = sg_query_backend();
+    shaders_[int(Prog::ObjVel)] = make_shader(motion_object_vel_shader_desc(backend), "motion_object_vel");
+    shaders_[int(Prog::ObjTile)] = make_shader(motion_object_tile_shader_desc(backend), "motion_object_tile");
+    shaders_[int(Prog::ObjGather)] = make_shader(motion_object_gather_shader_desc(backend), "motion_object_gather");
+    bool ok = true;
+    for (int i = int(Prog::ObjVel); i < int(Prog::Count); ++i)
+        ok = ok && sg_query_shader_state(shaders_[i]) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (int i = int(Prog::ObjVel); i < int(Prog::Count); ++i) {
+            if (shaders_[i].id) sg_destroy_shader(shaders_[i]);
+            shaders_[i] = {};
+        }
+        objState_ = -1;
+        FA_ERROR(
+            "render",
+            "The per-object motion blur is unavailable: its shaders failed to compile for this graphics backend (see "
+            "the sokol log lines above). The motion blur follows the camera's movement only. Hint: update the "
+            "graphics driver, or set motionBlurMode to \"camera\".");
+        return false;
+    }
+    objState_ = 1;
+    return true;
+}
+
 sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
-    if (state_ <= 0) return {};
+    if (state_ <= 0 || (prog >= Prog::ObjVel && objState_ <= 0)) return {};
     sg_pipeline_desc d{};
     d.shader = shaders_[int(prog)];
     d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
@@ -212,6 +279,9 @@ sg_pipeline SceneFx::pipeline(Prog prog, const TargetFormat& format) {
               : prog == Prog::Gather    ? "dof-gather"
               : prog == Prog::Composite ? "dof-composite"
               : prog == Prog::Copy      ? "dof-copy"
+              : prog == Prog::ObjVel    ? "motion-velocity"
+              : prog == Prog::ObjTile   ? "motion-tile"
+              : prog == Prog::ObjGather ? "motion-blur"
                                         : "motion-blur";
     const sg_pipeline p = sg_make_pipeline(&d);
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
@@ -248,6 +318,7 @@ void SceneFx::release() {
         s = {};
     }
     state_ = 0;
+    objState_ = 0;
     focus_.clear();
     failed_.clear();
     probed_.clear();
@@ -262,7 +333,8 @@ void SceneFx::release() {
 #endif
 int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SceneFxPlan& plan,
                         const PostRect& rectIn, int picW, int picH, ResourceId game, sg_view srcTex,
-                        const BloomTarget& dst, const PrepassRef& prepass, int* drawCalls, const std::string& job) {
+                        const BloomTarget& dst, const PrepassRef& prepass, const VelocityRef& velocity, int* drawCalls,
+                        const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
@@ -272,13 +344,16 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     // Half size rounded up: with an odd size the last half-size texel covers one picture pixel and a half-texel offset of the linear
     // read is below the blur's own radius (the gather runs in this image only).
     const int hw = std::max(1, (rw + 1) / 2), hh = std::max(1, (rh + 1) / 2);
-    // The size, the format and whether the two half-size images are part of it: a motion-blur-only frame must not hide (or be hidden
-    // by) the failure of the depth-of-field images of the same size.
-    const std::uint64_t shapeKey =
-        (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt) ^ (plan.dof ? (1ull << 63) : 0ull);
+    // The per-object blur needs the velocity image of the camera and its three programs; else the camera-only blur draws.
+    bool objects = plan.motion && plan.objects && velocity.valid() && ready_objects();
+    // The tiles: blocks of K x K pixels, K at least the farthest a pixel's blur reaches (the radius), so the 3 x 3 blocks around a pixel hold
+    // every streak that can reach it.
+    const int tileK = std::clamp(int(std::ceil(plan.maxRadiusPx)), 4, 128);
+    const int ntx = (rw + tileK - 1) / tileK, nty = (rh + tileK - 1) / tileK;
 
     // The scratch image of the picture's format and, for the blur, two RGBA16F images of half the size (the circle of confusion is signed:
-    // it needs a float alpha). Make sure the GPU can have them all at once, so a failure is one warning here and not a pass that cannot run
+    // it needs a float alpha); for the per-object blur an RGBA16F image of the camera's size (the blur vector and the depth) and the two
+    // images of blocks. Make sure the GPU can have them all at once, so a failure is one warning here and not a pass that cannot run
     // halfway through the frame. The pool keeps what it made.
     TransientDesc sd;
     sd.width = rw;
@@ -292,13 +367,35 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     ha.label = job + "/dof-half-a";
     TransientDesc hb = ha;
     hb.label = job + "/dof-half-b";
-    const bool alreadyFailed = std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end();
-    if (alreadyFailed) return 0;
-    if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
+    TransientDesc vd = ha;
+    vd.width = rw;
+    vd.height = rh;
+    vd.label = job + "/motion-v";
+    TransientDesc ta = ha;
+    ta.width = ntx;
+    ta.height = rh;
+    ta.label = job + "/motion-tile-a";
+    TransientDesc tb = ha;
+    tb.width = ntx;
+    tb.height = nty;
+    tb.label = job + "/motion-tile-b";
+    // The size, the format and whether the half-size images and the blur's images are part of it: a motion-blur-only frame must not hide (or
+    // be hidden by) the failure of the depth-of-field images of the same size, nor the camera-only blur by the failure of the tiles.
+    const auto shape_of = [&](bool obj) {
+        return (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt) ^
+               (plan.dof ? (1ull << 63) : 0ull) ^ (obj ? (1ull << 62) ^ (std::uint64_t(tileK) << 32) : 0ull);
+    };
+    // True when the images of the frame can be made (probed once per shape, not every frame).
+    const auto probe = [&](bool obj) {
+        const std::uint64_t shapeKey = shape_of(obj);
+        if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) return false;
+        if (std::find(probed_.begin(), probed_.end(), shapeKey) != probed_.end()) return true;
+        std::vector<const TransientDesc*> wanted{&sd};
+        if (plan.dof) wanted.insert(wanted.end(), {&ha, &hb});
+        if (obj) wanted.insert(wanted.end(), {&vd, &ta, &tb});
         std::vector<std::uint64_t> held;
         bool ok = true;
-        for (const TransientDesc* d : {&sd, &ha, &hb}) {
-            if (d != &sd && !plan.dof) break;
+        for (const TransientDesc* d : wanted) {
             const std::uint64_t h = targets.pool.acquire(*d);
             if (h == 0) {
                 ok = false;
@@ -314,21 +411,28 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
                 warnedTargets_ = true;
                 FA_ERROR("render",
                          "Depth of field and motion blur: cannot create the intermediate targets for a {}x{} camera; "
-                         "they are skipped. "
-                         "Hint: turn them off, or lower the render scale.",
-                         rw, rh);
+                         "{}. Hint: turn them off, or lower the render scale.",
+                         rw, rh, obj ? "the motion blur follows the camera's movement only" : "they are skipped");
             }
-            return 0;
+            return false;
         }
         if (probed_.size() >= kMaxFailed) probed_.erase(probed_.begin());
         probed_.push_back(shapeKey);
-    }
+        return true;
+    };
+    if (objects && !probe(true)) objects = false;
+    if (!objects && !probe(false)) return 0;
 
     const ResourceId scratch = graph.create_transient(sd);
-    ResourceId halfA, halfB;
+    ResourceId halfA, halfB, vImg, tileA, tileB;
     if (plan.dof) {
         halfA = graph.create_transient(ha);
         halfB = graph.create_transient(hb);
+    }
+    if (objects) {
+        vImg = graph.create_transient(vd);
+        tileA = graph.create_transient(ta);
+        tileB = graph.create_transient(tb);
     }
     int declared = 0;
     TransientTargets* tt = &targets;
@@ -349,6 +453,7 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
     SceneFx* self = this;
     const ResourceId pre = prepass.res;
     const PrepassRef prepassRef = prepass;
+    const VelocityRef velRef = velocity;
     const PostRectUv ruv = post_rect_uv(rectIn, picW, picH);
     const float gl = gpu.is_gl() ? 1.0f : 0.0f;
     // What a pass that draws a whole transient does (every pixel, no load), and what the one that writes into the picture does.
@@ -415,7 +520,78 @@ int SceneFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, 
             ++*drawCalls;
         });
     }
-    if (plan.motion) {
+    if (plan.motion && objects) {
+        const bool fromScratch =
+            plan.dof;  // the depth of field drew its result into the scratch: the gather reads that
+        motion_object_mobj_params_t u{};
+        u.a[0] = gl;
+        u.a[1] = float(rw);
+        u.a[2] = float(rh);
+        u.a[3] = float(tileK);
+        if (fromScratch) {
+            u.rc[2] = u.rc[3] = 1.0f;  // the whole scratch
+        } else {
+            u.rc[0] = ruv.x;
+            u.rc[1] = ruv.y;
+            u.rc[2] = ruv.w;
+            u.rc[3] = ruv.h;
+        }
+        u.b[0] = plan.shutter;
+        u.b[1] = 2.0f * plan.maxRadiusPx;  // the longest streak (its blur reaches half of it on each side)
+        u.b[2] = float(plan.motionTaps);
+        u.e[1] = float(ntx);
+        u.e[2] = float(nty);
+        for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
+        for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
+        for (int i = 0; i < 16; ++i) u.m[i] = plan.prevFromView.m[i];
+        const auto velReady = std::make_shared<bool>(false);  // the blur vectors were drawn this frame
+        add("motion-velocity", {velocity.res, pre}, {vImg}, [=](const PassContext& c) {
+            const Target* vt = velRef.target(c);
+            const Target* pt = prepassRef.target(c);
+            if (!vt || !pt) return;
+            const sg_view views[4] = {sg_view{}, vt->texView, pt->texView, sg_view{}};
+            if (!draw_object_pass(*self, *g, Prog::ObjVel, into_scratch(c, vImg, "motion-velocity"), views, u, nullptr))
+                return;
+            *velReady = true;
+            ++*drawCalls;
+        });
+        add("motion-tile-x", {vImg}, {tileA}, [=](const PassContext& c) {
+            if (!*velReady) return;
+            motion_object_mobj_params_t ux = u;
+            ux.e[0] = 0.0f;
+            const sg_view views[4] = {sg_view{}, tex(c, vImg), sg_view{}, sg_view{}};
+            if (draw_object_pass(*self, *g, Prog::ObjTile, into_scratch(c, tileA, "motion-tile-x"), views, ux, nullptr))
+                ++*drawCalls;
+        });
+        add("motion-tile-y", {tileA}, {tileB}, [=](const PassContext& c) {
+            if (!*velReady) return;
+            motion_object_mobj_params_t uy = u;
+            uy.e[0] = 1.0f;
+            const sg_view views[4] = {sg_view{}, tex(c, tileA), sg_view{}, sg_view{}};
+            if (draw_object_pass(*self, *g, Prog::ObjTile, into_scratch(c, tileB, "motion-tile-y"), views, uy, nullptr))
+                ++*drawCalls;
+        });
+        if (fromScratch) {
+            // Reads the scratch the depth of field finished and draws straight into the picture: no copy after it.
+            add("motion-blur", {scratch, vImg, tileB, game}, {game}, [=](const PassContext& c) {
+                if (!*velReady || !*scratchReady) return;
+                const sg_view views[4] = {tex(c, scratch), tex(c, vImg), sg_view{}, tex(c, tileB)};
+                if (draw_object_pass(*self, *g, Prog::ObjGather, into_picture("motion-blur"), views, u,
+                                     rect.whole ? nullptr : &rect))
+                    ++*drawCalls;
+            });
+        } else {
+            add("motion-blur", {game, vImg, tileB}, {scratch}, [=](const PassContext& c) {
+                if (!*velReady || !srcTex.id) return;
+                const sg_view views[4] = {srcTex, tex(c, vImg), sg_view{}, tex(c, tileB)};
+                if (!draw_object_pass(*self, *g, Prog::ObjGather, into_scratch(c, scratch, "motion-blur"), views, u,
+                                      nullptr))
+                    return;
+                *scratchReady = true;
+                ++*drawCalls;
+            });
+        }
+    } else if (plan.motion) {
         const bool fromScratch = plan.dof;  // the blur drew its result into the scratch: the streaks read that
         motion_blur_motion_params_t u{};
         u.a[0] = gl;
