@@ -59,6 +59,11 @@ struct UpscalerSettings {
     UpscalerMode mode = UpscalerMode::Stretch;
     UpscalerQuality quality = UpscalerQuality::Native;
     float sharpness = 0.5f;  // 0..1: the contrast-adaptive sharpen of the spatial and temporal modes
+    // M78-P4c: with mode "dlss", draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of
+    // Super Resolution, where this GPU, the installed SDK and the frame allow it (the "dlssRayReconstruction" row of render.supports says
+    // why not; the frame then draws with Super Resolution). An opt-in preview: the renderer has no ray-traced signals to denoise yet and its
+    // guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). Ignored by every other mode.
+    bool rayReconstruction = false;
     bool operator==(const UpscalerSettings&) const = default;
 };
 
@@ -160,11 +165,11 @@ constexpr UpscaleScalePlan plan_upscale_scale(float windowScale, UpscalerQuality
     return p;
 }
 
-// {"mode", "quality", "sharpness"} (all three always present).
+// {"mode", "quality", "sharpness", "rayReconstruction"} (all four always present).
 Json upscaler_to_json(const UpscalerSettings& s);
 
 // Reads the keys of `j` that are present over `base` (a partial object changes only those): "mode" and "quality" are names,
-// "sharpness" a number 0..1. An error names the place (`where` + "/key", e.g. "factoria.json#/render/upscaler" or
+// "sharpness" a number 0..1, "rayReconstruction" a boolean. An error names the place (`where` + "/key", e.g. "factoria.json#/render/upscaler" or
 // "render.upscaler"), what is wrong, the valid values and a "did you mean" for a misspelt name or key. Nothing is stored.
 Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view where, const UpscalerSettings& base);
 

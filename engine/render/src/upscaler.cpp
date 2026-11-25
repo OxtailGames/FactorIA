@@ -62,6 +62,7 @@ Json upscaler_to_json(const UpscalerSettings& s) {
     j["mode"] = std::string(upscaler_mode_name(s.mode));
     j["quality"] = std::string(upscaler_quality_name(s.quality));
     j["sharpness"] = std::round(double(s.sharpness) * 1000.0) / 1000.0;
+    j["rayReconstruction"] = s.rayReconstruction;
     return j;
 }
 
@@ -96,8 +97,8 @@ Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view
                               ": expected an object like {\"mode\": \"spatial\", \"quality\": \"balanced\", "
                               "\"sharpness\": 0.5}, got " +
                               describe_json_value(j),
-                          "Every key is optional: mode, quality, sharpness.");
-    static const std::vector<std::string> keys = {"mode", "quality", "sharpness"};
+                          "Every key is optional: mode, quality, sharpness, rayReconstruction.");
+    static const std::vector<std::string> keys = {"mode", "quality", "sharpness", "rayReconstruction"};
     for (auto e = j.begin(); e != j.end(); ++e)
         if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
             return make_error(std::string(where) + "/" + e.key() + ": '" + e.key() + "' is not an upscaler setting",
@@ -123,6 +124,14 @@ Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view
             return make_error(ptr + ": " + describe_json_value(*it) + " is outside 0..1",
                               "Use a number from 0 (no sharpening) to 1 (the strongest); 0.5 is the default.");
         s.sharpness = float(d);
+    }
+    if (auto it = j.find("rayReconstruction"); it != j.end()) {
+        if (!it->is_boolean())
+            return make_error(
+                std::string(where) + "/rayReconstruction: expected true or false, got " + describe_json_value(*it),
+                "true draws mode \"dlss\" with DLSS Ray Reconstruction where this machine can (see render.supports "
+                "\"dlssRayReconstruction\"); false (the default) keeps Super Resolution.");
+        s.rayReconstruction = it->get<bool>();
     }
     return s;
 }

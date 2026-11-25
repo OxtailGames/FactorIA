@@ -63,6 +63,7 @@
 #include "render_internal.h"
 #include "render_upscale.h"
 #include "render_upscale_metalfx.h"
+#include "render_upscale_rr.h"
 #include "render_upscale_spatial.h"
 #include "render_framegen.h"
 #include "render_latency.h"
@@ -276,6 +277,23 @@ struct Renderer::Impl {
     const render::VendorProbe& vendor_probe(int index);  // asked once; a provider that failed a frame says so
     void set_vendor_env(render::FeatureEnv& env);        // render.supports: the three providers' answers
     std::string vendorFailedWhy[render::kVendorUpscalerCount];
+    // M78-P4c, DLSS Ray Reconstruction (renderer_upscale.cpp, render_upscale_rr.h). rrPrep draws the guides the denoiser-upscaler reads
+    // (rrNormal: the world normal and the roughness, rrDiffuse and rrSpecular: the albedos) at the render resolution, only on a frame DLSS
+    // draws with Ray Reconstruction; another frame gives them back (free_rr_images). rrProbe: what the provider answered for this GPU, asked
+    // once (rrProbed). rrFailed: a frame was refused (or the machine cannot run it): every frame after draws with Super Resolution, and
+    // render.supports says why (rrFailedWhy). rrWarned*: the one warning of a frame that cannot use it (not linear, dynamic resolution) and
+    // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
+    render::RrGuidesPrep rrPrep;
+    Target rrNormal, rrDiffuse, rrSpecular, rrDepth;
+    render::VendorProbe rrProbe;
+    bool rrProbed = false;
+    bool rrFailed = false;
+    std::string rrFailedWhy;
+    bool rrWarnedUnavailable = false, rrWarnedFrame = false;
+    bool rrLastUsed = false;
+    const render::VendorProbe& rr_probe();  // asked once; a refused frame says so
+    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass);
+    void free_rr_images();
     // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
     // at init and detached before the device goes.
     render::LatencyController latency;

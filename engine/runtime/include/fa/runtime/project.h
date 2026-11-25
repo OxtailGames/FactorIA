@@ -127,7 +127,7 @@ struct ProjectSettings {
     // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
     bool renderInterpolation = false;
     float renderInterpolationSnapDistance = 0.0f;
-    // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
+    // "render": {"upscaler": {"mode", "quality", "sharpness", "rayReconstruction"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
     // window.upscaler. The renderer draws "stretch", "spatial", "temporal" and "metalfx" (Apple, Metal only), and (M78) "dlss", "xess" and "fsr" (the vendor SDKs, Windows only, installed by `factoria setup`): where a mode is not available the next best draws and effectiveMode says which.
     render::UpscalerSettings upscaler;
     // "render": {"latency": {"mode", "boost"}} (M78, docs/LATENCY.md): the low-latency path a run starts with (off, auto, reflex, antilag2, xell);

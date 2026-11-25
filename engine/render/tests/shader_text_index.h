@@ -42,6 +42,7 @@
 #include "shaders/terrain.glsl.h"
 #include "shaders/ui2d.glsl.h"
 #include "shaders/upscale_mfx.glsl.h"
+#include "shaders/upscale_rr.glsl.h"
 #include "shaders/upscale_spatial.glsl.h"
 #include "shaders/volumetric.glsl.h"
 #include "shaders/water2d.glsl.h"
@@ -107,6 +108,8 @@ static const fa::shader_text::Texts* const kShaderTexts[] = {
     &ui2d_glsl430_pack_texts,
     &upscale_mfx_glsl300es_pack_texts,
     &upscale_mfx_glsl430_pack_texts,
+    &upscale_rr_glsl300es_pack_texts,
+    &upscale_rr_glsl430_pack_texts,
     &upscale_spatial_glsl300es_pack_texts,
     &upscale_spatial_glsl430_pack_texts,
     &volumetric_glsl300es_pack_texts,
@@ -202,6 +205,7 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &terrain_terrain_shader_desc,
     &ui2d_ui2d_shader_desc,
     &upscale_mfx_mfx_shader_desc,
+    &upscale_rr_rr_shader_desc,
     &upscale_spatial_spatial_edge_shader_desc,
     &upscale_spatial_spatial_sharpen_shader_desc,
     &volumetric_apply_shader_desc,

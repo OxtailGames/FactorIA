@@ -696,6 +696,7 @@ void Renderer::shutdown() {
         im.taa.release();
         im.spatial.release();
         im.mfxPrep.release();
+        im.rrPrep.release();
         im.framegen.detach();     // the frame-generation SDK's context goes before the device and its swapchain do
         im.latency.detach();      // the low-latency SDK's context goes before the device does
         if (im.gpu.has_device())  // the vendor SDKs' contexts go before the device does (the GPU is idle first, inside)
