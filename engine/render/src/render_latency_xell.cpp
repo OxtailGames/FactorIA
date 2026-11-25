@@ -2,6 +2,7 @@
 #include "render_latency_xell.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <mutex>
 
@@ -48,7 +49,7 @@ std::string call_failed(const char* function, std::int32_t result) {
 
 double round2(double v) { return std::round(v * 100.0) / 100.0; }
 
-class XellProvider final : public LatencyProvider {
+class XellProvider final : public LatencyProvider, public XellShare {
 public:
     std::string_view name() const override { return "Intel XeLL"; }
     LatencyDriver driver() const override { return LatencyDriver::Xell; }
@@ -62,15 +63,31 @@ public:
     void marker(LatencyMarker marker, std::uint64_t frameId) override;
     Json vendor_report() override;
     void stop(gpu::Device& device) override;
+    XellShare* xell_share() override { return this; }
+
+    std::string acquire(const void* nativeDevice, XellContext& out) override;
+    void release(const void* nativeDevice) override;
+    std::string ensure_sleep_mode() override;
+    std::uint32_t frame_id() const override { return frameId_.load(std::memory_order_relaxed); }
 
 private:
+    // Finds, loads and checks the library (what the probe does after the environment); "" or the reason. Keeps it for the context unless a live
+    // context uses another (its functions are the ones the context was made with).
+    std::string load_library();
+    std::string acquire_locked(const void* nativeDevice, XellContext* out);
+    void release_locked(const void* nativeDevice);
+    void note_frame(std::uint64_t frameId) { frameId_.store(std::uint32_t(frameId), std::memory_order_relaxed); }
+
     // Used from the thread that draws (the engine's main thread) only; the probe may come from another, so the library is under the mutex.
     std::mutex mutex_;
     std::unique_ptr<VendorLibrary> lib_;
     XellApi api_{};
-    const gpu::Device* device_ = nullptr;
+    const void* nativeDevice_ = nullptr;  // the ID3D12Device of the context
     abi::Context ctx_ = nullptr;
-    bool enabled_ = false;
+    int refs_ = 0;            // the users of the context (this provider's start(), XeSS frame generation)
+    bool startHeld_ = false;  // start() holds one of them
+    bool enabled_ = false;    // the sleep mode is on
+    std::atomic<std::uint32_t> frameId_{0};
 };
 
 VendorProbe XellProvider::probe(const VendorEnv& env) {
@@ -83,66 +100,115 @@ VendorProbe XellProvider::probe(const VendorEnv& env) {
                         "latency mode.";
         return p;
     }
+    p.reason = load_library();
+    p.available = p.reason.empty();
+    return p;
+}
+
+std::string XellProvider::load_library() {
     std::string why;
     const std::filesystem::path found = vendor_loader().find(xell_library_spec(), &why);
-    if (found.empty()) {
-        p.reason = "XeLL is not installed: run `factoria setup xess` (" + why + ").";
-        return p;
-    }
+    if (found.empty()) return "XeLL is not installed: run `factoria setup xess` (" + why + ").";
     std::unique_ptr<VendorLibrary> lib = vendor_loader().load(found, &why);
-    if (!lib) {
-        p.reason = "XeLL's library " + fa::fs::path_to_utf8(found) + " could not be loaded: " + why +
-                   ". Run `factoria setup xess` to install it again.";
-        return p;
-    }
+    if (!lib)
+        return "XeLL's library " + fa::fs::path_to_utf8(found) + " could not be loaded: " + why +
+               ". Run `factoria setup xess` to install it again.";
     XellApi api;
-    if (const std::string missing = xell_load_api(*lib, api); !missing.empty()) {
-        p.reason = "XeLL's library " + lib->path() + " has no export " + missing +
-                   " (it is not XeLL 1.x): run `factoria setup xess` to install the version FactorIA was tested with.";
-        return p;
-    }
+    if (const std::string missing = xell_load_api(*lib, api); !missing.empty())
+        return "XeLL's library " + lib->path() + " has no export " + missing +
+               " (it is not XeLL 1.x): run `factoria setup xess` to install the version FactorIA was tested with.";
     abi::Version version{};
-    if (const std::int32_t rc = api.getVersion(&version); rc != abi::kResultSuccess) {
-        p.reason = "XeLL's library " + lib->path() +
-                   " did not answer its version: " + call_failed("xellGetVersion", rc) +
-                   ". Run `factoria setup xess` to install it again.";
-        return p;
+    if (const std::int32_t rc = api.getVersion(&version); rc != abi::kResultSuccess)
+        return "XeLL's library " + lib->path() + " did not answer its version: " + call_failed("xellGetVersion", rc) +
+               ". Run `factoria setup xess` to install it again.";
+    if (version.major < 1)
+        return "XeLL " + version_text(version) + " (" + lib->path() +
+               ") is too old: FactorIA needs XeLL 1.0 or newer. Run `factoria setup xess`.";
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ctx_) {
+        lib_ = std::move(lib);
+        api_ = api;
     }
-    if (version.major < 1) {
-        p.reason = "XeLL " + version_text(version) + " (" + lib->path() +
-                   ") is too old: FactorIA needs XeLL 1.0 or newer. Run `factoria setup xess`.";
-        return p;
+    return {};
+}
+
+std::string XellProvider::acquire_locked(const void* nativeDevice, XellContext* out) {
+    if (!lib_ || !api_.d3d12Create) return "XeLL's library is not loaded (the probe did not run, or failed)";
+    if (ctx_ && nativeDevice_ != nativeDevice) {
+        api_.destroyContext(ctx_);  // the context of a device that went without a release: it went with the device
+        ctx_ = nullptr;
+        refs_ = 0;
+        startHeld_ = false;
+        enabled_ = false;
     }
+    if (!ctx_) {
+        abi::Context handle = nullptr;
+        const std::int32_t rc =
+            api_.d3d12Create(const_cast<void*>(nativeDevice), &handle);  // NOLINT: the SDK takes a non-const device
+        if (rc != abi::kResultSuccess || !handle)
+            return "XeLL could not make its context: " + call_failed("xellD3D12CreateContext", rc);
+        ctx_ = handle;
+        nativeDevice_ = nativeDevice;
+        enabled_ = false;
+        refs_ = 0;
+    }
+    ++refs_;
+    if (out) {
+        out->api = api_;
+        out->ctx = ctx_;
+    }
+    return {};
+}
+
+void XellProvider::release_locked(const void* nativeDevice) {
+    if (!ctx_ || nativeDevice_ != nativeDevice) return;
+    if (refs_ > 0) --refs_;
+    if (refs_ > 0) return;
+    api_.destroyContext(ctx_);
+    ctx_ = nullptr;
+    nativeDevice_ = nullptr;
+    enabled_ = false;
+}
+
+std::string XellProvider::acquire(const void* nativeDevice, XellContext& out) {
+    bool loaded = false;
     {
-        // The library is kept for the context; one that a live context uses stays (its functions are the ones the context was made with).
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!ctx_) {
-            lib_ = std::move(lib);
-            api_ = api;
-        }
+        loaded = lib_ && api_.d3d12Create;
     }
-    p.available = true;
-    return p;
+    if (!loaded) {
+        if (std::string why = load_library(); !why.empty()) return why;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    return acquire_locked(nativeDevice, &out);
+}
+
+void XellProvider::release(const void* nativeDevice) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    release_locked(nativeDevice);
+}
+
+std::string XellProvider::ensure_sleep_mode() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ctx_) return "XeLL has no context";
+    if (enabled_) return {};
+    abi::SleepParams params{};
+    params.flags = abi::kFlagLowLatency;
+    if (const std::int32_t rc = api_.setSleepMode(ctx_, &params); rc != abi::kResultSuccess)
+        return call_failed("xellSetSleepMode", rc);
+    enabled_ = true;
+    return {};
 }
 
 std::string XellProvider::start(gpu::Device& device) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (ctx_ && device_ != &device) {
-        api_.destroyContext(ctx_);  // the context of a device that went without stop(): it went with the device
-        ctx_ = nullptr;
-    }
-    if (ctx_) return {};
+    const void* nativeDevice = device.native().device;
+    if (startHeld_ && ctx_ && nativeDevice_ == nativeDevice) return {};
     if (!lib_ || !api_.d3d12Create) return "XeLL's library is not loaded (the probe did not run, or failed)";
     if (device.backend() != gpu::Backend::D3d12) return "XeLL runs on Direct3D 12 only";
-    const gpu::NativeDevice nd = device.native();
-    abi::Context handle = nullptr;
-    const std::int32_t rc =
-        api_.d3d12Create(const_cast<void*>(nd.device), &handle);  // NOLINT: the SDK takes a non-const device
-    if (rc != abi::kResultSuccess || !handle)
-        return "XeLL could not make its context: " + call_failed("xellD3D12CreateContext", rc);
-    ctx_ = handle;
-    device_ = &device;
-    enabled_ = false;
+    startHeld_ = false;
+    if (std::string why = acquire_locked(nativeDevice, nullptr); !why.empty()) return why;
+    startHeld_ = true;
     return {};
 }
 
@@ -158,6 +224,7 @@ void XellProvider::configure(bool enabled, bool boost, std::uint32_t minInterval
 
 void XellProvider::sleep(std::uint64_t frameId) {
     if (!ctx_ || !enabled_) return;
+    note_frame(frameId);
     api_.sleep(ctx_, std::uint32_t(frameId));
 }
 
@@ -173,6 +240,7 @@ void XellProvider::marker(LatencyMarker m, std::uint64_t frameId) {
         case LatencyMarker::PresentStart: id = abi::kMarkerPresentStart; break;
         case LatencyMarker::PresentEnd: id = abi::kMarkerPresentEnd; break;
     }
+    note_frame(frameId);
     api_.addMarker(ctx_, std::uint32_t(frameId), id);
 }
 
@@ -206,11 +274,9 @@ Json XellProvider::vendor_report() {
 
 void XellProvider::stop(gpu::Device& device) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!ctx_ || device_ != &device) return;
-    api_.destroyContext(ctx_);
-    ctx_ = nullptr;
-    device_ = nullptr;
-    enabled_ = false;
+    if (!startHeld_ || !ctx_ || nativeDevice_ != device.native().device) return;
+    startHeld_ = false;
+    release_locked(nativeDevice_);
 }
 
 }  // namespace

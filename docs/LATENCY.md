@@ -97,7 +97,8 @@ points is one branch and calls nothing.
 
 `libxell.dll` (installed next to `libxess.dll` by `factoria setup xess`, version 1.0 or newer) on Direct3D 12 only. One context is made
 for the device, `xellSetSleepMode` says low latency (and boost), `xellSleep` runs before the input and `xellAddMarkerData` gets the
-markers above. On Vulkan and Direct3D 11 the mode is unavailable and says so.
+markers above. On Vulkan and Direct3D 11 the mode is unavailable and says so. Intel XeSS frame generation (FRAME_GENERATION.md) cannot run
+without XeLL, so XeLL also runs while it does, whatever `render.latency` says (the readout says "XeLL runs because XeSS frame generation needs it").
 
 ## NVIDIA Reflex
 

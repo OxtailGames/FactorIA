@@ -230,7 +230,9 @@ TEST_CASE("frame generation settings: the provider a mode names on what the mach
 // ---- the slot table ----------------------------------------------------------------------------------------------------------------------
 
 TEST_CASE("frame generation providers: every slot is empty and says which package fills it") {
-    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
+    // (The Xess slot has its provider: render_framegen_xess.h, framegen_xess_tests.cpp.)
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) != nullptr);
+    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Fsr}) {
         CAPTURE(render::frame_gen_slot_name(s));
         CHECK(render::framegen_provider(s) == nullptr);
         const std::string why = render::framegen_absent_reason(s);
@@ -932,8 +934,9 @@ TEST_CASE("frame generation: a provider's device hook goes to the devices of ren
     auto hook = std::make_shared<FakeSwapchainHook>();
     FakeProvider dlss(FrameGenSlot::Dlss);
     dlss.hook = hook;
-    FakeProvider noHook(FrameGenSlot::Fsr);  // a provider with no hook adds none
-    ProviderGuard g1(FrameGenSlot::Dlss, &dlss), g2(FrameGenSlot::Fsr, &noHook);
+    FakeProvider noHook(FrameGenSlot::Fsr);   // a provider with no hook adds none
+    FakeProvider noXess(FrameGenSlot::Xess);  // (the Xess slot's own provider has a hook)
+    ProviderGuard g1(FrameGenSlot::Dlss, &dlss), g2(FrameGenSlot::Fsr, &noHook), g3(FrameGenSlot::Xess, &noXess);
 
     const auto hooks = render::framegen_device_hooks();
     REQUIRE(hooks.size() == 1);

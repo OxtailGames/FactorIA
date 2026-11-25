@@ -63,6 +63,29 @@ struct XellApi {
     xell_abi::GetFramesReportsFn getFramesReports = nullptr;  // optional: a library without it gives no vendor report
 };
 
+// The XeLL context of a device, shared by two users: the XeLL latency provider (render.latency) and Intel XeSS frame generation
+// (render_framegen_xess.h), which cannot run without XeLL and takes the context at the moment it makes the window's swapchain, before the
+// latency controller exists. The provider owns the context; each user holds a reference, and the context goes with the last one (XeSS frame
+// generation is destroyed first, as XeSS-FG asks). The XeLL provider of the latency table gives it (LatencyProvider::xell_share()).
+struct XellContext {
+    XellApi api;
+    xell_abi::Context ctx = nullptr;
+};
+class XellShare {
+public:
+    virtual ~XellShare() = default;
+    // A reference to the context on the ID3D12Device `nativeDevice`, made when there is none (the library is loaded when no probe did): ""
+    // or why not. A context of another device (one that went without a release) is destroyed first.
+    virtual std::string acquire(const void* nativeDevice, XellContext& out) = 0;
+    // Gives a reference back; the context is destroyed with the last one. A device that is not the context's does nothing.
+    virtual void release(const void* nativeDevice) = 0;
+    // The sleep mode with low latency on, when the latency controller has not set it ("" or XeLL's reason): XeSS-FG must find it on
+    // before it generates.
+    virtual std::string ensure_sleep_mode() = 0;
+    // The frame id of the last sleep or marker the controller gave (the id of the present that will show the frame); 0 until one did.
+    virtual std::uint32_t frame_id() const = 0;
+};
+
 VendorLibrarySpec xell_library_spec();
 // Takes the functions from `lib`. "" when the required ones are all there, else the name of the first missing one.
 std::string xell_load_api(VendorLibrary& lib, XellApi& api);

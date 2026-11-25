@@ -187,8 +187,17 @@ void LatencyController::stop_provider() {
     running_ = nullptr;
 }
 
+void LatencyController::require_driver(LatencyDriver d) {
+    if (d == required_) return;
+    required_ = d;
+    apply();
+}
+
 void LatencyController::apply() {
-    if (!device_ || settings_.mode == LatencyMode::Off) {
+    // The setting, with the mode a requirement puts over it (XeLL for XeSS frame generation).
+    LatencySettings settings = settings_;
+    if (required_ == LatencyDriver::Xell) settings.mode = LatencyMode::Xell;
+    if (!device_ || settings.mode == LatencyMode::Off) {
         stop_provider();
         driver_ = LatencyDriver::None;
         return;
@@ -201,7 +210,7 @@ void LatencyController::apply() {
     LatencyDriver want = LatencyDriver::None;
     for (int round = 0; round < 3; ++round) {
         c.reflex = c.antiLag2 = c.xell = false;
-        switch (settings_.mode) {
+        switch (settings.mode) {
             case LatencyMode::Reflex: c.reflex = usable(LatencyDriver::Reflex); break;
             case LatencyMode::AntiLag2: c.antiLag2 = usable(LatencyDriver::AntiLag2); break;
             case LatencyMode::Xell: c.xell = usable(LatencyDriver::Xell); break;
@@ -212,7 +221,7 @@ void LatencyController::apply() {
                 break;
             case LatencyMode::Off: break;
         }
-        want = effective_latency_driver(settings_, c);
+        want = effective_latency_driver(settings, c);
         LatencyProvider* p = latency_provider(want);
         if (!p) break;  // none, or the engine's pacing
         if (running_ == p) break;
@@ -231,7 +240,7 @@ void LatencyController::apply() {
     if (running_ && running_ != latency_provider(want))
         stop_provider();  // the engine's own pacing (or none) runs: no SDK
     driver_ = want;
-    if (running_) running_->configure(true, settings_.boost, 0);
+    if (running_) running_->configure(true, settings.boost, 0);
 }
 
 double LatencyController::pacing_sleep_ms(double refreshHz) const {
