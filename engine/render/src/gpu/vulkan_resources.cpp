@@ -286,10 +286,12 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
     rec.usage = u;
     rec.label = label;
     rec.format = desc.pixelFormat;
-    if (rec.format == PixelFormat::Default)
+    if (rec.format == PixelFormat::Default) {
+        if (!u.depthStencilAttachment && (u.colorAttachment || u.resolveAttachment)) note_default_color_used();
         rec.format = u.depthStencilAttachment                     ? defaults_.depthFormat
                      : (u.colorAttachment || u.resolveAttachment) ? defaults_.colorFormat
                                                                   : PixelFormat::Rgba8;
+    }
     rec.width = desc.width;
     rec.height = desc.height;
     rec.slices = desc.numSlices > 0 ? desc.numSlices : (rec.type == ImageType::Cube ? 6 : 1);
@@ -746,7 +748,9 @@ void VulkanDevice::destroy_view(View view) {
         count_destroy(stats_.views);
     }
     // The framebuffers made with it go first (deferred like the view: a frame in flight may draw into them).
-    if (rec.view) forget_framebuffers(rec.serial);
+    if (rec.view && (rec.type == ViewType::ColorAttachment || rec.type == ViewType::ResolveAttachment ||
+                     rec.type == ViewType::DepthStencilAttachment))
+        forget_framebuffers(rec.serial);
     if (rec.tracked || rec.view || rec.bindlessSlot != kNoSlot) {
         // The VkImageView and its bindless slot go once the frames whose descriptors may name them are finished.
         Deferred d;

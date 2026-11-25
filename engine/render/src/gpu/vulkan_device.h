@@ -294,6 +294,8 @@ struct VkFunctions {
 #undef FA_VK_MEMBER
     // vkCmdPipelineBarrier2 (Vulkan 1.3) or vkCmdPipelineBarrier2KHR; null = the Vulkan 1.0 barriers.
     PFN_vkCmdPipelineBarrier2 vkCmdPipelineBarrier2 = nullptr;
+    // VK_EXT_hdr_metadata (null without the extension: HDR10 sets no metadata).
+    PFN_vkSetHdrMetadataEXT vkSetHdrMetadataEXT = nullptr;
 };
 
 // "VK_ERROR_DEVICE_LOST (-4)": a VkResult's name and value, for the error messages.
@@ -895,9 +897,14 @@ private:
         std::uint64_t serial = 0;  // the timed frame
         std::uint32_t scope = 0;   // the scope's index in it
         VkQueryPool pool = VK_NULL_HANDLE;
+        bool inPass = false;  // a timestamp of it is in the open pass's secondary command buffer
+        bool lost = false;    // the pass's secondary failed to end: its timestamps never run
     };
     std::vector<ScopeRef> scopes_;
     bool scopeOpen_ = false;
+    // The timed frame whose start (pool reset and first timestamp) this list records (the prelude); -1 = none.
+    int timerSlot_ = -1;
+    std::uint64_t timerSerial_ = 0;
 
     // The pass
     struct Need {
@@ -1166,10 +1173,6 @@ public:
     // !ok() only when Vulkan could not make that buffer (reported in errors()).
     UploadAlloc upload(std::size_t size, std::size_t align, VulkanCommandList* keeper);
     DescriptorPools& descriptors() { return descriptors_; }
-    // Puts a Texture view into a free slot of the bindless table and returns the slot; the slot goes back to the free
-    // list once the frames that may read it are finished (bindless_remove).
-    Result<std::uint32_t> bindless_add(View textureView);
-    void bindless_remove(std::uint32_t slot);
     MemoryAllocator& memory() { return memory_; }
     // The VkFormat of `f` on this device (DepthStencil: D24S8 where it is a depth attachment, else D32S8).
     VkFormat vk_format(PixelFormat f) const;
@@ -1191,6 +1194,16 @@ public:
     VkPresentModeKHR swapchain_present_mode() const;
     std::uint64_t swapchain_recreations() const;
     void mark_swapchain_out_of_date_for_tests();
+    // How far the window's surface is rotated against the display (0, 90, 180 or 270 degrees: Android's
+    // currentTransform). The swapchain's preTransform is that transform and it does not pre-rotate the drawing, so a
+    // value other than 0 means the picture comes out turned by it until the renderer draws pre-rotated.
+    int swapchain_pre_rotation_degrees() const;
+    // Tests: the window's surface is made to lack `format` (as an Android surface lacks BGRA), so the swapchain's
+    // Default format fallback runs. Before create_swapchain().
+    void hide_surface_format_for_tests(PixelFormat format);
+    // Whether a pipeline or an image was made with the device's default colour format (EnvironmentDefaults); a
+    // swapchain that has to change that default after one was made is refused. Any thread.
+    void note_default_color_used() const { defaultColorUsed_ = true; }
     // Tests of the path of a device without 2D views of 3D images (VK_KHR_portability_subset's imageView2DOn3DImage):
     // false makes the device refuse them as such a device does.
     void set_image_view_2d_on_3d_for_tests(bool on) { imageView2DOn3D_ = on && imageView2DOn3DReal_; }
@@ -1202,11 +1215,18 @@ public:
     // The framebuffer of `renderPass` with `views` (attachment order) of `width` x `height`, from the cache or made
     // now (null with `error` set when Vulkan refused). `serials` name the views (ViewRecord::serial): a destroyed view
     // takes its framebuffers out of the cache (forget_framebuffers), and a new view with the same handle never finds
-    // them.
+    // them. `viewIds` are the View handles: a view destroyed while its framebuffer was made (destroy_view ran its
+    // forget_framebuffers before the insert) is found after the insert, and the entry goes out again (null, with the
+    // reason in `error`), so no entry outlives its views.
     VkFramebuffer framebuffer(VkRenderPass renderPass, const std::vector<VkImageView>& views,
-                              const std::vector<std::uint64_t>& serials, std::uint32_t width, std::uint32_t height,
-                              std::string& error);
+                              const std::vector<std::uint64_t>& serials, const std::vector<std::uint64_t>& viewIds,
+                              std::uint32_t width, std::uint32_t height, std::string& error);
     void forget_framebuffers(std::uint64_t viewSerial);
+    // Makes the framebuffer and inserts it under `key` (cacheMutex_ held).
+    VkFramebuffer make_framebuffer_locked(std::string key, VkRenderPass renderPass,
+                                          const std::vector<VkImageView>& views,
+                                          const std::vector<std::uint64_t>& serials, std::uint32_t width,
+                                          std::uint32_t height, std::string& error);
     void count_descriptor_set_bind() { ++descriptorSetBinds_; }
     // A pipeline's state (null when `pipeline` names nothing or failed).
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
@@ -1346,10 +1366,16 @@ private:
     // A PassDesc::for_swapchain pass as a pass into views: the acquired image, the depth-stencil and MSAA images; the
     // error when there is nothing acquired to draw into. Any recording thread (swapMutex_).
     std::string swapchain_pass(const PassDesc& pass, PassDesc& into) const;
+    // The queue that owns `t` now (queueMutex_ is taken: a submit may be handing it over).
+    QueueKind owner_of(const TrackedResource& t) const {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        return t.owner;
+    }
     // Reports the resources `list` uses on a queue that does not own them, or before it waited for their handoff's
-    // token (`waits`: the value of each queue's timeline the submission waits for); a handoff waited for is settled.
-    // Under queueMutex_.
-    void check_owners(const VulkanCommandList& list, const std::uint64_t* waits);
+    // token (`waits`: the value of each queue's timeline the submission waits for). The ones whose handoff the list does
+    // wait for are put in `settled`: execute() clears their `handed` once the list is submitted. Under queueMutex_.
+    void check_owners(const VulkanCommandList& list, const std::uint64_t* waits,
+                      std::vector<TrackedResource*>& settled);
     // The label of the buffer or image record of `t` ("buffer 'x'", "image 'y'"), for reports. Under queueMutex_ (takes
     // resMutex_: resMutex_ may be taken under queueMutex_, never the other way round).
     std::string describe(const TrackedResource& t);
@@ -1358,7 +1384,7 @@ private:
     // The device's own list for initial uploads and readbacks, opened on first use. Under queueMutex_.
     VulkanCommandList& prelude();
     // A list that ignores everything, for when Vulkan could not give one (deadLists_). Under queueMutex_.
-    VulkanCommandList& dead_list();
+    VulkanCommandList& dead_list(QueueKind queue = QueueKind::Graphics);
     // Executes the prelude if it recorded anything. Under queueMutex_.
     void flush_prelude();
     // Waits (bounded) until the timeline of `queue` reaches `value`. Under queueMutex_ or not.
@@ -1404,7 +1430,8 @@ private:
     std::shared_ptr<const SetLayoutObject>
     set_layout(const std::string& key, const std::vector<VkDescriptorSetLayoutBinding>& bindings, std::string& error);
     // The pipeline cache file read and checked: the VkPipelineCache's initial data (init). Empty when there is no file,
-    // and when it does not match this device or is cut or corrupt (thrown away with a warning). Under cacheMutex_.
+    // and when it does not match this device or is cut or corrupt (thrown away with a warning). Called once from init,
+    // before any other thread uses the device, so it takes no lock.
     std::vector<std::uint8_t> load_pipeline_cache_file();
     // A warning of the pipeline cache file: the log and warnings().
     void cache_warning(const std::string& message);
@@ -1520,8 +1547,10 @@ private:
     static constexpr int kMaxTimedScopes = 64;  // scopes measured per frame (as GpuTimer::kMaxTimedPasses)
     struct TimerSlot {
         VkQueryPool pool = VK_NULL_HANDLE;
-        std::uint64_t serial = 0;  // the timed frame it holds
-        std::uint64_t fence = 0;   // the timeline value after its end timestamp
+        std::uint64_t serial = 0;    // the timed frame it holds
+        std::uint64_t fence = 0;     // the timeline value after its end timestamp
+        bool begun = false;          // the prelude that reset the pool and wrote the start ran (queueMutex_)
+        std::uint32_t notReady = 0;  // polls that found the frame's timestamps not available yet
         std::vector<std::string> names;
         std::vector<bool> submitted;  // scope i's list ran before timer_end_frame (else it is not reported)
     };
@@ -1531,6 +1560,7 @@ private:
     std::array<TimerSlot, kTimerSlots> timerSlots_;
     std::deque<int> timerPending_;  // ended frames waiting for their timeline value, oldest first
     int timerCurrent_ = -1;         // the slot of the open timed frame; -1 = none
+    bool timerWarned_ = false;      // the dropped-frame warning was logged
     std::uint64_t timerSerial_ = 0;
     std::uint64_t timerNext_ = 0;
     std::size_t timerStale_ = 0;  // results still to arrive that timer_forget() dropped
@@ -1552,9 +1582,10 @@ private:
     // swapchain (render thread); the acquired image and its sizes, read by begin_pass on any recording thread
     // (swapMutex_, a leaf lock: nothing is taken under it); the acquire semaphore no submission waited for yet
     // (queueMutex_).
-    bool surfaceExtension_ = false;     // VK_KHR_surface and the platform's surface extension
-    bool colorspaceExtension_ = false;  // VK_EXT_swapchain_colorspace (scRGB, HDR10)
-    bool swapchainExtension_ = false;   // VK_KHR_swapchain
+    bool surfaceExtension_ = false;      // VK_KHR_surface and the platform's surface extension
+    bool colorspaceExtension_ = false;   // VK_EXT_swapchain_colorspace (scRGB, HDR10)
+    bool swapchainExtension_ = false;    // VK_KHR_swapchain
+    bool hdrMetadataExtension_ = false;  // VK_EXT_hdr_metadata (HDR10's mastering metadata)
     struct SwapImage {
         Image image{};
         View view{};
@@ -1567,6 +1598,16 @@ private:
     };
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+    // The surface's formats (asked once per surface; render thread), and the ones a test hides.
+    VkResult load_surface_formats() const;
+    void set_hdr_metadata();
+    mutable std::vector<VkSurfaceFormatKHR> surfaceFormats_;
+    mutable bool surfaceFormatsKnown_ = false;
+    std::vector<VkFormat> hiddenSurfaceFormats_;
+    mutable std::atomic<bool> defaultColorUsed_{false};
+    int swapPreRotation_ = 0;
+    bool swapRotationWarned_ = false;
+    bool swapTimeoutLogged_ = false;
     std::string swapLabel_;
     PixelFormat swapFormat_ = PixelFormat::None;
     VkFormat swapVkFormat_ = VK_FORMAT_UNDEFINED;
