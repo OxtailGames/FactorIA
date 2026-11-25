@@ -173,10 +173,12 @@ depth, motion and mask read, the output written). A failing call is reported wit
 is off for the run. Not checked by the tests (a fake library): that the real library accepts these resource states and draws the
 right picture, which a D3D12 and a Vulkan run with the SDK on an AMD GPU and on another maker's show.
 
-What the loader does for every vendor library (FSR's loader, `libxess.dll`, Streamline): once a library has loaded, its folder joins
-the process's DLL search list (`AddDllDirectory`, once per folder), so a DLL that library loads later with a plain `LoadLibrary` (the
-upscaler DLL next to FSR's loader) is found whatever the current folder is; if the call fails the engine warns with the Windows error
-number. A library that fails to load names the Windows error number of that load (`GetLastError`, read before anything else can
+What the loader does for every vendor library (FSR's loader, `libxess.dll`, Streamline): once a library has loaded, its folder is
+added to the process's user DLL directories (`AddDllDirectory`, once per folder; if the call fails the engine warns with the Windows
+error number). Windows searches those directories only for a load that asks for them (`LOAD_LIBRARY_SEARCH_USER_DIRS` or
+`LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`): a DLL the vendor library loads later that way (the upscaler DLL next to FSR's loader) is found
+whatever the current folder is, while a plain `LoadLibrary` of a bare name is not helped (the engine does not change the search order
+of the whole process); whether each SDK's loads find their neighbours is item 5 of the check list below. A library that fails to load names the Windows error number of that load (`GetLastError`, read before anything else can
 change it). The label of the mode in `render.supports` and the menus is "FSR 3.1+" (the library may offer a newer one), and a
 debug-level log line says which versions `ffxQuery` listed. The text of the last FidelityFX message is cleared before each dispatch,
 so a failure never quotes the message of an earlier call.
@@ -199,7 +201,8 @@ write the result next to the item:
 4. **FSR, dynamic resolution**: with `dynamicResolution` on, the render size going up and down makes no new context (the log shows
    no hitch of a GPU wait per step in the frame times; the flag is set while the dynamic resolution is enabled, not per step).
 5. **FSR and XeSS, DLL search**: the game run from another current folder, and from a folder with accents in its path, still
-   finds the loader's neighbour DLLs (`AddDllDirectory` took effect), an exported game with the DLLs next to the executable too.
+   finds the loader's neighbour DLLs (if not, the SDK loads them with a plain `LoadLibrary`, which `AddDllDirectory` does not
+   reach: the fix is `SetDllDirectoryW` around the load), an exported game with the DLLs next to the executable too.
 6. **XeSS, Vulkan**: the device is made with the instance and device extensions and features `xessVKGet...` named (the Vulkan
    device was made with them: check with the validation layer or the driver's device report), `render.supports` `xess` is true, and the first frame draws. A GPU without one of the extensions says so
    in the reason.

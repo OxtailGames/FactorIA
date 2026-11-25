@@ -1023,13 +1023,19 @@ TEST_CASE("xess: a probe is not held up by a frame that is initialising the cont
     };
     bool drew = false;
     std::thread frameThread([&] { drew = r.draw(); });
+    bool reached = false;
     {
         std::unique_lock<std::mutex> lock(m);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(30), [&] { return inInit; }));
+        reached = cv.wait_for(lock, std::chrono::seconds(30), [&] { return inInit; });
     }
+    CHECK(reached);  // not REQUIRE: the frame thread must be released and joined on every path
     // The frame sits inside xessD3D12Init now, holding the context. The probe (render.supports from the editor) answers anyway.
-    auto probed = std::async(std::launch::async, [&] { return r.xess->probe(r.env(GpuVendor::Intel)); });
-    const bool answered = probed.wait_for(std::chrono::seconds(10)) == std::future_status::ready;
+    std::future<fa::render::VendorProbe> probed;
+    bool answered = false;
+    if (reached) {
+        probed = std::async(std::launch::async, [&] { return r.xess->probe(r.env(GpuVendor::Intel)); });
+        answered = probed.wait_for(std::chrono::seconds(10)) == std::future_status::ready;
+    }
     {
         std::lock_guard<std::mutex> lock(m);
         release = true;
