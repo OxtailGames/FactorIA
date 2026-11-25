@@ -57,9 +57,14 @@ struct FeatureEnv {
     // env made by hand says "not asked".
     std::array<VendorProbe, kVendorUpscalerCount> vendorUpscalers;
     bool vendorAsked = false;
+    // The low-latency providers reflex, antilag2 and xell (M78, render_latency.h): what each answered for this GPU, and whether they were asked.
+    std::array<VendorProbe, 3> latency;
+    bool latencyAsked = false;
 };
 // Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) into `env`.
 void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers);
+// Puts the low-latency providers' answers (index 0 reflex, 1 antilag2, 2 xell) into `env`.
+void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers);
 
 // The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
 // linear sRGB), scRGB and HDR10 on D3D11. Every other backend: none (GL, GLES3 and WebGL2 have no HDR swapchain in sokol).

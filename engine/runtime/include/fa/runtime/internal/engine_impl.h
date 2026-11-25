@@ -192,6 +192,12 @@ struct Engine::Impl {
     int gpuMissFrames = 0;
     std::optional<render::DynamicResolutionSettings>
         appliedProjectDynRes;  // the project's render.dynamicResolution last applied
+    // The low-latency setting (M78, docs/LATENCY.md): the project's render.latency, or what render.latency / Engine::set_latency last
+    // set. The renderer holds the same value once it exists; the engine passes the display's refresh rate to it every frame.
+    render::LatencySettings latency;
+    std::optional<render::LatencySettings> appliedProjectLatency;  // the project's render.latency last applied
+    // The refresh rate the engine's own pacing aligns to: the display's while vsync paces a windowed game, else 0 (no pacing).
+    double latency_pacing_hz() const;
     float dynamic_factor() const;
     void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
     void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)

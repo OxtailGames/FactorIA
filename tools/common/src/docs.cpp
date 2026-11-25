@@ -364,6 +364,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"upscaling-vendors",
          "DLSS, XeSS and FSR 3.1: where the SDKs are looked for, the Streamline runtime, fallbacks, NVIDIA's terms.",
          aud({kGameAi})},
+        {"latency",
+         "Low latency (render.latency): AMD Anti-Lag 2, Intel XeLL, the engine's own pacing, the input-to-present "
+         "readout.",
+         aud({kGameAi, kUser, kEngineDev})},
         {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", aud({kGameAi})},
         {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", aud({kGameAi})},
         {"scripting-world-input", "Scripting pages: the entity API, world, input, window, device presets and gamepads.",

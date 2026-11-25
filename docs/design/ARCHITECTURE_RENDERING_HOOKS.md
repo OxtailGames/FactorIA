@@ -144,7 +144,7 @@ The swapchain:
 Super Resolution today, DLSS frame generation and Reflex in later packages).
 
 - **No NVIDIA code.** The structures and functions of the Streamline C interface are the engine's own declarations in
-  `sl_abi` (checked field by field against the MIT headers of tag v2.14.16, with `static_assert`s on sizes and offsets). The
+  `sl_abi` (checked field by field against the MIT headers of tag v2.14.16, with `static_assert`s on sizes). The
   library is read at run time through `VendorLibrary` (`sl.interposer.dll`: `$FA_STREAMLINE_DIR`, the executable's folder,
   `<factoria home>/tools/streamline/<version>/`), and `StreamlineApi` is its table of functions. A test puts a fake table
   in its place (`set_vendor_loader_for_test`).
@@ -172,7 +172,33 @@ Super Resolution today, DLSS frame generation and Reflex in later packages).
   section and reset the history, release, the `auto` choice and the `render.supports` row. The real library and a real RTX GPU
   are not covered by any test.
 
+## Low latency (M78)
+
+`engine/render/include/fa/render/latency.h` holds the public part (`LatencySettings`, the mode and driver enums, `parse_latency_settings`);
+the rest is private to `fa_render`:
+
+- **`render_latency.{h,cpp}`: the seam.** A `LatencyProvider` is one SDK (`probe`, `start`, `configure`, `sleep`, `marker`,
+  `vendor_report`, `stop`). The table has three slots, Reflex, Anti-Lag 2 and XeLL; `register_latency_provider()` fills one (the
+  Streamline provider fills Reflex with one call; until then the slot answers "arrives with the Streamline provider"). The
+  `LatencyController` (one per renderer) chooses the driver from the mode, the GPU's maker and the probes, starts the provider when the
+  device exists, and falls back to the engine's own pacing when the SDK is unavailable or a call fails. With the mode `off` its calls
+  are one branch. Its clock is replaceable, so the tests drive time themselves.
+- **`render_latency_antilag2.{h,cpp}`.** D3D12 through `amdxc64.dll` (loaded with `VendorLoader`, the same seam the upscalers use;
+  `AmdExtD3DCreateInterface`, `UpdateAntiLagState`). Vulkan through a `DeviceHook` that asks `VK_AMD_anti_lag` on an AMD GPU, then
+  takes `vkAntiLagUpdateAMD` from `vkGetDeviceProcAddr`; the INPUT stage goes at `sleep()` and the PRESENT stage at the present-start
+  marker, with one frame index. The hook is registered on Windows before the device is made (`register_latency_device_hooks`).
+- **`render_latency_xell.{h,cpp}`.** `libxell.dll` (the XeSS spec of `factoria setup xess`), Direct3D 12 only.
+- **`renderer_latency.cpp`.** The renderer's API (`set_latency`, `latency_status`, `latency_report`, `latency_frame_begin`,
+  `latency_mark`, `take_latency_ms`) and the three `render.supports` rows. The frame id is the number of presents done plus one, the
+  `frame` of the next `PresentEvent`. The engine calls `latency_frame_begin` before the platform reads the input,
+  `latency_mark(InputSample)` after, and `latency_mark(SimulationEnd)` before the render; the renderer marks the submit and the present.
+
 ## Tests
+
+- **`engine/render/tests/latency_tests.cpp`.** Fakes everywhere (a recording device with a backend and a PCI vendor, a clock, providers,
+  a `VendorLoader` with fake modules and a fake Vulkan device-proc table): the settings and their errors, the driver table, the order of
+  calls and ids, the fallbacks, the engine's pacing, the readout, and both providers against their fake libraries. Windows-only code
+  paths that load a real SDK are covered on a Windows machine with the SDK only.
 
 - **`engine/render/tests/gpu_native_tests.cpp`.** The registry: each hook added once, the caller's first. The
   `RecordingDevice` marks every hook unavailable with the reason. The first reason stays, and `mark_available` starts a

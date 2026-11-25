@@ -72,6 +72,10 @@ void ProfilerView::add_frame(const ProfFrame& f) {
     frameMs.push_back(float(f.totalMs));
     if (frameMs.size() > kHistory) frameMs.erase(frameMs.begin());
     smoothFrameMs += (f.totalMs - smoothFrameMs) * a;
+    if (f.latencyMs >= 0) {
+        latencyMs = haveLatency ? latencyMs + (f.latencyMs - latencyMs) * a : f.latencyMs;
+        haveLatency = true;
+    }
     for (const ProfBudgetSample& b : f.overBudget)
         if (b.name == "scripts") {
             ++framesOverScriptBudget;

@@ -64,6 +64,7 @@
 #include "render_upscale.h"
 #include "render_upscale_metalfx.h"
 #include "render_upscale_spatial.h"
+#include "render_latency.h"
 #include "render_upscale_vendor.h"
 #include "metalfx.h"
 #include "render_jobs.h"
@@ -274,6 +275,10 @@ struct Renderer::Impl {
     const render::VendorProbe& vendor_probe(int index);  // asked once; a provider that failed a frame says so
     void set_vendor_env(render::FeatureEnv& env);        // render.supports: the three providers' answers
     std::string vendorFailedWhy[render::kVendorUpscalerCount];
+    // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
+    // at init and detached before the device goes.
+    render::LatencyController latency;
+    void set_latency_env(render::FeatureEnv& env);  // render.supports: the three low-latency providers' answers
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();
