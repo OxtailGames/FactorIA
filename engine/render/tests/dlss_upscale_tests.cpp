@@ -38,8 +38,8 @@ namespace {
 // ---- the fake library ---------------------------------------------------------------------------------------------------------------
 
 struct Sx {
-    SlR initRc = 0, shutdownRc = 0, supportedRc = 0, requirementsRc = 0, setD3dRc = 0, upgradeRc = 0, vkInfoRc = 0, tokenRc = 0,
-        setOptionsRc = 0, optimalRc = 0, tagRc = 0, constantsRc = 0, evaluateRc = 0, functionRc = 0;
+    SlR initRc = 0, shutdownRc = 0, supportedRc = 0, requirementsRc = 0, setD3dRc = 0, upgradeRc = 0, vkInfoRc = 0,
+        tokenRc = 0, setOptionsRc = 0, optimalRc = 0, tagRc = 0, constantsRc = 0, evaluateRc = 0, functionRc = 0;
     std::vector<std::string> events;
     // slInit
     std::vector<std::uint32_t> loaded;
@@ -58,7 +58,8 @@ struct Sx {
     void* setD3dDevice = nullptr;
     // Vulkan
     std::uint32_t requirementFlags = sl::kReqD3d12 | sl::kReqVulkan;
-    std::vector<std::string> instanceExt{"VK_KHR_get_physical_device_properties2"}, deviceExt{"VK_NVX_binary_import"}, f12, f13;
+    std::vector<std::string> instanceExt{"VK_KHR_get_physical_device_properties2"}, deviceExt{"VK_NVX_binary_import"},
+        f12, f13;
     std::uint32_t queuesGraphics = 0, queuesCompute = 1, queuesOpticalFlow = 1;
     sl::VulkanInfo vulkanInfo{};
     int instanceMarker = 0, physicalMarker = 0, vkDeviceMarker = 0;
@@ -184,16 +185,21 @@ SlR f_optimal(const sl::DlssOptions* o, sl::DlssOptimalSettings* s) {
     ++sx.optimalCalls;
     if (sx.optimalRc != 0) return sx.optimalRc;
     const float ratio = render::dlss_mode_ratio(o->mode);
-    s->optimalRenderWidth = sx.optimalOverrideW ? sx.optimalOverrideW : std::uint32_t(float(o->outputWidth) / ratio + 0.5f);
-    s->optimalRenderHeight = sx.optimalOverrideH ? sx.optimalOverrideH : std::uint32_t(float(o->outputHeight) / ratio + 0.5f);
+    s->optimalRenderWidth =
+        sx.optimalOverrideW ? sx.optimalOverrideW : std::uint32_t(float(o->outputWidth) / ratio + 0.5f);
+    s->optimalRenderHeight =
+        sx.optimalOverrideH ? sx.optimalOverrideH : std::uint32_t(float(o->outputHeight) / ratio + 0.5f);
     return 0;
 }
 SlR f_function(std::uint32_t, const char* name, void** fn) {
     if (sx.functionRc != 0) return sx.functionRc;
     const std::string n = name;
-    if (n == "slDLSSSetOptions") *fn = reinterpret_cast<void*>(&f_set_options);
-    else if (n == "slDLSSGetOptimalSettings") *fn = reinterpret_cast<void*>(&f_optimal);
-    else return sl::kErrorFeatureMissing;
+    if (n == "slDLSSSetOptions")
+        *fn = reinterpret_cast<void*>(&f_set_options);
+    else if (n == "slDLSSGetOptimalSettings")
+        *fn = reinterpret_cast<void*>(&f_optimal);
+    else
+        return sl::kErrorFeatureMissing;
     return 0;
 }
 SlR f_token(void** token, const std::uint32_t* index) {
@@ -545,7 +551,8 @@ struct Rig {
 
 // ---- the C ABI -----------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("streamline abi: every structure is made with its version and a GUID, and the unset values are the headers'") {
+TEST_CASE(
+    "streamline abi: every structure is made with its version and a GUID, and the unset values are the headers'") {
     sl::Preferences p;
     sl::init_preferences(p);
     CHECK(p.base.version == 1u);
@@ -581,8 +588,10 @@ TEST_CASE("streamline: results are named with what to do, and an unknown code is
     CHECK(text.find("slInit") != std::string::npos);
     CHECK(text.find("driver out of date") != std::string::npos);
     CHECK(text.find("Update the NVIDIA") != std::string::npos);
-    CHECK(render::streamline_refusal("slInit", sl::kErrorOSDisabledHWS).find("Hardware-accelerated GPU scheduling") != std::string::npos);
-    CHECK(render::streamline_refusal("slInit", sl::kErrorNoPlugins).find("factoria setup streamline") != std::string::npos);
+    CHECK(render::streamline_refusal("slInit", sl::kErrorOSDisabledHWS).find("Hardware-accelerated GPU scheduling") !=
+          std::string::npos);
+    CHECK(render::streamline_refusal("slInit", sl::kErrorNoPlugins).find("factoria setup streamline") !=
+          std::string::npos);
 }
 
 TEST_CASE("streamline: the Vulkan feature blobs are whole Vulkan12 and Vulkan13 structs with the named members on") {
@@ -612,7 +621,8 @@ TEST_CASE("streamline: the Vulkan feature blobs are whole Vulkan12 and Vulkan13 
 
 // ---- the runtime on D3D12 ------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("streamline D3D12: slInit runs before the device, the device and the factory are upgraded after it, and the engine gets the "
+TEST_CASE("streamline D3D12: slInit runs before the device, the device and the factory are upgraded after it, and the "
+          "engine gets the "
           "proxies") {
     sx.reset();
     FakeLoader loader;
@@ -690,7 +700,8 @@ TEST_CASE("streamline D3D12: a GPU that is not NVIDIA never starts Streamline, a
     CHECK(sx.inits == 1);
 }
 
-TEST_CASE("streamline D3D12: every way Streamline can be missing leaves the runtime unavailable with a reason, never the device") {
+TEST_CASE("streamline D3D12: every way Streamline can be missing leaves the runtime unavailable with a reason, never "
+          "the device") {
     sx.reset();
     FakeLoader loader;
     LoaderGuard guard(&loader);
@@ -793,6 +804,12 @@ TEST_CASE("streamline: the frame token is asked with the number of presents so f
     e.frame = 1;  // an older event never moves the count back
     rt.present_end(e);
     CHECK(rt.frame_index() == 2);
+    // The token of a frame is asked once: DLSS and Reflex asking for the same index get the same token.
+    sx.frameAsked = 0xFFFFFFFFu;
+    CHECK(rt.frame_token(&index, &why) == &sx.tokenMarker);
+    CHECK(sx.frameAsked == 0xFFFFFFFFu);
+    e.frame = 3;
+    rt.present_end(e);
     sx.tokenRc = sl::kErrorInvalidState;
     CHECK(rt.frame_token(&index, &why) == nullptr);
     CHECK(why.find("slGetNewFrameToken") != std::string::npos);
@@ -800,7 +817,8 @@ TEST_CASE("streamline: the frame token is asked with the number of presents so f
 
 // ---- the runtime on Vulkan -----------------------------------------------------------------------------------------------------------
 
-TEST_CASE("streamline Vulkan: the requirements become extensions, features and queues, Streamline's procs replace the loader's, and "
+TEST_CASE("streamline Vulkan: the requirements become extensions, features and queues, Streamline's procs replace the "
+          "loader's, and "
           "slSetVulkanInfo gets the device and the queues") {
     sx.reset();
     sx.f12 = {"bufferDeviceAddress"};
@@ -819,10 +837,13 @@ TEST_CASE("streamline Vulkan: the requirements become extensions, features and q
     rt.vulkan_instance_created(&sx.instanceMarker, nullptr);
     // Streamline's procs: an instance function, a device function, and what Streamline does not hook stays the loader's.
     const gpu::HookProcAddr loaders = reinterpret_cast<gpu::HookProcAddr>(&marker_device_fn);
-    CHECK(rt.vulkan_resolve("vkQueuePresentKHR", nullptr, loaders) == reinterpret_cast<gpu::HookProcAddr>(&marker_instance_fn));
-    CHECK(rt.vulkan_resolve("vkCmdBindPipeline", &sx.vkDeviceMarker, nullptr) == reinterpret_cast<gpu::HookProcAddr>(&marker_device_fn));
+    CHECK(rt.vulkan_resolve("vkQueuePresentKHR", nullptr, loaders) ==
+          reinterpret_cast<gpu::HookProcAddr>(&marker_instance_fn));
+    CHECK(rt.vulkan_resolve("vkCmdBindPipeline", &sx.vkDeviceMarker, nullptr) ==
+          reinterpret_cast<gpu::HookProcAddr>(&marker_device_fn));
     CHECK(rt.vulkan_resolve("vkCmdDraw", &sx.vkDeviceMarker, loaders) == nullptr);
-    CHECK(rt.vulkan_resolve("vkCmdBindPipeline", &sx.vkDeviceMarker, loaders) == nullptr);  // the same function: no replacement
+    CHECK(rt.vulkan_resolve("vkCmdBindPipeline", &sx.vkDeviceMarker, loaders) ==
+          nullptr);  // the same function: no replacement
 
     gpu::VulkanPhysicalDevice pd;
     pd.instance = &sx.instanceMarker;
@@ -865,8 +886,9 @@ TEST_CASE("streamline Vulkan: the requirements become extensions, features and q
     CHECK(in_order(sx.events, {"init", "requirements", "supported", "setVulkanInfo"}));
 }
 
-TEST_CASE("streamline Vulkan: a GPU that is not NVIDIA, a refusal and a feature this build does not know leave the runtime "
-          "unavailable") {
+TEST_CASE(
+    "streamline Vulkan: a GPU that is not NVIDIA, a refusal and a feature this build does not know leave the runtime "
+    "unavailable") {
     sx.reset();
     FakeLoader loader;
     LoaderGuard guard(&loader);
@@ -918,7 +940,8 @@ TEST_CASE("streamline Vulkan: a GPU that is not NVIDIA, a refusal and a feature 
 
 // ---- the provider: probe and the auto choice -----------------------------------------------------------------------------------------
 
-TEST_CASE("dlss probe: the GPU and backend first, then what Streamline says, and a library that is not there names the setup command") {
+TEST_CASE("dlss probe: the GPU and backend first, then what Streamline says, and a library that is not there names the "
+          "setup command") {
     sx.reset();
     FakeLoader loader;
     LoaderGuard guard(&loader);
@@ -1007,7 +1030,8 @@ TEST_CASE("dlss: auto picks it on an NVIDIA GPU, an explicit dlss runs on any GP
     CHECK(render::effective_upscaler_mode(s, caps) != UpscalerMode::Dlss);
 }
 
-TEST_CASE("dlss: the feature row of render.supports takes the provider's answer, and the table says no backend for it") {
+TEST_CASE(
+    "dlss: the feature row of render.supports takes the provider's answer, and the table says no backend for it") {
     render::FeatureEnv env;
     env.backend = render::FeatureBackend::D3d11;
     std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
@@ -1028,12 +1052,14 @@ TEST_CASE("dlss: the feature row of render.supports takes the provider's answer,
         if (f["name"] == "dlss") {
             found = true;
             CHECK(f["supported"] == true);
-            CHECK(f["backends"]["D3D11"] == false);  // DLSS runs on D3D12 and Vulkan, whose columns the table does not have
+            CHECK(f["backends"]["D3D11"] ==
+                  false);  // DLSS runs on D3D12 and Vulkan, whose columns the table does not have
         }
     CHECK(found);
 }
 
-TEST_CASE("dlss: the mode follows the upscale ratio, M76's names land exactly, and a wobble near a boundary does not flip it") {
+TEST_CASE("dlss: the mode follows the upscale ratio, M76's names land exactly, and a wobble near a boundary does not "
+          "flip it") {
     CHECK(render::dlss_mode_for_ratio(1.0f) == sl::kDlssDlaa);
     CHECK(render::dlss_mode_for_ratio(0.5f) == sl::kDlssDlaa);
     CHECK(render::dlss_mode_for_ratio(1.5f) == sl::kDlssMaxQuality);
@@ -1044,15 +1070,18 @@ TEST_CASE("dlss: the mode follows the upscale ratio, M76's names land exactly, a
     CHECK(render::dlss_mode_for_ratio(9.0f) == sl::kDlssUltraPerformance);
     CHECK(render::dlss_mode_for_ratio(1.58f) == sl::kDlssMaxQuality);
     CHECK(render::dlss_mode_for_ratio(1.62f) == sl::kDlssBalanced);
-    CHECK(render::dlss_mode_for_ratio(1.62f, sl::kDlssMaxQuality) == sl::kDlssMaxQuality);  // within 0.13 of Quality's 1.5
-    CHECK(render::dlss_mode_for_ratio(1.62f, sl::kDlssMaxPerformance) == sl::kDlssBalanced);  // too far from Performance's 2.0
+    CHECK(render::dlss_mode_for_ratio(1.62f, sl::kDlssMaxQuality) ==
+          sl::kDlssMaxQuality);  // within 0.13 of Quality's 1.5
+    CHECK(render::dlss_mode_for_ratio(1.62f, sl::kDlssMaxPerformance) ==
+          sl::kDlssBalanced);  // too far from Performance's 2.0
     CHECK(render::dlss_mode_ratio(sl::kDlssMaxPerformance) == doctest::Approx(2.0f));
     CHECK(std::string(render::dlss_mode_name(sl::kDlssDlaa)) == "DLAA");
 }
 
 // ---- the provider: frames ----------------------------------------------------------------------------------------------------------
 
-TEST_CASE("dlss D3D12: a frame sets the constants and tags of the frame's token and evaluates inside a native section with the "
+TEST_CASE("dlss D3D12: a frame sets the constants and tags of the frame's token and evaluates inside a native section "
+          "with the "
           "declared states") {
     Rig rig(gpu::Backend::D3d12);
     gpu::PresentEvent pe;
@@ -1157,7 +1186,8 @@ TEST_CASE("dlss: the options are set only when they change, and the history rest
     CHECK(sx.options.mode == sl::kDlssMaxPerformance);
 }
 
-TEST_CASE("dlss: the quality names of M76 land on DLSS's modes and a render size outside DLSS's range is refused with what to do") {
+TEST_CASE("dlss: the quality names of M76 land on DLSS's modes and a render size outside DLSS's range is refused with "
+          "what to do") {
     Rig rig(gpu::Backend::D3d12);
     rig.resize(214, 120, 320, 180);  // 1.5
     REQUIRE(rig.draw());
@@ -1228,6 +1258,11 @@ TEST_CASE("dlss: a frame that fails says why, closes its section, and the next f
         CHECK(rig.list.ends == 3);
     }
     SUBCASE("the frame token") {
+        // The token of a frame is asked once, so Streamline is asked again only for a new frame (a present went by).
+        gpu::PresentEvent present;
+        present.backend = gpu::Backend::D3d12;
+        present.frame = 100;
+        rig.runtime.present_end(present);
         sx.tokenRc = sl::kErrorInvalidState;
         CHECK_FALSE(rig.draw());
         CHECK(rig.frame.error.find("slGetNewFrameToken") != std::string::npos);
@@ -1263,7 +1298,8 @@ TEST_CASE("dlss: a runtime that is not ready draws nothing and gives Streamline'
     CHECK(count_of(sx.events, "begin") == 0);
 }
 
-TEST_CASE("dlss: release turns the options off, frees DLSS's resources after the GPU is idle, and only for the device it drew on") {
+TEST_CASE("dlss: release turns the options off, frees DLSS's resources after the GPU is idle, and only for the device "
+          "it drew on") {
     Rig rig(gpu::Backend::D3d12);
     REQUIRE(rig.draw());
     XDevice other(gpu::Backend::D3d12);

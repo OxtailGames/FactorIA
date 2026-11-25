@@ -19,7 +19,7 @@ namespace fa::render {
 // What the player asked for.
 //  off:      no pacing at all; the loop is the one of today (the default).
 //  auto:     the SDK of this GPU's maker when it is usable (AMD: antilag2, Intel: xell, NVIDIA: reflex), else the engine's own pacing.
-//  reflex:   NVIDIA Reflex (through Streamline: arrives with that provider; until then the engine's own pacing runs).
+//  reflex:   NVIDIA Reflex (Windows, D3D12 or Vulkan on an NVIDIA GPU, through Streamline: `factoria setup streamline`).
 //  antilag2: AMD Anti-Lag 2 (Windows, D3D12 or Vulkan on an AMD GPU; the driver is the SDK, nothing to install).
 //  xell:     Intel XeSS Low Latency (Windows, D3D12, `factoria setup xess`).
 // The value of a mode is its index in kLatencyModeNames.

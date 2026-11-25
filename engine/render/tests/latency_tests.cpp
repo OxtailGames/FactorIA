@@ -303,18 +303,22 @@ TEST_CASE("latency controller: a failing SDK is unavailable with a reason and th
     }
 }
 
-TEST_CASE("latency controller: auto picks the SDK of the GPU's maker; reflex has no provider yet") {
+TEST_CASE("latency controller: auto picks the SDK of the GPU's maker; a Reflex that is not usable is the engine's own "
+          "pacing") {
     FakeClock clock;
     ClockGuard cg(&clock);
-    FakeProvider amd(LatencyDriver::AntiLag2), intel(LatencyDriver::Xell);
-    ProviderGuard pa(LatencyDriver::AntiLag2, &amd), pi(LatencyDriver::Xell, &intel);
+    FakeProvider amd(LatencyDriver::AntiLag2), intel(LatencyDriver::Xell), nvidia(LatencyDriver::Reflex);
+    nvidia.available = false;
+    nvidia.probeReason = "NVIDIA Streamline (Reflex) is not installed: run `factoria setup streamline`";
+    ProviderGuard pa(LatencyDriver::AntiLag2, &amd), pi(LatencyDriver::Xell, &intel),
+        pr(LatencyDriver::Reflex, &nvidia);
     const struct {
         std::uint32_t pci;
         GpuVendor vendor;
         LatencyDriver expect;
     } rows[] = {{0x1002, GpuVendor::Amd, LatencyDriver::AntiLag2},
                 {0x8086, GpuVendor::Intel, LatencyDriver::Xell},
-                {0x10de, GpuVendor::Nvidia, LatencyDriver::Pacing},  // Reflex arrives with the Streamline provider
+                {0x10de, GpuVendor::Nvidia, LatencyDriver::Pacing},  // its Reflex is not usable here
                 {0x106b, GpuVendor::Apple, LatencyDriver::Pacing}};
     for (const auto& r : rows) {
         CAPTURE(render::gpu_vendor_name(r.vendor));
@@ -328,7 +332,8 @@ TEST_CASE("latency controller: auto picks the SDK of the GPU's maker; reflex has
     render::LatencyController c;
     c.attach(&dev, env_of(dev, GpuVendor::Nvidia), true);
     const std::string why = c.provider_reason(LatencyDriver::Reflex);
-    CHECK(why.find("arrives with the Streamline provider") != std::string::npos);
+    CHECK(why.find("factoria setup streamline") != std::string::npos);
+    CHECK(why.find("arrives with") == std::string::npos);
     c.set_settings(settings(LatencyMode::Reflex));
     CHECK(c.driver() == LatencyDriver::Pacing);  // the explicit mode falls back to the engine's own pacing
 }
@@ -340,17 +345,16 @@ TEST_CASE("latency controller: a registered provider fills a slot with one call"
     auto reflex = std::make_shared<FakeProvider>(LatencyDriver::Reflex);
     render::LatencyController c;
     c.attach(&dev, env_of(dev, GpuVendor::Nvidia), true);
-    c.set_settings(settings(LatencyMode::Auto));
-    REQUIRE(c.driver() == LatencyDriver::Pacing);
     render::register_latency_provider(reflex);
-    c.reset_probes();
+    c.set_settings(settings(LatencyMode::Auto));
     CHECK(c.driver() == LatencyDriver::Reflex);
     CHECK(reflex->starts == 1);
     c.detach();
-    // Puts the empty slot back for the other tests.
+    // Puts the build's provider back for the other tests.
     render::register_latency_provider(nullptr);  // ignored
-    render::clear_registered_latency_provider_for_test(LatencyDriver::Reflex);
-    CHECK(render::latency_provider(LatencyDriver::Reflex) == nullptr);
+    render::restore_latency_provider_for_test(LatencyDriver::Reflex);
+    REQUIRE(render::latency_provider(LatencyDriver::Reflex) != nullptr);
+    CHECK(render::latency_provider(LatencyDriver::Reflex)->name() == "NVIDIA Reflex");
 }
 
 TEST_CASE("latency controller: the engine's own pacing sleeps before the input is read") {

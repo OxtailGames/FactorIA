@@ -141,7 +141,7 @@ The swapchain:
 ## Streamline runtime core (M78-P4b)
 
 `engine/render/src/streamline_runtime.{h,cpp}`: the first user of the hooks above, shared by every Streamline feature (DLSS
-Super Resolution today, DLSS frame generation and Reflex in later packages).
+Super Resolution and Reflex today, DLSS frame generation in a later package).
 
 - **No NVIDIA code.** The structures and functions of the Streamline C interface are the engine's own declarations in
   `sl_abi` (checked field by field against the MIT headers of tag v2.14.16, with `static_assert`s on sizes). The
@@ -166,7 +166,11 @@ Super Resolution today, DLSS frame generation and Reflex in later packages).
   (an NVIDIA driver update, hardware-accelerated GPU scheduling, `factoria setup streamline`). The device is made without it. The
   provider repeats the reason in `render.supports`.
 - **Per frame.** The provider asks `StreamlineRuntime` for the frame token (`slGetNewFrameToken`, index = presents), sets the
-  constants and tags, and evaluates inside one `begin_native` section (`render_upscale_dlss.cpp`).
+  constants and tags, and evaluates inside one `begin_native` section (`render_upscale_dlss.cpp`). The runtime keeps the token of the
+  index it last asked (and of the set-up that made it), so every feature that asks for the same frame, DLSS and Reflex, gets the same
+  pointer. `ready_generation()` is the one cheap call a feature makes before it calls Streamline: 0 when the runtime is not ready, so
+  nothing is called after the device went. The process's runtime asks for DLSS, Reflex and PCL (the latency mode is chosen after
+  `slInit`).
 - **Tests.** `engine/render/tests/dlss_upscale_tests.cpp` (ctest `render`): the D3D12 and Vulkan hook order on fakes, every reason
   the runtime is unavailable, the provider's options (only on a change), constants, tags and evaluation, failures that close the
   section and reset the history, release, the `auto` choice and the `render.supports` row. The real library and a real RTX GPU
@@ -179,7 +183,7 @@ the rest is private to `fa_render`:
 
 - **`render_latency.{h,cpp}`: the seam.** A `LatencyProvider` is one SDK (`probe`, `start`, `configure`, `sleep`, `marker`,
   `vendor_report`, `stop`). The table has three slots, Reflex, Anti-Lag 2 and XeLL; `register_latency_provider()` fills one (the
-  Streamline provider fills Reflex with one call; until then the slot answers "arrives with the Streamline provider"). The
+  Reflex provider is in the table from the start; the others register the same way in a test). The
   `LatencyController` (one per renderer) chooses the driver from the mode, the GPU's maker and the probes, starts the provider when the
   device exists, and falls back to the engine's own pacing when the SDK is unavailable or a call fails. With the mode `off` its calls
   are one branch. Its clock is replaceable, so the tests drive time themselves.
@@ -188,6 +192,15 @@ the rest is private to `fa_render`:
   takes `vkAntiLagUpdateAMD` from `vkGetDeviceProcAddr`; the INPUT stage goes at `sleep()` and the PRESENT stage at the present-start
   marker, with one frame index. The hook is registered on Windows before the device is made (`register_latency_device_hooks`).
 - **`render_latency_xell.{h,cpp}`.** `libxell.dll` (the XeSS spec of `factoria setup xess`), Direct3D 12 only.
+- **`render_latency_reflex.{h,cpp}`.** NVIDIA Reflex through the Streamline runtime above: `sl_abi` has the declarations of `sl_reflex.h`
+  and `sl_pcl.h` (`ReflexOptions`, `ReflexState`, the PCL marker values; `static_assert`s on the sizes), and the four functions
+  (`slReflexSetOptions`, `slReflexGetState`, `slReflexSleep`, `slPCLSetMarker`) come from `slGetFeatureFunction`. `probe` refuses in
+  the order the user can fix (backend and Windows, the GPU's maker, Streamline not installed or not started with the device, the
+  backend it started for, the plugin's `slIsFeatureSupported`, the driver's `lowLatencyAvailable`). Every call is guarded by
+  `StreamlineRuntime::ready_generation()` equal to the one `start` saw. `sleep` takes the frame's token once per frame id (the
+  runtime's, shared with DLSS); `marker` maps `LatencyMarker` to `sl::PCLMarker` (`reflex_pcl_marker`; the input sample has none);
+  `configure` sends `slReflexSetOptions` only when the mode or the frame limit changes; `vendor_report` reads `slReflexGetState`'s
+  frame reports. `engine/render/tests/reflex_latency_tests.cpp` drives it on a fake Streamline.
 - **`renderer_latency.cpp`.** The renderer's API (`set_latency`, `latency_status`, `latency_report`, `latency_frame_begin`,
   `latency_mark`, `take_latency_ms`) and the three `render.supports` rows. The frame id is the number of presents done plus one, the
   `frame` of the next `PresentEvent`. The engine calls `latency_frame_begin` before the platform reads the input,
