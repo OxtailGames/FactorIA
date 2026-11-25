@@ -151,20 +151,24 @@ struct NativeWindow {
     // sokol_app's view (macOS: Vulkan on MoltenVK). Null: no window, or a platform that hands none (iOS, the web).
     const void* window = nullptr;
     const void* display = nullptr;  // the X11 Display* (Linux); null elsewhere
-    // "" when a GPU device may make its own swapchain on the window; else why not, one sentence (Linux and Android: sokol_app
-    // made an OpenGL context on it and swaps its buffers after every frame; no window).
+    // "" when a GPU device may make its own swapchain on the window; else why not, one sentence (Android, a Linux EGL
+    // window, the web: sokol_app made an OpenGL context on it and swaps its buffers after every frame; no window). A Linux
+    // GLX window is not busy: its OpenGL surface leaves it when a device claims it.
     std::string busy;
 };
 // The handles, without claiming the window. Valid inside run_app callbacks.
 NativeWindow app_native_window();
 // Claims the window for the GPU device of `backend` (its name, "d3d12" or "vulkan": HDR output says it is not available on
 // it). On success the platform's swapchain is gone (Windows: the D3D11 presenter is destroyed and its flip-model swapchain
-// released at once, so the device's own can be made on the HWND), app_gfx_environment() makes none and app_gfx_swapchain()
-// is invalid until app_release_native_window(). Refused (nothing changes) when the window is busy, a graphics context draws
-// with the platform's swapchain (sokol_gfx is set up), or a device has the window already.
+// released at once, so the device's own can be made on the HWND; Linux: sokol_app's OpenGL context moves off the X11
+// window to a 1x1 pbuffer, or to no drawable, its GLXWindow is destroyed and its per-frame swap does nothing),
+// app_gfx_environment() makes none and app_gfx_swapchain() is invalid until app_release_native_window(). Refused
+// (nothing changes) when the window is busy, a graphics context draws with the platform's swapchain (sokol_gfx is set
+// up), a device has the window already, or the GL driver refuses to move the context off the window (Linux).
 Result<NativeWindow> app_claim_native_window(const std::string& backend);
 // Gives the window back once the device destroyed its swapchain (a backend that failed to start, the end of a renderer): the
-// next app_gfx_environment() makes the platform's swapchain again. Nothing when no device has the window.
+// next app_gfx_environment() makes the platform's swapchain again (Linux: the OpenGL context is current on a new GLXWindow
+// of the window here, with its vsync). Nothing when no device has the window.
 void app_release_native_window();
 WindowPresenter app_window_presenter();
 // The backend that claimed the window ("" while no device has it).

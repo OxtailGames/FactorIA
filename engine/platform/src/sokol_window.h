@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +65,27 @@ bool fa_sapp_set_class_name(const char* name);
 // current surface (Android), the CAMetalLayer* sokol_app made for its view (macOS). false (both left null): no window yet,
 // or this platform hands none (iOS, the web).
 bool fa_sapp_native_window(void** window, void** display);
+// The OpenGL surface sokol_app keeps on its window (M77-P9e3), for a GPU device that makes its own swapchain there
+// (app_claim_native_window on Linux; Android comes in M77-P9e3b). sokol_app made its GL context with the window (a
+// GLXWindow on the X11 window) and swaps it after every frame; while a Vulkan device presents, that surface must be off
+// the window.
+//
+// Release: the context moves to a 1x1 GLX pbuffer of the window's GLXFBConfig or, when the driver makes no pbuffer of it,
+// stays current with no drawable at all (GLX_ARB_create_context allows that for a 3.0+ context, which sokol_app's is);
+// the GLXWindow is destroyed and sokol_app's per-frame glXSwapBuffers does nothing until the restore. The context stays
+// alive, so a fallback to OpenGL in the same process needs no new one. true: released (or it already was); with no
+// drawable, `err` says why there is no pbuffer. false: nothing changed and `err` (errLen bytes, NUL-terminated) says
+// why: no window yet, a Linux build whose sokol_app draws
+// through EGL (SOKOL_FORCE_EGL, -DFA_GFX_BACKEND=GLES3), a driver that refused both, or a platform with no GL window
+// surface to release (Windows, Apple, the web; Android until M77-P9e3b).
+bool fa_sapp_gl_surface_release(char* err, size_t errLen);
+// Restore: a new GLXWindow on the X11 window, the context current on it again, sokol_app's swap and swap interval (vsync)
+// back, the pbuffer destroyed. Call it once the device destroyed its swapchain. true: on the window again (or it never
+// left). false: the driver refused the GLXWindow (`err` says so); the context stays off the window and OpenGL frames show
+// nothing.
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen);
+// Where the GL context draws now: 0 = on the window (sokol_app's own state), 1 = a pbuffer, 2 = no drawable (surfaceless).
+int fa_sapp_gl_surface_state(void);
 // HDR output (hdr_output.cpp). The kind of pixels the window's swapchain holds: 0 = sokol_app's standard 8-bit format, 1 = 16-bit
 // float (D3D11: R16G16B16A16_FLOAT for scRGB; Metal: RGBA16Float with EDR on, in extended sRGB, or extended LINEAR sRGB when
 // `linear`), 2 = 10-bit (D3D11 only: R10G10B10A2_UNORM for HDR10, never with MSAA). Switches between frames (before the

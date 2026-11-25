@@ -19,6 +19,8 @@
 
 // ---- window operations sokol_app has no API for (sokol_window.h; see sokol_impl.c) -----------------------------------
 // UNTESTED: written without a Mac at hand. Cocoa works in points, which are the logical pixels.
+#include <stdio.h>
+
 #include "sokol_window.h"
 
 void fa_sapp_window_size(int* w, int* h) {
@@ -327,6 +329,17 @@ bool fa_sapp_native_window(void** window, void** display) {
     return false;
 #endif
 }
+
+// The window's OpenGL surface (sokol_window.h, M77-P9e3): Apple's windows draw with Metal, there is none to release.
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    snprintf(err, errLen, "this platform's window has no OpenGL surface to release");
+    return false;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    return true;
+}
+int fa_sapp_gl_surface_state(void) { return 0; }
 
 // ---- IME (ime_apple.mm) -------------------------------------------------------------------------------------------------
 void* fa_sapp_macos_view(void) {

@@ -548,10 +548,207 @@ bool fa_sapp_set_window_size(int w, int h) {
 #endif
 }
 
+// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3) ----------
+#if defined(_SAPP_GLX)
+// GLX 1.3 names sokol_app's own GLX declarations leave out (it includes no <GL/glx.h>, whose types would clash with them).
+#define FA_GLX_PBUFFER_BIT 0x00000004
+#define FA_GLX_PBUFFER_HEIGHT 0x8040
+#define FA_GLX_PBUFFER_WIDTH 0x8041
+typedef XID fa_glx_pbuffer;
+typedef fa_glx_pbuffer (*fa_glx_create_pbuffer_fn)(Display*, GLXFBConfig, const int*);
+typedef void (*fa_glx_destroy_pbuffer_fn)(Display*, fa_glx_pbuffer);
+
+static struct {
+    int state;               // fa_sapp_gl_surface_state(): 0 on the window, 1 a pbuffer, 2 no drawable
+    fa_glx_pbuffer pbuffer;  // state 1
+    fa_glx_destroy_pbuffer_fn destroy_pbuffer;
+    PFNGLXSWAPBUFFERSPROC swap;  // sokol_app's glXSwapBuffers, replaced by fa_glx_no_swap while the surface is off
+} fa_gl_surface;
+
+// sokol_app swaps _sapp.glx.window after every frame; while the device has the window there is nothing to swap.
+static void fa_glx_no_swap(Display* display, GLXDrawable drawable) {
+    (void)display;
+    (void)drawable;
+}
+
+// X errors of the GLX requests below are trapped (Xlib's default handler would end the process) and answered with their
+// code. The handler that was installed before (none: Xlib's default) comes back afterwards.
+static int fa_x11_error_code;
+static int fa_x11_record_error(Display* display, XErrorEvent* event) {
+    (void)display;
+    fa_x11_error_code = event->error_code;
+    return 0;
+}
+static XErrorHandler fa_x11_trap_errors(void) {
+    XSync(_sapp.x11.display, False);  // the errors of earlier requests are not these ones'
+    fa_x11_error_code = Success;
+    return XSetErrorHandler(fa_x11_record_error);
+}
+static int fa_x11_untrap_errors(XErrorHandler previous) {
+    XSync(_sapp.x11.display, False);  // every error of the trapped requests has arrived
+    XSetErrorHandler(previous);
+    return fa_x11_error_code;
+}
+
+static void fa_glx_destroy_pbuffer_quietly(fa_glx_destroy_pbuffer_fn destroy, fa_glx_pbuffer pbuffer) {
+    if (!destroy || !pbuffer) return;
+    const XErrorHandler previous = fa_x11_trap_errors();
+    destroy(_sapp.x11.display, pbuffer);
+    fa_x11_untrap_errors(previous);
+}
+
+static void fa_glx_destroy_window_quietly(GLXWindow window) {
+    if (!window) return;
+    const XErrorHandler previous = fa_x11_trap_errors();
+    _sapp.glx.DestroyWindow(_sapp.x11.display, window);
+    fa_x11_untrap_errors(previous);
+}
+
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    if (fa_gl_surface.state != 0) return true;
+    if (!_sapp.valid || !_sapp.x11.display || !_sapp.glx.ctx || !_sapp.glx.window) {
+        snprintf(err, errLen, "sokol_app has no OpenGL surface on a window yet (no window)");
+        return false;
+    }
+    Display* display = _sapp.x11.display;
+    const GLXFBConfig config = _sapp_glx_choosefbconfig();  // the one sokol_app made the context and GLXWindow with
+    const fa_glx_create_pbuffer_fn create = (fa_glx_create_pbuffer_fn)dlsym(_sapp.glx.libgl, "glXCreatePbuffer");
+    const fa_glx_destroy_pbuffer_fn destroy = (fa_glx_destroy_pbuffer_fn)dlsym(_sapp.glx.libgl, "glXDestroyPbuffer");
+    glFinish();  // what OpenGL still draws into the window is done before its surface goes
+
+    // 1. A 1x1 pbuffer of the window's GLXFBConfig.
+    fa_glx_pbuffer pbuffer = 0;
+    char pbuffer_why[96];
+    pbuffer_why[0] = 0;
+    if (!config) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "no GLXFBConfig to make a pbuffer with");
+    } else if (!create || !destroy) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "this libGL has no glXCreatePbuffer");
+    } else if (!(_sapp_glx_attrib(config, GLX_DRAWABLE_TYPE) & FA_GLX_PBUFFER_BIT)) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "the window's GLXFBConfig makes no pbuffer");
+    } else {
+        const int attribs[] = {FA_GLX_PBUFFER_WIDTH, 1, FA_GLX_PBUFFER_HEIGHT, 1, None};
+        XErrorHandler previous = fa_x11_trap_errors();
+        pbuffer = create(display, config, attribs);
+        int code = fa_x11_untrap_errors(previous);
+        if (code != Success || !pbuffer) {
+            fa_glx_destroy_pbuffer_quietly(destroy, pbuffer);
+            pbuffer = 0;
+            snprintf(pbuffer_why, sizeof pbuffer_why, "glXCreatePbuffer failed (X error %d)", code);
+        } else {
+            previous = fa_x11_trap_errors();
+            const Bool current = _sapp.glx.MakeCurrent(display, pbuffer, _sapp.glx.ctx);
+            code = fa_x11_untrap_errors(previous);
+            if (!current || code != Success) {
+                fa_glx_destroy_pbuffer_quietly(destroy, pbuffer);
+                pbuffer = 0;
+                snprintf(pbuffer_why, sizeof pbuffer_why, "glXMakeCurrent on the pbuffer failed (X error %d)", code);
+            }
+        }
+    }
+    // 2. No drawable at all: a 3.0+ context of GLX_ARB_create_context may be current without a default framebuffer.
+    int state = pbuffer ? 1 : 0;
+    if (state == 0) {
+        const XErrorHandler previous = fa_x11_trap_errors();
+        const Bool current = _sapp.glx.MakeCurrent(display, None, _sapp.glx.ctx);
+        if (fa_x11_untrap_errors(previous) == Success && current) state = 2;
+    }
+    if (state == 0) {
+        const XErrorHandler previous = fa_x11_trap_errors();  // a failed glXMakeCurrent keeps the old one; said again
+        _sapp.glx.MakeCurrent(display, _sapp.glx.window, _sapp.glx.ctx);
+        fa_x11_untrap_errors(previous);
+        snprintf(err, errLen,
+                 "the OpenGL context sokol_app made on the window could not leave it (%s, and the driver refused a "
+                 "context with no drawable), so a Vulkan swapchain cannot be made there (hint: leave render.backend "
+                 "on auto on this driver, or run headless)",
+                 pbuffer_why);
+        return false;
+    }
+    // The GLXWindow goes. _sapp.glx.window is 0 from now on: sokol_app's shutdown then destroys no GLXWindow, and the
+    // only other per-frame use, its glXSwapBuffers, does nothing (fa_sapp_set_vsync refuses while the surface is off).
+    fa_glx_destroy_window_quietly(_sapp.glx.window);
+    _sapp.glx.window = 0;
+    fa_gl_surface.swap = _sapp.glx.SwapBuffers;
+    _sapp.glx.SwapBuffers = fa_glx_no_swap;
+    fa_gl_surface.pbuffer = pbuffer;
+    fa_gl_surface.destroy_pbuffer = destroy;
+    fa_gl_surface.state = state;
+    if (state == 2) snprintf(err, errLen, "%s", pbuffer_why);  // why there is no pbuffer (app.cpp logs it)
+    return true;
+}
+
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    if (fa_gl_surface.state == 0) return true;
+    Display* display = _sapp.x11.display;
+    const GLXFBConfig config = _sapp_glx_choosefbconfig();
+    GLXWindow window = 0;
+    XErrorHandler previous = fa_x11_trap_errors();
+    if (config) window = _sapp.glx.CreateWindow(display, config, _sapp.x11.window, NULL);
+    int code = fa_x11_untrap_errors(previous);
+    if (!window || code != Success) {
+        fa_glx_destroy_window_quietly(window);
+        snprintf(err, errLen,
+                 "glXCreateWindow on the X11 window failed (X error %d): the OpenGL context stays off the window "
+                 "and its frames are not shown (hint: leave render.backend on auto on this driver)",
+                 code);
+        return false;
+    }
+    previous = fa_x11_trap_errors();
+    const Bool current = _sapp.glx.MakeCurrent(display, window, _sapp.glx.ctx);
+    code = fa_x11_untrap_errors(previous);
+    if (!current || code != Success) {
+        fa_glx_destroy_window_quietly(window);
+        snprintf(err, errLen,
+                 "glXMakeCurrent on the new GLXWindow failed (X error %d): the OpenGL context stays off the window "
+                 "and its frames are not shown (hint: leave render.backend on auto on this driver)",
+                 code);
+        return false;
+    }
+    // sokol_app's state as _sapp_glx_create_context and _sapp_glx_make_current left it.
+    _sapp.glx.window = window;
+    _sapp.glx.SwapBuffers = fa_gl_surface.swap;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&_sapp.gl.framebuffer);
+    fa_glx_destroy_pbuffer_quietly(fa_gl_surface.destroy_pbuffer, fa_gl_surface.pbuffer);
+    fa_gl_surface.pbuffer = 0;
+    fa_gl_surface.state = 0;
+    // The swap interval belongs to the drawable (GLX_EXT_swap_control): the new one gets what the window had.
+    previous = fa_x11_trap_errors();
+    _sapp_glx_swapinterval(_sapp.desc.disable_vsync ? 0 : _sapp.desc.swap_interval);
+    fa_x11_untrap_errors(previous);
+    return true;
+}
+
+int fa_sapp_gl_surface_state(void) { return fa_gl_surface.state; }
+#else
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+#if defined(_SAPP_LINUX) && defined(_SAPP_EGL)
+    snprintf(err, errLen,
+             "this build's sokol_app draws its window through EGL (SOKOL_FORCE_EGL or -DFA_GFX_BACKEND=GLES3), whose "
+             "window surface the engine does not hand over, so a Vulkan swapchain cannot be made there (hint: build "
+             "with the default GLX window, leave render.backend on auto, or run headless)");
+#elif defined(_SAPP_ANDROID)
+    snprintf(err, errLen,
+             "the Android window keeps sokol_app's EGL surface: handing it to a Vulkan device comes in M77-P9e3b "
+             "(hint: leave render.backend on auto on Android)");
+#else
+    snprintf(err, errLen, "this platform's window has no OpenGL surface to release");
+#endif
+    return false;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    return true;
+}
+int fa_sapp_gl_surface_state(void) { return 0; }
+#endif
+
 // Windows (FA_SOKOL_APP_NOAPI): the swapchain is the engine's, so are vsync and its kind (d3d11_present_win32.cpp).
 #if !defined(FA_SOKOL_APP_NOAPI)
 bool fa_sapp_set_vsync(bool on) {
 #if defined(_SAPP_GLX)
+    if (fa_gl_surface.state != 0) return false;  // a GPU device presents into the window: its swapchain has the vsync
     if (!_sapp.glx.EXT_swap_control && !_sapp.glx.MESA_swap_control) return false;  // the driver offers no swap control
     _sapp_glx_swapinterval(on ? 1 : 0);
     _sapp.desc.disable_vsync = !on;
