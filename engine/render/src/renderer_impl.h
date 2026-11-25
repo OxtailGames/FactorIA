@@ -278,8 +278,9 @@ struct Renderer::Impl {
     void set_vendor_env(render::FeatureEnv& env);        // render.supports: the three providers' answers
     std::string vendorFailedWhy[render::kVendorUpscalerCount];
     // M78-P4c, DLSS Ray Reconstruction (renderer_upscale.cpp, render_upscale_rr.h). rrPrep draws the guides the denoiser-upscaler reads
-    // (rrNormal: the world normal and the roughness, rrDiffuse and rrSpecular: the albedos) at the render resolution, only on a frame DLSS
-    // draws with Ray Reconstruction; another frame gives them back (free_rr_images). rrProbe: what the provider answered for this GPU, asked
+    // (rrNormal: the world normal and the roughness, rrDiffuse and rrSpecular: the albedos) at the render resolution. They are kept while
+    // the setting is on and the render size holds; turning it off, a refusal, another upscaler drawing or a new render size gives them
+    // back (free_rr_images). rrProbe: what the provider answered for this GPU, asked
     // once (rrProbed). rrFailed: a frame was refused (or the machine cannot run it): every frame after draws with Super Resolution, and
     // render.supports says why (rrFailedWhy). rrWarned*: the one warning of a frame that cannot use it (not linear, dynamic resolution) and
     // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
