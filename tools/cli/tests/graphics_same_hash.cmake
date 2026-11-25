@@ -16,9 +16,9 @@ else()
 endif()
 # The runs write caches and replays into the project's .factoria folder: they run on a copy in a temp dir (removed at the end,
 # also before a failure message), never inside the checked-in example.
-if(DEFINED ENV{TMPDIR})
+if(NOT "$ENV{TMPDIR}" STREQUAL "")
     set(tmpbase "$ENV{TMPDIR}")
-elseif(DEFINED ENV{TEMP})
+elseif(NOT "$ENV{TEMP}" STREQUAL "")
     set(tmpbase "$ENV{TEMP}")
 else()
     set(tmpbase "/tmp")

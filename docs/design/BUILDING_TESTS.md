@@ -33,8 +33,8 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   `fa::fs::make_temp_dir_until_exit(prefix)` (`engine/core/include/fa/core/fs.h`; removed at normal exit, a crash or the
   display watchdog's `_Exit` leaves it) and copy or scaffold the project there (`create_project`); the CMake script tests
   (`tools/cli/tests/graphics_same_hash.cmake`, `jobs_same_frames.cmake`) copy the example with `file(COPY ... PATTERN
-  ".factoria" EXCLUDE)` into a temp dir and remove it before they end, also before a failure message. A test file in the
-  temp folder is no exception: put it in such a folder, not next to it.
+  ".factoria" EXCLUDE)` into a temp dir and remove it before they end, also before a failure message (a test that
+  ctest kills at its TIMEOUT leaves it). A single file in the temp folder goes inside such a folder too, never loose.
 - **The example games run on an optimized build.** `example_<name>_test` (their JS tests), `example_<name>_validate` and
   the perf budgets (`example_*_perf`) carry the CTest label `example`. The games' tests run the whole engine for minutes
   (the biggest take ten minutes in Debug under load, about a tenth of that in Release), so the cache variable
