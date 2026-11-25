@@ -74,18 +74,29 @@ std::string check_render_size(const Settings& settings, const char* product, std
         return std::string(product) + " does not support its " + dlss_mode_name(dlssMode) + " mode for an output of " +
                std::to_string(in.outW) + "x" + std::to_string(in.outH) +
                ". Choose another quality (render.upscaler.quality) or a larger window.";
-    const auto within = [](int value, std::uint32_t lo, std::uint32_t hi, std::uint32_t optimal) {
-        const std::uint32_t low = std::min(lo == 0 ? optimal : lo, optimal);
-        const std::uint32_t high = std::max(hi == 0 ? optimal : hi, optimal);
-        return std::uint32_t(value) + kRenderSizeSlack >= low && std::uint32_t(value) <= high + kRenderSizeSlack;
+    const auto low_of = [](std::uint32_t lo, std::uint32_t optimal) {
+        return std::min(lo == 0 ? optimal : lo, optimal);
+    };
+    const auto high_of = [](std::uint32_t hi, std::uint32_t optimal) {
+        return std::max(hi == 0 ? optimal : hi, optimal);
+    };
+    const auto within = [&](int value, std::uint32_t lo, std::uint32_t hi, std::uint32_t optimal) {
+        return std::uint32_t(value) + kRenderSizeSlack >= low_of(lo, optimal) &&
+               std::uint32_t(value) <= high_of(hi, optimal) + kRenderSizeSlack;
     };
     if (!within(in.renderW, settings.renderWidthMin, settings.renderWidthMax, settings.optimalRenderWidth) ||
-        !within(in.renderH, settings.renderHeightMin, settings.renderHeightMax, settings.optimalRenderHeight))
-        return std::string(product) + "'s " + dlss_mode_name(dlssMode) + " mode draws at " +
-               std::to_string(settings.optimalRenderWidth) + "x" + std::to_string(settings.optimalRenderHeight) +
-               " for an output of " + std::to_string(in.outW) + "x" + std::to_string(in.outH) +
-               ", and the frame was drawn at " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
-               ". Choose another render.upscaler.quality.";
+        !within(in.renderH, settings.renderHeightMin, settings.renderHeightMax, settings.optimalRenderHeight)) {
+        const std::uint32_t optW = settings.optimalRenderWidth, optH = settings.optimalRenderHeight;
+        return std::string(product) + "'s " + dlss_mode_name(dlssMode) + " mode draws at " + std::to_string(optW) +
+               "x" + std::to_string(optH) + " for an output of " + std::to_string(in.outW) + "x" +
+               std::to_string(in.outH) + " and takes render sizes from " +
+               std::to_string(low_of(settings.renderWidthMin, optW)) + "x" +
+               std::to_string(low_of(settings.renderHeightMin, optH)) + " to " +
+               std::to_string(high_of(settings.renderWidthMax, optW)) + "x" +
+               std::to_string(high_of(settings.renderHeightMax, optH)) + ", and the frame was drawn at " +
+               std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
+               ". Choose another render.upscaler.quality (or window.renderScale).";
+    }
     return {};
 }
 
@@ -206,7 +217,14 @@ VendorProbe DlssProvider::probe_ray_reconstruction(const VendorEnv& env) {
         p.reason = "DLSS Ray Reconstruction is not available: " + p.reason;
         return p;
     }
-    if (const std::string why = streamline_runtime().feature_reason(kFeatureDlssRr); !why.empty()) {
+    StreamlineRuntime& runtime = streamline_runtime();
+    if (runtime.status().ready && !runtime.feature_asked(kFeatureDlssRr)) {
+        // The plugin is loaded with Streamline, before the device: only a project that asks for it at start gets it.
+        p.available = false;
+        p.reason = "DLSS Ray Reconstruction is not available in this run: its plugin is loaded when the game starts, "
+                   "and the project did "
+                   "not ask for it. Set render.upscaler.rayReconstruction to true in factoria.json and restart.";
+    } else if (const std::string why = runtime.feature_reason(kFeatureDlssRr); !why.empty()) {
         p.available = false;
         p.reason = "DLSS Ray Reconstruction is not available on this machine: " + why;
     }
@@ -430,7 +448,7 @@ std::string DlssProvider::draw(const UpscaleInput& in, VendorFrame& frame, const
         int w, h;
         bool write;
     };
-    constexpr int kMaxItems = 7;
+    constexpr int kMaxItems = 8;
     Item items[kMaxItems] = {
         {kBufferScalingInputColor, frame.color, in.color, in.renderW, in.renderH, false},
         {kBufferDepth, frame.depth, in.depth, in.renderW, in.renderH, false},
@@ -438,6 +456,9 @@ std::string DlssProvider::draw(const UpscaleInput& in, VendorFrame& frame, const
         {kBufferScalingOutputColor, frame.output, state_.outputView, in.outW, in.outH, true},
     };
     int count = 4;
+    if (!rr && frame.reactive.valid() && in.reactive.valid())
+        // Where particles and other items blend over the scene: DLSS Super Resolution weighs the current frame's colour more there.
+        items[count++] = {kBufferBiasCurrentColorHint, frame.reactive, in.reactive, in.renderW, in.renderH, false};
     if (rr) {
         items[1] = {kBufferDepth, frame.rrDepth, in.rrDepth,
                     in.renderW,   in.renderH,    false};  // the depth of the projection it is told

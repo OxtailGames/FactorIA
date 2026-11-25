@@ -49,9 +49,6 @@ const char* upscale_impl_name(UpscaleImpl impl);
 // kJitterPhasesMax. Pure CPU. A size below 1 reads as 1.
 int upscale_jitter_phases(int renderW, int renderH, int outW, int outH);
 
-// What an upscaler reads. `color` is the picture at the render resolution (display values after a final pass, else the scene's
-// colour: the format of the output image is the same, so the copy never converts). `depth` (linear view depth) and `velocity` are
-// null views until the passes that make them exist; an implementation that needs them must work without (camera reprojection).
 // The camera the frame was drawn with, for the upscalers that are told its matrices (DLSS Ray Reconstruction, M78-P4c). The matrices are in
 // the order of fa::Mat4 (column-major, a column vector on the right: the memory of a row-major matrix with a row vector on the left, which is
 // how Streamline reads them) and unjittered, with the depth range of the backend (0..1 on D3D12, Vulkan and Metal).
@@ -68,6 +65,9 @@ struct UpscaleCamera {
     float nearPlane = 0.1f, farPlane = 1000.0f;
 };
 
+// What an upscaler reads. `color` is the picture at the render resolution (display values after a final pass, else the scene's
+// colour: the format of the output image is the same, so the copy never converts). `depth` (linear view depth) and `velocity` are
+// null views until the passes that make them exist; an implementation that needs them must work without (camera reprojection).
 struct UpscaleInput {
     gpu::View color{};
     gpu::View depth{};

@@ -477,12 +477,23 @@ TEST_CASE(
     CHECK(fake.guidesGiven);
     CHECK(fake.normalViewValid);
     CHECK(own.r.upscaler().rayReconstruction);
-    // The guides are only made for the frames that use them.
-    const int rrBefore = fake.rrFrames;
+    // The guides are only made for the frames that use them, and kept while the setting is on and the render size stays: a frame that
+    // draws as Super Resolution (the dynamic resolution) makes none. A new render size gives the old images back (the renderer's resize).
+    CHECK(RendererTestAccess::rr_guide_images(own.r));
+    int rrBefore = fake.rrFrames;
+    own.r.set_render_scale(0.4f, 0.5f);
+    own.frame(s.w, 2);
+    CHECK(fake.rrFrames == rrBefore);
+    CHECK_FALSE(fake.asked);
+    own.r.set_render_scale(0.5f, 0.5f);
+    own.frame(s.w, 1);
+    CHECK(fake.rrFrames == rrBefore + 1);
+    rrBefore = fake.rrFrames;
     u.rayReconstruction = false;
     own.r.set_upscaler(u);
     own.frame(s.w, 1);
     CHECK(fake.rrFrames == rrBefore);
+    CHECK_FALSE(RendererTestAccess::rr_guide_images(own.r));  // the setting went false: the four images are given back
     // A frame DLSS drew with Super Resolution instead: Ray Reconstruction is off for the run and the row says why.
     fake.rrRefuses = true;
     u.rayReconstruction = true;

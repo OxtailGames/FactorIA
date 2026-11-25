@@ -71,6 +71,8 @@ inline constexpr std::uint64_t kPrefDisableClStateTracking = 1u << 0, kPrefDisab
 // sl::BufferType
 inline constexpr std::uint32_t kBufferDepth = 0, kBufferMotionVectors = 1, kBufferScalingInputColor = 3,
                                kBufferScalingOutputColor = 4, kBufferExposure = 13;
+// The optional mask of Super Resolution that says where the current frame's colour should weigh more (sl_core_types.h: kBufferTypeBiasCurrentColorHint).
+inline constexpr std::uint32_t kBufferBiasCurrentColorHint = 29;
 // The guides DLSS Ray Reconstruction reads besides those (sl_core_types.h: kBufferTypeNormals 5, kBufferTypeRoughness 6, kBufferTypeAlbedo 7,
 // kBufferTypeSpecularAlbedo 8, kBufferTypeSpecularMotionVectors 10, kBufferTypeNormalRoughness 14, kBufferTypeSpecularHitDistance 42).
 inline constexpr std::uint32_t kBufferNormals = 5, kBufferRoughness = 6, kBufferAlbedo = 7, kBufferSpecularAlbedo = 8,
@@ -346,6 +348,10 @@ static_assert(sizeof(Constants) == 456, "sl::Constants");
 static_assert(sizeof(DlssOptions) == 88, "sl::DLSSOptions");
 static_assert(sizeof(DlssOptimalSettings) == 64, "sl::DLSSOptimalSettings");
 static_assert(sizeof(DlssdOptions) == 224, "sl::DLSSDOptions");
+static_assert(offsetof(DlssdOptions, mode) == 32 && offsetof(DlssdOptions, normalRoughnessMode) == 60 &&
+                  offsetof(DlssdOptions, worldToCameraView) == 64 && offsetof(DlssdOptions, cameraViewToWorld) == 128 &&
+                  offsetof(DlssdOptions, alphaUpscalingEnabled) == 192 && offsetof(DlssdOptions, dlaaPreset) == 196,
+              "sl::DLSSDOptions members (sl_dlss_d.h, Streamline 2.14)");
 static_assert(sizeof(DlssdOptimalSettings) == 64, "sl::DLSSDOptimalSettings");
 static_assert(sizeof(VulkanInfo) == 96, "sl::VulkanInfo");
 static_assert(sizeof(ReflexOptions) == 48, "sl::ReflexOptions");
@@ -373,6 +379,11 @@ void init_feature_requirements(FeatureRequirements& r);
 void init_adapter_info(AdapterInfo& a);
 void init_resource(Resource& r);
 void init_resource_tag(ResourceTag& t);
+// slInit's applicationId and projectId from FA_STREAMLINE_APP_ID and FA_STREAMLINE_PROJECT_ID (the text of the variable, or null): the id is
+// a decimal number that fits 32 bits, else 0; the project id a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), else FactorIA's own.
+inline constexpr const char* kDefaultProjectId = "f7e365b8-d718-4b3b-9c87-73752211173b";
+std::uint32_t streamline_application_id(const char* text);
+std::string streamline_project_id(const char* text);
 void init_constants(Constants& c);  // also the "not set" values of the headers (INVALID_FLOAT, eInvalid)
 void init_dlss_options(DlssOptions& o);
 void init_dlss_optimal_settings(DlssOptimalSettings& s);

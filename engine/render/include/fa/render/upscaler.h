@@ -59,10 +59,11 @@ struct UpscalerSettings {
     UpscalerMode mode = UpscalerMode::Stretch;
     UpscalerQuality quality = UpscalerQuality::Native;
     float sharpness = 0.5f;  // 0..1: the contrast-adaptive sharpen of the spatial and temporal modes
-    // M78-P4c: with mode "dlss", draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of
+    // M78-P4c: with mode "dlss" (or "auto" where it picks DLSS), draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of
     // Super Resolution, where this GPU, the installed SDK and the frame allow it (the "dlssRayReconstruction" row of render.supports says
     // why not; the frame then draws with Super Resolution). An opt-in preview: the renderer has no ray-traced signals to denoise yet and its
-    // guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). Ignored by every other mode.
+    // guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). Ignored by every other mode. Its plugin is loaded when the game starts
+    // (RendererDesc::rayReconstruction, from the project's setting): turning it on later in a run that started without it is refused with that reason.
     bool rayReconstruction = false;
     bool operator==(const UpscalerSettings&) const = default;
 };
