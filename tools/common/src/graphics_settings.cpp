@@ -138,12 +138,23 @@ std::string frame_gen_latency_hint(const GraphicsSettings& s) {
 
 std::string frame_gen_state_line(const Json& readout, int minBaseFps) {
     if (!readout.is_object() || readout.empty()) return "Off: nothing is generated.";
-    const std::string state = readout.value("state", std::string("off"));
-    const std::string provider = readout.value("provider", std::string("none"));
-    const std::string why = readout.value("reason", std::string());
-    const std::string rates = "base " + fixed1(readout.value("baseFps", 0.0)) + " fps, presented " +
-                              fixed1(readout.value("presentedFps", 0.0)) + " fps, " +
-                              std::to_string(readout.value("generatedFrames", std::uint64_t(0))) + " generated";
+    // A key that is null or of another type (a readout from an older or broken engine) falls back to its default: value() would throw.
+    const auto text = [&](const char* key, const char* fallback) {
+        const auto it = readout.find(key);
+        return it != readout.end() && it->is_string() ? it->get<std::string>() : std::string(fallback);
+    };
+    const auto number = [&](const char* key) {
+        const auto it = readout.find(key);
+        return it != readout.end() && it->is_number() ? it->get<double>() : 0.0;
+    };
+    const std::string state = text("state", "off");
+    const std::string provider = text("provider", "none");
+    const std::string why = text("reason", "");
+    const double generated = number("generatedFrames");
+    const std::string rates =
+        "base " + fixed1(number("baseFps")) + " fps, presented " + fixed1(number("presentedFps")) + " fps, " +
+        std::to_string(generated >= 0.0 && generated < 1.8e19 ? static_cast<std::uint64_t>(generated) : 0) +
+        " generated";
     if (state == "active") return "Active (" + provider + "): " + rates + ".";
     if (state == "measuring") return "Measuring the base frame rate (" + provider + "): " + rates + ".";
     if (state == "paused")

@@ -1998,7 +1998,11 @@ void Editor::build_ui() {
         if (showParticle_) draw_particle_panel();
         if (showGraph_) draw_graph_panel();
         if (showSceneSettings_) draw_scene_settings_panel();
-        if (showGraphics_) draw_graphics_settings_panel();
+        if (showGraphics_)
+            draw_graphics_settings_panel();
+        else
+            graphicsSupportStale_ =
+                true;  // closed: opening it again asks the renderer again (an SDK installed meanwhile shows up)
         if (showLightmap_) draw_lightmap_panel();
         if (showCells_) draw_cells_panel();
         if (showMusic_)

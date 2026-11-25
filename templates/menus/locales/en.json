@@ -106,9 +106,9 @@
         "spatial": "needs a window with a GPU",
         "temporal": "not available on this GPU or version",
         "metalfx": "Apple GPUs only",
-        "dlss": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)",
-        "xess": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)",
-        "fsr": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)"
+        "dlss": "needs an NVIDIA RTX GPU and the vendor runtime on Windows",
+        "xess": "needs the vendor runtime on Windows",
+        "fsr": "needs the vendor runtime on Windows"
       },
       "uq": {
         "native": "Native",
@@ -154,6 +154,8 @@
       "fgHint": "Frame generation adds delay to the controls: a low-latency mode (the previous page) is recommended.",
       "fgHintDlss": "Frame generation adds delay to the controls. DLSS turns NVIDIA Reflex on by itself; other low-latency modes are on the previous page.",
       "unsupNote": "Not available here: {modes}.",
+      "listSep": ", ",
+      "groupSep": "; ",
       "stretchNote": "This game is drawn with plain scaling (pixel art), whatever the mode."
     },
     "volume": {
