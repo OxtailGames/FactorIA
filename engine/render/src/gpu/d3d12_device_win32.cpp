@@ -166,8 +166,16 @@ Result<std::unique_ptr<D3d12Device>> D3d12Device::create(const D3d12Options& opt
 }
 
 Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
-    hooks_ = options.init.hooks;
-    hookUse_.attach(hooks_);  // available again unless another device holds it (gpu/device_hooks.h)
+    {
+        // Starts each hook available; one another live device holds is left out of this device (gpu/device_hooks.h).
+        std::vector<std::string> refused;
+        hooks_ = hookUse_.attach(options.init.hooks, Backend::D3d12, &refused);
+        for (const std::string& w : refused) {
+            FA_WARN("render", "{}", w);
+            std::lock_guard<std::mutex> lock(msgMutex_);
+            warnings_.push_back(w);
+        }
+    }
     UINT factoryFlags = 0;
     if (options.debugLayer) {
         Com<ID3D12Debug> debug;

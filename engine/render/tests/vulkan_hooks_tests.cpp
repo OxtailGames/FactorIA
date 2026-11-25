@@ -84,6 +84,15 @@ VKAPI_ATTR VkResult VKAPI_CALL counting_create_device(VkPhysicalDevice gpu, cons
     return gRealCreateDevice(gpu, ci, a, out);
 }
 
+// vkCreateBuffer as a hook makes it fail (an instance of the device's own failure after vkCreateDevice: the upload ring is
+// the first buffer the engine makes).
+std::atomic<int> gFailedBuffers{0};
+VKAPI_ATTR VkResult VKAPI_CALL failing_create_buffer(VkDevice, const VkBufferCreateInfo*, const VkAllocationCallbacks*,
+                                                     VkBuffer*) {
+    ++gFailedBuffers;
+    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+}
+
 // A hook that asks for what its fields say and records what it is given.
 struct FakeHook : DeviceHook {
     std::string id;
@@ -92,7 +101,7 @@ struct FakeHook : DeviceHook {
     std::vector<std::vector<std::uint8_t>> features;
     std::vector<std::uint32_t> featureMembers;
     std::vector<VulkanQueueRequest> queues;
-    bool wrapSubmit = false, wrapCreateDevice = false;
+    bool wrapSubmit = false, wrapCreateDevice = false, failCreateBuffer = false;
 
     int instanceRequests = 0, deviceRequests = 0, instancesMade = 0, devicesMade = 0, destroying = 0, resolved = 0;
     const void* instance = nullptr;
@@ -126,6 +135,8 @@ struct FakeHook : DeviceHook {
             gRealCreateDevice = reinterpret_cast<PFN_vkCreateDevice>(p);
             return reinterpret_cast<HookProcAddr>(&counting_create_device);
         }
+        if (failCreateBuffer && device && std::strcmp(fn, "vkCreateBuffer") == 0)
+            return reinterpret_cast<HookProcAddr>(&failing_create_buffer);
         if (wrapSubmit && device && std::strcmp(fn, "vkQueueSubmit") == 0) {
             gRealSubmit = reinterpret_cast<PFN_vkQueueSubmit>(p);
             return reinterpret_cast<HookProcAddr>(&counting_submit);
@@ -311,8 +322,15 @@ TEST_CASE("vulkan: the feature structs of a hook are read member by member and m
     CHECK(padded->devicesMade == 1);
     CHECK(!covered->available());
     CHECK(contains(covered->unavailable_reason(), "VkPhysicalDeviceVulkan12Features covers"));
-    CHECK(!sync2->available());
-    CHECK(contains(sync2->unavailable_reason(), "VkPhysicalDeviceSynchronization2Features"));
+    // Vulkan 1.3: Vulkan13Features covers the struct, so it cannot join the chain. Vulkan 1.2: it is the extension's own
+    // struct, which a device that has VK_KHR_synchronization2 (the engine enables it) serves: the hook may be available.
+    REQUIRE(sync2->deviceRequests == 1);
+    if (sync2->physical.apiVersion >= VK_API_VERSION_1_3) {
+        CHECK(!sync2->available());
+        CHECK(contains(sync2->unavailable_reason(), "VkPhysicalDeviceSynchronization2Features"));
+    } else if (!sync2->available()) {
+        CHECK(contains(sync2->unavailable_reason(), "VkPhysicalDeviceSynchronization2Features"));
+    }
     CHECK(!orphan->available());
     CHECK(contains(orphan->unavailable_reason(), "without a required device extension"));
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
@@ -346,17 +364,122 @@ TEST_CASE("vulkan: a hook that becomes unavailable keeps none of the instance fu
 }
 
 TEST_CASE("vulkan: a hook hears device_destroying only for a device it heard vulkan_device_created for") {
-    // An upload ring this large may not be made (the device fails after vkCreateDevice) or may; either way the two
-    // callbacks pair.
+    // The device fails after vkCreateDevice, deterministically: the hook's vkCreateBuffer fails for the upload ring.
+    // The hook was asked about the device (vulkan_device_request, so vkCreateDevice ran) and never told it was made.
+    gFailedBuffers = 0;
     auto hook = std::make_shared<FakeHook>("paired (test)");
+    hook->failCreateBuffer = true;
     VulkanOptions o;
     o.init.hooks = {hook};
-    o.uploadRingBytes = std::size_t(1) << 30;
+    o.validation = true;
+    {
+        auto d = make_vulkan_device(o);
+        if (d) {
+            FAIL("vulkan: the device was made although vkCreateBuffer failed");
+        } else {
+            const std::string e = d.error().to_string();
+            if (cannot_run_here(e) && !vulkan_required()) {
+                MESSAGE("vulkan: skipped, " << e);
+                return;
+            }
+            CHECK_MESSAGE(contains(e, "vkCreateBuffer"), e);
+        }
+    }
+    CHECK(gFailedBuffers.load() > 0);
+    CHECK(hook->deviceRequests == 1);  // vkCreateDevice ran with the hook's request
+    CHECK(hook->devicesMade == 0);
+    CHECK(hook->destroying == 0);
+    CHECK(!hook->in_use());  // the failed device let go of the hook
+
+    // A device that is made: the two callbacks pair.
+    hook->failCreateBuffer = false;
     {
         auto dev = make_vk(o);
-        if (dev) CHECK(hook->devicesMade == 1);
+        if (!dev) return;
+        CHECK(hook->devicesMade == 1);
+        CHECK(hook->in_use());
     }
-    CHECK(hook->destroying == hook->devicesMade);
+    CHECK(hook->destroying == 1);
+    CHECK(!hook->in_use());
+}
+
+TEST_CASE("vulkan: a hook serves one device at a time: a second device is made without it and leaves it alone") {
+    auto hook = std::make_shared<FakeHook>("one device (test)");
+    VulkanOptions o;
+    o.init.hooks = {hook};
+    auto first = make_vk(o);
+    if (!first) return;
+    REQUIRE(hook->available());
+    REQUIRE(hook->devicesMade == 1);
+
+    // The second device cannot take the hook: no request, no callback, a warning; the first device's hook stays as it was
+    // (here a hook that would fail its extension check on the second device does not mark itself unavailable).
+    hook->deviceExtensions = {"VK_FA_absent_for_tests"};
+    auto second = make_vk(o);
+    if (!second) return;
+    CHECK(hook->available());
+    CHECK(hook->deviceRequests == 1);
+    CHECK(hook->devicesMade == 1);
+    CHECK(contains(all_warnings(*second), "device hook 'one device (test)' is not used by this device"));
+    CHECK(contains(all_warnings(*second), "another live D3D12 or Vulkan device holds it"));
+    CHECK(!contains(all_warnings(*first), "is not used by this device"));
+    second.reset();
+    CHECK(hook->destroying == 0);  // the second device never held it
+    CHECK(hook->available());
+
+    // The first goes; a later device takes it again (and now fails its extension check).
+    first.reset();
+    CHECK(hook->destroying == 1);
+    auto third = make_vk(o);
+    if (!third) return;
+    CHECK(hook->deviceRequests == 2);
+    CHECK(!hook->available());
+    CHECK(contains(hook->unavailable_reason(), "has no device extension VK_FA_absent_for_tests"));
+}
+
+TEST_CASE("vulkan: covered_by_core names every per-feature struct Vulkan12Features and Vulkan13Features cover") {
+    using fa::gpu::vk::covered_by_core;
+    const VkStructureType core12[] = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+    // One per member group of VkPhysicalDeviceVulkan13Features (the spec's list of the structs it replaces).
+    const VkStructureType core13[] = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TERMINATE_INVOCATION_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES,
+                                      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES};
+    for (const VkStructureType t : core12) {
+        INFO("sType " << int(t));
+        CHECK(std::string(covered_by_core(t, false)) == "VkPhysicalDeviceVulkan12Features");
+        CHECK(std::string(covered_by_core(t, true)) == "VkPhysicalDeviceVulkan12Features");
+    }
+    for (const VkStructureType t : core13) {
+        INFO("sType " << int(t));
+        CHECK(std::string(covered_by_core(t, true)) == "VkPhysicalDeviceVulkan13Features");
+        CHECK(std::string(covered_by_core(t, false)).empty());  // a Vulkan 1.2 device chains no Vulkan13Features
+    }
+    // The core structs themselves and an unrelated one are not "covered".
+    CHECK(std::string(covered_by_core(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, true)).empty());
+    CHECK(std::string(covered_by_core(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, true)).empty());
+    CHECK(std::string(covered_by_core(VkStructureType(1000999000), true)).empty());
 }
 
 TEST_CASE("vulkan: handle_from_bits is the inverse of handle_bits for a pointer handle and for a 64-bit one") {
