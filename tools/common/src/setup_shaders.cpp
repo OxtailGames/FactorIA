@@ -8,6 +8,7 @@
 // SHA-256 kept in setup.h. Folders of older commits are removed once the new one is in place.
 #include <fstream>
 
+#include "fa/core/fs.h"
 #include "setup_internal.h"
 
 namespace fa {
@@ -20,7 +21,7 @@ const SokolShdcBinary* sokol_shdc_binary(const SetupContext& context) {
 }
 
 std::string sokol_shdc_install_dir(const SetupContext& context) {
-    return (std::filesystem::path(context.home_dir()) / "tools" / "sokol-shdc" / kSetupSokolShdcCommit).string();
+    return (fs::path_from_utf8(context.home_dir()) / "tools" / "sokol-shdc" / kSetupSokolShdcCommit).string();
 }
 
 std::string find_sokol_shdc(const SetupContext& context) {

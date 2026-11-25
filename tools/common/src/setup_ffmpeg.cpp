@@ -14,6 +14,7 @@
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include <encoder/basisu_miniz.h>
 
+#include "fa/core/fs.h"
 #include "setup_internal.h"
 
 namespace fa {
@@ -26,7 +27,8 @@ const FfmpegBinary* ffmpeg_binary(const SetupContext& context) {
 }
 
 std::string ffmpeg_install_path(const SetupContext& context) {
-    return (std::filesystem::path(context.home_dir()) / "tools" / "ffmpeg" / kSetupFfmpegRelease /
+    // .string(), not path_to_utf8: the callers turn the result back into a path with stdfs::path(std::string).
+    return (fs::path_from_utf8(context.home_dir()) / "tools" / "ffmpeg" / kSetupFfmpegRelease /
             ("ffmpeg" + setup_detail::exe_suffix(context.host_os())))
         .string();
 }

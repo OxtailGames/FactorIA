@@ -36,7 +36,9 @@ std::string package_name(const std::string& os) {
     return "FactorIA-linux-x64.tar.gz";
 }
 
-stdfs::path players_root(const SetupContext& ctx) { return stdfs::path(ctx.home_dir()) / "players" / ctx.version(); }
+stdfs::path players_root(const SetupContext& ctx) {
+    return fs::path_from_utf8(ctx.home_dir()) / "players" / ctx.version();
+}
 
 std::string player_file_name(const std::string& os) {
     return os == "windows" ? "factoria_player.exe" : "factoria_player";
