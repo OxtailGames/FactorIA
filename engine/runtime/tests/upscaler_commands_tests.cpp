@@ -136,6 +136,43 @@ TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything
     e.shutdown();
 }
 
+TEST_CASE("rayReconstruction: the project's key, the command, the script and render.supports agree") {
+    TempProject p("rr", R"(, "render": { "upscaler": { "mode": "dlss", "rayReconstruction": true } })");
+    auto s = load_project(p.path());
+    REQUIRE_MESSAGE(s.ok(), s.error().message);
+    CHECK(s->upscaler.rayReconstruction);
+    CHECK(s->to_json()["render"]["upscaler"]["rayReconstruction"] == true);
+    TempProject bad("rrbad", R"(, "render": { "upscaler": { "rayReconstruction": "yes" } })");
+    auto b = load_project(bad.path());
+    REQUIRE_FALSE(b.ok());
+    CHECK(b.error().message.find("/render/upscaler/rayReconstruction") != std::string::npos);
+
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("render.upscaler", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["rayReconstruction"] == true);
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);
+    r = c.call("render.upscaler", Json::parse(R"({"rayReconstruction":false})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["rayReconstruction"] == false);
+    CHECK(r.result["mode"] == "dlss");
+    eval(e, "window.upscaler = { rayReconstruction: true }; 0");
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);
+    r = c.call("render.upscaler", Json::parse(R"({"rayReconstruction":"on"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("rayReconstruction") != std::string::npos);
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);  // the refusal changed nothing
+    // The support row exists, and on this machine (no NVIDIA RTX, no Streamline) it says why it is not there.
+    auto sup = c.call("render.supports", Json::parse(R"({"feature":"dlssRayReconstruction"})"));
+    REQUIRE_MESSAGE(sup.ok, sup.error.dump());
+    CHECK(sup.result["supported"] == false);
+    CHECK(sup.result["status"].get<std::string>().find("Ray Reconstruction") != std::string::npos);
+    e.shutdown();
+}
+
 TEST_CASE("window.upscaler reads and sets the same settings from a script") {
     TempProject p("js");
     Engine e;

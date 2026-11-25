@@ -57,12 +57,16 @@ struct FeatureEnv {
     // env made by hand says "not asked".
     std::array<VendorProbe, kVendorUpscalerCount> vendorUpscalers;
     bool vendorAsked = false;
+    // The "dlssRayReconstruction" row (M78-P4c): what DlssProvider::probe_ray_reconstruction answered (the machine of "dlss" plus the Ray
+    // Reconstruction plugin, and the renderer's guides), asked with the others.
+    VendorProbe dlssRayReconstruction;
     // The low-latency providers reflex, antilag2 and xell (M78, render_latency.h): what each answered for this GPU, and whether they were asked.
     std::array<VendorProbe, 3> latency;
     bool latencyAsked = false;
 };
-// Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) into `env`.
-void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers);
+// Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) and DLSS's Ray Reconstruction answer into `env`.
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers,
+                              const VendorProbe& rayReconstruction = {});
 // Puts the low-latency providers' answers (index 0 reflex, 1 antilag2, 2 xell) into `env`.
 void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers);
 

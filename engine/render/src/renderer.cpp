@@ -681,6 +681,7 @@ void Renderer::shutdown() {
         im.taa.release();
         im.spatial.release();
         im.mfxPrep.release();
+        im.rrPrep.release();
         im.latency.detach();      // the low-latency SDK's context goes before the device does
         if (im.gpu.has_device())  // the vendor SDKs' contexts go before the device does (the GPU is idle first, inside)
             for (int i = 0; i < render::kVendorUpscalerCount; ++i) render::vendor_provider(i).release(im.gpu.device());

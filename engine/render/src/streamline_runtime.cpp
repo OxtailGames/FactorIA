@@ -39,6 +39,8 @@ constexpr StructType kTagType{0x4c6a5aad, 0xb445, 0x496c, {0x87, 0xff, 0x1a, 0xf
 constexpr StructType kConstantsType{0xdcd35ad7, 0x4e4a, 0x4bad, {0xa9, 0x0c, 0xe0, 0xc4, 0x9e, 0xb2, 0x3a, 0xfe}};
 constexpr StructType kDlssOptionsType{0x6ac826e4, 0x4c61, 0x4101, {0xa9, 0x2d, 0x63, 0x8d, 0x42, 0x10, 0x57, 0xb8}};
 constexpr StructType kDlssOptimalType{0xef1d0957, 0xfd58, 0x4df7, {0xb5, 0x04, 0x8b, 0x69, 0xd8, 0xaa, 0x6b, 0x76}};
+constexpr StructType kDlssdOptionsType{0x0ad87504, 0x774e, 0x4bf3, {0x96, 0x33, 0xa4, 0x4d, 0x1f, 0x7f, 0x9c, 0xb8}};
+constexpr StructType kDlssdOptimalType{0xfbd0c637, 0xa28f, 0x41f2, {0xbc, 0x91, 0xb4, 0x21, 0xfa, 0xee, 0x8e, 0x1e}};
 constexpr StructType kReflexOptionsType{0xf03af81a, 0x6d0b, 0x4902, {0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34}};
 constexpr StructType kReflexReportType{0x0d569b37, 0xa1c8, 0x4453, {0xbe, 0x4d, 0x40, 0xf4, 0xde, 0x57, 0x95, 0x2b}};
 constexpr StructType kReflexReport2Type{0x68bb0632, 0x5e1c, 0x402b, {0x89, 0x9d, 0xb4, 0x9f, 0x63, 0x3c, 0x56, 0xc2}};
@@ -108,6 +110,23 @@ void init_dlss_options(DlssOptions& o) {
 void init_dlss_optimal_settings(DlssOptimalSettings& s) {
     std::memset(&s, 0, sizeof s);
     set_base(s.base, kDlssOptimalType, 1);
+}
+void init_dlssd_options(DlssdOptions& o) {
+    std::memset(&o, 0, sizeof o);
+    set_base(o.base, kDlssdOptionsType, 3);
+    o.outputWidth = o.outputHeight = 0xFFFFFFFFu;  // INVALID_UINT
+    o.preExposure = o.exposureScale = 1.0f;
+    o.colorBuffersHdr = kTrue;  // the header's default
+    for (Float4x4* m : {&o.worldToCameraView, &o.cameraViewToWorld}) {
+        m->row[0].x = 1.0f;
+        m->row[1].y = 1.0f;
+        m->row[2].z = 1.0f;
+        m->row[3].w = 1.0f;
+    }
+}
+void init_dlssd_optimal_settings(DlssdOptimalSettings& s) {
+    std::memset(&s, 0, sizeof s);
+    set_base(s.base, kDlssdOptimalType, 1);
 }
 void init_vulkan_info(VulkanInfo& v) {
     std::memset(&v, 0, sizeof v);
@@ -248,6 +267,7 @@ std::vector<std::string> names_of(const char** names, std::uint32_t count) {
 std::string feature_label(std::uint32_t feature) {
     switch (feature) {
         case kFeatureDlss: return "DLSS";
+        case kFeatureDlssRr: return "DLSS Ray Reconstruction";
         case kFeatureReflex: return "Reflex";
         case kFeaturePcl: return "PC latency";
         case kFeatureDlssG: return "DLSS frame generation";
@@ -893,8 +913,8 @@ std::shared_ptr<StreamlineRuntime>& process_runtime() {
     // The features of the engine today; the packages that add one (DLSS frame generation) add its id here. Reflex and the PC latency markers
     // are always asked: the low-latency setting is chosen after the device exists, and a plugin that is not installed only makes its
     // feature unsupported (feature_reason says why) while DLSS and the others run.
-    static std::shared_ptr<StreamlineRuntime> runtime =
-        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureReflex, kFeaturePcl});
+    static std::shared_ptr<StreamlineRuntime> runtime = std::make_shared<StreamlineRuntime>(
+        std::vector<std::uint32_t>{kFeatureDlss, kFeatureDlssRr, kFeatureReflex, kFeaturePcl});
     return runtime;
 }
 }  // namespace

@@ -396,3 +396,136 @@ TEST_CASE("vendor renderer: render.supports lists the three rows and answers yes
     CHECK(own.r.supports("xess"));
     CHECK_FALSE(own.r.supports("fsr"));  // the registered provider: the library of this machine is not there
 }
+
+namespace {
+
+// A DLSS stand-in that answers for Ray Reconstruction: what it is handed, and whether it says it drew with it.
+class FakeRrProvider final : public render::VendorUpscaler {
+public:
+    std::string_view name() const override { return "Fake DLSS"; }
+    std::string_view mode() const override { return "dlss"; }
+    std::string_view setup_id() const override { return "streamline"; }
+    unsigned backends() const override { return ~0u; }
+    VendorProbe probe(const VendorEnv&) override { return {true, ""}; }
+    VendorProbe probe_ray_reconstruction(const VendorEnv&) override {
+        ++rrProbes;
+        VendorProbe p;
+        p.available = rrAvailable;
+        if (!rrAvailable)
+            p.reason = "DLSS Ray Reconstruction is not available on this machine: the fake plugin is missing.";
+        return p;
+    }
+    bool upscale(const render::UpscaleInput& in, VendorFrame& frame) override {
+        ++frames;
+        asked = in.rayReconstruction;
+        if (in.rayReconstruction) {
+            ++rrFrames;
+            guidesGiven = frame.normalRoughness.id != 0 && frame.diffuseAlbedo.id != 0 &&
+                          frame.specularAlbedo.id != 0 && in.camera.valid && in.camera.perspective;
+            normalViewValid = in.normalRoughness.id != 0;
+            if (rrRefuses)
+                frame.rayReconstructionFallback =
+                    "DLSS Ray Reconstruction could not draw a frame (the fake refused it).";
+            else
+                frame.usedRayReconstruction = true;
+        }
+        return true;
+    }
+    int rrProbes = 0, frames = 0, rrFrames = 0;
+    bool rrAvailable = true, rrRefuses = false, asked = false, guidesGiven = false, normalViewValid = false;
+};
+
+}  // namespace
+
+TEST_CASE(
+    "vendor renderer: Ray Reconstruction is asked for, given its guides and the camera, and a refusal stays off") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    FakeRrProvider fake;
+    ProviderGuard guard(0, &fake);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    s.w.settings().colorSpace = ColorSpace::Linear;  // Ray Reconstruction reads linear light
+    own.upscale(UpscalerMode::Dlss);
+    // Not asked for: Super Resolution's frame, no probe, no guides.
+    own.frame(s.w, 2);
+    CHECK(fake.frames >= 1);
+    CHECK_FALSE(fake.asked);
+    CHECK(fake.rrFrames == 0);
+    UpscalerSettings u;
+    u.mode = UpscalerMode::Dlss;
+    u.quality = UpscalerQuality::Performance;
+    u.rayReconstruction = true;
+    own.r.set_upscaler(u);
+    own.frame(s.w, 2);
+    CHECK(fake.rrProbes == 1);  // asked once, never per frame
+    REQUIRE(own.r.supports("dlssRayReconstruction"));
+    CHECK(fake.asked);
+    CHECK(fake.rrFrames >= 1);
+    CHECK(fake.guidesGiven);
+    CHECK(fake.normalViewValid);
+    CHECK(own.r.upscaler().rayReconstruction);
+    // The guides are only made for the frames that use them.
+    const int rrBefore = fake.rrFrames;
+    u.rayReconstruction = false;
+    own.r.set_upscaler(u);
+    own.frame(s.w, 1);
+    CHECK(fake.rrFrames == rrBefore);
+    // A frame DLSS drew with Super Resolution instead: Ray Reconstruction is off for the run and the row says why.
+    fake.rrRefuses = true;
+    u.rayReconstruction = true;
+    own.r.set_upscaler(u);
+    own.frame(s.w, 1);
+    CHECK(fake.rrFrames == rrBefore + 1);
+    CHECK_FALSE(own.r.supports("dlssRayReconstruction"));
+    own.frame(s.w, 3);
+    CHECK(fake.rrFrames == rrBefore + 1);  // fail once, stay off
+    CHECK(fake.frames >= 1);
+    CHECK_FALSE(RendererTestAccess::vendor_failed(own.r, 0));  // DLSS itself is not off: Super Resolution goes on
+}
+
+TEST_CASE("vendor renderer: a machine without Ray Reconstruction draws Super Resolution and the row says why") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    FakeRrProvider fake;
+    fake.rrAvailable = false;
+    ProviderGuard guard(0, &fake);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;
+    s.w.settings().colorSpace = ColorSpace::Linear;
+    UpscalerSettings u;
+    u.mode = UpscalerMode::Dlss;
+    u.quality = UpscalerQuality::Performance;
+    u.rayReconstruction = true;
+    own.r.set_render_scale(0.5f);
+    own.r.set_upscale_stage(true);
+    own.r.set_upscaler(u);
+    own.frame(s.w, 3);
+    CHECK(fake.frames >= 1);
+    CHECK(fake.rrFrames == 0);
+    CHECK_FALSE(own.r.supports("dlssRayReconstruction"));
+    CHECK(fake.rrProbes == 1);
+}
+
+TEST_CASE("vendor renderer: Ray Reconstruction on a picture of display values draws Super Resolution and says why") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    FakeRrProvider fake;
+    ProviderGuard guard(0, &fake);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    Scene s;  // a gamma scene: the colour is display values
+    UpscalerSettings u;
+    u.mode = UpscalerMode::Dlss;
+    u.quality = UpscalerQuality::Performance;
+    u.rayReconstruction = true;
+    own.r.set_render_scale(0.5f);
+    own.r.set_upscale_stage(true);
+    own.r.set_upscaler(u);
+    own.frame(s.w, 3);
+    CHECK(fake.frames >= 1);
+    CHECK(fake.rrFrames == 0);
+    CHECK_FALSE(own.r.supports("dlssRayReconstruction"));
+}

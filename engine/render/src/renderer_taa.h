@@ -54,7 +54,13 @@ struct TaaPlan {
         false;  // the camera drew the frame before and no cut happened since: its history can be reprojected
     Mat4
         prevFromView;  // a view-space position of this frame -> the clip position it had on the frame before (unjittered)
-    float proj[8]{};                 // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
+    float proj[8]{};  // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
+    // The camera of the frame, for the vendor upscalers that are told its matrices (DLSS Ray Reconstruction, M78): the view (world -> camera
+    // view) and the unjittered projection with the backend's depth range, the camera's frame in the world and its lens.
+    Mat4 view, projection;
+    Vec3 position{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+    float nearPlane = 0.1f, farPlane = 1000.0f;
+    bool perspective = true;
     std::uint64_t camKey = 0;        // the camera's entity (its history is keyed by it)
     std::uint64_t serial = 0;        // the game frame (Renderer::Impl::postSerial)
     std::uint64_t sceneKey = 0;      // the scene's identity: another one drops the history
