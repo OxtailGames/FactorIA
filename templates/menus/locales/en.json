@@ -135,6 +135,24 @@
         "antilag2": "needs an AMD Radeon GPU on Windows",
         "xell": "needs Windows, Direct3D 12 and the XeSS runtime"
       },
+      "fgLabel": "Frame generation: {mode}",
+      "fgPage": "Frame generation",
+      "fgm": { "off": "Off", "auto": "Auto", "dlss": "DLSS", "fsr": "FSR 3", "xess": "XeSS" },
+      "fgunsup": {
+        "off": "always available",
+        "auto": "always available",
+        "dlss": "needs an NVIDIA RTX GPU on Windows",
+        "fsr": "needs Windows, Direct3D 12 or Vulkan and the FidelityFX runtime",
+        "xess": "needs an Intel Arc GPU on Windows and the XeSS runtime"
+      },
+      "fgMinFps": "Minimum base fps: {fps}",
+      "fgMinFpsNever": "Minimum base fps: never switch off",
+      "fgRefused": "Not running here: it needs a game window on Direct3D 12 or Vulkan, the temporal upscaler, and a game that started with frame generation on (it cannot be turned on while the game runs).",
+      "fgMeasuring": "Measuring the frame rate...",
+      "fgActive": "Running: the game renders {base} fps and the screen shows {presented} fps.",
+      "fgPaused": "Switched off: the game renders fewer than {min} fps. It comes back when the rate recovers.",
+      "fgHint": "Frame generation adds delay to the controls: a low-latency mode (the previous page) is recommended.",
+      "fgHintDlss": "Frame generation adds delay to the controls. DLSS turns NVIDIA Reflex on by itself; other low-latency modes are on the previous page.",
       "unsupNote": "Not available here: {modes}.",
       "stretchNote": "This game is drawn with plain scaling (pixel art), whatever the mode."
     },

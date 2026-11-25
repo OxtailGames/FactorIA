@@ -2,7 +2,9 @@
 // the menu, picks an upscaler mode and a preset with real clicks on the combos (the popups' items), Saves, and checks
 // factoria.json on disk (only the keys of the window change), a wrong value (set as a script would) that disables Save and
 // is named with its pointer, and Revert. The Low latency group is driven on a fixed render.supports table: a mode the renderer cannot run is greyed out
-// and refused, auto and its boost are saved as render.latency, off removes the key. The test project's factoria.json is put back at the end. Every wait counts frames.
+// and refused, auto and its boost are saved as render.latency, off removes the key. The Frame generation group the same way: dlss and xess are
+// greyed out and refused on the fixed table, fsr and its minimum base frame rate are saved as render.frameGeneration, the advice for a low-latency
+// mode shows while none is set, off removes the key. The test project's factoria.json is put back at the end. Every wait counts frames.
 #include <memory>
 
 #include "autotest_common.h"
@@ -117,8 +119,11 @@ void Editor::at_section_Q4(AtScript& at) {
             R"({"features":[
                 {"name":"reflex","supported":false,"status":"arrives with the Streamline provider"},
                 {"name":"antilag2","supported":false,"status":"needs an AMD Radeon GPU on Windows"},
-                {"name":"xell","supported":true,"status":"supported"}]})");
-        graphicsSupportAt_ = time_ + 1.0e7;
+                {"name":"xell","supported":true,"status":"supported"},
+                {"name":"dlssFrameGen","supported":false,"status":"needs an NVIDIA RTX GPU"},
+                {"name":"fsrFrameGen","supported":true,"status":"supported"},
+                {"name":"xessFrameGen","supported":false,"status":"needs an Intel Arc GPU on Windows"}]})");
+        graphicsSupportPinned_ = true;
         pendingFocus_ = "Graphics";
     });
     step(4, [this] {
@@ -215,6 +220,101 @@ void Editor::at_section_Q4(AtScript& at) {
         pendingFocus_ = "Graphics";
     });
 
+    // The Frame generation group (render.frameGeneration, docs/FRAME_GENERATION.md), on the same fixed table: dlss and xess cannot run, fsr can.
+    step(4, [this] {
+        at_check(at_visible("gfx:fgMode") && at_visible("gfx:fgMinFps"),
+                 "the window has a Frame generation group with the mode and the minimum base frame rate");
+        at_check(graphicsWork_.frameGenMode == "off" && !at_enabled("gfx:fgMinFps"),
+                 "the mode is off by default and the minimum is greyed out for it");
+        at_check(graphicsFrameGenLine_.find("Off") == 0 && graphicsFrameGenHint_.empty(),
+                 "...the line says that nothing is generated and there is no latency advice");
+        at_check(graphicsFrameGenState_.find("Off") == 0 || graphicsFrameGenState_.find("Refused") == 0,
+                 "...and the engine's readout is a line of its own (the editor's loop never generates)");
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:fgMode");
+    step(4, [this] {
+        at_check(at_visible("gfx:fgMode:off") && at_visible("gfx:fgMode:auto") && at_visible("gfx:fgMode:dlss") &&
+                     at_visible("gfx:fgMode:fsr") && at_visible("gfx:fgMode:xess"),
+                 "the frame generation combo lists off, auto, dlss, fsr and xess");
+        at_check(at_enabled("gfx:fgMode:off") && at_enabled("gfx:fgMode:auto") && at_enabled("gfx:fgMode:fsr"),
+                 "...with the modes this machine can run enabled");
+        at_check(!at_enabled("gfx:fgMode:dlss") && !at_enabled("gfx:fgMode:xess"),
+                 "...and the SDKs it cannot run greyed out (their reason is the tooltip)");
+    });
+    click("gfx:fgMode:dlss");
+    step(4, [this] {
+        at_check(graphicsWork_.frameGenMode == "off", "a click on a mode that cannot run is refused");
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:fgMode");
+    step(4, [] {});
+    click("gfx:fgMode:fsr");
+    step(4, [this] {
+        at_check(graphicsWork_.frameGenMode == "fsr", "picking fsr sets the working copy");
+        at_check(at_enabled("gfx:fgMinFps") && at_enabled("gfx:save"), "...the minimum is enabled and Save too");
+        at_check(graphicsFrameGenLine_.find("Usable on this machine") == 0 &&
+                     graphicsFrameGenLine_.find("fewer than 60 frames") != std::string::npos,
+                 "...and the line says it can run here and what the minimum does");
+        at_check(graphicsFrameGenHint_.find("low-latency mode") != std::string::npos,
+                 "...with the advice for a low-latency mode while render.latency is off");
+        graphicsWork_.frameGenMinBaseFps = 45;  // what the slider sets
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:save");
+    step(5, [this, project_file] {
+        const std::string text = read_file(project_file("factoria.json"));
+        at_check(text.find("\"frameGeneration\"") != std::string::npos && text.find("\"fsr\"") != std::string::npos &&
+                     text.find("\"minBaseFps\": 45") != std::string::npos,
+                 "Save writes render.frameGeneration to factoria.json");
+        auto back = read_graphics_settings(project_dir());
+        at_check(back.ok() && back->frameGenMode == "fsr" && back->frameGenMinBaseFps == 45 && back->mode == "spatial" &&
+                     back->preset == "low" && back->latencyMode == "off",
+                 "...the engine's own reader finds it again and the other keys are as they were");
+        graphicsWork_.latencyMode = "xell";  // a low-latency mode is chosen: the advice goes
+    });
+    step(4, [this] {
+        at_check(graphicsFrameGenHint_.empty(), "with a low-latency mode set the advice goes");
+        graphicsWork_.latencyMode = "off";
+        graphicsWork_.frameGenMode = "dlss";  // as a project file written for another machine would be
+    });
+    step(4, [this] {
+        at_check(graphicsFrameGenLine_.find("Not usable on this machine: needs an NVIDIA RTX GPU") == 0,
+                 "a project that names an SDK this machine cannot run shows its reason");
+        at_check(graphicsFrameGenHint_.find("turns NVIDIA Reflex on by itself") != std::string::npos,
+                 "...and the advice says DLSS frame generation turns Reflex on itself");
+        at_check(check_graphics_settings(graphicsWork_).empty(), "...but the value is valid, it only cannot run here");
+        graphicsWork_.frameGenMode = "fsrr";
+        graphicsWork_.frameGenMinBaseFps = 2000;
+    });
+    step(4, [this] {
+        const auto problems = check_graphics_settings(graphicsWork_);
+        at_check(problems.size() == 2 && problems[0].pointer == "/render/frameGeneration/mode" &&
+                     problems[0].message.find("fsr") != std::string::npos &&
+                     problems[1].pointer == "/render/frameGeneration/minBaseFps",
+                 "a misspelt mode and a minimum out of range are named with their pointers");
+        at_check(!at_enabled("gfx:save"), "...and Save stays disabled");
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:revert");
+    step(4, [this] {
+        at_check(graphicsWork_.frameGenMode == "fsr" && graphicsWork_.frameGenMinBaseFps == 45,
+                 "Revert reads the saved frame generation again");
+        graphicsWork_.frameGenMode = "off";
+        graphicsWork_.frameGenMinBaseFps = 60;
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:save");
+    step(5, [this, project_file] {
+        const std::string text = read_file(project_file("factoria.json"));
+        at_check(text.find("frameGeneration") == std::string::npos && text.find("\"spatial\"") != std::string::npos,
+                 "Save with the mode off and the minimum at 60 removes render.frameGeneration and keeps the rest");
+        auto back = read_graphics_settings(project_dir());
+        at_check(back.ok() && back->frameGenMode == "off" && back->frameGenMinBaseFps == 60,
+                 "...and the reader finds the default");
+        pendingFocus_ = "Graphics";
+    });
+
     // A range the controller cannot use (min above max) is named and Save stays off.
     step(2, [this] {
         graphicsWork_.dynamic.minScale = 0.9f;
@@ -236,6 +336,8 @@ void Editor::at_section_Q4(AtScript& at) {
         graphicsWork_ = graphicsSaved_ = GraphicsSettings{};
         graphicsSupport_ = Json();  // the renderer's own table again
         graphicsSupportAt_ = 0.0;
+        graphicsSupportPinned_ = false;
+        graphicsSupportStale_ = true;
     });
 }
 

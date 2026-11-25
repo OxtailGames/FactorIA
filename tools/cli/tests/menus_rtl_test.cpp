@@ -149,38 +149,95 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
         CHECK(qroot[1] + qroot[3] <= 720.0f);
         CHECK(qend[1] + qend[3] <= 720.0f);
     }
-    // The third page: the low-latency rows (one mode with a boost switch on, the others greyed out), in each language.
+    // The third page: the low-latency rows, in each language, with one mode that has a boost switch on and the others greyed out (one
+    // reason in the note), then with every mode unsupported (the three reasons of the note, the longest content of the page). Every row
+    // lies inside the section and the section keeps a margin under the last row, so a longer translation does not push a row out.
+    const auto check_latency_page = [&](const char* what) {
+        for (const char* lang : {"en", "es", "ar"}) {
+            INFO("low latency page (" << what << "), language " << lang);
+            REQUIRE(set_language(lang)["ok"] == true);
+            engine.step(5);
+            const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+            REQUIRE(st["ok"] == true);
+            const std::vector<float> lbox = rect_of(st, "latency_section"), lnote = rect_of(st, "latency_note"),
+                                     lnav = rect_of(st, "gfx_latency_nav"), lback = rect_of(st, "gfx_latency_back"),
+                                     lfg = rect_of(st, "gfx_fg_page"), lroot = rect_of(st, "options");
+            for (const char* id : {"gfx_latency_label", "gfx_latency_off", "gfx_latency_auto", "gfx_latency_reflex",
+                                   "gfx_latency_antilag2", "gfx_latency_xell", "gfx_latency_nav", "gfx_latency_back",
+                                   "gfx_fg_page"}) {
+                CAPTURE(id);
+                const std::vector<float> r = rect_of(st, id);
+                CHECK(r[0] >= lbox[0] - 0.5f);
+                CHECK(r[0] + r[2] <= lbox[0] + lbox[2] + 0.5f);
+                CHECK(r[1] + r[3] <= lbox[1] + lbox[3] + 0.5f);
+            }
+            if (std::string(what) == "xell usable") {  // the boost switch is only there for a mode that has one
+                const std::vector<float> lboost = rect_of(st, "gfx_latency_boost");
+                CHECK(lboost[0] >= lbox[0] - 0.5f);
+                CHECK(lboost[0] + lboost[2] <= lbox[0] + lbox[2] + 0.5f);
+                CHECK(lboost[1] + lboost[3] <= lnote[1] + 0.5f);
+            }
+            CHECK(lnote[1] + lnote[3] <= lnav[1] + 0.5f);
+            CHECK(lnav[1] + lnav[3] <= lbox[1] + lbox[3] - 8.0f);  // the margin: room for a longer translation
+            CHECK(lback[1] + lback[3] <= lbox[1] + lbox[3] + 0.5f);
+            CHECK(lfg[1] + lfg[3] <= lbox[1] + lbox[3] + 0.5f);
+            CHECK(lroot[1] >= 0.0f);
+            CHECK(lroot[1] + lroot[3] <= 720.0f);
+        }
+    };
     REQUIRE(eval("world.find('quality_section').active = false; world.find('latency_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
                  "m.overrideRenderSupports((x) => x === 'xell'); m.setLatency({ mode: 'xell', boost: true }); "
                  "return 1; })")["ok"] == true);
     engine.step(3);
-    for (const char* lang : {"en", "es", "ar"}) {
-        INFO("low latency page, language " << lang);
-        REQUIRE(set_language(lang)["ok"] == true);
-        engine.step(5);
-        const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
-        REQUIRE(st["ok"] == true);
-        const std::vector<float> lbox = rect_of(st, "latency_section"), lnote = rect_of(st, "latency_note"),
-                                 lback = rect_of(st, "gfx_latency_back"), lboost = rect_of(st, "gfx_latency_boost"),
-                                 lroot = rect_of(st, "options");
-        for (const char* id : {"gfx_latency_label", "gfx_latency_off", "gfx_latency_auto", "gfx_latency_reflex",
-                               "gfx_latency_antilag2", "gfx_latency_xell", "gfx_latency_boost"}) {
-            CAPTURE(id);
-            const std::vector<float> r = rect_of(st, id);
-            CHECK(r[0] >= lbox[0] - 0.5f);
-            CHECK(r[0] + r[2] <= lbox[0] + lbox[2] + 0.5f);
-            CHECK(r[1] + r[3] <= lbox[1] + lbox[3] + 0.5f);
+    check_latency_page("xell usable");
+    REQUIRE(eval("Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(() => false); m.setLatency({ mode: 'off', boost: false }); "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_latency_page("every mode unsupported");
+    // The fourth page: the frame-generation rows, the same way: one SDK usable with a mode on (the state and the latency advice in the
+    // note), then every SDK unsupported.
+    const auto check_framegen_page = [&](const char* what) {
+        for (const char* lang : {"en", "es", "ar"}) {
+            INFO("frame generation page (" << what << "), language " << lang);
+            REQUIRE(set_language(lang)["ok"] == true);
+            engine.step(5);
+            const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+            REQUIRE(st["ok"] == true);
+            const std::vector<float> fbox = rect_of(st, "framegen_section"), fnote = rect_of(st, "framegen_note"),
+                                     fback = rect_of(st, "gfx_fg_back"), fmin = rect_of(st, "gfx_fg_minfps"),
+                                     froot = rect_of(st, "options");
+            for (const char* id : {"gfx_fg_label", "gfx_fg_off", "gfx_fg_auto", "gfx_fg_dlss", "gfx_fg_fsr", "gfx_fg_xess",
+                                   "gfx_fg_minfps", "framegen_note", "gfx_fg_back"}) {
+                CAPTURE(id);
+                const std::vector<float> r = rect_of(st, id);
+                CHECK(r[0] >= fbox[0] - 0.5f);
+                CHECK(r[0] + r[2] <= fbox[0] + fbox[2] + 0.5f);
+                CHECK(r[1] + r[3] <= fbox[1] + fbox[3] + 0.5f);
+            }
+            CHECK(fmin[1] + fmin[3] <= fnote[1] + 0.5f);
+            CHECK(fnote[1] + fnote[3] <= fback[1] + 0.5f);
+            CHECK(fback[1] + fback[3] <= fbox[1] + fbox[3] - 8.0f);  // the margin
+            CHECK(froot[1] >= 0.0f);
+            CHECK(froot[1] + froot[3] <= 720.0f);
         }
-        CHECK(lboost[1] + lboost[3] <= lnote[1] + 0.5f);
-        CHECK(lnote[1] + lnote[3] <= lback[1] + 0.5f);
-        CHECK(lback[1] + lback[3] <= lbox[1] + lbox[3] + 0.5f);
-        CHECK(lroot[1] >= 0.0f);
-        CHECK(lroot[1] + lroot[3] <= 720.0f);
-    }
-    REQUIRE(eval("world.find('latency_section').active = false; world.find('graphics_section').active = true; "
+    };
+    REQUIRE(eval("world.find('latency_section').active = false; world.find('framegen_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports((x) => x === 'fsrFrameGen'); m.setFrameGeneration({ mode: 'dlss', minBaseFps: 45 }); "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_framegen_page("dlss chosen, fsr usable");
+    REQUIRE(eval("Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(() => false); m.setFrameGeneration({ mode: 'off', minBaseFps: 60 }); "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_framegen_page("every SDK unsupported");
+    REQUIRE(eval("world.find('framegen_section').active = false; world.find('graphics_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
                  "m.overrideRenderSupports(null); m.setLatency({ mode: 'off', boost: false }); "
+                 "m.setFrameGeneration({ mode: 'off', minBaseFps: 60 }); "
                  "f.window.upscaler = { mode: 'stretch' }; return 1; })")["ok"] == true);
     REQUIRE(set_language("ar")["ok"] == true);
     engine.step(5);

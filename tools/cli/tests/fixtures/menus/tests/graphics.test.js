@@ -205,6 +205,12 @@ function openLatency(supports = () => true) {
   game.click("gfx_latency_page");
   return pad;
 }
+// The fourth page: the frame-generation rows (from the third).
+function openFrameGen(supports = () => true) {
+  const pad = openLatency(supports);
+  game.click("gfx_fg_page");
+  return pad;
+}
 const restore = () => {
   settings.overrideRenderSupports(null);
   window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
@@ -212,7 +218,9 @@ const restore = () => {
   window.dynamicResolution = { enabled: false, targetMs: 0, minScale: 0.5, maxScale: 1 };
   engine.graphics.preset("custom");
   settings.setLatency({ mode: "off", boost: false });
+  settings.setFrameGeneration({ mode: "off", minBaseFps: 60 });
 };
+const frameGen = () => fa.call("render.frame_generation");
 const latency = () => fa.call("render.latency");
 const saved = () => storage.get("settings").graphics;
 const button = (id) => world.find(id).get("Button");
@@ -233,11 +241,19 @@ test("graphics page: the second page opens from the first and goes back, and the
     expect(world.find("quality_section").active).toBe(true);
     expect(world.find("latency_section").active).toBe(false);
     game.click("gfx_latency_page");
+    game.click("gfx_fg_page"); // the fourth page: the frame-generation rows, and back to the third
+    expect(world.find("latency_section").active).toBe(false);
+    expect(world.find("framegen_section").active).toBe(true);
+    game.click("gfx_fg_back");
+    expect(world.find("latency_section").active).toBe(true);
+    expect(world.find("framegen_section").active).toBe(false);
+    game.click("gfx_fg_page");
     game.click("tab_video");
     game.click("tab_graphics");
     expect(world.find("graphics_section").active).toBe(true);
     expect(world.find("quality_section").active).toBe(false);
     expect(world.find("latency_section").active).toBe(false);
+    expect(world.find("framegen_section").active).toBe(false);
   } finally {
     restore();
   }
@@ -502,6 +518,11 @@ test("graphics page: the texts are in the game's language", () => {
     expect(button("gfx_uq").text).toContain("Calidad del escalado");
     expect(world.find("gfx_latency_label").get("Text").text).toContain("Baja latencia");
     expect(button("gfx_latency_off").text).toBe("No");
+    game.click("gfx_latency_page");
+    expect(button("gfx_fg_page").text).toBe("Generación de fotogramas");
+    game.click("gfx_fg_page");
+    expect(world.find("gfx_fg_label").get("Text").text).toContain("Generación de fotogramas");
+    expect(button("gfx_fg_off").text).toBe("No");
   } finally {
     i18n.setLanguage("en");
     restore();
@@ -576,6 +597,87 @@ test("graphics settings: the saved low-latency mode applies at the start, and an
     expect(settings.load().graphics.latency).toEqual({});
     settings.apply();
     expect(latency().mode).toBe("antilag2");
+  } finally {
+    restore();
+  }
+});
+
+// ---------------------------------------------------------------------------------------------- the frame-generation rows (render.frameGeneration)
+
+test("graphics page: the frame-generation SDKs this machine cannot run are greyed out with the reason, the others apply at once and are saved", () => {
+  openFrameGen((feature) => feature === "fsrFrameGen"); // this fake machine can run FSR 3 frame generation only
+  try {
+    expect(frameGen().mode).toBe("off");
+    expect(world.find("gfx_fg_minfps").active).toBe(false); // nothing to switch off
+    expect(world.find("framegen_note").get("Text").text).not.toContain(i18n.t("options.gfx.fgHint")); // off: no advice
+    expect(button("gfx_fg_off").interactable).toBe(true);
+    expect(button("gfx_fg_auto").interactable).toBe(true);
+    expect(button("gfx_fg_fsr").interactable).toBe(true);
+    expect(button("gfx_fg_dlss").interactable).toBe(false);
+    expect(button("gfx_fg_xess").interactable).toBe(false);
+    const note = world.find("framegen_note").get("Text").text;
+    expect(note).toContain(i18n.t("options.gfx.fgm.dlss"));
+    expect(note).toContain(i18n.t("options.gfx.fgunsup.xess"));
+    expect(note).not.toContain(i18n.t("options.gfx.fgunsup.fsr"));
+    game.click("gfx_fg_dlss"); // greyed out: nothing happens
+    expect(frameGen().mode).toBe("off");
+    expect(saved().frameGeneration ?? {}).toEqual({});
+    game.click("gfx_fg_fsr");
+    expect(frameGen().mode).toBe("fsr");
+    expect(saved().frameGeneration).toEqual({ mode: "fsr" });
+    expect(world.find("gfx_fg_minfps").active).toBe(true);
+    expect(button("gfx_fg_fsr").color).toEqual(button("tab_graphics").color); // the chosen one is highlighted
+    expect(world.find("gfx_fg_label").get("Text").text).toContain(i18n.t("options.gfx.fgm.fsr"));
+    // This run has no game window, so nothing is generated and the note says it, and that a low-latency mode is recommended.
+    const running = world.find("framegen_note").get("Text").text;
+    expect(running).toContain(i18n.t("options.gfx.fgRefused"));
+    expect(running).toContain(i18n.t("options.gfx.fgHint"));
+    game.click("gfx_fg_off");
+    expect(frameGen().mode).toBe("off");
+    expect(saved().frameGeneration).toEqual({ mode: "off" });
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the minimum base frame rate is saved, 0 never switches off, and a low-latency mode takes the advice away", () => {
+  openFrameGen();
+  try {
+    game.click("gfx_fg_auto");
+    expect(frameGen().minBaseFps).toBe(60);
+    expect(world.find("gfx_fg_minfps").get("Slider").label).toBe(i18n.t("options.gfx.fgMinFps", { fps: 60 }));
+    game.setSlider("gfx_fg_minfps", 45);
+    expect(frameGen().minBaseFps).toBe(45);
+    expect(saved().frameGeneration).toEqual({ mode: "auto", minBaseFps: 45 });
+    game.setSlider("gfx_fg_minfps", 0);
+    expect(frameGen().minBaseFps).toBe(0);
+    expect(world.find("gfx_fg_minfps").get("Slider").label).toBe(i18n.t("options.gfx.fgMinFpsNever"));
+    expect(world.find("framegen_note").get("Text").text).toContain(i18n.t("options.gfx.fgHint"));
+    settings.setLatency({ mode: "auto" }); // a low-latency mode is on
+    game.click("gfx_fg_dlss"); // any change refreshes the page
+    expect(world.find("framegen_note").get("Text").text).not.toContain(i18n.t("options.gfx.fgHint"));
+    settings.setLatency({ mode: "off" });
+    game.click("gfx_fg_dlss");
+    expect(world.find("framegen_note").get("Text").text).toContain(i18n.t("options.gfx.fgHintDlss")); // DLSS turns Reflex on itself, and says so
+  } finally {
+    restore();
+  }
+});
+
+test("graphics settings: the saved frame generation applies at the start, and an old save changes nothing", () => {
+  storage.set("settings", { graphics: { frameGeneration: { mode: "auto", minBaseFps: 90 } } });
+  try {
+    expect(settings.load().graphics.frameGeneration).toEqual({ mode: "auto", minBaseFps: 90 });
+    settings.apply();
+    expect(frameGen().mode).toBe("auto");
+    expect(frameGen().minBaseFps).toBe(90);
+    // A save of an older kit has no frameGeneration key: the game's own setting stays.
+    settings.setFrameGeneration({ mode: "fsr", minBaseFps: 30 });
+    storage.set("settings", { volume: { music: 0.3 }, graphics: { quality: "low", effects: {} } });
+    expect(settings.load().graphics.frameGeneration).toEqual({});
+    settings.apply();
+    expect(frameGen().mode).toBe("fsr");
+    expect(frameGen().minBaseFps).toBe(30);
   } finally {
     restore();
   }

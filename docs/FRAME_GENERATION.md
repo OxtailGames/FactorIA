@@ -110,6 +110,23 @@ The editor's Profiler window shows the same line. In a run with no window (a hea
 `render.supports` has the rows `dlssFrameGen`, `fsrFrameGen` and `xessFrameGen` with their Direct3D 12 and Vulkan keys (XeSS: Direct3D 12
 only); a row is false with the provider's reason while no provider is there or the provider cannot run here.
 
+## In the editor and the menu kit
+
+- **Editor.** View > Graphics has a **Frame generation** group: the **Mode** combo (off, auto, dlss, fsr, xess; a mode whose
+  `render.supports` row is false is greyed out and its reason is the tooltip), the **Minimum base fps** slider (greyed out while the
+  mode is off) and Save / Revert of `render.frameGeneration` in `factoria.json`. Under them it says what the mode does here, advises
+  a low-latency mode when generation is on and `render.latency` is off (for `dlss` it says that DLSS-G turns Reflex on itself), and
+  shows the profiler's state of the editor ("Now, in the editor"). The editor's own viewport never generates, so that line reads off
+  or refused there; a run of the game is what generates ([the editor page](editor/EDITOR_PANELS_WORLD.md#graphics-settings-window)).
+- **Menu kit.** The Graphics tab of the options page has a fourth page, **Frame generation** (opened from the low-latency page): a
+  button per mode, the minimum base fps slider and a note with the unsupported modes and their reasons, the state the engine reports
+  (refused, measuring, paused below the minimum, active) and the latency advice. The choice is applied with `render.frame_generation`,
+  saved as `settings.graphics.frameGeneration` (`{mode, minBaseFps}`, only the keys the player chose) and applied again at each
+  start ([MENUS.md](MENUS.md)).
+- **A provider owns the swapchain**, so it is chosen when the game starts: a game started with `mode` off cannot turn one on while it
+  runs, and the kit then shows the engine's refusal (which says to restart). A game started with a provider can switch it off and
+  on from either page.
+
 ## NVIDIA DLSS frame generation
 
 DLSS frame generation (DLSS-G) is reached through NVIDIA Streamline, the runtime that also draws DLSS and Reflex (`factoria setup
