@@ -12,6 +12,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "gpu/vulkan_device.h"
@@ -74,21 +75,31 @@ VKAPI_ATTR VkResult VKAPI_CALL counting_submit(VkQueue queue, std::uint32_t coun
     return gRealSubmit(queue, count, submits, fence);
 }
 
+// vkCreateDevice as a hook wraps it (an instance function: `device` is null): what Streamline's interposer does.
+PFN_vkCreateDevice gRealCreateDevice = nullptr;
+std::atomic<int> gCreateDevices{0};
+VKAPI_ATTR VkResult VKAPI_CALL counting_create_device(VkPhysicalDevice gpu, const VkDeviceCreateInfo* ci,
+                                                      const VkAllocationCallbacks* a, VkDevice* out) {
+    ++gCreateDevices;
+    return gRealCreateDevice(gpu, ci, a, out);
+}
+
 // A hook that asks for what its fields say and records what it is given.
 struct FakeHook : DeviceHook {
     std::string id;
     std::vector<std::string> instanceExtensions, optionalInstanceExtensions;
     std::vector<std::string> deviceExtensions, optionalDeviceExtensions;
     std::vector<std::vector<std::uint8_t>> features;
+    std::vector<std::uint32_t> featureMembers;
     std::vector<VulkanQueueRequest> queues;
-    bool wrapSubmit = false;
+    bool wrapSubmit = false, wrapCreateDevice = false;
 
     int instanceRequests = 0, deviceRequests = 0, instancesMade = 0, devicesMade = 0, destroying = 0, resolved = 0;
     const void* instance = nullptr;
     VulkanPhysicalDevice physical;
     VulkanDeviceCreated created;
 
-    explicit FakeHook(std::string name) : id(std::move(name)) {}
+    explicit FakeHook(std::string label) : id(std::move(label)) {}
     std::string_view name() const override { return id; }
     void vulkan_instance_request(VulkanInstanceRequest& r) override {
         ++instanceRequests;
@@ -106,10 +117,15 @@ struct FakeHook : DeviceHook {
         r.extensions = deviceExtensions;
         r.optionalExtensions = optionalDeviceExtensions;
         r.features = features;
+        r.featureMembers = featureMembers;
         r.queues = queues;
     }
     HookProcAddr vulkan_resolve(const char* fn, const void* device, HookProcAddr p) override {
         ++resolved;
+        if (wrapCreateDevice && !device && std::strcmp(fn, "vkCreateDevice") == 0) {
+            gRealCreateDevice = reinterpret_cast<PFN_vkCreateDevice>(p);
+            return reinterpret_cast<HookProcAddr>(&counting_create_device);
+        }
         if (wrapSubmit && device && std::strcmp(fn, "vkQueueSubmit") == 0) {
             gRealSubmit = reinterpret_cast<PFN_vkQueueSubmit>(p);
             return reinterpret_cast<HookProcAddr>(&counting_submit);
@@ -241,6 +257,116 @@ TEST_CASE("vulkan: a hook used for a second device starts available again") {
     if (!dev) return;
     CHECK(hook->available());
     CHECK(hook->devicesMade == 1);
+}
+
+TEST_CASE("vulkan: the feature structs of a hook are read member by member and must fit the device's chain") {
+    // The Vulkan 1.2 struct is 204 bytes of members in 208: the 4 padding bytes are no feature, whatever they hold.
+    auto padded = std::make_shared<FakeHook>("padded Vulkan12 struct (test)");
+    {
+        VkPhysicalDeviceVulkan12Features f12{};
+        f12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        f12.timelineSemaphore = VK_TRUE;
+        VulkanDeviceRequest add;
+        add.add_features(f12);
+        REQUIRE(add.features[0].size() == sizeof(f12));
+        if (sizeof(f12) > 204) std::memset(add.features[0].data() + 204, 0xff, sizeof(f12) - 204);
+        padded->features = add.features;
+    }
+    // A struct an older per-feature struct of Vulkan 1.2: the engine chains Vulkan12Features already.
+    auto covered = std::make_shared<FakeHook>("per-feature struct (test)");
+    {
+        VkPhysicalDeviceTimelineSemaphoreFeatures f{};
+        f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+        f.timelineSemaphore = VK_TRUE;
+        VulkanDeviceRequest add;
+        add.add_features(f);
+        covered->features = add.features;
+    }
+    // Synchronization2's own struct: invalid next to Vulkan13Features (Vulkan 1.3), and an extension's struct needs
+    // its extension (Vulkan 1.2) -- either way this hook is unavailable and the message names the struct.
+    auto sync2 = std::make_shared<FakeHook>("synchronization2 struct (test)");
+    {
+        VkPhysicalDeviceSynchronization2FeaturesKHR f{};
+        f.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
+        f.synchronization2 = VK_TRUE;
+        VulkanDeviceRequest add;
+        add.add_features(f);
+        sync2->features = add.features;
+    }
+    // A struct of an extension, with no extension asked for.
+    auto orphan = std::make_shared<FakeHook>("extension struct without its extension (test)");
+    {
+        VkBaseOutStructure unknown{};
+        unknown.sType = VkStructureType(1000999000);
+        std::vector<std::uint8_t> f(sizeof(VkBaseOutStructure) + sizeof(VkBool32), 0);
+        std::memcpy(f.data(), &unknown, sizeof unknown);
+        orphan->features = {f};
+    }
+    VulkanOptions o;
+    o.init.hooks = {padded, covered, sync2, orphan};
+    auto dev = make_vk(o);
+    if (!dev) return;
+    INFO(all_warnings(*dev));
+    CHECK(padded->available());
+    CHECK(padded->devicesMade == 1);
+    CHECK(!covered->available());
+    CHECK(contains(covered->unavailable_reason(), "VkPhysicalDeviceVulkan12Features covers"));
+    CHECK(!sync2->available());
+    CHECK(contains(sync2->unavailable_reason(), "VkPhysicalDeviceSynchronization2Features"));
+    CHECK(!orphan->available());
+    CHECK(contains(orphan->unavailable_reason(), "without a required device extension"));
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a hook that becomes unavailable keeps none of the instance functions it replaced") {
+    gCreateDevices = 0;
+    // A control: available, its vkCreateDevice is the one the engine calls.
+    {
+        auto good = std::make_shared<FakeHook>("vkCreateDevice wrapper (test)");
+        good->wrapCreateDevice = true;
+        VulkanOptions o;
+        o.init.hooks = {good};
+        auto dev = make_vk(o);
+        if (!dev) return;
+        CHECK(good->available());
+        CHECK(gCreateDevices.load() == 1);
+    }
+    // The same wrapper from a hook the device then lacks an extension for: the engine's own vkCreateDevice is called.
+    gCreateDevices = 0;
+    auto gone = std::make_shared<FakeHook>("vkCreateDevice wrapper without its extension (test)");
+    gone->wrapCreateDevice = true;
+    gone->deviceExtensions = {"VK_FA_absent_for_tests"};
+    VulkanOptions o;
+    o.init.hooks = {gone};
+    auto dev = make_vk(o);
+    if (!dev) return;
+    CHECK(!gone->available());
+    CHECK(gCreateDevices.load() == 0);
+    CHECK(gone->devicesMade == 0);
+}
+
+TEST_CASE("vulkan: a hook hears device_destroying only for a device it heard vulkan_device_created for") {
+    // An upload ring this large may not be made (the device fails after vkCreateDevice) or may; either way the two
+    // callbacks pair.
+    auto hook = std::make_shared<FakeHook>("paired (test)");
+    VulkanOptions o;
+    o.init.hooks = {hook};
+    o.uploadRingBytes = std::size_t(1) << 30;
+    {
+        auto dev = make_vk(o);
+        if (dev) CHECK(hook->devicesMade == 1);
+    }
+    CHECK(hook->destroying == hook->devicesMade);
+}
+
+TEST_CASE("vulkan: handle_from_bits is the inverse of handle_bits for a pointer handle and for a 64-bit one") {
+    struct Opaque;
+    using PointerHandle = Opaque*;
+    using IntegerHandle = std::uint64_t;  // a non-dispatchable handle on a 32-bit target
+    const std::uint64_t bits = 0x1234abcdull;
+    CHECK(fa::gpu::vk::handle_bits(fa::gpu::vk::handle_from_bits<PointerHandle>(bits)) == bits);
+    CHECK(fa::gpu::vk::handle_from_bits<IntegerHandle>(0xfedcba9876543210ull) == 0xfedcba9876543210ull);
+    CHECK(fa::gpu::vk::handle_bits(fa::gpu::vk::handle_from_bits<IntegerHandle>(bits)) == bits);
 }
 
 #endif  // FA_VULKAN_BACKEND

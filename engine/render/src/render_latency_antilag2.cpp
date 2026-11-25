@@ -217,7 +217,7 @@ void AntiLag2Hook::vulkan_device_request(const gpu::VulkanPhysicalDevice& gpu, g
     requested_ = true;
     request.extensions.emplace_back(abi::kVulkanExtension);
     abi::VkFeatures f{abi::kStructPhysicalDeviceFeatures, nullptr, 1};
-    request.add_features(f);
+    request.add_features(f, 1);  // one VkBool32 member; the rest of the struct is padding
 }
 
 void AntiLag2Hook::vulkan_device_created(const gpu::VulkanDeviceCreated& created) {

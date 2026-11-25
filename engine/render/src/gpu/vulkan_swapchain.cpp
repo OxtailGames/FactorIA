@@ -482,7 +482,6 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     if (!byHook) set_name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, handle_bits(swapchain_), swapLabel_.c_str());
 #endif
     swapUsage_ = ci.imageUsage;  // what the hooks added included (usage is the engine's)
-    (void)usage;
     swapStale_ = false;
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
@@ -1053,13 +1052,6 @@ VkSwapFunctions from_hook(const VulkanSwapchainFunctions& h, const VkSwapFunctio
     return f;
 }
 
-VkSwapchainKHR swapchain_from_bits(std::uint64_t v) {
-    if constexpr (std::is_pointer_v<VkSwapchainKHR>)
-        return reinterpret_cast<VkSwapchainKHR>(std::uintptr_t(v));
-    else
-        return VkSwapchainKHR(v);
-}
-
 }  // namespace
 
 bool VulkanDevice::hooks_make_swapchain(VkSwapchainCreateInfoKHR& ci, SwapFunctions& fns, VkSwapchainKHR& made,
@@ -1091,7 +1083,7 @@ bool VulkanDevice::hooks_make_swapchain(VkSwapchainCreateInfoKHR& ci, SwapFuncti
             continue;
         }
         if (byHook) {
-            made = swapchain_from_bits(sc.swapchain);
+            made = handle_from_bits<VkSwapchainKHR>(sc.swapchain);
             fns = from_hook(sc.functions, fns);
             return true;
         }

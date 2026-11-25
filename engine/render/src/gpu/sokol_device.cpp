@@ -1129,6 +1129,9 @@ Result<NativeCommands> SokolCommandList::begin_native(std::span<const NativeUse>
                           backend == Backend::Metal
                               ? "encode on Device::native_metal()'s command buffer outside a pass instead"
                               : "use the D3D12 or Vulkan backend, or D3D11 (its immediate context)");
+    if (!device_.listOpen_)
+        return make_error(at + "the list is not recording (no begin_commands() since the last submit())",
+                          "take the list with begin_commands() each frame; nothing was opened");
     if (nativeOpen_) return make_error(at + "a native section is open already", "end_native() first; they do not nest");
     if (sg_query_pass_state() != SG_PASSSTATE_NONE)
         return make_error(at + "the list is inside a pass", "end_pass() first: native commands go between passes");
@@ -1325,6 +1328,8 @@ SokolDevice::SokolDevice(bool ownsContext) : ownsContext_(ownsContext), thread_(
 }
 
 SokolDevice::~SokolDevice() {
+    native_release_adapter(adapter_);  // the DXGI adapter reference native_gpu_identity kept (D3D11)
+    adapter_ = nullptr;
     if (!sg_isvalid()) {
         // The renderer closed the context first: the timer's queries and the reads' staging buffers died with it, and
         // their destructors would call the native API on a context that is gone. Leak the two small objects instead.

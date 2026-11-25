@@ -15,7 +15,8 @@
 //  * D3D12 (d3d12_device_win32.cpp, d3d12_swapchain_win32.cpp) and Vulkan (vulkan_device.cpp, vulkan_swapchain.cpp)
 //    call every callback below at the moment it names, on the thread that makes the device, or that presents.
 //  * D3D11, GL, Metal and the RecordingDevice call none: make_device() marks each hook unavailable there, with the
-//    reason.
+//    reason, unless a live D3D12 or Vulkan device holds it (HookAttachment): availability is one state per hook,
+//    shared by the devices that use it.
 //
 // Degrading, never failing: whatever a hook asks that the machine lacks (a missing required extension, a feature bit
 // the GPU does not have, a queue family with no queue left, a Vulkan 1.3 struct on a 1.2 device) marks that hook
@@ -28,11 +29,14 @@
 // No hook installed: no callback, no extra work per frame (the backends test an empty list).
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "gpu/types.h"
@@ -79,15 +83,23 @@ struct VulkanDeviceRequest {
     // struct covers: Vulkan forbids both in one chain), an extension's struct for that extension (only of a required
     // extension). A struct of a type the engine chains already (Features2, Vulkan12, Vulkan13, the portability subset)
     // is merged into the engine's; any other is chained into VkDeviceCreateInfo::pNext. A bit the GPU lacks marks the
-    // hook unavailable, naming the struct and the member's index.
+    // hook unavailable, naming the struct and the member's index, and so does a struct that cannot go in the device's
+    // chain: one a core struct covers (the older per-feature structs of Vulkan 1.2; synchronization2's own on Vulkan
+    // 1.3, where Vulkan13Features has it), an extension's struct without that extension in `extensions`.
     std::vector<std::vector<std::uint8_t>> features;
+    // Per entry of `features`: how many VkBool32 members a struct the engine does not know has (0 or no entry = every
+    // 4 bytes after the header, padding included: zero the struct first). A struct the engine knows (Features2,
+    // Vulkan11/12/13, synchronization2, the portability subset) is read member by member, never its trailing padding.
+    std::vector<std::uint32_t> featureMembers;
     std::vector<VulkanQueueRequest> queues;
 
-    // Copies a Vk*Features struct into `features`.
+    // Copies a Vk*Features struct into `features`; `members` = its VkBool32 members, for a struct of an extension.
     template <class T>
-    void add_features(const T& s) {
+    void add_features(const T& s, std::uint32_t members = 0) {
         const auto* p = reinterpret_cast<const std::uint8_t*>(&s);
+        featureMembers.resize(features.size(), 0);
         features.emplace_back(p, p + sizeof(T));
+        featureMembers.push_back(members);
     }
 };
 
@@ -246,27 +258,75 @@ public:
     // first) and every other device object still there (slShutdown and the SDK's own contexts go here).
     virtual void device_destroying() {}
 
-    // Whether the device took the hook, and why not.
-    bool available() const { return available_; }
-    const std::string& unavailable_reason() const { return reason_; }
-    // Called by the device (and by make_device on a backend without hooks). A hook used for a second device starts
-    // available again (mark_available, when that device starts).
+    // Whether the device took the hook, and why not. Thread safe: a hook registered for the process is read by every
+    // device's threads and written by the one that starts or fails.
+    bool available() const { return available_.load(std::memory_order_acquire); }
+    std::string unavailable_reason() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return reason_;
+    }
+    // Called by the device (and by make_device on a backend without hooks).
     void mark_unavailable(std::string reason) {
-        if (!available_) return;  // the first reason stays
-        available_ = false;
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!available_.load(std::memory_order_relaxed)) return;  // the first reason stays
         reason_ = std::move(reason);
+        available_.store(false, std::memory_order_release);
     }
     void mark_available() {
-        available_ = true;
+        std::lock_guard<std::mutex> lock(mutex_);
         reason_.clear();
+        available_.store(true, std::memory_order_release);
     }
+    // The devices that hold the hook now (HookAttachment). A hook a live D3D12 or Vulkan device uses is never marked
+    // unsupported by another device that calls no hooks (make_device of a D3D11, GL, Metal or Recording device).
+    bool in_use() const { return users_.load(std::memory_order_acquire) > 0; }
 
 private:
-    bool available_ = true;
+    friend class HookAttachment;
+    // A device starts to use the hook: the first user starts it available; a second device made while the first lives
+    // shares the first's state (it never turns the hook on again under the first device's feet).
+    void begin_use() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (users_.fetch_add(1, std::memory_order_acq_rel) == 0) {
+            reason_.clear();
+            available_.store(true, std::memory_order_release);
+        }
+    }
+    void end_use() { users_.fetch_sub(1, std::memory_order_acq_rel); }
+
+    mutable std::mutex mutex_;
+    std::atomic<bool> available_{true};
+    std::atomic<int> users_{0};
     std::string reason_;
 };
 
 using DeviceHooks = std::vector<std::shared_ptr<DeviceHook>>;
+
+// What a D3D12 or Vulkan device holds for as long as it lives: each hook counts the device as a user (DeviceHook::
+// in_use), so a device made for another backend meanwhile does not mark it unsupported, and a second device does not
+// make it available again under the first. Detaches in its destructor (a member declared after the hooks, destroyed
+// after the device's own destructor body, where device_destroying runs).
+class HookAttachment {
+public:
+    HookAttachment() = default;
+    HookAttachment(const HookAttachment&) = delete;
+    HookAttachment& operator=(const HookAttachment&) = delete;
+    ~HookAttachment() { release(); }
+    void attach(const DeviceHooks& hooks) {
+        release();
+        hooks_ = hooks;
+        for (const auto& h : hooks_)
+            if (h) h->begin_use();
+    }
+    void release() {
+        for (const auto& h : hooks_)
+            if (h) h->end_use();
+        hooks_.clear();
+    }
+
+private:
+    DeviceHooks hooks_;
+};
 
 // The process's hooks: make_device() appends them to DeviceInit::hooks (after the caller's, once each) for every D3D12
 // and Vulkan device it makes. A provider registers before the renderer makes its device; a hook registered later

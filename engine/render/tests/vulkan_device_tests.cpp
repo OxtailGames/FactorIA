@@ -4019,7 +4019,8 @@ struct SwapchainHook : DeviceHook {
     void present_end(const PresentEvent& e) override {
         ++ends;
         CHECK(e.frame == lastFrame + 1);
-        CHECK(e.result == VK_SUCCESS);
+        // A swapchain the surface finds suboptimal (a window resized under it) still presents.
+        CHECK((e.result == VK_SUCCESS || e.result == VK_SUBOPTIMAL_KHR));
         lastFrame = e.frame;
     }
     void swapchain_destroying(const SwapchainEvent& e) override {
@@ -4059,24 +4060,30 @@ TEST_CASE("vulkan: a device hook wraps the swapchain's creation and present, and
     CHECK(back.nativeFormat != 0);
     window_frame(*dev, Color{0.0f, 0.5f, 1.0f, 1.0f});
     window_frame(*dev, Color{1.0f, 0.5f, 0.0f, 1.0f});
-    CHECK(gQueuePresents == 2);
-    CHECK(hook->begins == 2);
-    CHECK(hook->ends == 2);
+    // At least the frames drawn: a driver that finds the swapchain out of date makes it again (and may present the
+    // frame once more), so no count here is exact; what holds is that the hook heard every present the engine made.
+    CHECK(gQueuePresents >= 2);
+    CHECK(hook->begins >= 2);
+    CHECK(hook->ends == hook->begins);
+    CHECK(gQueuePresents == hook->begins);
+    const int madeBeforeResize = hook->asked;
+    const int destroyedBeforeResize = hook->destroyed;
 
     // A resize makes the swapchain again through the same hook; the old one is announced before it goes.
     win.resize(96, 64);
     auto resized = dev->resize_swapchain(96, 64);
     REQUIRE_MESSAGE(resized, resized.error().to_string());
-    CHECK(hook->asked == 2);
-    CHECK(gSwapchainsMade == 2);
-    CHECK(hook->destroyed == 1);
+    CHECK(hook->asked > madeBeforeResize);
+    CHECK(gSwapchainsMade == hook->asked);
+    CHECK(hook->destroyed > destroyedBeforeResize);
     window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f});
-    CHECK(gQueuePresents == 3);
-    CHECK(hook->lastFrame == 3);
+    CHECK(gQueuePresents >= 3);
+    CHECK(gQueuePresents == hook->begins);
+    CHECK(hook->lastFrame == std::uint64_t(hook->begins));
     CHECK(hook->available());
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
     dev->destroy_swapchain();
-    CHECK(hook->destroyed == 2);
+    CHECK(hook->destroyed == hook->asked);  // every swapchain the hook was asked about is announced as it goes
 }
 
 TEST_CASE("vulkan: a 4x MSAA swapchain resolves into the acquired image") {

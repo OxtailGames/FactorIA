@@ -6,6 +6,7 @@
 #include <doctest.h>
 
 #include <array>
+#include <ios>
 #include <memory>
 #include <string>
 #include <utility>
@@ -239,6 +240,12 @@ TEST_CASE("native access: the SokolDevice names its GPU; D3D11 hands out its con
         CHECK(!list.end_native());
     }
     dev.submit(list);
+    if (dev.backend() == Backend::D3d11) {
+        // A submitted list is not recording (the one immediate list is reused: begin_commands() opens it again).
+        auto stale = list.begin_native({});
+        REQUIRE(!stale);
+        CHECK(contains(stale.error().message, "the list is not recording"));
+    }
     dev.destroy_image(img);
 }
 
@@ -288,4 +295,41 @@ TEST_CASE("device hooks: the registry adds its hooks once to every device; a bac
 
     unregister_device_hook(registered.get());
     CHECK(registered_device_hooks().empty());
+}
+
+TEST_CASE("device hooks: a hook a live D3D12 or Vulkan device holds is not marked unsupported by another device") {
+    auto hook = std::make_shared<NamedHook>("shared (test)");
+    DeviceInit init;
+    init.hooks = {hook};
+
+    // The first device that holds it starts it available; a RecordingDevice (or D3D11, GL, Metal) made meanwhile leaves
+    // its state alone.
+    HookAttachment first;
+    first.attach({hook});
+    CHECK(hook->in_use());
+    CHECK(hook->available());
+    auto recording = make_device(Backend::Recording, init);
+    REQUIRE(recording);
+    CHECK(hook->available());
+    CHECK(hook->unavailable_reason().empty());
+
+    // A second device holding it does not turn it available again under the first (its failure stays).
+    hook->mark_unavailable("the first device lost it");
+    HookAttachment second;
+    second.attach({hook});
+    CHECK(!hook->available());
+    CHECK(contains(hook->unavailable_reason(), "the first device lost it"));
+
+    // The last device that held it goes: the next one starts it available again, and a backend without hooks marks it.
+    second.release();
+    first.release();
+    CHECK(!hook->in_use());
+    auto after = make_device(Backend::Recording, init);
+    REQUIRE(after);
+    CHECK(!hook->available());
+    CHECK(contains(hook->unavailable_reason(), "the recording backend calls no device hooks"));
+    HookAttachment third;
+    third.attach({hook});
+    CHECK(hook->available());
+    CHECK(hook->unavailable_reason().empty());
 }

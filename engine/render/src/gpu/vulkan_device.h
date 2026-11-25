@@ -320,6 +320,17 @@ std::uint64_t handle_bits(H h) {
         return std::uint64_t(h);
 }
 
+// The handle a 64-bit number names (handle_bits's inverse). A template, so that the branch a target does not take is
+// never compiled: on a 32-bit target a non-dispatchable handle is a uint64_t, and reinterpret_cast of an integer to an
+// integer is an error even in a discarded `if constexpr` branch of a function that is not a template.
+template <class H>
+H handle_from_bits(std::uint64_t v) {
+    if constexpr (std::is_pointer_v<H>)
+        return reinterpret_cast<H>(std::uintptr_t(v));
+    else
+        return H(v);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Formats
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1718,14 +1729,19 @@ private:
     struct HookGrant {
         std::vector<VulkanQueueGrant> queues;
         std::vector<std::string> optionalExtensions;
+        bool created = false;  // vulkan_device_created ran: device_destroying follows (and only then)
     };
     DeviceHooks hooks_;
+    HookAttachment hookUse_;  // after hooks_: detaches once the destructor body has called device_destroying
     std::vector<HookGrant> hookGrants_;
     std::uint64_t presents_ = 0;
     // Marks `hook` unavailable with `reason`, logs it and keeps it in warnings().
     void hook_unavailable(DeviceHook& hook, std::string reason);
     // `p` (the function the loader gave for `name`) as the available hooks resolve it (DeviceHook::vulkan_resolve).
     HookProcAddr resolve_hooked(const char* name, const void* device, HookProcAddr p);
+    // The instance functions again, asked of the hooks that are still available (one that became unavailable keeps no
+    // function it replaced; the others are asked for the same names a second time).
+    void reload_instance_functions();
     // What each hook asks of the device, checked against what it has, merged into the device's create info by
     // init_device (vulkan_device.cpp).
     void hooks_device_created();

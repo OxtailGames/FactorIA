@@ -23,6 +23,7 @@
 #include "render_latency_xell.h"
 
 using namespace fa;
+using render::FrameGenMode;
 using render::FrameGenSlot;
 using render::GpuVendor;
 using render::LatencyDriver;
