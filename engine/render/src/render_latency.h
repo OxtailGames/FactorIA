@@ -5,8 +5,8 @@
 // or, when no SDK is usable, paces the loop itself. With the mode off every one of these calls is one branch.
 //
 // A provider is one vendor SDK, reached the way the upscalers' are (render_upscale_vendor.h): the engine's own declarations of its C ABI and
-// a function table taken from the loaded library. NVIDIA Reflex is Streamline's: its provider registers itself with
-// register_latency_provider() when it lands; until then slot Reflex has no provider and says so.
+// a function table taken from the loaded library. NVIDIA Reflex is Streamline's (render_latency_reflex.h): its provider reaches the SDK
+// through the Streamline runtime (streamline_runtime.h), so it can run only where that runtime started with the device.
 #pragma once
 
 #include <cstdint>
@@ -64,17 +64,15 @@ public:
     virtual void stop(gpu::Device& device) = 0;
 };
 
-// The provider of slot `driver` (Reflex, AntiLag2, Xell), or null when none is there: Reflex until Streamline's lands.
+// The provider of slot `driver` (Reflex, AntiLag2, Xell), or null for a driver that has no slot (none, the engine's pacing).
 LatencyProvider* latency_provider(LatencyDriver driver);
 void set_latency_provider_for_test(LatencyDriver driver, LatencyProvider* fake);  // null puts the registered one back
-// Fills the slot of provider->driver() (the Reflex provider of M78's Streamline package calls this once, and nothing else changes).
+// Fills the slot of provider->driver() with `provider` in place of the one the build has (the three of M78 are there from the start).
 void register_latency_provider(std::shared_ptr<LatencyProvider> provider);
-// Empties the registered slot of `driver` (a test that registered a provider puts the slot back to what the build has: Reflex none).
-void clear_registered_latency_provider_for_test(LatencyDriver driver);
+// Puts the slot of `driver` back to the provider the build has (a test that registered another one calls it when it is done).
+void restore_latency_provider_for_test(LatencyDriver driver);
 
-// The reason the Reflex slot gives while no provider is registered.
-inline constexpr const char* kReflexAbsentReason = "arrives with the Streamline provider";
-
+std::unique_ptr<LatencyProvider> make_reflex_provider();
 std::unique_ptr<LatencyProvider> make_antilag2_provider();
 std::unique_ptr<LatencyProvider> make_xell_provider();
 
