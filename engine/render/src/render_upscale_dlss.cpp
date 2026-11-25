@@ -164,14 +164,14 @@ std::string DlssProvider::ensure_options(StreamlineRuntime& runtime, const Strea
         state_.getOptimal = reinterpret_cast<DlssGetOptimalSettingsFn>(getOptimal);  // NOLINT
     }
     const float ratio = std::max(float(in.outW) / float(in.renderW), float(in.outH) / float(in.renderH));
-    const std::uint32_t mode = dlss_mode_for_ratio(ratio, state_.optionsSet ? state_.mode : 0);
+    const std::uint32_t dlssMode = dlss_mode_for_ratio(ratio, state_.optionsSet ? state_.mode : 0);
     const float preExposure = in.exposure > 0.0f && std::isfinite(in.exposure) ? in.exposure : 1.0f;
     const bool hdr = in.linear;
-    const bool sameSizes = state_.sizeChecked && state_.mode == mode && state_.outW == in.outW && state_.outH == in.outH &&
+    const bool sameSizes = state_.sizeChecked && state_.mode == dlssMode && state_.outW == in.outW && state_.outH == in.outH &&
                            state_.renderW == in.renderW && state_.renderH == in.renderH;
     DlssOptions options;
     init_dlss_options(options);
-    options.mode = mode;
+    options.mode = dlssMode;
     options.outputWidth = std::uint32_t(in.outW);
     options.outputHeight = std::uint32_t(in.outH);
     options.sharpness = 0.0f;  // the engine sharpens in its own pass
@@ -188,7 +188,7 @@ std::string DlssProvider::ensure_options(StreamlineRuntime& runtime, const Strea
         if (const SlResult r = state_.getOptimal(&options, &settings); r != kOk)
             return streamline_refusal("slDLSSGetOptimalSettings", r);
         if (settings.optimalRenderWidth == 0 || settings.optimalRenderHeight == 0)
-            return std::string("DLSS does not support its ") + dlss_mode_name(mode) + " mode for an output of " + std::to_string(in.outW) +
+            return std::string("DLSS does not support its ") + dlss_mode_name(dlssMode) + " mode for an output of " + std::to_string(in.outW) +
                    "x" + std::to_string(in.outH) + ". Choose another quality (render.upscaler.quality) or a larger window.";
         const auto within = [](int value, std::uint32_t lo, std::uint32_t hi, std::uint32_t optimal) {
             const std::uint32_t low = std::min(lo == 0 ? optimal : lo, optimal);
@@ -197,12 +197,12 @@ std::string DlssProvider::ensure_options(StreamlineRuntime& runtime, const Strea
         };
         if (!within(in.renderW, settings.renderWidthMin, settings.renderWidthMax, settings.optimalRenderWidth) ||
             !within(in.renderH, settings.renderHeightMin, settings.renderHeightMax, settings.optimalRenderHeight))
-            return "DLSS's " + std::string(dlss_mode_name(mode)) + " mode draws at " + std::to_string(settings.optimalRenderWidth) + "x" +
+            return "DLSS's " + std::string(dlss_mode_name(dlssMode)) + " mode draws at " + std::to_string(settings.optimalRenderWidth) + "x" +
                    std::to_string(settings.optimalRenderHeight) + " for an output of " + std::to_string(in.outW) + "x" +
                    std::to_string(in.outH) + ", and the frame was drawn at " + std::to_string(in.renderW) + "x" +
                    std::to_string(in.renderH) + ". Choose another render.upscaler.quality.";
     }
-    const bool changed = !state_.optionsSet || state_.mode != mode || state_.outW != in.outW || state_.outH != in.outH ||
+    const bool changed = !state_.optionsSet || state_.mode != dlssMode || state_.outW != in.outW || state_.outH != in.outH ||
                          state_.preExposure != preExposure || state_.hdr != hdr;
     if (changed) {
         ViewportHandle viewport;
@@ -212,7 +212,7 @@ std::string DlssProvider::ensure_options(StreamlineRuntime& runtime, const Strea
         state_.optionsSet = true;
         state_.needReset = true;  // the history of the old mode means nothing to the new one
     }
-    state_.mode = mode;
+    state_.mode = dlssMode;
     state_.outW = in.outW;
     state_.outH = in.outH;
     state_.renderW = in.renderW;
