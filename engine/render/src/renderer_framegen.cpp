@@ -182,6 +182,11 @@ void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, bool fi
     f.cameraUp = fgCamera.up;
     f.cameraForward = fgCamera.forward;
     f.viewFromWorld = fgCamera.view;
+    // The motion image of the upscaler's preparation pass: fractions of the picture (u of the width, v of the height, v down), previous - current,
+    // without the jitter. A provider whose SDK reads pixels multiplies by the render size itself (motionScaleX / Y are 1: no extra scale).
+    f.motionScaleX = 1.0f;
+    f.motionScaleY = 1.0f;
+    f.motionJittered = false;
     f.depthReversed = reversed;
     f.depthInfinite = reversed;
     f.exposure = 1.0f;

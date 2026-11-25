@@ -30,6 +30,7 @@
 
 using namespace fa;
 using render::FrameGenFrame;
+using render::FrameGenMode;
 using render::FrameGenSettings;
 using render::FrameGenSlot;
 using render::GpuVendor;
@@ -397,6 +398,7 @@ struct Rig {
         : runtime(std::move(features), make_host(adapter)), dev(b), list(dev, b), backend(b) {
         gx.reset();
         g_hidden.clear();
+        render::reset_reflex_running_for_test();  // reflex_running() is the process's: no case reads what another left
         render::set_streamline_runtime_for_test(&runtime);
         if (ready) {
             if (b == gpu::Backend::Vulkan)
@@ -415,6 +417,7 @@ struct Rig {
         dlssg->stop(dev);
         reflex.reflex->stop(dev);
         reflex.started = nullptr;
+        render::reset_reflex_running_for_test();
         render::set_streamline_runtime_for_test(nullptr);
         g_hidden.clear();
     }
@@ -925,6 +928,97 @@ TEST_CASE("dlss frame generation: the status Streamline reports becomes the reas
     const auto index = refused(sl::kDlssgFailGetCurrentBackBufferIndexNotCalled);
     CHECK(has(index.second, "report it"));
     CHECK(refused(0).first);  // and it recovers
+}
+
+TEST_CASE(
+    "dlss frame generation: the false Reflex-not-detected of the first frames is tolerated, a later one is reported") {
+    Rig r(gpu::Backend::D3d12);
+    r.start_all();
+    r.dlssg->configure(true);
+    gx.status = sl::kDlssgFailReflexNotDetectedAtRuntime;
+    const auto frame = [&r] {
+        (void)r.dlssg->generated_frames();  // the controller reads the state once per rendered frame
+        FrameGenFrame f = r.frame();
+        const bool ok = r.dlssg->dispatch(f);
+        return std::make_pair(ok, f.error);
+    };
+    CHECK(frame().first);  // the first state reads after generation went on may still carry the bit
+    CHECK(frame().first);
+    const auto third = frame();
+    CHECK_FALSE(third.first);  // it is still there: Reflex really is not running
+    CHECK(has(third.second, "Reflex"));
+    // The grace is for the Reflex bit only: any other cause is reported at once.
+    r.dlssg->configure(false);
+    r.dlssg->configure(true);
+    gx.status = sl::kDlssgFailResolutionTooLow;
+    const auto low = frame();
+    CHECK_FALSE(low.first);
+    CHECK(has(low.second, "smaller than the SDK allows"));
+    // Generation off and on again: the count starts again, the bit is tolerated again for the first frames.
+    r.dlssg->configure(false);
+    (void)r.dlssg->generated_frames();
+    r.dlssg->configure(true);
+    gx.status = sl::kDlssgFailReflexNotDetectedAtRuntime;
+    CHECK(frame().first);
+}
+
+TEST_CASE("dlss frame generation: options Streamline refused for a moment are sent again by the next frame") {
+    Rig r(gpu::Backend::D3d12);
+    r.start_all();
+    r.dlssg->configure(true);
+    FrameGenFrame f = r.frame();
+    REQUIRE(r.dlssg->dispatch(f));
+
+    gx.setOptionsRc = sl::kErrorDriverOutOfDate;  // a refusal of the next set of options
+    r.depth = r.dev.image(200, 112, gpu::PixelFormat::R32F);
+    FrameGenFrame bigger = r.frame();
+    bigger.renderW = 200;
+    bigger.renderH = 112;
+    bigger.depth = r.depth;
+    CHECK_FALSE(r.dlssg->dispatch(bigger));
+    CHECK(has(bigger.error, "slDLSSGSetOptions"));
+    const std::size_t tried = gx.options.size();
+    FrameGenFrame still = r.frame();
+    still.renderW = 200;
+    still.renderH = 112;
+    still.depth = r.depth;
+    CHECK_FALSE(r.dlssg->dispatch(still));  // asked again every frame while it refuses
+    CHECK(gx.options.size() == tried + 1);
+
+    gx.setOptionsRc = 0;  // the driver is free again
+    FrameGenFrame ok = r.frame();
+    ok.renderW = 200;
+    ok.renderH = 112;
+    ok.depth = r.depth;
+    CHECK(r.dlssg->dispatch(ok));
+    CHECK(ok.error.empty());
+    CHECK(gx.options.back().mvecDepthWidth == 200);
+    const std::size_t sent = gx.options.size();
+    FrameGenFrame next = r.frame();
+    next.renderW = 200;
+    next.renderH = 112;
+    next.depth = r.depth;
+    CHECK(r.dlssg->dispatch(next));
+    CHECK(gx.options.size() == sent);  // accepted: not sent again
+}
+
+TEST_CASE("dlss frame generation: DLSS-G is loaded by Streamline only for the modes that can run it") {
+    Rig r(gpu::Backend::D3d12, false, features_without_dlssg());
+    bool loaded = false;
+    SUBCASE("off") { CHECK(r.dlssg->device_hook_for(FrameGenMode::Off) == nullptr); }
+    SUBCASE("fsr") { CHECK(r.dlssg->device_hook_for(FrameGenMode::Fsr) == nullptr); }
+    SUBCASE("xess") { CHECK(r.dlssg->device_hook_for(FrameGenMode::Xess) == nullptr); }
+    SUBCASE("dlss") {
+        CHECK(r.dlssg->device_hook_for(FrameGenMode::Dlss) == nullptr);
+        loaded = true;
+    }
+    SUBCASE("auto (DLSS-G on an NVIDIA GPU, which is not known yet)") {
+        CHECK(r.dlssg->device_hook_for(FrameGenMode::Auto) == nullptr);
+        loaded = true;
+    }
+    run_d3d12(r.runtime);
+    // a game on FSR or XeSS, or with the mode off, never loads the DLSS-G plugin
+    CHECK(r.runtime.feature_asked(sl::kFeatureDlssG) == loaded);
 }
 
 TEST_CASE("dlss frame generation: a status read while generation was off is not held against the frame") {

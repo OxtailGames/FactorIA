@@ -4,8 +4,8 @@
 // One FrameGenController per renderer. A provider is one vendor SDK that puts a generated frame between two rendered ones: NVIDIA DLSS
 // frame generation (through Streamline), AMD FSR 3 frame generation (FidelityFX, ffx_api framegeneration) and Intel XeSS frame generation
 // (libxess_fg). Each takes part in making the window's swapchain (it makes it itself or wraps it: DeviceHook::d3d12_create_swapchain /
-// vulkan_create_swapchain, then the present hooks), so its hook is registered before the device exists (register_framegen_device_hooks, called
-// by Renderer::init when RendererDesc::frameGeneration is on) and the controller starts the provider on that device and swapchain.
+// vulkan_create_swapchain, then the present hooks), so its hook is handed to the device before it exists (framegen_device_hooks, called by Renderer::init
+// when RendererDesc::frameGeneration is on) and the controller starts the provider on that device and swapchain.
 // The hooks are handed to the device of THAT renderer only (gpu::DeviceInit::hooks, framegen_device_hooks), never registered process-wide:
 // a second renderer in the same process that did not ask for frame generation makes its device and swapchain untouched.
 //
@@ -68,8 +68,8 @@ struct FrameGenFrame {
     //    (1, 1: they are fractions already; an SDK of pixel units takes renderW and renderH).
     gpu::Image depth{}, motion{};
     bool depthReversed = false, depthInfinite = false;
-    float motionScaleX = 1.0f, motionScaleY = 1.0f;
-    bool motionJittered = false;  // false: the vectors are of the unjittered picture
+    float motionScaleX = 1.0f, motionScaleY = 1.0f;  // 1, 1 for the engine's own images; set by framegen_pass
+    bool motionJittered = false;  // false: the vectors are of the unjittered picture (framegen_pass says so)
     gpu::PixelFormat colorFormat = gpu::PixelFormat::None;
     int renderW = 0, renderH = 0, outW = 0, outH = 0;
     // The camera: the unjittered projection (P00, P11, P02, P12, P03, P13, P32, P33, as TaaPlan::proj), the matrix from a view-space position
@@ -153,9 +153,10 @@ public:
 // The provider of `slot` (Dlss, Fsr, Xess), or null when none is there: the slots of the packages that have not landed.
 FrameGenProvider* framegen_provider(FrameGenSlot slot);
 void set_framegen_provider_for_test(FrameGenSlot slot, FrameGenProvider* fake);  // null puts the registered one back
-// Fills the slot of provider->slot() (the DLSS-G, FSR 3 and XeSS packages call this once each, and nothing else changes).
+// Fills the slot of provider->slot() (the table's own providers are made with it; a test or a later package replaces one).
 void register_framegen_provider(std::shared_ptr<FrameGenProvider> provider);
-// Empties the registered slot of `slot` (a test that registered a provider puts the slot back to what the build has: none).
+// Empties the registered slot of `slot` (a test that needs an empty slot, "has no provider in this build"). Every slot is filled when the table is
+// made, so what a test empties it puts back with register_framegen_provider (XessSlotRestore in framegen_tests.cpp).
 void clear_registered_framegen_provider_for_test(FrameGenSlot slot);
 
 // The reason an empty slot gives: it names what fills it.
@@ -252,8 +253,11 @@ public:
     // history), and so does a change of the output size (dispatch compares it with the last frame's).
     void begin_frame(double nowMs);
     // The window's swapchain was made again, resized or lost (width and height 0): the provider is told (swapchain_changed) and the next frame
-    // carries `reset`. The same size again does nothing.
-    void set_swapchain(const FrameGenSwapchain& swapchain);
+    // carries `reset`. The same size again does nothing, unless `remade`: a new swapchain object was made (the window came back, or the device
+    // lost the old one), so what the provider holds of the old one (views, sizes) is out of date whatever the size. While the swapchain is lost
+    // (0 x 0 told here) nothing is generated: the state is Refused ("the window has no swapchain"). Tell it BEFORE the swapchain is destroyed,
+    // so the provider lets go of what it holds of it first.
+    void set_swapchain(const FrameGenSwapchain& swapchain, bool remade = false);
     // True while the provider is to be given this frame (started, nothing refuses, the rate allows).
     bool wants_dispatch() const { return running_ && generating_ && refusal_.empty(); }
     // Whether the started provider asks for the reversed infinite depth (FrameGenProvider::wants_reversed_depth).
@@ -287,6 +291,7 @@ private:
     VendorEnv env_{};
     FrameGenSwapchain swapchain_{};
     bool hooked_ = false;
+    bool swapchainLost_ = false;  // set_swapchain was told 0 x 0: the window has no swapchain until it is told a size
     FrameGenSettings settings_{};
     bool upscaleStage_ = true, temporal_ = true;  // the inputs (true until render() says otherwise)
     FrameGenProvider* running_ = nullptr;         // the provider started on device_

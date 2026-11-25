@@ -210,8 +210,18 @@ void Editor::draw_profiler_panel() {
                         static_cast<unsigned long long>(fg.value("generatedFrames", std::uint64_t(0))));
             if (!why.empty()) ImGui::SetItemTooltip("%s", why.c_str());
         } else {
-            const std::string line = "Frame generation: " + state + (why.empty() ? std::string() : " (" + why + ")");
-            ImGui::TextDisabled("%s", line.c_str());
+            // A refusal's reason is a full sentence of what to change (up to several lines): wrapped to the window instead of running out of
+            // it. The off state is one short line, its hint (how to turn it on) in the tooltip.
+            if (state == "off") {
+                ImGui::TextDisabled("Frame generation: off");
+                if (!why.empty()) ImGui::SetItemTooltip("%s", why.c_str());
+            } else {
+                const std::string line =
+                    "Frame generation: " + state + (why.empty() ? std::string() : " (" + why + ")");
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", line.c_str());
+                ImGui::PopStyleColor();
+            }
         }
     }
     if (v.haveMemory) {
