@@ -23,6 +23,7 @@
 
 #include "frame_graph.h"
 #include "gi2d.h"
+#include "gi2d_test_support.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
 
@@ -60,14 +61,12 @@ struct Own {
     bool gi_ready() {
         REQUIRE(renderer_gpu(r)->has_device());
         const gpu::Device& dev = renderer_gpu(r)->device();
-        const bool have = Gi2dSystem::float_targets_ok(dev);
+        const std::string missing = gi2d_missing_targets(dev);
+        if (missing.empty()) return true;
         const gpu::Backend b = dev.backend();
-        if (b == gpu::Backend::Gl || b == gpu::Backend::D3d11 || b == gpu::Backend::Metal) {
-            INFO("this backend must have RGBA16F render targets that blend and filter");
-            REQUIRE(have);
-        }
-        if (!have) MESSAGE("no RGBA16F targets on this GPU: the cascades are not drawn here");
-        return have;
+        if (b == gpu::Backend::Gl || b == gpu::Backend::D3d11 || b == gpu::Backend::Metal) FAIL(missing);
+        MESSAGE(missing);
+        return false;
     }
 };
 

@@ -104,8 +104,8 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
         return false;
     }
     if (!surface_) return true;  // before the window's surface exists: what the instance can ask for
-    // With a surface, what it offers (vkGetPhysicalDeviceSurfaceFormatsKHR, asked once per surface and swapchain).
-    // (a copy: the render thread may load the list again for a new surface while a test or the UI thread asks)
+    // With a surface, what it offers: the list loaded from vkGetPhysicalDeviceSurfaceFormatsKHR once per surface and
+    // per swapchain made. A copy of it, because the render thread may load it again while another thread asks.
     for (const VkSurfaceFormatKHR& f : surface_formats_snapshot())
         if (f.format == sf.format && f.colorSpace == sf.space) return true;
     if (why)
@@ -117,9 +117,10 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
 
 // The surface's formats, asked again from the driver (a new surface, a surface recreated on Android, a swapchain made
 // again after the window or the monitor changed: a display's HDR setting changes the list). The list is built aside
-// and swapped in under surfaceFormatsMutex_, which guards it and the known flag: swapchain_format_supported() is const
-// and any thread may call it. The driver is asked outside the lock.
-VkResult VulkanDevice::load_surface_formats() const {
+// and swapped in under surfaceFormatsMutex_, which guards it, the known flag and the hidden formats:
+// swapchain_format_supported() is const and any thread may call it (it reads the loaded list; the driver is asked here,
+// outside the lock, on the render thread). `out`, when given, gets a copy of the list that was loaded.
+VkResult VulkanDevice::load_surface_formats(std::vector<VkSurfaceFormatKHR>* out) const {
     std::vector<VkSurfaceFormatKHR> formats;
     std::uint32_t n = 0;
     VkResult r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, nullptr);
@@ -128,12 +129,13 @@ VkResult VulkanDevice::load_surface_formats() const {
         r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, formats.data());
         formats.resize(r >= VK_SUCCESS ? n : 0);
     }
+    std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
     // A format a test pretends the surface lacks (hide_surface_format_for_tests).
     for (VkFormat hidden : hiddenSurfaceFormats_)
         formats.erase(std::remove_if(formats.begin(), formats.end(),
                                      [&](const VkSurfaceFormatKHR& s) { return s.format == hidden; }),
                       formats.end());
-    std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+    if (out) *out = formats;
     surfaceFormats_ = std::move(formats);
     surfaceFormatsKnown_ = r >= VK_SUCCESS;
     return r;
@@ -152,7 +154,9 @@ std::vector<VkSurfaceFormatKHR> VulkanDevice::surface_formats_snapshot() const {
 }
 
 void VulkanDevice::hide_surface_format_for_tests(PixelFormat format) {
-    hiddenSurfaceFormats_.push_back(swap_format(format).format);
+    const VkFormat hidden = swap_format(format).format;
+    std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+    hiddenSurfaceFormats_.push_back(hidden);
     surfaceFormatsKnown_ = false;
 }
 
@@ -196,6 +200,10 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
         return make_error(where + ": " + pixel_format_name(asked) + " cannot be multisampled on " + deviceName_,
                           "sampleCount 1, or an SDR format");
 
+    // A surface left without a swapchain (a swapchain that could not be made again at an acquire or a resize) goes
+    // first: a second surface on the same window would fail on Android (VK_ERROR_NATIVE_WINDOW_IN_USE_KHR) and the
+    // first would leak.
+    if (surface_) destroy_swapchain();
     std::string error;
     surface_ = make_platform_surface(library_.getInstanceProcAddr, instance_, desc, error);
     if (!surface_) return split_hint(where + ": " + error);
@@ -218,8 +226,8 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
     // 8-bit order of the same kind (the sRGB twin of an sRGB default) when the surface has only that one (Android
     // offers RGBA).
     SwapFormat sf = swap_format(asked);
-    r = load_surface_formats();  // a new surface: its list is asked again
-    const std::vector<VkSurfaceFormatKHR> formats = surface_formats_snapshot();
+    std::vector<VkSurfaceFormatKHR> formats;
+    r = load_surface_formats(&formats);  // a new surface: its list is asked again
     if (r < VK_SUCCESS || formats.empty())
         return fail(vk_fail(where, "vkGetPhysicalDeviceSurfaceFormatsKHR", r, "the window or the device was lost"));
     auto offered = [&](const SwapFormat& f) {
@@ -327,6 +335,7 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
         failNextSwapchain_ = false;
         return make_error(where + ": a swapchain failure injected by a test", "tests only");
     }
+    rotationOnlyAnswer_ = -1;  // the surface changed or is asked again: the next suboptimal asks again
     VkSurfaceCapabilitiesKHR caps{};
     VkResult r = fn_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps);
     if (r != VK_SUCCESS)
@@ -334,11 +343,12 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     // The surface's formats again: a surface recreated (Android) or a monitor change (HDR on or off) changes the list,
     // and a swapchain asks for a format the surface offers now.
     {
-        const VkResult fr = load_surface_formats();
+        std::vector<VkSurfaceFormatKHR> formats;
+        const VkResult fr = load_surface_formats(&formats);
         if (fr < VK_SUCCESS)
             return vk_fail(where, "vkGetPhysicalDeviceSurfaceFormatsKHR", fr, "the window or the device was lost");
         bool offered = false;
-        for (const VkSurfaceFormatKHR& f : surface_formats_snapshot())
+        for (const VkSurfaceFormatKHR& f : formats)
             if (f.format == swapVkFormat_ && f.colorSpace == swapColorSpace_) offered = true;
         if (!offered)
             return make_error(where + ": the window's surface no longer offers " + pixel_format_name(swapFormat_) +
@@ -718,6 +728,7 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
         acquired = swapAcquired_;
     }
     if (acquired) return current();  // a second acquire of the frame hands back the same image
+    rotationOnlyAnswer_ = -1;        // a new frame asks the surface again (suboptimal_only_by_rotation)
     for (int attempt = 0; attempt < 2; ++attempt) {
         // An out-of-date or suboptimal swapchain (the window changed), or one an earlier failure left without images,
         // is made again at the window's size first.
@@ -946,13 +957,26 @@ VkPresentModeKHR VulkanDevice::swapchain_present_mode() const { return swapPrese
 std::uint64_t VulkanDevice::swapchain_recreations() const { return swapRecreations_; }
 int VulkanDevice::swapchain_pre_rotation_degrees() const { return swapPreRotation_; }
 
+// The surface is asked once per frame (the acquire and the present of a frame share the answer), not at every
+// suboptimal result: while Android rotates the presentation, every present is suboptimal.
 bool VulkanDevice::suboptimal_only_by_rotation() {
     if (!swapPresenterRotates_ || !surface_) return false;
+    if (rotationOnlyAnswer_ >= 0) return rotationOnlyAnswer_ != 0;
     VkSurfaceCapabilitiesKHR caps{};
     if (fn_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps) != VK_SUCCESS) return false;
-    if (caps.currentExtent.width == 0xFFFFFFFFu) return true;  // the swapchain sets the size: nothing else changed
-    std::lock_guard<std::mutex> lock(swapMutex_);
-    return int(caps.currentExtent.width) == swapWidth_ && int(caps.currentExtent.height) == swapHeight_;
+    bool only = true;  // the swapchain sets the size (0xFFFFFFFF): nothing else changed
+    if (caps.currentExtent.width != 0xFFFFFFFFu) {
+        std::lock_guard<std::mutex> lock(swapMutex_);
+        only = int(caps.currentExtent.width) == swapWidth_ && int(caps.currentExtent.height) == swapHeight_;
+    }
+    rotationOnlyAnswer_ = only ? 1 : 0;
+    return only;
+}
+void VulkanDevice::lose_swapchain_keep_surface_for_tests() {
+    if (!swapchain_) return;
+    release_swap_images();
+    fn_.vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    swapchain_ = VK_NULL_HANDLE;
 }
 void VulkanDevice::mark_swapchain_out_of_date_for_tests() { swapStale_ = true; }
 

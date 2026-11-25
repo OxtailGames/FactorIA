@@ -19,6 +19,7 @@
 
 #include "fa/scene/jitter.h"
 #include "gi2d.h"
+#include "gi2d_test_support.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
 #include "shadow_cascades.h"
@@ -312,8 +313,8 @@ TEST_CASE("floating origin render: the 2D GI keeps its history across a rebase")
     Own o(g);
     REQUIRE(o.ok);
     REQUIRE(renderer_gpu(o.r)->has_device());
-    if (!Gi2dSystem::float_targets_ok(renderer_gpu(o.r)->device())) {
-        MESSAGE("no RGBA16F targets on this GPU: the 2D GI is not drawn here");
+    if (const std::string missing = gi2d_missing_targets(renderer_gpu(o.r)->device()); !missing.empty()) {
+        MESSAGE(missing);
         return;
     }
     write_white();
@@ -371,7 +372,8 @@ TEST_CASE("floating origin render: the realtime GI grid is not laid out again by
     Gfx& g = gfx();
     REQUIRE(g.ok);
     if (!g.renderer.supports("floatTargets")) {
-        MESSAGE("this GPU has no half-float render targets: not run");
+        MESSAGE("renderer.supports(\"floatTargets\") is false on this GPU (no RGBA16F render targets that blend and "
+                "filter): the realtime GI grid is not drawn, so the case is not run");
         return;
     }
     Own o(g);
@@ -406,7 +408,8 @@ TEST_CASE("floating origin render: the realtime GI grid is not laid out again by
     REQUIRE(report.contains("grids"));
     REQUIRE(report["grids"].size() == 1);
     if (report["grids"][0]["state"] == "unsupported") {
-        MESSAGE("this GPU cannot blend into RGBA16F: not run");
+        MESSAGE("the realtime GI grid reports 'unsupported' on this GPU (it cannot blend into RGBA16F, which the grid "
+                "needs): the case is not run");
         return;
     }
     REQUIRE(report["grids"][0]["captured"].get<int>() == 3);
