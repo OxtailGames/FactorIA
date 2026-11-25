@@ -39,11 +39,8 @@ void Renderer::Impl::set_framegen_env(render::FeatureEnv& env) {
 void Renderer::set_frame_generation(const render::FrameGenSettings& settings) {
     if (!initialized()) return;
     impl_->framegen.set_settings(settings);
-    impl_->sync_reflex_for_framegen();
     impl_->sync_framegen_latency();
 }
-
-void Renderer::Impl::sync_reflex_for_framegen() { latency.require_reflex(framegen.requires_reflex()); }
 
 const render::FrameGenSettings& Renderer::frame_generation() const {
     return initialized() ? impl_->framegen.settings() : no_frame_generation();
@@ -201,11 +198,13 @@ void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, bool fi
     }
 }
 
-// Intel XeSS frame generation cannot run without XeLL (it is told XeLL's context before it makes the swapchain): while it is the provider
-// that runs, the latency controller runs XeLL whatever render.latency says.
+// The low-latency SDK the running frame-generation provider cannot do without runs whatever render.latency says: NVIDIA Reflex for DLSS
+// frame generation (it reads Reflex's markers of every frame), Intel XeLL for XeSS frame generation (its swapchain is told XeLL's context).
+// None for the others and while no provider runs (a provider that failed for good is stopped, so its requirement ends).
 void Renderer::Impl::sync_framegen_latency() {
-    latency.require_driver(framegen.provider() == render::FrameGenSlot::Xess ? render::LatencyDriver::Xell
-                                                                             : render::LatencyDriver::None);
+    latency.require_driver(framegen.requires_reflex()                          ? render::LatencyDriver::Reflex
+                           : framegen.provider() == render::FrameGenSlot::Xess ? render::LatencyDriver::Xell
+                                                                               : render::LatencyDriver::None);
 }
 
 }  // namespace fa

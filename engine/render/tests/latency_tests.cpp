@@ -357,6 +357,97 @@ TEST_CASE("latency controller: a registered provider fills a slot with one call"
     CHECK(render::latency_provider(LatencyDriver::Reflex)->name() == "NVIDIA Reflex");
 }
 
+TEST_CASE("latency controller: a driver a feature requires runs whatever the mode, Reflex and XeLL by one call") {
+    FakeClock clock;
+    ClockGuard cg(&clock);
+    FakeProvider reflex(LatencyDriver::Reflex), xell(LatencyDriver::Xell), amd(LatencyDriver::AntiLag2);
+    ProviderGuard pr(LatencyDriver::Reflex, &reflex), px(LatencyDriver::Xell, &xell), pa(LatencyDriver::AntiLag2, &amd);
+    {
+        LDevice dev(gpu::Backend::D3d12, 0x10de);
+        render::LatencyController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Nvidia), true);
+        c.set_settings(settings(LatencyMode::Off));
+        CHECK(c.driver() == LatencyDriver::None);
+        CHECK_FALSE(c.forced());
+        c.require_driver(LatencyDriver::Reflex);  // DLSS frame generation is the provider that runs
+        CHECK(c.required_driver() == LatencyDriver::Reflex);
+        CHECK(c.driver() == LatencyDriver::Reflex);
+        CHECK(c.forced());
+        CHECK(c.settings().mode == LatencyMode::Off);  // the player's setting is not rewritten
+        CHECK(reflex.calls.back() == "configure on");  // no boost
+        // The player's own Reflex is not "forced", and keeps its boost.
+        LatencySettings boost = settings(LatencyMode::Reflex);
+        boost.boost = true;
+        c.set_settings(boost);
+        CHECK(c.driver() == LatencyDriver::Reflex);
+        CHECK_FALSE(c.forced());
+        CHECK(reflex.calls.back() == "configure on boost");
+        // So is auto on an NVIDIA GPU; anti-lag 2 and xell become Reflex, without the boost.
+        c.set_settings(settings(LatencyMode::Auto));
+        CHECK_FALSE(c.forced());
+        c.set_settings(settings(LatencyMode::AntiLag2));
+        CHECK(c.driver() == LatencyDriver::Reflex);
+        CHECK(c.forced());
+        c.require_driver(LatencyDriver::None);
+        CHECK_FALSE(c.forced());
+        CHECK(c.driver() == LatencyDriver::AntiLag2);
+        c.detach();
+    }
+    {
+        // Auto on an Intel GPU is XeLL, not Reflex: a required Reflex there is forced; a required XeLL is not.
+        LDevice dev(gpu::Backend::D3d12, 0x8086);
+        render::LatencyController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Intel), true);
+        c.set_settings(settings(LatencyMode::Auto));
+        CHECK(c.driver() == LatencyDriver::Xell);
+        c.require_driver(LatencyDriver::Xell);
+        CHECK_FALSE(c.forced());
+        c.require_driver(LatencyDriver::Reflex);
+        CHECK(c.driver() == LatencyDriver::Reflex);
+        CHECK(c.forced());
+        // One requirement at a time: the other provider is stopped, and off needs the required one still.
+        c.set_settings(settings(LatencyMode::Off));
+        c.require_driver(LatencyDriver::Xell);
+        CHECK(c.driver() == LatencyDriver::Xell);
+        CHECK(c.forced());
+        c.require_driver(LatencyDriver::Pacing);  // the engine's own pacing is no SDK: no requirement
+        CHECK(c.required_driver() == LatencyDriver::None);
+        CHECK(c.driver() == LatencyDriver::None);
+        c.detach();
+    }
+}
+
+TEST_CASE("latency controller: forced() is false while the required driver does not run") {
+    FakeClock clock;
+    ClockGuard cg(&clock);
+    LDevice dev(gpu::Backend::D3d12, 0x10de);
+    {
+        FakeProvider reflex(LatencyDriver::Reflex);
+        ProviderGuard pr(LatencyDriver::Reflex, &reflex);
+        reflex.startFails = "the plugin refused";
+        render::LatencyController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Nvidia), true);
+        c.set_settings(settings(LatencyMode::Off));
+        c.require_driver(LatencyDriver::Reflex);
+        CHECK(c.required_driver() == LatencyDriver::Reflex);  // still asked for
+        CHECK(c.driver() == LatencyDriver::Pacing);           // the engine's own pacing runs instead
+        CHECK_FALSE(c.forced());
+        c.detach();
+    }
+    {
+        FakeProvider reflex(LatencyDriver::Reflex);
+        ProviderGuard pr(LatencyDriver::Reflex, &reflex);
+        reflex.available = false;  // not usable here at all
+        render::LatencyController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Nvidia), true);
+        c.set_settings(settings(LatencyMode::Off));
+        c.require_driver(LatencyDriver::Reflex);
+        CHECK(c.driver() == LatencyDriver::Pacing);
+        CHECK_FALSE(c.forced());
+        c.detach();
+    }
+}
+
 TEST_CASE("latency controller: the engine's own pacing sleeps before the input is read") {
     LDevice dev(gpu::Backend::Vulkan, 0x106b);
     FakeClock clock;
