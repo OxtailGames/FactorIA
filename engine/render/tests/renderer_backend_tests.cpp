@@ -447,6 +447,33 @@ TEST_CASE("renderer: a UiPainter made on a renderer of the sokol backend uploads
     ui.release(*impl.device, *painter);
 }
 
+TEST_CASE("renderer: a context open before init stays open after shutdown, with adoptContext or without it") {
+    if (!gfx().ok) {
+        MESSAGE("no GPU here (" << gfx().error << "): skipped");
+        return;
+    }
+    // The fixture opened the context before any renderer of this case. Only a context init() opens itself is closed by
+    // shutdown(): this one is never the renderer's to close, whatever the flag says.
+    REQUIRE(gpu::context_open());
+    for (bool adopt : {false, true}) {
+        Renderer r;
+        RendererDesc d;
+        d.designWidth = kW;
+        d.designHeight = kH;
+        d.headless = true;
+        d.adoptContext = adopt;
+        std::string error;
+        REQUIRE_MESSAGE(r.init(d, gfx().gpu.environment(), &error), error);
+        CHECK(gpu::context_open());
+        r.shutdown();
+        CHECK_MESSAGE(gpu::context_open(),
+                      "shutdown closed a context that was open before init (adoptContext " << adopt << ")");
+    }
+    // The context still serves the next renderer.
+    BackendRenderer again(GpuBackend::Default);
+    CHECK_MESSAGE(again.ok, again.error);
+}
+
 TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching error") {
     if (!gfx().ok) {
         MESSAGE("no GPU here (" << gfx().error << "): skipped");

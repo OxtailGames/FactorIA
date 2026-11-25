@@ -28,7 +28,8 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
   and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build). `make_device` makes
   the built sokol backend, Recording, D3D12 (Windows; with the engine's pipeline cache file) and Vulkan (where
   `FA_RENDER_VULKAN` is on, with the `DeviceInit` it was given and the engine's Vulkan pipeline cache file);
-  `device_backend_compiled(b)` says which this binary can make, and every other request is a teaching error that names the backend to ask for instead.
+  `device_backend_compiled(b)` says which this binary can make, and every other request is a teaching error that names
+  the backend to ask for instead.
 - `gpu/sokol_device.h` holds `SokolDevice`, its immediate `SokolCommandList`, and the `to_sg` / `from_sg`
   conversions the call sites use while they move over.
 - M77-P1 (this page's first version) lands the interface and its implementations only: `Gpu` does not own a
@@ -490,15 +491,16 @@ and the web. `ON` / `OFF` override it (the macOS CI job builds its tests with `O
 the player that ships). It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws a 2D and a 3D frame on
 Vulkan and on the platform's sokol backend and compares them within the golden limits.
 
-**The Vulkan player** (`FA_PLAYER_VULKAN`, on by default on Linux and Android where `FA_VULKAN_BACKEND` is on; ON on macOS
-only as a build check): `factoria_player_vulkan` (`libfactoria_player_vulkan.so` on Android), next to the OpenGL
-`factoria_player`, which keeps no SPIR-V. Where `FA_RENDER_VULKAN` is off, `fa_render_vulkan` (an OBJECT library) compiles
-again, with `FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV`, the `fa_render` sources that read either macro, directly or through a private header or a generated shader header (the list is worked out
-at configure time by a grep of the sources), and the variant links those objects before `libfa_render.a`, so the linker
-takes them and not the archive's members of the same sources. Where `FA_RENDER_VULKAN` is on, `fa_render_vulkan` is an
-empty INTERFACE library and both players are the same build. The variant defines `FA_PLAYER_VULKAN_VARIANT`
-(player/main.cpp): its `auto` is Vulkan, and it decides before the window whether it draws or hands over to the OpenGL
-player (`decide_gpu_launch`, fa/runtime/gpu_launch.h; docs/RENDERING.md, "Two players on Linux and Android").
+**The Vulkan player** (`FA_PLAYER_VULKAN`, on by default on Linux and Android where `FA_VULKAN_BACKEND` is on; ON on
+macOS only as a build check): `factoria_player_vulkan` (`libfactoria_player_vulkan.so` on Android), next to the OpenGL
+`factoria_player`, which keeps no SPIR-V. Where `FA_RENDER_VULKAN` is off, `fa_render_vulkan` (an OBJECT library)
+compiles again, with `FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV`, the `fa_render` sources that read either macro, directly or
+through a private header or a generated shader header (the list is worked out at configure time by a grep of the
+sources), and the variant links those objects before `libfa_render.a`, so the linker takes them and not the archive's
+members of the same sources. Where `FA_RENDER_VULKAN` is on, `fa_render_vulkan` is an empty INTERFACE library and both
+players are the same build. The variant defines `FA_PLAYER_VULKAN_VARIANT` (player/main.cpp): its `auto` is Vulkan, and
+it decides before the window whether it draws or hands over to the OpenGL player (`decide_gpu_launch`,
+fa/runtime/gpu_launch.h; docs/RENDERING.md, "Two players on Linux and Android").
 `fa_check_not_linked(factoria_player_vulkan fa_authoring)` keeps the tools out of it, and its link map is
 `player/factoria_player_vulkan.map`.
 

@@ -144,12 +144,13 @@ begin ends the open one, submit ends the last). `timer_poll` reads the frames wh
 still in flight, and never waits: it asks with `VK_QUERY_RESULT_WITH_AVAILABILITY_BIT` (and no `WAIT_BIT`), and a frame
 whose results are not available yet (a driver signals the timeline before they are visible, as MoltenVK does from a
 command buffer's completion handler) stays for the next poll, at most 120 polls; after that the frame is dropped (its
-time is never reported) with one warning, and `VulkanDevice::timer_dropped_frames()` counts the frames dropped so. A frame that was never really begun (its start timestamps were lost with a failed prelude) and a scope of
-a pass whose secondary command buffer failed are dropped, not read. Ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
-list was not submitted before the frame ended is never read, so no query that was never written is asked for.
-`timer_forget` drops the frames in flight, and `destroy_timer` waits for the frames ended and not read yet before
-it destroys their pools. A queue family without timestamps (`timestampValidBits` 0) or a driver
-without a timestamp period makes `timer_supported()` false with a reason naming the device. The timers time the
+time is never reported) with one warning, and `VulkanDevice::timer_dropped_frames()` counts the frames dropped so. A
+frame that was never really begun (its start timestamps were lost with a failed prelude) and a scope of a pass whose
+secondary command buffer failed are dropped, not read. Ticks masked to the queue family's `timestampValidBits`, times
+`timestampPeriod` nanoseconds; a scope whose list was not submitted before the frame ended is never read, so no query
+that was never written is asked for. `timer_forget` drops the frames in flight, and `destroy_timer` waits for the frames
+ended and not read yet before it destroys their pools. A queue family without timestamps (`timestampValidBits` 0) or a
+driver without a timestamp period makes `timer_supported()` false with a reason naming the device. The timers time the
 graphics queue: `begin_timed_scope` on a list of the compute or transfer queue, or of any queue whose family has no
 timestamps, is ignored (its list records no query).
 
@@ -381,18 +382,19 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
 - **`create_swapchain`** checks the desc before it touches the window (a swapchain already, a null `nativeWindow`, a
   negative size, a sample count that is not 1, 2, 4 or 8, a format the backend does not show, a format that cannot be
   multisampled), then makes the surface, checks that the graphics queue family presents to it, and picks its format:
-  `Bgra8`/`Rgba8` (and their sRGB twins) in `SRGB_NONLINEAR`, `Rgba16F` in `EXTENDED_SRGB_LINEAR` (scRGB), `Rgb10A2`
-  in `HDR10_ST2084`; `Default` is the device's SDR format, or the other 8-bit order of the same kind (`Bgra8`
-  then `Rgba8`; the sRGB twin when the default is an sRGB one) when the surface lacks it (Android offers only RGBA). The
-  device's default colour format (`environment_defaults().colorFormat`, what a pipeline's `Default` colour target and
+  `Bgra8`/`Rgba8` (and their sRGB twins) in `SRGB_NONLINEAR`, `Rgba16F` in `EXTENDED_SRGB_LINEAR` (scRGB), `Rgb10A2` in
+  `HDR10_ST2084`; `Default` is the device's SDR format, or the other 8-bit order of the same kind (`Bgra8` then `Rgba8`;
+  the sRGB twin when the default is an sRGB one) when the surface lacks it (Android offers only RGBA). The device's
+  default colour format (`environment_defaults().colorFormat`, what a pipeline's `Default` colour target and
   `PassDesc::for_swapchain` mean) then becomes the one picked once the swapchain is made (a swapchain that fails leaves
-  the default as it was), before any pipeline is made; when a pipeline or an
-  image was made with the old default already, `create_swapchain` fails ("pipelines or images made with that default
-  exist already") and says to make the device with `DeviceInit::environment.defaults.colorFormat` set to the
-  format the window offers. The surface's formats are asked again from the driver for every new surface and every time the
-  swapchain is made again (a surface recreated on Android, a display whose HDR setting changed), and a swapchain
-  made again whose format the surface no longer offers fails with a teaching error; the list sits behind a mutex and
-  `swapchain_format_supported` (const, any thread) reads a copy of it, not the driver again. The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
+  the default as it was), before any pipeline is made; when a pipeline or an image was made with the old default
+  already, `create_swapchain` fails ("pipelines or images made with that default exist already") and says to make the
+  device with `DeviceInit::environment.defaults.colorFormat` set to the format the window offers. The surface's formats
+  are asked again from the driver for every new surface and every time the swapchain is made again (a surface recreated
+  on Android, a display whose HDR setting changed), and a swapchain made again whose format the surface no longer offers
+  fails with a teaching error; the list sits behind a mutex and `swapchain_format_supported` (const, any thread) reads a
+  copy of it, not the driver again. The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A
+  size of 0 is the window's size.
 - **The swapchain** has `max(minImageCount, frames in flight + 1)` images (capped by `maxImageCount`), opaque
   composite alpha first, colour-attachment usage plus transfer-source where the surface allows (readbacks). Its
   images are adopted into the device's image pool as external records (their states tracked like any other image's,
@@ -401,14 +403,14 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   of the device. There is one acquire semaphore more than images, each reused only once the timeline value of the
   submission that waited for it passed.
 - **`acquire_swapchain`** (a second call in the same frame hands back the same image) waits, at most 100 ms, for the
-  next image; when none comes (`VK_TIMEOUT` or `VK_NOT_READY`) it fails (once a warning in the log) and the caller
-  skips the frame and acquires again at the next one: the swapchain is untouched. The device does not wait longer (a
-  hidden window would stall every frame); the swapchain test cases of a loaded CI VM, where a lavapipe frame can take
-  longer than 100 ms, acquire through a helper that tries again up to 20 times, about 2 s in all, before it reports the
-  frame as skipped. Then it marks the image `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
-  that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A `PassDesc::for_swapchain` pass
-  (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image, resolved into the acquired one at
-  `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
+  next image; when none comes (`VK_TIMEOUT` or `VK_NOT_READY`) it fails (once a warning in the log) and the caller skips
+  the frame and acquires again at the next one: the swapchain is untouched. The device does not wait longer (a hidden
+  window would stall every frame); the swapchain test cases of a loaded CI VM, where a lavapipe frame can take longer
+  than 100 ms, acquire through a helper that tries again up to 20 times, about 2 s in all, before it reports the frame
+  as skipped. Then it marks the image `UNDEFINED` (its contents are not kept), and makes the first graphics list
+  submitted after it that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A
+  `PassDesc::for_swapchain` pass (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image,
+  resolved into the acquired one at `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
 - **Pre-rotation (a known limit).** The swapchain's `preTransform` is the surface's `currentTransform`, so the
   presentation engine does no rotation of its own (the cheap path on Android); the application must then draw
   pre-rotated, and nothing does yet: on a device whose display is rotated against the surface's native orientation
@@ -433,58 +435,56 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
 
 ## Tests
 
-`engine/render/tests/vulkan_device_tests.cpp` (ctest `render_vulkan_device`): each case makes a device on the
-machine's Vulkan driver with the validation layer and its synchronization validation (`VulkanOptions::
-synchronizationValidation`, through `VK_EXT_validation_features`) and ends by checking that the layer reported no
-error. The core:
-buffer and image round trips with mips, RGBA8, RGBA16F, BGRA, arrays, cubes and 3D images, every view kind, both
-`copy_buffer_to_image` paths, deferred destruction, the ring's wrap and the dedicated uploads, descriptor-pool
-exhaustion and reuse, the bindless table, the Vulkan 1.0 barriers, a CPU device on request. The drawing cases use the
-SPIR-V of `engine/render/tests/shaders/vulkan_test.glsl` (the twins of `d3d12_device_tests.cpp`'s HLSL shaders,
-compiled by `compile_shaders.sh` into `vulkan_test.glsl.h` next to it) and the engine's blit shader, and check their
-targets per texel: a clear, a uniform fill into RGBA8 and RGBA16F, two views through two samplers, an indexed
-instanced draw with a base vertex, the depth test with a viewport, a scissor, an MSAA resolve, a compute pass that
-writes a storage image and buffer and a second dispatch that reads them, the caches' counters and the layout of a
-shader, and the errors of `make_shader`, `make_pipeline` and the command list. M77-P8b1 added timed frames with two
-scopes over several frames (and the untimed, late, forgotten and full-ring cases), async reads of a buffer and an
-image region with ticket reuse and all 32 slots in flight, a texture written by compute and read by a second compute
-pass and a fragment shader (with synchronization2 and with the 1.0 barriers), pipelines with different set-0 layouts
-drawn in turn, the texture + storage image conflict in a dispatch, and `storage_image_loadable`. M77-P8b2 added the
-pipeline cache file (a second device made with the first one's file, the destructor's save, a file of another GPU or
-driver, with a changed UUID, cut, corrupt or of another format thrown away and written anew, a directory that cannot
-be made and a file another reader holds open: a warning and the old file kept), the descriptor pool chain, damaged
-SPIR-V, a point list without `gl_PointSize`, the binds of set 0 alone per draw, the eviction of a destroyed shader's
-pipelines and layouts, the framebuffer cache, a 3D image without 2D views and the storage buffer range. M77-P10c added
-the queues, on a device made with `queues = OtherFamilies` (on MoltenVK: compute family 1, transfer family 2, so the
-ownership transfers run; a GPU with no second queue skips them with a MESSAGE): a buffer and an image that go graphics
--> compute -> graphics -> compute -> graphics with `wait_list` and `wait_queue`, a buffer written on the transfer
-queue, an image written by compute and sampled by a graphics compute pass and a fragment shader, an image whose mips
-the producer left in different states (copied, sampled by compute, sampled by a fragment shader, `UNDEFINED`) handed to
-compute and back (with synchronization2 and with the 1.0 barriers, so both carry ownership transfers), rows that need
-repacking uploaded on the transfer queue (the repack buffer belongs to the list's queue) and sampled on graphics, a timed scope on the
-compute queue that is ignored, and the misuse errors (a token never issued, a resource of another queue, a handoff
-from a queue that does not own it, a render pass on a compute list); and, on every device, the `GraphicsOnly`
-fallback, two threads recording while the render thread makes and destroys other resources, `bindless_index`, and a
-pipeline destroyed while an open list binds it, across `wait_idle`. The path of a second queue of the graphics family
-runs on no machine of the project (MoltenVK and lavapipe expose one queue per family). A machine with no
-loader, no Vulkan device, a loader older than 1.2 or a driver that does not start (`VK_ERROR_INITIALIZATION_FAILED`)
-says so with a MESSAGE and passes, and one case checks the factory's errors (bad options, a missing loader). They run on
-macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationlayers`), on Windows where a Vulkan
-driver is installed, and on the Linux CI job, which installs Mesa's lavapipe and the validation layers
-(`mesa-vulkan-drivers libvulkan1 vulkan-validationlayers`) and sets `FA_VULKAN_REQUIRE=1`: there a skip or a missing
-validation layer fails the case.
-M77-P9d added the swapchain, on a native window each case makes itself (a `CAMetalLayer` through the Objective-C
-runtime on macOS, an X11 window of `$DISPLAY` through libX11 opened at run time on Linux, a hidden popup HWND on
-Windows): the errors of a desc, three frames cleared, presented and the first read back, a second acquire in a frame,
-`present` without an acquire, `resize_swapchain` (and a resize between acquire and present refused), a swapchain
-marked out of date made again at the next acquire, an image acquired and never drawn into when the swapchain goes, a
-swapchain without vsync, a 4x MSAA swapchain resolved into the acquired image, an acquire that times out (injected
-through `inject_acquire_result_for_tests`: the teaching error, the swapchain untouched, the bounded retry), a readback
-of a window image the surface made without `TRANSFER_SRC` (refused), the format fallback succeeding where the asked
-format is hidden (the device made with `Rgba8` as its default, the surface's `Rgba8` hidden) and a swapchain that
-fails (`fail_next_swapchain_for_tests`) leaving the default format as it was, and `swapchain_format_supported` called
-from a second thread while the swapchain is made again. The timer case with `hide_timer_results_for_tests` checks the
-frame dropped after 120 polls, and the queue-misuse case a transfer list that begins a render or a compute pass. A machine with no window or no
-window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb) that fails.
-`VulkanDevice::counters()`, `fn()`, `pipeline_state()`, `read_image_region` and the `swapchain_*` accessors exist for
-these tests.
+`engine/render/tests/vulkan_device_tests.cpp` (ctest `render_vulkan_device`): each case makes a device on the machine's
+Vulkan driver with the validation layer and its synchronization validation (`VulkanOptions:: synchronizationValidation`,
+through `VK_EXT_validation_features`) and ends by checking that the layer reported no error. The core: buffer and image
+round trips with mips, RGBA8, RGBA16F, BGRA, arrays, cubes and 3D images, every view kind, both `copy_buffer_to_image`
+paths, deferred destruction, the ring's wrap and the dedicated uploads, descriptor-pool exhaustion and reuse, the
+bindless table, the Vulkan 1.0 barriers, a CPU device on request. The drawing cases use the SPIR-V of
+`engine/render/tests/shaders/vulkan_test.glsl` (the twins of `d3d12_device_tests.cpp`'s HLSL shaders, compiled by
+`compile_shaders.sh` into `vulkan_test.glsl.h` next to it) and the engine's blit shader, and check their targets per
+texel: a clear, a uniform fill into RGBA8 and RGBA16F, two views through two samplers, an indexed instanced draw with a
+base vertex, the depth test with a viewport, a scissor, an MSAA resolve, a compute pass that writes a storage image and
+buffer and a second dispatch that reads them, the caches' counters and the layout of a shader, and the errors of
+`make_shader`, `make_pipeline` and the command list. M77-P8b1 added timed frames with two scopes over several frames
+(and the untimed, late, forgotten and full-ring cases), async reads of a buffer and an image region with ticket reuse
+and all 32 slots in flight, a texture written by compute and read by a second compute pass and a fragment shader (with
+synchronization2 and with the 1.0 barriers), pipelines with different set-0 layouts drawn in turn, the texture + storage
+image conflict in a dispatch, and `storage_image_loadable`. M77-P8b2 added the pipeline cache file (a second device made
+with the first one's file, the destructor's save, a file of another GPU or driver, with a changed UUID, cut, corrupt or
+of another format thrown away and written anew, a directory that cannot be made and a file another reader holds open: a
+warning and the old file kept), the descriptor pool chain, damaged SPIR-V, a point list without `gl_PointSize`, the
+binds of set 0 alone per draw, the eviction of a destroyed shader's pipelines and layouts, the framebuffer cache, a 3D
+image without 2D views and the storage buffer range. M77-P10c added the queues, on a device made with `queues =
+OtherFamilies` (on MoltenVK: compute family 1, transfer family 2, so the ownership transfers run; a GPU with no second
+queue skips them with a MESSAGE): a buffer and an image that go graphics -> compute -> graphics -> compute -> graphics
+with `wait_list` and `wait_queue`, a buffer written on the transfer queue, an image written by compute and sampled by a
+graphics compute pass and a fragment shader, an image whose mips the producer left in different states (copied, sampled
+by compute, sampled by a fragment shader, `UNDEFINED`) handed to compute and back (with synchronization2 and with the
+1.0 barriers, so both carry ownership transfers), rows that need repacking uploaded on the transfer queue (the repack
+buffer belongs to the list's queue) and sampled on graphics, a timed scope on the compute queue that is ignored, and the
+misuse errors (a token never issued, a resource of another queue, a handoff from a queue that does not own it, a render
+pass on a compute list); and, on every device, the `GraphicsOnly` fallback, two threads recording while the render
+thread makes and destroys other resources, `bindless_index`, and a pipeline destroyed while an open list binds it,
+across `wait_idle`. The path of a second queue of the graphics family runs on no machine of the project (MoltenVK and
+lavapipe expose one queue per family). A machine with no loader, no Vulkan device, a loader older than 1.2 or a driver
+that does not start (`VK_ERROR_INITIALIZATION_FAILED`) says so with a MESSAGE and passes, and one case checks the
+factory's errors (bad options, a missing loader). They run on macOS through MoltenVK (`brew install vulkan-loader
+molten-vk vulkan-validationlayers`), on Windows where a Vulkan driver is installed, and on the Linux CI job, which
+installs Mesa's lavapipe and the validation layers (`mesa-vulkan-drivers libvulkan1 vulkan-validationlayers`) and sets
+`FA_VULKAN_REQUIRE=1`: there a skip or a missing validation layer fails the case. M77-P9d added the swapchain, on a
+native window each case makes itself (a `CAMetalLayer` through the Objective-C runtime on macOS, an X11 window of
+`$DISPLAY` through libX11 opened at run time on Linux, a hidden popup HWND on Windows): the errors of a desc, three
+frames cleared, presented and the first read back, a second acquire in a frame, `present` without an acquire,
+`resize_swapchain` (and a resize between acquire and present refused), a swapchain marked out of date made again at the
+next acquire, an image acquired and never drawn into when the swapchain goes, a swapchain without vsync, a 4x MSAA
+swapchain resolved into the acquired image, an acquire that times out (injected through
+`inject_acquire_result_for_tests`: the teaching error, the swapchain untouched, the bounded retry), a readback of a
+window image the surface made without `TRANSFER_SRC` (refused), the format fallback succeeding where the asked format is
+hidden (the device made with `Rgba8` as its default, the surface's `Rgba8` hidden) and a swapchain that fails
+(`fail_next_swapchain_for_tests`) leaving the default format as it was, and `swapchain_format_supported` called from a
+second thread while the swapchain is made again. The timer case with `hide_timer_results_for_tests` checks the frame
+dropped after 120 polls, and the queue-misuse case a transfer list that begins a render or a compute pass. A machine
+with no window or no window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb)
+that fails. `VulkanDevice::counters()`, `fn()`, `pipeline_state()`, `read_image_region` and the `swapchain_*` accessors
+exist for these tests.

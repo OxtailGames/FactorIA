@@ -376,7 +376,7 @@ void Renderer::Impl::hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const
     gpu::QueueHandoff uses[2];
     uses[0].image = prepass.texture_image();
     uses[1].buffer = hc.cells;
-    gpu::CommandList& list = async ? gpu.begin_async_compute("hiz-reduce", uses) : cmd;
+    gpu::CommandList& list = async ? gpu.begin_async_compute("hiz-reduce", uses, prepassHandle) : cmd;
     list.begin_compute_pass("hiz-reduce");
     list.set_pipeline(pip);
     list.set_bindings(bind);

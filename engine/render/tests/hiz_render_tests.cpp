@@ -422,6 +422,11 @@ TEST_CASE("hi-z on a GPU: a destroyed HizCamera gives its read slots back to the
         CHECK_MESSAGE(r.value().valid(), "request " << i << " found no free slot: a camera kept its reads");
         tickets.push_back(r.value());
     }
+    {
+        auto extra = device.request_buffer_read(buf, 0, 16);
+        REQUIRE(extra);
+        CHECK_MESSAGE(!extra.value().valid(), "a 33rd request found a slot: the device has more than 32");
+    }
     for (const gpu::ReadTicket& t : tickets) device.release_buffer_read(t);
     device.destroy_buffer(buf);
 }

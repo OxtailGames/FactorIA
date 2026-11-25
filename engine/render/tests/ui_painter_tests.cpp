@@ -97,21 +97,26 @@ TEST_CASE("UiPainter: a picture whose format the device cannot filter is drawn w
         vertices[i].y = float(i / 2) * 16.0f;
     }
     const std::uint16_t indices[6] = {0, 1, 2, 2, 1, 3};
-    fa::render::UiDrawCommand commands[2];
+    // [0] and [1] name the same picture and differ only in the sampler; [2] is another picture, nearest because of its
+    // format; [3] asks for nearest on it too, which changes nothing.
+    fa::render::UiDrawCommand commands[4];
     commands[0].view = rgba8.view;
     commands[0].clipMaxX = commands[0].clipMaxY = 32.0f;
     commands[0].indexCount = 3;
     commands[1] = commands[0];
-    commands[1].view = third.view;  // not nearest in the command, nearest because of its format
+    commands[1].nearest = true;
     commands[1].indexOffset = 3;
-    commands[1].indexCount = 3;
+    commands[2] = commands[0];
+    commands[2].view = third.view;  // not nearest in the command, nearest because of its format
+    commands[3] = commands[2];
+    commands[3].nearest = true;
     fa::render::UiDrawList list;
     list.vertices = vertices;
     list.vertexCount = 4;
     list.indices = indices;
     list.indexCount = 6;
     list.commands = commands;
-    list.commandCount = 2;
+    list.commandCount = 4;
     fa::render::UiFrame frame;
     frame.displayWidth = frame.displayHeight = 32.0f;
     frame.lists = &list;
@@ -131,8 +136,10 @@ TEST_CASE("UiPainter: a picture whose format the device cannot filter is drawn w
         bindings += c.kind == CommandKind::SetBindings ? 1 : 0;
         draws += c.kind == CommandKind::Draw ? 1 : 0;
     }
-    CHECK(bindings == 2);  // the sampler differs with the picture, so the bindings are set again
-    CHECK(draws == 2);
+    // 0 -> 1: the same picture, only the sampler changed, so the bindings are set again; 1 -> 2: another picture;
+    // 2 -> 3: the same picture and the same (forced) nearest sampler, so no new bindings.
+    CHECK(bindings == 3);
+    CHECK(draws == 4);
     painter->destroy_texture(rgba8);
     painter->destroy_texture(third);
 }

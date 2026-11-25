@@ -104,7 +104,10 @@ std::string d3d12_pipeline_cache_name(std::string_view program) {
     if (program.empty()) return "d3d12-pipelines.bin";
     std::string safe, folded;
     for (char c : program) {
-        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');  // Windows paths ignore case: Game.exe and game.exe share
+        // Windows paths ignore case: Game.exe and game.exe share a file. Only ASCII is folded (this runs on every
+        // platform, without the Win32 case tables): a program name that differs in the case of a non-ASCII letter
+        // gets a file of its own, a duplicate of a cache and never a wrong one.
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
         folded += c;
         const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
         if (safe.size() < 48) safe += ok ? c : '_';
@@ -150,8 +153,10 @@ std::string d3d12_cache_write_hint(CacheWriteFailure kind, std::string_view file
                    "\") or delete the file; the next save or the next run writes it then";
         case CacheWriteFailure::FolderDenied:
             return "Windows denied access to " + f +
-                   " or its folder: check the folder's permissions for this user (and that no program holds the "
-                   "file); the next save or the next run tries again";
+                   " or its folder, for one of two reasons: the folder's or the file's permissions do not let this "
+                   "user write (check them), or another program holds the file open in a way that allows its deletion "
+                   "(a mapped view of it, a scanner: Windows then answers access denied, not a sharing violation; "
+                   "close that program); the next save or the next run tries again";
         case CacheWriteFailure::Other: break;
     }
     return "check that the folder of " + f +

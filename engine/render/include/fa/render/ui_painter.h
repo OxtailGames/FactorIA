@@ -49,8 +49,10 @@ struct UiTexture {
 // scissor rectangle clip* (display units; the painter multiplies by UiFrame::scaleX/scaleY, clamps to the window and skips a
 // command with nothing inside).
 struct UiDrawCommand {
-    std::uint32_t view = 0;  // UiTexture::view; the texture must be a filterable colour format (RGBA8, RGBA16F...)
-    bool nearest = false;    // sample without smoothing (pixel art); false = linear
+    // UiTexture::view. The painter's own pictures are RGBA8, which every device filters; a view of another image
+    // (the renderer's) should be a filterable colour format (RGBA8, RGBA16F...).
+    std::uint32_t view = 0;
+    bool nearest = false;  // sample without smoothing (pixel art); false = linear
     float clipMinX = 0.0f, clipMinY = 0.0f, clipMaxX = 0.0f, clipMaxY = 0.0f;
     std::uint32_t indexOffset = 0;
     std::uint32_t indexCount = 0;
