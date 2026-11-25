@@ -49,7 +49,7 @@ std::string make_project(const char* name) {
 
 struct Seen {
     int frames = 0;
-    WindowPresenter presenter = WindowPresenter::None;
+    WindowPresenter presenter = WindowPresenter::Unclaimed;
     std::string deviceBackend = "unset";
     bool vsyncSwitch = true;
     bool pixel = false;
