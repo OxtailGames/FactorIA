@@ -118,7 +118,8 @@ no NVIDIA code.
   follow. Turning the mode off sets Reflex off again, **unless DLSS frame generation runs**: it cannot generate without Reflex's markers, so
   the engine keeps Reflex on (Low Latency, no boost; `reflex` and `auto` keep their `boost`) while it runs, whatever the mode, and
   `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS frame generation needs it". The mode itself does not change, and the
-  state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency plugin Reflex still sleeps, only the markers are not sent.
+  state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency
+  plugin Reflex still sleeps, only the markers are not sent.
 - **When it stops.** A refusal of any call logs one warning and the frame goes on; once the device is destroyed the provider calls
   Streamline no more (its library shuts down with the device).
 - **The report.** `render.latency`'s `vendor` has `source` `Reflex`, `frames` (how many of Reflex's last frames it measured),

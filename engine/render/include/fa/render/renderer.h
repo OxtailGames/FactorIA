@@ -174,7 +174,8 @@ struct RendererDesc {
     // sokol backends follow the platform's (app_set_vsync).
     bool vsync = true;
     // M78 (factoria.json render.frameGeneration; docs/FRAME_GENERATION.md): the game asks for frame generation, so the providers' device hooks are
-    // registered before the device is made (they take part in making the swapchain, which cannot be changed later). False: the mode can be
+    // handed to the device this renderer makes (gpu::DeviceInit::hooks; never registered for the process, so another renderer's device does not
+    // see them). They take part in making the swapchain, which cannot be changed later. False: the mode can be
     // set at run time, but a provider never starts and the reason says to restart with the setting on. Only D3d12 and Vulkan in a window use it.
     bool frameGeneration = false;
     // The mode the game asked for (render.frameGeneration.mode; the renderer's frame generation settings can change it later, a provider that

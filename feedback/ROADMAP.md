@@ -866,6 +866,10 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M78.3 (M) Frame generation: DLSS Frame Generation, FSR 3 frame generation, XeSS frame generation, with UI drawn
   without artefacts and a refusal under the minimum base frame rate.
 - M78.4 (S) Latency: NVIDIA Reflex, AMD Anti-Lag 2, Intel XeLL, a latency readout in the profiler.
+- Known gap of M78.3 (review of the frame generation seam): frame generation is refused at render scale 1 and with DLAA (no upscale stage,
+  so no jittered frame with a depth and a motion image: `frame generation needs the upscale stage`), although a game on a strong GPU often
+  wants exactly that pair. Giving the providers the depth and motion of a full-size temporal frame (the temporal upscaler's preparation pass
+  at scale 1, DLAA's own jitter) would lift the refusal. Not planned yet.
 
 ## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
 

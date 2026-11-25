@@ -162,6 +162,7 @@ void FrameGenController::attach(gpu::Device* device, const VendorEnv& env, const
     env_ = env;
     swapchain_ = swapchain;
     hooked_ = hooked;
+    swapchainLost_ = false;
     for (Slot& s : slots_) s = Slot{};
     reset_stats();
     apply();
@@ -192,7 +193,10 @@ void FrameGenController::stop_provider() {
 }
 
 FrameGenController::Slot& FrameGenController::slot(FrameGenSlot s) {
-    Slot& sl = slots_[std::max(0, slot_index(s))];
+    const int index = slot_index(s);
+    FA_ASSERT(index >= 0, "FrameGenController::slot is asked for a real slot (provider_reason and apply check it)");
+    Slot& sl =
+        slots_[std::max(0, index)];  // the max keeps a release build inside the array when the assert is compiled out
     if (!sl.probed) {
         sl.probed = true;
         FrameGenProvider* p = framegen_provider(s);
@@ -227,11 +231,15 @@ FrameGenCaps FrameGenController::caps() {
 }
 
 void FrameGenController::set_settings(const FrameGenSettings& s) {
-    const bool modeChanged = s.mode != settings_.mode;
+    const FrameGenMode oldMode = settings_.mode;
+    const bool modeChanged = s.mode != oldMode;
     settings_ = s;
     if (modeChanged) {
         sinceSwitch_ = kMinDwellFrames;
         pausedByRate_ = false;
+        // The readout and the rate window are of one run of generation: while the mode is off begin_frame measures nothing, so what stayed
+        // from before would show stale frame rates and an old window stamp as the first interval after the mode comes back.
+        if (s.mode == FrameGenMode::Off || oldMode == FrameGenMode::Off) reset_stats();
     }
     apply();
 }
@@ -313,8 +321,12 @@ void FrameGenController::apply() {
         runningSlot_ = want;
         resetNext_ = true;
     }
-    // What the frame must have: the stage and a temporal frame. The provider stays started (its swapchain is there either way).
-    if (!upscaleStage_) {
+    // What the frame must have: a swapchain, the stage and a temporal frame. The provider stays started (its swapchain is there either way).
+    if (swapchainLost_) {
+        refusal_ =
+            "the window has no swapchain (the window was closed or the GPU lost its swapchain): frame generation "
+            "resumes when the window is back.";
+    } else if (!upscaleStage_) {
         refusal_ = "frame generation needs the upscale stage (the player's render scale below 1) and the temporal "
                    "upscaler: it reads "
                    "the depth and the motion of the jittered frame. Set render.upscaler.mode to \"temporal\" (or a "
@@ -330,12 +342,17 @@ void FrameGenController::apply() {
     if (!refusal_.empty()) set_generating(false);
 }
 
-void FrameGenController::set_swapchain(const FrameGenSwapchain& swapchain) {
-    if (swapchain.width == swapchain_.width && swapchain.height == swapchain_.height &&
+void FrameGenController::set_swapchain(const FrameGenSwapchain& swapchain, bool remade) {
+    if (!remade && swapchain.width == swapchain_.width && swapchain.height == swapchain_.height &&
         swapchain.vsync == swapchain_.vsync && swapchain.backend == swapchain_.backend)
         return;
     swapchain_ = swapchain;  // a provider started later is told the size as it is now
     resetNext_ = true;
+    const bool lost = swapchain.width == 0 && swapchain.height == 0;
+    if (lost != swapchainLost_) {
+        swapchainLost_ = lost;
+        apply();  // refuses while there is none (generation off before the provider is told), and lets go of the refusal when it is back
+    }
     if (running_ && device_) running_->swapchain_changed(*device_, swapchain_);
 }
 
@@ -427,10 +444,17 @@ std::string FrameGenController::reason() const {
         case FrameGenState::Refused: return refusal_.empty() ? std::string("no provider runs") : refusal_;
         case FrameGenState::Measuring:
             return "measuring the base frame rate over " + std::to_string(kWindowFrames) + " frames.";
-        case FrameGenState::Paused:
-            return "the game renders at " + std::to_string(int(std::lround(baseFps_))) + " fps, below minBaseFps (" +
-                   std::to_string(settings_.minBaseFps) + "): generation resumes at " +
-                   std::to_string(int(std::ceil(double(settings_.minBaseFps) * kResumeMargin - 1e-6))) + " fps.";
+        case FrameGenState::Paused: {
+            std::string text =
+                "the game renders at " + std::to_string(int(std::lround(baseFps_))) + " fps, below minBaseFps (" +
+                std::to_string(settings_.minBaseFps) + "): generation resumes at " +
+                std::to_string(int(std::ceil(double(settings_.minBaseFps) * kResumeMargin - 1e-6))) + " fps.";
+            // A rate held at the limit by vsync (60 fps on a 60 Hz display with minBaseFps 60) measures a hair below it and can never reach
+            // the resume rate: the reason says so where it is most likely the cause.
+            if (baseFps_ >= 0.9 * double(settings_.minBaseFps))
+                text += " If vsync or a frame limit holds the rate at the display's, set minBaseFps below it.";
+            return text;
+        }
         case FrameGenState::Active: return dispatchError_;  // "" unless the provider refused the last frame
     }
     return {};

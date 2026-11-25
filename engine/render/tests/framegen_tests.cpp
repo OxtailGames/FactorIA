@@ -597,6 +597,91 @@ TEST_CASE("frame generation controller: a new swapchain is told to the provider 
     CHECK(dlss.lastSwapchain.width == 0);
 }
 
+TEST_CASE("frame generation controller: a swapchain recreated at the same size is still told to the provider") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    c.set_settings(settings(FrameGenMode::Dlss, 0));
+    Frames f{c, dlss};
+    f.run(2, 10.0);
+    render::FrameGenFrame frame;
+    CHECK(c.dispatch(frame));
+    frame = render::FrameGenFrame{};
+    CHECK(c.dispatch(frame));
+    CHECK_FALSE(dlss.lastReset);
+
+    c.set_swapchain(swapchain_of(dev));  // the same size, not remade: ignored
+    CHECK(dlss.swapchainChanges == 0);
+    c.set_swapchain(swapchain_of(dev), true);  // the same size, but the swapchain's images are new
+    CHECK(dlss.swapchainChanges == 1);
+    CHECK(dlss.lastSwapchain.width == 1920);
+    frame = render::FrameGenFrame{};
+    CHECK(c.dispatch(frame));
+    CHECK(dlss.lastReset);  // the history belongs to the old images
+}
+
+TEST_CASE("frame generation controller: a window with no swapchain (0x0) is refused, and generation resumes with it") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    c.set_settings(settings(FrameGenMode::Dlss, 0));
+    Frames f{c, dlss};
+    f.run(2, 10.0);
+    REQUIRE(c.state() == FrameGenState::Active);
+    CHECK(c.wants_dispatch());
+
+    render::FrameGenSwapchain gone = swapchain_of(dev);
+    gone.width = gone.height = 0;
+    c.set_swapchain(gone);
+    CHECK(dlss.swapchainChanges == 1);  // the provider is told, after generation went off
+    CHECK(c.state() == FrameGenState::Refused);
+    CHECK_FALSE(c.wants_dispatch());
+    CHECK(c.reason().find("no swapchain") != std::string::npos);
+    CHECK(dlss.calls.back() == "configure off");
+    f.run(3, 10.0);
+    CHECK(c.state() == FrameGenState::Refused);
+
+    c.set_swapchain(swapchain_of(dev), true);  // the window is back
+    CHECK(dlss.swapchainChanges == 2);
+    CHECK(dlss.lastSwapchain.width == 1920);
+    f.run(2, 10.0);
+    CHECK(c.state() == FrameGenState::Active);
+    CHECK(c.wants_dispatch());
+    CHECK(c.reason().empty());
+}
+
+TEST_CASE("frame generation controller: the readout restarts when the mode leaves or enters off") {
+    FDevice dev(gpu::Backend::D3d12, 0x1002);
+    FakeProvider fsr(FrameGenSlot::Fsr);
+    ProviderGuard guard(FrameGenSlot::Fsr, &fsr);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Amd), swapchain_of(dev), true);
+    c.set_settings(settings(FrameGenMode::Fsr, 0));
+    Frames f{c, fsr};
+    constexpr int kRun = FrameGenController::kWindowFrames + 5;
+    f.run(kRun, 10.0);
+    REQUIRE(c.report().renderedFrames == kRun);
+    CHECK(c.report().baseFps == doctest::Approx(100.0));
+
+    c.set_settings(settings(FrameGenMode::Off));  // leaving: the numbers of the last run go
+    CHECK(c.report().renderedFrames == 0);
+    CHECK(c.report().baseFps == 0.0);
+    CHECK(c.report().generatedFrames == 0);
+
+    // Entering again: a window that starts empty, so the long pause is not a first interval.
+    f.t += 60000.0;
+    c.set_settings(settings(FrameGenMode::Fsr, 0));
+    CHECK(c.report().renderedFrames == 0);
+    f.run(kRun, 10.0);
+    CHECK(c.report().baseFps == doctest::Approx(100.0));
+    c.set_settings(settings(FrameGenMode::Auto, 0));  // a change between two modes that are not off keeps the run
+    CHECK(c.report().renderedFrames == kRun);
+}
+
 TEST_CASE("frame generation controller: the depth the provider asks for") {
     FDevice dev(gpu::Backend::Vulkan, 0x1002);
     FakeProvider fsr(FrameGenSlot::Fsr);
