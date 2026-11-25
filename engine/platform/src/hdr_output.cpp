@@ -8,7 +8,9 @@
 #include <mutex>
 #include <utility>
 
+#include "d3d11_present.h"
 #include "fa/core/log.h"
+#include "fa/platform/app.h"
 #include "sokol_app.h"
 #include "sokol_window.h"
 
@@ -190,8 +192,20 @@ HdrDisplay no_window() {
     return d;
 }
 
+// Whether the window's own swapchain exists for the switch to act on: not before the platform made it (Windows: the D3D11
+// presenter of the first app_gfx_environment()), nor while a D3D12 or Vulkan device has the window (its swapchain is the
+// device's: no HDR output there yet).
+bool swapchain_ready() {
+    if (!sapp_isvalid() || app_window_presenter() == WindowPresenter::Device) return false;
+#if defined(FA_D3D11_PRESENTER)
+    return d3d11::window_presenter() != nullptr;
+#else
+    return true;
+#endif
+}
+
 std::string swapchain_format() {
-    if (!sapp_isvalid()) return {};
+    if (!swapchain_ready()) return {};  // none to name (no window or presenter yet, or a device's own swapchain)
     if (fa_sapp_swapchain_kind() == 2) return "RGB10A2";
 #if defined(_WIN32) && defined(SOKOL_D3D11)
     // sokol_app has no graphics API on Windows (its colour format says RGBA8): the window presenter's buffers are BGRA8 or,
@@ -265,8 +279,19 @@ HdrOutputInfo app_update_hdr_output(const HdrRequest& request) {
     return info;
 }
 
-bool app_update_hdr_output(const HdrRequest& request, HdrOutputInfo& out) {
+bool app_update_hdr_output(const HdrRequest& gameRequest, HdrOutputInfo& out) {
     OutputState& s = output_state();
+    // A D3D12 or Vulkan device presents into the window with its own swapchain, which stays in the standard range: the
+    // request is blocked with that reason (copied only then: the common case copies nothing).
+    HdrRequest onDevice;
+    const std::string deviceBackend = app_window_device_backend();
+    if (!deviceBackend.empty() && gameRequest.blocked.empty()) {
+        onDevice = gameRequest;
+        onDevice.blocked = "HDR output is not available on the " + deviceBackend +
+                           " backend yet: its swapchain shows the standard range (hint: leave render.backend on auto "
+                           "for HDR output)";
+    }
+    const HdrRequest& request = onDevice.blocked.empty() ? gameRequest : onDevice;
     const bool live = request.want && request.blocked.empty();
     const bool window = sapp_isvalid();
     const bool due = live || !s.haveDisplay || s.displayWindow != window || ++s.sinceAsked >= kIdleRefresh;
@@ -285,7 +310,15 @@ bool app_update_hdr_output(const HdrRequest& request, HdrOutputInfo& out) {
     const HdrDisplay display = s.display;
     const HdrDecision decision = decide_hdr_output(request, display);
     const bool linear = decision.encoding == HdrEncoding::Edr && request.edrLinear;
-    if (sapp_isvalid() && (decision.encoding != s.asked || linear != s.askedLinear)) {
+    if (!deviceBackend.empty()) {
+        // The platform's swapchain is gone (or was never made): a new one starts in the standard range, so nothing is
+        // counted as asked for or in effect (the fallback to the platform's swapchain asks again).
+        s.asked = HdrEncoding::Sdr;
+        s.applied = HdrEncoding::Sdr;
+        s.askedLinear = false;
+    } else if (swapchain_ready() && (decision.encoding != s.asked || linear != s.askedLinear)) {
+        // Only with a swapchain to switch: asked before it exists (Windows before the first app_gfx_environment()), the
+        // request would count as made and never be tried again.
         s.asked = decision.encoding;
         s.askedLinear = linear;
         s.applied = apply(decision.encoding, linear);
@@ -293,7 +326,7 @@ bool app_update_hdr_output(const HdrRequest& request, HdrOutputInfo& out) {
             s.applied = apply(decision.fallback, false);
     }
 #if defined(FA_HDR_DXGI)
-    if (sapp_isvalid())
+    if (swapchain_ready())
         hdr_impl::dxgi_keep_color_space(s.applied);  // a window resize gave the buffers DXGI's default colour space
 #endif
     // A switch the driver refused is not counted as asked for again while the decision stays; the fallback that took is

@@ -113,10 +113,50 @@ void write_pipeline_cache_header(std::vector<std::uint8_t>& bytes, const Pipelin
 // driver, a size or checksum that does not match. The LUID is not compared.
 std::string pipeline_cache_mismatch(const std::vector<std::uint8_t>& bytes, const PipelineCacheIdentity& self,
                                     const std::string& adapterName);
-// The cache file name of a program: "d3d12-pipelines-<program>.bin", the program's name in lower case with every
-// character but a-z, 0-9, '-' and '_' made '_' (at most 48 of them); "d3d12-pipelines.bin" for an empty name. Each
-// program (the editor, the CLI, a game's player) keeps its own file, so one never overwrites the PSOs of another.
+// The cache file name of a program: "d3d12-pipelines-<program>-<hash>.bin": the program's name in lower case with every
+// character but a-z, 0-9, '-' and '_' made '_' (at most 48 of them), then the first 8 hex digits of the SHA-256 of the
+// whole name in ASCII lower case, so two names that read alike once cleaned up and cut (accents, a name over 48
+// characters) never share a file; "d3d12-pipelines.bin" for an empty name. Each program (the editor, the CLI, an
+// exported game's player) keeps its own file, so one never overwrites the PSOs of another.
 std::string d3d12_pipeline_cache_name(std::string_view program);
+
+// ---- Writing the cache file, and the temporary files a crash leaves (pure logic: every platform) ---------------------
+// Why the temporary file could not replace the cache file (Windows' MoveFileExW; classified from the error and probes).
+enum class CacheWriteFailure {
+    TargetHeld,    // another process holds the old file open: Windows replaces no open file
+    TempHeld,      // an antivirus or indexer holds the temporary file we just wrote
+    ReadOnlyFile,  // the old file has the read-only attribute
+    FolderDenied,  // access denied, and nothing holds either file: the folder's or the file's permissions
+    Other,         // a full disk, a missing folder, anything else
+};
+// The Win32 error numbers it knows: 5 ERROR_ACCESS_DENIED, 32 ERROR_SHARING_VIOLATION, 33 ERROR_LOCK_VIOLATION, 1224
+// ERROR_USER_MAPPED_FILE. `tempHeld` / `targetHeld`: opening that file for DELETE failed with a sharing violation;
+// `targetReadOnly`: the old file has FILE_ATTRIBUTE_READONLY. A held temporary file wins over the rest.
+CacheWriteFailure d3d12_classify_cache_write_error(unsigned winError, bool tempHeld, bool targetHeld,
+                                                   bool targetReadOnly);
+// How long a save waits before it gives up on a failure: `retries` more tries, `sleepMs` apart. The target held (a
+// reader that stays is not waited for: the old file is kept) and access denied are 3 x 1 ms; a held temporary file (a
+// scanner that lets go within a moment) is 8 x 20 ms, 160 ms, still bounded; the rest are not retried.
+struct CacheReplacePolicy {
+    int retries = 0;
+    int sleepMs = 0;
+};
+CacheReplacePolicy d3d12_cache_replace_policy(CacheWriteFailure kind);
+// The hint of a failed write of `file` (UTF-8 path): what is wrong with which file, what to do, and when the next try is
+// ("at the next save or the next run").
+std::string d3d12_cache_write_hint(CacheWriteFailure kind, std::string_view file);
+// A file of the cache's folder with its age.
+struct CacheFolderEntry {
+    std::string name;             // the file name only
+    std::int64_t ageSeconds = 0;  // now minus its modification time; <= 0 when unknown
+};
+// A temporary file younger than this may belong to a save running now, in another process.
+constexpr std::int64_t kOrphanTempAgeSeconds = 60;
+// The names of `entries` that are leftovers of a crashed save of the cache file `cacheFileName` (name only): "<that
+// name>.fa-tmp<pid>_<n>" (ASCII case ignored) and at least kOrphanTempAgeSeconds old. A leftover another process still
+// holds open fails to delete, which leaves it alone.
+std::vector<std::string> d3d12_orphan_cache_temps(const std::vector<CacheFolderEntry>& entries,
+                                                  std::string_view cacheFileName);
 // The running program's file name without its extension, as UTF-8 (GetModuleFileNameW on Windows; empty elsewhere,
 // where there is no D3D12).
 std::string d3d12_program_name();
@@ -1183,6 +1223,7 @@ private:
     std::vector<Com<ID3D12PipelineLibrary>> retiredLibraries_;
     std::uint64_t trimBytes_ = 0;  // D3d12Options::pipelineCacheTrimBytes
     bool trimTried_ = false;       // a save rebuilt the library once: what it holds since then was all used
+    bool trimUnwritten_ = false;  // the library is a trimmed one that no file holds yet: the write that holds it counts
     std::uint64_t libraryHits_ = 0, libraryMisses_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0, cacheTrimmed_ = 0;
     // What the file's header must match (the LUID changes with every boot: recorded, not compared).
     PipelineCacheIdentity identity_{};

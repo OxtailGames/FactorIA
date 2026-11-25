@@ -82,16 +82,25 @@ struct EngineConfig {
     // game's user settings (graphics_backend.json in fs::user_dir(); not read with memoryStorage), else factoria.json
     // render.backend, else "auto" (gpuBackendAuto where this binary has it, else the sokol backend it was built with). An
     // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
-    // D3D12 and Vulkan have no window path yet: with a window the engine warns once and draws with "auto"; a headless run
-    // uses the one asked for. Engine::startup_report names the one that runs.
+    // D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the native window from the
+    // platform) or headless offscreen; when the one asked for cannot start (no driver, no such GPU, a window that cannot
+    // take its swapchain: an OpenGL window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
+    // only), and when that does not take the process over it warns once with the first error and draws with the sokol
+    // backend of this build in the same process. Engine::startup_report names the one that runs, the one asked for and
+    // why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
     std::string gpuBackend;
     // What "auto" draws with in this binary when it has it (M77-P9e2): the Vulkan player of Linux and Android sets Vulkan;
     // Default = the sokol backend. Not used when FA_GPU_FALLBACK_FROM names it (that backend already failed).
     GpuBackend gpuBackendAuto = GpuBackend::Default;
-    // Called once when the window cannot draw with the chosen backend (backend name, why), before the engine falls back
-    // to the sokol backend in this process. The Vulkan player of Linux starts the OpenGL player here (it does not return
-    // when that works, fa/runtime/gpu_launch.h); empty = the in-process fallback only.
+    // Called once, in a window, when the backend asked for (Vulkan, D3D12) cannot start, BEFORE the in-process fallback to
+    // the sokol backend (backend name, why). The Vulkan player of Linux and Android starts the OpenGL player here (it does
+    // not return when that works, fa/runtime/gpu_launch.h): the in-process fallback runs only when this is empty or
+    // returns, so a Vulkan failure is never hidden by it. `why` starts with kGpuWindowPathReason when the window cannot
+    // take the swapchain at all (fa/runtime/gpu_backend_choice.h).
     std::function<void(const std::string& backend, const std::string& why)> gpuBackendFailed;
+    // Tests: called before each start of the renderer on a backend; a non-empty answer makes that start fail with it
+    // (before any device is made), so the fallback can be checked on a machine where every backend works. Empty = none.
+    std::function<std::string(GpuBackend backend)> gpuStartFault;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless
@@ -390,7 +399,9 @@ public:
     // makes the next few GPU pipelines the first scene draws with (Renderer::warm_step) and records WarmEnd when done.
     // Returns how many steps are left; 0 at once without a renderer or without a window. Never changes what is drawn.
     int warm_step(const GfxSwapchain& swapchain);
-    // {firstPresentMs, firstGameFrameMs, ... (StartupTimeline::to_json), gpu: Renderer::startup_report() or null}.
+    // {firstPresentMs, firstGameFrameMs, ... (StartupTimeline::to_json), gpu: Renderer::startup_report() or null}. gpu
+    // also has requestedBackend (the backend asked for, when another one draws) and backendFallback (why the asked one
+    // could not start: its first error) after an in-process fallback.
     Json startup_report() const;
     // This engine's reader token (fa/core/load_trace.h): a host that drives the engine through calls outside its entry
     // points (play.auto's bot hook) opens a LoadTrace::ReadingFor with it, so those reads are the game's too.

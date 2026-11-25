@@ -58,14 +58,9 @@ namespace {
 // A Vulkan device is tried (and dropped) only when this process would draw with Vulkan and could hand over.
 fa::GpuLaunchDecision vulkan_player_decision(const fa::EngineConfig& cfg, const fa::ProjectSettings& project,
                                              bool glPlayerPresent, bool checkRun, std::string* vulkanFailure) {
-    fa::GpuBackendInputs in;
-    in.config = cfg.gpuBackend;
-    in.env = std::getenv("FA_GPU_BACKEND");
-    if (!cfg.memoryStorage) in.user = fa::read_gpu_backend_setting(fa::fs::user_dir(), nullptr);
-    in.project = project.renderBackend;
-    in.autoBackend = checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan;
-    in.fallbackFrom = std::getenv(fa::kGpuFallbackFromEnv);
-    in.fallbackReason = std::getenv(fa::kGpuFallbackReasonEnv);
+    fa::GpuBackendInputs in = fa::make_gpu_backend_inputs(cfg.gpuBackend, !cfg.memoryStorage,
+                                                          checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan,
+                                                          project.renderBackend, nullptr);
     fa::GpuLaunchInput li;
     li.vulkanPlayer = true;
     li.glPlayerPresent = glPlayerPresent;

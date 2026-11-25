@@ -80,7 +80,9 @@ Result<std::filesystem::path> make_temp_dir(std::string_view prefix);
 
 // make_temp_dir, and the folder with everything in it is removed when the process ends (static destruction), for test
 // programs and tools whose scratch folders would otherwise pile up in the temp folder. A failure to remove it (a file
-// still open on Windows) is ignored.
+// still open on Windows) is ignored. The removal happens at static destruction, so only on a normal exit (return from
+// main, exit()): a crash, a kill or a timeout leaves the folder behind. Thread-safe: the list of folders is guarded by a
+// mutex, so threads may call it at the same time; do not call it from a static destructor that may run after the list's own.
 Result<std::filesystem::path> make_temp_dir_until_exit(std::string_view prefix);
 
 // Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE

@@ -120,6 +120,10 @@ struct Engine::Impl {
     // graphics.backend {"name"} (P9e2): the choice stored for the next start. With memoryStorage it lives here only.
     bool gpuStoreInMemory = false;
     std::string gpuStoredBackend;  // "" = none stored ("auto")
+    // Why the run did not draw with the backend it asked for ("" = it did, or asked for none): the first error.
+    std::string gpuFallbackReason;
+    // The renderer's D3D12 or Vulkan device has the window's swapchain (app_claim_native_window): shutdown gives it back.
+    bool windowClaimed = false;
     jobs::Owner jobOwner{
         "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)

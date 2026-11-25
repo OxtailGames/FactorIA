@@ -5,6 +5,8 @@
 #pragma once
 
 #include <filesystem>
+#include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,6 +20,14 @@ namespace fa {
 // names it in its startup report (gpu.fallbackFrom, gpu.fallbackReason) and in graphics.backend.
 inline constexpr const char* kGpuFallbackFromEnv = "FA_GPU_FALLBACK_FROM";
 inline constexpr const char* kGpuFallbackReasonEnv = "FA_GPU_FALLBACK_REASON";
+
+// The start of a reason that says the WINDOW cannot take a swapchain of that backend at all (the platform's window is an OpenGL
+// one: Linux and Android today, M77-P9e3), not that a driver or GPU is missing. The engine builds it
+// (gpu_window_path_reason); the Vulkan player passes it on in kGpuFallbackReasonEnv, and the warning of the OpenGL player
+// that starts then does not promise that a driver update brings Vulkan back.
+inline constexpr const char* kGpuWindowPathReason = "the window path is not available on this platform yet";
+std::string gpu_window_path_reason(const std::string& backend, const std::string& why);
+bool is_gpu_window_path_reason(const std::string& reason);
 
 struct GpuBackendChoice {
     GpuBackend backend = GpuBackend::Default;  // Default = auto: the backend this binary was built with
@@ -45,6 +55,12 @@ struct GpuBackendInputs {
     const char* fallbackReason = nullptr;  // kGpuFallbackReasonEnv
 };
 
+// The inputs of a run as the engine and the window runner read them, so both ask the same question: EngineConfig's name,
+// FA_GPU_BACKEND, the stored choice (only when `readStored`: not with memoryStorage; a file that cannot be read is told
+// in *storedWarning), the project's render.backend, what auto means in this binary and the fallback marker.
+GpuBackendInputs make_gpu_backend_inputs(const std::string& configValue, bool readStored, GpuBackend autoBackend,
+                                         const std::string& projectValue, std::string* storedWarning);
+
 // Resolves the places in the order above. Names are those of gpu_backend_name. An unknown name in EngineConfig or the
 // variable is an error with the valid names and a did-you-mean (the place says where it came from); one in the stored
 // choice is a warning and is skipped (the file belongs to the player's machine, not to the game). A valid name this binary
@@ -55,8 +71,37 @@ Result<GpuBackendChoice> choose_gpu_backend(const GpuBackendInputs& in);
 Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, const char* envValue,
                                             const std::string& projectValue);
 
-// The one warning of a window that could not use the backend it asked for: what was asked, why it failed and what draws.
-std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used);
+// The one warning of a run that could not use the backend it asked for (M77-P9e1): what was asked, why it failed (the
+// first error, kept whole), what draws instead and how to choose. `windowed`: the window draws with `used`, else the
+// headless run does.
+std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used,
+                                         bool windowed = true);
+
+// One start of the renderer on `backend`: "" = it started; else why not (the device's or the swapchain's error).
+using GpuBackendStart = std::function<std::string(GpuBackend backend)>;
+
+struct GpuBackendStartResult {
+    bool ok = false;
+    GpuBackend used = GpuBackend::Default;  // the backend that started (the last one tried when none did)
+    // The first attempt's error when the run fell back to Default ("" = it did not fall back): the startup report's
+    // gpu.backendFallback.
+    std::string fallbackReason;
+    std::string warning;  // gpu_backend_fallback_warning of that fallback ("" = none)
+    std::string error;    // !ok: what failed, every attempt's error (the first one first)
+};
+
+// Called with the first error when the backend asked for failed and the run is about to fall back in process.
+using GpuBackendFailed = std::function<void(const std::string& why)>;
+
+// The in-process fallback (M77-P9e1): starts `asked`; when it fails and it is not one that runs on the sokol context
+// (gpu_backend_on_context: D3d12, Vulkan), starts Default (the build's sokol backend, `defaultName` in the warning)
+// and keeps the first error as the reason. Default or the build's own sokol backend failing is not retried: there is
+// nothing else to draw with. `failed` (EngineConfig::gpuBackendFailed, M77-P9e2) runs first, before the warning and the
+// second start: it may replace the process (the Vulkan player starts the OpenGL player, so a Vulkan failure reaches it
+// and is not hidden by this fallback); the fallback goes on when it returns. Pure, so every platform's tests check it
+// with a `start` that fails on purpose.
+GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart& start, const std::string& defaultName,
+                                        bool windowed, const GpuBackendFailed& failed = {});
 
 // The file of the player's stored backend choice: graphics_backend.json in `userDir` (fs::user_dir(): the save folder of
 // the game), {"backend": "<name>"}.

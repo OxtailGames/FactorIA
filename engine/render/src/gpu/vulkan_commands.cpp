@@ -614,6 +614,7 @@ void VulkanCommandList::end_pass() {
         fail("end_pass", "no pass is open (hint: one end_pass() per begin_pass() or begin_compute_pass())");
         return;
     }
+    bool executed = false;  // the pass's secondary ended and runs inside the list
     if (passState_ == PassState::Render && !passFailed_ && rec_) {
         const VkFunctions& f = device_.fn_;
         // Labels must close in the command buffer that opened them: the groups opened in the pass and still open
@@ -621,6 +622,7 @@ void VulkanCommandList::end_pass() {
         if (f.vkCmdEndDebugUtilsLabelEXT)
             for (std::size_t i = 0; i < passGroups_.size(); ++i) f.vkCmdEndDebugUtilsLabelEXT(rec_);
         const VkResult r = f.vkEndCommandBuffer(rec_);
+        executed = r == VK_SUCCESS;
         if (r != VK_SUCCESS) {
             fail("end_pass", "recording the pass failed with " + result_text(r) +
                                  " (hint: the validation layer (VulkanOptions::validation) says which command was "
@@ -640,11 +642,6 @@ void VulkanCommandList::end_pass() {
             f.vkCmdEndRenderPass(cmd_);
             empty_ = false;
         }
-        // A timestamp recorded in a secondary that did not end never runs: its scope is not reported.
-        for (ScopeRef& sc : scopes_) {
-            if (sc.inPass && r != VK_SUCCESS) sc.lost = true;
-            sc.inPass = false;
-        }
         // The pops of groups opened before the pass, then the groups opened in it again.
         if (f.vkCmdEndDebugUtilsLabelEXT)
             for (int i = 0; i < passOuterPops_; ++i) f.vkCmdEndDebugUtilsLabelEXT(cmd_);
@@ -655,6 +652,12 @@ void VulkanCommandList::end_pass() {
                 l.pLabelName = g.c_str();
                 f.vkCmdBeginDebugUtilsLabelEXT(cmd_, &l);
             }
+    }
+    // A timestamp recorded in a secondary that did not end, or that a failed pass never executes, never runs: its scope
+    // is not reported. Whatever path the pass took, no scope stays "in the pass" after it.
+    for (ScopeRef& sc : scopes_) {
+        if (sc.inPass && !executed) sc.lost = true;
+        sc.inPass = false;
     }
     clear_pass_state();
 }

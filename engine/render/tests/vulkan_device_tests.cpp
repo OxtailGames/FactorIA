@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -3621,6 +3622,20 @@ TEST_CASE("vulkan: a wait for a token never issued, a resource of another queue 
     submit_and_finish(*dev, p);
     CHECK(contains(all_errors(*dev), "queue, which has no render passes"));
 
+    step = "a render pass and a compute pass on a transfer list";
+    if (dev->resolve_queue(QueueKind::Transfer) == QueueKind::Transfer) {
+        CommandList& x = dev->begin_commands("transfer-pass", QueueKind::Transfer);
+        x.begin_pass(color_pass(target, PixelFormat::Rgba8, Color{}));
+        x.end_pass();
+        x.begin_compute_pass("compute-on-transfer");
+        x.end_pass();
+        submit_and_finish(*dev, x);
+        CHECK(contains(all_errors(*dev), "the list runs on the transfer queue, which has no render passes"));
+        CHECK(contains(all_errors(*dev), "the list runs on the transfer queue, which has no compute passes"));
+    } else {
+        MESSAGE("vulkan: the transfer queue is the graphics one here: the transfer list cases are skipped");
+    }
+
     step = "the validation layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
@@ -3779,10 +3794,22 @@ bool window_path(VulkanDevice& dev, const TestWindow& win) {
     return false;
 }
 
+// An acquire that waits again when the presentation engine gave no image in the device's 100 ms (a loaded CI VM with
+// lavapipe can take longer for a frame): up to kAcquireTries attempts, about 2 s in all, before the last answer (a
+// timeout) is reported as it is. Any other error is reported at once.
+constexpr int kAcquireTries = 20;
+fa::Result<Swapchain> acquire_retrying(VulkanDevice& dev) {
+    auto acquired = dev.acquire_swapchain(Swapchain{});
+    for (int tries = 1; !acquired && tries < kAcquireTries && contains(acquired.error().message, "gave no image");
+         ++tries)
+        acquired = dev.acquire_swapchain(Swapchain{});
+    return acquired;
+}
+
 // One frame into the window: acquire, a pass that clears the image (and the depth image) to `clear`, submit, commit,
 // an optional readback of the acquired image, present. Returns the acquired swapchain.
 Swapchain window_frame(VulkanDevice& dev, Color clear, std::vector<std::uint8_t>* pixels = nullptr) {
-    auto acquired = dev.acquire_swapchain(Swapchain{});
+    auto acquired = acquire_retrying(dev);
     REQUIRE_MESSAGE(acquired, acquired.error().to_string());
     const Swapchain sc = acquired.value();
     auto again = dev.acquire_swapchain(Swapchain{});  // a second acquire of the frame: the same image
@@ -4036,6 +4063,214 @@ TEST_CASE("vulkan: the default colour format is not changed under pipelines made
         CHECK_MESSAGE(contains(made.error().hint, "DeviceInit::environment.defaults.colorFormat"),
                       made.error().to_string());
     }
+}
+
+TEST_CASE("vulkan: a timed frame whose timestamps never become available is dropped after 120 polls") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string why;
+    if (!dev->timer_supported(&why)) {
+        MESSAGE("vulkan: skipped, this queue cannot time: " << why);
+        return;
+    }
+    auto timed_frame = [&](const char* name) {
+        dev->timer_begin_frame();
+        CommandList& list = dev->begin_commands("timed");
+        list.begin_timed_scope(name);
+        list.end_timed_scope();
+        dev->submit(list);
+        dev->timer_end_frame();
+        dev->commit();
+    };
+    timed_frame("lost");
+    auto r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    dev->hide_timer_results_for_tests(true);  // as a driver that never makes the queries visible
+    std::vector<double> frames;
+    const std::uint32_t limit = VulkanDevice::kTimerMaxNotReady;
+    CHECK(limit == 120);
+    for (std::uint32_t i = 0; i < limit; ++i) dev->timer_poll(frames);
+    CHECK(frames.empty());
+    CHECK(dev->timer_dropped_frames() == 0);  // still waited for: the next poll may find them
+    dev->timer_poll(frames);                  // the 121st poll gives up on the frame
+    CHECK(frames.empty());
+    CHECK(dev->timer_dropped_frames() == 1);
+    dev->timer_poll(frames);  // nothing is pending any more
+    CHECK(dev->timer_dropped_frames() == 1);
+    CHECK(dev->timer_last_scopes().empty());
+
+    // The ring keeps working: the next frame is read as usual once the queries are visible.
+    dev->hide_timer_results_for_tests(false);
+    timed_frame("found");
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    poll_timers_until(*dev, frames, 1);
+    CHECK(frames.size() == 1);
+    CHECK(dev->timer_dropped_frames() == 1);
+    const std::vector<Device::ScopeTime> scopes = dev->timer_last_scopes();
+    REQUIRE(scopes.size() == 1);
+    CHECK(scopes[0].name == "found");
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: an acquire that times out is a teaching error and the next acquire still works") {
+    TestWindow win(64, 48);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 64;
+    d.height = 48;
+    d.label = "timeout-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+
+    // VK_TIMEOUT and VK_NOT_READY: the frame is skipped, nothing is acquired, the swapchain is untouched.
+    for (VkResult answer : {VK_TIMEOUT, VK_NOT_READY}) {
+        dev->inject_acquire_result_for_tests(answer, 1);
+        auto none = dev->acquire_swapchain(Swapchain{});
+        REQUIRE(!none);
+        CHECK(contains(none.error().message, "gave no image in 100 ms"));
+        CHECK(contains(none.error().hint, "skip this frame"));
+        CHECK(dev->swapchain_image().id == 0);
+        auto shown = dev->present();  // no image was acquired
+        CHECK(!shown);
+        CHECK(contains(shown.error().message, "without this frame's acquire_swapchain()"));
+    }
+    // A window that is lost is another error: the hint says what to do.
+    dev->inject_acquire_result_for_tests(VK_ERROR_SURFACE_LOST_KHR, 1);
+    auto lost = dev->acquire_swapchain(Swapchain{});
+    REQUIRE(!lost);
+    CHECK(contains(lost.error().hint, "destroy_swapchain()"));
+    CHECK(dev->swapchain_image().id == 0);
+
+    // Three timeouts in a row, then an image: the bounded retry of the frame helper (20 tries) gets through.
+    dev->inject_acquire_result_for_tests(VK_TIMEOUT, 3);
+    std::vector<std::uint8_t> pixels;
+    const Swapchain sc = window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f}, &pixels);
+    CHECK(sc.width == 64);
+    CHECK(pixels.size() == std::size_t(64) * 48 * 4);
+    // More timeouts than tries: the helper reports the last answer instead of waiting for ever.
+    dev->inject_acquire_result_for_tests(VK_TIMEOUT, kAcquireTries + 5);
+    auto never = acquire_retrying(*dev);
+    REQUIRE(!never);
+    CHECK(contains(never.error().message, "gave no image"));
+    dev->inject_acquire_result_for_tests(VK_SUCCESS, 0);
+    window_frame(*dev, Color{0.0f, 0.0f, 1.0f, 1.0f});  // the swapchain is still good
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a readback of a window image the surface made without TRANSFER_SRC is refused") {
+    TestWindow win(32, 32);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "no-transfer-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    dev->drop_swapchain_transfer_src_for_tests();
+    auto acquired = acquire_retrying(*dev);
+    REQUIRE_MESSAGE(acquired, acquired.error().to_string());
+    std::vector<std::uint8_t> out;
+    auto read = dev->read_image_rgba8(dev->swapchain_image(), 32, 32, out);
+    REQUIRE(!read);
+    CHECK(contains(read.error().message, "made without TRANSFER_SRC usage"));
+    CHECK(contains(read.error().hint, "draw into an offscreen image and read that"));
+    CHECK(out.empty());
+    // The frame still goes out: the refusal changed nothing.
+    PassDesc pass = PassDesc::for_swapchain(acquired.value(), dev->environment_defaults());
+    pass.colorLoad = LoadAction::Clear;
+    CommandList& list = dev->begin_commands("window");
+    list.begin_pass(pass);
+    list.end_pass();
+    dev->submit(list);
+    dev->commit();
+    auto shown = dev->present();
+    CHECK_MESSAGE(shown, shown.error().to_string());
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE(
+    "vulkan: the window format fallback succeeds where the asked one is missing, and a failed swapchain keeps the "
+    "device's default format") {
+    TestWindow win(32, 32);
+    VulkanOptions o;
+    o.init.environment.defaults.colorFormat = PixelFormat::Rgba8;  // Android's order; most desktop surfaces offer BGRA
+    auto dev = make_vk(o);
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    REQUIRE(dev->environment_defaults().colorFormat == PixelFormat::Rgba8);
+    dev->hide_surface_format_for_tests(PixelFormat::Rgba8);  // whatever the surface offers, it lacks the default
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "fallback-window";
+
+    // A swapchain that fails after the format was chosen leaves the device's default as it was.
+    dev->fail_next_swapchain_for_tests();
+    auto failed = dev->create_swapchain(d);
+    REQUIRE(!failed);
+    if (contains(failed.error().message, "does not offer")) {
+        MESSAGE("vulkan: the surface offers no 8-bit format but the hidden one: the fallback is not exercised here");
+        return;
+    }
+    CHECK(contains(failed.error().message, "injected by a test"));
+    CHECK(!dev->has_swapchain());
+    CHECK(dev->environment_defaults().colorFormat == PixelFormat::Rgba8);
+
+    // Made again: the fallback succeeds, and only now the default follows the window.
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    CHECK(dev->environment_defaults().colorFormat == PixelFormat::Bgra8);
+    std::vector<std::uint8_t> pixels;
+    const Swapchain sc = window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f}, &pixels);
+    CHECK(sc.colorFormat == PixelFormat::Bgra8);
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: swapchain_format_supported is safe from another thread while the swapchain is made again") {
+    TestWindow win(32, 32);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "thread-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    std::atomic<bool> stop{false};
+    std::atomic<int> refused{0};
+    std::thread asker([&] {
+        while (!stop.load()) {
+            std::string why;
+            if (!dev->swapchain_format_supported(PixelFormat::Default, &why)) ++refused;
+        }
+    });
+    // Each resize makes the swapchain again, and with it asks the surface for its formats again.
+    for (int i = 0; i < 6; ++i) {
+        auto resized = dev->resize_swapchain(i % 2 ? 32 : 48, 32);
+        CHECK_MESSAGE(resized, resized.error().to_string());
+    }
+    stop = true;
+    asker.join();
+    CHECK(refused.load() == 0);  // the list is replaced as a whole: never seen half-filled or empty
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
 #endif

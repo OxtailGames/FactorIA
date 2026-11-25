@@ -326,6 +326,10 @@ bool gpu_backend_available(GpuBackend backend) {
     return backend == GpuBackend::Default || gpu::device_backend_compiled(device_backend_of(backend));
 }
 
+bool gpu_backend_on_context(GpuBackend backend) {
+    return backend == GpuBackend::Default || is_sokol_backend(device_backend_of(backend));
+}
+
 GpuBackend Renderer::device_backend() const {
     if (!impl_ || !impl_->gpu.has_device()) return GpuBackend::Default;
     return public_backend_of(impl_->gpu.device().backend());
@@ -511,6 +515,14 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     return int(im.warmGroups.size() - im.warmNext);
 }
 
+namespace {
+// The device RendererDeviceAccess::set_next_device handed in for the next init() of its backend (tests only).
+std::unique_ptr<gpu::Device>& next_device() {
+    static std::unique_ptr<gpu::Device> d;
+    return d;
+}
+}  // namespace
+
 Json Renderer::startup_report() const {
     // The cache of the device the renderer draws with (D3D12 keeps stages of its own), not of the sokol backend.
     const gpu::Backend backend =
@@ -525,6 +537,9 @@ Json Renderer::startup_report() const {
         j["pipelinesEvicted"] = std::int64_t(impl_->gpu.pipelines_evicted());
         j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
         j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
+        // M77-P10d: whether the frame uses the compute queue and the job threads (RendererDesc allows it and the device can).
+        j["asyncCompute"] = impl_->gpu.has_device() && impl_->gpu.async_compute();
+        j["multiThreadRecording"] = impl_->gpu.has_device() && impl_->gpu.parallel_recording();
     }
     return j;
 }
@@ -567,20 +582,26 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         }
     } else {
         im.adopted = true;  // no sokol context of this renderer's: shutdown closes none
-        gpu::DeviceInit init;
-        init.environment.defaults = gpu::environment_defaults_of(env);
-        auto made = gpu::make_device(backend, init);
-        if (!made) {
-            if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
-            impl_.reset();
-            return false;
+        if (next_device() && next_device()->backend() == backend) {
+            device = std::move(next_device());  // a test's device (RendererDeviceAccess::set_next_device)
+        } else {
+            gpu::DeviceInit init;
+            init.environment.defaults = gpu::environment_defaults_of(env);
+            auto made = gpu::make_device(backend, init);
+            if (!made) {
+                if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
+                impl_.reset();
+                return false;
+            }
+            device = std::move(made.value());
         }
-        device = std::move(made.value());
     }
     // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's. D3D12 and Vulkan make their
-    // own on a native window, which RendererDesc does not hand over yet, so they fail here and say why.
+    // own on RendererDesc::nativeWindow; without one (or on a window that refuses it) they fail here and say why. A
+    // failure destroys what was made, the swapchain first, so the caller can hand the window to another backend.
     auto fail = [&](const std::string& why) {
         if (error) *error = why;
+        if (im.gpu.has_device()) im.gpu.device().destroy_swapchain();
         im.gpu.shutdown();
         if (!im.adopted) gpu::close_context();
         impl_.reset();
@@ -589,9 +610,17 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     // Gpu::init falls back to one sample where the device cannot multisample RGBA8.
     std::string gerr;
     if (!im.gpu.init(std::max(1, desc.sampleCount), &gerr, std::move(device))) return fail(gerr);
+    im.gpu.set_queue_options(desc.asyncCompute, desc.multiThreadRecording);
     if (!desc.headless) {
         gpu::SwapchainDesc sd;
         sd.label = "window";
+        sd.nativeWindow = desc.nativeWindow.window;  // read by D3D12 and Vulkan only
+        sd.nativeDisplay = desc.nativeWindow.display;
+        sd.width = std::max(0, desc.nativeWindow.width);
+        sd.height = std::max(0, desc.nativeWindow.height);
+        // The window's MSAA, as the environment says it (the platform's sample count): the present pass is made for it.
+        sd.sampleCount = std::max(1, im.gpu.device().environment_defaults().sampleCount);
+        sd.vsync = desc.vsync;
         if (auto made = im.gpu.device().create_swapchain(sd); !made)
             return fail("The renderer cannot draw into the window: " + made.error().to_string());
     }
@@ -762,6 +791,8 @@ render::GpuInfo Renderer::gpu_info() {
     }
     return info;
 }
+
+void RendererDeviceAccess::set_next_device(std::unique_ptr<gpu::Device> device) { next_device() = std::move(device); }
 
 gpu::Device* RendererDeviceAccess::device(Renderer& renderer) {
     if (!renderer.initialized() || !renderer.impl_->gpu.has_device()) return nullptr;

@@ -585,6 +585,21 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
     return false;
 }
 
+bool fa_sapp_native_window(void** window, void** display) {
+    *window = NULL;
+    *display = NULL;
+#if defined(_SAPP_WIN32)
+    *window = (void*)_sapp.win32.hwnd;
+#elif defined(_SAPP_LINUX)
+    if (!_sapp.x11.display || _sapp.x11.window == 0) return false;
+    *window = (void*)(uintptr_t)_sapp.x11.window;  // an XID: VK_KHR_xlib_surface takes it back as an integer
+    *display = (void*)_sapp.x11.display;
+#elif defined(_SAPP_ANDROID)
+    *window = (void*)_sapp.android.current.window;  // the surface of now (null while the activity has none)
+#endif
+    return *window != NULL;
+}
+
 bool fa_sapp_set_class_name(const char* name) {
 #if defined(_SAPP_LINUX)
     XClassHint hint;

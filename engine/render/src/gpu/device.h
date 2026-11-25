@@ -416,10 +416,11 @@ public:
     // the frame). D3D12 makes its own DXGI flip-model swapchain on SwapchainDesc::nativeWindow (an HWND): acquire waits
     // for the frame-latency object and hands back the next back buffer, present presents it on the graphics queue,
     // resize waits for the GPU and resizes the buffers (docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Swapchain").
-    // Vulkan makes its own VkSwapchainKHR on SwapchainDesc::nativeWindow (an HWND, an X11 Window, an ANativeWindow*
-    // or a CAMetalLayer*; docs/design/ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain"). The defaults below are the answer
-    // of a backend without a window path (RecordingDevice, and a Vulkan device whose loader or driver lacks the surface
-    // and swapchain extensions): every call fails with a teaching error and nothing changes.
+    // Vulkan makes its own VkSwapchainKHR on the surface of SwapchainDesc::nativeWindow (an HWND, an X11 Window, an
+    // ANativeWindow* or a CAMetalLayer*; docs/design/ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain"). The runtime claims
+    // the native window from the platform first (Renderer::init gets it through RendererDesc::nativeWindow). The defaults
+    // below are the answer of a backend without a window path (RecordingDevice, and a Vulkan device whose loader or
+    // driver lacks the surface and swapchain extensions): every call fails with a teaching error and nothing changes.
     virtual Result<void> create_swapchain(const SwapchainDesc& desc);
     virtual Result<void> resize_swapchain(int width, int height);
     // `windowFrame` is read by the sokol devices only (an explicit backend acquires the next image of its own

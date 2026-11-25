@@ -1039,19 +1039,13 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     {
         // The GPU backend: EngineConfig, then FA_GPU_BACKEND, then the stored choice of graphics.backend, then
         // factoria.json render.backend, then auto (M77-P9a, P9e2).
-        GpuBackendInputs gin;
-        gin.config = config.gpuBackend;
-        gin.env = std::getenv("FA_GPU_BACKEND");
         std::string storedWarning;
-        if (!config.memoryStorage) gin.user = read_gpu_backend_setting(fs::user_dir(), &storedWarning);
+        GpuBackendInputs gin = make_gpu_backend_inputs(config.gpuBackend, !config.memoryStorage, config.gpuBackendAuto,
+                                                       I.project.renderBackend, &storedWarning);
         if (!storedWarning.empty()) I.startupProblems.push_back("graphics: " + storedWarning);
         I.gpuStoreInMemory = config.memoryStorage;
         I.gpuStoredBackend = gin.user;
         I.gpuBackendAuto = config.gpuBackendAuto;
-        gin.project = I.project.renderBackend;
-        gin.autoBackend = config.gpuBackendAuto;
-        gin.fallbackFrom = std::getenv(kGpuFallbackFromEnv);
-        gin.fallbackReason = std::getenv(kGpuFallbackReasonEnv);
         auto chosen = choose_gpu_backend(gin);
         if (!chosen) return fail(chosen.error().to_string());
         I.gpuChoice = chosen.value();
@@ -1168,31 +1162,76 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.headless = !I.windowed;
         rd.adoptContext = I.windowed && config.adoptGraphicsContext;
         rd.backend = I.gpuChoice.backend;
+        rd.asyncCompute = I.project.renderAsyncCompute;
+        rd.multiThreadRecording = I.project.renderMultiThreadRecording;
         std::string gerr;
         bool ok = false;
-        if (I.windowed) {
-            I.renderer = std::make_unique<Renderer>();
-            ok = I.renderer->init(rd, *gfx, &gerr);
-            if (!ok && rd.backend != GpuBackend::Default) {
-                // The host may start another player instead (the Vulkan player of Linux, P9e2); it returns when it did not.
-                if (config.gpuBackendFailed) config.gpuBackendFailed(gpu_backend_name(rd.backend), gerr);
-                // The engine's own backends have no swapchain yet (P9c, P9d): one warning, and the window draws with the
-                // backend of this build rather than stay black or crash.
-                const std::string msg = gpu_backend_fallback_warning(rd.backend, gerr, Renderer::backend_name());
-                FA_WARN("engine", "{}", msg);
-                I.startupProblems.push_back("graphics: " + msg);
-                I.renderer->shutdown();
-                rd.backend = GpuBackend::Default;
-                I.renderer = std::make_unique<Renderer>();
-                gerr.clear();
-                ok = I.renderer->init(rd, *gfx, &gerr);
+        // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native window
+        // first (the platform's swapchain goes: one per window) and give it back when they fail, so the fallback below
+        // makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
+        const bool appWindow = I.windowed && !config.editorMode && app_native_window().window != nullptr;
+        auto start = [&](GpuBackend backend) -> std::string {
+            if (config.gpuStartFault)
+                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) return fault;
+            RendererDesc d = rd;
+            d.backend = backend;
+            GfxEnvironment env = I.windowed ? *gfx : I.gpu->environment();
+            if (I.windowed && !gpu_backend_on_context(backend)) {
+                if (config.editorMode)
+                    return std::string("the editor draws the game into its own view with the ") +
+                           Renderer::backend_name() + " backend; " + gpu_backend_name(backend) +
+                           " draws into a game window (factoria run) or headless";
+                const bool windowCannot = !app_native_window().busy.empty();
+                auto claim = app_claim_native_window(gpu_backend_name(backend));
+                // A window that cannot take the swapchain at all (an OpenGL one) is said so: the player that hands over
+                // passes the reason on, and its warning must not promise a driver brings Vulkan back.
+                if (!claim)
+                    return windowCannot ? gpu_window_path_reason(gpu_backend_name(backend), claim.error().to_string())
+                                        : claim.error().to_string();
+                d.nativeWindow.window = claim->window;
+                d.nativeWindow.display = claim->display;
+                d.nativeWindow.width = app_framebuffer_width();
+                d.nativeWindow.height = app_framebuffer_height();
+                d.vsync = app_vsync();
+                d.adoptContext = false;   // a device of its own: no sokol context to adopt
+                env = app_gfx_formats();  // the window's formats, no device: D3D12 and Vulkan make their own
+                I.windowClaimed = true;
+            } else if (appWindow && !gfx_device_active()) {
+                // The sokol backend in a game window whose context the runner left closed (it asked for D3D12 or Vulkan):
+                // the platform's swapchain is made now (Windows: the D3D11 presenter).
+                env = app_gfx_environment();
             }
-        } else {
+            I.renderer = std::make_unique<Renderer>();
+            std::string why;
+            if (I.renderer->init(d, env, &why)) return "";
+            I.renderer->shutdown();
+            I.renderer.reset();
+            if (I.windowClaimed) {
+                app_release_native_window();  // the renderer destroyed its swapchain: the window is free again
+                I.windowClaimed = false;
+            }
+            return why.empty() ? std::string("Renderer::init failed") : why;
+        };
+        if (!I.windowed) {
             I.gpu = std::make_unique<HeadlessGpu>();
             ok = I.gpu->init(&gerr);
-            if (ok) {
-                I.renderer = std::make_unique<Renderer>();
-                ok = I.renderer->init(rd, I.gpu->environment(), &gerr);
+        } else {
+            ok = true;
+        }
+        if (ok) {
+            // A window, a backend of its own that failed: the host may start another player first (the Vulkan player of
+            // Linux and Android, P9e2; it returns when it did not), then the in-process fallback runs.
+            GpuBackendFailed failed;
+            if (I.windowed && config.gpuBackendFailed)
+                failed = [&](const std::string& why) { config.gpuBackendFailed(gpu_backend_name(rd.backend), why); };
+            const GpuBackendStartResult started =
+                start_gpu_backend(rd.backend, start, Renderer::backend_name(), I.windowed, failed);
+            ok = started.ok;
+            gerr = started.error;
+            I.gpuFallbackReason = started.fallbackReason;
+            if (!started.warning.empty()) {
+                FA_WARN("engine", "{}", started.warning);
+                I.startupProblems.push_back("graphics: " + started.warning);
             }
         }
         if (!ok) {
@@ -1404,6 +1443,8 @@ void Engine::shutdown() {
     I.world.clear();
     if (I.renderer) I.renderer->shutdown();
     I.renderer.reset();
+    if (I.windowClaimed) app_release_native_window();  // its swapchain is gone with the renderer
+    I.windowClaimed = false;
     if (I.gpu) I.gpu->shutdown();
     I.gpu.reset();
 }
@@ -1450,14 +1491,20 @@ Json Engine::startup_report() const {
     j["gpu"] = impl_->renderer && impl_->renderer->initialized() ? impl_->renderer->startup_report() : Json();
     // "backend" is the device's; the asked one is named when it is another (M77-P9a).
     if (j["gpu"].is_object()) {
-        const GpuBackend asked = impl_->gpuChoice.requested;
+        // The one asked for, or what "auto" means in this binary (the Vulkan player: Vulkan), so an in-process fallback of
+        // the Vulkan player names it too.
+        const GpuBackend asked =
+            impl_->gpuChoice.requested != GpuBackend::Default ? impl_->gpuChoice.requested : impl_->gpuChoice.backend;
         if (asked != GpuBackend::Default && asked != impl_->renderer->device_backend())
             j["gpu"]["requestedBackend"] = gpu_backend_name(asked);
-        // This player was started in place of another one that could not start its backend (P9e2).
+        // This player was started in place of another one (another process) that could not start its backend (M77-P9e2):
+        // the Vulkan player of Linux and Android handing the game to the OpenGL player. Not the in-process fallback below.
         if (!impl_->gpuChoice.fallbackFrom.empty()) {
             j["gpu"]["fallbackFrom"] = impl_->gpuChoice.fallbackFrom;
             j["gpu"]["fallbackReason"] = impl_->gpuChoice.fallbackReason;
         }
+        // Why it fell back to this build's backend in process (M77-P9e1): the first attempt's error.
+        if (!impl_->gpuFallbackReason.empty()) j["gpu"]["backendFallback"] = impl_->gpuFallbackReason;
     }
     return j;
 }

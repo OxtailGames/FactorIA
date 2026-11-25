@@ -92,7 +92,7 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
         dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
-        renderBackend != "auto") {
+        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -118,6 +118,14 @@ Json ProjectSettings::to_json() const {
             render["backend"] = renderBackend;
         else
             render.erase("backend");
+        if (!renderAsyncCompute)
+            render["asyncCompute"] = false;
+        else
+            render.erase("asyncCompute");
+        if (!renderMultiThreadRecording)
+            render["multiThreadRecording"] = false;
+        else
+            render.erase("multiThreadRecording");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
@@ -126,6 +134,8 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
+        j["render"].erase("asyncCompute");
+        j["render"].erase("multiThreadRecording");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -665,6 +675,8 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     if (auto it = j.find("render"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/render", "an object like {\"interpolation\": true}", *it);
         FA_TRY(read_bool(*it, "interpolation", "/render", s.renderInterpolation));
+        FA_TRY(read_bool(*it, "asyncCompute", "/render", s.renderAsyncCompute));
+        FA_TRY(read_bool(*it, "multiThreadRecording", "/render", s.renderMultiThreadRecording));
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
@@ -1143,7 +1155,17 @@ constexpr const char* kSchemaText =
           "type": "string",
           "enum": ["auto", "d3d11", "d3d12", "vulkan", "metal", "gl", "gles3", "webgl2"],
           "default": "auto",
-          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. On Linux and Android the exported game runs the Vulkan variant of the player first (factoria_player_vulkan, export.linux.vulkanPlayer / export.android.vulkanPlayer): auto there means Vulkan, and where Vulkan cannot start that player hands over to the GL one, whose startup report names gpu.fallbackFrom. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan have no window yet: in a window they fall back to auto with a warning, headless runs use them. The player's user setting (the graphics.backend command, stored in the user folder) overrides this key, the FA_GPU_BACKEND environment variable (same names) overrides both, and EngineConfig.gpuBackend overrides everything."
+          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. On Linux and Android the exported game runs the Vulkan variant of the player first (factoria_player_vulkan, export.linux.vulkanPlayer / export.android.vulkanPlayer): auto there means Vulkan, and where Vulkan cannot start (or the window cannot take its swapchain yet) that player hands over to the GL one, a second process whose startup report names gpu.fallbackFrom and gpu.fallbackReason. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan draw into the game window with a swapchain of their own (Windows; vulkan on macOS through MoltenVK in a build that has it; Linux and Android windows are OpenGL ones, which cannot take it yet) and headless runs draw offscreen on them; when the one asked for cannot start, the engine warns once with its first error and draws with auto in the same process (gpu.backendFallback), after the Vulkan player of Linux and Android has tried to hand over to the GL player. The player's user setting (the graphics.backend command, stored in the user folder) overrides this key, the FA_GPU_BACKEND environment variable (same names) overrides both, and EngineConfig.gpuBackend overrides everything."
+        },
+        "asyncCompute": {
+          "type": "boolean",
+          "default": true,
+          "description": "On Direct3D 12 and Vulkan with a separate compute queue, run the depth-pyramid (HiZ) reduce of GPU occlusion culling on the compute queue next to the graphics work (M77-P10d, docs/RENDERING.md, \"Async compute and multi-thread recording\"). The image is the same either way; false keeps it on the graphics queue (to compare timings or to rule out a driver problem). Other backends ignore it. The startup report says whether it is in use."
+        },
+        "multiThreadRecording": {
+          "type": "boolean",
+          "default": true,
+          "description": "On Direct3D 12 and Vulkan, record the shadow cascades and spot-light shadows on job threads, up to four command lists submitted in a fixed order (M77-P10d, docs/RENDERING.md, \"Async compute and multi-thread recording\"). The image is the same either way; false records everything on the render thread. Other backends ignore it. The startup report says whether it is in use."
         },
         "graphicsPreset": {
           "type": "string",

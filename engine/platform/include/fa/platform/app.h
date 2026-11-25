@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "fa/core/math.h"
+#include "fa/core/types.h"
 #include "fa/platform/input.h"
 
 // Forward-declare the sokol structs we hand to the renderer so this header
@@ -100,13 +101,74 @@ int run_app(const AppDesc& desc);
 bool gfx_device_active();
 
 // The window's device for sg_setup(). On Windows the first call makes the D3D11 device and the window's swapchain (sokol_app
-// owns none there); a window that draws with D3D12 or Vulkan never calls it.
+// owns none there). While a GPU device has claimed the window (app_claim_native_window: D3D12, Vulkan) it makes nothing and
+// returns app_gfx_formats(), whose null device makes sg_setup() fail (logged once).
 GfxEnvironment app_gfx_environment();
-// This frame's window views for the swapchain pass (Windows: invalid until app_gfx_environment() made the device).
+// The window's default formats (colour, depth, sample count) without making any device: what a D3D12 or Vulkan renderer
+// reads before it makes its own swapchain. Windows: the formats the D3D11 presenter would have (BGRA8, depth-stencil when
+// asked, the window's sample count), with no device in it; elsewhere sokol_app's environment, as app_gfx_environment().
+GfxEnvironment app_gfx_formats();
+// This frame's window views for the swapchain pass (Windows: invalid until app_gfx_environment() made the device). Invalid
+// (sokol_gfx skips the pass) while a GPU device has claimed the window: that device acquires its own images.
 GfxSwapchain app_gfx_swapchain();
 // Windows D3D11: copies what the window pass drew this frame (before it is presented) into `rgba`, width x height RGBA8,
-// row 0 = top. False elsewhere, on another size, or with an HDR buffer: the caller reads the frame its own way.
+// row 0 = top. False elsewhere, on another size, with an HDR buffer, or while a GPU device (D3D12, Vulkan) has claimed the
+// window (there is no D3D11 presenter then): the caller reads the frame its own way.
 bool app_read_window_back_buffer(int width, int height, std::uint8_t* rgba);
+
+// ---- Who makes the window's swapchain (M77-P9e1) -------------------------------------------------------------------
+// A window holds one swapchain: Windows takes one flip-model DXGI swapchain per HWND, Android one producer per
+// ANativeWindow. Either the platform makes it (sokol_app's own; on Windows the D3D11 presenter of app_gfx_environment()),
+// or a GPU device that makes its own (D3D12, Vulkan) claims the window's native handles first (app_claim_native_window).
+enum class WindowPresenter : std::uint8_t {
+    None,      // nothing made yet (Windows before the first app_gfx_environment(); after a device let the window go)
+    Platform,  // the platform's swapchain presents the frames
+    Device,    // a GPU device made (or is making) its own swapchain on the native window
+};
+const char* window_presenter_name(WindowPresenter presenter);  // "none", "platform", "device"
+enum class WindowPresenterEvent : std::uint8_t {
+    PlatformAsked,  // app_gfx_environment(): the platform's swapchain is wanted
+    DeviceClaim,    // app_claim_native_window()
+    DeviceRelease,  // app_release_native_window()
+};
+// What one event does. app.cpp acts on it; the rule itself is pure, so every platform's tests check it.
+struct WindowPresenterStep {
+    WindowPresenter next = WindowPresenter::None;
+    bool makePlatform = false;     // make the platform's swapchain now (Windows: the D3D11 presenter)
+    bool releasePlatform = false;  // destroy the platform's swapchain before the device makes its own on the window
+    std::string error;             // "" = done; else why the event is refused (the state stays `now`)
+};
+// The state machine: PlatformAsked makes the platform's swapchain from None and is refused while a device has the window;
+// DeviceClaim takes the window from None, or from Platform when no graphics context draws with it (`platformInUse` false:
+// the platform's swapchain is released first), and is refused when `busy` says the window cannot take a device's swapchain
+// (it has a graphics API of its own) or a device has it already; DeviceRelease goes back to None (nothing from another state).
+WindowPresenterStep window_presenter_step(WindowPresenter now, WindowPresenterEvent event, bool platformInUse,
+                                          const std::string& busy);
+
+// The window's native handles, for a GPU device that makes its own swapchain on it (gpu::SwapchainDesc::nativeWindow).
+struct NativeWindow {
+    // HWND (Windows), the X11 Window as an integer in the pointer (Linux), ANativeWindow* (Android), the CAMetalLayer* of
+    // sokol_app's view (macOS: Vulkan on MoltenVK). Null: no window, or a platform that hands none (iOS, the web).
+    const void* window = nullptr;
+    const void* display = nullptr;  // the X11 Display* (Linux); null elsewhere
+    // "" when a GPU device may make its own swapchain on the window; else why not, one sentence (Linux and Android: sokol_app
+    // made an OpenGL context on it and swaps its buffers after every frame; no window).
+    std::string busy;
+};
+// The handles, without claiming the window. Valid inside run_app callbacks.
+NativeWindow app_native_window();
+// Claims the window for the GPU device of `backend` (its name, "d3d12" or "vulkan": HDR output says it is not available on
+// it). On success the platform's swapchain is gone (Windows: the D3D11 presenter is destroyed and its flip-model swapchain
+// released at once, so the device's own can be made on the HWND), app_gfx_environment() makes none and app_gfx_swapchain()
+// is invalid until app_release_native_window(). Refused (nothing changes) when the window is busy, a graphics context draws
+// with the platform's swapchain (sokol_gfx is set up), or a device has the window already.
+Result<NativeWindow> app_claim_native_window(const std::string& backend);
+// Gives the window back once the device destroyed its swapchain (a backend that failed to start, the end of a renderer): the
+// next app_gfx_environment() makes the platform's swapchain again. Nothing when no device has the window.
+void app_release_native_window();
+WindowPresenter app_window_presenter();
+// The backend that claimed the window ("" while no device has it).
+std::string app_window_device_backend();
 int app_framebuffer_width();
 int app_framebuffer_height();
 float app_dpi_scale();
