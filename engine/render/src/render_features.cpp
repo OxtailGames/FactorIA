@@ -497,7 +497,8 @@ std::vector<FeatureDef> build_table() {
          "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
          nullptr},
         // The frame-generation providers of M78 (docs/FRAME_GENERATION.md; render.frameGeneration): the answer is the provider's (render_framegen.h).
-        // Every slot is empty until its package lands, so the rows are false and say so.
+        // The FSR 3 provider is in the build (render_framegen_fsr.h); the DLSS and XeSS slots are empty until their packages land, so those
+        // rows are false and say so.
         {"dlssFrameGen", "",
          "NVIDIA DLSS frame generation (render.frameGeneration mode \"dlss\", also picked by \"auto\" on an NVIDIA "
          "GPU): a generated "
@@ -512,9 +513,8 @@ std::vector<FeatureDef> build_table() {
          "generated frame "
          "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
          "upscaler, on any GPU. "
-         "Windows on D3D12 or Vulkan with the FidelityFX SDK installed (`factoria setup fidelityfx`); its provider "
-         "arrives with the "
-         "FidelityFX frame generation package, so the row is false until then (render.supports gives the reason).",
+         "Windows on D3D12 or Vulkan with the FidelityFX SDK installed (`factoria setup fidelityfx`); the row is false "
+         "where it cannot run, with the reason in render.supports.",
          nullptr},
         {"xessFrameGen", "",
          "Intel XeSS frame generation (render.frameGeneration mode \"xess\", also picked by \"auto\" on an Intel GPU): "

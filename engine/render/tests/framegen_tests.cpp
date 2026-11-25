@@ -17,6 +17,7 @@
 #include "gpu/recording_device.h"
 #include "render_features.h"
 #include "render_framegen.h"
+#include "render_framegen_xess.h"
 #include "renderer_test_access.h"
 
 using namespace fa;
@@ -229,22 +230,30 @@ TEST_CASE("frame generation settings: the provider a mode names on what the mach
 
 // ---- the slot table ----------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("frame generation providers: the DLSS and XeSS slots have their providers, the FSR slot says which package fills it") {
-    // M78-P5b: the DLSS frame generation provider is in its slot (render_framegen_dlss.h); P5d: XeSS (render_framegen_xess.h,
-    // framegen_xess_tests.cpp); FSR 3 arrives with its package.
-    const render::FrameGenProvider* dlss = render::framegen_provider(FrameGenSlot::Dlss);
-    REQUIRE(dlss != nullptr);
-    CHECK(dlss->slot() == FrameGenSlot::Dlss);
-    CHECK(dlss->setup_id() == "streamline");
-    CHECK(render::framegen_provider(FrameGenSlot::Xess) != nullptr);
-    for (FrameGenSlot s : {FrameGenSlot::Fsr}) {
-        CAPTURE(render::frame_gen_slot_name(s));
-        CHECK(render::framegen_provider(s) == nullptr);
-        const std::string why = render::framegen_absent_reason(s);
-        CHECK(why.find("provider") != std::string::npos);
-        CHECK(why.find("yet") != std::string::npos);
+// Every slot has its built-in provider; a test that empties the XeSS slot puts a new one back when it ends.
+struct XessSlotRestore {
+    ~XessSlotRestore() { render::register_framegen_provider(render::make_xess_framegen_provider()); }
+};
+
+TEST_CASE("frame generation providers: every slot has its provider; an empty one says why") {
+    // M78-P5b DLSS (render_framegen_dlss.h), P5c FSR 3 (render_framegen_fsr.h), P5d XeSS (render_framegen_xess.h).
+    const struct {
+        FrameGenSlot slot;
+        const char* setup;
+    } rows[] = {{FrameGenSlot::Dlss, "streamline"}, {FrameGenSlot::Fsr, "fidelityfx"}, {FrameGenSlot::Xess, "xess"}};
+    for (const auto& r : rows) {
+        CAPTURE(render::frame_gen_slot_name(r.slot));
+        const render::FrameGenProvider* p = render::framegen_provider(r.slot);
+        REQUIRE(p != nullptr);
+        CHECK(p->slot() == r.slot);
+        CHECK(p->setup_id() == r.setup);
     }
-    CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Fsr)).find("FidelityFX") != std::string::npos);
+    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
+        CAPTURE(render::frame_gen_slot_name(s));
+        CHECK(std::string(render::framegen_absent_reason(s)).find("no provider") != std::string::npos);
+    }
+    CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Dlss)).find("DLSS") != std::string::npos);
+    CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Fsr)).find("FSR 3") != std::string::npos);
     CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Xess)).find("XeSS") != std::string::npos);
     CHECK(std::string(render::framegen_slot_setup_id(FrameGenSlot::Dlss)) == "streamline");
     CHECK(std::string(render::framegen_slot_setup_id(FrameGenSlot::Fsr)) == "fidelityfx");
@@ -257,18 +266,20 @@ TEST_CASE("frame generation providers: the DLSS and XeSS slots have their provid
 
 TEST_CASE(
     "frame generation providers: a registered provider fills a slot with one call, and a test fake wins over it") {
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == nullptr);
-    auto registered = std::make_shared<FakeProvider>(FrameGenSlot::Fsr);
+    XessSlotRestore restore;
+    render::clear_registered_framegen_provider_for_test(FrameGenSlot::Xess);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == nullptr);
+    auto registered = std::make_shared<FakeProvider>(FrameGenSlot::Xess);
     render::register_framegen_provider(registered);
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == registered.get());
-    FakeProvider fake(FrameGenSlot::Fsr);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == registered.get());
+    FakeProvider fake(FrameGenSlot::Xess);
     {
-        ProviderGuard guard(FrameGenSlot::Fsr, &fake);
-        CHECK(render::framegen_provider(FrameGenSlot::Fsr) == &fake);
+        ProviderGuard guard(FrameGenSlot::Xess, &fake);
+        CHECK(render::framegen_provider(FrameGenSlot::Xess) == &fake);
     }
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == registered.get());
-    render::clear_registered_framegen_provider_for_test(FrameGenSlot::Fsr);
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == nullptr);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == registered.get());
+    render::clear_registered_framegen_provider_for_test(FrameGenSlot::Xess);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == nullptr);
 }
 
 // ---- the controller: the choice and the refusals -------------------------------------------------------------------------------------
@@ -315,13 +326,15 @@ TEST_CASE("frame generation controller: every refusal says what is wrong and how
         CHECK(c.reason().find("Apple") != std::string::npos);
         CHECK(c.reason().find("\"off\"") != std::string::npos);
     }
-    SUBCASE("an empty slot names the package that fills it") {
+    SUBCASE("an empty slot says so") {
+        XessSlotRestore restore;
+        render::clear_registered_framegen_provider_for_test(FrameGenSlot::Xess);
         FrameGenController c;
         c.attach(&nv, env_of(nv, GpuVendor::Nvidia), swapchain_of(nv), true);
         c.set_settings(settings(FrameGenMode::Xess));
         CHECK(c.state() == FrameGenState::Refused);
         CHECK(c.reason().find("XeSS") != std::string::npos);
-        CHECK(c.provider_reason(FrameGenSlot::Fsr).find("FidelityFX") != std::string::npos);
+        CHECK(c.reason().find("no provider") != std::string::npos);
     }
     SUBCASE("the provider's probe says no: its sentence is the reason, once") {
         FakeProvider dlss(FrameGenSlot::Dlss);

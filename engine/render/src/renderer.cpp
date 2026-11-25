@@ -598,7 +598,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
             // process, so a renderer that did not ask for frame generation makes a device none of them sees).
             if (desc.frameGeneration && !desc.headless &&
                 (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan))
-                for (auto& hook : render::framegen_device_hooks()) init.hooks.push_back(std::move(hook));
+                for (auto& hook : render::framegen_device_hooks(desc.frameGenerationMode))
+                    init.hooks.push_back(std::move(hook));
             auto made = gpu::make_device(backend, init);
             if (!made) {
                 if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
