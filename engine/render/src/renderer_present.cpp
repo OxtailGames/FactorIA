@@ -77,12 +77,12 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     if (device.has_swapchain() && fbW > 0 && fbH > 0 && (fbW != im.swapW || fbH != im.swapH)) {
         if (auto resized = device.resize_swapchain(fbW, fbH); !resized) {
             if (!im.resizeFailed) FA_ERROR("render", "Renderer::present: {}", resized.error().to_string());
-            im.resizeFailed = true;  // said once
+            im.resizeFailed = true;  // said once; the size is not stored, so the next frame tries again
         } else {
             im.resizeFailed = false;
+            im.swapW = fbW;
+            im.swapH = fbH;
         }
-        im.swapW = fbW;
-        im.swapH = fbH;
     }
     // The image of the window to draw into: on the sokol devices the frame's surface as sokol_app gave it.
     auto acquired = device.acquire_swapchain(gpu::swapchain_of(swapchain));

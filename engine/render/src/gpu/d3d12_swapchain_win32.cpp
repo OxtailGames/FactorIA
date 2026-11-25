@@ -126,7 +126,8 @@ Result<void> D3d12Device::make_swap_buffers() {
         Com<ID3D12Resource> res;
         const HRESULT hr = swapchain_->GetBuffer(i, __uuidof(ID3D12Resource), res.put_void());
         if (FAILED(hr)) {
-            error = "IDXGISwapChain::GetBuffer(" + std::to_string(i) + ") failed with " + hr_text(hr) + removed_reason();
+            error =
+                "IDXGISwapChain::GetBuffer(" + std::to_string(i) + ") failed with " + hr_text(hr) + removed_reason();
             break;
         }
         const std::string name = swapLabel_ + " back buffer " + std::to_string(i);
@@ -192,8 +193,8 @@ Result<void> D3d12Device::make_swap_buffers() {
         vd.label = name.c_str();
         depthView = make_view(vd);
         if (state(depthView) != ResourceState::Valid)
-            error = std::string("its ") + pixel_format_name(depthFormat) +
-                    " depth image could not be made (see errors())";
+            error =
+                std::string("its ") + pixel_format_name(depthFormat) + " depth image could not be made (see errors())";
     }
     {
         // Kept even when something failed: release_swap_buffers() destroys what was made.
@@ -276,6 +277,11 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
         return make_error(where + ": " + pixel_format_name(format) + " cannot be multisampled on the D3D12 GPU " +
                               adapterName_,
                           "sampleCount 1, or an SDR format");
+    if (samples > 1 && (format == PixelFormat::Srgb8A8 || format == PixelFormat::Sbgr8A8))
+        return make_error(where + ": an sRGB swapchain with sampleCount " + std::to_string(samples) +
+                              " (its back buffers are UNORM; ResolveSubresource needs one format on both sides)",
+                          "sampleCount 1 with " + std::string(pixel_format_name(format)) +
+                              ", or Bgra8/Rgba8 with MSAA and an sRGB-encoding last pass");
     const SwapFormat sf = swap_format(format);
     int width = desc.width, height = desc.height;
     if (width == 0 || height == 0) client_size(hwnd, width, height);
@@ -296,7 +302,7 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     d.Format = sf.buffer;
     d.SampleDesc.Count = 1;  // flip model: the MSAA image is the swapchain's own, resolved into the back buffer
     d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    d.BufferCount = UINT(std::max(2, framesInFlight_));
+    d.BufferCount = UINT(std::max(2, framesInFlight_ + 1));  // one more than the latency: the GPU never waits for one
     d.Scaling = DXGI_SCALING_STRETCH;
     d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     d.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
@@ -314,8 +320,7 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     // The engine goes fullscreen by itself (a borderless window), never through DXGI's Alt+Enter.
     factory_->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
     Com<IDXGISwapChain3> chain = chain1.as<IDXGISwapChain3>();
-    if (!chain)
-        return make_error(where + ": the swapchain has no IDXGISwapChain3", "D3D12 needs Windows 10 or later");
+    if (!chain) return make_error(where + ": the swapchain has no IDXGISwapChain3", "D3D12 needs Windows 10 or later");
     if (sf.space != DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709) {
         UINT support = 0;
         hr = chain->CheckColorSpaceSupport(sf.space, &support);
@@ -363,8 +368,9 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
         return made;
     }
     drain_messages();
-    FA_INFO("render", "gpu d3d12: swapchain '{}' {}x{} {} ({}), {} buffers, {} sample(s), tearing {}", swapLabel_, width,
-            height, pixel_format_name(format), sf.name, swapCount_, samples, swapTearing_ ? "allowed" : "not supported");
+    FA_INFO("render", "gpu d3d12: swapchain '{}' {}x{} {} ({}), {} buffers, {} sample(s), tearing {}", swapLabel_,
+            width, height, pixel_format_name(format), sf.name, swapCount_, samples,
+            swapTearing_ ? "allowed" : "not supported");
     return {};
 }
 
@@ -399,7 +405,8 @@ Result<void> D3d12Device::resize_swapchain(int width, int height) {
 
     // Every list that uses the back buffers finishes and every reference to them goes before ResizeBuffers.
     release_swap_buffers();
-    const HRESULT hr = swapchain_->ResizeBuffers(swapCount_, UINT(width), UINT(height), DXGI_FORMAT_UNKNOWN, swapFlags_);
+    const HRESULT hr =
+        swapchain_->ResizeBuffers(swapCount_, UINT(width), UINT(height), DXGI_FORMAT_UNKNOWN, swapFlags_);
     if (FAILED(hr)) {
         // The old buffers are still the swapchain's: make their images again, so the window keeps presenting.
         (void)make_swap_buffers();
@@ -428,13 +435,16 @@ Result<Swapchain> D3d12Device::acquire_swapchain(const Swapchain&) {
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
         waited = swapAcquired_;  // a second acquire of the frame hands back the same buffer
+        // Without buffers (a failed resize) no present follows: waiting would use up the latency count for nothing.
+        if (swapBuffers_.size() != swapCount_) waited = true;
     }
     if (!waited && swapWaitable_ && WaitForSingleObjectEx(swapWaitable_, kLatencyWaitMs, FALSE) == WAIT_TIMEOUT)
         ++swapWaitTimeouts_;
     std::lock_guard<std::mutex> lock(swapMutex_);
     if (swapBuffers_.size() != swapCount_)
-        return make_error("gpu d3d12: acquire_swapchain '" + swapLabel_ + "': its buffers were not made (an earlier "
-                                                                          "resize_swapchain failed)",
+        return make_error("gpu d3d12: acquire_swapchain '" + swapLabel_ +
+                              "': its buffers were not made (an earlier "
+                              "resize_swapchain failed)",
                           "resize_swapchain() again, or destroy_swapchain() and create_swapchain()");
     if (!swapAcquired_) {
         swapIndex_ = swapchain_->GetCurrentBackBufferIndex();
