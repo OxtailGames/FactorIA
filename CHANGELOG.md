@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+- **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
+  an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
+  flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.
+  docs/UPSCALING.md, "Vendor upscalers".
 - **Vendor SDKs for upscaling, frame generation and low latency (M78):** `factoria setup streamline`, `setup xess` and `setup fidelityfx`
   download the redistributable x64 DLLs of NVIDIA Streamline (DLSS, DLSS Frame Generation, Reflex), Intel XeSS (with XeLL) and the
   AMD FidelityFX SDK (FSR) when you ask, pinned by SHA-256, into `~/.factoria/tools/<id>/<version>/` (older versions are removed;

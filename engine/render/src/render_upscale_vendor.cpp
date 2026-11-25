@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 
+#include "render_upscale_fsr.h"
 #include "render_upscale_xess.h"
 
 #if defined(_WIN32)
@@ -285,13 +286,7 @@ std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> make_providers
     t[0] = std::make_unique<LibraryProvider>(LibraryProvider::Info{
         "DLSS", "dlss", "streamline", kD3dVulkanAnd11, {"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"}, true});
     t[1] = make_xess_provider();
-    t[2] = std::make_unique<LibraryProvider>(
-        LibraryProvider::Info{"FSR 3.1",
-                              "fsr",
-                              "fidelityfx",
-                              kD3dAndVulkan,
-                              {"fidelityfx", "FA_FIDELITYFX_DIR", "amd_fidelityfx_dx12.dll"},
-                              false});
+    t[2] = make_fsr_provider();
     return t;
 }
 

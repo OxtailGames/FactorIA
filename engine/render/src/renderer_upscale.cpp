@@ -384,9 +384,20 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     if (!mfxPrep.ready(gpu.device())) return vendor_fail(index, "the input preparation shader did not compile.");
     std::uint64_t config = 0;
     const bool histValid = scaler_history_valid(in, config);
-    if (!run_upscale_prep(in, c, prepass, velocity, histValid))
+    render::VendorUpscaler& provider = render::vendor_provider(index);
+    in.cameraNear = 0.1f;  // any near plane serves: the provider is told the one the reversed depth is made with
+    if (!run_upscale_prep(in, c, prepass, velocity, histValid, provider.wants_reversed_depth() ? in.cameraNear : 0.0f))
         return vendor_fail(index, "the depth and motion images of the render size could not be made.");
     scaler_history_note(config);
+    // What an SDK asks besides the images: the sizes it was made for, the quality, the engine clock, the camera's lens.
+    in.quality = upscaler.quality;
+    in.dynamicResolution = renderScale != renderBaseScale;
+    in.maxRenderW = std::max(in.renderW, int(std::lround(double(in.outW) * double(renderBaseScale))));
+    in.maxRenderH = std::max(in.renderH, int(std::lround(double(in.outH) * double(renderBaseScale))));
+    in.frameTimeMs = frameDt * 1000.0f;
+    const float p11 = upscaleTaa.proj[1];
+    in.cameraFovY =
+        p11 > 1e-4f ? 2.0f * std::atan(1.0f / p11) : 1.0f;  // an orthographic lens has no field of view: a nominal one
     in.depth = mfxDepth.texView;
     in.velocity = mfxMotion.texView;
     in.reactive = reactive ? reactive->texView : gpu::View{};
@@ -403,7 +414,7 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     f.colorFormat = src.format.color;
     f.outputFormat = out.format.color;
     mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
-    if (!render::vendor_provider(index).upscale(in, f)) return vendor_fail(index, f.error);
+    if (!provider.upscale(in, f)) return vendor_fail(index, f.error);
     mfxLastWrote = true;
     ++stats.drawCalls;  // the provider's own pass
     return true;
