@@ -71,15 +71,16 @@ public:
     int kind() const;
     int set_kind(int kind);
 
-    bool flip_model() const;  // FLIP_DISCARD (Windows 10 and later); false: the old DISCARD model (no HDR, no vsync off)
-    bool tearing() const;     // DXGI_FEATURE_PRESENT_ALLOW_TEARING: vsync off tears instead of dropping frames
+    // FLIP_DISCARD (Windows 10 and later); false: the old DISCARD model (no HDR, no vsync off).
+    bool flip_model() const;
+    bool tearing() const;  // DXGI_FEATURE_PRESENT_ALLOW_TEARING: vsync off tears instead of dropping frames
     int width() const;
     int height() const;
     int sample_count() const;
     const std::string& description() const;  // "D3D11 hardware / <adapter> (feature level 0xb000)"
-    void* swap_chain() const;                 // IDXGISwapChain*
-    void* device() const;                     // ID3D11Device*
-    void* context() const;                    // ID3D11DeviceContext*
+    void* swap_chain() const;                // IDXGISwapChain*
+    void* device() const;                    // ID3D11Device*
+    void* context() const;                   // ID3D11DeviceContext*
 
     // Copies the swapchain's buffer (the frame drawn so far: the window pass resolves MSAA into it) into `rgba` as w x h
     // RGBA8, row 0 = top. Call before present(). False: another size, or not an 8-bit buffer (HDR).

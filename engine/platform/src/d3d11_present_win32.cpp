@@ -49,7 +49,7 @@ void release_last(T*& p, bool& clean) {
 }
 
 DXGI_FORMAT buffer_format(int kind) {
-    return kind == 1 ? DXGI_FORMAT_R16G16B16A16_FLOAT
+    return kind == 1   ? DXGI_FORMAT_R16G16B16A16_FLOAT
            : kind == 2 ? DXGI_FORMAT_R10G10B10A2_UNORM
                        : DXGI_FORMAT_B8G8R8A8_UNORM;
 }
@@ -178,12 +178,13 @@ struct Presenter::Impl {
         if (lost) return;
         lost = true;
         const HRESULT reason = device ? device->GetDeviceRemovedReason() : hr;
-        FA_ERROR("platform",
-                 "D3D11: the graphics device was lost ({} returned {}, reason {} {}). The window shows no new frames from "
-                 "here on. A driver update, a GPU reset (Windows resets a GPU that does not answer within 2 seconds) or "
-                 "a hung GPU removes the device: restart the game; if it happens again, update the graphics driver and "
-                 "look for a draw or compute pass that runs for seconds.",
-                 what, hex(hr), hex(reason), removed_reason_name(reason));
+        FA_ERROR(
+            "platform",
+            "D3D11: the graphics device was lost ({} returned {}, reason {} {}). The window shows no new frames from "
+            "here on. A driver update, a GPU reset (Windows resets a GPU that does not answer within 2 seconds) or "
+            "a hung GPU removes the device: restart the game; if it happens again, update the graphics driver and "
+            "look for a draw or compute pass that runs for seconds.",
+            what, hex(hr), hex(reason), removed_reason_name(reason));
     }
 
     static bool is_lost(HRESULT hr) { return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET; }
@@ -217,8 +218,8 @@ bool Presenter::create(const PresenterDesc& desc, std::string* error) {
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
     D3D_FEATURE_LEVEL got{};
     auto make = [&](UINT f) {
-        HRESULT hr = D3D11CreateDevice(nullptr, type, nullptr, f, levels, 2, D3D11_SDK_VERSION, &m.device, &got,
-                                       &m.context);
+        HRESULT hr =
+            D3D11CreateDevice(nullptr, type, nullptr, f, levels, 2, D3D11_SDK_VERSION, &m.device, &got, &m.context);
         // A runtime that does not know 11.1 (Windows 7 without its platform update) refuses the whole list.
         if (hr == E_INVALIDARG)
             hr = D3D11CreateDevice(nullptr, type, nullptr, f, levels + 1, 1, D3D11_SDK_VERSION, &m.device, &got,
@@ -262,9 +263,9 @@ bool Presenter::create(const PresenterDesc& desc, std::string* error) {
         IDXGIFactory5* factory5 = nullptr;
         if (SUCCEEDED(factory2->QueryInterface(__uuidof(IDXGIFactory5), reinterpret_cast<void**>(&factory5)))) {
             BOOL allow = FALSE;
-            m.tearing = SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow,
-                                                                sizeof(allow))) &&
-                        allow;
+            m.tearing =
+                SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof(allow))) &&
+                allow;
         }
         release(factory5);
     }
@@ -346,9 +347,9 @@ GfxEnvironment Presenter::environment() const {
     GfxEnvironment out{};
     sg_environment env{};
     const int k = impl_ ? impl_->kind : 0;
-    env.defaults.color_format = k == 1 ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_BGRA8;  // what sapp_color_format() said
-    env.defaults.depth_format =
-        !impl_ || impl_->desc.depthStencil ? SG_PIXELFORMAT_DEPTH_STENCIL : SG_PIXELFORMAT_NONE;
+    env.defaults.color_format =
+        k == 1 ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_BGRA8;  // what sapp_color_format() said
+    env.defaults.depth_format = !impl_ || impl_->desc.depthStencil ? SG_PIXELFORMAT_DEPTH_STENCIL : SG_PIXELFORMAT_NONE;
     env.defaults.sample_count = impl_ ? impl_->desc.sampleCount : 1;
     if (impl_) {
         env.d3d11.device = impl_->device;
@@ -399,14 +400,16 @@ bool Presenter::resize(int w, int h) {
         m.width = w;
         m.height = h;
     } else {
-        FA_WARN("platform", "D3D11: the window's buffers could not be resized to {}x{} (ResizeBuffers returned {}); "
-                            "the frame stays {}x{} and is stretched",
+        FA_WARN("platform",
+                "D3D11: the window's buffers could not be resized to {}x{} (ResizeBuffers returned {}); "
+                "the frame stays {}x{} and is stretched",
                 w, h, hex(hr), m.width, m.height);
     }
     if (const HRESULT viewHr = m.make_views(); FAILED(viewHr)) {
         if (!m.viewsFailLogged)  // tried again every frame (resize() with no views): said once
-            FA_ERROR("platform", "D3D11: the window's render target views could not be made again at {}x{} (HRESULT {}); "
-                                 "nothing is drawn to the window until they can be (tried every frame)",
+            FA_ERROR("platform",
+                     "D3D11: the window's render target views could not be made again at {}x{} (HRESULT {}); "
+                     "nothing is drawn to the window until they can be (tried every frame)",
                      m.width, m.height, hex(viewHr));
         m.viewsFailLogged = true;
         return false;
@@ -456,7 +459,7 @@ int Presenter::set_kind(int want) {
     if (!valid()) return kind();
     Impl& m = *impl_;
     if (want == m.kind) return want;
-    if (want != 0 && !m.flip) return m.kind;                  // HDR needs the flip model (Windows 10 and later)
+    if (want != 0 && !m.flip) return m.kind;                 // HDR needs the flip model (Windows 10 and later)
     if (want == 2 && m.desc.sampleCount > 1) return m.kind;  // no 10-bit MSAA texture (hdr_output.cpp)
     const int old = m.kind;
     HRESULT hr = m.resize_buffers(m.width, m.height, want);
