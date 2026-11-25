@@ -1,6 +1,8 @@
 // make_device(): the factory of the GPU interface (gpu/device.h), and the defaults of Device's non-pure virtuals.
 #include "gpu/device.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
 
@@ -95,6 +97,14 @@ Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& i
         D3d12Options options;
         options.init = init;
         options.pipelineCacheFile = d3d12_pipeline_cache_file();
+        // Test and diagnosis hooks (docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Tests"): FA_D3D12_WARP=1 draws on
+        // WARP instead of the GPU, FA_D3D12_DEBUG=1 turns the debug layer on.
+        auto on = [](const char* name) {
+            const char* v = std::getenv(name);
+            return v && std::strcmp(v, "1") == 0;
+        };
+        options.warp = on("FA_D3D12_WARP");
+        options.debugLayer = on("FA_D3D12_DEBUG");
         return make_d3d12_device(options);  // a teaching error off Windows
     }
     if (backend == Backend::Vulkan) {

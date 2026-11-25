@@ -14,8 +14,9 @@
 // in-memory PSO cache, render passes into views (clears, MSAA resolve), compute passes, bindings, uniforms, viewports,
 // scissors, draws and dispatches (M77-P7c1); GPU timers (timestamp queries) and asynchronous reads of buffers and
 // texture regions (M77-P7c2); the PSO cache on disk (an ID3D12PipelineLibrary in a file, M77-P7b). The renderer draws
-// through it offscreen (RendererDesc::backend D3d12, make_device); it has no window path yet (create_swapchain and a
-// pass into the window fail with a teaching error).
+// through it offscreen (RendererDesc::backend D3d12, make_device). The window (M77-P9c, d3d12_swapchain_win32.cpp): a
+// DXGI flip-model swapchain on a native HWND (create_swapchain), its back buffers adopted as images with views, so a
+// PassDesc::for_swapchain pass draws into the acquired one; scRGB and HDR10 colour spaces.
 #pragma once
 
 #include <cstddef>
@@ -770,7 +771,37 @@ public:
     bool poll_buffer_read(ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override;
     void release_buffer_read(ReadTicket ticket) override;
 
+    // The window (d3d12_swapchain_win32.cpp; render thread only): a DXGI flip-model swapchain (FLIP_DISCARD) on
+    // SwapchainDesc::nativeWindow, an HWND, made on the direct queue with as many buffers as frames in flight (at
+    // least 2). Each back buffer is an image of the pools with a colour view (a resolve view when the swapchain is
+    // multisampled: the pass then draws into an MSAA image of its own and resolves into it), next to a depth image in
+    // EnvironmentDefaults::depthFormat. acquire_swapchain waits (bounded) for the frame-latency object, then hands back
+    // the swapchain whose PassDesc::for_swapchain pass draws into the current back buffer; present moves it to the
+    // PRESENT state on the direct queue and presents it (tearing allowed when vsync is off and DXGI can).
+    // resize_swapchain waits for the GPU, drops the buffers' images and views, ResizeBuffers and makes them again.
+    // Rgba16F is scRGB (DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709), Rgb10A2 HDR10 (G2084_NONE_P2020); create_swapchain
+    // fails when the swapchain cannot present in that colour space (CheckColorSpaceSupport).
+    Result<void> create_swapchain(const SwapchainDesc& desc) override;
+    Result<void> resize_swapchain(int width, int height) override;
+    Result<Swapchain> acquire_swapchain(const Swapchain& windowFrame) override;
+    Result<void> present() override;
+    void destroy_swapchain() override;
+    bool has_swapchain() const override;
+    // Default and the SDR formats (Bgra8, Sbgr8A8, Rgba8, Srgb8A8), Rgba16F and Rgb10A2 when the GPU can display and
+    // render to their back-buffer format (D3D12_FORMAT_SUPPORT1_DISPLAY and RENDER_TARGET). Whether the window's
+    // display takes the HDR colour space is asked by create_swapchain (and the platform's fa/platform/hdr_output.h).
+    bool swapchain_format_supported(PixelFormat format, std::string* why) const override;
+
     // ---- D3D12 only (tests) -----------------------------------------------------------------------------------------
+    // The back buffer acquire_swapchain handed out this frame (invalid before the acquire and after present): a test
+    // reads it back (read_image_rgba8) before present.
+    Image swapchain_image() const;
+    // The swapchain's buffer count, and whether its presents may tear (DXGI_FEATURE_PRESENT_ALLOW_TEARING); 0 / false
+    // without a swapchain.
+    int swapchain_buffer_count() const;
+    bool swapchain_tearing() const;
+    // Frames whose acquire_swapchain gave up waiting for the frame-latency object (it then draws anyway).
+    std::uint64_t swapchain_wait_timeouts() const;
     // The asynchronous read of a texel region: mip `mip` of layer `layer` (array layer, cube face or 3D slice), the
     // rectangle (x, y, width, height). poll_buffer_read() hands it over tightly packed, top row first, in the image's
     // own format; release_buffer_read() drops it. An invalid ticket with ok = every slot is busy. Render thread only.
@@ -980,6 +1011,18 @@ private:
     // when D3D12 refused it.
     Com<ID3D12PipelineState> pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
                                  const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error);
+    // The swapchain (d3d12_swapchain_win32.cpp). Adds an image record whose resource exists already (a back buffer);
+    // takes resMutex_.
+    Image adopt_image(ImageRecord rec);
+    // Gets the swapchain's buffers and makes their images and views (and the MSAA and depth images); the error leaves
+    // none made.
+    Result<void> make_swap_buffers();
+    // Destroys the buffers' images and views, waits for the GPU and drops every reference to the back buffers (what
+    // ResizeBuffers and the swapchain's release need).
+    void release_swap_buffers();
+    // Fills `pass` (a PassDesc::for_swapchain pass) with the views of the acquired back buffer; the error otherwise.
+    // Takes swapMutex_.
+    std::string swapchain_pass(const PassDesc& pass, PassDesc& into) const;
     // The pipeline's state (under resMutex_); null when `pipeline` names nothing or failed.
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
     // Moves the debug layer's messages into errors_ / warnings_.
@@ -1193,6 +1236,33 @@ private:
     mutable std::mutex bindlessMutex_;
     std::uint32_t bindlessNext_ = 0;
     std::vector<std::uint32_t> bindlessFree_;
+
+    // The window's swapchain (render thread only; what a pass reads, below, also under swapMutex_, a leaf lock taken
+    // before no other).
+    struct SwapBuffer {
+        std::shared_ptr<TrackedResource> tracked;  // the back buffer (its resource is dropped before ResizeBuffers)
+        Image image{};
+        View view{};  // a ColorAttachment view, or a ResolveAttachment view when the swapchain is multisampled
+    };
+    Com<IDXGISwapChain3> swapchain_;
+    HANDLE swapWaitable_ = nullptr;  // the frame-latency waitable object
+    std::string swapLabel_;
+    PixelFormat swapFormat_ = PixelFormat::None;  // the colour format (the back buffers' image records)
+    DXGI_FORMAT swapBufferFormat_ = DXGI_FORMAT_UNKNOWN;
+    DXGI_COLOR_SPACE_TYPE swapColorSpace_ = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+    UINT swapCount_ = 0;
+    UINT swapFlags_ = 0;  // the DXGI_SWAP_CHAIN_FLAGs it was made with (ResizeBuffers takes the same)
+    bool swapTearing_ = false;
+    bool swapVsync_ = true;
+    std::uint64_t swapWaitTimeouts_ = 0;
+    mutable std::mutex swapMutex_;
+    std::vector<SwapBuffer> swapBuffers_;
+    Image swapMsaa_{}, swapDepth_{};
+    View swapMsaaView_{}, swapDepthView_{};
+    int swapWidth_ = 0, swapHeight_ = 0, swapSamples_ = 1;
+    PixelFormat swapDepthFormat_ = PixelFormat::None;
+    bool swapAcquired_ = false;  // acquire_swapchain ran and present() has not yet
+    UINT swapIndex_ = 0;         // the acquired back buffer
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;

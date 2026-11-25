@@ -247,14 +247,15 @@ std::string graphics_desc(const PipelineDesc& desc, const ShaderInfo& sh, const 
     };
     D3D12_GRAPHICS_PIPELINE_STATE_DESC& d = out.d;
 
-    // The vertex input (sokol's rules: offsets are packed in order when every one is 0, a stride of 0 is the packed
-    // size, the attributes end at the first Invalid format).
-    bool autoOffset = true;
-    for (const VertexAttr& a : desc.layout.attrs)
-        if (a.offset != 0) autoOffset = false;
+    // The vertex input, by sokol's per-buffer rule (resolve_vertex_offsets): in each buffer whose attributes all have
+    // offset 0 they are packed in order, a stride of 0 is the packed size, the attributes end at the first Invalid
+    // format. A layout that mixes a packed mesh buffer with an instance buffer of given offsets means the same here as
+    // on every other backend.
+    VertexLayout layout = desc.layout;
+    resolve_vertex_offsets(layout);
     std::uint32_t packed[kMaxVertexBuffers]{};
     for (int i = 0; i < kMaxVertexAttributes; ++i) {
-        const VertexAttr& a = desc.layout.attrs[i];
+        const VertexAttr& a = layout.attrs[i];
         if (a.format == VertexFormat::Invalid) break;
         const std::string what = "vertex attribute " + std::to_string(i);
         if (a.bufferIndex < 0 || a.bufferIndex >= kMaxVertexBuffers)
@@ -269,14 +270,14 @@ std::string graphics_desc(const PipelineDesc& desc, const ShaderInfo& sh, const 
                    std::to_string(i) + "].hlslSemName and hlslSemIndex, which sokol-shdc writes)";
         if (a.offset < 0) return what + " has the negative offset " + std::to_string(a.offset);
         const auto b = std::size_t(a.bufferIndex);
-        const VertexBufferLayout& bl = desc.layout.buffers[b];
+        const VertexBufferLayout& bl = layout.buffers[b];
         const bool instance = bl.stepFunc == VertexStep::PerInstance;
         D3D12_INPUT_ELEMENT_DESC e{};
         e.SemanticName = sh.semName[i].c_str();
         e.SemanticIndex = sh.semIndex[i];
         e.Format = vf.format;
         e.InputSlot = UINT(b);
-        e.AlignedByteOffset = autoOffset ? packed[b] : UINT(a.offset);
+        e.AlignedByteOffset = UINT(a.offset);
         e.InputSlotClass =
             instance ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
         e.InstanceDataStepRate = instance ? UINT(bl.stepRate > 0 ? bl.stepRate : 1) : 0u;
@@ -286,7 +287,7 @@ std::string graphics_desc(const PipelineDesc& desc, const ShaderInfo& sh, const 
     }
     for (std::size_t b = 0; b < std::size_t(kMaxVertexBuffers); ++b) {
         if (!(st.buffersUsed & (1u << b))) continue;
-        const int stride = desc.layout.buffers[b].stride;
+        const int stride = layout.buffers[b].stride;
         if (stride < 0 || stride > int(D3D12_REQ_MULTI_ELEMENT_STRUCTURE_SIZE_IN_BYTES))
             return "vertex buffer slot " + std::to_string(b) + " has stride " + std::to_string(stride) +
                    " (hint: 0 = the packed size of its attributes, at most " +

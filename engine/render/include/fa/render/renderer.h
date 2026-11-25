@@ -107,9 +107,10 @@ std::string mesh_full_template_hash();
 // The GPU backend a renderer draws through (RendererDesc::backend). Default = the sokol backend this binary was built
 // with (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, GLES3 on Android, WebGL2 on the web): the only one with
 // a window path for now. D3d12 (Windows) and Vulkan (Linux, Windows, Android; macOS through MoltenVK in a build with
-// the tests) are the engine's own backends: they draw offscreen only (RendererDesc::headless) until their swapchains
-// land, and init() fails with a teaching error where they are not built or there is no such GPU. Recording draws on no
-// GPU at all (it validates and records every call: tests).
+// the tests) are the engine's own backends: a renderer draws through them offscreen only (RendererDesc::headless).
+// D3D12's device has its own swapchain on a native window, but RendererDesc does not hand it one yet; Vulkan has no
+// swapchain yet. init() fails with a teaching error where they are not built or there is no such GPU. Recording draws on
+// no GPU at all (it validates and records every call: tests).
 enum class GpuBackend : std::uint8_t { Default, Gl, Gles3, WebGl2, D3d11, Metal, D3d12, Vulkan, Recording };
 
 // The name of a backend as a project's `render.backend` and the FA_GPU_BACKEND variable write it: "auto" (Default), "gl",
@@ -136,7 +137,8 @@ struct RendererDesc {
     bool adoptContext = false;
     // The GPU backend (GpuBackend). A sokol one (Default, or the one this binary was built with) runs on the sokol
     // context as above; any other sokol backend is an init() error. D3d12, Vulkan and Recording make a device of their
-    // own and never open, adopt or close the sokol context; without `headless` init() fails (no window path yet).
+    // own and never open, adopt or close the sokol context; without `headless` init() fails (the renderer gives their
+    // swapchain no native window yet).
     GpuBackend backend = GpuBackend::Default;
 };
 
