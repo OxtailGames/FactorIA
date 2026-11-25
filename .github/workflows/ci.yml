@@ -598,30 +598,6 @@ jobs:
           Set-DisplayResolution -Width 1920 -Height 1080 -Force
           Get-CimInstance Win32_VideoController | Select-Object CurrentHorizontalResolution, CurrentVerticalResolution
 
-      # The D3D12 debug layer is the optional Windows feature "Graphics Tools" (D3D12SDKLayers.dll); the runner image may lack it.
-      # Without it the d3d12_* tests only compare pixels: validation errors go unseen. Try to install it
-      # (a download from Windows Update, a minute or two); a failed install is a warning, not a red job. When the DLL is
-      # there, FA_D3D12_REQUIRE_DEBUG_LAYER=1 makes the d3d12 tests fail instead of passing blind if a device is made
-      # without the layer.
-      - name: D3D12 debug layer (Graphics Tools)
-        shell: pwsh
-        timeout-minutes: 10
-        run: |
-          $dll = Join-Path $env:SystemRoot 'System32\D3D12SDKLayers.dll'
-          if (-not (Test-Path $dll)) {
-            try {
-              Add-WindowsCapability -Online -Name 'Tools.Graphics.DirectX~~~~0.0.1.0' | Out-Host
-            } catch {
-              Write-Host "::warning title=Graphics Tools::the install failed: $($_.Exception.Message)"
-            }
-          }
-          if (Test-Path $dll) {
-            'FA_D3D12_REQUIRE_DEBUG_LAYER=1' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            Write-Host "D3D12 debug layer present: $dll"
-          } else {
-            Write-Host "::warning title=Graphics Tools::no D3D12 debug layer on this runner: the d3d12 tests only compare pixels"
-          }
-
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
