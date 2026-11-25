@@ -4,8 +4,12 @@
 // the GLES3 and GLCORE descs (sokol_gfx.h's declarations need no backend code): nothing here draws.
 #pragma once
 #define FA_SHADER_TEXT_CHECK
-#define SOKOL_GLES3
-#define SOKOL_GLCORE
+#ifndef SOKOL_GLES3
+#define SOKOL_GLES3 1
+#endif
+#ifndef SOKOL_GLCORE
+#define SOKOL_GLCORE 1
+#endif
 #include "sokol_gfx.h"
 
 #include "shaders/blit.glsl.h"
