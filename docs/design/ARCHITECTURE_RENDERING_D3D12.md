@@ -247,8 +247,9 @@ flags and makes the views again (a failure makes the old buffers again and retur
 test's read-back), `swapchain_buffer_count()` and `swapchain_tearing()` are D3D12 only.
 
 The renderer resizes the device's swapchain in `Renderer::present` when the framebuffer size changes (an error is
-logged once). `RendererDesc` does not hand the device a window yet, so a non-headless renderer on D3D12 still fails
-`init()`, now with the swapchain's own "nativeWindow is null" error (the window hand-off is a later package).
+logged once). The window comes in `RendererDesc::nativeWindow`: the runtime claims the HWND from the platform, which
+destroys its D3D11 presenter first (one flip-model swapchain per window; ARCHITECTURE_RENDERING_GPU.md, "Windows
+presentation"). A renderer without one still fails `init()` with the swapchain's own "nativeWindow is null" error.
 
 **Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
 WARP device with the debug layer and ends by checking that the layer reported no error. Resources: buffer and image

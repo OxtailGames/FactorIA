@@ -103,6 +103,8 @@ struct Presenter::Impl {
     bool lost = false;
     bool failLogged = false;
     bool viewsFailLogged = false;
+    int resizeWarnedW = 0,
+        resizeWarnedH = 0;  // the size whose ResizeBuffers failure was said (once per requested size)
     int kind = 0;
     int width = 1, height = 1;
     std::string description;
@@ -194,6 +196,7 @@ Presenter::Presenter() = default;
 Presenter::~Presenter() { destroy(); }
 
 bool Presenter::valid() const { return impl_ && impl_->rtv && !impl_->lost; }
+bool Presenter::lost() const { return !impl_ || !impl_->swap || impl_->lost; }
 
 bool Presenter::create(const PresenterDesc& desc, std::string* error) {
     destroy();
@@ -403,10 +406,15 @@ bool Presenter::resize(int w, int h) {
     if (SUCCEEDED(hr)) {
         m.width = w;
         m.height = h;
-    } else {
+        m.resizeWarnedW = 0;
+        m.resizeWarnedH = 0;
+    } else if (w != m.resizeWarnedW || h != m.resizeWarnedH) {
+        // Tried again every frame while the window keeps that size (the width stays the old one): said once per size.
+        m.resizeWarnedW = w;
+        m.resizeWarnedH = h;
         FA_WARN("platform",
                 "D3D11: the window's buffers could not be resized to {}x{} (ResizeBuffers returned {}); "
-                "the frame stays {}x{} and is stretched",
+                "the frame stays {}x{} and is stretched (tried again every frame, said once for this size)",
                 w, h, hex(hr), m.width, m.height);
     }
     if (const HRESULT viewHr = m.make_views(); FAILED(viewHr)) {
@@ -552,6 +560,7 @@ bool g_windowFailed = false;  // the error was logged once: no new attempt every
 }  // namespace
 
 Presenter* window_presenter() { return g_window && g_window->valid() ? g_window : nullptr; }
+Presenter* window_presenter_live() { return g_window && !g_window->lost() ? g_window : nullptr; }
 
 Presenter* window_presenter_ensure() {
     if (g_window) return g_window->valid() ? g_window : nullptr;

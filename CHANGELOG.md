@@ -22,6 +22,15 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   (`bindless_add` and `bindless_remove` are gone); `timer_poll` never waits (it asks for availability and retries on the next poll, then
   drops the frame with one warning); a framebuffer is not cached for a view destroyed meanwhile; a pipeline cache blob smaller than
   Vulkan's own header is not written, and a discarded file of another format version names both versions.
+- The game window draws on D3D12 and Vulkan (M77-P9e1): with `render.backend` (or `FA_GPU_BACKEND`) on `d3d12` or `vulkan` the engine
+  takes the window's native handle from the platform (`app_claim_native_window`) and the renderer makes its swapchain on it
+  (`RendererDesc::nativeWindow`, `RendererDesc::vsync`); the platform then makes no swapchain of its own, since a window holds one
+  (`WindowPresenter`, a state machine tested on every platform). On Windows that is the player itself; on macOS `vulkan` presents
+  through MoltenVK in a build that has it. Linux and Android windows are OpenGL ones and cannot take it yet. A backend that cannot
+  start falls back to `auto` in the same process, in a window and headless alike: one warning keeps its first error, and the startup
+  report names it in `gpu.backendFallback`. While D3D12 or Vulkan holds the window, HDR output says it is not available on that
+  backend and the vsync is the swapchain's present mode. Also on Windows: the D3D11 presenter's resize reads only a live presenter,
+  and a `ResizeBuffers` the driver refuses is warned once per size, not every frame.
 - The Vulkan backend presents to a window (M77-P9d): `create_swapchain` makes a surface on the native window (an HWND, an X11 window
   with its display, an `ANativeWindow`, a `CAMetalLayer` on macOS through MoltenVK) and a swapchain of frames in flight + 1 images (FIFO
   with vsync, else MAILBOX or IMMEDIATE; SDR, scRGB and HDR10 formats where the surface offers them; MSAA resolved into the acquired

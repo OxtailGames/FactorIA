@@ -116,6 +116,10 @@ struct Engine::Impl {
         jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
     GpuBackendChoice
         gpuChoice;  // the GPU backend this run asked for (EngineConfig, FA_GPU_BACKEND, factoria.json, auto)
+    // Why the run did not draw with the backend it asked for ("" = it did, or asked for none): the first error.
+    std::string gpuFallbackReason;
+    // The renderer's D3D12 or Vulkan device has the window's swapchain (app_claim_native_window): shutdown gives it back.
+    bool windowClaimed = false;
     jobs::Owner jobOwner{
         "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)

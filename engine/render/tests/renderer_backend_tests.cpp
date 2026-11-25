@@ -27,6 +27,18 @@
 #include <stdlib.h>  // _putenv_s
 
 #include "gpu/d3d12_device.h"
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 #endif
 
 using namespace fa;
@@ -448,7 +460,7 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     CHECK(has(wrong.error, "GpuBackend::Default"));
     CHECK(gpu::context_open());  // the fixture's context is untouched
 
-    // A device without a window path asked to draw into the window.
+    // A device without a window path asked to draw into the window (with or without a native window: it has none).
     BackendRenderer windowed(GpuBackend::Recording, false);
     REQUIRE(!windowed.ok);
     CHECK(has(windowed.error, "cannot draw into the window"));
@@ -457,8 +469,7 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     CHECK(!has(windowed.error, "M77"));
 
 #if defined(FA_RENDER_VULKAN)
-    // Vulkan has a window path, but it makes its swapchain on the window's native handle, which the renderer does not
-    // hand it yet (RendererDesc carries none): it says what it needs.
+    // Vulkan makes its swapchain on RendererDesc::nativeWindow: without one it says what it needs.
     BackendRenderer vkWindowed(GpuBackend::Vulkan, false);
     REQUIRE(!vkWindowed.ok);
     if (!has(vkWindowed.error, "Failed to create the GPU device")) {
@@ -476,7 +487,7 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     CHECK(!has(d3d12.error, "M77"));
 #else
     {
-        // D3D12 has a swapchain, but RendererDesc hands it no window yet: the swapchain's own error.
+        // D3D12 makes its swapchain on RendererDesc::nativeWindow: without one, the swapchain's own error.
         const ScopedEnv warp("FA_D3D12_WARP", "1");
         BackendRenderer d3d12(GpuBackend::D3d12, false);
         REQUIRE(!d3d12.ok);
@@ -490,4 +501,127 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     Scene2D s;
     const fa::Image img = draw_on_fixture(s.world);
     CHECK(img.width == kW);
+}
+
+// ---- the window: RendererDesc::nativeWindow (M77-P9e1) -----------------------------------------------------------
+
+namespace {
+
+// A native window for the device's own swapchain, made without a window library (vulkan_device_tests.cpp's TestWindow,
+// reduced): a CAMetalLayer on no screen (macOS: MoltenVK presents into it), a hidden popup HWND (Windows). Null
+// elsewhere (Linux: the X11 window case lives in vulkan_device_tests.cpp).
+struct RendererTestWindow {
+    const void* window = nullptr;
+#if defined(__APPLE__)
+    id layer = nullptr;
+    RendererTestWindow(int width, int height) {
+        (void)dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_LAZY | RTLD_GLOBAL);
+        Class cls = objc_getClass("CAMetalLayer");
+        if (!cls) return;
+        using Msg = id (*)(id, SEL);
+        const auto send = reinterpret_cast<Msg>(&objc_msgSend);
+        layer = send(send(reinterpret_cast<id>(cls), sel_registerName("alloc")), sel_registerName("init"));
+        if (!layer) return;
+        struct Rect {
+            double x, y, width, height;
+        };
+        struct Size {
+            double width, height;
+        };
+        reinterpret_cast<void (*)(id, SEL, Rect)>(&objc_msgSend)(layer, sel_registerName("setBounds:"),
+                                                                 Rect{0.0, 0.0, double(width), double(height)});
+        reinterpret_cast<void (*)(id, SEL, Size)>(&objc_msgSend)(layer, sel_registerName("setDrawableSize:"),
+                                                                 Size{double(width), double(height)});
+        window = layer;
+    }
+    ~RendererTestWindow() {
+        if (layer) reinterpret_cast<void (*)(id, SEL)>(&objc_msgSend)(layer, sel_registerName("release"));
+    }
+#elif defined(_WIN32)
+    HWND hwnd = nullptr;
+    RendererTestWindow(int width, int height) {
+        hwnd = CreateWindowExW(0, L"STATIC", L"fa renderer window test", WS_POPUP, 0, 0, width, height, nullptr,
+                               nullptr, GetModuleHandleW(nullptr), nullptr);
+        window = hwnd;
+    }
+    ~RendererTestWindow() {
+        if (hwnd) DestroyWindow(hwnd);
+    }
+#else
+    RendererTestWindow(int, int) {}
+#endif
+    RendererTestWindow(const RendererTestWindow&) = delete;
+    RendererTestWindow& operator=(const RendererTestWindow&) = delete;
+};
+
+// A renderer on `backend` that draws into `window` (RendererDesc::nativeWindow), two frames presented, and no present
+// error logged. "" = it ran; else why it could not start (the caller decides whether that is a skip).
+[[maybe_unused]] std::string draw_into_native_window(GpuBackend backend, const RendererTestWindow& window) {
+    Renderer r;
+    RendererDesc d;
+    d.designWidth = kW;
+    d.designHeight = kH;
+    d.backend = backend;
+    d.nativeWindow.window = window.window;
+    d.nativeWindow.width = kW;
+    d.nativeWindow.height = kH;
+    std::string error;
+    if (!r.init(d, gfx().gpu.environment(), &error)) return error.empty() ? std::string("init failed") : error;
+    gpu::Device* dev = RendererDeviceAccess::device(r);
+    CHECK(dev->has_swapchain());
+    const std::uint64_t seq = log_last_seq();
+    Scene2D s;
+    for (int frame = 0; frame < 2; ++frame) {
+        r.update(s.world);
+        r.begin_frame();
+        r.render_world(s.world, 0.0f);
+        r.end_frame();
+        r.present(GfxSwapchain{}, kW, kH, ScaleMode::Fit);  // the device acquires its own image: no platform views
+    }
+    for (const LogEntry& e : recent_logs(200, LogLevel::Error, seq))
+        CHECK_MESSAGE(!has(e.message, "Renderer::present"), e.message);
+    r.shutdown();
+    return "";
+}
+
+}  // namespace
+
+TEST_CASE("renderer: D3D12 and Vulkan draw into the native window RendererDesc hands them") {
+    if (!gfx().ok) {
+        MESSAGE("no GPU here (" << gfx().error << "): skipped");
+        return;
+    }
+    RendererTestWindow window(kW, kH);
+    if (!window.window) {
+        MESSAGE("no native window this test can make here: skipped (vulkan_device_tests.cpp has the X11 case)");
+        return;
+    }
+#if defined(FA_RENDER_VULKAN)
+    {
+        const std::string why = draw_into_native_window(GpuBackend::Vulkan, window);
+        if (!why.empty()) {
+            if (cannot_run_vulkan_here(why) && !vulkan_required())
+                MESSAGE("no Vulkan here (" << why << "): the Vulkan window was not checked");
+            else
+                FAIL("Vulkan into the native window: " << why);
+        }
+    }
+#endif
+#if defined(_WIN32)
+    {
+        // A window of its own: what a driver's Vulkan swapchain leaves on an HWND is not this case's question (the
+        // engine's fallback makes the platform's D3D11 one on a window a device gave back, and
+        // d3d11_present_tests_win32.cpp makes one twice on the same HWND).
+        RendererTestWindow d3dWindow(kW, kH);
+        REQUIRE(d3dWindow.window);
+        const ScopedEnv warp("FA_D3D12_WARP", "1");
+        const std::string why = draw_into_native_window(GpuBackend::D3d12, d3dWindow);
+        if (!why.empty()) {
+            if (has(why, "Failed to create the GPU device") && !d3d12_required())
+                MESSAGE("no D3D12 WARP device here (" << why << "): the D3D12 window was not checked");
+            else
+                FAIL("D3D12 into the native window: " << why);
+        }
+    }
+#endif
 }

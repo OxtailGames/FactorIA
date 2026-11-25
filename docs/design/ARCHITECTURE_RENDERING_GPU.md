@@ -410,9 +410,10 @@ made and presents (sokol_app's own, or on Windows the platform's D3D11 presenter
 acquire hands the frame back, present does nothing; RGBA16F on Metal and D3D11, RGB10A2 on D3D11). D3D12 makes its own
 flip-model DXGI swapchain on the HWND of `SwapchainDesc::nativeWindow` (ARCHITECTURE_RENDERING_D3D12.md, "Swapchain"),
 and Vulkan a surface and swapchain on the native window (ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain");
-`Renderer::present` calls `resize_swapchain` when the framebuffer size changes. `RendererDesc` does not pass a window
-to the device yet, so a non-headless renderer on D3D12 or Vulkan still fails `init()` with the swapchain's error about
-the missing native window. The defaults in device.cpp are the answer of a backend without a window path (Recording):
+`Renderer::present` calls `resize_swapchain` when the framebuffer size changes. `RendererDesc::nativeWindow`
+(`NativeWindowHandle`: the handles and the framebuffer size) and `RendererDesc::vsync` reach the device's
+`SwapchainDesc`; a non-headless renderer on D3D12 or Vulkan without them fails `init()` with the swapchain's error
+about the missing native window, and an `init()` that fails after the swapchain destroys it before the device. The defaults in device.cpp are the answer of a backend without a window path (Recording):
 every call fails with an error that says to draw offscreen (`RendererDesc::headless`) or pick the sokol backend, so a
 non-headless renderer on it fails `init()`. D3D12's and Vulkan's `make_pipeline` also resolve the vertex offsets
 themselves (`resolve_vertex_offsets`), so a pipeline made outside `Gpu::find_or_make` reads the same attributes.
@@ -433,7 +434,29 @@ window stops presenting. The HDR kinds (`fa_sapp_set_swapchain_kind`, hdr_output
 buffer formats, and the editor's frame readback is `app_read_window_back_buffer`. `AppDesc::highDpi` false (a test's
 window; games and the editor keep it on) now makes the process DPI-unaware, sokol_app's rule without D3D11: Windows
 scales the window, where DXGI stretched a smaller swapchain before; the framebuffer size is the same. engine/platform/tests/d3d11_present_tests_win32.cpp draws on a
-hidden window (the hardware device, else WARP), with and without MSAA.
+hidden window (the hardware device, else WARP), with and without MSAA, and makes and destroys a presenter twice on one
+HWND. `resize()` reads the live presenter (`window_presenter_live()`: not lost), and a `ResizeBuffers` the driver
+refuses is warned once per size.
+
+**Who presents into the window** (fa/platform/app.h, M77-P9e1): a window holds one swapchain, made either by the
+platform (`WindowPresenter::Platform`: sokol_app's own, or the D3D11 presenter above) or by a GPU device
+(`WindowPresenter::Device`). `window_presenter_step` (window_presenter.cpp, pure, tested on every platform in
+window_presenter_tests.cpp) is the state machine app.cpp acts on: `app_gfx_environment()` asks for the platform's
+(refused, logged once, while a device holds the window), `app_claim_native_window(backend)` hands the native handles
+to a device (refused when the window is busy: an OpenGL or GLES window, whose buffers sokol_app swaps; when a graphics
+context draws with the platform's swapchain; when another device holds it) and on Windows releases an idle D3D11
+presenter, and `app_release_native_window()` gives it back. While a device holds it `app_gfx_swapchain()` is invalid,
+`app_gfx_formats()` gives the window's formats without a device, `app_set_vsync` is false (the present mode is the
+swapchain's, set from `RendererDesc::vsync` at start), HDR output is blocked with a reason (`hdrOutput`: "not
+available on the <backend> backend yet") and `swapchain_format` is empty. The runner (runners.cpp) works out
+`choose_gpu_backend` before it opens anything: on D3D12 or Vulkan with a window that is not busy it makes neither the
+sokol context nor the platform swapchain, and `Engine::init` claims the window, starts the renderer on it and releases
+the claim after `Renderer::shutdown`. `start_gpu_backend` (fa/runtime/gpu_backend_choice.h) is the fallback rule, in
+process, windowed and headless alike: the backend asked for, then `Default` when that one is not the context's
+backend, keeping the first error for the warning and `startup_report`'s `gpu.backendFallback`; on the fallback the
+engine makes the platform's swapchain itself. `EngineConfig::gpuStartFault` makes a backend fail in tests
+(gpu_backend_tests.cpp), and renderer_backend_tests.cpp draws D3D12 and Vulkan into a real window (an HWND, a
+CAMetalLayer on MoltenVK).
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
