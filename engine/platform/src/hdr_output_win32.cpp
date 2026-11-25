@@ -7,10 +7,11 @@
 // output is asked again only when the window's monitor changes or the factory is replaced, so the per-frame cost is
 // MonitorFromWindow and IsCurrent.
 //
-// The swapchain: the window presenter's flip-model swapchain (d3d11_present_win32.cpp, Windows 10 on) gets new buffers from fa_sapp_set_swapchain_kind and
-// the colour space that goes with them from IDXGISwapChain3::SetColorSpace1: scRGB (R16G16B16A16_FLOAT, linear, 1.0 =
-// 80 nits, DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) or HDR10 (R10G10B10A2_UNORM, ST.2084 in Rec.2020,
-// DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020), and back to sRGB (G22_NONE_P709) for the standard range.
+// The swapchain: the window presenter's flip-model swapchain (d3d11_present_win32.cpp, Windows 10 on) gets new buffers
+// from fa_sapp_set_swapchain_kind and the colour space that goes with them from IDXGISwapChain3::SetColorSpace1: scRGB
+// (R16G16B16A16_FLOAT, linear, 1.0 = 80 nits, DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) or HDR10 (R10G10B10A2_UNORM,
+// ST.2084 in Rec.2020, DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020), and back to sRGB (G22_NONE_P709) for the standard
+// range.
 #include "hdr_output_impl.h"
 
 #if defined(SOKOL_D3D11)
@@ -194,9 +195,10 @@ void dxgi_keep_color_space(HdrEncoding applied) {
     IDXGISwapChain3* chain3 = nullptr;
     if (chain) chain->QueryInterface(kIidSwapChain3, reinterpret_cast<void**>(&chain3));
     if (!chain3) return;
-    // The presenter resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an HDR window would
-    // show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next frame tries again, at
-    // most kSpaceTries frames in a row (a driver that refuses for good is not asked every frame: the next resize asks again).
+    // The presenter resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an HDR
+    // window would show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next
+    // frame tries again, at most kSpaceTries frames in a row (a driver that refuses for good is not asked every frame: the
+    // next resize asks again).
     constexpr int kSpaceTries = 8;
     // A resize drag changes the size every frame: the count restarts for each new size, so failures that come and go
     // do not use up the tries.

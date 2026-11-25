@@ -1,9 +1,10 @@
 // The window's D3D11 device and DXGI swapchain (d3d11_present.h). It does what sokol_app's own D3D11 code did
-// (_sapp_d3d11_create_device_and_swapchain, _sapp_d3d11_create_default_render_target, _sapp_d3d11_resize_default_render_target,
-// _sapp_d3d11_present), now that sokol_app runs without a graphics API on Win32: the same device flags, frame latency and
-// window association, the flip model from Windows 10 on, plus tearing when vsync is off and the display allows it, and the
-// HDR buffer formats hdr_output_win32.cpp asks for. Written on macOS: the MinGW cross build compiles it, CI's Windows job runs
-// it (d3d11_present_tests_win32.cpp, the editor autotest, every windowed test of the suite).
+// (_sapp_d3d11_create_device_and_swapchain, _sapp_d3d11_create_default_render_target,
+// _sapp_d3d11_resize_default_render_target, _sapp_d3d11_present), now that sokol_app runs without a graphics API on
+// Win32: the same device flags, frame latency and window association, the flip model from Windows 10 on, plus tearing
+// when vsync is off and the display allows it, and the HDR buffer formats hdr_output_win32.cpp asks for. Written on
+// macOS: the MinGW cross build compiles it, CI's Windows job runs it (d3d11_present_tests_win32.cpp, the editor
+// autotest, every windowed test of the suite).
 #include "d3d11_present.h"
 
 #if defined(FA_D3D11_PRESENTER)
