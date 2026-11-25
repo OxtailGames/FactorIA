@@ -573,7 +573,9 @@ public:
         desc.physicalDevice = c.vkPhysicalDevice;
         desc.device = c.vkDevice;
         desc.swapchain = &handle;
-        std::memcpy(desc.createInfo, &ci, abi::kVkSwapchainCreateInfoSize);
+        // The SDK is 64-bit only, where the two sizes match (static_assert above); a 32-bit build (Web) copies what it has.
+        constexpr std::size_t kCopy = sizeof(ci) < sizeof(desc.createInfo) ? sizeof(ci) : sizeof(desc.createInfo);
+        std::memcpy(desc.createInfo, &ci, kCopy);
         desc.gameQueue = c.vkQueues[0];
         desc.asyncComputeQueue = c.vkQueues[1];
         desc.presentQueue = c.vkQueues[2];

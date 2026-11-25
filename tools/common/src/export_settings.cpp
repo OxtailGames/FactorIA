@@ -909,7 +909,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                             hint + did_you_mean(mode, std::vector<std::string>{"auto", "none"}));
             } else if (v->is_array()) {
                 s.pack.vendorSdks = "list";
-                const std::vector<std::string> known = vendor_sdk_ids();
+                const std::vector<std::string> knownSdks = vendor_sdk_ids();
                 for (std::size_t i = 0; i < v->size(); ++i) {
                     const std::string ptr = "/export/pack/vendorSdks/" + std::to_string(i);
                     if (!(*v)[i].is_string()) {
@@ -917,8 +917,8 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                         continue;
                     }
                     const std::string id = (*v)[i].get<std::string>();
-                    if (std::find(known.begin(), known.end(), id) == known.end())
-                        r.error(ptr, "unknown vendor SDK \"" + id + "\"", hint + did_you_mean(id, known));
+                    if (std::find(knownSdks.begin(), knownSdks.end(), id) == knownSdks.end())
+                        r.error(ptr, "unknown vendor SDK \"" + id + "\"", hint + did_you_mean(id, knownSdks));
                     else if (std::find(s.pack.vendorSdkIds.begin(), s.pack.vendorSdkIds.end(), id) ==
                              s.pack.vendorSdkIds.end())
                         s.pack.vendorSdkIds.push_back(id);
