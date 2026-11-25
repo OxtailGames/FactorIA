@@ -14,6 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "gpu/d3d12_device.h"
@@ -341,6 +342,116 @@ TEST_CASE("d3d12 native: misuses are refused, and an open section is closed at s
     dev->destroy_view(rtv);
     dev->destroy_image(img);
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+// ---- device hooks (M78-P2b, gpu/device_hooks.h) ----------------------------------------------------------------------
+
+namespace {
+
+// A hook that records what the device hands it and, when asked to, replaces the DXGI factory with a new one (as
+// Streamline's slUpgradeInterface hands a proxy back) or fails and hands a new factory anyway (which the engine must
+// release). It keeps a reference of its own to the factory it made, so the test can count what the engine holds.
+struct D3d12Hook : DeviceHook {
+    std::string id;
+    bool replaceFactory = false, fail = false;
+    int before = 0, created = 0, destroying = 0;
+    bool sawWarp = false;
+    const void* adapter = nullptr;
+    const void* device = nullptr;
+    const void* queue = nullptr;
+    const void* factorySeen = nullptr;
+    IDXGIFactory4* made = nullptr;
+
+    explicit D3d12Hook(std::string n) : id(std::move(n)) {}
+    std::string_view name() const override { return id; }
+    void d3d12_before_device(const D3d12BeforeDevice& b) override {
+        ++before;
+        sawWarp = b.warp;
+        CHECK(b.factory != nullptr);
+        CHECK(b.adapter != nullptr);
+    }
+    void d3d12_device_created(D3d12DeviceCreated& c) override {
+        ++created;
+        adapter = c.adapter;
+        device = c.device;
+        queue = c.queue;
+        factorySeen = c.factory;
+        if (!replaceFactory && !fail) return;
+        REQUIRE(SUCCEEDED(CreateDXGIFactory2(0, __uuidof(IDXGIFactory4), reinterpret_cast<void**>(&made))));
+        made->AddRef();  // the hook's own reference; the one CreateDXGIFactory2 gave goes to the engine
+        c.factory = made;
+        if (fail) c.error = "the test hook fails on purpose";
+    }
+    void device_destroying() override { ++destroying; }
+};
+
+}  // namespace
+
+TEST_CASE("d3d12 native: device hooks hear the adapter and the device, may replace the factory, and a failing one "
+          "changes nothing") {
+    auto first = std::make_shared<D3d12Hook>("replaces the factory (test)");
+    first->replaceFactory = true;
+    auto failing = std::make_shared<D3d12Hook>("fails (test)");
+    failing->fail = true;
+    auto last = std::make_shared<D3d12Hook>("sees the replacement (test)");
+    D3d12Options o;
+    o.warp = true;
+    o.debugLayer = true;
+    o.init.hooks = {first, failing, last};
+    auto d = D3d12Device::create(o);
+    if (!d) {
+        const char* req = std::getenv("FA_D3D12_REQUIRE");
+        if (req && std::strcmp(req, "1") == 0) FAIL("d3d12: FA_D3D12_REQUIRE=1 but there is no WARP device");
+        MESSAGE("d3d12: skipped, no WARP device: " << d.error().to_string());
+        return;
+    }
+    std::unique_ptr<D3d12Device> dev = std::move(d.value());
+    const NativeDevice nd = dev->native();
+
+    CHECK(first->before == 1);
+    CHECK(first->sawWarp);
+    CHECK(first->created == 1);
+    CHECK(first->device == nd.device);
+    CHECK(first->queue == nd.context);
+    CHECK(first->adapter == nd.adapter);
+    CHECK(first->available());
+
+    // The failing hook is unavailable with its reason; the factory it handed was released at once.
+    CHECK(!failing->available());
+    CHECK(contains(failing->unavailable_reason(), "the test hook fails on purpose"));
+    CHECK(contains(failing->unavailable_reason(), "on "));
+    REQUIRE(failing->made != nullptr);
+    CHECK(failing->made->Release() == 0);
+    bool warned = false;
+    for (const std::string& w : dev->warnings()) warned = warned || contains(w, "device hook 'fails (test)'");
+    CHECK(warned);
+
+    // The hook after them sees the first one's factory, not the engine's own nor the failing one's.
+    CHECK(last->created == 1);
+    REQUIRE(first->made != nullptr);
+    CHECK(last->factorySeen == first->made);
+    CHECK(last->device == nd.device);
+
+    // A frame still works; the device goes, the available hooks hear it, and the replacement factory is released.
+    const Image img = make_target(*dev, "hooked");
+    CommandList& list = dev->begin_commands("hooked");
+    PassDesc p;
+    const View rtv = make_rtv(*dev, img);
+    p.color = rtv;
+    p.format.color = PixelFormat::Rgba8;
+    p.colorLoad = LoadAction::Clear;
+    p.label = "hooked";
+    list.begin_pass(p);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    dev->destroy_view(rtv);
+    dev->destroy_image(img);
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+    dev.reset();
+    CHECK(first->destroying == 1);
+    CHECK(last->destroying == 1);
+    CHECK(failing->destroying == 0);
+    CHECK(first->made->Release() == 0);
 }
 
 #endif  // _WIN32

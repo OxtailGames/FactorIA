@@ -166,6 +166,8 @@ Result<std::unique_ptr<D3d12Device>> D3d12Device::create(const D3d12Options& opt
 }
 
 Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
+    hooks_ = options.init.hooks;
+    for (const auto& h : hooks_) h->mark_available();
     UINT factoryFlags = 0;
     if (options.debugLayer) {
         Com<ID3D12Debug> debug;
@@ -203,6 +205,7 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
             return hr_error("IDXGIFactory4::EnumWarpAdapter", hr,
                             "WARP (the software rasterizer) ships with Windows 10 and later; ask for a hardware "
                             "adapter (D3d12Options::warp = false) instead");
+        if (!hooks_.empty()) hooks_before_device(adapter_.get(), true);
         deviceHr =
             D3D12CreateDevice(adapter_.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), device_.put_void());
         if (FAILED(deviceHr) || !device_)
@@ -224,6 +227,7 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
             candidate->GetDesc1(&ad);
             if (ad.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;  // WARP only when asked for
             Com<ID3D12Device> dev;
+            if (!hooks_.empty()) hooks_before_device(candidate.get(), false);
             deviceHr =
                 D3D12CreateDevice(candidate.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), dev.put_void());
             if (SUCCEEDED(deviceHr) && dev) {
@@ -274,6 +278,65 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
     return {};
 }
 
+// ---- device hooks (gpu/device_hooks.h) ----
+
+void D3d12Device::hook_unavailable(DeviceHook& hook, std::string reason) {
+    if (!hook.available()) return;
+    hook.mark_unavailable(std::move(reason));
+    const std::string w = device_hook_warning(Backend::D3d12, hook);
+    FA_WARN("render", "{}", w);
+    std::lock_guard<std::mutex> lock(msgMutex_);
+    warnings_.push_back(w);
+}
+
+void D3d12Device::hooks_before_device(IDXGIAdapter1* adapter, bool warp) {
+    D3d12BeforeDevice b;
+    b.factory = factory_.get();
+    b.adapter = adapter;
+    b.warp = warp;
+    for (const auto& h : hooks_)
+        if (h->available()) h->d3d12_before_device(b);
+}
+
+namespace {
+
+// Takes over the reference a hook handed in `replaced` when it is not what `held` holds already.
+template <class T>
+void adopt(Com<T>& held, void* replaced) {
+    if (!replaced || replaced == held.get()) return;
+    Com<T> next;
+    *next.put() = static_cast<T*>(replaced);
+    held = std::move(next);
+}
+
+}  // namespace
+
+void D3d12Device::hooks_device_created() {
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        D3d12DeviceCreated c;
+        c.factory = factory_.get();
+        c.device = device_.get();
+        c.queue = queue_.get();
+        c.adapter = adapter_.get();
+        h->d3d12_device_created(c);
+        if (!c.error.empty()) {
+            // Changes nothing; a replacement it handed anyway is released.
+            Com<IDXGIFactory4> f;
+            Com<ID3D12Device> d;
+            Com<ID3D12CommandQueue> q;
+            adopt(f, c.factory != factory_.get() ? c.factory : nullptr);
+            adopt(d, c.device != device_.get() ? c.device : nullptr);
+            adopt(q, c.queue != queue_.get() ? c.queue : nullptr);
+            hook_unavailable(*h, "on " + adapterName_ + ": " + c.error);
+            continue;
+        }
+        adopt(factory_, c.factory);
+        adopt(device_, c.device);
+        adopt(queue_, c.queue);
+    }
+}
+
 Result<void> D3d12Device::init(const D3d12Options& options) {
     framesInFlight_ = options.framesInFlight;
     if (auto r = init_adapter(options); !r) return r;
@@ -311,6 +374,9 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     HRESULT hr = device_->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), queue_.put_void());
     if (FAILED(hr)) return hr_error("CreateCommandQueue (direct)", hr, "the device was lost; update the GPU driver");
     set_name(queue_.get(), "fa-d3d12-direct-queue");
+    // The vendor SDKs' hooks (gpu/device_hooks.h) may wrap the factory, the device and the queue: everything below is
+    // made with what they leave.
+    if (!hooks_.empty()) hooks_device_created();
     hr = device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), fence_.put_void());
     if (FAILED(hr)) return hr_error("CreateFence", hr, "the device was lost; update the GPU driver");
     fenceEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -523,8 +589,14 @@ D3d12Device::~D3d12Device() {
     // files close before anything goes.
     if (device_ && queue_ && fence_) shutdown_pack_reads();
     packReads_.reset();
-    // The window's swapchain goes before the queue it presents on (it waits for the GPU first).
+    // The window's swapchain goes before the queue it presents on (it waits for the GPU first; the hooks hear it).
     destroy_swapchain();
+    // Then the hooks (slShutdown and the SDKs' contexts): the GPU idle, every other object still there.
+    if (!hooks_.empty() && device_ && queue_ && fence_) {
+        if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
+        for (const auto& h : hooks_)
+            if (h->available()) h->device_destroying();
+    }
     // The PSOs made since the cache file was loaded go to it. save_pipeline_cache logs what happened itself: the file
     // it wrote (info), or a warning that says why it wrote none and that the old file stays.
     (void)save_pipeline_cache();

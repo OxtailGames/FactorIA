@@ -3975,6 +3975,110 @@ TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
+namespace {
+
+// A device hook around the swapchain (gpu/device_hooks.h): it wraps vkCreateSwapchainKHR and vkQueuePresentKHR, as
+// Streamline's interposer or a frame generation proxy does, and counts the presents the engine tells it about.
+PFN_vkCreateSwapchainKHR gRealCreateSwapchain = nullptr;
+PFN_vkQueuePresentKHR gRealQueuePresent = nullptr;
+int gSwapchainsMade = 0, gQueuePresents = 0;
+VKAPI_ATTR VkResult VKAPI_CALL counting_create_swapchain(VkDevice device, const VkSwapchainCreateInfoKHR* ci,
+                                                         const VkAllocationCallbacks* a, VkSwapchainKHR* out) {
+    ++gSwapchainsMade;
+    return gRealCreateSwapchain(device, ci, a, out);
+}
+VKAPI_ATTR VkResult VKAPI_CALL counting_queue_present(VkQueue queue, const VkPresentInfoKHR* pi) {
+    ++gQueuePresents;
+    return gRealQueuePresent(queue, pi);
+}
+
+struct SwapchainHook : DeviceHook {
+    int asked = 0, begins = 0, ends = 0, destroyed = 0;
+    std::uint64_t lastFrame = 0;
+    std::string_view name() const override { return "swapchain wrapper (test)"; }
+    bool vulkan_create_swapchain(VulkanSwapchainCreate& sc) override {
+        ++asked;
+        CHECK(sc.device != nullptr);
+        CHECK(sc.queue != nullptr);
+        REQUIRE(sc.createInfo != nullptr);
+        CHECK(static_cast<VkSwapchainCreateInfoKHR*>(sc.createInfo)->sType ==
+              VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR);
+        gRealCreateSwapchain = reinterpret_cast<PFN_vkCreateSwapchainKHR>(sc.functions.createSwapchain);
+        gRealQueuePresent = reinterpret_cast<PFN_vkQueuePresentKHR>(sc.functions.queuePresent);
+        sc.functions.createSwapchain = reinterpret_cast<HookProcAddr>(&counting_create_swapchain);
+        sc.functions.queuePresent = reinterpret_cast<HookProcAddr>(&counting_queue_present);
+        return false;  // the engine makes it, through the wrapper
+    }
+    void present_begin(const PresentEvent& e) override {
+        ++begins;
+        CHECK(e.backend == Backend::Vulkan);
+        CHECK(e.frame == lastFrame + 1);
+        CHECK(e.vkSwapchain != 0);
+        CHECK(e.queue != nullptr);
+    }
+    void present_end(const PresentEvent& e) override {
+        ++ends;
+        CHECK(e.frame == lastFrame + 1);
+        CHECK(e.result == VK_SUCCESS);
+        lastFrame = e.frame;
+    }
+    void swapchain_destroying(const SwapchainEvent& e) override {
+        ++destroyed;
+        CHECK(e.vkSwapchain != 0);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("vulkan: a device hook wraps the swapchain's creation and present, and hears every present") {
+    gSwapchainsMade = gQueuePresents = 0;
+    TestWindow win(64, 48);
+    auto hook = std::make_shared<SwapchainHook>();
+    VulkanOptions o;
+    o.init.hooks = {hook};
+    auto dev = make_vk(o);
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 64;
+    d.height = 48;
+    d.label = "hooked-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    CHECK(hook->asked == 1);
+    CHECK(gSwapchainsMade == 1);
+
+    // The back buffer as an SDK sees it (begin_native's NativeImage): its usage and format are the swapchain's.
+    auto acquired = acquire_retrying(*dev);
+    REQUIRE_MESSAGE(acquired, acquired.error().to_string());
+    const NativeImage back = dev->native_image(dev->swapchain_image());
+    CHECK(back.vkImage != 0);
+    CHECK((back.vkUsage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) != 0);
+    CHECK(back.nativeFormat != 0);
+    window_frame(*dev, Color{0.0f, 0.5f, 1.0f, 1.0f});
+    window_frame(*dev, Color{1.0f, 0.5f, 0.0f, 1.0f});
+    CHECK(gQueuePresents == 2);
+    CHECK(hook->begins == 2);
+    CHECK(hook->ends == 2);
+
+    // A resize makes the swapchain again through the same hook; the old one is announced before it goes.
+    win.resize(96, 64);
+    auto resized = dev->resize_swapchain(96, 64);
+    REQUIRE_MESSAGE(resized, resized.error().to_string());
+    CHECK(hook->asked == 2);
+    CHECK(gSwapchainsMade == 2);
+    CHECK(hook->destroyed == 1);
+    window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f});
+    CHECK(gQueuePresents == 3);
+    CHECK(hook->lastFrame == 3);
+    CHECK(hook->available());
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+    dev->destroy_swapchain();
+    CHECK(hook->destroyed == 2);
+}
+
 TEST_CASE("vulkan: a 4x MSAA swapchain resolves into the acquired image") {
     // The window outlives the device (destroyed after it): the swapchain's VkSurfaceKHR is the device's, and the device
     // goes first.
