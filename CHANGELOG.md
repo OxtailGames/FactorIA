@@ -37,6 +37,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   per device and initialised again only when the size, quality or input format changes; a call that fails turns the mode off for the
   run, with XeSS's own reason, and the temporal upscaler draws. The depth and motion XeSS reads come from the preparation pass MetalFX
   uses, now on every GPU backend. UPSCALING_VENDORS.md, "Intel XeSS".
+- **Low latency (M78):** `render.latency` (project key `render.latency {mode, boost}` and command) sleeps before the input is read so a
+  press reaches the screen sooner: AMD Anti-Lag 2 (Direct3D 12 and Vulkan, Windows), Intel XeLL (Direct3D 12, `factoria setup xess`),
+  NVIDIA Reflex when its Streamline provider lands, or the engine's own pacing where no SDK runs. `auto` picks the maker's SDK. An
+  SDK that cannot start reports why and the pacing runs instead, never a device failure. The profiler (`perf.profile`, editor
+  Profiler) shows the input-to-present time, and `render.supports` has the rows `reflex`, `antilag2` and `xell`. LATENCY.md.
 
 ### Rendering
 

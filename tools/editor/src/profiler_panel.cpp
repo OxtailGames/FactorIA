@@ -126,6 +126,8 @@ void Editor::profile_tick(std::uint64_t frameBefore) {
     profView_.gpuSupported = supported;
     profView_.gpuReason = why;
     run_.profile.set_gpu_status(supported, why);
+    engine_->profile_latency(&profView_.latencyDriver, &profView_.latencyReason);
+    run_.profile.set_latency_status(profView_.latencyDriver, profView_.latencyReason);
     for (double ms : gpu) {
         profView_.add_gpu_ms(ms);
         if (run_.active) run_.profile.add_gpu_ms(ms);
@@ -185,6 +187,14 @@ void Editor::draw_profiler_panel() {
         ImGui::Text("GPU %.2f ms", v.gpuMs);
     else
         ImGui::TextDisabled("GPU: n/a (%s)", v.gpuReason.c_str());
+    if (v.haveLatency) {
+        ImGui::Text("Input to present %.2f ms (%s)", v.latencyMs, v.latencyDriver.c_str());
+        ImGui::SetItemTooltip("From the input sample to the end of the present call, as the CPU sees it (the display "
+                              "still shows the frame later). "
+                              "Set render.latency in factoria.json (docs/LATENCY.md).");
+    } else {
+        ImGui::TextDisabled("Input to present: n/a (%s)", v.latencyReason.c_str());
+    }
     if (v.haveMemory) {
         auto mb = [](std::uint64_t b) { return double(b) / (1024.0 * 1024.0); };
         ImGui::Text("Memory %.0f MB (peak %.0f)   JS heap %.1f MB", mb(v.memory.processBytes),

@@ -91,8 +91,9 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
-        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
-        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
+        latency != render::LatencySettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
+        graphicsPreset != render::GraphicsPreset::Custom || renderBackend != "auto" || !renderAsyncCompute ||
+        !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -106,6 +107,10 @@ Json ProjectSettings::to_json() const {
             render["upscaler"] = render::upscaler_to_json(upscaler);
         else
             render.erase("upscaler");
+        if (latency != render::LatencySettings{})
+            render["latency"] = render::latency_to_json(latency);
+        else
+            render.erase("latency");
         if (dynamicResolution != render::DynamicResolutionSettings{})
             render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
         else
@@ -131,6 +136,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
         j["render"].erase("upscaler");
+        j["render"].erase("latency");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
@@ -686,6 +692,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!upscalerSet.ok()) return upscalerSet.error();
             s.upscaler = upscalerSet.value();
         }
+        if (auto lat = it->find("latency"); lat != it->end() && !lat->is_null()) {
+            Result<render::LatencySettings> latencySet =
+                render::parse_latency_settings(*lat, at("/render/latency"), render::LatencySettings{});
+            if (!latencySet.ok()) return latencySet.error();
+            s.latency = latencySet.value();
+        }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
             Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
                 *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
@@ -1115,6 +1127,25 @@ constexpr const char* kSchemaText =
               "maximum": 1,
               "default": 0.5,
               "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            }
+          }
+        },
+)JSON"
+    R"JSON(        "latency": {
+          "type": "object",
+          "description": "Low latency (M78, docs/LATENCY.md): the loop waits before it reads the player's input so the frame that shows a press is as new as possible. A game-wide setting that the command render.latency changes at run time. Off by default (the loop of every earlier version). The profiler reports the measured input-to-present time (profile.latency) while it is on.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "auto", "reflex", "antilag2", "xell"],
+              "default": "off",
+              "description": "off = no pacing; auto = the SDK of the GPU's maker when it is usable (AMD: Anti-Lag 2, Intel: XeLL, NVIDIA: Reflex), else the engine's own pacing; reflex = NVIDIA Reflex (Windows, Streamline; arrives with the Streamline provider); antilag2 = AMD Anti-Lag 2 (Windows, D3D12 or Vulkan on a Radeon GPU, in the driver); xell = Intel XeSS Low Latency (Windows, D3D12, `factoria setup xess`). A mode whose SDK cannot run uses the engine's own pacing, which needs a window and the display's vsync (render.latency says why). Default off."
+            },
+            "boost": {
+              "type": "boolean",
+              "default": false,
+              "description": "The vendor's boost: the GPU clocks stay up while the game waits, for less latency at more power (Reflex boost, XeLL). Anti-Lag 2 and the engine's own pacing have no such switch and ignore it. Default false."
             }
           }
         },
