@@ -8,14 +8,18 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
+#include <future>
 #include <limits>
 #include <map>
 #include <memory>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "gpu/recording_device.h"
@@ -36,8 +40,14 @@ struct Fk {
     abi::ReturnCode createSwapRc = 0, createFgRc = 0, configureRc = 0, queryVersionsRc = 0, querySwapFnsRc = 0,
                     dispatchRc = 0, destroyRc = 0;
     std::uint64_t versionCount = 1;
-    bool noSwapFn = false;  // the swapchain functions query leaves the present function null
-    bool noProxy = false;   // the DX12 create says ok and gives no swapchain
+    int querySwapFnsFails = 0,
+        querySwapFnsCalls = 0;    // the swapchain functions query fails this many times, then answers
+    bool noSwapFn = false;        // the swapchain functions query leaves the present function null
+    bool noProxy = false;         // the DX12 create says ok and gives no swapchain
+    bool proxyOnFailure = false;  // the DX12 create fails (createSwapRc) and has written a proxy all the same
+    bool noContext = false;       // the DX12 create says ok, gives a proxy and no context
+    std::function<void()>
+        onWait;  // runs inside the swapchain's wait dispatch: the render thread, with the provider's mutex held
     std::vector<std::string>
         events;  // "create swapchain", "create fg", "configure on|off|hudless", "prepare", "wait", "destroy fg", "destroy swapchain", "vk destroy", "idle"
     // what the creates saw
@@ -83,8 +93,11 @@ abi::ReturnCode fake_create(abi::Context* context, abi::Header* desc, const void
         fk.dx12Swap = *reinterpret_cast<const abi::SwapchainForHwndDx12Desc*>(desc);
         if (desc->next && desc->next->type == abi::kCreateSwapchainVersionDx12)
             fk.swapVersion = reinterpret_cast<const abi::CreateVersionDesc*>(desc->next)->version;
-        if (fk.createSwapRc != 0) return fk.createSwapRc;
-        *context = swap_ctx();
+        if (fk.createSwapRc != 0) {
+            if (fk.proxyOnFailure) *fk.dx12Swap.swapchain = &fk.dxToken;
+            return fk.createSwapRc;
+        }
+        if (!fk.noContext) *context = swap_ctx();
         if (!fk.noProxy) *fk.dx12Swap.swapchain = &fk.dxToken;
         return 0;
     }
@@ -154,6 +167,11 @@ abi::ReturnCode fake_query(abi::Context* context, abi::Header* desc) {
         return 0;
     }
     if (desc->type == abi::kQuerySwapchainFunctionsVk) {
+        ++fk.querySwapFnsCalls;
+        if (fk.querySwapFnsFails > 0) {
+            --fk.querySwapFnsFails;
+            return abi::kError;
+        }
         if (fk.querySwapFnsRc != 0) return fk.querySwapFnsRc;
         auto* f = reinterpret_cast<abi::SwapchainFunctionsVk*>(desc);
         f->destroySwapchain = reinterpret_cast<void*>(&fake_vk_destroy);
@@ -173,6 +191,7 @@ abi::ReturnCode fake_dispatch(abi::Context* context, const abi::Header* desc) {
     } else if (desc->type == abi::kDispatchSwapchainWaitDx12 || desc->type == abi::kDispatchSwapchainWaitVk) {
         CHECK(*context == swap_ctx());
         fk.events.push_back("wait");
+        if (fk.onWait) fk.onWait();
     } else {
         return abi::kUnknownDescType;
     }
@@ -596,15 +615,16 @@ TEST_CASE("fsr frame generation: the create flags follow the depth, the jitter a
 
 TEST_CASE("fsr frame generation: the ABI structures are the SDK's sizes on every platform") {
     // The same asserts as the provider's (a 64-bit target); a build for 32 bits has none of them and the provider says so in its probe.
-    if constexpr (sizeof(void*) == 8) {
-        static_assert(sizeof(abi::Resource) == 48);
-        static_assert(sizeof(abi::ConfigureFrameGenerationDesc) == 144);
-        static_assert(sizeof(abi::PrepareV2Desc) == 232);
-        static_assert(sizeof(abi::SwapchainVkDesc) == 248);
-        static_assert(sizeof(abi::SwapchainForHwndDx12Desc) == 64);
-        static_assert(sizeof(abi::SwapchainFunctionsVk) == 72);
-        static_assert(sizeof(abi::QueueInfo) == 24);
-    }
+    // (A preprocessor test, not `if constexpr`: a static_assert in a branch that is not taken is still compiled in a function that is no template.)
+#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
+    static_assert(sizeof(abi::Resource) == 48);
+    static_assert(sizeof(abi::ConfigureFrameGenerationDesc) == 144);
+    static_assert(sizeof(abi::PrepareV2Desc) == 232);
+    static_assert(sizeof(abi::SwapchainVkDesc) == 248);
+    static_assert(sizeof(abi::SwapchainForHwndDx12Desc) == 64);
+    static_assert(sizeof(abi::SwapchainFunctionsVk) == 72);
+    static_assert(sizeof(abi::QueueInfo) == 24);
+#endif
     CHECK(abi::kFrameGenerationVersion == ((4u << 22) | 2u));
     CHECK(abi::kSwapchainVersion == (4u << 22));
 }
@@ -1062,10 +1082,11 @@ TEST_CASE("fsr frame generation hook, Vulkan: a swapchain that is not FidelityFX
     fk.noSwapFn = true;
     CHECK_FALSE(r.vk_swapchain());
     CHECK(has(r.vkSc.error, "vkQueuePresentKHR"));
-    // The swapchain FidelityFX made is ended before its context, so the window's surface is free for the engine's own swapchain.
+    // The swapchain FidelityFX made is ended (after its context, the SDK's order), so the window's surface is free for the engine's own.
     REQUIRE(fk.vkDestroyed.size() == 1);
     CHECK(fk.vkDestroyed[0] == reinterpret_cast<void*>(std::uintptr_t(fk.vkHandle)));
     CHECK(fk.destroysOfSwap == 2);
+    CHECK(r.index("destroy swapchain") < r.index("vk destroy"));
     fk.noSwapFn = false;
     CHECK(r.vk_swapchain());
 }
@@ -1363,14 +1384,39 @@ TEST_CASE("fsr frame generation: the swapchain going away takes the contexts dow
     e.backend = gpu::Backend::D3d12;
     e.swapchain = &fk.dxToken;
     r.hook->swapchain_destroying(e);
+    // Direct3D 12: the generation context goes and the presents finish while the proxy is still there; the swapchain's context waits for the
+    // engine's release of the proxy (the FidelityFX sample's order: the application's reference first, then ffxDestroyContext).
     REQUIRE(r.count("destroy fg") == 1);
-    REQUIRE(r.count("destroy swapchain") == 1);
-    CHECK(r.index("destroy fg") < r.index("destroy swapchain"));
-    // The engine's release of the proxy is the last: no frame is drawn with a swapchain that is gone.
+    CHECK(r.index("wait") < r.index("destroy fg"));
+    CHECK(r.count("destroy swapchain") == 0);
+    // No frame is drawn with a swapchain that is gone.
     CHECK_FALSE(r.draw());
     r.hook->device_destroying();
     CHECK(r.count("destroy fg") == 1);
+    REQUIRE(r.count("destroy swapchain") == 1);
+    CHECK(r.index("destroy fg") < r.index("destroy swapchain"));
+    r.hook->device_destroying();  // and once only
     CHECK(r.count("destroy swapchain") == 1);
+}
+
+TEST_CASE("fsr frame generation hook, D3D12: a swapchain made after the last one went takes the last one's context "
+          "down first") {
+    Rig r(gpu::Backend::D3d12);
+    make_ready_dx12(r);
+    REQUIRE(r.draw());
+    gpu::SwapchainEvent e;
+    e.backend = gpu::Backend::D3d12;
+    e.swapchain = &fk.dxToken;
+    r.hook->swapchain_destroying(e);  // the engine releases the proxy after this (a window made again)
+    CHECK(r.count("destroy swapchain") == 0);
+    CHECK(has(r.fsr->start(r.dev, r.swapchain()), "swapchain"));  // nothing to present on until the new one is made
+    fk.events.clear();
+    REQUIRE(r.dx_swapchain());
+    REQUIRE(r.count("destroy swapchain") == 1);
+    REQUIRE(r.count("create swapchain") == 1);
+    CHECK(r.index("destroy swapchain") < r.index("create swapchain"));
+    CHECK(r.fsr->start(r.dev, r.swapchain()).empty());
+    REQUIRE(r.draw());  // the new swapchain generates again
 }
 
 TEST_CASE("fsr frame generation: destroying the provider with a live context gives it back") {
@@ -1534,4 +1580,232 @@ TEST_CASE("fsr frame generation: Vulkan frames hand FidelityFX the VkImage handl
     CHECK(fk.prepare.depth.resource == reinterpret_cast<void*>(std::uintptr_t(r.depth.id) * 16));
     CHECK(fk.configure.swapChain == reinterpret_cast<void*>(std::uintptr_t(fk.vkHandle)));
     CHECK(fk.configure.hudlessColor.resource == reinterpret_cast<void*>(std::uintptr_t(r.hudless.id) * 16));
+}
+
+// ---- M78-POLISH: what the review of the provider found ------------------------------------------------------------------------------------
+
+namespace {
+std::vector<void*> g_released;
+void record_release(void* object) { g_released.push_back(object); }
+struct ReleaseGuard {
+    ReleaseGuard() {
+        g_released.clear();
+        render::set_fsr_com_release_for_test(&record_release);
+    }
+    ~ReleaseGuard() { render::set_fsr_com_release_for_test(nullptr); }
+    ReleaseGuard(const ReleaseGuard&) = delete;
+    ReleaseGuard& operator=(const ReleaseGuard&) = delete;
+};
+}  // namespace
+
+TEST_CASE("fsr frame generation hook, D3D12: a proxy of an ok create that gave no context is released, one that worked "
+          "is the engine's") {
+    Rig r(gpu::Backend::D3d12);
+    ReleaseGuard guard;
+    REQUIRE(r.fsr->probe(r.env()).available);
+    REQUIRE(r.arm(FrameGenMode::Fsr));
+    r.dx_device();
+    // Ok, a swapchain and no context: the reference came through the out parameter and nothing can use it, so the hook gives it back.
+    fk.noContext = true;
+    CHECK_FALSE(r.dx_swapchain());
+    REQUIRE(g_released.size() == 1);
+    CHECK(g_released[0] == &fk.dxToken);
+    CHECK(r.dxSc.swapchain == nullptr);
+    CHECK(has(r.dxSc.error, "gave no swapchain"));
+    fk.noContext = false;
+    g_released.clear();
+    // An error result hands over no reference (an out parameter of a failed call, by COM's convention): nothing is released, even if the
+    // fake wrote a pointer there.
+    fk.createSwapRc = abi::kNoProvider;
+    fk.proxyOnFailure = true;
+    CHECK_FALSE(r.dx_swapchain());
+    CHECK(g_released.empty());
+    CHECK(r.dxSc.swapchain == nullptr);
+    fk.proxyOnFailure = false;
+    CHECK_FALSE(r.dx_swapchain());
+    CHECK(g_released.empty());
+    // Ok with a context and a proxy: the proxy goes to the engine, which owns that reference.
+    fk.createSwapRc = 0;
+    REQUIRE(r.dx_swapchain());
+    CHECK(g_released.empty());
+    CHECK(r.dxSc.swapchain == &fk.dxToken);
+    // Ok with no proxy: the context goes (as before), and there is nothing to release.
+    fk.noProxy = true;
+    CHECK_FALSE(r.dx_swapchain());
+    CHECK(g_released.empty());
+}
+
+TEST_CASE("fsr frame generation: configure between two frames repeats the last frame's number, never a 0 that goes "
+          "backwards") {
+    Rig r(gpu::Backend::D3d12);
+    make_ready_dx12(r);
+    r.fsr->configure(true);
+    r.frame.frameId = 41;
+    REQUIRE(r.draw());
+    CHECK(fk.configure.frameId == 41);
+    fk.events.clear();
+    r.fsr->configure(false);
+    REQUIRE(r.count("configure off") == 1);
+    CHECK(fk.configure.frameId == 41);
+    r.fsr->configure(true);
+    CHECK(r.count("configure on") == 1);
+    CHECK(fk.configure.frameId == 41);
+    r.frame.frameId = 42;
+    REQUIRE(r.draw());
+    r.fsr->configure(false);
+    CHECK(fk.configure.frameId == 42);
+    // A frame that failed does not move the number: the SDK was not given it.
+    r.frame.frameId = 43;
+    fk.dispatchRc = abi::kError;
+    CHECK_FALSE(r.draw());
+    fk.dispatchRc = 0;
+    r.fsr->configure(true);
+    CHECK(fk.configure.frameId == 42);
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: mode auto on an AMD GPU asks for no queue when FidelityFX is not "
+          "installed, mode fsr "
+          "still does") {
+    {
+        Rig r(gpu::Backend::Vulkan);
+        r.loader.installed = false;
+        REQUIRE(r.arm(FrameGenMode::Auto));
+        const gpu::VulkanDeviceRequest req = r.vk_device(0x1002);
+        CHECK(req.queues.empty());
+        CHECK_FALSE(r.vk_swapchain());
+        CHECK(fk.creates == 0);
+        const std::string why = r.fsr->start(r.dev, r.swapchain());
+        CHECK(has(why, "factoria setup fidelityfx"));  // the one place that says it, once per start
+        // The library is asked for once by the hook: not again for the swapchain, which has no vendor to serve.
+        CHECK(r.loader.askedFiles.size() == 1);
+    }
+    {  // the reason of a device is not the next device's: with the library there now, the old sentence is gone
+        Rig r(gpu::Backend::Vulkan);
+        r.loader.installed = false;
+        REQUIRE(r.arm(FrameGenMode::Auto));
+        CHECK(r.vk_device(0x1002).queues.empty());
+        CHECK(has(r.fsr->start(r.dev, r.swapchain()), "factoria setup fidelityfx"));
+        r.loader.installed = true;
+        CHECK(r.vk_device(0x1002).queues.size() == 3);
+        CHECK_FALSE(has(r.fsr->start(r.dev, r.swapchain()), "factoria setup fidelityfx"));
+    }
+    {
+        Rig r(gpu::Backend::Vulkan);
+        r.loader.installed = false;
+        REQUIRE(r.arm(FrameGenMode::Fsr));  // the game named it: the error is its to see, at the swapchain
+        CHECK(r.vk_device(0x1002).queues.size() == 3);
+        CHECK_FALSE(r.vk_swapchain());
+        CHECK(has(r.vkSc.error, "factoria setup fidelityfx"));
+    }
+    {
+        Rig r(gpu::Backend::Vulkan);  // installed: auto on AMD is what it was
+        REQUIRE(r.arm(FrameGenMode::Auto));
+        CHECK(r.vk_device(0x1002).queues.size() == 3);
+        CHECK(r.vk_swapchain());
+    }
+}
+
+// Threads. FidelityFX's present thread calls the dispatch callback while the render thread holds the provider's mutex and waits for the
+// presents in flight (stop, a swapchain going away, a context made again): the callback must finish without that mutex, or the two wait for
+// each other for ever. The fake's wait function is the render thread's wait; the callback runs on a thread of its own inside it.
+TEST_CASE(
+    "fsr frame generation: the present thread's callback finishes while the render thread waits for the presents") {
+    Rig r(gpu::Backend::D3d12);
+    make_ready_dx12(r);
+    r.fsr->configure(true);
+    REQUIRE(r.draw());
+    using Callback = abi::ReturnCode (*)(void*, void*);
+    const auto cb = reinterpret_cast<Callback>(fk.configure.frameGenerationCallback);
+    void* const user = fk.configure.frameGenerationCallbackUserContext;
+    REQUIRE(cb != nullptr);
+
+    struct Shared {
+        std::promise<abi::ReturnCode> done;
+    };
+    auto shared = std::make_shared<Shared>();
+    std::future<abi::ReturnCode> result = shared->done.get_future();
+    bool answered = false;
+    std::thread present;
+    bool fired = false;
+    fk.onWait = [&] {
+        if (fired) return;  // the first wait only
+        fired = true;
+        present = std::thread([shared, cb, user] {
+            abi::PrepareV2Desc d{};
+            d.header.type = abi::kDispatchFrameGenerationPrepareV2;
+            shared->done.set_value(cb(&d, user));
+        });
+        // 20 s is a safety net, far above what a callback that does not wait takes; a callback stuck on the mutex fails here, not hangs.
+        answered = result.wait_for(std::chrono::seconds(20)) == std::future_status::ready;
+    };
+    r.fsr->stop(r.dev);  // generation off, the presents in flight finish (the fake's wait), the context goes
+    if (!answered) present.detach();  // a failing run only: the thread is stuck, and ends with the process
+    REQUIRE(answered);
+    present.join();
+    CHECK(result.get() == abi::kOk);
+    CHECK(r.fsr->generated_frames() == 1);
+    CHECK(r.count("destroy fg") == 1);
+    // The context is gone: a callback after that is refused, and does not touch what was destroyed.
+    abi::PrepareV2Desc d{};
+    d.header.type = abi::kDispatchFrameGenerationPrepareV2;
+    CHECK(cb(&d, user) == abi::kError);
+    CHECK(r.fsr->generated_frames() == 1);
+}
+
+TEST_CASE(
+    "fsr frame generation hook, Vulkan: the destroy function of a swapchain that outlives its provider does nothing") {
+    using DestroyFn = void (*)(const void*, void*, const void*);
+    DestroyFn destroy = nullptr;
+    std::uint64_t handle = 0;
+    {
+        Rig r(gpu::Backend::Vulkan);
+        make_ready_vk(r);
+        destroy = reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain);
+        handle = fk.vkHandle;
+        r.hook.reset();
+        r.fsr.reset();  // the swapchain functions are plain pointers: the engine can still hold them
+        fk.vkDestroyCalls = 0;
+        REQUIRE(destroy != nullptr);
+        destroy(reinterpret_cast<const void*>(std::uintptr_t(0x1000)), reinterpret_cast<void*>(std::uintptr_t(handle)),
+                nullptr);
+        CHECK(fk.vkDestroyCalls == 0);
+    }
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: the query of the swapchain functions is asked once more, and a proxy "
+          "that cannot be ended is "
+          "told") {
+    {  // one refusal, then the answer: the swapchain is made
+        Rig r(gpu::Backend::Vulkan);
+        REQUIRE(r.arm(FrameGenMode::Fsr));
+        r.vk_device();
+        fk.querySwapFnsFails = 1;
+        CHECK(r.vk_swapchain());
+        CHECK(fk.querySwapFnsCalls == 2);
+        CHECK(fk.destroysOfSwap == 0);
+    }
+    {  // two refusals on the first swapchain: no destroy function is known, the proxy stays and the message says so
+        Rig r(gpu::Backend::Vulkan);
+        REQUIRE(r.arm(FrameGenMode::Fsr));
+        r.vk_device();
+        fk.querySwapFnsFails = 2;
+        CHECK_FALSE(r.vk_swapchain());
+        CHECK(fk.querySwapFnsCalls == 2);
+        CHECK(has(r.vkSc.error, "swapchain functions"));
+        CHECK(has(r.vkSc.error, "stays until the process ends"));
+        CHECK(fk.destroysOfSwap == 1);  // its context is given back
+        CHECK(fk.vkDestroyCalls == 0);
+    }
+    {  // a swapchain of this library gave the destroy function before: the proxy is ended after its context
+        Rig r(gpu::Backend::Vulkan);
+        make_ready_vk(r);
+        const std::uint64_t old = fk.vkHandle;
+        fk.events.clear();
+        fk.querySwapFnsFails = 2;
+        CHECK_FALSE(r.vk_swapchain(old));
+        CHECK_FALSE(has(r.vkSc.error, "stays until the process ends"));
+        REQUIRE(fk.vkDestroyCalls >= 1);
+        CHECK(fk.vkDestroyed.back() == reinterpret_cast<void*>(std::uintptr_t(fk.vkHandle)));
+        CHECK(r.index("destroy swapchain") < r.index("vk destroy"));
+    }
 }
