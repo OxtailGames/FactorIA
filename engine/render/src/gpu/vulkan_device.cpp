@@ -1523,8 +1523,8 @@ void VulkanDevice::check_owners(const VulkanCommandList& list, const std::uint64
         }
         if (!t.handed.valid()) continue;
         if (waits[int(t.handed.queue)] >= t.handed.value) {
-            settled.push_back(
-                &t);  // settled once the list is submitted: the owner queue's order covers every later list
+            // Settled once the list is submitted: the owner queue's order covers every later list.
+            settled.push_back(&t);
             continue;
         }
         report("gpu vulkan: submit: list '" + list.label_ + "': " + describe(t) + " was handed to the " +

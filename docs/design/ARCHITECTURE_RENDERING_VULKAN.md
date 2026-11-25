@@ -143,8 +143,8 @@ writes a `BOTTOM_OF_PIPE` timestamp into the list (in the pass's secondary when 
 begin ends the open one, submit ends the last). `timer_poll` reads the frames whose timeline value passed, never one
 still in flight, and never waits: it asks with `VK_QUERY_RESULT_WITH_AVAILABILITY_BIT` (and no `WAIT_BIT`), and a frame
 whose results are not available yet (a driver signals the timeline before they are visible, as MoltenVK does from a
-command buffer's completion handler) stays for the next poll, at most 120 polls; after that the frame is dropped with
-one warning. A frame that was never really begun (its start timestamps were lost with a failed prelude) and a scope of
+command buffer's completion handler) stays for the next poll, at most 120 polls; after that the frame is dropped (its
+time is never reported) with one warning, and `VulkanDevice::timer_dropped_frames()` counts the frames dropped so. A frame that was never really begun (its start timestamps were lost with a failed prelude) and a scope of
 a pass whose secondary command buffer failed are dropped, not read. Ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
 list was not submitted before the frame ended is never read, so no query that was never written is asked for.
 `timer_forget` drops the frames in flight, and `destroy_timer` waits for the frames ended and not read yet before
@@ -385,11 +385,14 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   in `HDR10_ST2084`; `Default` is the device's SDR format, or the other 8-bit order of the same kind (`Bgra8`
   then `Rgba8`; the sRGB twin when the default is an sRGB one) when the surface lacks it (Android offers only RGBA). The
   device's default colour format (`environment_defaults().colorFormat`, what a pipeline's `Default` colour target and
-  `PassDesc::for_swapchain` mean) then becomes the one picked, before any pipeline is made; when a pipeline or an
+  `PassDesc::for_swapchain` mean) then becomes the one picked once the swapchain is made (a swapchain that fails leaves
+  the default as it was), before any pipeline is made; when a pipeline or an
   image was made with the old default already, `create_swapchain` fails ("pipelines or images made with that default
   exist already") and says to make the device with `DeviceInit::environment.defaults.colorFormat` set to the
-  format the window offers. The surface's formats are asked once per surface and swapchain (`swapchain_format_supported`
-  reads the list, not the driver again). The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
+  format the window offers. The surface's formats are asked again from the driver for every new surface and every time the
+  swapchain is made again (a surface recreated on Android, a display whose HDR setting changed), and a swapchain
+  made again whose format the surface no longer offers fails with a teaching error; the list sits behind a mutex and
+  `swapchain_format_supported` (const, any thread) reads a copy of it, not the driver again. The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
 - **The swapchain** has `max(minImageCount, frames in flight + 1)` images (capped by `maxImageCount`), opaque
   composite alpha first, colour-attachment usage plus transfer-source where the surface allows (readbacks). Its
   images are adopted into the device's image pool as external records (their states tracked like any other image's,
@@ -398,15 +401,19 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   of the device. There is one acquire semaphore more than images, each reused only once the timeline value of the
   submission that waited for it passed.
 - **`acquire_swapchain`** (a second call in the same frame hands back the same image) waits, at most 100 ms, for the
-  next image; when none comes it fails (once a warning in the log) and the caller skips the frame and acquires again at
-  the next one. Then it marks the image `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
+  next image; when none comes (`VK_TIMEOUT` or `VK_NOT_READY`) it fails (once a warning in the log) and the caller
+  skips the frame and acquires again at the next one: the swapchain is untouched. The device does not wait longer (a
+  hidden window would stall every frame); the swapchain test cases of a loaded CI VM, where a lavapipe frame can take
+  longer than 100 ms, acquire through a helper that tries again up to 20 times, about 2 s in all, before it reports the
+  frame as skipped. Then it marks the image `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
   that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A `PassDesc::for_swapchain` pass
   (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image, resolved into the acquired one at
   `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
-- **Pre-rotation (a known limit).** The swapchain's `preTransform` is the surface's `currentTransform`, and nothing
-  draws pre-rotated, so on a device whose display is rotated against the surface (Android) the presentation engine
-  rotates the picture itself, at a cost on some GPUs; `swapchain_pre_rotation_degrees()` says how far (0 elsewhere) and
-  a nonzero value is warned once.
+- **Pre-rotation (a known limit).** The swapchain's `preTransform` is the surface's `currentTransform`, so the
+  presentation engine does no rotation of its own (the cheap path on Android); the application must then draw
+  pre-rotated, and nothing does yet: on a device whose display is rotated against the surface's native orientation
+  (Android, `currentTransform` ROTATE_90 or ROTATE_270) the picture comes out turned by that angle.
+  `swapchain_pre_rotation_degrees()` says how far (0 elsewhere) and a nonzero value is warned once.
   Only the lists of the graphics queue wait for the acquire semaphore: another queue's list that uses the acquired
   image is reported and not submitted. HDR10 (`Rgb10A2`) also sets its mastering metadata (`vkSetHdrMetadataEXT`:
   Rec. 2020 primaries, D65, 1000 nits) where `VK_EXT_hdr_metadata` exists. The MSAA colour image is a plain device
@@ -471,7 +478,13 @@ runtime on macOS, an X11 window of `$DISPLAY` through libX11 opened at run time 
 Windows): the errors of a desc, three frames cleared, presented and the first read back, a second acquire in a frame,
 `present` without an acquire, `resize_swapchain` (and a resize between acquire and present refused), a swapchain
 marked out of date made again at the next acquire, an image acquired and never drawn into when the swapchain goes, a
-swapchain without vsync, and a 4x MSAA swapchain resolved into the acquired image. A machine with no window or no
+swapchain without vsync, a 4x MSAA swapchain resolved into the acquired image, an acquire that times out (injected
+through `inject_acquire_result_for_tests`: the teaching error, the swapchain untouched, the bounded retry), a readback
+of a window image the surface made without `TRANSFER_SRC` (refused), the format fallback succeeding where the asked
+format is hidden (the device made with `Rgba8` as its default, the surface's `Rgba8` hidden) and a swapchain that
+fails (`fail_next_swapchain_for_tests`) leaving the default format as it was, and `swapchain_format_supported` called
+from a second thread while the swapchain is made again. The timer case with `hide_timer_results_for_tests` checks the
+frame dropped after 120 polls, and the queue-misuse case a transfer list that begins a render or a compute pass. A machine with no window or no
 window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb) that fails.
 `VulkanDevice::counters()`, `fn()`, `pipeline_state()`, `read_image_region` and the `swapchain_*` accessors exist for
 these tests.

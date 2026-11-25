@@ -1194,6 +1194,29 @@ public:
     VkPresentModeKHR swapchain_present_mode() const;
     std::uint64_t swapchain_recreations() const;
     void mark_swapchain_out_of_date_for_tests();
+    // Tests of the failure paths a driver does not produce on demand. The next `times` calls of acquire_swapchain() get
+    // `result` (VK_TIMEOUT: the presentation engine gave no image) instead of asking the driver.
+    void inject_acquire_result_for_tests(VkResult result, int times) {
+        injectedAcquire_ = result;
+        injectedAcquires_ = times;
+    }
+    // The next make_swapchain() (the first one of create_swapchain() included) fails with an error before it touches
+    // the driver.
+    void fail_next_swapchain_for_tests() { failNextSwapchain_ = true; }
+    // As a surface that does not allow TRANSFER_SRC on its images: a readback of the window's image is refused.
+    void drop_swapchain_transfer_src_for_tests() { swapUsage_ &= ~VkImageUsageFlags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT); }
+    // The timer queries read as not available (a driver that never makes them visible), so a timed frame is dropped
+    // after kTimerMaxNotReady polls; and how many timed frames were dropped that way (or by a failed read) since the
+    // device was made.
+    void hide_timer_results_for_tests(bool hide) {
+        std::lock_guard<std::mutex> lock(timerMutex_);
+        timerHideResults_ = hide;
+    }
+    std::uint64_t timer_dropped_frames() const {
+        std::lock_guard<std::mutex> lock(timerMutex_);
+        return timerDropped_;
+    }
+    static constexpr std::uint32_t kTimerMaxNotReady = 120;  // polls a frame whose queries are not available waits
     // How far the window's surface is rotated against the display (0, 90, 180 or 270 degrees: Android's
     // currentTransform). The swapchain's preTransform is that transform and it does not pre-rotate the drawing, so a
     // value other than 0 means the picture comes out turned by it until the renderer draws pre-rotated.
@@ -1558,9 +1581,11 @@ private:
     bool timerOk_ = false;
     std::string timerWhy_;
     std::array<TimerSlot, kTimerSlots> timerSlots_;
-    std::deque<int> timerPending_;  // ended frames waiting for their timeline value, oldest first
-    int timerCurrent_ = -1;         // the slot of the open timed frame; -1 = none
-    bool timerWarned_ = false;      // the dropped-frame warning was logged
+    std::deque<int> timerPending_;    // ended frames waiting for their timeline value, oldest first
+    int timerCurrent_ = -1;           // the slot of the open timed frame; -1 = none
+    bool timerWarned_ = false;        // the dropped-frame warning was logged
+    bool timerHideResults_ = false;   // tests: the queries read as not available
+    std::uint64_t timerDropped_ = 0;  // timed frames dropped for want of their results (never reported)
     std::uint64_t timerSerial_ = 0;
     std::uint64_t timerNext_ = 0;
     std::size_t timerStale_ = 0;  // results still to arrive that timer_forget() dropped
@@ -1598,9 +1623,12 @@ private:
     };
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
-    // The surface's formats (asked once per surface; render thread), and the ones a test hides.
+    // The surface's formats (asked per surface and per swapchain made; the mutex below guards them), and the ones a
+    // test hides (before create_swapchain()).
     VkResult load_surface_formats() const;
+    std::vector<VkSurfaceFormatKHR> surface_formats_snapshot() const;
     void set_hdr_metadata();
+    mutable std::mutex surfaceFormatsMutex_;  // guards surfaceFormats_ and surfaceFormatsKnown_ (any thread reads them)
     mutable std::vector<VkSurfaceFormatKHR> surfaceFormats_;
     mutable bool surfaceFormatsKnown_ = false;
     std::vector<VkFormat> hiddenSurfaceFormats_;
@@ -1608,6 +1636,9 @@ private:
     int swapPreRotation_ = 0;
     bool swapRotationWarned_ = false;
     bool swapTimeoutLogged_ = false;
+    VkResult injectedAcquire_ = VK_SUCCESS;  // tests: the result of the next injectedAcquires_ acquires
+    int injectedAcquires_ = 0;
+    bool failNextSwapchain_ = false;  // tests: the next make_swapchain() fails
     std::string swapLabel_;
     PixelFormat swapFormat_ = PixelFormat::None;
     VkFormat swapVkFormat_ = VK_FORMAT_UNDEFINED;
