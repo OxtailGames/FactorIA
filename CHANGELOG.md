@@ -12,6 +12,16 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- Vulkan backend leftovers (M77 polish): a window surface that lacks the device's default 8-bit colour order (Android offers only RGBA)
+  gives the swapchain the other one and the device's default colour format follows it, or fails with a hint naming
+  `DeviceInit::environment.defaults.colorFormat` when pipelines made with the old default exist; `acquire_swapchain` waits 100 ms and the
+  caller skips the frame (it was 10 s); a swapchain whose images could not all be made is made again at the next acquire; HDR10 sets its
+  mastering metadata (`VK_EXT_hdr_metadata`); a readback of a swapchain image without transfer-source usage, or of a resource the compute
+  or transfer queue owns, is a teaching error; a list of the compute or transfer queue that uses the acquired swapchain image is reported;
+  a handoff of a resource its list does not use must wait for the handoff that brought it; a texture view has one bindless slot
+  (`bindless_add` and `bindless_remove` are gone); `timer_poll` never waits (it asks for availability and retries on the next poll, then
+  drops the frame with one warning); a framebuffer is not cached for a view destroyed meanwhile; a pipeline cache blob smaller than
+  Vulkan's own header is not written, and a discarded file of another format version names both versions.
 - The Vulkan backend presents to a window (M77-P9d): `create_swapchain` makes a surface on the native window (an HWND, an X11 window
   with its display, an `ANativeWindow`, a `CAMetalLayer` on macOS through MoltenVK) and a swapchain of frames in flight + 1 images (FIFO
   with vsync, else MAILBOX or IMMEDIATE; SDR, scRGB and HDR10 formats where the surface offers them; MSAA resolved into the acquired

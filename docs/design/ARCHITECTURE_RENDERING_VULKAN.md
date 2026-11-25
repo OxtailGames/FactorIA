@@ -110,15 +110,19 @@ needs it, up to `frameDescriptorPools` (default 8, 1 to 64) pools a frame (`coun
 many this frame took). The chain is reset when the frame's slot comes round again, and the pools stay made. The device
 counts the room itself, so a set larger than one pool, or a frame past its last pool, is refused with the same error on
 every driver, naming the option to raise. The bindless table is one update-after-bind set of
-`bindlessDescriptors` sampled images (descriptor indexing, partially bound): `bindless_add(view)` writes a free slot,
-`bindless_remove(slot)` frees it once the frames that may read it are finished. A count over what the device binds in
+`bindlessDescriptors` sampled images (descriptor indexing, partially bound): `make_view` of a Texture view writes one free slot (`bindless_index(view)`
+says which; a full table leaves the view without one and warns once), and `destroy_view` frees it once the frames
+that may read it are finished. A view never has a second slot. A count over what the device binds in
 one stage or puts in one set (MoltenVK: 1212) is lowered with a warning; a device without descriptor indexing has no
 table.
 
 **Readbacks.** `read_buffer`, `read_image_rgba8` (BGRA is swizzled to RGBA), `read_image_rgba16f`,
 `read_storage_image` and, for tests, `read_image_region(image, mip, layer, x, y, w, h)` copy into a host buffer of
 their own on an internal command buffer, wait for the timeline, invalidate non-coherent memory and unpack the rows. They
-block. A copy that cannot be submitted returns an error instead of waiting.
+block. A copy that cannot be submitted returns an error instead of waiting. A readback runs on the graphics queue, so
+one of a resource the compute or transfer queue owns is refused ("belongs to the compute queue", hint: hand it
+back with `submit_token` and `wait_queue`), and so is one of a swapchain image made without transfer-source usage
+(a surface that does not allow it).
 
 **Asynchronous reads (M77-P8b1).** `async_read_supported()` is true. `request_buffer_read(buffer, offset, bytes)` and
 `request_image_read(image, mip, layer, x, y, w, h)` (a rectangle of one mip and slice, tightly packed rows, checked as
@@ -137,9 +141,11 @@ the image) are teaching errors.
 end one and submits the prelude, and a full ring skips the frame instead of waiting. `CommandList::begin_timed_scope`
 writes a `BOTTOM_OF_PIPE` timestamp into the list (in the pass's secondary when a pass is open); scopes do not nest (a
 begin ends the open one, submit ends the last). `timer_poll` reads the frames whose timeline value passed, never one
-still in flight (`VK_QUERY_RESULT_WAIT_BIT` covers only the short gap where a driver signals the timeline before the
-results are visible, as MoltenVK does from a command buffer's completion handler; without it such a frame came back
-`VK_NOT_READY`): ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
+still in flight, and never waits: it asks with `VK_QUERY_RESULT_WITH_AVAILABILITY_BIT` (and no `WAIT_BIT`), and a frame
+whose results are not available yet (a driver signals the timeline before they are visible, as MoltenVK does from a
+command buffer's completion handler) stays for the next poll, at most 120 polls; after that the frame is dropped with
+one warning. A frame that was never really begun (its start timestamps were lost with a failed prelude) and a scope of
+a pass whose secondary command buffer failed are dropped, not read. Ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
 list was not submitted before the frame ended is never read, so no query that was never written is asked for.
 `timer_forget` drops the frames in flight, and `destroy_timer` waits for the frames ended and not read yet before
 it destroys their pools. A queue family without timestamps (`timestampValidBits` 0) or a driver
@@ -210,8 +216,11 @@ runs on the compute queue") and a resource handed to this queue whose token the 
 `wait_list` or `wait_queue`) are reported; the list still runs. A handoff that names no live resource, both or neither
 of image and buffer, a resource the list's queue does not own, or a resource twice is reported and left out. A render
 pass on a list that is not of the graphics queue, and a compute pass on a transfer list, fail as other command list
-misuse does. Not checked: the readbacks and asynchronous reads run on the graphics queue whoever owns the resource, so
-a resource is handed back to the graphics queue before it is read.
+misuse does. The readbacks and asynchronous reads run on the graphics queue, so a resource another queue owns is refused ("belongs to
+the compute queue") until it is handed back to the graphics queue. A handoff of a resource the list does not use is
+checked as the owner checks are: the list must have waited for the handoff that brought the resource to its queue. A
+handoff is marked settled only once the submission that waited for it worked; a list that uses the swapchain image
+and does not run on the graphics queue is reported and not submitted.
 
 **Locks.** `queueMutex_` guards the queues, lists and timelines; `resMutex_` the resource pools and their tracked
 states. `resMutex_` may be taken while `queueMutex_` is held (submit validating handoffs, the owner checks naming a
@@ -303,7 +312,8 @@ uses it in, and the command list's barriers put it there. A graphics pipeline is
 formats and sample count; Vulkan's compatibility rule ignores load/store operations and layouts, and a single-subpass
 pass's resolve attachments, so every pass with those formats draws with it. A `VkFramebuffer` is cached by its render
 pass, its size and the serial number of each attachment view (`counters().framebufferCacheHits` / `framebufferCacheMisses`), so a pass
-into the same targets reuses it list after list; `destroy_view` takes every framebuffer of that view out of the cache
+into the same targets reuses it list after list; `destroy_view` of an attachment view takes every framebuffer of that view out of the cache (a view destroyed while a
+framebuffer was being made is found after the insert, and `begin_pass` fails with an error naming it)
 and releases it once its frame is done.
 
 ## The command list (M77-P8c)
@@ -372,8 +382,14 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   negative size, a sample count that is not 1, 2, 4 or 8, a format the backend does not show, a format that cannot be
   multisampled), then makes the surface, checks that the graphics queue family presents to it, and picks its format:
   `Bgra8`/`Rgba8` (and their sRGB twins) in `SRGB_NONLINEAR`, `Rgba16F` in `EXTENDED_SRGB_LINEAR` (scRGB), `Rgb10A2`
-  in `HDR10_ST2084`; `Default` is the device's SDR format, or `Bgra8` then `Rgba8` when the surface lacks it. The
-  present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
+  in `HDR10_ST2084`; `Default` is the device's SDR format, or the other 8-bit order of the same kind (`Bgra8`
+  then `Rgba8`; the sRGB twin when the default is an sRGB one) when the surface lacks it (Android offers only RGBA). The
+  device's default colour format (`environment_defaults().colorFormat`, what a pipeline's `Default` colour target and
+  `PassDesc::for_swapchain` mean) then becomes the one picked, before any pipeline is made; when a pipeline or an
+  image was made with the old default already, `create_swapchain` fails ("pipelines or images made with that default
+  exist already") and says to make the device with `DeviceInit::environment.defaults.colorFormat` set to the
+  format the window offers. The surface's formats are asked once per surface and swapchain (`swapchain_format_supported`
+  reads the list, not the driver again). The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
 - **The swapchain** has `max(minImageCount, frames in flight + 1)` images (capped by `maxImageCount`), opaque
   composite alpha first, colour-attachment usage plus transfer-source where the surface allows (readbacks). Its
   images are adopted into the device's image pool as external records (their states tracked like any other image's,
@@ -381,11 +397,20 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   (`EnvironmentDefaults::depthFormat`) and, with `sampleCount > 1`, its multisampled colour image are ordinary images
   of the device. There is one acquire semaphore more than images, each reused only once the timeline value of the
   submission that waited for it passed.
-- **`acquire_swapchain`** (a second call in the same frame hands back the same image) waits, at most 10 s, for the
-  next image, marks it `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
+- **`acquire_swapchain`** (a second call in the same frame hands back the same image) waits, at most 100 ms, for the
+  next image; when none comes it fails (once a warning in the log) and the caller skips the frame and acquires again at
+  the next one. Then it marks the image `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
   that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A `PassDesc::for_swapchain` pass
   (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image, resolved into the acquired one at
   `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
+- **Pre-rotation (a known limit).** The swapchain's `preTransform` is the surface's `currentTransform`, and nothing
+  draws pre-rotated, so on a device whose display is rotated against the surface (Android) the presentation engine
+  rotates the picture itself, at a cost on some GPUs; `swapchain_pre_rotation_degrees()` says how far (0 elsewhere) and
+  a nonzero value is warned once.
+  Only the lists of the graphics queue wait for the acquire semaphore: another queue's list that uses the acquired
+  image is reported and not submitted. HDR10 (`Rgb10A2`) also sets its mastering metadata (`vkSetHdrMetadataEXT`:
+  Rec. 2020 primaries, D65, 1000 nits) where `VK_EXT_hdr_metadata` exists. The MSAA colour image is a plain device
+  image (not transient or lazily allocated: `ImageUsage` has no transient flag yet).
 - **`present`** submits the device's own list that moves the image to `PRESENT_SRC_KHR`, signals the image's
   render-finished semaphore, and calls `vkQueuePresentKHR` on the graphics queue (under the queue lock).
 - **Out of date.** `VK_ERROR_OUT_OF_DATE_KHR` or `VK_SUBOPTIMAL_KHR` (from acquire or present: the window changed)

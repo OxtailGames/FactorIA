@@ -116,6 +116,7 @@ Result<void> VulkanCommandList::open(const char* label) {
     for (std::uint64_t& w : waits_) w = 0;
     scopes_.clear();
     scopeOpen_ = false;
+    timerSlot_ = -1;
     // The GPU finished the list's last commands: its secondaries and uniform sets can go (the framebuffers are the
     // device's, cached until one of their views is destroyed).
     secondaryNext_ = 0;
@@ -191,6 +192,7 @@ void VulkanCommandList::begin_timed_scope(const char* name) {
         ref.slot = device_.timerCurrent_;
         ref.scope = std::uint32_t(slot.names.size());
         ref.pool = slot.pool;
+        ref.inPass = rec_ != VK_NULL_HANDLE;
         slot.names.emplace_back(name ? name : "");
         slot.submitted.push_back(false);
     }
@@ -208,7 +210,8 @@ void VulkanCommandList::end_timed_scope() {
 void VulkanCommandList::close_scope() {
     scopeOpen_ = false;
     if (scopes_.empty() || !cmd_) return;
-    const ScopeRef& ref = scopes_.back();
+    ScopeRef& ref = scopes_.back();
+    if (rec_) ref.inPass = true;
     device_.fn_.vkCmdWriteTimestamp(recording(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, ref.pool, 3 + 2 * ref.scope);
 }
 
@@ -395,6 +398,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         std::uint32_t width = 0, height = 0;
         std::uint32_t mip = 0, layer = 0;  // layer 0 for a 3D image (its slice is a depth slice)
         std::uint64_t serial = 0;          // the view's (what the framebuffer cache knows it by)
+        std::uint64_t id = 0;              // the View handle
         bool bound = false;
     };
     Attachment color, color1, resolve, depth;
@@ -429,6 +433,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
             a.mip = std::uint32_t(r->mip);
             a.layer = im->type == ImageType::Tex3d ? 0u : std::uint32_t(r->slice);
             a.serial = r->serial;
+            a.id = v.id;
             a.bound = true;
         };
         look(pass.color, ViewType::ColorAttachment, "the colour attachment (PassDesc::color)", color);
@@ -479,6 +484,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     key.samples = VkSampleCountFlagBits(first.samples);
     std::vector<VkImageView> views;
     std::vector<std::uint64_t> serials;  // views' serials, in the same order
+    std::vector<std::uint64_t> ids;      // and their View handles
     for (const Attachment* a : {&color, &color1}) {
         if (!a->bound) continue;
         const Color& c = a == &color ? pass.clearColor : pass.clearColor1;
@@ -491,6 +497,7 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         key.color[key.colorCount++] = device_.vk_format(a->format);
         views.push_back(a->view);
         serials.push_back(a->serial);
+        ids.push_back(a->id);
     }
     key.colorLoad = load_op(pass.colorLoad);
     key.colorStore = store_op(pass.colorStore, true);
@@ -509,12 +516,14 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
         passClears_.push_back(v);
         views.push_back(depth.view);
         serials.push_back(depth.serial);
+        ids.push_back(depth.id);
     }
     if (resolve.bound) {
         key.resolve = device_.vk_format(resolve.format);
         passClears_.push_back(VkClearValue{});
         views.push_back(resolve.view);
         serials.push_back(resolve.serial);
+        ids.push_back(resolve.id);
     }
     const VkRenderPass renderPass = device_.render_pass(key, error);
     if (!renderPass) {
@@ -523,9 +532,13 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     }
     const VkFunctions& f = device_.fn_;
     // The device's framebuffer of these views and this pass (made on first use, destroyed with one of the views).
-    const VkFramebuffer framebuffer = device_.framebuffer(renderPass, views, serials, first.width, first.height, error);
+    const VkFramebuffer framebuffer =
+        device_.framebuffer(renderPass, views, serials, ids, first.width, first.height, error);
     if (!framebuffer) {
-        fail("begin_pass", passName + ": " + error + " (hint: the GPU ran out of memory or the device was lost)");
+        // A failure that already carries its own hint (a view destroyed meanwhile) keeps it.
+        const bool hinted = error.find("(hint:") != std::string::npos;
+        fail("begin_pass",
+             passName + ": " + error + (hinted ? "" : " (hint: the GPU ran out of memory or the device was lost)"));
         return;
     }
     VkResult r = VK_SUCCESS;
@@ -626,6 +639,11 @@ void VulkanCommandList::end_pass() {
             f.vkCmdExecuteCommands(cmd_, 1, &rec_);
             f.vkCmdEndRenderPass(cmd_);
             empty_ = false;
+        }
+        // A timestamp recorded in a secondary that did not end never runs: its scope is not reported.
+        for (ScopeRef& sc : scopes_) {
+            if (sc.inPass && r != VK_SUCCESS) sc.lost = true;
+            sc.inPass = false;
         }
         // The pops of groups opened before the pass, then the groups opened in it again.
         if (f.vkCmdEndDebugUtilsLabelEXT)

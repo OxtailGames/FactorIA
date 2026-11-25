@@ -852,6 +852,7 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
     PixelFormat colorFormats[kMaxColorAttachments]{};
     for (int i = 0; i < colorCount; ++i) {
         const ColorTargetState& c = desc.colors[i];
+        if (c.pixelFormat == PixelFormat::Default) dev.note_default_color_used();
         const PixelFormat f = c.pixelFormat == PixelFormat::Default ? env.colorFormat : c.pixelFormat;
         const std::string what = "colour target " + std::to_string(i) + " (" + pixel_format_name(f) + ")";
         const PixelFormatCaps fc = dev.pixel_format_caps(f);

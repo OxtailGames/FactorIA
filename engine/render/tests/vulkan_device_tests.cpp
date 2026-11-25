@@ -949,19 +949,18 @@ TEST_CASE("vulkan: a full frame descriptor pool fails with a teaching error and 
         REQUIRE(dev->state(img) == ResourceState::Valid);
         ViewDesc vd;
         vd.texture.image = img;
-        const View view = dev->make_view(vd);
-        REQUIRE(dev->state(view) == ResourceState::Valid);
-        CHECK(dev->bindless_index(view) < 4u);  // the view took a slot of its own
+        // Every texture view takes ONE slot of the table (make_view), and no two views share one.
+        std::vector<View> views;
         std::vector<std::uint32_t> slots;
-        for (int i = 0; i < 3; ++i) {
-            auto s = dev->bindless_add(view);
-            REQUIRE_MESSAGE(s, s.error().to_string());
-            CHECK(s.value() != dev->bindless_index(view));
-            slots.push_back(s.value());
+        for (int i = 0; i < 4; ++i) {
+            const View v = dev->make_view(vd);
+            REQUIRE(dev->state(v) == ResourceState::Valid);
+            const std::uint32_t slot = dev->bindless_index(v);
+            CHECK(slot < 4u);
+            CHECK(std::find(slots.begin(), slots.end(), slot) == slots.end());
+            views.push_back(v);
+            slots.push_back(slot);
         }
-        auto full = dev->bindless_add(view);
-        REQUIRE(!full);
-        CHECK(contains(full.error().message, "the bindless table is full (4 slots)"));
         // A texture view made while the table is full has no index, and says so once (a warning).
         const View late = dev->make_view(vd);
         REQUIRE(dev->state(late) == ResourceState::Valid);
@@ -971,14 +970,15 @@ TEST_CASE("vulkan: a full frame descriptor pool fails with a teaching error and 
             if (contains(w, "the bindless table is full")) warned += w;
         CHECK(contains(warned, "no bindless index"));
         dev->destroy_view(late);
-        dev->bindless_remove(slots[2]);
-        CHECK(!dev->bindless_add(view));  // the frame in flight may still read the slot
+        dev->destroy_view(views[2]);
+        const View early = dev->make_view(vd);  // the frame in flight may still read the freed slot
+        CHECK(dev->bindless_index(early) == kNoBindlessIndex);
+        dev->destroy_view(early);
         dev->commit();
         REQUIRE(dev->wait_idle());
-        auto again = dev->bindless_add(view);
-        REQUIRE_MESSAGE(again, again.error().to_string());
-        CHECK(again.value() == slots[2]);
-        CHECK(!dev->bindless_add(View{}));  // not a live texture view
+        const View again = dev->make_view(vd);
+        CHECK(dev->bindless_index(again) == slots[2]);
+        CHECK(dev->bindless_index(View{}) == kNoBindlessIndex);  // not a live texture view
     }
 
     step = "the validation layer said nothing";
@@ -1040,7 +1040,7 @@ TEST_CASE("vulkan: a frame that fills its descriptor pool takes the next of its 
         auto again = dev->descriptors().alloc(layout, two);
         REQUIRE_MESSAGE(again, again.error().to_string());
     }
-    CHECK(dev->counters().frameDescriptorPools == 2);  // the second pool, made two frames ago, is reused
+    CHECK(dev->counters().frameDescriptorPools == 2);  // the second pool, made framesInFlight frames ago, is reused
     REQUIRE(dev->wait_idle());
     f.vkDestroyDescriptorSetLayout(dev->vk_device(), layout, nullptr);
     step = "the validation layer said nothing";
@@ -1849,6 +1849,7 @@ TEST_CASE("vulkan: a CPU device (lavapipe) on request, or a teaching error") {
         }
         // The Linux CI job installs lavapipe: there a missing CPU device is a failure, not a skip.
         if (vulkan_required()) FAIL("vulkan: FA_VULKAN_REQUIRE=1 and no CPU device (lavapipe): " << e);
+        CHECK_MESSAGE(contains(e, "no CPU Vulkan device"), e);
         CHECK(contains(d.error().hint, "lavapipe"));
         MESSAGE("vulkan: no CPU device here: " << e);
         return;
@@ -1862,6 +1863,20 @@ TEST_CASE("vulkan: a CPU device (lavapipe) on request, or a teaching error") {
 // ---------------------------------------------------------------------------------------------------------------------
 // GPU timers, asynchronous reads, synchronization (M77-P8b1)
 // ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// Polls the timers until `want` frames have arrived in all (a result the driver has not made available yet is asked
+// again by the next poll, at most 120 polls: far more than this takes), at most 60 times here.
+void poll_timers_until(VulkanDevice& dev, std::vector<double>& frames, std::size_t want) {
+    for (int i = 0; i < 60; ++i) {
+        dev.timer_poll(frames);
+        if (frames.size() >= want) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
+}  // namespace
 
 TEST_CASE("vulkan: a timed frame with two scopes resolves to frame and scope times a few frames later") {
     auto dev = make_vk();
@@ -1903,7 +1918,7 @@ TEST_CASE("vulkan: a timed frame with two scopes resolves to frame and scope tim
     }
     auto r = dev->wait_idle();
     REQUIRE_MESSAGE(r, r.error().to_string());
-    dev->timer_poll(frames);
+    poll_timers_until(*dev, frames, 4);
     CHECK(frames.size() == 4);  // every timed frame arrives once, in order
     for (double ms : frames) CHECK(ms >= 0.0);
     const std::vector<Device::ScopeTime> scopes = dev->timer_last_scopes();
@@ -1932,7 +1947,7 @@ TEST_CASE("vulkan: a timed frame with two scopes resolves to frame and scope tim
     late.end_timed_scope();
     dev->timer_end_frame();
     submit_and_finish(*dev, late);
-    dev->timer_poll(frames);
+    poll_timers_until(*dev, frames, 1);
     CHECK(frames.size() == 1);
     CHECK(dev->timer_last_scopes().empty());
 
@@ -1958,7 +1973,7 @@ TEST_CASE("vulkan: a timed frame with two scopes resolves to frame and scope tim
     }
     r = dev->wait_idle();
     REQUIRE_MESSAGE(r, r.error().to_string());
-    dev->timer_poll(frames);
+    poll_timers_until(*dev, frames, 6);
     CHECK(frames.size() == 6);
     step = "the validation layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
@@ -2610,9 +2625,10 @@ using fa::gpu::vk::PipelineCacheFile;
 struct CacheDir {
     std::filesystem::path path;
     explicit CacheDir(const char* name) {
-        path = std::filesystem::temp_directory_path() / std::filesystem::path(u8"fa-vulkan-pso-caché");
-        path += std::filesystem::path(std::string("-") + name + "-" +
-                                      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        // The e-acute as explicit UTF-8 bytes: a u8"..." literal would depend on the compiler's source charset (/utf-8).
+        path = std::filesystem::temp_directory_path() / fa::fs::path_from_utf8("fa-vulkan-pso-cach\xC3\xA9");
+        path += fa::fs::path_from_utf8(std::string("-") + name + "-" +
+                                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::error_code ec;
         std::filesystem::remove_all(path, ec);
         std::filesystem::create_directories(path, ec);
@@ -2761,6 +2777,17 @@ TEST_CASE(
         {"a cut header", "fewer than its header", std::vector<std::uint8_t>(good.begin(), good.begin() + 40)});
     variants.push_back(
         {"a cut payload", "it is damaged (its header says", std::vector<std::uint8_t>(good.begin(), good.end() - 8)});
+    // Another version of the file's format, and of Vulkan's own header: each message names both versions.
+    variants.push_back({"another format version", "-byte header, and this engine reads version", good});
+    variants.back().bytes[F::kVersionAt] = std::uint8_t(good[F::kVersionAt] + 1u);
+    variants.push_back(
+        {"another Vulkan header version", "Vulkan header version 2 (this engine reads Vulkan header version 1)", good});
+    {
+        std::vector<std::uint8_t>& b = variants.back().bytes;
+        b[F::kHeaderBytes + 4] = 2;  // VkPipelineCacheHeaderVersionOne::headerVersion
+        const std::string sha = fa::sha256_hex(b.data() + F::kHeaderBytes, b.size() - F::kHeaderBytes);
+        std::memcpy(b.data() + F::kPayloadSha256At, sha.data(), 64);
+    }
     // The outer header rewritten to match, the checksum too, but Vulkan's own header names another GPU.
     variants.push_back({"another GPU in Vulkan's header", "its Vulkan header names vendor", good});
     {
@@ -3512,6 +3539,50 @@ TEST_CASE("vulkan: without a queue of its own a compute or transfer list runs on
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
+TEST_CASE("vulkan: a readback of a resource another queue owns, and a handoff its list never waited for, are teaching "
+          "errors") {
+    auto dev = make_async_vk("readback ownership");
+    if (!dev) return;
+    std::string step = "readbacks of resources the compute queue owns";
+    INFO("step: " << step);
+    const ComputeSet s = make_compute_set(*dev, "to-compute");
+    const QueueHandoff toCompute[] = {hand_image(s.image, QueueKind::Compute),
+                                      hand_buffer(s.buffer, QueueKind::Compute)};
+    CommandList& give = dev->begin_commands("give", QueueKind::Graphics);
+    dispatch_mode(give, s, 0);
+    const SyncToken t0 = dev->submit_token(give, toCompute);
+    REQUIRE(t0.valid());
+    std::vector<std::uint8_t> out;
+    auto rb = dev->read_buffer(s.buffer, 0, 64 * 4, out);
+    REQUIRE(!rb);
+    CHECK_MESSAGE(contains(rb.error().message, "belongs to the compute queue"), rb.error().to_string());
+    CHECK(contains(rb.error().hint, "submit_token"));
+    auto tk = dev->request_buffer_read(s.buffer, 0, 16);
+    REQUIRE(!tk);
+    CHECK_MESSAGE(contains(tk.error().message, "belongs to the compute queue"), tk.error().to_string());
+    auto ri = dev->read_storage_image(s.image, PixelFormat::Rgba8, 0, 0, 8, 8, out);
+    REQUIRE(!ri);
+    CHECK_MESSAGE(contains(ri.error().message, "belongs to the compute queue"), ri.error().to_string());
+
+    step = "a handoff of a resource the list does not use, without waiting for the handoff that brought it";
+    const QueueHandoff toGraphics[] = {hand_buffer(s.buffer, QueueKind::Graphics)};
+    CommandList& early = dev->begin_commands("early", QueueKind::Compute);
+    (void)dev->submit_token(early, toGraphics);
+    CHECK_MESSAGE(contains(last_error(*dev), "did not wait for it"), last_error(*dev));
+    CHECK(!dev->read_buffer(s.buffer, 0, 64 * 4, out));  // still the compute queue's
+
+    step = "the same handoff after wait_list works";
+    CommandList& back = dev->begin_commands("back", QueueKind::Compute);
+    dev->wait_list(back, t0);
+    const SyncToken t1 = dev->submit_token(back, toGraphics);
+    REQUIRE(t1.valid());
+    dev->wait_queue(QueueKind::Graphics, t1);
+    CHECK(read_words(*dev, s.buffer) == words_of(1, 0));
+
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
 TEST_CASE("vulkan: a wait for a token never issued, a resource of another queue and a pass of the wrong kind are "
           "teaching errors") {
     auto dev = make_async_vk("queue misuse");
@@ -3781,9 +3852,11 @@ TEST_CASE("vulkan: create_swapchain says what is wrong before it touches a windo
 }
 
 TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and made again when out of date") {
+    // The window outlives the device (destroyed after it): the swapchain's VkSurfaceKHR is the device's, and the device
+    // goes first.
+    TestWindow win(64, 48);
     auto dev = make_vk();
     if (!dev) return;
-    TestWindow win(64, 48);
     if (!window_path(*dev, win)) return;
 
     SwapchainDesc d;
@@ -3876,9 +3949,11 @@ TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and
 }
 
 TEST_CASE("vulkan: a 4x MSAA swapchain resolves into the acquired image") {
+    // The window outlives the device (destroyed after it): the swapchain's VkSurfaceKHR is the device's, and the device
+    // goes first.
+    TestWindow win(32, 32);
     auto dev = make_vk();
     if (!dev) return;
-    TestWindow win(32, 32);
     if (!window_path(*dev, win)) return;
     if (!dev->pixel_format_caps(dev->environment_defaults().colorFormat).msaa) {
         MESSAGE("vulkan: the device cannot multisample its window format: skipped");
@@ -3901,6 +3976,66 @@ TEST_CASE("vulkan: a 4x MSAA swapchain resolves into the acquired image") {
     CHECK_MESSAGE(bad.empty(), bad);
     dev->destroy_swapchain();
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a surface without the device's default colour format gives the window its other 8-bit order") {
+    TestWindow win(32, 32);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    const PixelFormat before = dev->environment_defaults().colorFormat;
+    dev->hide_surface_format_for_tests(before);  // as an Android surface lacks BGRA
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "fallback-window";
+    auto made = dev->create_swapchain(d);
+    if (!made) {
+        // The surface offers no 8-bit order but the hidden one (MoltenVK): the error says so and nothing is left over.
+        CHECK_MESSAGE(contains(made.error().to_string(), "does not offer"), made.error().to_string());
+        CHECK(!dev->has_swapchain());
+        CHECK(dev->environment_defaults().colorFormat == before);
+        MESSAGE("vulkan: the surface offers no other 8-bit format: the fallback is not exercised here");
+        return;
+    }
+    // Bgra8 -> Rgba8 (the sRGB twin when the default was an sRGB one): the device's default colour format follows.
+    CHECK(dev->environment_defaults().colorFormat != before);
+    CHECK(dev->environment_defaults().colorFormat == PixelFormat::Rgba8);
+    window_frame(*dev, Color{0.0f, 0.0f, 1.0f, 1.0f});  // a pass into the window with the new default
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: the default colour format is not changed under pipelines made with it") {
+    TestWindow win(32, 32);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    const PixelFormat before = dev->environment_defaults().colorFormat;
+    const Shader shader = dev->make_shader(fill_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    const Pipeline pip = dev->make_pipeline(render_desc(shader, PixelFormat::Default));
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    dev->hide_surface_format_for_tests(before);
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "fallback-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE(!made);
+    CHECK(!dev->has_swapchain());
+    CHECK(dev->environment_defaults().colorFormat == before);
+    if (contains(made.error().message, "does not offer")) {
+        MESSAGE("vulkan: the surface offers no other 8-bit format: the refusal is not exercised here");
+    } else {
+        CHECK_MESSAGE(contains(made.error().message, "made with that default exist already"), made.error().to_string());
+        CHECK_MESSAGE(contains(made.error().hint, "DeviceInit::environment.defaults.colorFormat"),
+                      made.error().to_string());
+    }
 }
 
 #endif

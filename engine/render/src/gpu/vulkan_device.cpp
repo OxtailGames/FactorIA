@@ -545,6 +545,9 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     if (portability_) enabled.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
     swapchainExtension_ = surfaceExtension_ && has_extension(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     if (swapchainExtension_) enabled.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    hdrMetadataExtension_ =
+        swapchainExtension_ && colorspaceExtension_ && has_extension(extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME);
+    if (hdrMetadataExtension_) enabled.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
     const bool core13 = apiVersion_ >= VK_API_VERSION_1_3;
     const bool sync2Extension = !core13 && has_extension(extensions, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
@@ -682,6 +685,9 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         FA_VK_SWAPCHAIN_FUNCTIONS(FA_VK_LOAD_SWAPCHAIN)
 #undef FA_VK_LOAD_SWAPCHAIN
     }
+    if (hdrMetadataExtension_)
+        fn_.vkSetHdrMetadataEXT =
+            reinterpret_cast<PFN_vkSetHdrMetadataEXT>(fn_.vkGetDeviceProcAddr(device_, "vkSetHdrMetadataEXT"));
     if (sync2)
         fn_.vkCmdPipelineBarrier2 = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
             fn_.vkGetDeviceProcAddr(device_, core13 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR"));
@@ -1191,41 +1197,6 @@ VkFormat VulkanDevice::vk_format(PixelFormat f) const {
 // Bindless
 // ---------------------------------------------------------------------------------------------------------------------
 
-Result<std::uint32_t> VulkanDevice::bindless_add(View textureView) {
-    if (descriptors_.bindless_capacity() == 0)
-        return make_error("gpu vulkan: bindless_add: this device has no bindless table",
-                          "VulkanOptions::bindlessDescriptors is 0, or the device has no descriptor indexing "
-                          "(warnings() says so)");
-    VkImageView view = VK_NULL_HANDLE;
-    {
-        std::lock_guard<std::mutex> lock(resMutex_);
-        const ViewRecord* v = views_.get(textureView.id);
-        if (!v || v->type != ViewType::Texture || !v->view)
-            return make_error("gpu vulkan: bindless_add: view " + std::to_string(textureView.id) +
-                                  " is not a live texture view",
-                              "make it with ViewDesc::texture and keep it alive while the slot is used");
-        view = v->view;
-    }
-    const std::uint32_t slot = descriptors_.bindless_alloc();
-    if (slot == kNoSlot)
-        return make_error("gpu vulkan: bindless_add: the bindless table is full (" +
-                              std::to_string(descriptors_.bindless_capacity()) + " slots)",
-                          "raise VulkanOptions::bindlessDescriptors, or bindless_remove() slots no longer drawn");
-    descriptors_.bindless_write(slot, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    return slot;
-}
-
-void VulkanDevice::bindless_remove(std::uint32_t slot) {
-    if (slot == kNoSlot || slot >= descriptors_.bindless_capacity()) {
-        report("gpu vulkan: bindless_remove: slot " + std::to_string(slot) +
-               " is not a slot of the bindless table (hint: pass what bindless_add() returned)");
-        return;
-    }
-    Deferred d;
-    d.bindlessSlot = slot;
-    defer(std::move(d));
-}
-
 std::uint32_t VulkanDevice::bindless_index(View view) const {
     std::lock_guard<std::mutex> lock(resMutex_);
     const ViewRecord* v = views_.get(view.id);
@@ -1292,14 +1263,16 @@ CommandList& VulkanDevice::begin_commands(const char* label, QueueKind queue) {
                " is not a QueueKind (hint: Graphics, Compute or Transfer); the list runs on the graphics queue");
     if (VulkanCommandList* l = acquire_list(label ? label : "", false, resolve_queue(queue))) return *l;
     // Vulkan could not give a list (reported): hand out one that ignores everything, so the frame goes on.
-    return dead_list();
+    return dead_list(resolve_queue(queue));
 }
 
-VulkanCommandList& VulkanDevice::dead_list() {
+VulkanCommandList& VulkanDevice::dead_list(QueueKind queue) {
     // It lives as long as the device (a caller may still hold an earlier one); a dead list holds no state, so the ones
     // of earlier frames are handed out again (commit() starts the count anew) and a device lost does not grow them.
     if (deadUsed_ == deadLists_.size()) deadLists_.push_back(std::make_unique<VulkanCommandList>(*this));
-    return *deadLists_[deadUsed_++];
+    VulkanCommandList& l = *deadLists_[deadUsed_++];
+    l.queue_ = queue;  // the queue the caller asked for, so queue() says it
+    return l;
 }
 
 VulkanCommandList& VulkanDevice::prelude() {
@@ -1312,7 +1285,11 @@ void VulkanDevice::flush_prelude() {
     if (prelude_ && !prelude_->empty_) {
         VulkanCommandList* p = prelude_;
         prelude_ = nullptr;
-        execute(*p);
+        const int timerSlot = p->timerSlot_;
+        const std::uint64_t timerSerial = p->timerSerial_;
+        // The timed frame's pool is reset and its start written once this list ran: its end timestamp may follow.
+        if (execute(*p) && timerSlot >= 0 && timerSlots_[std::size_t(timerSlot)].serial == timerSerial)
+            timerSlots_[std::size_t(timerSlot)].begun = true;
     }
 }
 
@@ -1417,6 +1394,20 @@ SyncToken VulkanDevice::submit_token(CommandList& l, std::span<const QueueHandof
                        ", which is not a live resource (hint: hand over a resource that was made and not destroyed)");
                 continue;
             }
+            if (t->owner == list->queue_ && t->handed.valid() && t->handed.queue != list->queue_ &&
+                !list->useIndex_.count(t.get())) {
+                // A handoff of a resource this list does not use is not checked by check_owners: the list must still
+                // wait for the handoff that brought the resource here, or its release would race the producer.
+                const std::uint64_t w = std::max(list->waits_[int(t->handed.queue)],
+                                                 queues_[int(list->queue_)].waitFloor[int(t->handed.queue)]);
+                if (w < t->handed.value) {
+                    report(at + what + " was handed to the " + queue_name(t->owner) + " queue by token (" +
+                           queue_name(t->handed.queue) + " " + std::to_string(t->handed.value) +
+                           ") and this list did not wait for it (hint: wait_list(list, token) with the token "
+                           "submit_token() returned for that handoff, or wait_queue() before this submit)");
+                    continue;
+                }
+            }
             if (t->owner != list->queue_) {
                 report(at + what + " belongs to the " + queue_name(t->owner) + " queue, not to the " +
                        queue_name(list->queue_) +
@@ -1513,7 +1504,8 @@ std::string VulkanDevice::describe(const TrackedResource& t) {
     return s;
 }
 
-void VulkanDevice::check_owners(const VulkanCommandList& list, const std::uint64_t* waits) {
+void VulkanDevice::check_owners(const VulkanCommandList& list, const std::uint64_t* waits,
+                                std::vector<TrackedResource*>& settled) {
     if (list.internal_) return;  // the device's own lists (uploads of new resources, readbacks) run on Graphics
     for (const VulkanCommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
@@ -1531,7 +1523,8 @@ void VulkanDevice::check_owners(const VulkanCommandList& list, const std::uint64
         }
         if (!t.handed.valid()) continue;
         if (waits[int(t.handed.queue)] >= t.handed.value) {
-            t.handed = {};  // settled: the owner queue's order covers every later list
+            settled.push_back(
+                &t);  // settled once the list is submitted: the owner queue's order covers every later list
             continue;
         }
         report("gpu vulkan: submit: list '" + list.label_ + "': " + describe(t) + " was handed to the " +
@@ -1743,7 +1736,16 @@ bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> hand
     std::uint64_t waits[kQueueKinds] = {};
     for (int k = 0; k < kQueueKinds; ++k)
         if (k != int(list.queue_)) waits[k] = std::max(list.waits_[k], q.waitFloor[k]);
-    check_owners(list, waits);
+    // The acquire wait is a binary semaphore of the Graphics queue: another queue's list cannot wait for it.
+    if (swapWait_ && swapWaitImage_ && list.queue_ != QueueKind::Graphics && list.useIndex_.count(swapWaitImage_)) {
+        report("gpu vulkan: submit: list '" + list.label_ + "' runs on the " + queue_name(list.queue_) +
+               " queue but uses the swapchain image acquire_swapchain() took, which only a Graphics list can wait for "
+               "(hint: draw into the swapchain image from a Graphics list; give the other queue the resources it "
+               "produces by submit_token() and wait_list())");
+        return drop();
+    }
+    std::vector<TrackedResource*> settled;
+    check_owners(list, waits, settled);
     // The first graphics list that uses the image acquire_swapchain() took waits until the presentation engine let go
     // of it.
     const bool acquireWait =
@@ -1752,6 +1754,7 @@ bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> hand
                        signal))
         return drop();  // reported
     list.fence_ = q.value;
+    for (TrackedResource* t : settled) t->handed = {};
     if (acquireWait) {
         if (swapWaitSlot_ < acquireSemaphores_.size()) acquireSemaphores_[swapWaitSlot_].waitedAt = q.value;
         swapWait_ = VK_NULL_HANDLE;
@@ -1804,7 +1807,8 @@ bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> hand
         for (const VulkanCommandList::ScopeRef& sc : list.scopes_) {
             if (sc.slot != timerCurrent_ || sc.slot < 0) continue;
             TimerSlot& slot = timerSlots_[std::size_t(sc.slot)];
-            if (slot.serial == sc.serial && sc.scope < slot.submitted.size()) slot.submitted[sc.scope] = true;
+            if (!sc.lost && slot.serial == sc.serial && sc.scope < slot.submitted.size())
+                slot.submitted[sc.scope] = true;
         }
         list.scopes_.clear();
     }
@@ -1972,17 +1976,50 @@ void VulkanDevice::take_retired() {
 }
 
 VkFramebuffer VulkanDevice::framebuffer(VkRenderPass renderPass, const std::vector<VkImageView>& views,
-                                        const std::vector<std::uint64_t>& serials, std::uint32_t width,
+                                        const std::vector<std::uint64_t>& serials,
+                                        const std::vector<std::uint64_t>& viewIds, std::uint32_t width,
                                         std::uint32_t height, std::string& error) {
     // By the views' serials, not their handles: a new view may get the handle of a destroyed one.
     std::string key =
         std::to_string(handle_bits(renderPass)) + "|" + std::to_string(width) + "x" + std::to_string(height);
     for (std::uint64_t s : serials) key += "|" + std::to_string(s);
-    std::lock_guard<std::mutex> lock(cacheMutex_);
-    if (auto it = framebuffers_.find(key); it != framebuffers_.end()) {
-        ++framebufferHits_;
-        return it->second.framebuffer;
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        if (auto it = framebuffers_.find(key); it != framebuffers_.end()) {
+            ++framebufferHits_;
+            return it->second.framebuffer;
+        }
+        fb = make_framebuffer_locked(std::move(key), renderPass, views, serials, width, height, error);
     }
+    if (!fb) return VK_NULL_HANDLE;
+    // destroy_view removes the view first and takes the entries out of the cache after: a view that went between
+    // begin_pass's lookup and the insert above left an entry that nothing would ever take out. Looked at after the
+    // insert, so either the removal is seen here, or its forget_framebuffers runs after the insert.
+    std::uint64_t deadSerial = 0;
+    std::uint64_t deadId = 0;
+    {
+        std::lock_guard<std::mutex> lock(resMutex_);
+        for (std::size_t i = 0; i < viewIds.size() && i < serials.size(); ++i) {
+            const ViewRecord* v = views_.get(viewIds[i]);
+            if (!v || v->serial != serials[i]) {
+                deadSerial = serials[i];
+                deadId = viewIds[i];
+                break;
+            }
+        }
+    }
+    if (deadSerial == 0) return fb;
+    forget_framebuffers(deadSerial);
+    error = "view " + std::to_string(deadId) +
+            " was destroyed while the pass began (hint: destroy_view only views no thread is still drawing into)";
+    return VK_NULL_HANDLE;
+}
+
+VkFramebuffer VulkanDevice::make_framebuffer_locked(std::string key, VkRenderPass renderPass,
+                                                    const std::vector<VkImageView>& views,
+                                                    const std::vector<std::uint64_t>& serials, std::uint32_t width,
+                                                    std::uint32_t height, std::string& error) {
     VkFramebufferCreateInfo fi{};
     fi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     fi.renderPass = renderPass;
