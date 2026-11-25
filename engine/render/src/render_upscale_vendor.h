@@ -88,8 +88,8 @@ struct VendorEnv {
     // The device the provider will draw on (null in a test that only fills in the fields below): an SDK reads its native objects (the
     // Vulkan instance and physical device, the API version) to answer for this GPU.
     const gpu::Device* device = nullptr;
-    // Vulkan: the instance and device extensions the engine enabled when it made the device. M78-P2b (m78/hooks) fills them in from the
-    // creation hooks; until it lands they stay empty, so an SDK that needs an extension reports it missing.
+    // Vulkan: the instance and device extensions the creation hooks enabled when the device was made (vendor_env_of fills them from the XeSS
+    // hook's grant, render_upscale_xess.h). A test that builds the environment by hand sets them.
     std::vector<std::string> vulkanInstanceExtensions, vulkanDeviceExtensions;
 #if defined(_WIN32)
     bool windows = true;

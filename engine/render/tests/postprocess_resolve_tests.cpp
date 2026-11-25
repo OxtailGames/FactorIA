@@ -1059,7 +1059,15 @@ TEST_CASE("features: the report lists every feature with a status and the backen
     CHECK(first["kind"] == "capability");
     CHECK(first["supported"] == true);
     CHECK(first["status"] == "supported");
-    CHECK(first["backends"].size() == std::size_t(kFeatureBackendCount));
+    CHECK(first["backends"].size() == std::size_t(kFeatureBackendCount) + 2);  // the table's columns, D3D12 and Vulkan
+    // Every row says what it does on D3D12 and Vulkan (the SDK rows by their providers, the engine's own rows: not offered there yet).
+    for (const Json& f : r["features"]) {
+        INFO("row " << f["name"].get<std::string>());
+        REQUIRE(f["backends"].contains("D3D12"));
+        REQUIRE(f["backends"].contains("Vulkan"));
+        CHECK(f["backends"]["D3D12"].is_boolean());
+        CHECK(f["backends"]["Vulkan"].is_boolean());
+    }
     CHECK(first["backends"]["Headless"] == false);  // no feature ever runs on the backend without a GPU
     CHECK(first["backends"]["Metal"] == true);
     for (const Json& f : r["features"])

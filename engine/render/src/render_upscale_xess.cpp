@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <span>
 #include <utility>
@@ -62,6 +63,12 @@ void bind(VendorLibrary& lib, const char* name, Fn& fn, std::string& missing) {
     fn = reinterpret_cast<Fn>(address);  // NOLINT: the export's address
 }
 
+// Takes `name` from the library into `fn` when it is there; a library without it is not an error (the call is optional).
+template <class Fn>
+void bind_optional(VendorLibrary& lib, const char* name, Fn& fn) {
+    if (void* address = lib.symbol(name)) fn = reinterpret_cast<Fn>(address);  // NOLINT: the export's address
+}
+
 bool contains(const std::vector<std::string>& list, const std::string& name) {
     return std::find(list.begin(), list.end(), name) != list.end();
 }
@@ -74,6 +81,51 @@ std::string join(const std::vector<std::string>& names) {
 
 std::string vulkan_version_text(std::uint32_t v) {
     return std::to_string((v >> 22) & 0x7F) + "." + std::to_string((v >> 12) & 0x3FF);
+}
+
+// Vulkan structure types of the feature structs the engine's device chains (VkStructureType values), and the bytes of each one that hold
+// features: the 16-byte header (sType, pNext) and the VkBool32 members. The sizes are those of gpu/device_hooks.h's VulkanDeviceRequest.
+struct FeatureStruct {
+    std::int32_t type;
+    std::size_t bytes;
+    const char* name;
+};
+constexpr FeatureStruct kFeatureStructs[] = {
+    {1000059000, 16 + 55 * 4, "VkPhysicalDeviceFeatures2"},
+    {49, 16 + 12 * 4, "VkPhysicalDeviceVulkan11Features"},
+    {51, 16 + 47 * 4, "VkPhysicalDeviceVulkan12Features"},
+    {53, 16 + 15 * 4, "VkPhysicalDeviceVulkan13Features"},
+};
+constexpr int kMaxFeatureStructs = 16;  // a sanity bound on a chain: a longer one (or a loop) is not XeSS's
+
+// The chain the library answered (each struct begins with an int32 sType and a pointer to the next), copied struct by struct into `out`, which
+// takes the bytes of whole feature structs. A struct of a type the engine cannot copy is an error: enabling less than XeSS asked for would
+// crash it later, with no word of why.
+Result<void> copy_feature_chain(const void* chain, std::vector<std::vector<std::uint8_t>>& out) {
+    const std::uint8_t* at = static_cast<const std::uint8_t*>(chain);
+    for (int i = 0; at; ++i) {
+        if (i >= kMaxFeatureStructs)
+            return make_error("XeSS's list of required device features has more than " +
+                                  std::to_string(kMaxFeatureStructs) + " structs",
+                              "run `factoria setup xess` to install the library again");
+        struct BaseOut {  // VkBaseOutStructure
+            std::int32_t sType;
+            const void* pNext;
+        } header{};
+        std::memcpy(&header, at, sizeof header);
+        const std::int32_t type = header.sType;
+        const void* next = header.pNext;
+        const FeatureStruct* known = nullptr;
+        for (const FeatureStruct& f : kFeatureStructs)
+            if (f.type == type) known = &f;
+        if (!known)
+            return make_error("XeSS requires the Vulkan feature struct of type " + std::to_string(type) +
+                                  ", which the engine's device cannot enable yet",
+                              "run the game on Direct3D 12, or tell the engine's authors which XeSS version this is");
+        out.emplace_back(at, at + known->bytes);
+        at = static_cast<const std::uint8_t*>(next);
+    }
+    return {};
 }
 
 // What the library said to a call that went wrong, as the sentence of an error.
@@ -105,20 +157,35 @@ public:
     void release(gpu::Device& device) override;
 
 private:
+    // The library the last probe loaded: what a context made after it uses. Written by probe() and read by upscale(), under their own small
+    // lock, so a probe (render.supports from the editor or MCP) never waits for a frame that is initialising a context.
+    struct Loaded {
+        std::shared_ptr<VendorLibrary> lib;
+        XessApi api{};
+        gpu::Backend backend = gpu::Backend::Recording;
+    };
+
     // What a context was initialised for, and the GPU objects that go with it.
     struct Context {
-        const gpu::Device* device = nullptr;
+        std::uint64_t deviceGeneration =
+            0;  // gpu::Device::generation(): the address of a device made later can be the same
         gpu::Backend backend = gpu::Backend::Recording;
+        Loaded loaded;  // the library and functions this context was made with: a later probe does not change them
         abi::Context handle = nullptr;
         bool initialized = false;
         bool needReset = true;  // the next frame starts the history again (a new init, or an execute that failed)
-        int renderW = 0, renderH = 0, outW = 0, outH = 0;
+        int renderW = 0, renderH = 0, outW = 0, outH = 0;  // renderW/H: the size the last frame was drawn at
         std::int32_t quality = 0;
         std::uint32_t flags = 0;
+        // The render sizes XeSS accepts for outW x outH at `quality` (xessGetOptimalInputResolution); rangeKnown false = the library cannot say,
+        // and then only the size of the init is known to work.
+        bool rangeKnown = false;
+        abi::Size2d inputMin{0, 0}, inputMax{0, 0};
         bool warnedDriver = false;
         // The responsive pixel mask is always on, and a frame without one gets this all-zero image of the render size.
         gpu::Image emptyMask{};
         gpu::View emptyMaskView{};
+        int maskW = 0, maskH = 0;  // the size of emptyMask
         // Vulkan: the storage view of the output image (a view per output image, made when the image changes).
         gpu::Image outputImage{};
         gpu::View outputView{};
@@ -129,10 +196,13 @@ private:
     void free_helpers(gpu::Device& device);
     bool execute(gpu::Device& device, const UpscaleInput& in, VendorFrame& frame);
 
-    std::mutex mutex_;
-    std::unique_ptr<VendorLibrary> lib_;
-    XessApi api_{};
-    gpu::Backend apiBackend_ = gpu::Backend::Recording;
+    bool in_range(const UpscaleInput& in) const;
+    bool owns(const gpu::Device& device) const { return ctx_.handle && ctx_.deviceGeneration == device.generation(); }
+
+    std::mutex
+        mutex_;  // the context and the frames: held for a whole upscale() (the wait for the GPU and xessInit included)
+    std::mutex loadedMutex_;  // `loaded_` only, never held across a call into the library or the device
+    Loaded loaded_;
     Context ctx_{};
 };
 
@@ -197,9 +267,11 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
         for (const std::string& e : req->deviceExtensions)
             if (!contains(env.vulkanDeviceExtensions, e)) missing.push_back(e + " (device)");
         if (!missing.empty()) {
+            const std::string hookWhy = xess_vulkan_grant().unavailableReason;
             p.reason =
                 "XeSS on Vulkan needs these extensions enabled, and the engine's Vulkan device does not enable them: " +
-                join(missing) + ". Run the game on Direct3D 12, where XeSS needs none.";
+                join(missing) + (hookWhy.empty() ? std::string() : " (" + hookWhy + ")") +
+                ". Run the game on Direct3D 12, where XeSS needs none.";
             return p;
         }
         if (nd.apiVersion != 0 && req->minApiVersion != 0 && nd.apiVersion < req->minApiVersion) {
@@ -209,43 +281,64 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
             return p;
         }
     }
-    // The library is kept for the frames; one that a live context uses stays (its functions are the ones the context was made with).
+    // The library is kept for the contexts made after this probe (one a live context uses keeps the one it was made with). Only the small
+    // lock of the library is taken: a frame that is initialising a context holds the other one, and a probe never waits for it.
     {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!ctx_.handle) {
-            lib_ = std::move(lib);
-            api_ = api;
-            apiBackend_ = env.backend;
-        }
+        std::lock_guard<std::mutex> lock(loadedMutex_);
+        loaded_.lib = std::move(lib);
+        loaded_.api = api;
+        loaded_.backend = env.backend;
     }
+    FA_INFO("render", "XeSS {} is available on {} ({}).", version_text(version), vendor_backend_label(env.backend),
+            fa::fs::path_to_utf8(found));
     p.available = true;
     return p;
 }
 
-// Makes (or keeps) the context of `device` for this frame's sizes, quality and flags. "" or the sentence of what failed.
+bool XessProvider::in_range(const UpscaleInput& in) const {
+    if (!ctx_.initialized) return false;
+    if (!ctx_.rangeKnown) return in.renderW == ctx_.renderW && in.renderH == ctx_.renderH;
+    return std::uint32_t(in.renderW) >= ctx_.inputMin.x && std::uint32_t(in.renderW) <= ctx_.inputMax.x &&
+           std::uint32_t(in.renderH) >= ctx_.inputMin.y && std::uint32_t(in.renderH) <= ctx_.inputMax.y;
+}
+
+// Makes (or keeps) the context of `device` for this frame's output, quality and flags. The context is initialised again only when one of
+// those changes, or when the render size is out of what it accepts (a dynamic resolution that moves inside the range costs nothing).
+// "" or the sentence of what failed.
 std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput& in, std::int32_t quality,
                                          std::uint32_t flags) {
     const gpu::Backend backend = device.backend();
-    if (ctx_.handle && ctx_.device != &device) {
+    if (ctx_.handle && !owns(device)) {
         // A context of another device: that device was destroyed without release(), and the context with it.
-        api_.destroyContext(ctx_.handle);
+        if (ctx_.loaded.api.destroyContext) ctx_.loaded.api.destroyContext(ctx_.handle);
         ctx_ = Context{};
     }
     const gpu::NativeDevice nd = device.native();
     if (!ctx_.handle) {
+        Loaded loaded;
+        {
+            std::lock_guard<std::mutex> lock(loadedMutex_);
+            loaded = loaded_;
+        }
+        if (!loaded.lib || !loaded.api.getVersion)
+            return "XeSS was not found by its probe (its library is not loaded).";
+        if (backend != loaded.backend)
+            return "XeSS was loaded for " + std::string(vendor_backend_label(loaded.backend)) + " and this device is " +
+                   vendor_backend_label(backend) + ".";
+        const XessApi& api = loaded.api;
         abi::Context handle = nullptr;
         std::int32_t rc = abi::kResultSuccess;
         const char* fn = "xessD3D12CreateContext";
         switch (backend) {
-            case gpu::Backend::D3d12: rc = api_.d3d12Create(const_cast<void*>(nd.device), &handle); break;
+            case gpu::Backend::D3d12: rc = api.d3d12Create(const_cast<void*>(nd.device), &handle); break;
             case gpu::Backend::D3d11:
                 fn = "xessD3D11CreateContext";
-                rc = api_.d3d11Create(const_cast<void*>(nd.device), &handle);
+                rc = api.d3d11Create(const_cast<void*>(nd.device), &handle);
                 break;
             case gpu::Backend::Vulkan:
                 fn = "xessVKCreateContext";
-                rc = api_.vkCreate(const_cast<void*>(nd.instance), const_cast<void*>(nd.physicalDevice),
-                                   const_cast<void*>(nd.device), &handle);
+                rc = api.vkCreate(const_cast<void*>(nd.instance), const_cast<void*>(nd.physicalDevice),
+                                  const_cast<void*>(nd.device), &handle);
                 break;
             default:
                 return "XeSS runs on D3D12, Vulkan and D3D11; this device is " +
@@ -254,8 +347,9 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
         if (rc < 0 || !handle) return "XeSS could not make its context: " + call_failed(fn, rc) + ".";
         ctx_ = Context{};
         ctx_.handle = handle;
-        ctx_.device = &device;
+        ctx_.deviceGeneration = device.generation();
         ctx_.backend = backend;
+        ctx_.loaded = std::move(loaded);
         if (rc == abi::kResultWarningOldDriver) {
             ctx_.warnedDriver = true;
             FA_WARN("render", "XeSS: the installed GPU driver is older than XeSS likes: the picture may be slower or "
@@ -263,9 +357,22 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
                               "Hint: update the GPU driver.");
         }
     }
-    const bool same = ctx_.initialized && ctx_.renderW == in.renderW && ctx_.renderH == in.renderH &&
-                      ctx_.outW == in.outW && ctx_.outH == in.outH && ctx_.quality == quality && ctx_.flags == flags;
-    if (same) return {};
+    const XessApi& api = ctx_.loaded.api;
+    const bool sameSettings = ctx_.initialized && ctx_.outW == in.outW && ctx_.outH == in.outH &&
+                              ctx_.quality == quality && ctx_.flags == flags;
+    // Without a range from the library, only the size of the init is known to work. With one, a size outside it cannot be helped by
+    // initialising again at the same quality: the frame goes on and XeSS answers for it.
+    if (sameSettings && (ctx_.rangeKnown || (in.renderW == ctx_.renderW && in.renderH == ctx_.renderH))) {
+        if (in.renderW != ctx_.renderW || in.renderH != ctx_.renderH) {
+            // A step of the dynamic resolution: the motion scale follows the render size, the history is kept.
+            api.setVelocityScale(ctx_.handle, float(in.renderW), float(in.renderH));
+            ctx_.renderW = in.renderW;
+            ctx_.renderH = in.renderH;
+            // The empty mask is as large as the first render size it served: a larger one needs a larger mask.
+            if (ctx_.emptyMask.valid() && (in.renderW > ctx_.maskW || in.renderH > ctx_.maskH)) free_helpers(device);
+        }
+        return {};
+    }
     // The GPU must be done with the context before it is initialised again (the frames in flight use its resources).
     if (ctx_.initialized) {
         if (const Result<void> idle = device.wait_idle(); !idle)
@@ -280,7 +387,7 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
             p.outputResolution = output;
             p.quality = quality;
             p.initFlags = flags;
-            rc = api_.d3d12Init(ctx_.handle, &p);
+            rc = api.d3d12Init(ctx_.handle, &p);
             break;
         }
         case gpu::Backend::D3d11: {
@@ -289,7 +396,7 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
             p.quality = quality;
             p.initFlags = flags;
             fn = "xessD3D11Init";
-            rc = api_.d3d11Init(ctx_.handle, &p);
+            rc = api.d3d11Init(ctx_.handle, &p);
             break;
         }
         default: {
@@ -298,7 +405,7 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
             p.quality = quality;
             p.initFlags = flags;
             fn = "xessVKInit";
-            rc = api_.vkInit(ctx_.handle, &p);
+            rc = api.vkInit(ctx_.handle, &p);
             break;
         }
     }
@@ -313,9 +420,23 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
                           "than it can be. "
                           "Hint: update the GPU driver.");
     }
-    // The motion image is in UV units (the picture is 1 wide): XeSS reads pixels.
-    api_.setVelocityScale(ctx_.handle, float(in.renderW), float(in.renderH));
-    if (ctx_.renderW != in.renderW || ctx_.renderH != in.renderH) free_helpers(device);
+    // The motion image is in UV units (the picture is 1 wide): XeSS reads pixels. The sign of the motion (previous minus current, the way
+    // the temporal upscaler and MetalFX read it) and the jitter (render pixels, the engine's own sign) are passed as they are: whether
+    // XeSS wants the opposite is for a run on a GPU to show (docs/UPSCALING_VENDORS.md, "Hardware check list").
+    api.setVelocityScale(ctx_.handle, float(in.renderW), float(in.renderH));
+    free_helpers(device);  // the empty mask is of the render size
+    // The render sizes this output and quality accept: a dynamic resolution inside them does not initialise the context again.
+    ctx_.rangeKnown = false;
+    ctx_.inputMin = ctx_.inputMax = abi::Size2d{0, 0};
+    if (api.getOptimalInputResolution) {
+        abi::Size2d optimal{0, 0}, lo{0, 0}, hi{0, 0};
+        if (api.getOptimalInputResolution(ctx_.handle, &output, quality, &optimal, &lo, &hi) >= 0 && lo.x > 0 &&
+            lo.y > 0 && hi.x >= lo.x && hi.y >= lo.y) {
+            ctx_.rangeKnown = true;
+            ctx_.inputMin = lo;
+            ctx_.inputMax = hi;
+        }
+    }
     ctx_.initialized = true;
     ctx_.needReset = true;
     ctx_.renderW = in.renderW;
@@ -338,6 +459,8 @@ std::string XessProvider::ensure_helpers(gpu::Device& device, const VendorFrame&
         d.label = "xess-empty-responsive-mask";
         d.data.mipLevels[0] = gpu::Range{zeros.data(), zeros.size()};
         ctx_.emptyMask = device.make_image(d);
+        ctx_.maskW = in.renderW;
+        ctx_.maskH = in.renderH;
         if (!ctx_.emptyMask.valid() || device.state(ctx_.emptyMask) != gpu::ResourceState::Valid) {
             if (ctx_.emptyMask.valid()) device.destroy_image(ctx_.emptyMask);
             ctx_.emptyMask = {};
@@ -376,6 +499,7 @@ void XessProvider::free_helpers(gpu::Device& device) {
     if (ctx_.outputView.valid()) device.destroy_view(ctx_.outputView);
     ctx_.emptyMaskView = {};
     ctx_.emptyMask = {};
+    ctx_.maskW = ctx_.maskH = 0;
     ctx_.outputView = {};
     ctx_.outputImage = {};
 }
@@ -383,20 +507,11 @@ void XessProvider::free_helpers(gpu::Device& device) {
 bool XessProvider::upscale(const UpscaleInput& in, VendorFrame& frame) {
     std::lock_guard<std::mutex> lock(mutex_);
     frame.error.clear();
-    if (!lib_ || !api_.getVersion) {
-        frame.error = "XeSS was not found by its probe (its library is not loaded).";
-        return false;
-    }
     if (!frame.device || !frame.list) {
         frame.error = "XeSS was given no device or no command list.";
         return false;
     }
     gpu::Device& device = *frame.device;
-    if (device.backend() != apiBackend_) {
-        frame.error = "XeSS was loaded for " + std::string(vendor_backend_label(apiBackend_)) + " and this device is " +
-                      vendor_backend_label(device.backend()) + ".";
-        return false;
-    }
     if (!frame.color.valid() || !frame.output.valid() || !frame.depth.valid() || !frame.velocity.valid()) {
         frame.error = "XeSS needs the colour, depth, velocity and output images of the frame (the frame has no " +
                       std::string(!frame.color.valid()      ? "colour"
@@ -413,10 +528,18 @@ bool XessProvider::upscale(const UpscaleInput& in, VendorFrame& frame) {
         return false;
     }
     const float ratio = std::max(float(in.outW) / float(in.renderW), float(in.outH) / float(in.renderH));
-    const bool sameDevice = ctx_.handle && ctx_.device == &device;
-    const std::int32_t quality = xess_quality_for_ratio(ratio, sameDevice ? ctx_.quality : 0);
     // Linear light above 1 (a float scene without a final pass) is XeSS's own tone-mapped input; display values are its LDR input.
     const std::uint32_t flags = abi::kInitResponsivePixelMask | (in.linear ? 0u : abi::kInitLdrInputColor);
+    // The setting in use is kept while the render size is inside what XeSS accepts at that setting (a dynamic resolution moves inside the
+    // range at no cost, whatever the ratio says); outside it, or with no range from the library, it is kept while the ratio stays near it,
+    // and else the nearest setting is taken.
+    const bool sameContext = owns(device) && ctx_.initialized;
+    const bool sameOutput = sameContext && ctx_.outW == in.outW && ctx_.outH == in.outH && ctx_.flags == flags;
+    std::int32_t quality;
+    if (sameOutput && ctx_.rangeKnown)
+        quality = in_range(in) ? ctx_.quality : xess_quality_for_ratio(ratio, 0);
+    else
+        quality = xess_quality_for_ratio(ratio, sameContext ? ctx_.quality : 0);
     if (std::string e = ensure_context(device, in, quality, flags); !e.empty()) {
         frame.error = std::move(e);
         return false;
@@ -432,6 +555,7 @@ bool XessProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFr
     const gpu::Backend backend = device.backend();
     const gpu::Image mask = frame.reactive.valid() ? frame.reactive : ctx_.emptyMask;
     // Every image the SDK touches, in the state it reads or writes it in; the engine puts them there before the native section.
+    const XessApi& api = ctx_.loaded.api;
     gpu::NativeUse uses[5];
     uses[0].image = frame.color;
     uses[0].state = gpu::NativeState::ShaderRead;
@@ -531,14 +655,14 @@ bool XessProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFr
     const char* fn = "xessD3D12Execute";
     void* const list = const_cast<void*>(native->list);
     switch (backend) {
-        case gpu::Backend::D3d12: rc = api_.d3d12Execute(ctx_.handle, list, &d3d12); break;
+        case gpu::Backend::D3d12: rc = api.d3d12Execute(ctx_.handle, list, &d3d12); break;
         case gpu::Backend::D3d11:
             fn = "xessD3D11Execute";
-            rc = api_.d3d11Execute(ctx_.handle, &d3d11);
+            rc = api.d3d11Execute(ctx_.handle, &d3d11);
             break;
         default:
             fn = "xessVKExecute";
-            rc = api_.vkExecute(ctx_.handle, list, &vk);
+            rc = api.vkExecute(ctx_.handle, list, &vk);
             break;
     }
     // The section is closed whatever XeSS answered: the images are left in the states they were declared in.
@@ -559,11 +683,11 @@ bool XessProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFr
 
 void XessProvider::release(gpu::Device& device) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (ctx_.device != &device) return;  // it never drew on this device
+    if (!owns(device)) return;  // it never drew on this device
     if (ctx_.handle) {
         // The GPU may still be running the last frame with the context: wait, then destroy.
         if (const Result<void> idle = device.wait_idle(); !idle) FA_WARN("render", "XeSS: {}", idle.error().message);
-        if (api_.destroyContext) api_.destroyContext(ctx_.handle);
+        if (ctx_.loaded.api.destroyContext) ctx_.loaded.api.destroyContext(ctx_.handle);
     }
     free_helpers(device);
     ctx_ = Context{};
@@ -581,6 +705,7 @@ std::string xess_load_api(VendorLibrary& lib, gpu::Backend backend, XessApi& api
     bind(lib, "xessGetVersion", a.getVersion, missing);
     bind(lib, "xessDestroyContext", a.destroyContext, missing);
     bind(lib, "xessSetVelocityScale", a.setVelocityScale, missing);
+    bind_optional(lib, "xessGetOptimalInputResolution", a.getOptimalInputResolution);
     switch (backend) {
         case gpu::Backend::D3d12:
             bind(lib, "xessD3D12CreateContext", a.d3d12Create, missing);
@@ -595,6 +720,7 @@ std::string xess_load_api(VendorLibrary& lib, gpu::Backend backend, XessApi& api
         case gpu::Backend::Vulkan:
             bind(lib, "xessVKGetRequiredInstanceExtensions", a.vkInstanceExtensions, missing);
             bind(lib, "xessVKGetRequiredDeviceExtensions", a.vkDeviceExtensions, missing);
+            bind_optional(lib, "xessVKGetRequiredDeviceFeatures", a.vkDeviceFeatures);
             bind(lib, "xessVKCreateContext", a.vkCreate, missing);
             bind(lib, "xessVKInit", a.vkInit, missing);
             bind(lib, "xessVKExecute", a.vkExecute, missing);
@@ -627,6 +753,13 @@ Result<XessVulkanRequirements> xess_vulkan_requirements(const XessApi& api, void
                               "run `factoria setup xess` to install the library again");
         for (std::uint32_t i = 0; names && i < std::min(count, kMaxNames); ++i)
             if (names[i]) out.deviceExtensions.emplace_back(names[i]);
+        if (api.vkDeviceFeatures) {
+            void* chain = nullptr;
+            if (const std::int32_t rc = api.vkDeviceFeatures(instance, physicalDevice, &chain); rc < 0)
+                return make_error(call_failed("xessVKGetRequiredDeviceFeatures", rc),
+                                  "run `factoria setup xess` to install the library again");
+            if (Result<void> copied = copy_feature_chain(chain, out.features); !copied) return copied.error();
+        }
     }
     return out;
 }
@@ -643,6 +776,88 @@ Result<XessVulkanRequirements> xess_vulkan_requirements(void* instance, void* ph
     if (const std::string missing = xess_load_api(*lib, gpu::Backend::Vulkan, api); !missing.empty())
         return make_error("XeSS's library " + lib->path() + " has no export " + missing, "run `factoria setup xess`");
     return xess_vulkan_requirements(api, instance, physicalDevice);
+}
+
+namespace {
+std::mutex g_hook_mutex;
+std::shared_ptr<XessDeviceHook> g_process_hook;
+}  // namespace
+
+void XessDeviceHook::vulkan_instance_request(gpu::VulkanInstanceRequest& request) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    granted_ = XessVulkanGrant{};
+    askedInstance_.clear();
+    askedDevice_.clear();
+    installed_ = false;
+    // The library is looked for here, before the instance exists: where XeSS is not installed nothing is asked and the probe says so.
+    const Result<XessVulkanRequirements> req = xess_vulkan_requirements();
+    if (!req) return;
+    installed_ = true;
+    request.extensions = req->instanceExtensions;
+    askedInstance_ = req->instanceExtensions;
+}
+
+void XessDeviceHook::vulkan_device_request(const gpu::VulkanPhysicalDevice& physical,
+                                           gpu::VulkanDeviceRequest& request) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const Result<XessVulkanRequirements> req =
+        xess_vulkan_requirements(const_cast<void*>(physical.instance), const_cast<void*>(physical.physicalDevice));
+    if (!req) {
+        // Not installed (nothing was asked of the instance either): the probe says so. Installed but unreadable: this hook is off here.
+        if (installed_)
+            mark_unavailable("XeSS could not say what it needs of " + physical.name + ": " + req.error().message);
+        return;
+    }
+    request.extensions = req->deviceExtensions;
+    askedDevice_ = req->deviceExtensions;
+    for (const std::vector<std::uint8_t>& f : req->features) {
+        request.featureMembers.resize(request.features.size(), 0);
+        request.features.push_back(f);  // a struct the engine knows is read member by member: no member count
+        request.featureMembers.push_back(0);
+    }
+}
+
+void XessDeviceHook::vulkan_device_created(const gpu::VulkanDeviceCreated&) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    granted_.instanceExtensions = askedInstance_;
+    granted_.deviceExtensions = askedDevice_;
+}
+
+void XessDeviceHook::device_destroying() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    granted_ = XessVulkanGrant{};
+}
+
+XessVulkanGrant XessDeviceHook::grant() const {
+    XessVulkanGrant out;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        out = granted_;
+    }
+    if (!available()) {
+        out.instanceExtensions.clear();
+        out.deviceExtensions.clear();
+        out.unavailableReason = unavailable_reason();
+    }
+    return out;
+}
+
+std::shared_ptr<XessDeviceHook> make_xess_device_hook() { return std::make_shared<XessDeviceHook>(); }
+
+void register_xess_device_hook() {
+    std::lock_guard<std::mutex> lock(g_hook_mutex);
+    if (g_process_hook) return;
+    g_process_hook = make_xess_device_hook();
+    gpu::register_device_hook(g_process_hook);
+}
+
+XessVulkanGrant xess_vulkan_grant() {
+    std::shared_ptr<XessDeviceHook> hook;
+    {
+        std::lock_guard<std::mutex> lock(g_hook_mutex);
+        hook = g_process_hook;
+    }
+    return hook ? hook->grant() : XessVulkanGrant{};
 }
 
 float xess_quality_ratio(std::int32_t setting) {

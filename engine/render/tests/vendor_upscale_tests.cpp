@@ -195,6 +195,20 @@ TEST_CASE("vendor providers: without a device the GPU maker is none, with the Re
     CHECK(env.backend == gpu::Backend::Recording);
     CHECK(env.vendor == GpuVendor::None);
     CHECK(env.device == &recording);
+    // No device at all: the environment a probe is given before a renderer has opened one knows no maker, and no backend it runs on.
+    const VendorEnv none{};
+    CHECK(none.vendor == GpuVendor::None);
+    CHECK(none.device == nullptr);
+    CHECK(none.vulkanInstanceExtensions.empty());
+    CHECK(none.vulkanDeviceExtensions.empty());
+    // A GPU that gave no name and no PCI id is "some other maker" (the NVIDIA and Intel SDKs are not for it), never none or NVIDIA.
+    CHECK(render::gpu_vendor_from_identity(gpu::GpuIdentity{}) == GpuVendor::None);
+    gpu::GpuIdentity unknownPci;
+    unknownPci.vendorId = 0xFFFF;
+    CHECK(render::gpu_vendor_from_identity(unknownPci) == GpuVendor::Other);
+    gpu::GpuIdentity nvidia;
+    nvidia.vendorId = 0x10DE;
+    CHECK(render::gpu_vendor_from_identity(nvidia) == GpuVendor::Nvidia);
     // The PCI vendor id to maker mapping is tested with a device that has one (xess_upscale_tests.cpp).
 }
 
@@ -312,6 +326,7 @@ TEST_CASE("vendor renderer: a usable provider is handed the jittered frame and i
     CHECK(fake.lastHadDevice);
     CHECK(fake.lastOutW == kOutW);
     CHECK(fake.lastRenderW == kOutW / 2);
+    CHECK(RendererTestAccess::mfx_images(own.r) == 2);  // depth and motion are kept while the provider draws
     CHECK(own.r.effective_upscaler_mode() == UpscalerMode::Xess);
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Xess));
     CHECK_FALSE(RendererTestAccess::vendor_failed(own.r, 1));
@@ -346,6 +361,8 @@ TEST_CASE(
     // The next best of the chain: the temporal upscaler, or MetalFX on a Mac that has it (it is first in the chain).
     const UpscalerMode next = own.r.effective_upscaler_mode();
     CHECK((next == UpscalerMode::Temporal || next == UpscalerMode::MetalFx));
+    // Its preparation images are given back after the failure (MetalFX, where the Mac has it, keeps them for its own use).
+    if (next != UpscalerMode::MetalFx) CHECK(RendererTestAccess::mfx_images(own.r) == 0);
     CHECK(RendererTestAccess::upscale_impl(own.r) ==
           int(next == UpscalerMode::MetalFx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
     CHECK_FALSE(own.r.upscaler_caps().fsr);
