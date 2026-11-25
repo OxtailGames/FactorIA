@@ -394,7 +394,7 @@ struct Hook {
 // ---- the ABI --------------------------------------------------------------------------------------------------------------------------
 
 TEST_CASE("xess frame generation: the declared C ABI has the SDK's sizes") {
-    if (sizeof(void*) != 8) return;  // the structs are the 64-bit ones
+    if constexpr (sizeof(void*) != 8) return;  // the structs are the 64-bit ones
     CHECK(sizeof(fg::Version) == 8);
     CHECK(sizeof(fg::Dim2) == 8);
     CHECK(sizeof(fg::FrameConstants) == 152);
@@ -538,7 +538,7 @@ TEST_CASE("xess frame generation: probe reasons") {
 
 TEST_CASE("xess frame generation: the swapchain is made from XeLL, the context, XeLL told to it, and the window's "
           "description") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     h.device_created();
@@ -573,7 +573,7 @@ TEST_CASE("xess frame generation: the swapchain is made from XeLL, the context, 
 
 TEST_CASE(
     "xess frame generation: the hook makes no swapchain where it cannot, and says why only when something broke") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     {  // not an Intel GPU: the engine makes its own swapchain, nothing of Intel is touched
         Hook h;
@@ -630,7 +630,7 @@ TEST_CASE(
 }
 
 TEST_CASE("xess frame generation: a failing SDK call gives everything back, XeSS-FG before XeLL, and names the call") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     struct Case {
         const char* what;
         std::int32_t FgFx::* field;
@@ -662,7 +662,7 @@ TEST_CASE("xess frame generation: a failing SDK call gives everything back, XeSS
 }
 
 TEST_CASE("xess frame generation: a swapchain made again destroys the context before, and keeps XeLL's") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     h.device_created();
@@ -692,7 +692,7 @@ TEST_CASE("xess frame generation: a swapchain made again destroys the context be
 
 TEST_CASE("xess frame generation: start needs the swapchain of this device; configure sets XeLL's sleep mode before it "
           "enables") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     XDevice dev(gpu::Backend::D3d12, 0x8086);
@@ -733,7 +733,7 @@ TEST_CASE("xess frame generation: start needs the swapchain of this device; conf
 }
 
 TEST_CASE("xess frame generation: a sleep mode that cannot be set, or an enable that fails, keeps it off for the run") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     {
         Rig rig;
         Hook h;
@@ -811,7 +811,7 @@ struct FrameRig {
 
 TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, only now), the constants and the XeLL "
           "frame id") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     FrameRig r;
     // The XeLL controller's last sleep names the present that will show the frame.
     r.rig.xell->sleep(41);  // (a no-op without a context of its own: the sleep mode was set by XeSS frame generation)
@@ -863,7 +863,7 @@ TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, on
 
 TEST_CASE(
     "xess frame generation: the present id of the tag is the one the present sets, XeLL's frame id when it has one") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     FrameRig r;
     // Without a XeLL frame id (no controller gave one yet) the id is the count of presents plus one.
     gpu::PresentEvent e;
@@ -883,7 +883,7 @@ TEST_CASE(
 }
 
 TEST_CASE("xess frame generation: the generated frames are what the swapchain says it presented") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     FrameRig r;
     CHECK(r.h.p->generated_frames() == 0);
     gpu::PresentEvent e;
@@ -909,7 +909,7 @@ TEST_CASE("xess frame generation: the generated frames are what the swapchain sa
 
 TEST_CASE("xess frame generation: a negative result of one or a few presents is tolerated, five in a row turn it off "
           "for the run") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     FrameRig r;
     gpu::PresentEvent e;
     e.frame = 1;
@@ -940,7 +940,7 @@ TEST_CASE("xess frame generation: a negative result of one or a few presents is 
 TEST_CASE("xess frame generation: the tag, the present id and XeLL's frame id are the same after a stop, a restart and "
           "XeLL's ids "
           "going back") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     {
         FrameRig r;
         gpu::PresentEvent e;
@@ -1008,7 +1008,7 @@ TEST_CASE("xess frame generation: the tag, the present id and XeLL's frame id ar
 
 TEST_CASE("xess frame generation: generation the controller asked for is back on after the window's swapchain was made "
           "again") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     FrameRig r;  // started, configure(true) done: generation is on
     CHECK(fgfx.enables.size() == 1);
     CHECK(r.h.p->dispatch(r.f));
@@ -1047,7 +1047,7 @@ TEST_CASE("xess frame generation: generation the controller asked for is back on
 // Threads: the probe (the editor's thread) and the hook (the render thread) both load libxess_fg. The fake loader runs the probe on a second
 // thread in the middle of the hook's own load, the two sides of the race in a fixed order: the hook's library must still be the one used.
 TEST_CASE("xess frame generation: a probe that loads the library while the hook does leaves one working library") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     XDevice dev(gpu::Backend::D3d12, 0x8086);
@@ -1073,7 +1073,7 @@ TEST_CASE("xess frame generation: a probe that loads the library while the hook 
 }
 
 TEST_CASE("xess frame generation: a destroy that fails is logged, and the provider goes on") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     h.device_created();
@@ -1090,7 +1090,7 @@ TEST_CASE("xess frame generation: a destroy that fails is logged, and the provid
 
 TEST_CASE(
     "xess frame generation: a frame the SDK refuses is a failure for the run; one the engine cannot give is not") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     {  // no native resource for an image: this frame only
         FrameRig r;
         r.dev.noResources = true;
@@ -1136,7 +1136,7 @@ TEST_CASE(
 // ---- the controller -------------------------------------------------------------------------------------------------------------------
 
 TEST_CASE("xess frame generation: the controller starts it, and a failure while it runs turns it off for the run") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     // The provider the table holds: the one a renderer gets.
     render::FrameGenProvider* p = render::framegen_provider(FrameGenSlot::Xess);
@@ -1202,7 +1202,7 @@ TEST_CASE("xess frame generation: the controller starts it, and a failure while 
 // ---- XeLL -----------------------------------------------------------------------------------------------------------------------------
 
 TEST_CASE("xess frame generation: XeLL runs with it whatever render.latency says, and one context serves both") {
-    if (sizeof(void*) != 8) return;
+    if constexpr (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
     h.device_created();
