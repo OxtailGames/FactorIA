@@ -83,8 +83,8 @@ confirm.
   Direct3D 12, not Windows, the SDK or XeLL not installed (`factoria setup xess`), a driver too old for the swapchain API, or a failure
   earlier in this run. A call of the SDK that fails while the game runs is logged once with its name and result, and XeSS frame generation
   stays off until the game restarts (it never fails the device).
-- **Known limit.** The game's mode is not told to the swapchain hook: on an Intel GPU with both libraries installed, a game started with
-  any mode other than `off` gets XeSS-FG's swapchain, also when the mode was `dlss` or `fsr` (which an Intel GPU refuses anyway).
+- **Which games get its swapchain.** Only a game started with `xess`, or with `auto` on an Intel GPU; `dlss` and `fsr` leave the window's
+  swapchain to their own providers.
 
 ## The minimum base frame rate
 
