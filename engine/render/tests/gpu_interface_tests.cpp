@@ -4,28 +4,28 @@
 
 #include <algorithm>
 #include <atomic>
+#include <climits>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <system_error>
-#include <climits>
 #include <initializer_list>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/platform/app.h"
+#include "fullscreen_gpu.h"
 #include "gpu/d3d12_device.h"
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
-#include "fa/platform/app.h"
 #include "gpu/sokol_context.h"
 #include "gpu/sokol_device.h"
 #include "gpu/sokol_shaders.h"
-#include "fullscreen_gpu.h"
 #include "gpu_types.h"
-#include "render_internal.h"
 #include "render_features.h"
+#include "render_internal.h"
 #include "shaders/blit.glsl.h"
 #include "test_util.h"
 #include "ui_painter_internal.h"
@@ -1649,6 +1649,11 @@ TEST_CASE("make_triangle_pipeline: the full-screen pipeline takes the format of 
 
 // The 2D painter (render/ui_painter.h) on a RecordingDevice: the order of the calls of a frame, without a GPU.
 TEST_CASE("UiPainter: a frame is a pipeline, bindings per texture change, and a scissor and a draw per command") {
+    auto& g = fa::test::gfx();  // the painter's shader comes from the open context's generated descs
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the painter's shader desc needs the open context");
+        return;
+    }
     RecordingDevice dev;
     Scene s(dev);
     std::string error;

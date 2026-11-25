@@ -246,8 +246,10 @@ void Gpu::submit_in_order(std::span<gpu::CommandList* const> lists) {
     list_ = &device_->begin_commands("frame");
 }
 
-gpu::CommandList& Gpu::begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses) {
+gpu::CommandList& Gpu::begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses,
+                                           std::uint64_t guard) {
     FA_ASSERT(device_ && list_ && asyncCompute_, "Gpu::begin_async_compute() without async compute");
+    wait_compute_for({guard});  // the same guard as the frame graph's: an earlier list may still own `uses`
     std::vector<gpu::QueueHandoff> to(uses.begin(), uses.end());
     for (gpu::QueueHandoff& h : to) h.to = gpu::QueueKind::Compute;
     const gpu::SyncToken handed = device_->submit_token(*list_, to);

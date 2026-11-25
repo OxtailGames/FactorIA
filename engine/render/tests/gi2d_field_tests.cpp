@@ -811,3 +811,52 @@ TEST_CASE("gi2d system: images are destroyed on the device that made them, and r
     CHECK(a.errors().empty());
     CHECK(b.errors().empty());
 }
+
+TEST_CASE("gi2d field: the emission and occluder vertices are written before their pass opens, never inside it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);  // the built-in shaders follow the open context's dialect, even on a RecordingDevice
+    // The renderer on a RecordingDevice: the stream shows the order of the calls (write_buffer inside a pass would
+    // break acquire_transient's Metal pacing copy, which cannot run in one).
+    Renderer r;
+    RendererDesc d;
+    d.designWidth = 320;
+    d.designHeight = 180;
+    d.sampleCount = 1;
+    d.headless = true;
+    d.backend = GpuBackend::Recording;
+    std::string error;
+    REQUIRE_MESSAGE(r.init(d, g.gpu.environment(), &error), error);
+    auto* dev = dynamic_cast<gpu::RecordingDevice*>(&renderer_gpu(r)->device());
+    REQUIRE(dev != nullptr);
+    World w;
+    content_world(w);
+    r.begin_frame();
+    r.render_world(w, 0.0f);
+    r.end_frame();
+    const std::vector<gpu::RecordedCommand> stream = dev->commands();
+    int passes = 0;
+    for (std::size_t i = 0; i < stream.size(); ++i) {
+        if (stream[i].kind != gpu::CommandKind::BeginPass) continue;
+        const bool emission = stream[i].text.find("gi2d-emission") != std::string::npos;
+        const bool occluder = stream[i].text.find("gi2d-occluder") != std::string::npos;
+        if (!emission && !occluder) continue;
+        ++passes;
+        // Inside the pass: draws, and no upload.
+        std::size_t end = i + 1;
+        int draws = 0;
+        for (; end < stream.size() && stream[end].kind != gpu::CommandKind::EndPass; ++end) {
+            CHECK_MESSAGE(stream[end].kind != gpu::CommandKind::WriteBuffer, "an upload inside " << stream[i].text);
+            draws += stream[end].kind == gpu::CommandKind::Draw ? 1 : 0;
+        }
+        CHECK_MESSAGE(draws > 0, stream[i].text << " draws nothing: the scene has emitters and occluders");
+        // Before it: the vertices, written after the previous pass closed.
+        bool written = false;
+        for (std::size_t k = i; k-- > 0 && stream[k].kind != gpu::CommandKind::EndPass;)
+            written = written || stream[k].kind == gpu::CommandKind::WriteBuffer;
+        CHECK_MESSAGE(written, "no write_buffer between the previous pass and " << stream[i].text);
+    }
+    CHECK(passes == 2);
+    CHECK(dev->errors().empty());
+    if (!dev->errors().empty()) MESSAGE(dev->errors().front());
+    r.shutdown();
+}

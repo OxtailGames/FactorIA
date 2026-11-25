@@ -456,7 +456,10 @@ void UiPainter::draw(const GfxSwapchain& swapchain, const UiFrame& frame) {
     gpu::Device& device = *impl_->device;
     const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
     // The device's defaults: on a sokol device the context's, the ones Renderer::begin_window_pass makes the window pass
-    // with, so the pipeline's formats match that pass.
+    // with, so the pipeline's formats match that pass. The painter never reads context_defaults() itself: on a D3D12 or
+    // Vulkan renderer (create(Renderer&) hands the painter that device) the window pass is the device's own swapchain
+    // pass, so the device's defaults are the right ones even when a sokol context is also open in the process (the
+    // context describes the sokol window, not this device's).
     const gpu::PassDesc pass = gpu::PassDesc::for_swapchain(sc, device.environment_defaults());
     gpu::CommandList& list = device.begin_commands("ui draw");
     impl_->draw(list, pass.format, frame);

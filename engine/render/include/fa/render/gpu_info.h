@@ -40,8 +40,7 @@ struct GpuInfo {
 // Case-insensitive; "other" when nothing is known and the name is not empty.
 void classify_gpu(GpuInfo& info, std::string_view vendorString = {});
 
-// The GPU the renderer is on: Renderer::gpu_info() (fa/render/renderer.h).
-
+// What run_gpu_benchmark measured: the fixed scene's frame time on this GPU.
 struct GpuBenchmark {
     bool ran = false;      // false: nothing was drawn (no GPU, a software renderer, a failed capture); `why` says
     std::string why;       // set when !ran

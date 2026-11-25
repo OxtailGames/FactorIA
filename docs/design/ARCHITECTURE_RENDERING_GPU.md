@@ -28,7 +28,8 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
   and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build). `make_device` makes
   the built sokol backend, Recording, D3D12 (Windows; with the engine's pipeline cache file) and Vulkan (where
   `FA_RENDER_VULKAN` is on, with the `DeviceInit` it was given and the engine's Vulkan pipeline cache file);
-  `device_backend_compiled(b)` says which this binary can make, and every other request is a teaching error that names the backend to ask for instead.
+  `device_backend_compiled(b)` says which this binary can make, and every other request is a teaching error that names
+  the backend to ask for instead.
 - `gpu/sokol_device.h` holds `SokolDevice`, its immediate `SokolCommandList`, and the `to_sg` / `from_sg`
   conversions the call sites use while they move over.
 - M77-P1 (this page's first version) lands the interface and its implementations only: `Gpu` does not own a
@@ -442,25 +443,25 @@ refuses is warned once per size.
 platform (`WindowPresenter::Platform`: sokol_app's own, or the D3D11 presenter above) or by a GPU device
 (`WindowPresenter::Device`). `window_presenter_step` (window_presenter.cpp, pure, tested on every platform in
 window_presenter_tests.cpp) is the state machine app.cpp acts on: `app_gfx_environment()` asks for the platform's
-(refused, logged once, while a device holds the window), `app_claim_native_window(backend)` hands the native handles
-to a device (refused when the window is busy: an OpenGL or GLES window, whose buffers sokol_app swaps; when a graphics
+(refused, logged once, while a device holds the window), `app_claim_native_window(backend)` hands the native handles to
+a device (refused when the window is busy: an OpenGL or GLES window, whose buffers sokol_app swaps; when a graphics
 context draws with the platform's swapchain; when another device holds it) and on Windows releases an idle D3D11
 presenter, and `app_release_native_window()` gives it back. While a device holds it `app_gfx_swapchain()` is invalid,
 `app_gfx_formats()` gives the window's formats without a device, `app_set_vsync` is false (the present mode is the
-swapchain's, set from `RendererDesc::vsync` at start), HDR output is blocked with a reason (`hdrOutput`: "not
-available on the <backend> backend yet") and `swapchain_format` is empty. The runner (runners.cpp) works out
-`choose_gpu_backend` before it opens anything: on D3D12 or Vulkan with a window that is not busy it makes neither the
-sokol context nor the platform swapchain, and `Engine::init` claims the window, starts the renderer on it and releases
-the claim after `Renderer::shutdown`. `start_gpu_backend` (fa/runtime/gpu_backend_choice.h) is the fallback rule, in
-process, windowed and headless alike: the backend asked for, then `Default` when that one is not the context's
-backend, keeping the first error for the warning and `startup_report`'s `gpu.backendFallback`; on the fallback the
-engine makes the platform's swapchain itself. Before that fallback `start_gpu_backend` calls `EngineConfig::gpuBackendFailed`
-(windowed runs): the Vulkan player of Linux and Android replaces its process with the OpenGL player there (P9e2), so the in-process
-fallback never hides a Vulkan failure from it; it runs only when the callback is empty or returns. A claim refused because the
-window cannot take a swapchain at all gives a reason that starts with `kGpuWindowPathReason` (`gpu_window_path_reason`), which the
-marker's warning in the OpenGL player reads (`is_gpu_window_path_reason`). `EngineConfig::gpuStartFault` makes a backend fail in tests
-(gpu_backend_tests.cpp), and renderer_backend_tests.cpp draws D3D12 and Vulkan into a real window (an HWND, a
-CAMetalLayer on MoltenVK).
+swapchain's, set from `RendererDesc::vsync` at start), HDR output is blocked with a reason (`hdrOutput`: "not available
+on the <backend> backend yet") and `swapchain_format` is empty. The runner (runners.cpp) works out `choose_gpu_backend`
+before it opens anything: on D3D12 or Vulkan with a window that is not busy it makes neither the sokol context nor the
+platform swapchain, and `Engine::init` claims the window, starts the renderer on it and releases the claim after
+`Renderer::shutdown`. `start_gpu_backend` (fa/runtime/gpu_backend_choice.h) is the fallback rule, in process, windowed
+and headless alike: the backend asked for, then `Default` when that one is not the context's backend, keeping the first
+error for the warning and `startup_report`'s `gpu.backendFallback`; on the fallback the engine makes the platform's
+swapchain itself. Before that fallback `start_gpu_backend` calls `EngineConfig::gpuBackendFailed` (windowed runs): the
+Vulkan player of Linux and Android replaces its process with the OpenGL player there (P9e2), so the in-process fallback
+never hides a Vulkan failure from it; it runs only when the callback is empty or returns. A claim refused because the
+window cannot take a swapchain at all gives a reason that starts with `kGpuWindowPathReason` (`gpu_window_path_reason`),
+which the marker's warning in the OpenGL player reads (`is_gpu_window_path_reason`). `EngineConfig::gpuStartFault` makes
+a backend fail in tests (gpu_backend_tests.cpp), and renderer_backend_tests.cpp draws D3D12 and Vulkan into a real
+window (an HWND, a CAMetalLayer on MoltenVK).
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
@@ -471,15 +472,16 @@ and the web. `ON` / `OFF` override it (the macOS CI job builds its tests with `O
 the player that ships). It needs `FA_VULKAN_BACKEND`. `renderer_backend_tests.cpp` draws a 2D and a 3D frame on
 Vulkan and on the platform's sokol backend and compares them within the golden limits.
 
-**The Vulkan player** (`FA_PLAYER_VULKAN`, on by default on Linux and Android where `FA_VULKAN_BACKEND` is on; ON on macOS
-only as a build check): `factoria_player_vulkan` (`libfactoria_player_vulkan.so` on Android), next to the OpenGL
-`factoria_player`, which keeps no SPIR-V. Where `FA_RENDER_VULKAN` is off, `fa_render_vulkan` (an OBJECT library) compiles
-again, with `FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV`, the `fa_render` sources that read either macro, directly or through a private header or a generated shader header (the list is worked out
-at configure time by a grep of the sources), and the variant links those objects before `libfa_render.a`, so the linker
-takes them and not the archive's members of the same sources. Where `FA_RENDER_VULKAN` is on, `fa_render_vulkan` is an
-empty INTERFACE library and both players are the same build. The variant defines `FA_PLAYER_VULKAN_VARIANT`
-(player/main.cpp): its `auto` is Vulkan, and it decides before the window whether it draws or hands over to the OpenGL
-player (`decide_gpu_launch`, fa/runtime/gpu_launch.h; docs/RENDERING.md, "Two players on Linux and Android").
+**The Vulkan player** (`FA_PLAYER_VULKAN`, on by default on Linux and Android where `FA_VULKAN_BACKEND` is on; ON on
+macOS only as a build check): `factoria_player_vulkan` (`libfactoria_player_vulkan.so` on Android), next to the OpenGL
+`factoria_player`, which keeps no SPIR-V. Where `FA_RENDER_VULKAN` is off, `fa_render_vulkan` (an OBJECT library)
+compiles again, with `FA_RENDER_VULKAN=1 FA_SHADERS_SPIRV`, the `fa_render` sources that read either macro, directly or
+through a private header or a generated shader header (the list is worked out at configure time by a grep of the
+sources), and the variant links those objects before `libfa_render.a`, so the linker takes them and not the archive's
+members of the same sources. Where `FA_RENDER_VULKAN` is on, `fa_render_vulkan` is an empty INTERFACE library and both
+players are the same build. The variant defines `FA_PLAYER_VULKAN_VARIANT` (player/main.cpp): its `auto` is Vulkan, and
+it decides before the window whether it draws or hands over to the OpenGL player (`decide_gpu_launch`,
+fa/runtime/gpu_launch.h; docs/RENDERING.md, "Two players on Linux and Android").
 `fa_check_not_linked(factoria_player_vulkan fa_authoring)` keeps the tools out of it, and its link map is
 `player/factoria_player_vulkan.map`.
 
