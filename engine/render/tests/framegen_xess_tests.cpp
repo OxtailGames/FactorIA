@@ -517,11 +517,11 @@ TEST_CASE("xess frame generation: probe reasons") {
     CHECK_FALSE(p->wants_reversed_depth());
     CHECK(p->device_hook() != nullptr);
     // The hook takes part only for the modes that can run XeSS-FG: a game started with dlss or fsr keeps its swapchain for them.
-    CHECK(p->device_hook_for(FrameGenMode::Xess) != nullptr);
-    CHECK(p->device_hook_for(FrameGenMode::Auto) != nullptr);
-    CHECK(p->device_hook_for(FrameGenMode::Dlss) == nullptr);
-    CHECK(p->device_hook_for(FrameGenMode::Fsr) == nullptr);
-    CHECK(p->device_hook_for(FrameGenMode::Off) == nullptr);
+    CHECK(p->device_hook_for(render::FrameGenMode::Xess) != nullptr);
+    CHECK(p->device_hook_for(render::FrameGenMode::Auto) != nullptr);
+    CHECK(p->device_hook_for(render::FrameGenMode::Dlss) == nullptr);
+    CHECK(p->device_hook_for(render::FrameGenMode::Fsr) == nullptr);
+    CHECK(p->device_hook_for(render::FrameGenMode::Off) == nullptr);
     CHECK(p->failure().empty());
 }
 
