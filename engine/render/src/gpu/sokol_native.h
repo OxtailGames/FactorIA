@@ -54,8 +54,9 @@ void native_d3d11_clear_state(Device& device);
 // image has one per frame in flight). Nothing on the other backends, on a 3D image or on an image that is not Valid.
 void native_finish_image(Device& device, Image image, int mipmaps);
 // Who the GPU of the open sokol context is (gpu_info.cpp; DeviceInfo::gpu): D3D11 the DXGI adapter's PCI ids and
-// LUID (and the IDXGIAdapter* in `adapter`: the reference GetAdapter gave, kept until native_release_adapter()), OpenGL the vendor GL_VENDOR and
-// GL_RENDERER name (deviceId 0: GL has no PCI id), Metal Apple or the vendor the device name says (deviceId 0).
+// LUID (and the IDXGIAdapter* in `adapter`: the reference GetAdapter gave, kept until native_release_adapter()),
+// OpenGL the vendor GL_VENDOR and GL_RENDERER name (deviceId 0: GL has no PCI id), Metal Apple or the vendor the
+// device name says (deviceId 0).
 // `native` is the device's sokol_native_device(). Called once, by the SokolDevice constructor.
 GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, const void** adapter);
 // Drops the adapter reference native_gpu_identity kept (the SokolDevice destructor; null is fine; nothing off D3D11).
