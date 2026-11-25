@@ -15,6 +15,7 @@
 #include <cstdlib>
 
 #include "export_internal.h"
+#include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
@@ -79,7 +80,7 @@ Result<AppImagePlan> plan_appimage(const ExportOptions& o, const Project& p, con
     const AppImageTools tools = installed_appimage_tools(ctx);
     if (tools.tool.empty())
         return err("export: appimagetool and the AppImage runtime are not installed (" +
-                       (stdfs::path(ctx.home_dir()) / "tools" / "appimage").string() + ")",
+                       fs::path_to_utf8(fs::path_from_utf8(ctx.home_dir()) / "tools" / "appimage") + ")",
                    "Run `factoria setup appimage` (the setup.install command with component appimage; about 16 MB from "
                    "github.com/AppImage, SHA-256 checked), then export again.");
     AppImagePlan plan;

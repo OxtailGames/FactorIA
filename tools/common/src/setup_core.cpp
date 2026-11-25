@@ -277,7 +277,7 @@ bool is_dir(const stdfs::path& p) {
 // ---- the install bookkeeping ---------------------------------------------------------------------------------------
 
 Installer::Installer(const SetupContext& context, std::string component)
-    : ctx(context), staging_(stdfs::path(context.home_dir()) / "staging" / component),
+    : ctx(context), staging_(fs::path_from_utf8(context.home_dir()) / "staging" / component),
       start_(std::chrono::steady_clock::now()) {
     report.component = std::move(component);
 }
