@@ -25,8 +25,8 @@ namespace fa::render {
 // The value of a mode is its index in kLatencyModeNames.
 enum class LatencyMode : std::int32_t { Off, Auto, Reflex, AntiLag2, Xell };
 inline constexpr int kLatencyModeCount = 5;
-inline constexpr std::array<std::string_view, kLatencyModeCount> kLatencyModeNames = {"off", "auto", "reflex", "antilag2",
-                                                                                      "xell"};
+inline constexpr std::array<std::string_view, kLatencyModeCount> kLatencyModeNames = {"off", "auto", "reflex",
+                                                                                      "antilag2", "xell"};
 
 struct LatencySettings {
     LatencyMode mode = LatencyMode::Off;
@@ -45,7 +45,7 @@ constexpr std::string_view latency_mode_name(LatencyMode m) {
 enum class LatencyDriver : std::int32_t { None, Pacing, Reflex, AntiLag2, Xell };
 inline constexpr int kLatencyDriverCount = 5;
 inline constexpr std::array<std::string_view, kLatencyDriverCount> kLatencyDriverNames = {"none", "pacing", "reflex",
-                                                                                         "antilag2", "xell"};
+                                                                                          "antilag2", "xell"};
 constexpr std::string_view latency_driver_name(LatencyDriver d) {
     const int i = int(d);
     return (i >= 0 && i < kLatencyDriverCount) ? kLatencyDriverNames[std::size_t(i)] : std::string_view("none");
@@ -70,7 +70,8 @@ std::string_view latency_marker_name(LatencyMarker m);
 // What this machine can run, when the effective path is decided.
 struct LatencyCaps {
     GpuVendor gpuVendor = GpuVendor::None;
-    bool pacing = false;  // a window to pace: the engine's own pacing can run (not in a headless run, not in the editor)
+    bool pacing =
+        false;  // a window to pace: the engine's own pacing can run (not in a headless run, not in the editor)
     bool reflex = false;  // the providers' answers (usable: installed, this GPU and backend suit it, none failed)
     bool antiLag2 = false;
     bool xell = false;

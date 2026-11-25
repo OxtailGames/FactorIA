@@ -154,9 +154,10 @@ private:
     double frameStartMs_ = 0;    // the end of the sleep (the frame's start)
     bool frameStarted_ = false;  // frame_begin ran and the frame has not presented yet
     double presentEndMs_ = -1;   // the end of the last present
-    double busyMs_ = 0;          // the engine's own pacing: the work of a frame, sleep end to present start (follows a rise at once)
+    double busyMs_ =
+        0;  // the engine's own pacing: the work of a frame, sleep end to present start (follows a rise at once)
     bool haveBusy_ = false;
-    double lastFrameMs_ = -1;    // input to present of the last frame, until taken
+    double lastFrameMs_ = -1;  // input to present of the last frame, until taken
     double lastShownMs_ = 0;
     double ring_[kWindow]{};
     int ringCount_ = 0, ringHead_ = 0;

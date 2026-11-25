@@ -35,7 +35,9 @@ void Renderer::set_latency(const render::LatencySettings& settings) {
     impl_->latency.set_settings(settings);
 }
 
-const render::LatencySettings& Renderer::latency() const { return initialized() ? impl_->latency.settings() : no_latency(); }
+const render::LatencySettings& Renderer::latency() const {
+    return initialized() ? impl_->latency.settings() : no_latency();
+}
 
 render::LatencyDriver Renderer::effective_latency() const {
     return initialized() ? impl_->latency.driver() : render::LatencyDriver::None;
@@ -84,9 +86,10 @@ Json Renderer::latency_status() {
             if (driver == render::LatencyDriver::Pacing)
                 reason += (reason.empty() ? "" : " ") + std::string("The engine's own pacing runs instead.");
             else if (driver == render::LatencyDriver::None)
-                reason += (reason.empty() ? "" : " ") +
-                          std::string("Nothing paces the loop: the engine's own pacing needs a window that is presented to "
-                                      "(not a headless run, not the editor).");
+                reason +=
+                    (reason.empty() ? "" : " ") +
+                    std::string("Nothing paces the loop: the engine's own pacing needs a window that is presented to "
+                                "(not a headless run, not the editor).");
         }
     }
     j["reason"] = reason;

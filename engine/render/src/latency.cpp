@@ -74,8 +74,9 @@ Result<LatencySettings> parse_latency_settings(const Json& j, std::string_view w
     }
     if (auto it = j.find("boost"); it != j.end()) {
         if (!it->is_boolean())
-            return make_error(std::string(where) + "/boost: expected true or false, got " + describe_json_value(*it),
-                              "boost keeps the GPU clocks up while the game waits (NVIDIA Reflex and Intel XeLL); it costs power.");
+            return make_error(
+                std::string(where) + "/boost: expected true or false, got " + describe_json_value(*it),
+                "boost keeps the GPU clocks up while the game waits (NVIDIA Reflex and Intel XeLL); it costs power.");
         s.boost = it->get<bool>();
     }
     return s;
