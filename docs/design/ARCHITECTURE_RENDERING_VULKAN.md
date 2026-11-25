@@ -411,11 +411,13 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   submitted after it that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A
   `PassDesc::for_swapchain` pass (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image,
   resolved into the acquired one at `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
-- **Pre-rotation (a known limit).** The swapchain's `preTransform` is the surface's `currentTransform`, so the
-  presentation engine does no rotation of its own (the cheap path on Android); the application must then draw
-  pre-rotated, and nothing does yet: on a device whose display is rotated against the surface's native orientation
-  (Android, `currentTransform` ROTATE_90 or ROTATE_270) the picture comes out turned by that angle.
-  `swapchain_pre_rotation_degrees()` says how far (0 elsewhere) and a nonzero value is warned once.
+- **No pre-rotation.** The renderer draws upright, so the swapchain's `preTransform` is IDENTITY wherever the surface
+  offers it and the presentation engine turns the picture as the display is turned (M77-P9e3b: on Android, with
+  `currentTransform` ROTATE_90 or ROTATE_270, SurfaceFlinger rotates it as it does OpenGL ES's frames; a composition
+  pass a pre-rotating renderer would save). Android's loader then answers `VK_SUBOPTIMAL_KHR` at every present; while
+  the surface's `currentExtent` is still the swapchain's size that answer keeps the swapchain (a new size still makes
+  it again). Only a surface without IDENTITY gets its `currentTransform`, and the picture comes out turned:
+  `swapchain_pre_rotation_degrees()` says how far and a nonzero value is warned once.
   Only the lists of the graphics queue wait for the acquire semaphore: another queue's list that uses the acquired
   image is reported and not submitted. HDR10 (`Rgb10A2`) also sets its mastering metadata (`vkSetHdrMetadataEXT`:
   Rec. 2020 primaries, D65, 1000 nits) where `VK_EXT_hdr_metadata` exists. The MSAA colour image is a plain device

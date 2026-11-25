@@ -444,7 +444,7 @@ platform (`WindowPresenter::Platform`: sokol_app's own, or the D3D11 presenter a
 (`WindowPresenter::Device`). `window_presenter_step` (window_presenter.cpp, pure, tested on every platform in
 window_presenter_tests.cpp) is the state machine app.cpp acts on: `app_gfx_environment()` asks for the platform's
 (refused, logged once, while a device holds the window), `app_claim_native_window(backend)` hands the native handles
-to a device (refused when the window is busy: an Android, Linux EGL or web window, whose buffers sokol_app swaps;
+to a device (refused when the window is busy: a Linux EGL or web window, whose buffers sokol_app swaps;
 when a graphics context draws with the platform's swapchain; when another device holds it) and on Windows releases an
 idle D3D11 presenter, and `app_release_native_window()` gives it back. While a device holds it `app_gfx_swapchain()` is invalid,
 `app_gfx_formats()` gives the window's formats without a device, `app_set_vsync` is false (the present mode is the
@@ -474,13 +474,36 @@ turns into the fallback. `app_release_native_window` and app.cpp's cleanup (a ru
 window) call `fa_sapp_gl_surface_restore`: a new GLXWindow on the same X11 window, the context current on it, the swap
 and the swap interval back, the pbuffer destroyed. sokol_app reads the X11 window size every frame either way, so a
 resize reaches `app_framebuffer_width` and the device's `resize_swapchain`. A build whose sokol_app uses EGL on Linux
-(`SOKOL_FORCE_EGL`, GLES3) keeps its window busy and the release refuses with that reason; Android's EGL surface is
-M77-P9e3b. Tests, Linux only under xvfb: `platform_windowed_gl_handover` (gl_surface_handover_tests_linux.cpp: claim,
+(`SOKOL_FORCE_EGL`, GLES3) keeps its window busy and the release refuses with that reason. Tests, Linux only under xvfb: `platform_windowed_gl_handover` (gl_surface_handover_tests_linux.cpp: claim,
 resize, release, GL draws red again, a claim refused while sokol_gfx draws, quit while claimed),
 `runtime_windowed_vulkan` and `runtime_windowed_vulkan_fallback` (windowed_vulkan_tests_linux.cpp: the game on
 lavapipe, presented into the window, a resize, vsync refused, a red corner read back from the X server; and a
 `gpuStartFault` after the claim, which gives the window back to GL in the same process). The Vulkan one passes with a
 message on a machine without a Vulkan driver unless `FA_VULKAN_REQUIRE=1`, as the Linux CI job sets.
+
+**The OpenGL surface leaves an Android window** (M77-P9e3b, egl_surface_handover.h/.c, sokol_impl.c): the same release
+and restore on sokol_app's EGL window surface. The logic is plain C over a table of EGL calls, so
+egl_surface_handover_tests.cpp drives it with a fake EGL on every host; on Android sokol_impl.c renames sokol_app's
+`eglCreateWindowSurface`, `eglDestroySurface`, `eglMakeCurrent`, `eglSwapBuffers` and `eglQuerySurface` to wrappers
+over it, which are the real calls outside a release. The release makes the context current on a stand-in (a 1x1
+pbuffer when the window's EGLConfig has `EGL_PBUFFER_BIT`, else "no drawable" with `EGL_KHR_surfaceless_context`: a
+token sokol_app holds as its surface, which the wrappers turn into `EGL_NO_SURFACE`) and destroys the window surface;
+while released, sokol_app's swap of the stand-in does nothing and its per-frame size query answers the
+ANativeWindow's size, so its frames and resize events go on. An Android window does not live as long as the app:
+sokol_app destroys its surface in `onNativeWindowDestroyed` (the main thread waits for its loop thread) and makes one
+on the next window. While released, the destruction of the stand-in first calls the window listener with null
+(`app_set_native_window_listener`, set by `Engine::init` after the renderer started on a claimed window), so
+`Renderer::set_native_window(nullptr)` destroys the Vulkan swapchain and surface while the window still exists; the
+next window gets a new stand-in instead of an EGL window surface and the listener hears it, and `Renderer::present`
+makes the swapchain on it at that frame's size (with no window, `present` ends the frame unshown). The restore makes
+an EGL window surface on the window the device had (with sokol_app's sRGB attributes), or nothing when the activity has
+no window then. Every call is on sokol_app's loop thread, which is the frame thread: no locks. A Vulkan
+`VK_ERROR_SURFACE_LOST_KHR` at an acquire or a present destroys the swapchain too, and the next `present` makes it
+again on the window it had. A Vulkan failure in an Android window falls back in process to OpenGL ES (the surface is
+back on the window); GlActivity is only the hand-over before the window. Both activities are `singleTask` with the
+app's affinity, so a start from Home after a hand-over puts a new Vulkan activity on top of GlActivity in the same task:
+player/main.cpp asks `android_gl_activity_in_task` (the task's base activity, through `ActivityManager.getAppTasks`)
+first and starts GlActivity again at once (its `onNewIntent`, the same game), with no Vulkan probe and no second game.
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every

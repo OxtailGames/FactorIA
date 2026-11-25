@@ -582,8 +582,11 @@ struct RendererTestWindow {
 };
 
 // A renderer on `backend` that draws into `window` (RendererDesc::nativeWindow), two frames presented, and no present
-// error logged. "" = it ran; else why it could not start (the caller decides whether that is a skip).
-[[maybe_unused]] std::string draw_into_native_window(GpuBackend backend, const RendererTestWindow& window) {
+// error logged. With `windowGoes`, the window then goes (Renderer::set_native_window(nullptr): the swapchain is
+// destroyed, a frame ends unshown) and comes back (the next present makes the swapchain again), as an Android window
+// does. "" = it ran; else why it could not start (the caller decides whether that is a skip).
+[[maybe_unused]] std::string draw_into_native_window(GpuBackend backend, const RendererTestWindow& window,
+                                                     bool windowGoes = false) {
     Renderer r;
     RendererDesc d;
     d.designWidth = kW;
@@ -598,12 +601,24 @@ struct RendererTestWindow {
     CHECK(dev->has_swapchain());
     const std::uint64_t seq = log_last_seq();
     Scene2D s;
-    for (int frame = 0; frame < 2; ++frame) {
+    auto frame = [&] {
         r.update(s.world);
         r.begin_frame();
         r.render_world(s.world, 0.0f);
         r.end_frame();
         r.present(GfxSwapchain{}, kW, kH, ScaleMode::Fit);  // the device acquires its own image: no platform views
+    };
+    frame();
+    frame();
+    if (windowGoes) {
+        r.set_native_window(nullptr);
+        CHECK_FALSE(dev->has_swapchain());
+        frame();  // no window: drawn, not shown
+        CHECK_FALSE(dev->has_swapchain());
+        r.set_native_window(window.window);
+        frame();
+        CHECK(dev->has_swapchain());
+        frame();
     }
     for (const LogEntry& e : recent_logs(200, LogLevel::Error, seq))
         CHECK_MESSAGE(!has(e.message, "Renderer::present"), e.message);
@@ -625,7 +640,7 @@ TEST_CASE("renderer: D3D12 and Vulkan draw into the native window RendererDesc h
     }
 #if defined(FA_RENDER_VULKAN)
     {
-        const std::string why = draw_into_native_window(GpuBackend::Vulkan, window);
+        const std::string why = draw_into_native_window(GpuBackend::Vulkan, window, true);
         if (!why.empty()) {
             if (cannot_run_vulkan_here(why) && !vulkan_required())
                 MESSAGE("no Vulkan here (" << why << "): the Vulkan window was not checked");

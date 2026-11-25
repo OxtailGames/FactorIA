@@ -63,6 +63,11 @@ Result<void> exec_gl_player(const std::filesystem::path& glPlayer, const std::ve
 // ":gl") with the marker as intent extras when `fromBackend` is not empty, and finishes this one. `nativeActivity` is the
 // ANativeActivity of the Vulkan player.
 Result<void> android_start_gl_activity(void* nativeActivity, const std::string& fromBackend, const std::string& reason);
+// Android, in the Vulkan activity: true when the OpenGL activity is the root of this activity's task, i.e. it holds the
+// game and the user came back from Home (the launcher is singleTask, so Android starts a new Vulkan activity on top of
+// the OpenGL one). The caller then brings the OpenGL activity back without probing Vulkan again. False when that cannot
+// be read (no exception leaves it).
+bool android_gl_activity_in_task(void* nativeActivity);
 // Android, in the OpenGL activity: copies the marker extras of the intent that started it into the environment, where
 // choose_gpu_backend reads them. Does nothing when the intent has none.
 void android_take_gpu_fallback_extras(void* nativeActivity);

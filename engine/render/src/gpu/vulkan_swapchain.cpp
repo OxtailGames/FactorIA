@@ -405,21 +405,26 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     ci.imageArrayLayers = 1;
     ci.imageUsage = usage;
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    // The surface's own transform: the presentation engine then does no rotation (a compositor rotation costs power
-    // on Android). The swapchain does not pre-rotate its drawing: on a device whose display is rotated against its
-    // native orientation (Android, currentTransform ROTATE_90 or ROTATE_270) the image comes out turned until the
-    // renderer draws pre-rotated; swapchain_pre_rotation_degrees() says by how much, and a warning is logged once.
-    ci.preTransform = caps.currentTransform;
-    swapPreRotation_ = caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR    ? 90
-                       : caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ? 180
-                       : caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ? 270
-                                                                                          : 0;
+    // The renderer does not draw pre-rotated, so the swapchain's images are upright: IDENTITY wherever the surface
+    // offers it, and the presentation engine turns them as the display is turned (on Android, with currentTransform
+    // ROTATE_90 or ROTATE_270, SurfaceFlinger rotates them as it does OpenGL ES's: a composition pass, where a renderer
+    // that draws pre-rotated would save it). currentExtent is then the upright size. A surface without IDENTITY keeps
+    // its currentTransform, and the picture comes out turned (warned once).
+    const VkSurfaceTransformFlagBitsKHR transform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                                                        ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                                                        : caps.currentTransform;
+    ci.preTransform = transform;
+    swapPresenterRotates_ = transform != caps.currentTransform;
+    swapPreRotation_ = transform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR    ? 90
+                       : transform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ? 180
+                       : transform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ? 270
+                                                                              : 0;
     if (swapPreRotation_ != 0 && !swapRotationWarned_) {
         swapRotationWarned_ = true;
         FA_WARN("render",
-                "gpu vulkan: the window's surface is rotated {} degrees against the display's orientation and the "
-                "swapchain does not pre-rotate its drawing, so the picture appears rotated (a renderer that draws "
-                "pre-rotated reads swapchain_pre_rotation_degrees())",
+                "gpu vulkan: the window's surface offers no IDENTITY transform and is rotated {} degrees against the "
+                "display's orientation; the swapchain does not pre-rotate its drawing, so the picture appears rotated "
+                "(a renderer that draws pre-rotated reads swapchain_pre_rotation_degrees())",
                 swapPreRotation_);
     }
     ci.compositeAlpha = alpha;
@@ -438,7 +443,13 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
                        r == VK_ERROR_NATIVE_WINDOW_IN_USE_KHR
                            ? "the window holds another API's swapchain already (OpenGL, D3D11 or sokol_app's own)"
                            : "the validation layer (VulkanOptions::validation) says which field is wrong");
+#if !defined(__ANDROID__)
+    // Not on Android: there the swapchain is the platform loader's object (libvulkan.so implements VK_KHR_swapchain over
+    // the driver), and vkSetDebugUtilsObjectNameEXT reaches the driver with a handle that is not its own: Mesa's
+    // vk_common_SetDebugUtilsObjectNameEXT (the emulator's driver) frees a name it reads from it and aborts the process.
+    // Its images are the driver's own and keep their names below.
     set_name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, handle_bits(swapchain_), swapLabel_.c_str());
+#endif
     swapUsage_ = usage;
     swapStale_ = false;
     {
@@ -749,12 +760,20 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
                               "skip this frame (draw nothing) and acquire again next frame; the window may be hidden "
                               "on a display that stopped presenting");
         }
+        if (r == VK_ERROR_SURFACE_LOST_KHR) {
+            // The window went under the swapchain (nothing was signalled): it and its surface go now, so the caller
+            // makes them again on the window it has (Renderer::present does, on the window it was last given).
+            const Error lost = vk_fail(where, "vkAcquireNextImageKHR", r,
+                                       "the window was destroyed: its swapchain is destroyed too; create_swapchain() "
+                                       "on the new one");
+            destroy_swapchain();
+            return lost;
+        }
         if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
             return vk_fail(where, "vkAcquireNextImageKHR", r,
-                           r == VK_ERROR_SURFACE_LOST_KHR
-                               ? "the window was destroyed: destroy_swapchain(), then create_swapchain() on the new one"
-                               : "the device was lost: run with VulkanOptions::validation for the cause");
-        if (r == VK_SUBOPTIMAL_KHR) swapStale_ = true;  // drawn and shown, then made again at the next acquire
+                           "the device was lost: run with VulkanOptions::validation for the cause");
+        // Drawn and shown, then made again at the next acquire (not for the rotation the presentation engine does).
+        if (r == VK_SUBOPTIMAL_KHR && !suboptimal_only_by_rotation()) swapStale_ = true;
         acquireNext_ = (slot + 1) % acquireSemaphores_.size();
         std::shared_ptr<TrackedResource> tracked;
         {
@@ -860,15 +879,24 @@ Result<void> VulkanDevice::present() {
         return make_error(where + ": the barrier to PRESENT_SRC could not be submitted", "see errors() for the cause");
     }
     // Out of date or suboptimal (the window changed): shown or not, the swapchain is made again at the next acquire.
+    // Android's loader answers suboptimal at every present while the presentation engine rotates (preTransform
+    // IDENTITY against a rotated currentTransform): that one alone keeps the swapchain.
+    if (r == VK_SUBOPTIMAL_KHR && suboptimal_only_by_rotation()) return {};
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
         swapStale_ = true;
         return {};
     }
+    if (r == VK_ERROR_SURFACE_LOST_KHR) {
+        // As at the acquire: the swapchain and its surface go now (destroy_swapchain waits for the GPU first).
+        const Error lost = vk_fail(where, "vkQueuePresentKHR", r,
+                                   "the window was destroyed: its swapchain is destroyed too; create_swapchain() on "
+                                   "the new one");
+        destroy_swapchain();
+        return lost;
+    }
     if (r != VK_SUCCESS)
         return vk_fail(where, "vkQueuePresentKHR", r,
-                       r == VK_ERROR_SURFACE_LOST_KHR
-                           ? "the window was destroyed: destroy_swapchain(), then create_swapchain() on the new one"
-                           : "the device was lost: run with VulkanOptions::validation for the cause");
+                       "the device was lost: run with VulkanOptions::validation for the cause");
     return {};
 }
 
@@ -892,6 +920,7 @@ void VulkanDevice::destroy_swapchain() {
         surfaceFormatsKnown_ = false;
     }
     swapPreRotation_ = 0;
+    swapPresenterRotates_ = false;
     std::lock_guard<std::mutex> lock(swapMutex_);
     swapWidth_ = swapHeight_ = 0;
     swapSamples_ = 1;
@@ -916,6 +945,15 @@ int VulkanDevice::swapchain_image_count() const {
 VkPresentModeKHR VulkanDevice::swapchain_present_mode() const { return swapPresentMode_; }
 std::uint64_t VulkanDevice::swapchain_recreations() const { return swapRecreations_; }
 int VulkanDevice::swapchain_pre_rotation_degrees() const { return swapPreRotation_; }
+
+bool VulkanDevice::suboptimal_only_by_rotation() {
+    if (!swapPresenterRotates_ || !surface_) return false;
+    VkSurfaceCapabilitiesKHR caps{};
+    if (fn_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps) != VK_SUCCESS) return false;
+    if (caps.currentExtent.width == 0xFFFFFFFFu) return true;  // the swapchain sets the size: nothing else changed
+    std::lock_guard<std::mutex> lock(swapMutex_);
+    return int(caps.currentExtent.width) == swapWidth_ && int(caps.currentExtent.height) == swapHeight_;
+}
 void VulkanDevice::mark_swapchain_out_of_date_for_tests() { swapStale_ = true; }
 
 }  // namespace fa::gpu::vk

@@ -365,8 +365,8 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 - `d3d12` and `vulkan` draw into the game window with a swapchain of their own (M77-P9e1): the engine takes the window's native
   handle from the platform, which then makes no swapchain of its own (a window holds one). On Windows that is the player itself
   (it carries Direct3D 11, Direct3D 12 and Vulkan); on macOS `vulkan` presents through MoltenVK in a build that has it; on Linux
-  `vulkan` takes the X11 window from OpenGL, which waits off screen and draws there again if Vulkan fails to start. On
-  Android the window is an OpenGL ES one, which cannot take a Vulkan swapchain yet, so it falls back as below. A headless run
+  `vulkan` takes the X11 window from OpenGL, which waits off screen and draws there again if Vulkan fails to start, and on
+  Android it takes the window from OpenGL ES the same way. A headless run
   (`factoria call`, `factoria test`, the MCP server, tests) draws offscreen on the one asked for. The editor draws the game into
   its own view with the `auto` backend.
 - When the backend asked for cannot start (no driver, no such GPU, a window that cannot take its swapchain), the engine falls back
@@ -384,8 +384,7 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 
 ### Two players on Linux and Android
 
-The OpenGL player keeps no Vulkan backend and no SPIR-V (it stays small), and on Android one process cannot go from Vulkan back to
-OpenGL ES (sokol_app owns the window's OpenGL ES surface), so the player comes in two variants:
+The OpenGL player keeps no Vulkan backend and no SPIR-V (it stays small), so the player comes in two variants:
 `factoria_player` (`libfactoria_player.so` on Android), the OpenGL one, and `factoria_player_vulkan` (`libfactoria_player_vulkan.so`),
 the same player whose renderer also has the engine's Vulkan backend and the SPIR-V of the built-in shaders. An export ships both
 (`export.linux.vulkanPlayer` and `export.android.vulkanPlayer`, on by default; `false` ships only the OpenGL player:
@@ -408,15 +407,21 @@ the same player whose renderer also has the engine's Vulkan backend and the SPIR
   same arguments and environment). Without `<exe>-gl` next to it, or when that fails, it warns and draws with its own sokol (OpenGL)
   backend.
 - **Android.** The launcher activity loads `libfactoria_player_vulkan.so`. To hand over it starts `factoria.engine.GlActivity`, which
-  loads `libfactoria_player.so` in its own process (`:gl`), and finishes itself. A window whose Vulkan surface cannot start draws with
-  the player's own OpenGL ES 3 backend in the same process.
-- **Today.** On Linux the Vulkan player draws the game window with Vulkan (M77-P9e3a: the window's OpenGL surface waits off screen),
-  and hands over only when Vulkan fails in it. The Android window keeps its OpenGL ES surface, which cannot take a Vulkan swapchain
-  yet (M77-P9e3b), so a game in a window there is always drawn with OpenGL ES in the end, by GlActivity or by the Vulkan player's own
-  OpenGL ES 3 backend. The reason the Vulkan player hands over with then is `the window path is not available on this platform yet (...)`, and the
-  warning of the OpenGL player says that the window cannot take the backend yet, not that a driver or an install would bring Vulkan
-  back (it says that only for a Vulkan that cannot start). The probe before the window is separate: a machine with no Vulkan driver
-  hands over before any window opens.
+  loads `libfactoria_player.so` in its own process (`:gl`), and finishes itself. That happens only before the window (step 1): a
+  Vulkan start that fails in the window (no surface, no swapchain) draws with the player's own OpenGL ES 3 backend in the same
+  process, since the window's OpenGL ES surface is back on it by then (below). Back from Home after a hand-over, Android starts a
+  new launcher activity on top of `GlActivity` (both are `singleTask`); it sees `GlActivity` at the root of its task and brings it
+  back at once, without probing Vulkan again.
+- **In the window.** On Linux (M77-P9e3a) and Android (M77-P9e3b) the Vulkan player draws the game window with Vulkan: the OpenGL
+  context sokol_app made with the window moves to a 1x1 pbuffer (or to no surface at all where the driver offers no pbuffer), its
+  window surface goes and its swap does nothing, so the Vulkan swapchain is the window's only one; when Vulkan lets the window go
+  (a start that fails after it took the window, the end of the game), the OpenGL surface comes back on it. On Android the window
+  goes when the game goes to the background and a new one comes when it returns: the Vulkan swapchain is destroyed before the old
+  window goes and made on the new one at the next frame. A window that cannot take a Vulkan swapchain at all (only a Linux build
+  whose window draws through EGL) gives the reason `the window path is not available on this platform yet (...)`, and the warning of
+  the OpenGL player then says that the window cannot take the backend, not that a driver or an install would bring Vulkan back (it
+  says that only for a Vulkan that cannot start). The probe before the window is separate: a machine with no Vulkan driver hands
+  over before any window opens.
 
 ### `graphics.backend`
 

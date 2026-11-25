@@ -151,24 +151,33 @@ struct NativeWindow {
     // sokol_app's view (macOS: Vulkan on MoltenVK). Null: no window, or a platform that hands none (iOS, the web).
     const void* window = nullptr;
     const void* display = nullptr;  // the X11 Display* (Linux); null elsewhere
-    // "" when a GPU device may make its own swapchain on the window; else why not, one sentence (Android, a Linux EGL
-    // window, the web: sokol_app made an OpenGL context on it and swaps its buffers after every frame; no window). A Linux
-    // GLX window is not busy: its OpenGL surface leaves it when a device claims it.
+    // "" when a GPU device may make its own swapchain on the window; else why not, one sentence (a Linux EGL window, the
+    // web: sokol_app made an OpenGL context on it and swaps its buffers after every frame; no window). A Linux GLX window
+    // and an Android window are not busy: sokol_app's OpenGL surface leaves them when a device claims them.
     std::string busy;
 };
 // The handles, without claiming the window. Valid inside run_app callbacks.
 NativeWindow app_native_window();
 // Claims the window for the GPU device of `backend` (its name, "d3d12" or "vulkan": HDR output says it is not available on
 // it). On success the platform's swapchain is gone (Windows: the D3D11 presenter is destroyed and its flip-model swapchain
-// released at once, so the device's own can be made on the HWND; Linux: sokol_app's OpenGL context moves off the X11
-// window to a 1x1 pbuffer, or to no drawable, its GLXWindow is destroyed and its per-frame swap does nothing),
-// app_gfx_environment() makes none and app_gfx_swapchain() is invalid until app_release_native_window(). Refused
-// (nothing changes) when the window is busy, a graphics context draws with the platform's swapchain (sokol_gfx is set
-// up), a device has the window already, or the GL driver refuses to move the context off the window (Linux).
+// released at once, so the device's own can be made on the HWND; Linux and Android: sokol_app's OpenGL context moves off
+// the window to a 1x1 pbuffer, or to no drawable, its window surface (a GLXWindow, an EGL window surface) is destroyed
+// and its per-frame swap does nothing), app_gfx_environment() makes none and app_gfx_swapchain() is invalid until
+// app_release_native_window(). Refused (nothing changes) when the window is busy, a graphics context draws with the
+// platform's swapchain (sokol_gfx is set up), a device has the window already, or the GL driver refuses to move the
+// context off the window (Linux, Android).
 Result<NativeWindow> app_claim_native_window(const std::string& backend);
+// Android: an ANativeWindow lives only while the activity is in front, so the device that claimed the window hears here
+// when it goes and when a new one comes (`listener` gets null, then the new ANativeWindow*). It is called on the frame
+// thread, between frames. With null the window is about to be destroyed: destroy the swapchain before returning (the
+// window stays valid until then); with a window, make the swapchain on it (before the next present). One listener; an
+// empty function removes it, and app_release_native_window() removes it too. Never called on other platforms, whose
+// window lives as long as the app.
+void app_set_native_window_listener(std::function<void(const void* window)> listener);
 // Gives the window back once the device destroyed its swapchain (a backend that failed to start, the end of a renderer): the
-// next app_gfx_environment() makes the platform's swapchain again (Linux: the OpenGL context is current on a new GLXWindow
-// of the window here, with its vsync). Nothing when no device has the window.
+// next app_gfx_environment() makes the platform's swapchain again (Linux and Android: the OpenGL context is current on a
+// new window surface here, with its vsync on Linux; Android with no window at that moment: sokol_app makes its surface on
+// the next one). Nothing when no device has the window.
 void app_release_native_window();
 WindowPresenter app_window_presenter();
 // The backend that claimed the window ("" while no device has it).
