@@ -3152,7 +3152,7 @@ TEST_CASE("d3d12: create_swapchain checks its desc before any DXGI work; the for
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
-// ---- one HWND, three owners in turn (the handoff of app_claim_native_window / app_release_native_window) ---------------
+// ---- one HWND, three owners in turn (the handoff of app_claim_native_window / app_release_native_window) -----------
 
 namespace {
 
