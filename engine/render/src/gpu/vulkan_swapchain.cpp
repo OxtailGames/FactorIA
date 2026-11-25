@@ -9,6 +9,7 @@
 #if defined(FA_VULKAN_BACKEND)
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -19,9 +20,10 @@
 namespace fa::gpu::vk {
 namespace {
 
-// How long acquire_swapchain waits for an image: a safety net far above any frame (a window whose display stopped
-// presenting must not hang the render thread).
-constexpr std::uint64_t kAcquireTimeoutNs = 10ull * 1000ull * 1000ull * 1000ull;
+// How long acquire_swapchain waits for an image: past a few frames (the render thread does not hang on a window whose
+// display stopped presenting, or that is hidden); the frame is then skipped (an error the caller answers by drawing
+// nothing), and the first one is logged.
+constexpr std::uint64_t kAcquireTimeoutNs = 100ull * 1000ull * 1000ull;
 
 Error vk_fail(const std::string& where, const char* call, VkResult r, const std::string& hint) {
     return make_error(where + ": " + call + " failed with " + result_text(r), hint);
@@ -42,18 +44,21 @@ struct SwapFormat {
     const char* name = "";
 };
 
+// The VkFormat is the device's format table's (format_info), so a swapchain image and an image of the same PixelFormat
+// are one VkFormat; only the formats a window can show have an entry.
 SwapFormat swap_format(PixelFormat f) {
+    SwapFormat s;
     switch (f) {
-        case PixelFormat::Bgra8: return {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, "sRGB"};
-        case PixelFormat::Sbgr8A8: return {VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, "sRGB"};
-        case PixelFormat::Rgba8: return {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, "sRGB"};
-        case PixelFormat::Srgb8A8: return {VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, "sRGB"};
-        case PixelFormat::Rgba16F:
-            return {VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT, "scRGB"};
-        case PixelFormat::Rgb10A2:
-            return {VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT, "HDR10"};
+        case PixelFormat::Bgra8:
+        case PixelFormat::Sbgr8A8:
+        case PixelFormat::Rgba8:
+        case PixelFormat::Srgb8A8: s.space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, s.name = "sRGB"; break;
+        case PixelFormat::Rgba16F: s.space = VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT, s.name = "scRGB"; break;
+        case PixelFormat::Rgb10A2: s.space = VK_COLOR_SPACE_HDR10_ST2084_EXT, s.name = "HDR10"; break;
         default: return {};
     }
+    s.format = format_info(f).format;
+    return s;
 }
 
 bool hdr_space(VkColorSpaceKHR s) { return s != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; }
@@ -86,9 +91,10 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
     const SwapFormat sf = swap_format(format);
     if (sf.format == VK_FORMAT_UNDEFINED) {
         if (why)
-            *why = std::string("the Vulkan backend's swapchain takes Bgra8, Sbgr8A8, Rgba8, Srgb8A8, Rgba16F (scRGB) or "
-                               "Rgb10A2 (HDR10), not ") +
-                   pixel_format_name(format);
+            *why =
+                std::string("the Vulkan backend's swapchain takes Bgra8, Sbgr8A8, Rgba8, Srgb8A8, Rgba16F (scRGB) or "
+                            "Rgb10A2 (HDR10), not ") +
+                pixel_format_name(format);
         return false;
     }
     if (hdr_space(sf.space) && !colorspaceExtension_) {
@@ -98,21 +104,41 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
         return false;
     }
     if (!surface_) return true;  // before the window's surface exists: what the instance can ask for
-    // With a surface, what it offers (vkGetPhysicalDeviceSurfaceFormatsKHR).
-    std::uint32_t n = 0;
-    std::vector<VkSurfaceFormatKHR> formats;
-    if (fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, nullptr) == VK_SUCCESS && n > 0) {
-        formats.resize(n);
-        if (fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, formats.data()) < VK_SUCCESS) n = 0;
-        formats.resize(n);
-    }
-    for (const VkSurfaceFormatKHR& f : formats)
+    // With a surface, what it offers (vkGetPhysicalDeviceSurfaceFormatsKHR, asked once per surface and swapchain).
+    if (!surfaceFormatsKnown_) (void)load_surface_formats();
+    for (const VkSurfaceFormatKHR& f : surfaceFormats_)
         if (f.format == sf.format && f.colorSpace == sf.space) return true;
     if (why)
         *why = "the window's surface on " + deviceName_ + " does not offer " + pixel_format_name(format) + " (" +
                sf.name + ") images (vkGetPhysicalDeviceSurfaceFormatsKHR)" +
                (hdr_space(sf.space) ? "; the display may not show HDR, or HDR is off in the system settings" : "");
     return false;
+}
+
+// The surface's formats, asked again from the driver (a new surface, or a swapchain made again after the window
+// changed: a display's HDR setting changes the list). Render thread (and a test thread, one at a time).
+VkResult VulkanDevice::load_surface_formats() const {
+    surfaceFormats_.clear();
+    surfaceFormatsKnown_ = false;
+    std::uint32_t n = 0;
+    VkResult r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, nullptr);
+    if (r == VK_SUCCESS && n > 0) {
+        surfaceFormats_.resize(n);
+        r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, surfaceFormats_.data());
+        surfaceFormats_.resize(r >= VK_SUCCESS ? n : 0);
+    }
+    // A format a test pretends the surface lacks (hide_surface_format_for_tests).
+    for (VkFormat hidden : hiddenSurfaceFormats_)
+        surfaceFormats_.erase(std::remove_if(surfaceFormats_.begin(), surfaceFormats_.end(),
+                                             [&](const VkSurfaceFormatKHR& s) { return s.format == hidden; }),
+                              surfaceFormats_.end());
+    surfaceFormatsKnown_ = r >= VK_SUCCESS;
+    return r;
+}
+
+void VulkanDevice::hide_surface_format_for_tests(PixelFormat format) {
+    hiddenSurfaceFormats_.push_back(swap_format(format).format);
+    surfaceFormatsKnown_ = false;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -174,18 +200,14 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
                                "offscreen"));
 
     // The colour format: what was asked, from the surface's list. Default takes the device's SDR format, or the other
-    // 8-bit order when the surface has only that one (Android offers RGBA).
+    // 8-bit order of the same kind (the sRGB twin of an sRGB default) when the surface has only that one (Android
+    // offers RGBA).
     SwapFormat sf = swap_format(asked);
-    std::uint32_t n = 0;
-    std::vector<VkSurfaceFormatKHR> formats;
-    r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, nullptr);
-    if (r == VK_SUCCESS && n > 0) {
-        formats.resize(n);
-        r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, formats.data());
-        formats.resize(n);
-    }
-    if (r < VK_SUCCESS || formats.empty())
+    surfaceFormatsKnown_ = false;  // a new surface: its list is asked again
+    r = load_surface_formats();
+    if (r < VK_SUCCESS || surfaceFormats_.empty())
         return fail(vk_fail(where, "vkGetPhysicalDeviceSurfaceFormatsKHR", r, "the window or the device was lost"));
+    const std::vector<VkSurfaceFormatKHR>& formats = surfaceFormats_;
     auto offered = [&](const SwapFormat& f) {
         for (const VkSurfaceFormatKHR& s : formats)
             if (s.format == f.format && s.colorSpace == f.space) return true;
@@ -193,7 +215,10 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
     };
     PixelFormat format = asked;
     if (!offered(sf) && desc.colorFormat == PixelFormat::Default) {
-        for (PixelFormat other : {PixelFormat::Bgra8, PixelFormat::Rgba8})
+        const bool srgb = asked == PixelFormat::Sbgr8A8 || asked == PixelFormat::Srgb8A8;
+        const PixelFormat others[2] = {srgb ? PixelFormat::Sbgr8A8 : PixelFormat::Bgra8,
+                                       srgb ? PixelFormat::Srgb8A8 : PixelFormat::Rgba8};
+        for (PixelFormat other : others)
             if (offered(swap_format(other))) {
                 format = other;
                 sf = swap_format(other);
@@ -203,16 +228,41 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
     if (!offered(sf)) {
         std::string list;
         for (const VkSurfaceFormatKHR& s : formats)
-            list += (list.empty() ? "" : ", ") + std::to_string(int(s.format)) + "/" + std::to_string(int(s.colorSpace));
+            list +=
+                (list.empty() ? "" : ", ") + std::to_string(int(s.format)) + "/" + std::to_string(int(s.colorSpace));
         return fail(make_error(where + ": the window's surface does not offer " + pixel_format_name(format) + " (" +
                                    sf.name + ") images (it offers VkFormat/VkColorSpaceKHR " + list + ")",
                                "ask for PixelFormat::Default; swapchain_format_supported() says which formats it "
                                "takes"));
     }
+    if (format != asked) {
+        if (samples > 1 && !caps_[std::size_t(format)].msaa)
+            return fail(make_error(where + ": the window's surface offers " + pixel_format_name(format) + " and not " +
+                                       pixel_format_name(asked) + ", and " + deviceName_ + " cannot multisample it",
+                                   "sampleCount 1"));
+        // Pipelines and passes into the window name the device's default colour format (EnvironmentDefaults, what
+        // PassDesc::for_swapchain and a pipeline's Default colour target mean), so it becomes the window's. Pipelines
+        // or images already made with the old one would not fit the window's passes: that is an error, not a silent
+        // mismatch at the first set_pipeline().
+        if (defaultColorUsed_)
+            return fail(make_error(where + ": the window's surface offers " + pixel_format_name(format) +
+                                       " images and not " + pixel_format_name(asked) +
+                                       ", the device's default colour format, and pipelines or images made with that "
+                                       "default exist already, so they would not fit a pass into the window",
+                                   std::string("make the device with DeviceInit::environment.defaults.colorFormat = ") +
+                                       pixel_format_name(format) +
+                                       " (where the window's surface offers only that one: Android), or create the "
+                                       "swapchain before the first pipeline"));
+        defaults_.colorFormat = format;
+        FA_INFO("render",
+                "gpu vulkan: the window's surface offers {} and not {}: the device's default colour format is "
+                "now {}",
+                pixel_format_name(format), pixel_format_name(asked), pixel_format_name(format));
+    }
 
     // The present mode: FIFO (every GPU has it) with vsync; else MAILBOX (no tearing), IMMEDIATE, then FIFO.
     std::vector<VkPresentModeKHR> modes;
-    n = 0;
+    std::uint32_t n = 0;
     if (fn_.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_, surface_, &n, nullptr) == VK_SUCCESS && n > 0) {
         modes.resize(n);
         if (fn_.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_, surface_, &n, modes.data()) < VK_SUCCESS) n = 0;
@@ -278,8 +328,15 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     if (caps.maxImageExtent.width == 0 || caps.maxImageExtent.height == 0)
         return make_error(where + ": the window has no area (minimised, or 0 pixels wide or high)",
                           "draw nothing while the window is minimised; resize_swapchain() when it comes back");
-    width = std::clamp(width, int(std::max(1u, caps.minImageExtent.width)), int(caps.maxImageExtent.width));
-    height = std::clamp(height, int(std::max(1u, caps.minImageExtent.height)), int(caps.maxImageExtent.height));
+    // Clamped as unsigned (a driver's maxImageExtent of 0xFFFFFFFF would be -1 as an int), then narrowed: the GPU's
+    // largest image bounds both below.
+    auto clamp_extent = [&](int wanted, std::uint32_t lo, std::uint32_t hi) {
+        const std::uint32_t w = wanted > 0 ? std::uint32_t(wanted) : 1u;
+        const std::uint32_t c = std::clamp(w, std::max(1u, lo), std::max(1u, hi));
+        return int(std::min<std::uint32_t>(c, std::uint32_t(std::numeric_limits<int>::max())));
+    };
+    width = clamp_extent(width, caps.minImageExtent.width, caps.maxImageExtent.width);
+    height = clamp_extent(height, caps.minImageExtent.height, caps.maxImageExtent.height);
     if (width > limits_.maxImageSize2d || height > limits_.maxImageSize2d)
         return make_error(where + ": " + std::to_string(width) + "x" + std::to_string(height) +
                               " is more than the GPU's largest image (" + std::to_string(limits_.maxImageSize2d) + ")",
@@ -288,9 +345,9 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     std::uint32_t count = std::max(caps.minImageCount, std::uint32_t(std::max(1, framesInFlight_) + 1));
     if (caps.maxImageCount > 0) count = std::min(count, caps.maxImageCount);
     VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    for (VkCompositeAlphaFlagBitsKHR a : {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
-                                          VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-                                          VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR})
+    for (VkCompositeAlphaFlagBitsKHR a :
+         {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+          VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR})
         if (caps.supportedCompositeAlpha & a) {
             alpha = a;
             break;
@@ -313,7 +370,23 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     ci.imageArrayLayers = 1;
     ci.imageUsage = usage;
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    // The surface's own transform: the presentation engine then does no rotation (a compositor rotation costs power
+    // on Android). The swapchain does not pre-rotate its drawing: on a device whose display is rotated against its
+    // native orientation (Android, currentTransform ROTATE_90 or ROTATE_270) the image comes out turned until the
+    // renderer draws pre-rotated; swapchain_pre_rotation_degrees() says by how much, and a warning is logged once.
     ci.preTransform = caps.currentTransform;
+    swapPreRotation_ = caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR    ? 90
+                       : caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ? 180
+                       : caps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ? 270
+                                                                                          : 0;
+    if (swapPreRotation_ != 0 && !swapRotationWarned_) {
+        swapRotationWarned_ = true;
+        FA_WARN("render",
+                "gpu vulkan: the window's surface is rotated {} degrees against the display's orientation and the "
+                "swapchain does not pre-rotate its drawing, so the picture appears rotated (a renderer that draws "
+                "pre-rotated reads swapchain_pre_rotation_degrees())",
+                swapPreRotation_);
+    }
     ci.compositeAlpha = alpha;
     ci.presentMode = swapPresentMode_;
     ci.clipped = VK_TRUE;
@@ -338,7 +411,30 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
         swapWidth_ = width;
         swapHeight_ = height;
     }
-    return make_swap_images(where);
+    set_hdr_metadata();
+    auto images = make_swap_images(where);
+    // Images that were not all made (or an MSAA or depth image that failed) leave a swapchain no frame can use: the
+    // next acquire_swapchain() makes it again instead of acquiring into the half it has.
+    if (!images) swapStale_ = true;
+    return images;
+}
+
+// HDR10 asks for its mastering metadata (VK_EXT_hdr_metadata): Rec. 2020 primaries, a D65 white point and the 1000-nit
+// range the engine's HDR10 output is tone mapped to. A device without the extension, and the other colour spaces
+// (scRGB carries its own scale), set nothing.
+void VulkanDevice::set_hdr_metadata() {
+    if (!fn_.vkSetHdrMetadataEXT || swapColorSpace_ != VK_COLOR_SPACE_HDR10_ST2084_EXT || !swapchain_) return;
+    VkHdrMetadataEXT m{};
+    m.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+    m.displayPrimaryRed = {0.708f, 0.292f};
+    m.displayPrimaryGreen = {0.170f, 0.797f};
+    m.displayPrimaryBlue = {0.131f, 0.046f};
+    m.whitePoint = {0.3127f, 0.3290f};
+    m.maxLuminance = 1000.0f;
+    m.minLuminance = 0.001f;
+    m.maxContentLightLevel = 1000.0f;
+    m.maxFrameAverageLightLevel = 400.0f;
+    fn_.vkSetHdrMetadataEXT(device_, 1, &swapchain_, &m);
 }
 
 Result<void> VulkanDevice::make_swap_images(const std::string& where) {
@@ -364,6 +460,7 @@ Result<void> VulkanDevice::make_swap_images(const std::string& where) {
     VkSemaphoreCreateInfo sci{};
     sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     std::string error;
+    std::string hint = "the GPU ran out of memory, or the image pool is full";
     std::vector<SwapImage> images;
     for (std::uint32_t i = 0; i < count && error.empty(); ++i) {
         const std::string name = swapLabel_ + " image " + std::to_string(i);
@@ -396,8 +493,8 @@ Result<void> VulkanDevice::make_swap_images(const std::string& where) {
             capacity = images_.capacity();
         }
         if (s.image.id == 0) {
-            error = "the image pool is full (" + std::to_string(capacity) +
-                    " images) (hint: destroy images you no longer use, or raise DeviceInit::imagePoolSize)";
+            error = "the image pool is full (" + std::to_string(capacity) + " images)";
+            hint = "destroy images you no longer use, or raise DeviceInit::imagePoolSize";
         } else {
             ViewDesc vd;
             if (samples > 1)
@@ -466,7 +563,8 @@ Result<void> VulkanDevice::make_swap_images(const std::string& where) {
         vd.label = name.c_str();
         depthView = make_view(vd);
         if (state(depthView) != ResourceState::Valid)
-            error = std::string("its ") + pixel_format_name(depthFormat) + " depth image could not be made (see errors())";
+            error =
+                std::string("its ") + pixel_format_name(depthFormat) + " depth image could not be made (see errors())";
     }
     // Kept even when something failed: release_swap_images() destroys what was made.
     acquireSemaphores_ = std::move(acquires);
@@ -482,7 +580,7 @@ Result<void> VulkanDevice::make_swap_images(const std::string& where) {
     if (!error.empty())
         return make_error(where + ": the swapchain '" + swapLabel_ + "' (" + std::to_string(width) + "x" +
                               std::to_string(height) + "): " + error,
-                          "the GPU ran out of memory, or the image pool is full");
+                          hint);
     return {};
 }
 
@@ -598,11 +696,19 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
             swapStale_ = true;
             continue;
         }
-        if (r == VK_TIMEOUT || r == VK_NOT_READY)
+        if (r == VK_TIMEOUT || r == VK_NOT_READY) {
+            if (!swapTimeoutLogged_) {
+                swapTimeoutLogged_ = true;
+                FA_WARN("render",
+                        "gpu vulkan: the presentation engine of the window '{}' gave no image in {} ms: the frame is "
+                        "skipped (logged once; the window may be hidden, or its display stopped presenting)",
+                        swapLabel_, kAcquireTimeoutNs / 1000000ull);
+            }
             return make_error(where + ": the presentation engine gave no image in " +
-                                  std::to_string(kAcquireTimeoutNs / 1000000000ull) + " s",
-                              "the window may be hidden on a display that stopped presenting; draw offscreen while it "
-                              "is");
+                                  std::to_string(kAcquireTimeoutNs / 1000000ull) + " ms",
+                              "skip this frame (draw nothing) and acquire again next frame; the window may be hidden "
+                              "on a display that stopped presenting");
+        }
         if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
             return vk_fail(where, "vkAcquireNextImageKHR", r,
                            r == VK_ERROR_SURFACE_LOST_KHR
@@ -623,7 +729,8 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
             std::lock_guard<std::mutex> lock(queueMutex_);
             acquireSemaphores_[slot].waitedAt = 0;
             if (tracked) {
-                tracked->states.assign(1, {VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0});
+                tracked->states.assign(1,
+                                       {VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0});
                 swapWait_ = semaphore;
                 swapWaitImage_ = tracked.get();
                 swapWaitSlot_ = slot;
@@ -739,6 +846,9 @@ void VulkanDevice::destroy_swapchain() {
     swapPresentMode_ = VK_PRESENT_MODE_FIFO_KHR;
     swapUsage_ = 0;
     swapStale_ = false;
+    surfaceFormats_.clear();
+    surfaceFormatsKnown_ = false;
+    swapPreRotation_ = 0;
     std::lock_guard<std::mutex> lock(swapMutex_);
     swapWidth_ = swapHeight_ = 0;
     swapSamples_ = 1;
@@ -762,6 +872,7 @@ int VulkanDevice::swapchain_image_count() const {
 
 VkPresentModeKHR VulkanDevice::swapchain_present_mode() const { return swapPresentMode_; }
 std::uint64_t VulkanDevice::swapchain_recreations() const { return swapRecreations_; }
+int VulkanDevice::swapchain_pre_rotation_degrees() const { return swapPreRotation_; }
 void VulkanDevice::mark_swapchain_out_of_date_for_tests() { swapStale_ = true; }
 
 }  // namespace fa::gpu::vk

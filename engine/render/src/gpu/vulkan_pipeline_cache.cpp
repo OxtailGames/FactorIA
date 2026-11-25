@@ -105,7 +105,9 @@ std::vector<std::uint8_t> VulkanDevice::load_pipeline_cache_file() {
         } else if (read_at<std::uint32_t>(bytes, F::kVersionAt) != F::kVersion ||
                    read_at<std::uint32_t>(bytes, F::kHeaderBytesAt) != F::kHeaderBytes) {
             discard = "it is format version " + std::to_string(read_at<std::uint32_t>(bytes, F::kVersionAt)) +
-                      " and this engine reads version " + std::to_string(F::kVersion);
+                      " with a " + std::to_string(read_at<std::uint32_t>(bytes, F::kHeaderBytesAt)) +
+                      "-byte header, and this engine reads version " + std::to_string(F::kVersion) + " with a " +
+                      std::to_string(F::kHeaderBytes) + "-byte header";
         } else {
             const std::uint32_t vendor = read_at<std::uint32_t>(bytes, F::kVendorAt);
             const std::uint32_t deviceId = read_at<std::uint32_t>(bytes, F::kDeviceAt);
@@ -139,7 +141,8 @@ std::vector<std::uint8_t> VulkanDevice::load_pipeline_cache_file() {
                     discard = "its pipeline data has no Vulkan pipeline cache header";
                 } else if (headerVersion != std::uint32_t(VK_PIPELINE_CACHE_HEADER_VERSION_ONE)) {
                     discard = "its pipeline data is Vulkan header version " + std::to_string(headerVersion) +
-                              " (this engine reads version 1)";
+                              " (this engine reads Vulkan header version " +
+                              std::to_string(std::uint32_t(VK_PIPELINE_CACHE_HEADER_VERSION_ONE)) + ")";
                 } else if (read_at<std::uint32_t>(bytes, at + 8) != props_.vendorID ||
                            read_at<std::uint32_t>(bytes, at + 12) != props_.deviceID ||
                            std::memcmp(bytes.data() + at + 16, props_.pipelineCacheUUID, VK_UUID_SIZE) != 0) {
@@ -187,11 +190,17 @@ Result<void> VulkanDevice::save_pipeline_cache() {
             if (r == VK_INCOMPLETE) r = VK_SUCCESS;
             bytes.resize(F::kHeaderBytes + payload);
         }
+        // A driver that has nothing to say yet (an empty cache), or a blob without Vulkan's own header, would be a file
+        // the next start throws away: nothing is written.
+        if (r == VK_SUCCESS && payload < F::kVkHeaderBytes) {
+            cacheDirty_ = false;
+            return {};
+        }
         if (r != VK_SUCCESS)
             return make_error("gpu vulkan: vkGetPipelineCacheData failed with " + result_text(r),
                               "the device was lost or out of memory; the old cache file was kept");
         checksum = sha256_hex(bytes.data() + F::kHeaderBytes, payload);
-        cacheDirty_ = false;  // a pipeline made from here on makes it dirty again
+        cacheDirty_ = false;                            // a pipeline made from here on makes it dirty again
         if (checksum == cacheLoadedSha256_) return {};  // the same data as the file holds: nothing new
     }
     std::memcpy(bytes.data(), F::kMagic, 8);
