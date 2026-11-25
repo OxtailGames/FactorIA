@@ -32,6 +32,13 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   thread) and `bindless` (every live texture view has a slot of the bindless table, `bindless_index`). Compute lists' timed scopes are
   measured, copy lists' are ignored, and a list kept open no longer lets the timer ring reuse its slot. On binding tier 1 a writable view
   that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
+- The renderer uses the queues and threads of D3D12 and Vulkan (M77-P10d): the shadow views (sun cascades, spot and point light tiles)
+  are recorded on job threads into up to four command lists submitted in a fixed order (`render.shadow_record`), and the depth-pyramid
+  reduce of GPU occlusion runs on the compute queue, handing the prepass and its cells buffer over and back, with the graphics queue
+  waiting at the first pass that reads the prepass. The picture and the draws are the same as on one thread and one queue (a test
+  compares them on Vulkan and D3D12 WARP); the sokol backends are untouched. `"render": {"asyncCompute": false}` and
+  `{"multiThreadRecording": false}` in `factoria.json` (`RendererDesc::asyncCompute`, `multiThreadRecording`) turn each off, and the
+  startup report says whether each is in use (docs/RENDERING.md, "Async compute and multi-thread recording").
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The

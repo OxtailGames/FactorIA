@@ -163,6 +163,8 @@ behaves as one queue: sokol, and D3D12/Vulkan until their packages override them
   RecordingDevice answers when its `recordingFeatures.bindless` is on (the pool slot).
 - A backend class that overrides one `begin_commands` overload (or the two-argument `submit_token`) hides the other
   through its own type: add `using Device::begin_commands;` (`using Device::submit_token;`).
+- How the renderer uses them (the shadow views recorded on job threads, the depth pyramid on the compute queue, the
+  switches `RendererDesc::asyncCompute` and `multiThreadRecording`): [ARCHITECTURE_RENDERING_QUEUES.md](ARCHITECTURE_RENDERING_QUEUES.md).
 
 ## Barriers live inside the backends
 

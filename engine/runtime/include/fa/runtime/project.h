@@ -137,6 +137,11 @@ struct ProjectSettings {
     // gpu_backend_name: "auto" (default) or "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12", "vulkan". load_project checks the
     // spelling only; whether this binary has it is decided at start (choose_gpu_backend, fa/runtime/gpu_backend_choice.h).
     std::string renderBackend = "auto";
+    // "render": {"asyncCompute": false} / {"multiThreadRecording": false} (M77-P10d, docs/RENDERING.md, "Async compute and
+    // multi-thread recording"): turn off the HiZ reduce on the compute queue or the shadow recording on job threads of
+    // D3D12 and Vulkan (render::RendererDesc). Both on by default; other backends ignore them. The image is the same.
+    bool renderAsyncCompute = true;
+    bool renderMultiThreadRecording = true;
     FloatingOriginSettings floatingOrigin;  // "world": {"floatingOrigin": {"enabled", "threshold", "step", "anchor"}}
     Json inputActions = Json::object();
     Json inputSchemes = Json::

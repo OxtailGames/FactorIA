@@ -329,6 +329,7 @@ does not depend on the machine:
 | `render.mesh_frustum` | a camera's frustum test over the render scene (once per camera job) | 256 meshes | 64 meshes |
 | `render.sort_blended`, `render.sort_meshes` | stable sorts of the blended meshes (back to front) and of the batches (by material) | 1024 items | 256 items |
 | `render.shadow_bounds`, `render.shadow_cull` | the shadow casters' bounds; the test against the light's volume | 256 casters | 64 casters |
+| `render.shadow_record` | replays one group of shadow views (captured on the main thread) into its own command list; D3D12 and Vulkan only (ARCHITECTURE_RENDERING_QUEUES.md) | 2 shadow views | 1 group of up to a quarter of the views |
 | `scene.animation_poses` | every clip channel sampled, the fade blended, the skinning palettes of its animators | 512 skeleton nodes | 2 animators |
 
 What stays on the main thread: everything that may load or create a GPU resource (`Assets::texture`, `mesh`,
