@@ -73,6 +73,8 @@ Result<void> D3d12CommandList::open(const char* label) {
     scopes_.clear();
     scopeOpen_ = false;
     waits_.clear();
+    nativeOpen_ = false;
+    nativeDecls_.clear();
     // Every list that can bind sees the two shader-visible heaps (the bindings' tables and the bindless table point
     // into them); a copy list binds nothing and may not set them.
     if (kind_ != QueueKind::Transfer) {
@@ -204,6 +206,10 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     // From here on the pass is open, even when it fails (end_pass then closes it and its commands are skipped).
     passState_ = PassState::Render;
     passFailed_ = true;
+    if (nativeOpen_) {
+        fail("begin_pass", "a native section is open (hint: end_native() first; the pass's commands are skipped)");
+        return;
+    }
     passFormat_ = pass.format;
     passColors_ = 0;
     passWidth_ = passHeight_ = 0;
@@ -386,6 +392,12 @@ void D3d12CommandList::begin_compute_pass(const char* label) {
     passState_ = PassState::Compute;
     passFailed_ = false;
     reset_bind_state();
+    if (nativeOpen_) {
+        passFailed_ = true;  // open (end_pass matches it) but failed: its commands are skipped
+        fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
+                                       "': a native section is open (hint: end_native() first)");
+        return;
+    }
     if (kind_ == QueueKind::Transfer) {
         // Open (end_pass matches it) but failed: its commands are skipped.
         passFailed_ = true;
@@ -977,6 +989,144 @@ void D3d12CommandList::flush_barriers() {
 }
 
 void D3d12CommandList::keep_until_done(Com<ID3D12Resource> r) { keep_.push_back(std::move(r)); }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Native commands (M78: vendor SDKs record into the list between begin_native and end_native)
+// ---------------------------------------------------------------------------------------------------------------------
+
+D3D12_RESOURCE_STATES D3d12CommandList::native_state(NativeState state, QueueKind queue) {
+    const D3D12_RESOURCE_STATES read = queue == QueueKind::Graphics ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                                                                          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+                                                                    : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    switch (state) {
+        case NativeState::ShaderRead: return read;
+        case NativeState::UnorderedAccess: return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        case NativeState::RenderTarget: return D3D12_RESOURCE_STATE_RENDER_TARGET;
+        case NativeState::DepthWrite: return D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        case NativeState::DepthRead: return D3D12_RESOURCE_STATE_DEPTH_READ | read;
+        case NativeState::CopySource: return D3D12_RESOURCE_STATE_COPY_SOURCE;
+        case NativeState::CopyDest: return D3D12_RESOURCE_STATE_COPY_DEST;
+        case NativeState::Common:
+        case NativeState::Count: break;
+    }
+    return D3D12_RESOURCE_STATE_COMMON;
+}
+
+std::string D3d12CommandList::resolve_native(std::span<const NativeUse> uses, const char* name,
+                                             std::vector<NativeDecl>& out) {
+    out.clear();
+    if (uses.empty()) return {};
+    std::vector<NativeRange> ranges;
+    std::vector<std::shared_ptr<TrackedResource>> found(uses.size());
+    std::string error;
+    {
+        std::lock_guard<std::mutex> lock(device_.resMutex_);  // the labels the errors name are the records'
+        std::size_t next = 0;
+        error = check_native_uses(uses, kind_, name, true, ranges, [&](const NativeUse& use, NativeTarget& t) {
+            const std::size_t i = next++;
+            if (use.image.id) {
+                const D3d12Device::ImageRecord* r = device_.images_.get(use.image.id);
+                if (!r || !r->tracked) return false;
+                found[i] = r->tracked;
+                t.label = r->label.c_str();
+                t.imageUsage = r->usage;
+                t.format = r->format;
+                t.mips = int(r->tracked->mips);
+                t.layers = int(r->tracked->layers);
+                return true;
+            }
+            const D3d12Device::BufferRecord* r = device_.buffers_.get(use.buffer.id);
+            if (!r || !r->tracked) return false;
+            found[i] = r->tracked;
+            t.buffer = true;
+            t.label = r->label.c_str();
+            t.bufferUsage = r->usage;
+            return true;
+        });
+    }
+    if (!error.empty()) return error;
+    for (std::size_t i = 0; i < uses.size(); ++i) out.push_back({found[i], ranges[i], uses[i].state});
+    return {};
+}
+
+void D3d12CommandList::assume_native(const NativeDecl& d) {
+    auto it = useIndex_.find(d.res.get());
+    if (it == useIndex_.end()) return;  // begin_native required every declared resource
+    Use& u = uses_[it->second];
+    const StateBits s = StateBits(native_state(d.state, kind_));
+    for (std::uint32_t p = 0; p < d.res->planes; ++p)
+        for (int l = d.range.layer; l < d.range.layer + d.range.layerCount; ++l)
+            for (int m = d.range.mip; m < d.range.mip + d.range.mipCount; ++m) {
+                const std::uint32_t sub = d.res->subresource(std::uint32_t(m), std::uint32_t(l), p);
+                if (sub < u.current.size()) u.current[sub] = s;
+            }
+}
+
+Result<NativeCommands> D3d12CommandList::begin_native(std::span<const NativeUse> uses) {
+    const std::string at = "gpu d3d12: CommandList::begin_native in list '" + label_ + "': ";
+    if (!open_ || !list_)
+        return make_error(at + "the list is not recording", "take a new list with begin_commands() each frame");
+    if (nativeOpen_)
+        return make_error(at + "a native section is open already", "end_native() first; sections do not nest");
+    if (passState_ != PassState::None)
+        return make_error(at + "the list is inside a pass", "end_pass() first: native commands go between passes");
+    if (kind_ == QueueKind::Transfer)
+        return make_error(at + "the list runs on the transfer queue",
+                          "record native commands on a QueueKind::Graphics or Compute list");
+    std::vector<NativeDecl> decls;
+    const std::string error = resolve_native(uses, "uses", decls);
+    if (!error.empty()) return make_error(at + error, "fix that entry; nothing was recorded");
+    for (const NativeDecl& d : decls) {
+        // UAV after UAV: the engine's writes finish before the native commands read or write it.
+        if (d.state == NativeState::UnorderedAccess) uav_barrier_if_written(d.res);
+        require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount), std::uint32_t(d.range.layer),
+                      std::uint32_t(d.range.layerCount), native_state(d.state, kind_));
+    }
+    flush_barriers();
+    nativeOpen_ = true;
+    nativeDecls_ = std::move(decls);
+    empty_ = false;
+    NativeCommands n;
+    n.backend = Backend::D3d12;
+    n.list = list_.get();
+    n.queue = kind_;
+    return n;
+}
+
+Result<void> D3d12CommandList::end_native(std::span<const NativeUse> leftIn) {
+    const std::string at = "gpu d3d12: CommandList::end_native in list '" + label_ + "': ";
+    if (!open_ || !nativeOpen_)
+        return make_error(at + "no native section is open",
+                          "call end_native once after each begin_native that succeeded");
+    std::vector<NativeDecl> left;
+    const std::string error = resolve_native(leftIn, "leftIn", left);
+    if (!error.empty()) return make_error(at + error, "fix that entry; the section is still open");
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const NativeDecl& d = left[i];
+        for (int l = d.range.layer; l < d.range.layer + d.range.layerCount; ++l)
+            for (int m = d.range.mip; m < d.range.mip + d.range.mipCount; ++m) {
+                bool declared = false;
+                for (const NativeDecl& b : nativeDecls_)
+                    declared = declared || (b.res == d.res && m >= b.range.mip && m < b.range.mip + b.range.mipCount &&
+                                            l >= b.range.layer && l < b.range.layer + b.range.layerCount);
+                if (!declared)
+                    return make_error(at + "leftIn[" + std::to_string(i) + "]: mip " + std::to_string(m) +
+                                          " of layer " + std::to_string(l) + " was not declared by begin_native",
+                                      "declare every subresource the native commands touch in begin_native's uses; "
+                                      "the section is still open");
+            }
+    }
+    // The declared states hold already; the ones the native commands changed replace them (no barrier: the commands
+    // recorded their own). A UAV written by them gets the engine's UAV barrier before its next UAV use.
+    for (const NativeDecl& d : left) assume_native(d);
+    // The native commands may have set descriptor heaps, a root signature and a pipeline of their own.
+    ID3D12DescriptorHeap* heaps[2] = {device_.viewHeap_.heap(), device_.samplerHeap_.heap()};
+    list_->SetDescriptorHeaps(2, heaps);
+    reset_bind_state();
+    nativeOpen_ = false;
+    nativeDecls_.clear();
+    return {};
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Transfers
