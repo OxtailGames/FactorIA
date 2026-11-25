@@ -39,9 +39,15 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   uses, now on every GPU backend. UPSCALING_VENDORS.md, "Intel XeSS".
 - **Low latency (M78):** `render.latency` (project key `render.latency {mode, boost}` and command) sleeps before the input is read so a
   press reaches the screen sooner: AMD Anti-Lag 2 (Direct3D 12 and Vulkan, Windows), Intel XeLL (Direct3D 12, `factoria setup xess`),
-  NVIDIA Reflex when its Streamline provider lands, or the engine's own pacing where no SDK runs. `auto` picks the maker's SDK. An
+  NVIDIA Reflex (Direct3D 12 and Vulkan, through Streamline), or the engine's own pacing where no SDK runs. `auto` picks the maker's SDK. An
   SDK that cannot start reports why and the pacing runs instead, never a device failure. The profiler (`perf.profile`, editor
   Profiler) shows the input-to-present time, and `render.supports` has the rows `reflex`, `antilag2` and `xell`. LATENCY.md.
+- **NVIDIA Reflex (M78):** `render.latency` mode `reflex` (and `auto` on an NVIDIA GPU) now runs NVIDIA Reflex through the Streamline
+  runtime of DLSS: Low Latency or, with `boost`, Low Latency Boost, `slReflexSleep` once per frame before the input is read and the PC
+  latency markers of the frame, on Direct3D 12 and Vulkan after `factoria setup streamline`. DLSS and Reflex share one frame token;
+  the report has Reflex's own simulation-to-present time. A GPU, a driver or a backend without Reflex says why in `render.supports` and the
+  engine's own pacing runs. The engine ships no NVIDIA code (its own declarations of the C interface of Streamline 2.14.16). LATENCY.md,
+  "NVIDIA Reflex".
 
 ### Rendering
 
