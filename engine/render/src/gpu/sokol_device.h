@@ -121,6 +121,7 @@ public:
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
     Result<void> end_native(std::span<const NativeUse> leftIn) override;
     using CommandList::end_native;
+    bool native_open() const { return nativeOpen_; }  // SokolDevice::submit closes a section left open
 
 private:
     // check_native_uses on the sokol resources (`name`: "uses" or "leftIn").
