@@ -42,6 +42,7 @@
 #include "fa/render/gpu_info.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/ui_painter.h"
+#include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -442,6 +443,24 @@ public:
     // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
     // reason of each (render.supports' status). Changes nothing; needs no frame.
     render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
+    // The engine-wide low-latency setting (fa/render/latency.h, M78; docs/LATENCY.md). The path that runs is effective_latency(): the mode's
+    // SDK where it is usable, else the engine's own pacing (a renderer that presents to a window), else none. Needs an initialised renderer (before init() the
+    // calls do nothing; the engine sets it right after init). Off (the default) costs nothing: the calls below return at the first branch.
+    void set_latency(const render::LatencySettings& settings);
+    const render::LatencySettings& latency() const;
+    render::LatencyDriver effective_latency() const;
+    // What the setting is and why: {"mode", "boost", "driver", "reason" (why the mode runs another path, or ""), "modes": {name: {"available",
+    // "reason"}} for reflex, antilag2 and xell}. Asks each SDK once.
+    Json latency_status();
+    // The frame's markers (src/render_latency.h). The engine calls latency_frame_begin once per frame before it samples the player's input
+    // (it sleeps there, when the path paces: `refreshHz` is the display's refresh rate while the loop runs at it, else 0), and
+    // latency_mark for InputSample and SimulationEnd; the renderer marks the rest itself (begin_frame, present).
+    void latency_frame_begin(double refreshHz);
+    void latency_mark(render::LatencyMarker marker);
+    // Input to the end of the present call of the last frame measured, in ms, once; negative when no frame was measured since the last call.
+    double take_latency_ms();
+    // The readout: {"driver", "lastMs", "avgMs", "p95Ms", "maxMs", "samples", "vendor"} (vendor: the SDK's own report, or null).
+    Json latency_report();
     render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
     render::UpscalerMode
     effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised

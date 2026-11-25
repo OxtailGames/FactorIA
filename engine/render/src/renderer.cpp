@@ -5,6 +5,7 @@
 #include "scene2d.h"
 #include "quality.h"
 #include "render_features.h"
+#include "render_latency_antilag2.h"
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
 #include "gpu/sokol_context.h"
@@ -587,6 +588,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         } else {
             gpu::DeviceInit init;
             init.environment.defaults = gpu::environment_defaults_of(env);
+            render::
+                register_latency_device_hooks();  // Anti-Lag 2 asks a Vulkan device for its extension (Windows; render_latency_antilag2.h)
             auto made = gpu::make_device(backend, init);
             if (!made) {
                 if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
@@ -641,6 +644,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     im.textScale = textScale_;
     im.uiScale = uiScale_;
     im.create_targets(desc.designWidth, desc.designHeight);
+    im.latency.attach(&im.gpu.device(), render::vendor_env_of(im.gpu.device()), !desc.headless);
     im.initialized = true;
     return true;
 }
@@ -673,6 +677,7 @@ void Renderer::shutdown() {
         im.taa.release();
         im.spatial.release();
         im.mfxPrep.release();
+        im.latency.detach();      // the low-latency SDK's context goes before the device does
         if (im.gpu.has_device())  // the vendor SDKs' contexts go before the device does (the GPU is idle first, inside)
             for (int i = 0; i < render::kVendorUpscalerCount; ++i) render::vendor_provider(i).release(im.gpu.device());
         im.gi2d.release();
@@ -814,6 +819,7 @@ void Renderer::begin_frame() {
     impl_
         ->hiz_submit();  // before sokol's frame begins: the copy of the last depth pyramid is queued after the frame that made it
     impl_->gpu.begin_frame();
+    impl_->latency.mark(render::LatencyMarker::RenderSubmitStart);
 }
 
 void Renderer::note_commit() {
@@ -959,6 +965,7 @@ bool Renderer::supports(std::string_view feature) const {
     render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     impl_->set_vendor_env(env);
+    impl_->set_latency_env(env);
     return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
@@ -967,6 +974,7 @@ Json Renderer::supports_report() const {
     render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     impl_->set_vendor_env(env);
+    impl_->set_latency_env(env);
     return render::feature_report(env, backend_name());
 }
 

@@ -530,6 +530,23 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 | `channel` | string ["luminance","red","green","blue"] | no | What to measure: Rec. 709 luminance or one colour channel of the sRGB bytes. Default "luminance". |
 | `scale` | number | no | Render scale to sample at; higher finds finer gaps. Default 1. |
 
+## `render.latency` (modifies state)
+
+Not released yet (on main after 0.37.0).
+
+Reads or changes the low-latency setting: how the game shortens the time from an input to the frame it shows.
+
+Capabilities: read, state
+
+The low-latency seam of M78 (docs/LATENCY.md): `mode` (off, auto, reflex, antilag2, xell) and `boost` (true keeps the GPU clocks high, where the SDK has such a mode). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns {mode, boost, driver, reason, modes, changed, report}: `driver` is what runs (none, pacing, reflex, antilag2, xell), `reason` says why it is not the one the mode names, `modes` says per vendor SDK whether it is usable here and why not, `report` the measured input-to-present time of the last frames. Example: render.latency {"mode":"auto"}
+
+`auto` picks the SDK of the GPU's maker (AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex once its provider exists) and the engine's own pacing where there is none. The vendor SDKs are Windows only and need their files (`factoria setup xess` for XeLL); a mode that cannot run falls back to the engine's own pacing and `reason` says why. The engine's own pacing sleeps before the input is read so the frame is presented just before the display's next refresh: it needs vsync on, no window.frameCap and a game window (not the editor, not a headless run). Off does nothing: no call, no sleep. A wrong name fails with `invalid_argument` and a "did you mean" and changes nothing. The start value is factoria.json "render": {"latency": {...}}. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `mode` | string ["off","auto","reflex","antilag2","xell"] | no | off (nothing runs), auto (the GPU maker's SDK, else the engine's own pacing), reflex (NVIDIA Reflex, arrives with the Streamline provider), antilag2 (AMD Anti-Lag 2, Windows, D3D12 and Vulkan), xell (Intel XeLL, Windows, D3D12, `factoria setup xess`). |
+| `boost` | boolean | no | Keep the GPU clocks high while the game is waiting on it, where the SDK has a boost mode (XeLL and Reflex; Anti-Lag 2 has none). |
+
 ## `render.light_probes`
 
 Since 0.33.0.

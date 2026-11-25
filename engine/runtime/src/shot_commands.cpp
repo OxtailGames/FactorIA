@@ -1238,6 +1238,45 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.latency",
+         "Reads or changes the low-latency setting: how the game shortens the time from an input to the frame it "
+         "shows.",
+         "The low-latency seam of M78 (docs/LATENCY.md): `mode` (off, auto, reflex, antilag2, xell) and `boost` (true "
+         "keeps the GPU clocks high, where the SDK has such a mode). With no argument it returns the setting; with any "
+         "key it changes those and keeps the rest. Returns {mode, boost, driver, reason, modes, changed, report}: "
+         "`driver` is what runs (none, pacing, reflex, antilag2, xell), `reason` says why it is not the one the mode "
+         "names, `modes` says per vendor SDK whether it is usable here and why not, `report` the measured "
+         "input-to-present time of the last frames. Example: render.latency {\"mode\":\"auto\"}" FA_COMMAND_DETAILS
+         "`auto` picks the SDK of the GPU's maker (AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex once its provider "
+         "exists) and the engine's own pacing where there is none. The vendor SDKs are Windows only and need their "
+         "files (`factoria setup xess` for XeLL); a mode that cannot run falls back to the engine's own pacing and "
+         "`reason` says why. The engine's own pacing sleeps before the input is read so the frame is presented just "
+         "before the display's next refresh: it needs vsync on, no window.frameCap and a game window (not the editor, "
+         "not a headless run). Off does nothing: no call, no sleep. A wrong name fails with `invalid_argument` and a "
+         "\"did you mean\" and changes nothing. The start value is factoria.json \"render\": {\"latency\": {...}}. "
+         "Works with graphics=false too (the value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["off","auto","reflex","antilag2","xell"],"description":"off (nothing runs), auto (the GPU maker's SDK, else the engine's own pacing), reflex (NVIDIA Reflex, arrives with the Streamline provider), antilag2 (AMD Anti-Lag 2, Windows, D3D12 and Vulkan), xell (Intel XeLL, Windows, D3D12, `factoria setup xess`)."},
+               "boost":{"type":"boolean","description":"Keep the GPU clocks high while the game is waiting on it, where the SDK has a boost mode (XeLL and Reflex; Anti-Lag 2 has none)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "boost"}, "render.latency");
+            const render::LatencySettings before = I.self->latency();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_latency(a, "render.latency");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.latency with no argument to read the setting.");
+                changed = I.self->latency() != before;
+            }
+            Json out = I.self->latency_status();
+            out["changed"] = changed;
+            out["report"] = I.self->latency_report();
+            return out;
+        });
+
+    I.commands.add(
         {"render.dynamic_resolution",
          "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
@@ -1567,6 +1606,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.upscaler", capability_sets::changes_state()},
+                                                 {"render.latency", capability_sets::changes_state()},
                                                  {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},

@@ -38,6 +38,7 @@
 #include "fa/render/renderer.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/dynamic_resolution.h"
+#include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 
 namespace fa {
@@ -128,6 +129,9 @@ struct ProjectSettings {
     // "render": {"upscaler": {"mode", "quality", "sharpness"}} (M76, docs/UPSCALING.md): the upscaler a run starts with; scripts change it with
     // window.upscaler. The renderer draws "stretch", "spatial", "temporal" and "metalfx" (Apple, Metal only), and (M78) "dlss", "xess" and "fsr" (the vendor SDKs, Windows only, installed by `factoria setup`): where a mode is not available the next best draws and effectiveMode says which.
     render::UpscalerSettings upscaler;
+    // "render": {"latency": {"mode", "boost"}} (M78, docs/LATENCY.md): the low-latency path a run starts with (off, auto, reflex, antilag2, xell);
+    // the command render.latency changes it at run time. Off (the default) is the loop of every earlier version.
+    render::LatencySettings latency;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.
     render::DynamicResolutionSettings dynamicResolution;
