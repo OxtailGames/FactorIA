@@ -4139,12 +4139,16 @@ TEST_CASE("vulkan: an acquire that times out is a teaching error and the next ac
         CHECK(!shown);
         CHECK(contains(shown.error().message, "without this frame's acquire_swapchain()"));
     }
-    // A window that is lost is another error: the hint says what to do.
+    // A window that is lost is another error: the swapchain and its surface go with it (Renderer::present makes them
+    // again on the window it has), and the hint says so.
     dev->inject_acquire_result_for_tests(VK_ERROR_SURFACE_LOST_KHR, 1);
     auto lost = dev->acquire_swapchain(Swapchain{});
     REQUIRE(!lost);
-    CHECK(contains(lost.error().hint, "destroy_swapchain()"));
+    CHECK(contains(lost.error().hint, "create_swapchain()"));
     CHECK(dev->swapchain_image().id == 0);
+    CHECK_FALSE(dev->has_swapchain());
+    made = dev->create_swapchain(d);  // the same window, still there: made again
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
 
     // Three timeouts in a row, then an image: the bounded retry of the frame helper (20 tries) gets through.
     dev->inject_acquire_result_for_tests(VK_TIMEOUT, 3);

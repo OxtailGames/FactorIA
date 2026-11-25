@@ -526,6 +526,13 @@ public:
     void end_frame();
     // Windowed: blit the game target into the swapchain with the scale mode.
     void present(const GfxSwapchain& swapchain, int framebufferWidth, int framebufferHeight, ScaleMode mode);
+    // D3D12 and Vulkan on a window that comes and goes (Android: app_set_native_window_listener), on the render thread
+    // between frames. Null: the window is going, so the swapchain is destroyed now (the device waits for its images);
+    // present() then only ends the frame. A window: the swapchain is made on it by the next present(), at the
+    // framebuffer size it is given (a failure is logged once, and the frames are not shown until the next window). A
+    // swapchain the device destroyed itself (Vulkan: VK_ERROR_SURFACE_LOST_KHR) is made again the same way on the window
+    // it had. Nothing on the sokol backends (sokol_app owns their swapchain) or headless.
+    void set_native_window(const void* window);
     // Letterbox mapping used by present(): framebuffer pixel -> design pixel.
     Vec2 framebuffer_to_design(Vec2 fbPos, int framebufferWidth, int framebufferHeight, ScaleMode mode) const;
     // The same mapping the other way: design pixel -> framebuffer (window) pixel.
