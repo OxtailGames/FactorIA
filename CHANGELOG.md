@@ -42,6 +42,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   NVIDIA Reflex when its Streamline provider lands, or the engine's own pacing where no SDK runs. `auto` picks the maker's SDK. An
   SDK that cannot start reports why and the pacing runs instead, never a device failure. The profiler (`perf.profile`, editor
   Profiler) shows the input-to-present time, and `render.supports` has the rows `reflex`, `antilag2` and `xell`. LATENCY.md.
+- **Low-latency settings in the editor and the menu kit (M78):** the editor's View > Graphics window has a **Low latency** group (mode combo,
+  Boost checkbox, a line saying what the mode does on this machine; a mode `render.supports` says cannot run is greyed out with its reason as
+  the tooltip) that Saves `render.latency`, and `project.graphics` takes `latency {mode, boost}`. The menu kit's Graphics tab (third page, "Low latency") has
+  a Low latency row of mode buttons and a boost switch, hidden or greyed out by `render.supports` like the upscaler modes, saved in
+  `settings.graphics.latency` and applied at start. LATENCY.md, "Where to set it".
 
 ### Rendering
 

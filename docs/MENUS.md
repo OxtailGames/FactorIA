@@ -112,12 +112,12 @@ What the command does, file by file; do it by hand when you want to see each fil
    page does not change the preset, so the two rows never fight: the preset is the engine's limits layer (shadows, reflections,
    level-of-detail distances...), the quality is this kit's post-effects row. An upscaler or render scale choice made on the page
    is the player's own setting and stays over the preset; choosing a preset again puts the preset's own back. Everything is
-   saved in `settings.graphics` (`{quality, effects, hdr, lighting2d, preset, detected, upscaler, renderScale, dynamicResolution}`; `upscaler` holds
+   saved in `settings.graphics` (`{quality, effects, hdr, lighting2d, preset, detected, upscaler, renderScale, dynamicResolution, latency}`; `upscaler` and `latency` hold
    only the keys the player chose, `renderScale` and `dynamicResolution` are `null` until chosen) and applied by `settings.applyOnce()` at start and on
    every change; a save from before these keys loads and changes nothing. The **Dynamic resolution** row (`gfx_dynamic`, in
    `gfx_dynamic_slot`, hidden where `render.supports` says it is not drawn) is one button that cycles Off, 30 fps, 60 fps and the
    display's refresh and sets `window.dynamicResolution` (docs/UPSCALING.md, "Dynamic resolution"); the choice is saved as the
-   string `"off"`, `"30"`, `"60"` or `"display"`, and a save without it leaves the game's own setting untouched. The second page fits the options panel at 1280x720 (the layout tests
+   string `"off"`, `"30"`, `"60"` or `"display"`, and a save without it leaves the game's own setting untouched. The **Low latency** rows (docs/LATENCY.md) are the third page of the Graphics tab (`latency_section`, opened by `gfx_latency_page` on the second page, `gfx_latency_back` returns): the buttons `gfx_latency_off`, `_auto`, `_reflex`, `_antilag2` and `_xell` (`settings.LATENCY_MODES`) and the switch `gfx_latency_boost`, shown for the modes that have one (`settings.latencyHasBoost`). A mode this machine cannot run (`render.supports`: `reflex`, `antilag2`, `xell`) is greyed out and listed with its reason in the page's note (`latency_note`); the choice is applied with `render.latency` at once, saved as `settings.graphics.latency` (`{mode, boost}`, only the keys the player chose) and applied again at each start, and a save without it leaves the game's own setting (`factoria.json` `render.latency`) alone. The second and third pages fit the options panel at 1280x720 (the layout tests
    `menus_rtl` and `menus_text_scale` guard it in English, Spanish and Arabic).
    The Graphics tab is the tallest: in a game that also shows the analytics row (an `analytics` section in factoria.json),
    the bottom few pixels of the options panel fall off a 720-high screen (the Back button stays visible) and the log warns

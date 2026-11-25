@@ -122,6 +122,19 @@
       "sharpness": "الحدة: {percent} %",
       "dynLabel": "الدقة الديناميكية: {choice}",
       "dyn": { "off": "إيقاف", "30": "30 إطارًا/ث", "60": "60 إطارًا/ث", "display": "معدل تحديث الشاشة", "custom": "مخصصة" },
+      "latLabel": "زمن استجابة منخفض: {mode}",
+      "latDrawn": "{mode}، يعمل بوصفه {drawn}",
+      "latBoost": "تعزيز زمن الاستجابة المنخفض",
+      "latPage": "زمن استجابة منخفض",
+      "latm": { "off": "إيقاف", "auto": "تلقائي", "reflex": "Reflex", "antilag2": "Anti-Lag 2", "xell": "XeLL" },
+      "latd": { "none": "لا شيء هنا", "pacing": "إيقاع المحرك الخاص", "reflex": "Reflex", "antilag2": "Anti-Lag 2", "xell": "XeLL" },
+      "latunsup": {
+        "off": "متاح دائمًا",
+        "auto": "متاح دائمًا",
+        "reflex": "يحتاج إلى وحدة معالجة رسومات NVIDIA على Windows",
+        "antilag2": "يحتاج إلى وحدة معالجة رسومات AMD Radeon على Windows",
+        "xell": "يحتاج إلى Windows وDirect3D 12 وبيئة XeSS"
+      },
       "unsupNote": "غير متاح هنا: {modes}.",
       "stretchNote": "تُرسم هذه اللعبة بتحجيم بسيط (بكسل آرت) مهما كان الوضع."
     },
