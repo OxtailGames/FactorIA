@@ -294,7 +294,8 @@ Renderer::Impl::HizCamera* Renderer::Impl::hiz_cull(World& world, Frame& fr, std
 }
 
 void Renderer::Impl::hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const Target& prepass,
-                                     const render::HizPose& pose, std::uint64_t worldFrame) {
+                                     const render::HizPose& pose, std::uint64_t worldFrame,
+                                     std::uint64_t prepassHandle) {
     if (hizShaderState <= 0 || !prepass.texView.id || prepass.w < 1 || prepass.h < 1) return;
     gpu::Device& device = gpu.device();
     int w = 0, h = 0;
@@ -356,12 +357,23 @@ void Renderer::Impl::hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const
     u.dims[2] = float(w);
     u.dims[3] = float(h);
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;  // an OpenGL render target's row 0 is the bottom of the picture
-    cmd.begin_compute_pass("hiz-reduce");
-    cmd.set_pipeline(pip);
-    cmd.set_bindings(bind);
-    cmd.set_uniforms(UB_hiz_hiz_params, gpu::Range{&u, sizeof(u)});
-    cmd.dispatch((w + 7) / 8, (h + 7) / 8, 1);
-    cmd.end_pass();
+    // Async compute (M77-P10d, D3D12 and Vulkan with a compute queue of their own): the frame's list is submitted handing the
+    // prepass image and the cells to the compute queue, the reduce runs on a compute list that waits for it, and its submit
+    // hands both back. The graphics passes after this one run meanwhile; the first one that declares the prepass target waits
+    // for the reduce (Gpu::wait_compute_for, the frame graph's `before` hook), the frame's commit waits for it otherwise. The
+    // reduce reads what the prepass wrote and writes only the cells, so its result is the same on either queue.
+    const bool async = gpu.async_compute();
+    gpu::QueueHandoff uses[2];
+    uses[0].image = prepass.texture_image();
+    uses[1].buffer = hc.cells;
+    gpu::CommandList& list = async ? gpu.begin_async_compute("hiz-reduce", uses) : cmd;
+    list.begin_compute_pass("hiz-reduce");
+    list.set_pipeline(pip);
+    list.set_bindings(bind);
+    list.set_uniforms(UB_hiz_hiz_params, gpu::Range{&u, sizeof(u)});
+    list.dispatch((w + 7) / 8, (h + 7) / 8, 1);
+    list.end_pass();
+    if (async) gpu.end_async_compute(list, uses, prepassHandle);
     gpu.note_work();
     hc.reduced = true;
     hc.reducedInfo = HizCamera::Flight{};
