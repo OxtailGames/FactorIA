@@ -1018,7 +1018,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
          "drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution, metalfx (Metal only: the reason "
-         "says when this OS or GPU lacks it); "
+         "says when this OS or GPU lacks it), and the vendor upscalers of M78: dlss, xess, fsr (the reason says what "
+         "is missing: the GPU, the backend, or the SDK to install with `factoria setup`); "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
@@ -1184,7 +1185,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"render.upscaler",
          "Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.",
-         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, auto), "
+         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, dlss, "
+         "xess, fsr, auto), "
          "`quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no "
          "argument it returns the setting; with any of the three it changes those and keeps the rest. Returns "
          "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
@@ -1193,9 +1195,15 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen), "
          "\"temporal\" (the camera is jittered and the frames accumulate in an output-size history) and \"metalfx\" "
          "(Apple's MetalFX on the Metal backend, its temporal scaler on a jittered frame of one camera, its spatial "
-         "scaler where the GPU has only that one); \"auto\" picks the best of those. "
+         "scaler where the GPU has only that one) and, from M78, \"dlss\" (NVIDIA DLSS through Streamline, an RTX "
+         "GPU), "
+         "\"xess\" (Intel XeSS) and \"fsr\" (AMD FSR 3.1): Windows only (D3D12, Vulkan; D3D11 for DLSS and XeSS), "
+         "each needs its SDK installed (`factoria setup streamline`, `xess`, `fidelityfx`; `render.supports` with "
+         "the mode's name says what is missing, and the log says it once). \"auto\" picks the SDK of the GPU's maker "
+         "(NVIDIA dlss, Intel xess, AMD fsr) when it is installed and usable, else the best of the others. "
          "temporal draws as spatial on a frame of several cameras and where its history cannot be made, metalfx "
          "draws as temporal (then spatial) where this OS or GPU has no MetalFX or it failed (one warning in the log), "
+         "as do dlss, xess and fsr where their SDK is missing, the GPU or backend does not suit it or a frame failed, "
          "and a pixel-perfect "
          "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
          "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
@@ -1206,7 +1214,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
          "graphics=false too (the value is only remembered).",
          parse_schema(R"({"type":"object","properties":{
-               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), auto (the best this GPU can draw)."},
+               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","dlss","xess","fsr","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), dlss (NVIDIA DLSS, an RTX GPU, Windows, `factoria setup streamline`), xess (Intel XeSS, Windows, `factoria setup xess`), fsr (AMD FSR 3.1, Windows, `factoria setup fidelityfx`), auto (the GPU maker's own SDK when installed, else the best this GPU can draw)."},
                "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"],"description":"How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height."},
                "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."}}})"),
          false, "game"},

@@ -290,10 +290,12 @@ test("graphics page: the upscaling modes this GPU cannot draw are greyed out wit
     expect(button("gfx_mode_spatial").interactable).toBe(true);
     expect(button("gfx_mode_temporal").interactable).toBe(false);
     expect(button("gfx_mode_metalfx").interactable).toBe(false);
+    for (const vendor of ["dlss", "xess", "fsr"]) expect(button(`gfx_mode_${vendor}`).interactable).toBe(false); // the vendor SDK modes: this fake GPU lists none
     const note = world.find("quality_note");
     expect(note.active).toBe(true);
     expect(note.get("Text").text).toContain(i18n.t("options.gfx.um.temporal"));
     expect(note.get("Text").text).toContain(i18n.t("options.gfx.unsup.metalfx"));
+    expect(note.get("Text").text).toContain(i18n.t("options.gfx.unsup.dlss"));
     expect(note.get("Text").text).not.toContain(i18n.t("options.gfx.unsup.spatial"));
     game.click("gfx_mode_temporal"); // greyed out: nothing happens
     expect(window.upscaler.mode).not.toBe("temporal");

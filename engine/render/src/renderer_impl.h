@@ -64,6 +64,7 @@
 #include "render_upscale.h"
 #include "render_upscale_metalfx.h"
 #include "render_upscale_spatial.h"
+#include "render_upscale_vendor.h"
 #include "metalfx.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -258,6 +259,21 @@ struct Renderer::Impl {
     bool mfxPrepOnly = false;
     // Test hook: the reactive mask is not handed to MetalFX (the frames without one are the contrast).
     bool mfxNoReactive = false;
+    // M78, the vendor SDKs (render_upscale_vendor.h; renderer_upscale.cpp). vendorFrameImpl: the vendor implementation this frame's jittered
+    // picture goes to (Stretch: none; render() decides it with temporalFrame). vendorProbe[i]: what provider i answered for this GPU, asked
+    // once (vendorProbed[i]). vendorFailed[i]: provider i refused a frame: every frame after draws with the temporal upscaler, and the caps
+    // say it is not available. vendorWarnedUnavailable[i]: the one warning of an explicit mode its SDK cannot run.
+    render::UpscaleImpl vendorFrameImpl = render::UpscaleImpl::Stretch;
+    render::VendorProbe vendorProbe[render::kVendorUpscalerCount];
+    bool vendorProbed[render::kVendorUpscalerCount] = {};
+    bool vendorFailed[render::kVendorUpscalerCount] = {};
+    bool vendorWarnedUnavailable[render::kVendorUpscalerCount] = {};
+    bool vendor_upscale(render::UpscaleImpl impl, render::UpscaleInput& in, const Target& src, Target& out,
+                        const PassContext& c);
+    bool vendor_fail(int index, const std::string& why);
+    const render::VendorProbe& vendor_probe(int index);  // asked once; a provider that failed a frame says so
+    void set_vendor_env(render::FeatureEnv& env);        // render.supports: the three providers' answers
+    std::string vendorFailedWhy[render::kVendorUpscalerCount];
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();

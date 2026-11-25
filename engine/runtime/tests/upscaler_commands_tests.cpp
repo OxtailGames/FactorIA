@@ -839,3 +839,85 @@ TEST_CASE("graphics.preset: the upscaler it reports is the effective mode of the
     CHECK(r.result["upscaler"]["effectiveMode"] == "stretch");
     e.shutdown();
 }
+
+// ---- M78-P1: the vendor modes (dlss, xess, fsr) --------------------------------------------------------------------------------------
+
+TEST_CASE("render.upscaler: dlss, xess and fsr load from the project, round-trip, and are documented") {
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        TempProject p(std::string("vendor_load_") + mode, std::string(R"(, "render": { "upscaler": { "mode": ")") +
+                                                              mode + R"(", "quality": "quality" } })");
+        auto s = load_project(p.path());
+        REQUIRE_MESSAGE(s.ok(), s.error().message);
+        CHECK(std::string(render::upscaler_mode_name(s->upscaler.mode)) == mode);
+        CHECK(s->to_json()["render"]["upscaler"]["mode"] == mode);
+    }
+    TempProject bad("vendor_bad", R"(, "render": { "upscaler": { "mode": "dlls" } })");
+    auto b = load_project(bad.path());
+    REQUIRE_FALSE(b.ok());
+    const std::string badText = b.error().message + " " + b.error().hint;
+    CHECK(badText.find("dlss") != std::string::npos);
+
+    TempProject p("vendor_doc");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("render.upscaler");
+    REQUIRE(info != nullptr);
+    const std::string doc = info->description + " " + info->details + " " + info->inputSchema.dump();
+    for (const char* word : {"dlss", "xess", "fsr", "factoria setup"})
+        CHECK_MESSAGE(doc.find(word) != std::string::npos, word);
+    CHECK(info->description.size() < 1500);
+    e.shutdown();
+}
+
+TEST_CASE("render.upscaler: a vendor mode with no SDK usable reports the mode asked and draws as the next best; "
+          "render.supports says why") {
+    TempProject p("vendor_cmd", "", "fit");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        auto r = c.call("render.upscaler",
+                        Json::parse(std::string("{\"mode\":\"") + mode + "\",\"quality\":\"performance\"}"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["mode"] == mode);
+        // The SDKs are not installed on a test machine (and are Windows only): the mode is not the effective one.
+        CHECK_MESSAGE(r.result["effectiveMode"] != mode, mode);
+        CHECK_MESSAGE(r.result["effectiveMode"] != "stretch", mode);  // the next best, never a bare stretch
+        CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
+        auto s = c.call("render.supports", Json::parse(std::string("{\"feature\":\"") + mode + "\"}"));
+        REQUIRE_MESSAGE(s.ok, s.error.dump());
+        const std::string text = s.result.dump();
+        CHECK_MESSAGE(text.find("\"supported\":false") != std::string::npos, text);
+        const bool teaches = text.find("factoria setup") != std::string::npos ||
+                             text.find("Windows") != std::string::npos || text.find("NVIDIA") != std::string::npos ||
+                             text.find("needs") != std::string::npos;
+        CHECK_MESSAGE(teaches, text);
+    }
+    e.shutdown();
+}
+
+TEST_CASE("render.upscaler without a renderer: a vendor mode is what the next best would draw") {
+    TempProject p("vendor_nogpu", R"(, "render": { "upscaler": { "mode": "dlss" } })", "fit");
+    EngineConfig cf = cfg(p);
+    cf.graphics = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cf, nullptr, &err), err);
+    REQUIRE(e.renderer() == nullptr);
+    const std::string best = render::metalfx_available_here().available ? "metalfx" : "temporal";
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        auto r = e.commands().call("render.upscaler", Json::parse(std::string("{\"mode\":\"") + mode + "\"}"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK_MESSAGE(r.result["mode"] == mode, mode);
+        CHECK_MESSAGE(r.result["effectiveMode"] == best, mode);
+    }
+    TempProject art("vendor_nogpu_art", R"(, "render": { "upscaler": { "mode": "fsr" } })", "pixelPerfect");
+    EngineConfig ca = cfg(art);
+    ca.graphics = false;
+    Engine a;
+    REQUIRE_MESSAGE(a.init(ca, nullptr, &err), err);
+    CHECK(a.commands().call("render.upscaler", Json::object()).result["effectiveMode"] == "stretch");
+}

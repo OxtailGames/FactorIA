@@ -48,6 +48,8 @@ void Editor::at_section_Q4(AtScript& at) {
     step(4, [this] {
         at_check(at_visible("gfx:mode:spatial") && at_visible("gfx:mode:metalfx"),
                  "the mode combo lists the engine's modes");
+        at_check(at_visible("gfx:mode:dlss") && at_visible("gfx:mode:xess") && at_visible("gfx:mode:fsr"),
+                 "...with the vendor upscalers of M78");
     });
     click("gfx:mode:spatial");
     step(4, [this] {

@@ -95,14 +95,20 @@
         "stretch": "تمديد",
         "spatial": "مكاني",
         "temporal": "زمني",
-        "metalfx": "MetalFX"
+        "metalfx": "MetalFX",
+        "dlss": "DLSS",
+        "xess": "XeSS",
+        "fsr": "FSR"
       },
       "modeLabel": "التكبير: {mode}",
       "modeDrawn": "{mode}، يُرسم كـ {drawn}",
       "unsup": {
         "spatial": "يحتاج إلى نافذة مع معالج رسوميات",
         "temporal": "غير متاح على هذه البطاقة أو النسخة",
-        "metalfx": "لمعالجات Apple فقط"
+        "metalfx": "لمعالجات Apple فقط",
+        "dlss": "يحتاج إلى بيئة الشركة المصنّعة على Windows (DLSS: بطاقة NVIDIA RTX)",
+        "xess": "يحتاج إلى بيئة الشركة المصنّعة على Windows (DLSS: بطاقة NVIDIA RTX)",
+        "fsr": "يحتاج إلى بيئة الشركة المصنّعة على Windows (DLSS: بطاقة NVIDIA RTX)"
       },
       "uq": {
         "native": "أصلية",

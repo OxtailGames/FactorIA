@@ -2073,6 +2073,8 @@ render::UpscalerCaps Engine::upscaler_caps() const {
     caps.multiCamera = false;
     caps.metalfx = mfx.available;
     caps.metalfxTemporal = mfx.temporal;
+    // The vendor SDK upscalers (DLSS, XeSS, FSR) stay false here: they need a renderer to probe the GPU and load the SDK library, so a
+    // headless run reports spatial or temporal for them (M78).
     caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
     return caps;
 }
