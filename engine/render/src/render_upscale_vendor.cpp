@@ -154,19 +154,23 @@ private:
 };
 
 #if defined(_WIN32)
-// The library's folder joins the process's DLL search list, once per folder: a provider library that loads another DLL of its own later (FSR's
-// backend, XeSS's Intel runtime) with a plain LoadLibrary finds it next to itself, where the flags above reach only what the load itself imports.
+// The library's folder joins the process's user DLL directories, once per folder. Windows searches them only for a load made with
+// LOAD_LIBRARY_SEARCH_USER_DIRS or LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: a provider library that loads another DLL of its own later that
+// way (FSR's backend, XeSS's Intel runtime) finds it next to itself; a plain LoadLibrary of a bare name is not helped, and the engine
+// does not call SetDefaultDllDirectories (it would change the search order of the whole process). UPSCALING_VENDORS.md, check item 5.
 void add_dll_directory(const stdfs::path& folder) {
     static std::mutex mutex;
     static std::set<stdfs::path> added;
     if (folder.empty()) return;
     std::lock_guard<std::mutex> lock(mutex);
     if (!added.insert(folder).second) return;
-    if (!AddDllDirectory(folder.c_str()))
+    if (!AddDllDirectory(folder.c_str())) {
+        const DWORD error = GetLastError();  // before anything that allocates can change it
         FA_WARN("render",
                 "could not add {} to the DLL search list (error {}): a library that loads another one of its folder "
                 "later may not find it",
-                fs::path_to_utf8(folder), std::to_string(GetLastError()));
+                fs::path_to_utf8(folder), std::to_string(error));
+    }
 }
 #endif
 
