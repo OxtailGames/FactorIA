@@ -6,7 +6,9 @@
 #include <doctest.h>
 
 #include <array>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "gpu/device.h"
@@ -238,4 +240,52 @@ TEST_CASE("native access: the SokolDevice names its GPU; D3D11 hands out its con
     }
     dev.submit(list);
     dev.destroy_image(img);
+}
+
+// ---- device hooks (M78-P2b, gpu/device_hooks.h) ----------------------------------------------------------------------
+
+namespace {
+
+struct NamedHook : DeviceHook {
+    std::string id;
+    explicit NamedHook(std::string n) : id(std::move(n)) {}
+    std::string_view name() const override { return id; }
+};
+
+}  // namespace
+
+TEST_CASE("device hooks: the registry adds its hooks once to every device; a backend without hooks says why") {
+    auto mine = std::make_shared<NamedHook>("caller's (test)");
+    auto registered = std::make_shared<NamedHook>("registered (test)");
+    register_device_hook(registered);
+    register_device_hook(registered);  // once
+    REQUIRE(registered_device_hooks().size() == 1);
+
+    // The caller's first, then the registered ones; a hook in both lists is there once.
+    const DeviceHooks all = with_registered_hooks({mine, registered, nullptr});
+    REQUIRE(all.size() == 2);
+    CHECK(all[0] == mine);
+    CHECK(all[1] == registered);
+
+    // The RecordingDevice calls no hook: each is unavailable, and the reason says which backends call them.
+    DeviceInit init;
+    init.hooks = {mine};
+    auto dev = make_device(Backend::Recording, init);
+    REQUIRE(dev);
+    for (const auto& h : {std::shared_ptr<DeviceHook>(mine), std::shared_ptr<DeviceHook>(registered)}) {
+        CHECK(!h->available());
+        CHECK(contains(h->unavailable_reason(), "the recording backend calls no device hooks"));
+        CHECK(contains(h->unavailable_reason(), "D3D12 or the Vulkan backend"));
+    }
+    CHECK(contains(device_hook_warning(Backend::Recording, *mine), "device hook 'caller's (test)' is unavailable"));
+
+    // The first reason stays; a new device starts the hook available again.
+    mine->mark_unavailable("a second reason");
+    CHECK(!contains(mine->unavailable_reason(), "a second reason"));
+    mine->mark_available();
+    CHECK(mine->available());
+    CHECK(mine->unavailable_reason().empty());
+
+    unregister_device_hook(registered.get());
+    CHECK(registered_device_hooks().empty());
 }

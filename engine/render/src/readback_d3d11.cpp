@@ -42,6 +42,10 @@ ID3D11Buffer* d3d11_buffer(const Device& device, Buffer buffer) {
 
 }  // namespace
 
+void native_d3d11_clear_state(Device& gpuDevice) {
+    if (ID3D11DeviceContext* ctx = d3d11_context(gpuDevice)) ctx->ClearState();
+}
+
 bool native_read_image_rgba8(Device& gpuDevice, Image image, int width, int height, std::vector<std::uint8_t>& out,
                              std::string* error) {
     ID3D11Device* device = d3d11_device(gpuDevice);

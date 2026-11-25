@@ -174,7 +174,11 @@ bool device_backend_compiled(Backend backend) {
     }
 }
 
-Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init) {
+Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& initIn) {
+    // The registered hooks take part in every device; a backend that calls none says so in each hook's reason.
+    DeviceInit init = initIn;
+    init.hooks = with_registered_hooks(initIn.hooks);
+    if (backend != Backend::D3d12 && backend != Backend::Vulkan) mark_hooks_unsupported(init.hooks, backend);
     if (backend == Backend::Recording) return std::unique_ptr<Device>(std::make_unique<RecordingDevice>(init));
     const Backend built = built_sokol_backend();
     if (backend == Backend::D3d12) {

@@ -281,6 +281,16 @@ std::string prepare_validation_layer();
     X(vkAcquireNextImageKHR)                                                                                           \
     X(vkQueuePresentKHR)
 
+// The functions a swapchain is called with (VulkanDevice::swapFns_): the device's, or a device hook's.
+struct VkSwapFunctions {
+    PFN_vkCreateSwapchainKHR create = nullptr;
+    PFN_vkDestroySwapchainKHR destroy = nullptr;
+    PFN_vkGetSwapchainImagesKHR getImages = nullptr;
+    PFN_vkAcquireNextImageKHR acquire = nullptr;
+    PFN_vkQueuePresentKHR present = nullptr;
+    PFN_vkSetHdrMetadataEXT setHdrMetadata = nullptr;
+};
+
 // Every function the backend calls (VK_NO_PROTOTYPES: there are no others; the platform's vkCreate*SurfaceKHR is taken
 // where the surface is made, vulkan_surface.cpp).
 struct VkFunctions {
@@ -1696,6 +1706,34 @@ private:
     VkSemaphore swapWait_ = VK_NULL_HANDLE;  // queueMutex_: the acquire semaphore the next use of the image waits for
     TrackedResource* swapWaitImage_ = nullptr;  // queueMutex_: that image
     std::size_t swapWaitSlot_ = 0;              // queueMutex_: its acquireSemaphores_ entry
+    // The functions the swapchain is called with: fn_'s, or the ones a device hook gave for this swapchain
+    // (VulkanSwapchainCreate::functions). Set where the swapchain is made; the old swapchain goes with the old table.
+    using SwapFunctions = VkSwapFunctions;
+    SwapFunctions engine_swap_functions() const;
+    SwapFunctions swapFns_{};
+
+    // Device hooks (gpu/device_hooks.h; VulkanOptions::init.hooks), in their order. hookGrants_ (same order): the
+    // queues and optional extensions each got, handed over by hooks_device_created(). presents_: the presents so far
+    // (PresentEvent::frame), under queueMutex_.
+    struct HookGrant {
+        std::vector<VulkanQueueGrant> queues;
+        std::vector<std::string> optionalExtensions;
+    };
+    DeviceHooks hooks_;
+    std::vector<HookGrant> hookGrants_;
+    std::uint64_t presents_ = 0;
+    // Marks `hook` unavailable with `reason`, logs it and keeps it in warnings().
+    void hook_unavailable(DeviceHook& hook, std::string reason);
+    // `p` (the function the loader gave for `name`) as the available hooks resolve it (DeviceHook::vulkan_resolve).
+    HookProcAddr resolve_hooked(const char* name, const void* device, HookProcAddr p);
+    // What each hook asks of the device, checked against what it has, merged into the device's create info by
+    // init_device (vulkan_device.cpp).
+    void hooks_device_created();
+    // DeviceHook::vulkan_create_swapchain over the available hooks: true when one made the swapchain (`made`), with
+    // `fns` the functions the swapchain is called with; `failed` when a hook reported an error (it is unavailable).
+    bool hooks_make_swapchain(VkSwapchainCreateInfoKHR& ci, SwapFunctions& fns, VkSwapchainKHR& made, bool& failed);
+    void hooks_swapchain_destroying(VkSwapchainKHR swapchain);
+    void hooks_present(bool begin, VkQueue queue, std::uint32_t image, VkResult result);
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;
