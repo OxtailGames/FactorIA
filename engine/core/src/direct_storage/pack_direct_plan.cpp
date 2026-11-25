@@ -141,8 +141,8 @@ DirectWaitStep direct_wait_step(DirectWait& w, std::uint64_t waitedMs, bool stat
 
 Error direct_slots_exhausted_error(std::size_t slots) {
     return Error{"all " + std::to_string(slots) +
-                     " status slots of the DirectStorage queue are out of use (each lost its event and Windows could "
-                     "not make a new one), so a read of game.pak cannot start",
+                     " status slots of the DirectStorage queue are retired (each lost its event and Windows could "
+                     "not make a new one), so no read of the pack can start through DirectStorage",
                  "The pack is read on the CPU from now on. Free memory and handles (close other programs) and start "
                  "the game again, or set FA_DIRECTSTORAGE=0."};
 }

@@ -4,6 +4,7 @@
 // "D3D12 backend").
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <new>
 #include <set>
 #include <string>
 #include <system_error>
@@ -836,6 +838,16 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
     // The pipeline library (the on-disk cache) holds the PSOs earlier runs made, under a name hashed from `key`: a
     // load there skips the driver's compile. A name it does not hold yet answers E_INVALIDARG (not an error).
     const std::wstring name = widen(("fa-" + sha256_hex(key)).c_str());
+    // Into psos_. Called under libraryMutex_ when the library loaded or stored the PSO (the only nesting of the two
+    // locks, always in this order): a trimming save_pipeline_cache() that reads libraryHits_ + libraryMisses_ then
+    // finds every PSO they count in psos_.
+    const auto keep = [&](const Com<ID3D12PipelineState>& state) {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        ++psoMisses_;
+        auto [it, added] = psos_.try_emplace(key, state);
+        (void)added;  // another thread made the same one meanwhile: both are the same state, the first one is kept
+        return it->second;
+    };
     Com<ID3D12PipelineState> made;
     {
         std::lock_guard<std::mutex> lock(libraryMutex_);
@@ -850,74 +862,101 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
                 D3d12PipelineCacheTotals add;
                 add.libraryHits = 1;
                 d3d12_pipeline_cache_count(add);
-            } else {
-                made.reset();
+                made->SetName(L"fa-d3d12-pso");
+                return keep(made);
             }
+            made.reset();
         }
     }
-    if (!made) {
-        // Made without the lock: making a PSO compiles the shaders for the GPU and may take milliseconds.
-        const HRESULT hr =
-            graphics ? device_->CreateGraphicsPipelineState(graphics, __uuidof(ID3D12PipelineState), made.put_void())
-                     : device_->CreateComputePipelineState(compute, __uuidof(ID3D12PipelineState), made.put_void());
-        if (FAILED(hr) || !made) {
-            drain_messages();
-            error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") +
-                    " failed with " + hr_text(hr) + removed_reason() +
-                    " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
-                    "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
-            return {};
-        }
-        std::lock_guard<std::mutex> lock(libraryMutex_);
-        // Another thread may have stored the same name meanwhile (E_INVALIDARG): the library has it either way.
-        if (library_ && SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) {
-            libraryDirty_ = true;
-            ++libraryMisses_;
-            D3d12PipelineCacheTotals add;
-            add.libraryMisses = 1;
-            d3d12_pipeline_cache_count(add);
-        }
+    // Made without the lock: making a PSO compiles the shaders for the GPU and may take milliseconds.
+    const HRESULT hr =
+        graphics ? device_->CreateGraphicsPipelineState(graphics, __uuidof(ID3D12PipelineState), made.put_void())
+                 : device_->CreateComputePipelineState(compute, __uuidof(ID3D12PipelineState), made.put_void());
+    if (FAILED(hr) || !made) {
+        drain_messages();
+        error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") + " failed with " +
+                hr_text(hr) + removed_reason() +
+                " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
+                "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
+        return {};
     }
     made->SetName(L"fa-d3d12-pso");
-    std::lock_guard<std::mutex> lock(cacheMutex_);
-    ++psoMisses_;
-    auto [it, added] = psos_.try_emplace(key, made);
-    (void)added;  // another thread made the same one meanwhile: both are the same state, the first one is kept
-    return it->second;
+    std::lock_guard<std::mutex> lock(libraryMutex_);
+    // Another thread may have stored the same name meanwhile (E_INVALIDARG): the library has it either way.
+    if (library_ && SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) {
+        libraryDirty_ = true;
+        ++libraryMisses_;
+        D3d12PipelineCacheTotals add;
+        add.libraryMisses = 1;
+        d3d12_pipeline_cache_count(add);
+    }
+    return keep(made);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The pipeline cache on disk: an ID3D12PipelineLibrary loaded from D3d12Options::pipelineCacheFile when the device is
-// made and written back by save_pipeline_cache() (PipelineCacheFile in d3d12_device.h says what the file holds)
+// made and written back by save_pipeline_cache() (PipelineCacheFile in d3d12_device.h says what the file holds; its
+// header is written and checked in d3d12_device.cpp, on every platform)
 // ---------------------------------------------------------------------------------------------------------------------
 
 namespace {
 
-// A cache file bigger than this is not read (it would be one of thousands of PSOs; a damaged size field is likelier).
-constexpr std::int64_t kMaxPipelineCacheBytes = std::int64_t(1) << 30;
+// Tries again after the first MoveFileExW when a reader holds the old file: 1 ms each (Windows sleeps up to one timer
+// step, ~15.6 ms). A cache is only a speed-up: a reader that stays is not waited for (the old file is kept), since a
+// long wait would stretch the shutdown of every run that meets one.
+constexpr int kReplaceRetries = 3;
 
-template <class T>
-T read_at(const std::vector<std::uint8_t>& bytes, std::size_t at) {
-    T v{};
-    std::memcpy(&v, bytes.data() + at, sizeof v);
-    return v;
+// Windows says the file is held open somewhere else (a reader without FILE_SHARE_DELETE, a scanner, a mapped view).
+bool held_open(DWORD e) {
+    return e == ERROR_SHARING_VIOLATION || e == ERROR_ACCESS_DENIED || e == ERROR_LOCK_VIOLATION ||
+           e == ERROR_USER_MAPPED_FILE;
 }
 
-template <class T>
-void write_at(std::vector<std::uint8_t>& bytes, std::size_t at, T v) {
-    std::memcpy(bytes.data() + at, &v, sizeof v);
+// Writes `bytes` to `target` atomically: a temporary file next to it, then MoveFileExW(MOVEFILE_REPLACE_EXISTING) over
+// it, so a reader never sees half a file and a failure leaves the old one. Empty when written, else what went wrong;
+// `heldOpen` says whether a reader held the old file.
+std::string replace_cache_file(const std::filesystem::path& target, const std::vector<std::uint8_t>& bytes,
+                               bool& heldOpen) {
+    static std::atomic<unsigned> counter{0};
+    heldOpen = false;
+    std::filesystem::path tmp = target;
+    tmp += L".fa-tmp" + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(counter.fetch_add(1));
+    const std::filesystem::path osTmp = fs::os_path(tmp), osTarget = fs::os_path(target);
+    HANDLE h = CreateFileW(osTmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE)
+        return "the temporary file " + fs::path_to_utf8(tmp) + " could not be made (" +
+               hr_text(HRESULT_FROM_WIN32(GetLastError())) + ")";
+    DWORD err = 0;
+    for (std::size_t at = 0; at < bytes.size() && err == 0;) {
+        const DWORD chunk = DWORD(std::min<std::size_t>(bytes.size() - at, std::size_t(1) << 30));
+        DWORD wrote = 0;
+        if (!WriteFile(h, bytes.data() + at, chunk, &wrote, nullptr) || wrote != chunk) {
+            err = GetLastError();
+            if (err == 0) err = ERROR_DISK_FULL;  // a short write without an error code
+        }
+        at += chunk;
+    }
+    if (!CloseHandle(h) && err == 0) err = GetLastError();
+    if (err != 0) {
+        DeleteFileW(osTmp.c_str());
+        return "writing the temporary file " + fs::path_to_utf8(tmp) + " failed (" + hr_text(HRESULT_FROM_WIN32(err)) +
+               ")";
+    }
+    for (int attempt = 0;; ++attempt) {
+        if (MoveFileExW(osTmp.c_str(), osTarget.c_str(), MOVEFILE_REPLACE_EXISTING)) return {};
+        err = GetLastError();
+        if (!held_open(err) || attempt >= kReplaceRetries) break;
+        Sleep(1);
+    }
+    DeleteFileW(osTmp.c_str());
+    heldOpen = held_open(err);
+    return "the old file could not be replaced (" + hr_text(HRESULT_FROM_WIN32(err)) + ")";
 }
 
-std::string hex32(std::uint32_t v) {
-    char text[16];
-    std::snprintf(text, sizeof text, "0x%04x", unsigned(v));
+std::string mib_text(std::uint64_t bytes) {
+    char text[32];
+    std::snprintf(text, sizeof text, "%.1f MiB", double(bytes) / double(1u << 20));
     return text;
-}
-
-// The driver version DXGI reports as four 16-bit parts (31.0.101.5186).
-std::string driver_text(std::uint64_t v) {
-    return std::to_string((v >> 48) & 0xffffu) + "." + std::to_string((v >> 32) & 0xffffu) + "." +
-           std::to_string((v >> 16) & 0xffffu) + "." + std::to_string(v & 0xffffu);
 }
 
 }  // namespace
@@ -934,9 +973,11 @@ void D3d12Device::init_pipeline_library() {
     using F = PipelineCacheFile;
     std::string discard;  // why the file is thrown away; empty = kept (or there is none)
     std::vector<std::uint8_t> bytes;
+    // One read of the whole file (it counts once in fs::disk_reads, so in the startup report's diskReadsAtFirstPresent:
+    // the device is made before the first present).
     const std::int64_t size = fs::file_size(file);
-    if (size > kMaxPipelineCacheBytes) {
-        discard = "it has " + std::to_string(size) + " bytes, more than the " + std::to_string(kMaxPipelineCacheBytes) +
+    if (size > std::int64_t(F::kMaxBytes)) {
+        discard = "it has " + std::to_string(size) + " bytes, more than the " + std::to_string(F::kMaxBytes) +
                   " a pipeline cache may have";
     } else if (size >= 0) {
         auto read = fs::read_bytes(file);
@@ -945,40 +986,7 @@ void D3d12Device::init_pipeline_library() {
         else
             bytes = std::move(*read);
     }
-    if (discard.empty() && size >= 0) {
-        // Every check before the driver sees a byte: a damaged blob must not reach it.
-        if (bytes.size() < F::kHeaderBytes) {
-            discard = "it has " + std::to_string(bytes.size()) + " bytes, fewer than its header";
-        } else if (std::memcmp(bytes.data(), F::kMagic, 8) != 0) {
-            discard = "it is not a FactorIA pipeline cache (its first bytes are not FAPSOLIB)";
-        } else if (read_at<std::uint32_t>(bytes, F::kVersionAt) != F::kVersion ||
-                   read_at<std::uint32_t>(bytes, F::kHeaderSizeAt) != F::kHeaderBytes) {
-            discard = "it is format version " + std::to_string(read_at<std::uint32_t>(bytes, F::kVersionAt)) +
-                      " and this engine reads version " + std::to_string(F::kVersion);
-        } else {
-            const std::uint32_t vendor = read_at<std::uint32_t>(bytes, F::kVendorAt);
-            const std::uint32_t deviceId = read_at<std::uint32_t>(bytes, F::kVendorAt + 4);
-            const std::uint32_t subsys = read_at<std::uint32_t>(bytes, F::kVendorAt + 8);
-            const std::uint32_t revision = read_at<std::uint32_t>(bytes, F::kVendorAt + 12);
-            const std::uint64_t driver = read_at<std::uint64_t>(bytes, F::kDriverAt);
-            const std::uint64_t payload = read_at<std::uint64_t>(bytes, F::kPayloadSizeAt);
-            const std::string checksum(reinterpret_cast<const char*>(bytes.data() + F::kChecksumAt), 64);
-            if (vendor != identity_.vendor || deviceId != identity_.device || subsys != identity_.subsys ||
-                revision != identity_.revision) {
-                discard = "it was made on another GPU (vendor " + hex32(vendor) + ", device " + hex32(deviceId) +
-                          "; this one is " + adapterName_ + ", vendor " + hex32(identity_.vendor) + ", device " +
-                          hex32(identity_.device) + ")";
-            } else if (driver != identity_.driverVersion) {
-                discard = "it was made by driver " + driver_text(driver) + " and this one is " +
-                          driver_text(identity_.driverVersion);
-            } else if (payload != bytes.size() - F::kHeaderBytes) {
-                discard = "it is damaged (its header says " + std::to_string(payload) +
-                          " bytes of pipelines, it holds " + std::to_string(bytes.size() - F::kHeaderBytes) + ")";
-            } else if (sha256_hex(bytes.data() + F::kHeaderBytes, std::size_t(payload)) != checksum) {
-                discard = "it is damaged (its checksum does not match its bytes)";
-            }
-        }
-    }
+    if (discard.empty() && size >= 0) discard = pipeline_cache_mismatch(bytes, identity_, adapterName_);
     auto create = [&](const std::vector<std::uint8_t>& blob) {
         library_.reset();
         return device1->CreatePipelineLibrary(blob.empty() ? nullptr : blob.data(), blob.size(),
@@ -1031,67 +1039,139 @@ void D3d12Device::init_pipeline_library() {
 Result<void> D3d12Device::save_pipeline_cache() {
     if (pipelineCacheFile_.empty()) return {};
     using F = PipelineCacheFile;
-    std::vector<std::uint8_t> bytes;
-    {
-        std::lock_guard<std::mutex> lock(libraryMutex_);
-        if (!library_ || !libraryDirty_) return {};
-        const SIZE_T payload = library_->GetSerializedSize();
-        if (std::uint64_t(payload) > std::uint64_t(kMaxPipelineCacheBytes) - F::kHeaderBytes)
-            return make_error(
-                "gpu d3d12: the pipeline cache has " + std::to_string(payload) +
-                    " bytes, more than a cache file may have; it is not written",
-                "a runaway number of distinct pipelines (D3d12Device::counters().psos says how many the device keeps)");
-        bytes.resize(F::kHeaderBytes + payload);
-        const HRESULT hr = library_->Serialize(bytes.data() + F::kHeaderBytes, payload);
-        if (FAILED(hr))
-            return make_error("gpu d3d12: serializing the pipeline library failed with " + hr_text(hr) +
-                                  removed_reason(),
-                              "the device was lost or out of memory; the old cache file was kept");
-        libraryDirty_ = false;  // a PSO stored from here on makes it dirty again
-    }
-    std::memcpy(bytes.data(), F::kMagic, 8);
-    write_at<std::uint32_t>(bytes, F::kVersionAt, F::kVersion);
-    write_at<std::uint32_t>(bytes, F::kHeaderSizeAt, std::uint32_t(F::kHeaderBytes));
-    write_at<std::uint32_t>(bytes, F::kVendorAt, identity_.vendor);
-    write_at<std::uint32_t>(bytes, F::kVendorAt + 4, identity_.device);
-    write_at<std::uint32_t>(bytes, F::kVendorAt + 8, identity_.subsys);
-    write_at<std::uint32_t>(bytes, F::kVendorAt + 12, identity_.revision);
-    write_at<std::uint64_t>(bytes, F::kDriverAt, identity_.driverVersion);
-    write_at<std::uint32_t>(bytes, F::kLuidAt, identity_.luidLow);
-    write_at<std::int32_t>(bytes, F::kLuidAt + 4, identity_.luidHigh);
-    const std::size_t payload = bytes.size() - F::kHeaderBytes;
-    write_at<std::uint64_t>(bytes, F::kPayloadSizeAt, std::uint64_t(payload));
-    const std::string checksum = sha256_hex(bytes.data() + F::kHeaderBytes, payload);
-    std::memcpy(bytes.data() + F::kChecksumAt, checksum.data(), 64);
-
     const std::string file = fs::path_to_utf8(pipelineCacheFile_);
-    std::error_code ec;
-    std::filesystem::create_directories(pipelineCacheFile_.parent_path(), ec);  // a failure shows in the write
-    // A temporary file, then a rename over the old one: a reader never sees half a file, and a failed write (another
-    // process holds the file open, which Windows does not let a rename replace; a full disk) leaves the old one.
-    auto written = fs::write_bytes(file, bytes.data(), bytes.size());
     D3d12PipelineCacheTotals add;
-    if (!written) {
+    // Every way a save fails: the counter, the log, warnings(), and the library stays dirty (the next save tries again).
+    auto fail = [&](const std::string& message, const std::string& hint) -> Result<void> {
         add.storeFailed = 1;
         d3d12_pipeline_cache_count(add);
         {
             std::lock_guard<std::mutex> lock(libraryMutex_);
             libraryDirty_ = true;
         }
-        const std::string message = "gpu d3d12: the pipeline cache could not be written to " + file + ": " +
-                                    written.error().message + "; the old file was kept";
-        const std::string hint =
-            "another process may hold the file open (Windows does not replace an open file), or the disk is full; the "
-            "cache is written again when the device is destroyed";
         FA_WARN("render", "{} (hint: {})", message, hint);
         {
             std::lock_guard<std::mutex> lock(msgMutex_);
             warnings_.push_back(message + " (hint: " + hint + ")");
         }
         return make_error(message, hint);
+    };
+
+    // 1. Whether there is anything to do: PSOs the file does not hold, or a library over the trim size.
+    std::uint64_t before = 0, storesBefore = 0;
+    bool trim = false;
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        if (!library_) return {};
+        before = std::uint64_t(library_->GetSerializedSize());
+        trim = trimBytes_ > 0 && before > trimBytes_ && !trimTried_;
+        if (!libraryDirty_ && !trim) return {};
+        storesBefore = libraryMisses_ + libraryHits_;
     }
+
+    // 2. The trim: a new library with only the PSOs this device made or loaded (psos_ holds every one of them), built
+    // without the library's lock. A run that made none says nothing about what is used: it keeps the file.
+    Com<ID3D12PipelineLibrary> trimmed;
+    std::size_t kept = 0;
+    std::uint64_t after = 0;
+    if (trim) {
+        std::vector<std::pair<std::string, Com<ID3D12PipelineState>>> used;
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex_);
+            used.assign(psos_.begin(), psos_.end());
+        }
+        Com<ID3D12Device1> device1 = device_.as<ID3D12Device1>();
+        if (!used.empty() && device1 &&
+            SUCCEEDED(
+                device1->CreatePipelineLibrary(nullptr, 0, __uuidof(ID3D12PipelineLibrary), trimmed.put_void())) &&
+            trimmed) {
+            for (const auto& [key, made] : used) {
+                const std::wstring name = widen(("fa-" + sha256_hex(key)).c_str());
+                if (SUCCEEDED(trimmed->StorePipeline(name.c_str(), made.get()))) ++kept;
+            }
+            after = std::uint64_t(trimmed->GetSerializedSize());
+        } else {
+            trimmed.reset();
+        }
+    }
+
+    std::size_t psoCount = 0;  // for the hint of a library over kMaxBytes
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        psoCount = psos_.size();
+    }
+
+    // 3. The bytes to write, under the library's lock.
+    std::vector<std::uint8_t> bytes;
+    std::string failure, hint;
+    bool didTrim = false;
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        if (!library_) return {};
+        // A PSO another thread stored or loaded meanwhile may not be in the trimmed library: the trim waits for the
+        // next save then.
+        if (trimmed && libraryMisses_ + libraryHits_ == storesBefore) {
+            trimTried_ = true;  // from now on the library holds only used PSOs: a second rebuild drops nothing
+            if (after < before) {
+                retiredLibraries_.push_back(std::move(library_));
+                library_ = std::move(trimmed);
+                library_->SetName(L"fa-d3d12-pipeline-library");
+                libraryDirty_ = true;
+                ++cacheTrimmed_;
+                didTrim = true;
+            }
+        }
+        if (!libraryDirty_) return {};
+        const SIZE_T payload = library_->GetSerializedSize();
+        if (std::uint64_t(payload) > F::kMaxBytes - F::kHeaderBytes) {
+            failure = "gpu d3d12: the pipeline cache " + file + " was not written: its library has " +
+                      std::to_string(payload) + " bytes, more than the " + std::to_string(F::kMaxBytes) +
+                      " a cache file may have; the old file was kept";
+            hint = "this run made " + std::to_string(psoCount) +
+                   " distinct pipelines: a desc field that changes every frame (a size, a format) makes a new PSO "
+                   "each time; counters().psos says how many the device keeps";
+        } else {
+            bool allocated = true;
+            try {
+                bytes.resize(F::kHeaderBytes + payload);
+            } catch (const std::bad_alloc&) {
+                allocated = false;
+            }
+            const HRESULT hr = allocated ? library_->Serialize(bytes.data() + F::kHeaderBytes, payload) : E_OUTOFMEMORY;
+            if (FAILED(hr)) {
+                failure = "gpu d3d12: the pipeline cache " + file + " was not written: serializing its " +
+                          std::to_string(payload) + "-byte pipeline library failed with " + hr_text(hr) +
+                          removed_reason() + "; the old file was kept";
+                hint = "the device was lost or memory ran out; nothing to fix unless it happens every run (then free "
+                       "memory, or delete the file to start the cache anew)";
+            } else {
+                libraryDirty_ = false;  // a PSO stored from here on makes it dirty again
+            }
+        }
+    }
+    if (!failure.empty()) return fail(failure, hint);
+    write_pipeline_cache_header(bytes, identity_);
+
+    std::error_code ec;
+    std::filesystem::create_directories(fs::os_path(pipelineCacheFile_.parent_path()), ec);  // a failure shows below
+    bool heldOpen = false;
+    const std::string why = replace_cache_file(pipelineCacheFile_, bytes, heldOpen);
+    if (!why.empty())
+        return fail("gpu d3d12: the pipeline cache could not be written to " + file + ": " + why +
+                        "; the old file was kept",
+                    heldOpen ? "another process holds the file open (Windows replaces no open file): it is written "
+                               "again at the next save, when the device is destroyed at the latest"
+                             : "check that the folder is writable and the disk has room; the next save tries again");
     add.filesStored = 1;
+    if (didTrim) add.filesTrimmed = 1;
     d3d12_pipeline_cache_count(add);
+    if (didTrim)
+        FA_INFO("render",
+                "gpu d3d12: wrote the pipeline cache {} ({}): its library had {}, more than pipelineCacheTrimBytes "
+                "({}), and was rebuilt with only the {} pipelines this run used",
+                file, mib_text(bytes.size()), mib_text(before), mib_text(trimBytes_), kept);
+    else
+        FA_INFO("render", "gpu d3d12: wrote the pipeline cache {} ({})", file, mib_text(bytes.size()));
     std::lock_guard<std::mutex> lock(libraryMutex_);
     ++cacheStored_;
     return {};

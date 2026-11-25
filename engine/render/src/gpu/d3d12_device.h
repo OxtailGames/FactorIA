@@ -23,6 +23,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "fa/core/types.h"
 #include "gpu/device.h"
@@ -69,14 +72,62 @@ struct D3d12Options {
     // D3d12Device::save_pipeline_cache() and when the device is destroyed. Empty = no file (the PSOs are still cached
     // in memory for the device's life). The engine's file is d3d12_pipeline_cache_file().
     std::filesystem::path pipelineCacheFile;
+    // A save whose library has more bytes than this first rebuilds it with only the PSOs this device used (made or
+    // loaded), so PSOs no run asks for any more leave the file instead of piling up. 0 = never rebuilt.
+    std::uint64_t pipelineCacheTrimBytes = 64ull << 20;
 };
+
+// The pipeline cache file (d3d12_pipelines_win32.cpp): a header, then the ID3D12PipelineLibrary's serialized blob.
+// Little-endian; the offsets are in bytes. A file whose magic, version, adapter (vendor, device, subsystem, revision),
+// driver version, size or SHA-256 does not match is thrown away before the driver sees it. The adapter's LUID is
+// written but never compared: Windows gives an adapter a new LUID at every boot.
+struct PipelineCacheFile {
+    static constexpr char kMagic[9] = "FAPSOLIB";  // 8 bytes at 0
+    static constexpr std::uint32_t kVersion = 1;
+    static constexpr std::size_t kVersionAt = 8;       // u32
+    static constexpr std::size_t kHeaderSizeAt = 12;   // u32: kHeaderBytes
+    static constexpr std::size_t kVendorAt = 16;       // u32, then device, subsystem and revision ids (u32 each)
+    static constexpr std::size_t kDriverAt = 32;       // u64: IDXGIAdapter::CheckInterfaceSupport's UMD version
+    static constexpr std::size_t kLuidAt = 40;         // u32 low, i32 high: recorded only (it changes with each boot)
+    static constexpr std::size_t kPayloadSizeAt = 48;  // u64
+    static constexpr std::size_t kChecksumAt = 56;     // 64 bytes: the payload's SHA-256 in lowercase hex
+    static constexpr std::size_t kHeaderBytes = 120;
+    // A file bigger than this is neither read nor written (thousands of PSOs are tens of MiB; a damaged size field,
+    // or a run that makes a new PSO every frame, is likelier).
+    static constexpr std::uint64_t kMaxBytes = std::uint64_t(1) << 30;
+};
+
+// The adapter a pipeline cache file was made on, as its header records it.
+struct PipelineCacheIdentity {
+    std::uint32_t vendor = 0, device = 0, subsys = 0, revision = 0;
+    std::uint64_t driverVersion = 0;
+    std::uint32_t luidLow = 0;  // recorded, not compared (a new one at every boot)
+    std::int32_t luidHigh = 0;
+};
+
+// Writes the header of `bytes` (PipelineCacheFile::kHeaderBytes, then the payload, which must be there already): the
+// magic, the version, `id`, the payload's size and SHA-256.
+void write_pipeline_cache_header(std::vector<std::uint8_t>& bytes, const PipelineCacheIdentity& id);
+// Why the bytes of a cache file are not for the adapter `self` (named `adapterName` in the text), or empty when they
+// are (the payload follows the header): too short, not a cache file, another format version, another GPU, another
+// driver, a size or checksum that does not match. The LUID is not compared.
+std::string pipeline_cache_mismatch(const std::vector<std::uint8_t>& bytes, const PipelineCacheIdentity& self,
+                                    const std::string& adapterName);
+// The cache file name of a program: "d3d12-pipelines-<program>.bin", the program's name in lower case with every
+// character but a-z, 0-9, '-' and '_' made '_' (at most 48 of them); "d3d12-pipelines.bin" for an empty name. Each
+// program (the editor, the CLI, a game's player) keeps its own file, so one never overwrites the PSOs of another.
+std::string d3d12_pipeline_cache_name(std::string_view program);
+// The running program's file name without its extension, as UTF-8 (GetModuleFileNameW on Windows; empty elsewhere,
+// where there is no D3D12).
+std::string d3d12_program_name();
 
 // Makes a Direct3D 12 device. Fails with a teaching error where D3D12 does not exist (every platform but Windows), when
 // no adapter makes a feature level 11.0 device, or when an option is out of range.
 Result<std::unique_ptr<Device>> make_d3d12_device(const D3d12Options& options = {});
 
-// The engine's D3D12 pipeline cache file: d3d12-pipelines.bin in the shader cache's folder (fs::cache_dir()/shaders,
-// next to the d3d12-dxbc stages). Empty when there is no cache folder (the web build, a player before set_cache_dir).
+// The engine's D3D12 pipeline cache file: d3d12_pipeline_cache_name(d3d12_program_name()) in the shader cache's folder
+// (fs::cache_dir()/shaders, next to the d3d12-dxbc stages). Empty when there is no cache folder (the web build, a
+// player before set_cache_dir).
 std::filesystem::path d3d12_pipeline_cache_file();
 
 // What the D3D12 devices of this process did with their pipeline caches (the shader cache's report shows it).
@@ -86,7 +137,8 @@ struct D3d12PipelineCacheTotals {
     std::uint64_t filesLoaded = 0;     // cache files a device loaded
     std::uint64_t filesStored = 0;     // cache files written
     std::uint64_t filesDiscarded = 0;  // cache files thrown away (damaged, another GPU or driver)
-    std::uint64_t storeFailed = 0;     // writes that failed (the old file was kept)
+    std::uint64_t storeFailed = 0;     // saves that failed (the old file was kept; the warning says why)
+    std::uint64_t filesTrimmed = 0;  // saves that left out the PSOs no device of this run used (pipelineCacheTrimBytes)
 };
 D3d12PipelineCacheTotals d3d12_pipeline_cache_totals();
 // Adds `add` to the totals (the D3D12 device's own counting).
@@ -624,6 +676,7 @@ struct D3d12Counters {
     std::uint64_t psoLibraryMisses = 0;         // PSOs compiled and stored into the library
     std::uint64_t pipelineCacheStored = 0;      // times this device wrote its cache file
     std::uint64_t pipelineCacheDiscarded = 0;   // cache files it threw away (damaged, another GPU or driver)
+    std::uint64_t pipelineCacheTrimmed = 0;     // saves that rebuilt the library with only the PSOs it used
     std::uint64_t packReadsDirect = 0;          // pack reads DirectStorage wrote into a buffer or image
     std::uint64_t packReadsCpu = 0;             // pack reads decoded on the CPU and uploaded (the fallback)
     std::uint64_t packBlocksDirect = 0;         // pack blocks DirectStorage read for them
@@ -662,22 +715,6 @@ struct PackReadResult {
     std::uint64_t bytes = 0;         // the range's bytes
     std::uint64_t directBlocks = 0;  // the pack blocks DirectStorage read for it
     std::string error;               // empty: the destination holds the bytes
-};
-
-// The pipeline cache file (d3d12_pipelines_win32.cpp): a header, then the ID3D12PipelineLibrary's serialized blob.
-// Little-endian; the offsets are in bytes. A file whose magic, version, adapter (vendor, device, subsystem, revision),
-// driver version, size or SHA-256 does not match is thrown away before the driver sees it.
-struct PipelineCacheFile {
-    static constexpr char kMagic[9] = "FAPSOLIB";  // 8 bytes at 0
-    static constexpr std::uint32_t kVersion = 1;
-    static constexpr std::size_t kVersionAt = 8;       // u32
-    static constexpr std::size_t kHeaderSizeAt = 12;   // u32: kHeaderBytes
-    static constexpr std::size_t kVendorAt = 16;       // u32, then device, subsystem and revision ids (u32 each)
-    static constexpr std::size_t kDriverAt = 32;       // u64: IDXGIAdapter::CheckInterfaceSupport's UMD version
-    static constexpr std::size_t kLuidAt = 40;         // u32 low, i32 high: recorded only (it changes with each boot)
-    static constexpr std::size_t kPayloadSizeAt = 48;  // u64
-    static constexpr std::size_t kChecksumAt = 56;     // 64 bytes: the payload's SHA-256 in lowercase hex
-    static constexpr std::size_t kHeaderBytes = 120;
 };
 
 // The Direct3D 12 Device. Made, used for resources and destroyed on one thread (the render thread); command lists may
@@ -1123,7 +1160,8 @@ private:
     Pool<PipelineRecord> pipelines_;
     std::array<CpuDescriptorHeap, kHeapCount> cpuHeaps_;
 
-    // The root signature and PSO caches (cacheMutex_; never held with another lock but the message one)
+    // The root signature and PSO caches (cacheMutex_; taken inside libraryMutex_ by pso(), never the other way round,
+    // and never held with another lock but the message one)
     mutable std::mutex cacheMutex_;
     std::unordered_map<std::string, std::shared_ptr<const RootLayout>> rootLayouts_;
     std::unordered_map<std::string, Com<ID3D12PipelineState>> psos_;
@@ -1133,22 +1171,21 @@ private:
     D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;  // the device's
     bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
 
-    // The on-disk PSO cache (libraryMutex_; never held with another lock but the message one). libraryBlob_, the
+    // The on-disk PSO cache (libraryMutex_; held with cacheMutex_ inside it, or with the message one). libraryBlob_, the
     // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded
     // from it.
     mutable std::mutex libraryMutex_;
     Com<ID3D12PipelineLibrary> library_;
     bool libraryDirty_ = false;  // holds PSOs the file does not
     std::filesystem::path pipelineCacheFile_;
-    std::uint64_t libraryHits_ = 0, libraryMisses_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0;
+    // Libraries a trimming save replaced (save_pipeline_cache): kept for the device's life, so the PSOs loaded from
+    // them and the blob of the first one stay valid.
+    std::vector<Com<ID3D12PipelineLibrary>> retiredLibraries_;
+    std::uint64_t trimBytes_ = 0;  // D3d12Options::pipelineCacheTrimBytes
+    bool trimTried_ = false;       // a save rebuilt the library once: what it holds since then was all used
+    std::uint64_t libraryHits_ = 0, libraryMisses_ = 0, cacheStored_ = 0, cacheDiscarded_ = 0, cacheTrimmed_ = 0;
     // What the file's header must match (the LUID changes with every boot: recorded, not compared).
-    struct AdapterIdentity {
-        std::uint32_t vendor = 0, device = 0, subsys = 0, revision = 0;
-        std::uint64_t driverVersion = 0;
-        std::uint32_t luidLow = 0;
-        std::int32_t luidHigh = 0;
-    };
-    AdapterIdentity identity_{};
+    PipelineCacheIdentity identity_{};
 
     // GPU timers (timerMutex_; taken after queueMutex_ when both are held). A timed frame takes the next slot of the
     // ring: query 0 is its start, 1 its end, 2 + 2i and 3 + 2i scope i's.
