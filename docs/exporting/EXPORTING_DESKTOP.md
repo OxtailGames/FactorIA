@@ -53,7 +53,8 @@ warning says so). The check is not relaxed to compare engine versions: only the 
 
 ```
 linux/windows:  my-game-linux/
-                  my-game            (my-game.exe on Windows)
+                  my-game            (my-game.exe on Windows; on Linux the Vulkan player)
+                  my-game-gl         (Linux only: the OpenGL player, which takes over where Vulkan cannot start)
                   my-game.png  my-game.desktop      (Linux only: the icon and the application-menu entry)
                   my-game-x86_64.AppImage            (Linux only, with --format appimage: the whole game as one file)
                   FACTORIA_NOTICES.txt
@@ -69,6 +70,13 @@ executable; `Contents/Resources` in the `.app`).
 The executable is named after the game's slug (`Space Dodge` -> `space-dodge`). A game called `Game`, or whose name has no
 letter or digit, has the slug `game`: on Linux its executable is `game-bin`, so it does not sit on the `game/` folder
 (`game.desktop` and `game.png` keep the slug; Windows `game.exe` and macOS `Contents/MacOS/game` cannot collide).
+
+**Linux ships two players.** The executable is the Vulkan player (`factoria_player_vulkan`, found next to the
+`factoria_player` the export takes) and `<exe>-gl` the OpenGL one. The executable starts first; where Vulkan cannot start,
+or when the game's choice is `gl`, it replaces itself with `<exe>-gl` (same arguments, `FA_GPU_FALLBACK_FROM=vulkan` and
+the reason in the environment), which never hands back ([Two players on Linux and Android](../RENDERING.md#two-players-on-linux-and-android)).
+Run `<exe>-gl` yourself to skip Vulkan. `export.linux.vulkanPlayer: false` ships only the OpenGL player as `<exe>`, and
+so does an export whose player has no `factoria_player_vulkan` beside it (a release older than the Vulkan player).
 
 The player starts the game found in `game/` next to the executable (inside the
 `.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:

@@ -78,11 +78,20 @@ struct EngineConfig {
     // init fail. Threads never change what the game computes.
     std::string jobThreads;
     // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan" (render::
-    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else factoria.json render.backend, else "auto" (the
-    // sokol backend this binary was built with). An unknown name makes init fail with the valid names; one this platform or
-    // build does not have is a warning and "auto". D3D12 and Vulkan have no window path yet: with a window the engine warns
-    // once and draws with "auto"; a headless run uses the one asked for. Engine::startup_report names the one that runs.
+    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else the choice graphics.backend stored in the
+    // game's user settings (graphics_backend.json in fs::user_dir(); not read with memoryStorage), else factoria.json
+    // render.backend, else "auto" (gpuBackendAuto where this binary has it, else the sokol backend it was built with). An
+    // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
+    // D3D12 and Vulkan have no window path yet: with a window the engine warns once and draws with "auto"; a headless run
+    // uses the one asked for. Engine::startup_report names the one that runs.
     std::string gpuBackend;
+    // What "auto" draws with in this binary when it has it (M77-P9e2): the Vulkan player of Linux and Android sets Vulkan;
+    // Default = the sokol backend. Not used when FA_GPU_FALLBACK_FROM names it (that backend already failed).
+    GpuBackend gpuBackendAuto = GpuBackend::Default;
+    // Called once when the window cannot draw with the chosen backend (backend name, why), before the engine falls back
+    // to the sokol backend in this process. The Vulkan player of Linux starts the OpenGL player here (it does not return
+    // when that works, fa/runtime/gpu_launch.h); empty = the in-process fallback only.
+    std::function<void(const std::string& backend, const std::string& why)> gpuBackendFailed;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless

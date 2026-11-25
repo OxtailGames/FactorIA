@@ -357,16 +357,52 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 
 - `"auto"` is the backend this build of the engine uses today: the sokol one it was built with (OpenGL on Linux, Direct3D 11 on
   Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web). Later M77 work makes `auto` pick the best backend of the machine.
-- A name this platform or binary cannot have (Metal on Windows, `d3d12` off Windows, `vulkan` in a build without `FA_RENDER_VULKAN`, which the release players of Linux, Android and macOS leave out today, or
+- A name this platform or binary cannot have (Metal on Windows, `d3d12` off Windows, `vulkan` in a build without `FA_RENDER_VULKAN`, which the OpenGL players of Linux and Android and the macOS player leave out (the Vulkan player of Linux and Android has it, below), or
   another sokol backend than the one built) starts the game with one warning that says which backends the binary has, and uses `auto`.
-- The environment variable `FA_GPU_BACKEND` (same names) overrides `factoria.json`, for tests and for players that tools run;
-  `EngineConfig::gpuBackend` overrides both. A wrong name in the variable fails the start with the same teaching error.
+- The order at start: `EngineConfig::gpuBackend`, then the environment variable `FA_GPU_BACKEND` (same names, for tests and for players
+  that tools run), then the player's own stored choice (`graphics.backend`, below), then `factoria.json`, then `auto`. A wrong name in the
+  variable fails the start with the same teaching error; a stored choice that is not valid any more is a startup warning and is ignored.
 - `d3d12` and `vulkan` draw offscreen only until their window paths land. A headless run (`factoria call`, `factoria test`, the MCP
   server, tests) uses the one asked for; on a machine with no driver for it, that run has no graphics (a warning says so: no
   renders or captures), so leave such runs on `auto`. In a window the renderer cannot start on them: the engine warns once (what was asked, why
   it failed, what draws instead) and the window uses the `auto` backend.
 - The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
-  backend of the renderer's device in `backend`, and the one asked for in `requestedBackend` when they differ.
+  backend of the renderer's device in `backend`, the one asked for in `requestedBackend` when they differ, and `fallbackFrom` and
+  `fallbackReason` when another player could not start its backend and started this one (below).
+
+### Two players on Linux and Android
+
+One process cannot go from Vulkan back to OpenGL there (sokol_app owns the OpenGL context), so the player comes in two variants:
+`factoria_player` (`libfactoria_player.so` on Android), the OpenGL one, and `factoria_player_vulkan` (`libfactoria_player_vulkan.so`),
+the same player whose renderer also has the engine's Vulkan backend and the SPIR-V of the built-in shaders. An export ships both
+(`export.linux.vulkanPlayer` and `export.android.vulkanPlayer`, on by default; `false` ships only the OpenGL player:
+[platform settings](exporting/EXPORTING_SETUP.md#exportplatform)).
+
+- **What starts.** The Vulkan player starts first, and its `auto` is Vulkan. Before it opens a window it reads the choice in the
+  order above and, when the choice is Vulkan, checks that a Vulkan instance and device can be made. When the choice is `gl` or
+  `gles3` it runs the OpenGL player directly; when Vulkan cannot start it runs the OpenGL player with the environment variables
+  `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). The OpenGL player
+  records them as `fallbackFrom` and `fallbackReason` in the startup report and in `graphics.backend`, and never starts another player;
+  a player that carries the marker never hands over either, so there is no loop.
+- **Linux.** The exported game's `<exe>` is the Vulkan player and `<exe>-gl` the OpenGL one, in the same folder (in a build tree:
+  `player/factoria_player_vulkan` and `player/factoria_player`). The Vulkan player replaces its own process with `<exe>-gl` (`execv`,
+  same arguments and environment). Without `<exe>-gl` next to it, or when that fails, it warns and draws with its own sokol (OpenGL)
+  backend. A window whose Vulkan surface cannot start runs `<exe>-gl` the same way, once.
+- **Android.** The launcher activity loads `libfactoria_player_vulkan.so`. To hand over it starts `factoria.engine.GlActivity`, which
+  loads `libfactoria_player.so` in its own process (`:gl`), and finishes itself. A window whose Vulkan surface cannot start draws with
+  the player's own OpenGL ES 3 backend in the same process.
+- **Today.** The engine's Vulkan backend has no window path yet (later M77 work), so a game in a window is always drawn with
+  OpenGL in the end: on Linux by `<exe>-gl`, on Android by GlActivity or by the Vulkan player's own OpenGL ES 3 backend.
+
+### `graphics.backend`
+
+The game's own setting of the backend, for an options menu or a tool: `graphics.backend {}` reads what draws (`active`, `sokolBackend`),
+what was asked and from where (`requested`, `source`), what `auto` draws with in this player, the backends this player has
+(`available`), the `fallback` that started it (`{from, reason}` or null) and the stored choice (`stored`, `storedIn`).
+`graphics.backend {"name": "gl"}` stores the choice for the next start in `graphics_backend.json` in the game's save folder (in memory in
+a run with in-memory storage) and returns `changed` and `takesEffect: "next start"`; the backend in use does not change. `"auto"`
+forgets it. On Linux and Android the OpenGL player may store `vulkan` too: the Vulkan player reads it at the next start. A name this
+platform cannot have is an `invalid_argument` error, and nothing is written.
 
 ## Temporal effects and upscaling at a glance (M76)
 

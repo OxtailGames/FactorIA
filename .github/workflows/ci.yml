@@ -434,6 +434,20 @@ jobs:
           path: player-size/
           if-no-files-found: ignore
 
+      # The Vulkan variant of the player (factoria_player_vulkan, FA_PLAYER_VULKAN), its own budget entry.
+      - name: Player size (linux-x64-vulkan)
+        id: size-vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform linux-x64-vulkan --build-dir build/linux-sniper --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-linux-x64-vulkan
+          path: player-size-vulkan/
+          if-no-files-found: ignore
+
   # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
   # uses the D3D11 software adapter (WARP).
   # One command per step, so a failing command fails the step (PowerShell).
@@ -1293,11 +1307,11 @@ jobs:
           test -f "$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
-      - name: Configure and build factoria_player (android-arm64)
+      - name: Configure and build factoria_player and factoria_player_vulkan (android-arm64)
         id: build
         run: |
           cmake --preset android-arm64 -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
-          cmake --build --preset android-arm64 --target factoria_player -- -k 0
+          cmake --build --preset android-arm64 --target factoria_player factoria_player_vulkan -- -k 0
 
       # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
@@ -1319,12 +1333,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-release-
 
-      # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
-      - name: Check the entry points of libfactoria_player.so
+      # Both players must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start them.
+      - name: Check the entry points of libfactoria_player.so and libfactoria_player_vulkan.so
         run: |
           nm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          "$nm" -D --defined-only build/android-arm64/player/libfactoria_player.so | tee /tmp/symbols.txt
-          grep -q ANativeActivity_onCreate /tmp/symbols.txt
+          for lib in libfactoria_player libfactoria_player_vulkan; do
+            "$nm" -D --defined-only "build/android-arm64/player/$lib.so" | tee "/tmp/symbols-$lib.txt"
+            grep -q ANativeActivity_onCreate "/tmp/symbols-$lib.txt"
+          done
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
       # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
@@ -1340,6 +1356,19 @@ jobs:
         with:
           name: player-size-android-arm64-v8a
           path: player-size/
+          if-no-files-found: ignore
+
+      - name: Player size (android-arm64-v8a-vulkan)
+        id: size-vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform android-arm64-v8a-vulkan --build-dir build/android-arm64 --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-arm64-v8a-vulkan
+          path: player-size-vulkan/
           if-no-files-found: ignore
 
   # Android end to end: `factoria export --platform android` writes the Gradle project and builds the APK itself, with
@@ -1533,6 +1562,8 @@ jobs:
           unzip -l /tmp/ci-out/ci-game-android/ci-game-debug.apk | tee /tmp/apk-contents.txt
           grep -q 'lib/arm64-v8a/libfactoria_player.so' /tmp/apk-contents.txt
           grep -q 'lib/x86_64/libfactoria_player.so' /tmp/apk-contents.txt
+          grep -q 'lib/arm64-v8a/libfactoria_player_vulkan.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libfactoria_player_vulkan.so' /tmp/apk-contents.txt
           grep -q 'assets/factoria.json' /tmp/apk-contents.txt
           grep -q 'lib/arm64-v8a/libexample.so' /tmp/apk-contents.txt
           grep -q 'lib/x86_64/libexample.so' /tmp/apk-contents.txt

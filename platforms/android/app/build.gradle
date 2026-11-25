@@ -51,8 +51,9 @@ android {
 {{#source}}
         externalNativeBuild {
             cmake {
-                arguments '-DFA_BUILD_TOOLS=OFF', '-DFA_BUILD_TESTS=OFF', '-DANDROID_STL=c++_static'
-                targets 'factoria_player'
+                arguments '-DFA_BUILD_TOOLS=OFF', '-DFA_BUILD_TESTS=OFF', '-DANDROID_STL=c++_static', '-DFA_PLAYER_VULKAN={{CMAKE_PLAYER_VULKAN}}'
+                // The GL player, and the Vulkan player when the export ships it (export.android.vulkanPlayer).
+                targets {{CMAKE_TARGETS}}
             }
         }
 {{/source}}

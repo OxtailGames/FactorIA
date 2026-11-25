@@ -1037,8 +1037,22 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
     {
-        // The GPU backend: EngineConfig, then FA_GPU_BACKEND, then factoria.json render.backend, then auto (M77-P9a).
-        auto chosen = choose_gpu_backend(config.gpuBackend, std::getenv("FA_GPU_BACKEND"), I.project.renderBackend);
+        // The GPU backend: EngineConfig, then FA_GPU_BACKEND, then the stored choice of graphics.backend, then
+        // factoria.json render.backend, then auto (M77-P9a, P9e2).
+        GpuBackendInputs gin;
+        gin.config = config.gpuBackend;
+        gin.env = std::getenv("FA_GPU_BACKEND");
+        std::string storedWarning;
+        if (!config.memoryStorage) gin.user = read_gpu_backend_setting(fs::user_dir(), &storedWarning);
+        if (!storedWarning.empty()) I.startupProblems.push_back("graphics: " + storedWarning);
+        I.gpuStoreInMemory = config.memoryStorage;
+        I.gpuStoredBackend = gin.user;
+        I.gpuBackendAuto = config.gpuBackendAuto;
+        gin.project = I.project.renderBackend;
+        gin.autoBackend = config.gpuBackendAuto;
+        gin.fallbackFrom = std::getenv(kGpuFallbackFromEnv);
+        gin.fallbackReason = std::getenv(kGpuFallbackReasonEnv);
+        auto chosen = choose_gpu_backend(gin);
         if (!chosen) return fail(chosen.error().to_string());
         I.gpuChoice = chosen.value();
         for (const std::string& w : I.gpuChoice.warnings) {
@@ -1160,6 +1174,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.renderer = std::make_unique<Renderer>();
             ok = I.renderer->init(rd, *gfx, &gerr);
             if (!ok && rd.backend != GpuBackend::Default) {
+                // The host may start another player instead (the Vulkan player of Linux, P9e2); it returns when it did not.
+                if (config.gpuBackendFailed) config.gpuBackendFailed(gpu_backend_name(rd.backend), gerr);
                 // The engine's own backends have no swapchain yet (P9c, P9d): one warning, and the window draws with the
                 // backend of this build rather than stay black or crash.
                 const std::string msg = gpu_backend_fallback_warning(rd.backend, gerr, Renderer::backend_name());
@@ -1437,6 +1453,11 @@ Json Engine::startup_report() const {
         const GpuBackend asked = impl_->gpuChoice.requested;
         if (asked != GpuBackend::Default && asked != impl_->renderer->device_backend())
             j["gpu"]["requestedBackend"] = gpu_backend_name(asked);
+        // This player was started in place of another one that could not start its backend (P9e2).
+        if (!impl_->gpuChoice.fallbackFrom.empty()) {
+            j["gpu"]["fallbackFrom"] = impl_->gpuChoice.fallbackFrom;
+            j["gpu"]["fallbackReason"] = impl_->gpuChoice.fallbackReason;
+        }
     }
     return j;
 }
