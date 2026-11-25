@@ -6,6 +6,7 @@
 
 #include <cctype>
 #include <filesystem>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -227,7 +228,7 @@ TEST_CASE("setup streamline: refuses without the license accepted, then installs
     bool obligations = false;
     for (const std::string& s : r.report.nextSteps) obligations = obligations || has_text(s, "credit the vendor");
     CHECK(obligations);
-    CHECK(vendor_sdk_file_is_library(fake.sdk.files[0]) == true);  // .dll goes next to the game
+    CHECK(vendor_sdk_file_is_library(fake.sdk.files[0]) == true);   // .dll goes next to the game
     CHECK(vendor_sdk_file_is_library(fake.sdk.files[2]) == false);  // the license goes to licenses/<id>/
 
     // Installed: skipped, without even asking for the license; --force downloads again.
@@ -318,7 +319,8 @@ TEST_CASE("setup streamline: a table that names a profiler file is never install
     CHECK(lab.requested.empty());
 }
 
-TEST_CASE("setup streamline: the status shows the pinned license text with the obligations, and says why when it cannot") {
+TEST_CASE(
+    "setup streamline: the status shows the pinned license text with the obligations, and says why when it cannot") {
     Lab lab;
     FakeSdk fake(lab);
     lab.host = "windows";
@@ -366,6 +368,55 @@ TEST_CASE("setup streamline: the status shows the pinned license text with the o
     REQUIRE_FALSE(s.paths.empty());
 }
 
+TEST_CASE("setup streamline: an installed SDK lists its license when asked, so a reinstall can ask for it again") {
+    Lab lab;
+    FakeSdk fake(lab);
+    lab.host = "windows";
+    SetupContext c = lab.ctx();
+    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+
+    lab.requested.clear();
+    SetupComponent s = setup_detail::vendor_sdk_status(c, fake.sdk, false);
+    CHECK(s.state == "installed");
+    CHECK(s.licenses.empty());
+    CHECK(lab.requested.empty());  // a polling UI stays offline
+
+    s = setup_detail::vendor_sdk_status(c, fake.sdk, true);
+    CHECK(s.state == "installed");
+    REQUIRE(s.licenses.size() == 1);
+    CHECK(s.licenses[0].id == "test-license");
+    CHECK(has_text(s.licenses[0].text, "Ship it with the game."));
+    CHECK(lab.requested.size() == 1);
+
+    // Cannot be fetched: the problem says so, and there is no license to agree to.
+    lab.served.erase(kLicenseUrl);
+    s = setup_detail::vendor_sdk_status(c, fake.sdk, true);
+    CHECK(s.state == "installed");
+    CHECK(s.licenses.empty());
+    CHECK_FALSE(s.problems.empty());
+}
+
+TEST_CASE("setup.status: without a component no vendor SDK's license is fetched; with one it is") {
+    Lab lab;
+    lab.host = "windows";
+    const SetupContext c = lab.ctx();
+    const SetupStatus all = setup_status(c, {}, true);
+    for (const char* id : {"streamline", "xess", "fidelityfx"}) {
+        CAPTURE(id);
+        const SetupComponent* sc = all.find(id);
+        REQUIRE(sc != nullptr);
+        CHECK(sc->licenses.empty());
+        const VendorSdk* sdk = find_vendor_sdk(id);
+        REQUIRE(sdk != nullptr);
+        for (const std::string& url : lab.requested) CHECK(url != sdk->licenseUrl);
+    }
+    lab.requested.clear();
+    (void)setup_status(c, "streamline", true);
+    const VendorSdk* sl = find_vendor_sdk("streamline");
+    REQUIRE(sl != nullptr);
+    CHECK(std::count(lab.requested.begin(), lab.requested.end(), std::string(sl->licenseUrl)) == 1);
+}
+
 TEST_CASE("setup: the three vendor SDKs are components of setup.status and setup.install, license first") {
     Lab lab;
     lab.host = "windows";
@@ -397,12 +448,15 @@ TEST_CASE("vendor_sdks_used_by_project: what factoria.json says the game can use
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "off"}}})")).empty());
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "auto"}}})")) ==
           Ids{"streamline", "xess", "fidelityfx"});
-    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "dlss"}}})")) == Ids{"streamline"});
+    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "dlss"}}})")) ==
+          Ids{"streamline"});
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "XeSS"}}})")) == Ids{"xess"});
-    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "fsr"}}})")) == Ids{"fidelityfx"});
+    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"upscaler": {"mode": "fsr"}}})")) ==
+          Ids{"fidelityfx"});
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"frameGeneration": {"mode": "fsr"}}})")) ==
           Ids{"fidelityfx"});
-    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"latency": {"mode": "reflex"}}})")) == Ids{"streamline"});
+    CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"latency": {"mode": "reflex"}}})")) ==
+          Ids{"streamline"});
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"latency": {"mode": "xell"}}})")) == Ids{"xess"});
     CHECK(vendor_sdks_used_by_project(Json::parse(R"({"render": {"latency": {"mode": "auto"}}})")) ==
           Ids{"streamline", "xess"});

@@ -166,14 +166,15 @@ std::optional<std::string> fetch_license_text(const SetupContext& ctx, const Ven
         const std::size_t cut = body.find(sdk.licenseEnd);
         if (cut != std::string::npos) {
             body.resize(cut);
-            body += std::string("[The rest of the file lists source files that are under other licenses; the whole text is "
-                                "copied next to the DLLs by the install and by an export.]\n");
+            body +=
+                std::string("[The rest of the file lists source files that are under other licenses; the whole text is "
+                            "copied next to the DLLs by the install and by an export.]\n");
         }
     }
     out.id = sdk.licenseId;
     out.title = sdk.licenseTitle;
-    out.text = std::string("What this license asks of your game: ") + sdk.obligations + "\n\n" +
-               std::string(60, '-') + "\n\n" + only_utf8(std::move(body));
+    out.text = std::string("What this license asks of your game: ") + sdk.obligations + "\n\n" + std::string(60, '-') +
+               "\n\n" + only_utf8(std::move(body));
     return std::nullopt;
 }
 
@@ -185,8 +186,7 @@ std::string license_required_message(const VendorSdk& sdk) {
 std::string license_required_hint(const VendorSdk& sdk) {
     return std::string("Show the license text to the user (setup.status lists it under components[].licenses; it is "
                        "also at ") +
-           sdk.licenseUrl +
-           ") and, once they have read it and agree, run `factoria setup " + sdk.id +
+           sdk.licenseUrl + ") and, once they have read it and agree, run `factoria setup " + sdk.id +
            " --accept-licenses` (setup.install {\"component\":\"" + sdk.id +
            "\",\"acceptLicenses\":true}). An AI must ask the user first.";
 }
@@ -198,6 +198,16 @@ SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, 
     c.id = sdk.id;
     c.title = std::string(sdk.title) + ": the DLLs a Windows game ships with it";
     c.canInstall = true;
+    // The license text is listed whenever the caller asks for it, also for an installed SDK: a reinstall (`--force`, the
+    // editor's Reinstall) shows and asks for it again.
+    auto add_license = [&] {
+        if (!fetchLicenses) return;
+        SetupLicense lic;
+        if (auto problem = fetch_license_text(ctx, sdk, lic))
+            c.problems.push_back(*problem);
+        else
+            c.licenses.push_back(std::move(lic));
+    };
     if (const std::string dir = installed_vendor_sdk_dir(ctx, sdk); !dir.empty()) {
         c.state = "installed";
         c.paths.emplace_back(sdk.id, dir);
@@ -205,19 +215,15 @@ SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, 
                     ". A Windows export whose project can use it (export.pack.vendorSdks, default \"auto\") copies the "
                     "DLLs next to the game and their license texts to licenses/" +
                     sdk.id + "/. " + sdk.obligations;
+        add_license();
         return c;
     }
     c.installSizeMb = sdk.sizeMb;
     c.details = std::string("The install shows the ") + sdk.licenseTitle + ", which you must accept, then downloads " +
-                short_name(sdk) + " " + sdk.version + " (SHA-256 checked) and keeps its x64 DLLs and license texts in " +
-                vendor_sdk_install_dir(ctx, sdk) + ".";
-    if (fetchLicenses) {
-        SetupLicense lic;
-        if (auto problem = fetch_license_text(ctx, sdk, lic))
-            c.problems.push_back(*problem);
-        else
-            c.licenses.push_back(std::move(lic));
-    }
+                short_name(sdk) + " " + sdk.version +
+                " (SHA-256 checked) and keeps its x64 DLLs and license texts in " + vendor_sdk_install_dir(ctx, sdk) +
+                ".";
+    add_license();
     if (ctx.host_os() != "windows") {
         // Not needed here: nothing on this computer runs them. `factoria setup <id>` still installs them, for a Windows
         // export made on this computer.
@@ -228,9 +234,11 @@ SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, 
         return c;
     }
     c.state = "missing";
-    c.problems.push_back(std::string("The ") + sdk.licenseTitle + " is not accepted yet (the install asks for it). A "
-                         "Windows export whose project can use " + short_name(sdk) +
-                         " ships the game without it until it is installed: run `factoria setup " + sdk.id + "`.");
+    c.problems.push_back(std::string("The ") + sdk.licenseTitle +
+                         " is not accepted yet (the install asks for it). A "
+                         "Windows export whose project can use " +
+                         short_name(sdk) + " ships the game without it until it is installed: run `factoria setup " +
+                         sdk.id + "`.");
     return c;
 }
 
@@ -254,10 +262,10 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
         return in.fail("license_required", make_error(license_required_message(sdk), license_required_hint(sdk)));
     for (int i = 0; i < sdk.fileCount; ++i)
         if (file_is_forbidden(sdk.files[i].src))
-            return in.fail("failed", make_error(std::string("The pinned file list of ") + sdk.id + " names " +
-                                                    sdk.files[i].src +
-                                                    ", which FactorIA never installs (a profiler or a development build)",
-                                                "This is a bug in FactorIA's pin; please report it."));
+            return in.fail("failed",
+                           make_error(std::string("The pinned file list of ") + sdk.id + " names " + sdk.files[i].src +
+                                          ", which FactorIA never installs (a profiler or a development build)",
+                                      "This is a bug in FactorIA's pin; please report it."));
 
     const std::string what = short_name(sdk) + " " + sdk.version;
     const stdfs::path ready = in.make_staging_subdir("ready");
@@ -276,8 +284,9 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
             const std::string name = vendor_sdk_file_name(entry);
             const stdfs::path from = unpacked / fs::path_from_utf8(entry.src);
             if (!is_file(from))
-                return in.fail("failed", make_error(what + " has no " + entry.src + " (the release's layout changed)",
-                                                    "This is a bug in FactorIA's pin of the release; please report it."));
+                return in.fail("failed",
+                               make_error(what + " has no " + entry.src + " (the release's layout changed)",
+                                          "This is a bug in FactorIA's pin of the release; please report it."));
             stdfs::copy_file(from, ready / fs::path_from_utf8(name), stdfs::copy_options::overwrite_existing, ec);
             if (ec)
                 return in.fail("failed", make_error("Cannot copy " + name + " into " + fs::path_to_utf8(ready) + ": " +
@@ -301,7 +310,8 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     if (auto f = replace_dir(ready, dir)) return in.fail(*f);
     in.report.changed = true;
     s.outcome = "installed";
-    s.detail = std::to_string(sdk.fileCount) + " files (the x64 DLLs and their license texts) from the vendor's release "
+    s.detail = std::to_string(sdk.fileCount) +
+               " files (the x64 DLLs and their license texts) from the vendor's release "
                "(SHA-256 checked)";
     s.path = fs::path_to_utf8(dir);
     s.downloadedBytes = bytes;
@@ -316,7 +326,8 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
         }
     in.report.paths = {{sdk.id, fs::path_to_utf8(dir)}};
     in.report.nextSteps.push_back(
-        "A Windows export (`factoria export --platform windows`) copies the DLLs next to the game, and the license texts "
+        "A Windows export (`factoria export --platform windows`) copies the DLLs next to the game, and the license "
+        "texts "
         "to licenses/" +
         std::string(sdk.id) +
         "/, when the project's render settings can use it (export.pack.vendorSdks, default \"auto\"; \"none\" ships "

@@ -369,8 +369,9 @@ struct SetupStatus {
 };
 
 // Every component of this machine, or only `component` ("" = all). Looks at folders and runs version probes
-// (`cmake --version`, `xcodebuild -version`); the only network request is the license text of the Android SDK,
-// fetched when the licenses are not accepted yet and `fetchLicenses` is set.
+// (`cmake --version`, `xcodebuild -version`); the only network request is a license text, fetched when `fetchLicenses`
+// is set: the Android SDK's while it is not accepted yet, and a vendor SDK's (streamline, xess, fidelityfx, installed
+// or not) only when `component` names it.
 SetupStatus setup_status(const SetupContext& context = {}, const std::string& component = {},
                          bool fetchLicenses = true);
 

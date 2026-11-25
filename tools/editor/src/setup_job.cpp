@@ -520,7 +520,12 @@ bool SetupLicenseLoad::start(const SetupContext& context, const std::string& com
 bool SetupLicenseLoad::poll() {
     std::optional<SetupStatus> done = job_.take();
     if (!done) return false;
-    const SetupComponent* android = done->find(component_);
+    apply(*done);
+    return true;
+}
+
+void SetupLicenseLoad::apply(const SetupStatus& status) {
+    const SetupComponent* android = status.find(component_);
     licenses_.clear();
     error_.clear();
     if (!android) {
@@ -554,7 +559,6 @@ bool SetupLicenseLoad::poll() {
                     "The license text could not be fetched. It is also at https://developer.android.com/studio/terms.";
         }
     }
-    return true;
 }
 
 void SetupLicenseLoad::reset() {

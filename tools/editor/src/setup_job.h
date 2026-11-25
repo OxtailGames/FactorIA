@@ -202,8 +202,9 @@ public:
         Failed,     // the text could not be fetched: error says why
     };
     bool start(const SetupContext& context, const std::string& component = "android");  // false while loading
-    bool poll();   // true when a result arrived this call
-    void reset();  // forget it (the dialog closed)
+    bool poll();                            // true when a result arrived this call
+    void apply(const SetupStatus& status);  // what poll does with a result (tests call it with a status of their own)
+    void reset();                           // forget it (the dialog closed)
     State state() const { return state_; }
     bool loading() const { return state_ == State::Loading; }
     const std::string& component() const { return component_; }
