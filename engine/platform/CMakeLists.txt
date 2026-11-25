@@ -71,8 +71,9 @@ endif()
 if(WIN32 AND TARGET fa_test_platform)
     target_link_libraries(fa_test_platform PRIVATE ws2_32)  # tests/http_test_server.h: a local HTTP server
 endif()
-# sokol_app's OpenGL surface leaves the X11 window for a GPU device and comes back (tests/gl_surface_handover_tests_linux.cpp):
-# a real window, under xvfb. Alone in its process: sokol_app and sokol_gfx are singletons.
+# sokol_app's OpenGL surface leaves the X11 window for a GPU device and comes back
+# (tests/gl_surface_handover_tests_linux.cpp): a real window, under xvfb. Alone in its process: sokol_app and sokol_gfx
+# are singletons.
 find_program(FA_XVFB_RUN xvfb-run)
 if(TARGET fa_test_platform AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
     add_test(NAME platform_windowed_gl_handover

@@ -77,60 +77,64 @@ struct EngineConfig {
     // pool with it; an engine started while another runs shares that pool (jobs.info says what runs). A bad value makes
     // init fail. Threads never change what the game computes.
     std::string jobThreads;
-    // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan" (render::
-    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else the choice graphics.backend stored in the
-    // game's user settings (graphics_backend.json in fs::user_dir(); not read with memoryStorage), else factoria.json
-    // render.backend, else "auto" (gpuBackendAuto where this binary has it, else the sokol backend it was built with). An
-    // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
-    // D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the native window from the
-    // platform) or headless offscreen; when the one asked for cannot start (no driver, no such GPU, a window that cannot
-    // take its swapchain: a Linux EGL build's window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
-    // only), and when that does not take the process over it warns once with the first error and draws with the sokol
-    // backend of this build in the same process. Engine::startup_report names the one that runs, the one asked for and
-    // why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
+    // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan"
+    // (render:: gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else the choice graphics.backend
+    // stored in the game's user settings (graphics_backend.json in fs::user_dir(); not read with memoryStorage), else
+    // factoria.json render.backend, else "auto" (gpuBackendAuto where this binary has it, else the sokol backend it was
+    // built with). An unknown name makes init fail with the valid names; one this platform or build does not have is a
+    // warning and "auto". D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the
+    // native window from the platform) or headless offscreen; when the one asked for cannot start (no driver, no such
+    // GPU, a window that cannot take its swapchain: a Linux EGL build's window, the editor's view) the engine first
+    // calls gpuBackendFailed (windowed runs only), and when that does not take the process over it warns once with the
+    // first error and draws with the sokol backend of this build in the same process. Engine::startup_report names the
+    // one that runs, the one asked for and why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
     std::string gpuBackend;
-    // What "auto" draws with in this binary when it has it (M77-P9e2): the Vulkan player of Linux and Android sets Vulkan;
-    // Default = the sokol backend. Not used when FA_GPU_FALLBACK_FROM names it (that backend already failed).
+    // What "auto" draws with in this binary when it has it (M77-P9e2): the Vulkan player of Linux and Android sets
+    // Vulkan; Default = the sokol backend. Not used when FA_GPU_FALLBACK_FROM names it (that backend already failed).
     GpuBackend gpuBackendAuto = GpuBackend::Default;
-    // Called once, in a window, when the backend asked for (Vulkan, D3D12) cannot start, BEFORE the in-process fallback to
-    // the sokol backend (backend name, why). The Vulkan player of Linux and Android starts the OpenGL player here (it does
-    // not return when that works, fa/runtime/gpu_launch.h): the in-process fallback runs only when this is empty or
-    // returns, so a Vulkan failure is never hidden by it. `why` starts with kGpuWindowPathReason when the window cannot
-    // take the swapchain at all (fa/runtime/gpu_backend_choice.h).
+    // Called once, in a window, when the backend asked for (Vulkan, D3D12) cannot start, BEFORE the in-process fallback
+    // to the sokol backend (backend name, why). The Vulkan player of Linux and Android starts the OpenGL player here
+    // (it does not return when that works, fa/runtime/gpu_launch.h): the in-process fallback runs only when this is
+    // empty or returns, so a Vulkan failure is never hidden by it. `why` starts with kGpuWindowPathReason when the
+    // window cannot take the swapchain at all (fa/runtime/gpu_backend_choice.h).
     std::function<void(const std::string& backend, const std::string& why)> gpuBackendFailed;
     // Tests: called before each start of the renderer on a backend (in a window, after D3D12 or Vulkan claimed it); a
     // non-empty answer makes that start fail with it (before any device is made; a claimed window is released), so the
     // fallback can be checked on a machine where every backend works. Empty = none.
     std::function<std::string(GpuBackend backend)> gpuStartFault;
-    // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
-    // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
-    // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless
-    // --date says otherwise; a replay file carries the date it was recorded on. An impossible date makes init fail.
+    // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a
+    // simulation never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
+    // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty
+    // unless --date says otherwise; a replay file carries the date it was recorded on. An impossible date makes init
+    // fail.
     std::string date;
-    // Show the touch interface on a desktop: touch-only controls (TouchStick, TouchButton) are drawn and Input::last_device()
-    // says touch (`factoria run --touch`). Same setting as the ui.force_touch command and game.screenshot {forceTouch}.
+    // Show the touch interface on a desktop: touch-only controls (TouchStick, TouchButton) are drawn and
+    // Input::last_device() says touch (`factoria run --touch`). Same setting as the ui.force_touch command and
+    // game.screenshot {forceTouch}.
     bool forceTouch = false;
     int dateUtcOffsetMinutes =
         0;  // the player's offset from UTC in minutes (utcOffsetMinutes of game.today()); 0 for a fixed date
-    // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
-    // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
+    // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is
+    // 1 when a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 =
+    // run until closed.
     int maxFrames = 0;
-    // Windowed runs only: an input replay (the JSON `input.record` writes, the one `factoria run --input` plays) the window plays
-    // while it runs: the entry of frame N is applied before the Nth frame is simulated, as in a headless run. The frame times are
-    // the real ones (a replay's "timing" is not used), so a replay made of presses and releases plays the same but a game that
-    // reads dt may differ from the recording. The player logs "player: replaying <file>" and "player: replay done after N
-    // frames" (the window stays open). The iOS player takes the file from the FA_INPUT_REPLAY environment variable
-    // (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the `player.run_ios_sim` command does it). "" = none.
+    // Windowed runs only: an input replay (the JSON `input.record` writes, the one `factoria run --input` plays) the
+    // window plays while it runs: the entry of frame N is applied before the Nth frame is simulated, as in a headless
+    // run. The frame times are the real ones (a replay's "timing" is not used), so a replay made of presses and
+    // releases plays the same but a game that reads dt may differ from the recording. The player logs "player:
+    // replaying <file>" and "player: replay done after N frames" (the window stays open). The iOS player takes the file
+    // from the FA_INPUT_REPLAY environment variable (`xcrun simctl launch` with SIMCTL_CHILD_FA_INPUT_REPLAY; the
+    // `player.run_ios_sim` command does it). "" = none.
     std::string inputReplayPath;
-    // The engine runs inside an exported player (player/main.cpp sets it, on every platform): the scripts get no read checks on
-    // `Entity`, the namespaces of "factoria" and the `expect` matchers (they cost nothing there), and their errors may say the
-    // player is older than the game's engine (ScriptSystem::set_exported_player). `factoria test` / `run` / `mcp` and the
-    // editor leave it false: engine and player are one binary there.
+    // The engine runs inside an exported player (player/main.cpp sets it, on every platform): the scripts get no read
+    // checks on `Entity`, the namespaces of "factoria" and the `expect` matchers (they cost nothing there), and their
+    // errors may say the player is older than the game's engine (ScriptSystem::set_exported_player). `factoria test` /
+    // `run` / `mcp` and the editor leave it false: engine and player are one binary there.
     bool exportedPlayer = false;
     bool hotReload = true;  // watch scripts/scenes/assets (desktop, not headless)
-    // Watch only the files that are replaced in place (materials, shader snippets, textures, fonts, models, audio clips and songs:
-    // a song reloads in the MusicPlayers that play it) and leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
-    // hotReload is on, which already watches everything.
+    // Watch only the files that are replaced in place (materials, shader snippets, textures, fonts, models, audio clips
+    // and songs: a song reloads in the MusicPlayers that play it) and leave scripts, scenes and locales alone. For
+    // hosts that manage those themselves (the editor). Ignored when hotReload is on, which already watches everything.
     bool hotReloadAssets = false;
     bool editorMode = false;  // editor drives the loop; game starts paused
     RenderMode renderMode = RenderMode::Always;

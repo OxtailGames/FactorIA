@@ -1,8 +1,8 @@
 // Android half of fa/runtime/gpu_launch.h: the Vulkan activity starts the OpenGL one (M77-P9e2, docs/RENDERING.md
-// "Choosing the GPU backend"). Android has no exec of another binary inside an app: each player is a shared library that
-// an activity loads, and a process loads one of them (both define ANativeActivity_onCreate and sokol_main). So the two
-// players are two activities of the same app, the OpenGL one (factoria.engine.GlActivity) in its own process ":gl", and
-// the Vulkan one hands over to it with an intent whose extras carry the marker.
+// "Choosing the GPU backend"). Android has no exec of another binary inside an app: each player is a shared library
+// that an activity loads, and a process loads one of them (both define ANativeActivity_onCreate and sokol_main). So the
+// two players are two activities of the same app, the OpenGL one (factoria.engine.GlActivity) in its own process ":gl",
+// and the Vulkan one hands over to it with an intent whose extras carry the marker.
 //
 // Both functions run inside sokol_main, which sokol_app calls on the main thread from ANativeActivity_onCreate: the
 // activity's own JNIEnv (ANativeActivity::env) is the one of that thread. Only framework classes are looked up.
@@ -27,6 +27,19 @@ bool clear(JNIEnv* env) {
     env->ExceptionDescribe();
     env->ExceptionClear();
     return true;
+}
+
+// GetMethodID and GetFieldID throw NoSuchMethodError / NoSuchFieldError when the member is not there, and CheckJNI
+// (debug builds, many emulators) aborts the process at the next JNI call made with an exception pending: each lookup
+// clears its own. Null: not there (or `cls` is null).
+jmethodID method(JNIEnv* env, jclass cls, const char* name, const char* signature) {
+    jmethodID id = cls ? env->GetMethodID(cls, name, signature) : nullptr;
+    return clear(env) ? nullptr : id;
+}
+
+jfieldID field(JNIEnv* env, jclass cls, const char* name, const char* signature) {
+    jfieldID id = cls ? env->GetFieldID(cls, name, signature) : nullptr;
+    return clear(env) ? nullptr : id;
 }
 
 std::string take_string(JNIEnv* env, jstring s) {
@@ -60,15 +73,14 @@ Result<void> android_start_gl_activity(void* nativeActivity, const std::string& 
     jclass intentClass = env->FindClass("android/content/Intent");
     jclass activityClass = env->GetObjectClass(activity->clazz);
     if (!intentClass || !activityClass) return fail("the framework classes are not there");
-    jmethodID ctor = env->GetMethodID(intentClass, "<init>", "()V");
-    jmethodID setClassName = env->GetMethodID(intentClass, "setClassName",
-                                              "(Landroid/content/Context;Ljava/lang/String;)Landroid/content/Intent;");
+    jmethodID ctor = method(env, intentClass, "<init>", "()V");
+    jmethodID setClassName = method(env, intentClass, "setClassName",
+                                    "(Landroid/content/Context;Ljava/lang/String;)Landroid/content/Intent;");
     jmethodID putExtra =
-        env->GetMethodID(intentClass, "putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;");
-    jmethodID putExtras =
-        env->GetMethodID(intentClass, "putExtras", "(Landroid/content/Intent;)Landroid/content/Intent;");
-    jmethodID getIntent = env->GetMethodID(activityClass, "getIntent", "()Landroid/content/Intent;");
-    jmethodID startActivity = env->GetMethodID(activityClass, "startActivity", "(Landroid/content/Intent;)V");
+        method(env, intentClass, "putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;");
+    jmethodID putExtras = method(env, intentClass, "putExtras", "(Landroid/content/Intent;)Landroid/content/Intent;");
+    jmethodID getIntent = method(env, activityClass, "getIntent", "()Landroid/content/Intent;");
+    jmethodID startActivity = method(env, activityClass, "startActivity", "(Landroid/content/Intent;)V");
     if (!ctor || !setClassName || !putExtra || !putExtras || !getIntent || !startActivity)
         return fail("a framework method is missing");
     jobject intent = env->NewObject(intentClass, ctor);
@@ -118,18 +130,17 @@ bool android_gl_activity_in_task(void* nativeActivity) {
     jclass componentClass = listClass ? env->FindClass("android/content/ComponentName") : nullptr;
     if (clear(env) || !activityClass || !componentClass) return done(false);
     jmethodID getSystemService =
-        env->GetMethodID(activityClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
-    jmethodID getTaskId = env->GetMethodID(activityClass, "getTaskId", "()I");
-    jmethodID getAppTasks = env->GetMethodID(managerClass, "getAppTasks", "()Ljava/util/List;");
-    jmethodID getTaskInfo =
-        env->GetMethodID(appTaskClass, "getTaskInfo", "()Landroid/app/ActivityManager$RecentTaskInfo;");
-    jmethodID size = env->GetMethodID(listClass, "size", "()I");
-    jmethodID get = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-    jmethodID getClassName = env->GetMethodID(componentClass, "getClassName", "()Ljava/lang/String;");
+        method(env, activityClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+    jmethodID getTaskId = method(env, activityClass, "getTaskId", "()I");
+    jmethodID getAppTasks = method(env, managerClass, "getAppTasks", "()Ljava/util/List;");
+    jmethodID getTaskInfo = method(env, appTaskClass, "getTaskInfo", "()Landroid/app/ActivityManager$RecentTaskInfo;");
+    jmethodID size = method(env, listClass, "size", "()I");
+    jmethodID get = method(env, listClass, "get", "(I)Ljava/lang/Object;");
+    jmethodID getClassName = method(env, componentClass, "getClassName", "()Ljava/lang/String;");
     // persistentId: the task's id on every API level (taskId only from API 29). baseActivity from API 23; from API 29 a
     // field of the superclass TaskInfo, which GetFieldID finds too.
-    jfieldID persistentId = env->GetFieldID(infoClass, "persistentId", "I");
-    jfieldID baseActivity = env->GetFieldID(infoClass, "baseActivity", "Landroid/content/ComponentName;");
+    jfieldID persistentId = field(env, infoClass, "persistentId", "I");
+    jfieldID baseActivity = field(env, infoClass, "baseActivity", "Landroid/content/ComponentName;");
     if (clear(env) || !getSystemService || !getTaskId || !getAppTasks || !getTaskInfo || !size || !get ||
         !getClassName || !persistentId || !baseActivity)
         return done(false);
@@ -169,10 +180,9 @@ void android_take_gpu_fallback_extras(void* nativeActivity) {
     jclass activityClass = env->GetObjectClass(activity->clazz);
     jclass intentClass = env->FindClass("android/content/Intent");
     jmethodID getIntent =
-        activityClass ? env->GetMethodID(activityClass, "getIntent", "()Landroid/content/Intent;") : nullptr;
+        activityClass ? method(env, activityClass, "getIntent", "()Landroid/content/Intent;") : nullptr;
     jmethodID getStringExtra =
-        intentClass ? env->GetMethodID(intentClass, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;")
-                    : nullptr;
+        intentClass ? method(env, intentClass, "getStringExtra", "(Ljava/lang/String;)Ljava/lang/String;") : nullptr;
     jobject intent = (getIntent && getStringExtra) ? env->CallObjectMethod(activity->clazz, getIntent) : nullptr;
     if (intent && !clear(env)) {
         for (const char* key : {kGpuFallbackFromEnv, kGpuFallbackReasonEnv}) {

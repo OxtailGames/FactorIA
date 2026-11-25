@@ -195,10 +195,10 @@ void dxgi_keep_color_space(HdrEncoding applied) {
     IDXGISwapChain3* chain3 = nullptr;
     if (chain) chain->QueryInterface(kIidSwapChain3, reinterpret_cast<void**>(&chain3));
     if (!chain3) return;
-    // The presenter resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an HDR
-    // window would show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and the next
-    // frame tries again, at most kSpaceTries frames in a row (a driver that refuses for good is not asked every frame: the
-    // next resize asks again).
+    // The presenter resized the buffers (ResizeBuffers): DXGI gives the new ones its default colour space again, so an
+    // HDR window would show its scRGB or PQ values as sRGB. Set it again; when it fails the size stays unmatched and
+    // the next frame tries again, at most kSpaceTries frames in a row (a driver that refuses for good is not asked
+    // every frame: the next resize asks again).
     constexpr int kSpaceTries = 8;
     // A resize drag changes the size every frame: the count restarts for each new size, so failures that come and go
     // do not use up the tries.

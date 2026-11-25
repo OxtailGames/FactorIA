@@ -15,49 +15,13 @@
 #include "fa/platform/app.h"
 #include "sokol_gfx.h"
 
-// Last: Xlib's macros (None, Bool, Status...) would rename the engine's identifiers. None is WindowPresenter's here.
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#undef None
+// Last: it includes Xlib, whose macros (None, Bool, Status...) would rename the engine's identifiers.
+#include "x11_window_pixel.h"
 
 using namespace fa;
+using fa::test::x11_window_pixel;
 
 namespace {
-
-int g_x_error = 0;
-int record_x_error(Display*, XErrorEvent* e) {
-    g_x_error = e->error_code;
-    return 0;
-}
-
-// The colour the X server holds for the window's pixel (x, y): what the last present put there. False: no window, or the
-// server refused the read (an X error, trapped: Xlib's default handler would end the process).
-bool window_pixel(int x, int y, unsigned& r, unsigned& g, unsigned& b) {
-    const NativeWindow h = app_native_window();
-    if (!h.window || !h.display) return false;
-    Display* display = static_cast<Display*>(const_cast<void*>(h.display));
-    const Window window = static_cast<Window>(reinterpret_cast<std::uintptr_t>(h.window));
-    XSync(display, False);
-    g_x_error = 0;
-    const XErrorHandler previous = XSetErrorHandler(record_x_error);
-    XImage* image = XGetImage(display, window, x, y, 1, 1, AllPlanes, ZPixmap);
-    XSync(display, False);
-    XSetErrorHandler(previous);
-    if (!image) return false;
-    const unsigned long pixel = XGetPixel(image, 0, 0);
-    auto channel = [pixel](unsigned long mask) -> unsigned {
-        if (mask == 0) return 0;
-        int shift = 0;
-        while (((mask >> shift) & 1UL) == 0) ++shift;
-        const unsigned long max = mask >> shift;
-        return static_cast<unsigned>(((pixel & mask) >> shift) * 255UL / max);
-    };
-    r = channel(image->red_mask);
-    g = channel(image->green_mask);
-    b = channel(image->blue_mask);
-    XDestroyImage(image);
-    return g_x_error == 0;
-}
 
 sg_environment sg_env(const GfxEnvironment& e) {
     sg_environment out;
@@ -76,7 +40,7 @@ struct Run {
     // the steps is easier to read here).
     std::string busy = "unset";
     bool claimed = false, deviceAfterClaim = false, surfaceOff = false, vsyncRefused = false, platformRefused = false;
-    bool released = false, surfaceBack = false, gfxUp = false, drewRed = false;
+    bool releaseOk = false, released = false, surfaceBack = false, gfxUp = false, drewRed = false;
     unsigned r = 0, g = 0, b = 0;
     std::string refusedWhileGfx;
     bool claimedAgain = false, offAgain = false;
@@ -108,7 +72,7 @@ void step_frame(double) {
         s.dpiScale = app_dpi_scale();
     }
     if (s.frame == 20) {
-        app_release_native_window();
+        s.releaseOk = app_release_native_window();
         s.released = app_window_presenter() == WindowPresenter::None && app_window_device_backend().empty();
         s.surfaceBack = fa_sapp_gl_surface_state() == 0;
         sg_desc desc{};
@@ -125,7 +89,7 @@ void step_frame(double) {
         sg_end_pass();
         sg_commit();
     }
-    if (s.frame == 40) s.drewRed = window_pixel(10, 10, s.r, s.g, s.b);  // frame 39's swap is on the screen
+    if (s.frame == 40) s.drewRed = x11_window_pixel(10, 10, s.r, s.g, s.b);  // frame 39's swap is on the screen
     if (s.frame == 41) {
         Result<NativeWindow> refused = app_claim_native_window("vulkan");  // sokol_gfx draws with the window
         s.refusedWhileGfx = refused.ok() ? std::string() : refused.error().message;
@@ -134,7 +98,8 @@ void step_frame(double) {
         s.claimedAgain = again.ok();
         s.offAgain = fa_sapp_gl_surface_state() != 0;
     }
-    // Quit with the window still claimed: app.cpp's cleanup puts the GLXWindow back before sokol_app destroys it.
+    // Quit with the window still claimed: app.cpp's cleanup drops the pbuffer (no GLXWindow is made for sokol_app to
+    // destroy).
     if (s.frame == 45) app_request_quit();
 }
 
@@ -162,6 +127,7 @@ TEST_CASE(
         CHECK(s.widthAfterResize == 400);  // sokol_app reads the X11 window size every frame, GL or not
     else
         MESSAGE("display scale " << s.dpiScale << ": the resize was not checked");
+    CHECK(s.releaseOk);  // the OpenGL surface came back on the window
     CHECK(s.released);
     CHECK(s.surfaceBack);
     CHECK(s.gfxUp);
@@ -172,5 +138,5 @@ TEST_CASE(
     CHECK(s.refusedWhileGfx.find("close_context") != std::string::npos);
     CHECK(s.claimedAgain);
     CHECK(s.offAgain);
-    CHECK(fa_sapp_gl_surface_state() == 0);  // the cleanup restored it
+    CHECK(fa_sapp_gl_surface_state() == 0);  // the cleanup gave up the stand-in
 }

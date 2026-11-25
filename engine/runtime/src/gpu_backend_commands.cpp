@@ -1,6 +1,6 @@
-// graphics.backend (M77-P9e2): which GPU backend draws the game, which one was asked for and where from, which ones this
-// player has, whether another player fell back to this one; with a name, the choice for the next start, kept in the
-// game's user settings (graphics_backend.json in fs::user_dir(), fa/runtime/gpu_backend_choice.h).
+// graphics.backend (M77-P9e2): which GPU backend draws the game, which one was asked for and where from, which ones
+// this player has, whether another player fell back to this one; with a name, the choice for the next start, kept in
+// the game's user settings (graphics_backend.json in fs::user_dir(), fa/runtime/gpu_backend_choice.h).
 #include <string>
 #include <vector>
 

@@ -150,10 +150,10 @@ else()
     endif()
 endif()
 
-# The Vulkan player of Linux and Android (M77-P9e2, docs/RENDERING.md "Choosing the GPU backend"): the same main.cpp with
-# FA_PLAYER_VULKAN_VARIANT, linked with the renderer on Vulkan (fa_render_vulkan, engine/render/CMakeLists.txt). It starts
-# first, draws with Vulkan, and hands over to factoria_player (exec of the sibling on Linux, the OpenGL activity on Android)
-# when the game asks for OpenGL or when Vulkan cannot start. factoria_player itself is unchanged.
+# The Vulkan player of Linux and Android (M77-P9e2, docs/RENDERING.md "Choosing the GPU backend"): the same main.cpp
+# with FA_PLAYER_VULKAN_VARIANT, linked with the renderer on Vulkan (fa_render_vulkan, engine/render/CMakeLists.txt). It
+# starts first, draws with Vulkan, and hands over to factoria_player (exec of the sibling on Linux, the OpenGL activity
+# on Android) when the game asks for OpenGL or when Vulkan cannot start. factoria_player itself is unchanged.
 if(TARGET fa_render_vulkan)
     if(FA_PLATFORM STREQUAL "android")
         add_library(factoria_player_vulkan SHARED ${player_srcs})
@@ -179,16 +179,18 @@ foreach(t factoria_player factoria_player_vulkan)
         continue()
     endif()
     target_link_libraries(${t} PRIVATE fa_runtime fa_warnings)
-    # fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code (main.cpp).
+    # fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code
+    # (main.cpp).
     target_include_directories(${t} PRIVATE ${CMAKE_BINARY_DIR}/generated)
     add_dependencies(${t} fa_build_fingerprint)
 endforeach()
 
-# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing reaches
-# (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and plugin entry
-# points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols. Android (NDK) and
-# MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change which code is
-# inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on every platform.
+# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing
+# reaches (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and
+# plugin entry points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols.
+# Android (NDK) and MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change
+# which code is inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on
+# every platform.
 if(APPLE)
     target_link_options(factoria_player PRIVATE -Wl,-dead_strip)
 elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -198,13 +200,13 @@ elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang
     endif()
 endif()
 
-# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that measure the player
-# configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
-#   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read; the web
-#     player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
-#   - the archives the player links, as player/player_libs-<config>.txt, one path per line, relative to the build directory (a build in a container has other
-#     absolute paths than the host that measures it): what the report falls back to
-#     where there is no map (web, iOS) and when a map cannot be read.
+# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that
+# measure the player configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
+#   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read;
+#     the web player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
+#   - the archives the player links, as player/player_libs-<config>.txt, one path per line, relative to the build
+#     directory (a build in a container has other absolute paths than the host that measures it): what the report
+#     falls back to where there is no map (web, iOS) and when a map cannot be read.
 # Only link flags and a generated text file: no compile line changes, so the ccache is as warm as without the option.
 if(FA_PLAYER_LINK_MAP)
     set(FA_PLAYER_MAP_FILE ${CMAKE_CURRENT_BINARY_DIR}/factoria_player.map)
@@ -215,7 +217,8 @@ if(FA_PLAYER_LINK_MAP)
     elseif(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "android" OR FA_PLATFORM STREQUAL "windows")
         target_link_options(factoria_player PRIVATE "-Wl,-Map=${FA_PLAYER_MAP_FILE}")
     endif()
-    # The Vulkan player's own map (player/factoria_player_vulkan.map; budget entries linux-x64-vulkan, android-*-vulkan).
+    # The Vulkan player's own map (player/factoria_player_vulkan.map; budget entries linux-x64-vulkan,
+    # android-*-vulkan).
     if(TARGET factoria_player_vulkan)
         if(APPLE)
             target_link_options(factoria_player_vulkan PRIVATE "-Wl,-map,${CMAKE_CURRENT_BINARY_DIR}/factoria_player_vulkan.map")
@@ -224,8 +227,8 @@ if(FA_PLAYER_LINK_MAP)
         endif()
     endif()
 
-    # Every static library the player's link line reaches, found when the whole tree is configured (a library defined after
-    # this directory is still found: the call is deferred to the end of the top-level CMakeLists.txt).
+    # Every static library the player's link line reaches, found when the whole tree is configured (a library defined
+    # after this directory is still found: the call is deferred to the end of the top-level CMakeLists.txt).
     function(fa_player_write_lib_list target)
         set(todo ${target})
         set(seen "")

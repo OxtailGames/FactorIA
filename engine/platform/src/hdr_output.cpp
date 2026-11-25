@@ -192,9 +192,9 @@ HdrDisplay no_window() {
     return d;
 }
 
-// Whether the window's own swapchain exists for the switch to act on: not before the platform made it (Windows: the D3D11
-// presenter of the first app_gfx_environment()), nor while a D3D12 or Vulkan device has the window (its swapchain is the
-// device's: no HDR output there yet).
+// Whether the window's own swapchain exists for the switch to act on: not before the platform made it (Windows: the
+// D3D11 presenter of the first app_gfx_environment()), nor while a D3D12 or Vulkan device has the window (its swapchain
+// is the device's: no HDR output there yet).
 bool swapchain_ready() {
     if (!sapp_isvalid() || app_window_presenter() == WindowPresenter::Device) return false;
 #if defined(FA_D3D11_PRESENTER)
@@ -208,8 +208,8 @@ std::string swapchain_format() {
     if (!swapchain_ready()) return {};  // none to name (no window or presenter yet, or a device's own swapchain)
     if (fa_sapp_swapchain_kind() == 2) return "RGB10A2";
 #if defined(_WIN32) && defined(SOKOL_D3D11)
-    // sokol_app has no graphics API on Windows (its colour format says RGBA8): the window presenter's buffers are BGRA8 or,
-    // for scRGB, RGBA16F (d3d11_present_win32.cpp).
+    // sokol_app has no graphics API on Windows (its colour format says RGBA8): the window presenter's buffers are BGRA8
+    // or, for scRGB, RGBA16F (d3d11_present_win32.cpp).
     return fa_sapp_swapchain_kind() == 1 ? "RGBA16F" : "BGRA8";
 #else
     switch (sapp_color_format()) {
