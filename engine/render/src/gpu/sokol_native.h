@@ -49,6 +49,11 @@ bool native_storage_image_loadable(const Device& device, PixelFormat format, std
 // samples black. This sets the real last level (`mipmaps` - 1) on every GL texture of the image (a writeTransient
 // image has one per frame in flight). Nothing on the other backends, on a 3D image or on an image that is not Valid.
 void native_finish_image(Device& device, Image image, int mipmaps);
+// Who the GPU of the open sokol context is (gpu_info.cpp; DeviceInfo::gpu): D3D11 the DXGI adapter's PCI ids and
+// LUID (and the IDXGIAdapter* in `adapter`, borrowed: the D3D11 device holds it), OpenGL the vendor GL_VENDOR and
+// GL_RENDERER name (deviceId 0: GL has no PCI id), Metal Apple or the vendor the device name says (deviceId 0).
+// `native` is the device's sokol_native_device(). Called once, by the SokolDevice constructor.
+GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, const void** adapter);
 
 // GPU->CPU readback of the start of a storage buffer WITHOUT waiting (SokolDevice::request_buffer_read, which the Hi-Z
 // culling of renderer_hiz.cpp uses): a small ring of staging buffers. request() queues a copy of the first `bytes`

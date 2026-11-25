@@ -116,9 +116,18 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    // D3D11: the immediate ID3D11DeviceContext (no state to declare: the uses are only checked, and end_native resets
+    // sokol's state cache). GL and Metal refuse (Metal: Device::native_metal()).
+    Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
+    Result<void> end_native(std::span<const NativeUse> leftIn) override;
+    using CommandList::end_native;
 
 private:
+    // check_native_uses on the sokol resources (`name`: "uses" or "leftIn").
+    std::string check_native(std::span<const NativeUse> uses, const char* name) const;
+
     SokolDevice& device_;
+    bool nativeOpen_ = false;  // between begin_native and end_native
     // The format of the render pass this list began: a debug build asserts in set_pipeline that the pipeline was made
     // for it (GL and D3D11 validation reject a mismatch; Metal accepts it and draws wrong). A pass begun outside the
     // list (gpu::begin_context_pass, the window pass the UI painter draws in) is not checked: ownPass_ is false.
@@ -241,6 +250,8 @@ private:
 
     bool ownsContext_ = false;
     bool listening_ = false;
+    // D3D11: the device's IDXGIAdapter, borrowed (the D3D11 device holds its adapter; NativeDevice::adapter).
+    const void* adapter_ = nullptr;
     DeviceInfo info_{};
     Features features_{};
     Limits limits_{};

@@ -439,6 +439,60 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
 - **`destroy_swapchain`** (and the device's destructor, first) releases the images' records, views and semaphores,
   then the swapchain and the surface.
 
+## Native access for vendor SDKs (M78)
+
+The upscalers and latency SDKs of M78 (Streamline, XeSS, FSR 3.1) record their own Vulkan commands into the engine's
+command buffer. `gpu/types.h` and `gpu/device.h` give them what they need, with the same names on D3D12
+([ARCHITECTURE_RENDERING_D3D12.md](ARCHITECTURE_RENDERING_D3D12.md), "Native access for vendor SDKs").
+
+- **Which GPU.** `DeviceInfo::gpu` (`GpuIdentity`): `vendorId` and `deviceId` from `VkPhysicalDeviceProperties`,
+  `vendor` (`GpuVendor`, through `gpu_vendor_from_pci`: NVIDIA 0x10DE, AMD 0x1002, Intel 0x8086, Apple 0x106B,
+  Microsoft 0x1414, `Other`), `software` for a `VK_PHYSICAL_DEVICE_TYPE_CPU` device (lavapipe, SwiftShader), and the
+  adapter LUID from `VkPhysicalDeviceIDProperties` when the driver marks it valid (`luidValid`: Windows drivers;
+  MoltenVK and Linux drivers give none). The LUID query needs `vkGetPhysicalDeviceProperties2`
+  (Vulkan 1.1); without it `luidValid` stays false.
+- **The objects.** `native()` adds to `device` (the `VkDevice`) and `context` (the graphics `VkQueue`): `instance`,
+  `physicalDevice`, `computeQueue` (the device's own compute queue, null when compute lists run on the graphics queue),
+  `getInstanceProcAddr` (the loader's) and `getDeviceProcAddr` (cast back to `PFN_vkGet*ProcAddr`), `apiVersion`, and
+  the family and index of the graphics queue and of the queue compute lists run on. Every pointer is borrowed: it lives
+  as long as the `Device`. `native_image()` gives `vkImage` (a number, so 32-bit targets have it; `texture` holds it
+  too on 64-bit ones), the `VkFormat` (`nativeFormat`), the `VkImageUsageFlags` and the aspects; `native_buffer()` gives
+  `vkBuffer`; `native_view()` gives the `VkImageView` (0 for a storage buffer view), its format, image, mips and slices.
+- **Recording.** `CommandList::begin_native(uses)` checks the list (recording, outside a pass, not on the transfer
+  queue, no section open) and every `NativeUse` (one live image or buffer, its mip and layer range inside it, a state
+  its usage allows: `RenderTarget` needs `colorAttachment` or `resolveAttachment`, the depth states a depth image with
+  `depthStencilAttachment`, `UnorderedAccess` `storageImage` or `storageBuffer`, `RenderTarget` and the depth states a
+  graphics list; no two states for one subresource). The first wrong entry fails the call (`uses[i]: ...`) and nothing
+  is recorded. Then the engine's tracking moves each range to its state's layout and access, with `ALL_COMMANDS` stages
+  on both sides of the barrier (the engine does not know which stages the SDK uses), flushes the barriers and answers
+  `NativeCommands{Vulkan, VkCommandBuffer, queue}`: a primary command buffer outside any render pass.
+
+  | `NativeState` | Layout | Access |
+  |---|---|---|
+  | `Common` | `GENERAL` | memory read and write |
+  | `ShaderRead` | `SHADER_READ_ONLY_OPTIMAL` | shader read |
+  | `UnorderedAccess` | `GENERAL` | shader read and write |
+  | `RenderTarget` | `COLOR_ATTACHMENT_OPTIMAL` | colour attachment read and write |
+  | `DepthWrite` | `DEPTH_STENCIL_ATTACHMENT_OPTIMAL` | depth read and write |
+  | `DepthRead` | `DEPTH_STENCIL_READ_ONLY_OPTIMAL` | depth read, shader read |
+  | `CopySource` | `TRANSFER_SRC_OPTIMAL` | transfer read |
+  | `CopyDest` | `TRANSFER_DST_OPTIMAL` | transfer write |
+
+  A buffer has no layout: its state is the access alone.
+- **After the section.** `end_native(leftIn)` takes the subresources the native commands left in another state (each
+  inside a range `uses` declared, or the call fails naming the mip and layer and the section stays open). The tracking
+  then takes every declared range as last written by `ALL_COMMANDS` with `MEMORY_WRITE` in its declared or `leftIn`
+  layout, so the engine's next use of any of them waits for the native commands with a barrier, and the bind state is
+  reset (the native commands may have bound pipelines and descriptor sets of their own). While a section is open the
+  engine records nothing on the list: `begin_pass` and `begin_compute_pass` fail the pass with "a native section is
+  open". A list submitted with its section open is reported and closed as declared.
+- **Elsewhere.** D3D11 hands out its immediate context (it tracks no state, so `uses` is only checked and `end_native`
+  resets sokol's state cache); GL, Metal and the `RecordingDevice` refuse with an error. GL and Metal still fill
+  `DeviceInfo::gpu`, best effort, from the vendor the driver's name says (no device id).
+- **Not built yet (M78-P2b).** An SDK that must take part in creating the device (instance and device extensions,
+  feature chains, a hook on the swapchain) has no entry point yet; the fields above are only what an SDK needs once the
+  device exists.
+
 ## Tests
 
 `engine/render/tests/vulkan_device_tests.cpp` (ctest `render_vulkan_device`): each case makes a device on the machine's
@@ -496,3 +550,12 @@ dropped after 120 polls, and the queue-misuse case a transfer list that begins a
 with no window or no window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb)
 that fails. `VulkanDevice::counters()`, `fn()`, `pipeline_state()`, `read_image_region` and the `swapchain_*` accessors
 exist for these tests.
+
+`engine/render/tests/vulkan_native_tests.cpp` and `gpu_native_tests.cpp` (ctest `render_gpu_native`, M78) check the
+native access: the GPU's ids (Apple 0x106B under MoltenVK), the `native()` objects (a `vkGetPhysicalDeviceProperties`
+through `getInstanceProcAddr` names the same GPU), a `vkCmdClearColorImage` and a `vkCmdCopyBuffer` recorded between
+the engine's writes and its copies and read back, an image the native commands leave in `SHADER_READ_ONLY_OPTIMAL`
+(`leftIn`) and read back by the engine next, each refusal (a state the usage does not allow, a range outside the image,
+two states for one mip, a destroyed image, inside a pass, nested sections, a pass inside a section, a section left open
+at submit, a transfer list), all with no validation error; the neutral checks, the vendor table and the sokol
+backends' answers run on every machine.

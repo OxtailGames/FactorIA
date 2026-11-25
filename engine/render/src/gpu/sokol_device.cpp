@@ -1058,6 +1058,11 @@ void SokolCommandList::begin_pass(const PassDesc& pass) {
                   "count (fill it from the attachments: render::make_pass_desc does)");
     }
 #endif
+    if (nativeOpen_) {
+        // sokol cannot skip the pass the calls after this one draw in: close the section (D3D11 tracks no state).
+        FA_ERROR("render", "gpu: CommandList::begin_pass inside a native section: end_native() first (closed now)");
+        (void)end_native();
+    }
     passFormat_ = pass.format;
     ownPass_ = true;
     const sg_pass p = to_sg(pass);
@@ -1066,6 +1071,11 @@ void SokolCommandList::begin_pass(const PassDesc& pass) {
 
 void SokolCommandList::begin_compute_pass(const char* label) {
     device_.check_thread("CommandList::begin_compute_pass");
+    if (nativeOpen_) {
+        FA_ERROR("render", "gpu: CommandList::begin_compute_pass inside a native section: end_native() first (closed "
+                           "now)");
+        (void)end_native();
+    }
     passFormat_ = {};
     ownPass_ = false;
     sg_pass p{};
@@ -1084,6 +1094,66 @@ void SokolCommandList::end_pass() {
 PassState SokolCommandList::pass_state() const {
     device_.check_thread("CommandList::pass_state");
     return from_sg(sg_query_pass_state());
+}
+
+std::string SokolCommandList::check_native(std::span<const NativeUse> uses, const char* name) const {
+    std::vector<NativeRange> ranges;
+    return check_native_uses(uses, QueueKind::Graphics, name, true, ranges, [](const NativeUse& use, NativeTarget& t) {
+        if (use.image.id) {
+            const sg_image img = to_sg(use.image);
+            if (sg_query_image_state(img) != SG_RESOURCESTATE_VALID) return false;
+            const sg_image_usage u = sg_query_image_usage(img);
+            t.imageUsage.storageImage = u.storage_image;
+            t.imageUsage.colorAttachment = u.color_attachment;
+            t.imageUsage.resolveAttachment = u.resolve_attachment;
+            t.imageUsage.depthStencilAttachment = u.depth_stencil_attachment;
+            t.format = from_sg(sg_query_image_pixelformat(img));
+            t.mips = sg_query_image_num_mipmaps(img);
+            t.layers = sg_query_image_type(img) == SG_IMAGETYPE_3D ? 1 : sg_query_image_num_slices(img);
+            return true;
+        }
+        const sg_buffer buf = to_sg(use.buffer);
+        if (sg_query_buffer_state(buf) != SG_RESOURCESTATE_VALID) return false;
+        t.buffer = true;
+        t.bufferUsage.storageBuffer = sg_query_buffer_usage(buf).storage_buffer;
+        return true;
+    });
+}
+
+Result<NativeCommands> SokolCommandList::begin_native(std::span<const NativeUse> uses) {
+    device_.check_thread("CommandList::begin_native");
+    const Backend backend = device_.info_.backend;
+    const std::string at = std::string("gpu ") + backend_name(backend) + ": CommandList::begin_native: ";
+    if (backend != Backend::D3d11)
+        return make_error(at + "this backend records no native commands",
+                          backend == Backend::Metal
+                              ? "encode on Device::native_metal()'s command buffer outside a pass instead"
+                              : "use the D3D12 or Vulkan backend, or D3D11 (its immediate context)");
+    if (nativeOpen_) return make_error(at + "a native section is open already", "end_native() first; they do not nest");
+    if (sg_query_pass_state() != SG_PASSSTATE_NONE)
+        return make_error(at + "the list is inside a pass", "end_pass() first: native commands go between passes");
+    const std::string error = check_native(uses, "uses");
+    if (!error.empty()) return make_error(at + error, "fix that entry; nothing was opened");
+    nativeOpen_ = true;
+    NativeCommands n;
+    n.backend = backend;
+    n.list = sokol_native_device().context;  // the immediate ID3D11DeviceContext
+    n.queue = QueueKind::Graphics;
+    return n;
+}
+
+Result<void> SokolCommandList::end_native(std::span<const NativeUse> leftIn) {
+    device_.check_thread("CommandList::end_native");
+    const std::string at = std::string("gpu ") + backend_name(device_.info_.backend) + ": CommandList::end_native: ";
+    if (!nativeOpen_)
+        return make_error(at + "no native section is open",
+                          "call end_native once after each begin_native that succeeded");
+    const std::string error = check_native(leftIn, "leftIn");
+    if (!error.empty()) return make_error(at + error, "fix that entry; the section is still open");
+    // The native commands may have bound shaders, views and states of their own: sokol binds everything again.
+    device_.reset_state_cache();
+    nativeOpen_ = false;
+    return {};
 }
 
 void SokolCommandList::set_pipeline(Pipeline pipeline) {
@@ -1244,6 +1314,7 @@ SokolDevice::SokolDevice(bool ownsContext) : ownsContext_(ownsContext), thread_(
     info_.backend = backend_from_sg(b);
     info_.metalTarget = metal_target_from_sg(b);
     info_.name = backend_name(info_.backend);
+    info_.gpu = native_gpu_identity(info_.backend, sokol_native_device(), &adapter_);
     features_ = from_sg(sg_query_features());
     limits_ = from_sg(sg_query_limits());
     listening_ = sg_add_commit_listener(sg_commit_listener{&SokolDevice::count_commit, this});
@@ -1293,7 +1364,9 @@ EnvironmentDefaults SokolDevice::environment_defaults() const {
 
 NativeDevice SokolDevice::native() const {
     check_thread("Device::native");
-    return sokol_native_device();
+    NativeDevice n = sokol_native_device();
+    n.adapter = adapter_;  // D3D11's IDXGIAdapter (null elsewhere)
+    return n;
 }
 
 #if defined(SOKOL_METAL)
