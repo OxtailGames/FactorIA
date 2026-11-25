@@ -185,33 +185,6 @@ void merge_hook_features(std::vector<std::uint8_t>& f, std::size_t used, std::ve
     chained.push_back({type, f.data(), f.size()});
 }
 
-// The older per-feature struct a core struct of the engine's chain covers (Vulkan forbids both in one chain): the name
-// of the core struct, "" when the type is not one of them. On a Vulkan 1.3 device the engine chains Vulkan13Features
-// (synchronization2, dynamic rendering, maintenance4); the Vulkan12Features struct is always chained.
-const char* covered_by_core(VkStructureType t, bool core13) {
-    switch (t) {
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES:
-            return "VkPhysicalDeviceVulkan12Features";
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR:  // the same value as the core 1.3 one
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES:
-        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES:
-            return core13 ? "VkPhysicalDeviceVulkan13Features" : "";
-        default: return "";
-    }
-}
-
 // The family a hook's queue comes from: one with every bit of `flags` and a queue no one took. A graphics queue takes
 // the engine's graphics family first; any other, a family that does not draw first. UINT32_MAX = none.
 std::uint32_t pick_hook_queue_family(const std::vector<VkQueueFamilyProperties>& families, std::uint32_t gfx,
@@ -275,6 +248,47 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugUtilsMessageSeverityFlagBit
 }
 
 }  // namespace
+
+// The older per-feature struct a core struct of the engine's chain covers (Vulkan forbids both in one chain): the name
+// of the core struct, "" when the type is not one of them. On a Vulkan 1.3 device the engine chains Vulkan13Features
+// (every per-feature struct of Vulkan 1.3: synchronization2, dynamic rendering, maintenance4, private data, ...); the
+// Vulkan12Features struct is always chained.
+const char* covered_by_core(VkStructureType t, bool core13) {
+    switch (t) {
+        // Vulkan12Features (always chained): every per-feature struct of Vulkan 1.2.
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES:
+            return "VkPhysicalDeviceVulkan12Features";
+        // Vulkan13Features (chained on a Vulkan 1.3 device): every per-feature struct of Vulkan 1.3. The struct of
+        // synchronization2 has the same sType as the KHR one.
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TERMINATE_INVOCATION_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES:
+            return core13 ? "VkPhysicalDeviceVulkan13Features" : "";
+        default: return "";
+    }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Helpers
@@ -450,8 +464,16 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
 
     // Device hooks (gpu/device_hooks.h): the instance extensions each asks for. One the loader lacks makes that hook
     // unavailable, and it adds nothing.
-    hooks_ = options.init.hooks;
-    hookUse_.attach(hooks_);  // available again unless another device holds it (gpu/device_hooks.h)
+    {
+        // Starts each hook available; one another live device holds is left out of this device (gpu/device_hooks.h).
+        std::vector<std::string> refused;
+        hooks_ = hookUse_.attach(options.init.hooks, Backend::Vulkan, &refused);
+        for (const std::string& w : refused) {
+            FA_WARN("render", "{}", w);
+            std::lock_guard<std::mutex> lock(msgMutex_);
+            warnings_.push_back(w);
+        }
+    }
     hookGrants_.assign(hooks_.size(), HookGrant{});
     std::vector<std::string> hookExtensions;  // what the hooks added (kept alive for vkCreateInstance)
     std::vector<DeviceHook*> instanceAdders;  // the hooks that added one

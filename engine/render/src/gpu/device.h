@@ -144,9 +144,9 @@ public:
     // one begin_native declared (each in a range begin_native declared); the others are as declared. The engine's
     // tracking takes these states and waits for the native commands' writes before its next use of any declared
     // resource, then binds again (pipelines, descriptor heaps and sets the native commands may have changed). D3D12: a
-    // resource declared Common that a native command used is promoted implicitly: name the promoted state here. An error
-    // changes nothing and leaves the section open (call it again with a correct list); submitting a list whose section
-    // is still open reports it and closes it as declared.
+    // resource declared Common that a native command used is promoted implicitly: name the promoted state here. An
+    // error changes nothing and leaves the section open (call it again with a correct list); submitting a list whose
+    // section is still open reports it and closes it as declared.
     virtual Result<void> end_native(std::span<const NativeUse> leftIn);
     // The same with every resource left as declared.
     Result<void> end_native() { return end_native(std::span<const NativeUse>{}); }

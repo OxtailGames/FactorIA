@@ -15,8 +15,10 @@
 //  * D3D12 (d3d12_device_win32.cpp, d3d12_swapchain_win32.cpp) and Vulkan (vulkan_device.cpp, vulkan_swapchain.cpp)
 //    call every callback below at the moment it names, on the thread that makes the device, or that presents.
 //  * D3D11, GL, Metal and the RecordingDevice call none: make_device() marks each hook unavailable there, with the
-//    reason, unless a live D3D12 or Vulkan device holds it (HookAttachment): availability is one state per hook,
-//    shared by the devices that use it.
+//    reason, unless a live D3D12 or Vulkan device holds it (HookAttachment).
+//  * A hook serves one device at a time: availability is one state of the hook (the vendor SDKs it wraps keep one
+//    device per process), so a second D3D12 or Vulkan device made while the first lives is made without that hook, with
+//    a warning that says so, and never changes what the first device's hook is told.
 //
 // Degrading, never failing: whatever a hook asks that the machine lacks (a missing required extension, a feature bit
 // the GPU does not have, a queue family with no queue left, a Vulkan 1.3 struct on a 1.2 device) marks that hook
@@ -208,7 +210,7 @@ struct PresentEvent {
 // swapchain a new one replaces), before the engine releases it.
 struct SwapchainEvent {
     Backend backend = Backend::Recording;
-    const void* swapchain = nullptr;  // IDXGISwapChain3* (D3D12)
+    const void* swapchain = nullptr;  // IDXGISwapChain3* (D3D12): the same one in PresentEvent
     std::uint64_t vkSwapchain = 0;    // VkSwapchainKHR (Vulkan)
 };
 
@@ -245,7 +247,9 @@ public:
     // D3D12: a swapchain about to be made. True = the hook made it (D3d12SwapchainCreate::swapchain).
     virtual bool d3d12_create_swapchain(D3d12SwapchainCreate&) { return false; }
     // D3D12: the swapchain made (by the engine or a hook). `swapchain` (IDXGISwapChain1*) may be replaced as in
-    // D3d12DeviceCreated (a new reference; the engine drops its own to the old one).
+    // D3d12DeviceCreated (a new reference; the engine drops its own to the old one). From here on the engine names the
+    // swapchain by its IDXGISwapChain3* (QueryInterface of this object): PresentEvent::swapchain and
+    // SwapchainEvent::swapchain, which need not equal the IDXGISwapChain1* pointer of this call (compare COM identity).
     virtual void d3d12_swapchain_created(void*& /*swapchain*/) {}
 
     // Both: around each present, and before a swapchain goes. On Vulkan the present callbacks run under the lock of the
@@ -265,7 +269,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         return reason_;
     }
-    // Called by the device (and by make_device on a backend without hooks).
+    // Called by the device.
     void mark_unavailable(std::string reason) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!available_.load(std::memory_order_relaxed)) return;  // the first reason stays
@@ -277,22 +281,35 @@ public:
         reason_.clear();
         available_.store(true, std::memory_order_release);
     }
-    // The devices that hold the hook now (HookAttachment). A hook a live D3D12 or Vulkan device uses is never marked
-    // unsupported by another device that calls no hooks (make_device of a D3D11, GL, Metal or Recording device).
+    // For a device that calls no hooks (make_device of a D3D11, GL, Metal or Recording device): marks the hook
+    // unavailable with `reason` (replacing an earlier one), unless a live D3D12 or Vulkan device holds it. One step
+    // under the hook's mutex: a device that attaches meanwhile either holds it first (nothing changes) or finds it
+    // marked and starts it available again. Returns whether it marked.
+    bool mark_unsupported_if_unused(std::string reason) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (users_.load(std::memory_order_acquire) > 0) return false;
+        reason_ = std::move(reason);
+        available_.store(false, std::memory_order_release);
+        return true;
+    }
+    // Whether a live D3D12 or Vulkan device holds the hook (HookAttachment).
     bool in_use() const { return users_.load(std::memory_order_acquire) > 0; }
 
 private:
     friend class HookAttachment;
-    // A device starts to use the hook: the first user starts it available; a second device made while the first lives
-    // shares the first's state (it never turns the hook on again under the first device's feet).
-    void begin_use() {
+    // A device starts to use the hook: false when another live device holds it. The first user starts it available.
+    bool try_begin_use() {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (users_.fetch_add(1, std::memory_order_acq_rel) == 0) {
-            reason_.clear();
-            available_.store(true, std::memory_order_release);
-        }
+        if (users_.load(std::memory_order_acquire) > 0) return false;
+        users_.store(1, std::memory_order_release);
+        reason_.clear();
+        available_.store(true, std::memory_order_release);
+        return true;
     }
-    void end_use() { users_.fetch_sub(1, std::memory_order_acq_rel); }
+    void end_use() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        users_.store(0, std::memory_order_release);
+    }
 
     mutable std::mutex mutex_;
     std::atomic<bool> available_{true};
@@ -302,25 +319,23 @@ private:
 
 using DeviceHooks = std::vector<std::shared_ptr<DeviceHook>>;
 
-// What a D3D12 or Vulkan device holds for as long as it lives: each hook counts the device as a user (DeviceHook::
-// in_use), so a device made for another backend meanwhile does not mark it unsupported, and a second device does not
-// make it available again under the first. Detaches in its destructor (a member declared after the hooks, destroyed
-// after the device's own destructor body, where device_destroying runs).
+// What a D3D12 or Vulkan device holds for as long as it lives: each hook it took counts the device as its user
+// (DeviceHook::in_use), so a device made for another backend meanwhile does not mark it unsupported, and a second
+// device cannot take it (or turn it available again, or mark it unavailable) under the first. Detaches in its
+// destructor (a member declared after the hooks, destroyed after the device's own destructor body, where
+// device_destroying runs).
 class HookAttachment {
 public:
     HookAttachment() = default;
     HookAttachment(const HookAttachment&) = delete;
     HookAttachment& operator=(const HookAttachment&) = delete;
     ~HookAttachment() { release(); }
-    void attach(const DeviceHooks& hooks) {
-        release();
-        hooks_ = hooks;
-        for (const auto& h : hooks_)
-            if (h) h->begin_use();
-    }
+    // Takes every hook of `hooks` no other live device holds (starting it available) and returns them, in order and
+    // once each; a hook another device holds is left out and `refused` (when given) gets its warning
+    // (device_hook_refused_warning): the device is made without it.
+    DeviceHooks attach(const DeviceHooks& hooks, Backend backend, std::vector<std::string>* refused = nullptr);
     void release() {
-        for (const auto& h : hooks_)
-            if (h) h->end_use();
+        for (const auto& h : hooks_) h->end_use();
         hooks_.clear();
     }
 
@@ -342,5 +357,7 @@ void mark_hooks_unsupported(const DeviceHooks& hooks, Backend backend);
 // The warning a backend logs when it marks `hook` unavailable: "gpu <backend>: device hook '<name>' is unavailable:
 // <reason>" (the reason as given, which carries its own hint).
 std::string device_hook_warning(Backend backend, const DeviceHook& hook);
+// The warning a backend logs when it makes a second device without `hook`, which another live device holds.
+std::string device_hook_refused_warning(Backend backend, const DeviceHook& hook);
 
 }  // namespace fa::gpu
