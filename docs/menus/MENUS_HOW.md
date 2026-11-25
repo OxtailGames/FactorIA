@@ -112,7 +112,7 @@ Part of [MENUS.md](../MENUS.md): What each part of the kit does and what to chan
   `windowMode`.
 - **Interface size.** An "Interface size: 100%" button on the Video tab cycles through `UI_SCALES` in `options.js` (75, 100,
   125, 150 and 200 %) and sets `ui.scale` (docs/TEXT.md, "Interface size"), which makes every screen-space widget, the
-  panel itself included, that many times as big at once. Only the sizes at which the panel (760 x 680 UI units) still fits
+  panel itself included, that many times as big at once. Only the sizes at which the panel (760 x 636 UI units) still fits
   the screen are offered, plus the one in use: at the 1280 x 720 design size that is 75 % and 100 %, and the button is
   greyed out when only one is left; a game with a smaller panel `size` in the prefab offers more sizes. The button's text is
   the string `options.uiScale` ("Interface size: {percent}%").

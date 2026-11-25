@@ -400,7 +400,7 @@ storage.set("uiScale", ui.scale);
   the rectangles of `ui.state` and of the `ui.check_layout` warnings, the hit test, `game.input` clicks and the screenshot
   are on the screen, in design pixels, so they already include the scale: at 1.5 a button of `size` 100 has a `rectOf`
   width of 150. `screen.size` and `screen.safeArea` are the screen's design size and safe area, never divided by the scale
-  (a panel of `size` 760 x 680 fits when `760 * ui.scale <= screen.size.x` and `680 * ui.scale <= screen.size.y`).
+  (a panel of `size` 760 x 636 fits when `760 * ui.scale <= screen.size.x` and `636 * ui.scale <= screen.size.y`).
 - **Panel limits.** `Panel.minSize` and `Panel.maxSize` (UI units, 0 = no limit on that axis) bound the size of a
   `Panel` with `fit: true` too: a `fit` Panel never shrinks below `minSize` or grows above `maxSize` (a column `Panel`
   that is "as tall as its rows, at least 300 and at most the screen" is `"minSize": [0, 300]`). When the two cross,
@@ -409,7 +409,7 @@ storage.set("uiScale", ui.scale);
   with `{ type, value, previous }`, like `i18n.on("change")`, with the game events of the next frame; use them to redo
   what depends on the size of the interface (a layout your script computes, an `ui.measureText`) instead of keeping a
   list of widgets to resize. They end with the scene. Setting the value it already has sends nothing.
-- **Laying out for every size.** The screen shrinks (in UI units) as the scale grows: a 760 x 680 panel fits 1280 x 720 at
+- **Laying out for every size.** The screen shrinks (in UI units) as the scale grows: a 760 x 636 panel fits 1280 x 720 at
   1 and 0.75 but not at 1.25. Give a panel that must fit a `ScrollList` with `fill`, or a `fallbackLayout`, check each
   size you offer with `ui.check_layout {"uiScales": [1, 1.25, 1.5]}` (crossed with `languages` and `textScales`) and look
   at it with `game.screenshot`. The menu kit's Options "Interface size" button offers only the sizes at which its own
