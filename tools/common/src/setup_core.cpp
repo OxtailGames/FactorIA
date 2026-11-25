@@ -476,6 +476,8 @@ std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& 
     return std::nullopt;
 }
 
+int current_process_id() { return process_id(); }
+
 std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to) {
     static std::atomic<int> counter{0};
     std::error_code ec;

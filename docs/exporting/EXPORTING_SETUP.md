@@ -270,10 +270,10 @@ What an install does with the disk: it unpacks only the files of the table from 
 against its own pinned SHA-256, and keeps them in `<home>/tools/<id>/<version>/`. It needs free space in `<home>/staging` while it
 runs: about 550 MB for Streamline (a 276 MB download, 116 MB unpacked, and the copy it keeps), 300 MB for XeSS and 200 MB for
 FidelityFX; `setup.status` says so, and a failed download, unpack or copy repeats it. The folders of older pinned versions (a
-folder named like a version, lower than the current one) are removed once the new one is in place, and so are the
-`<version>.old-<pid>-<n>` leftovers of a replaced install that Windows could not delete (a program had a file open) of a version
-up to the current one; a newer version's folder (a newer factoria that shares the home) and any other folder under `tools/<id>/`
-are left alone. An export checks the installed files
+folder named like a version, lower than the current one) are removed once the new one is in place. A replaced install that
+Windows could not delete (a program had a file open) stays as `<version>.old-<pid>-<n>`; the next install removes it when its
+version is not newer than the current one and the process `<pid>` is this one or no longer runs. A newer version's folder (a
+newer factoria that shares the home) and any other folder under `tools/<id>/` are left alone. An export checks the installed files
 against the pinned SHA-256 before it does anything else (about 120 MB are read for Streamline): a file that is missing, cut
 short or changed fails the export naming the file, and `factoria setup <id> --force` installs it again.
 

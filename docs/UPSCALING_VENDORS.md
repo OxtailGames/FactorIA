@@ -101,8 +101,8 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
 `factoria setup streamline` installs with the rest).
 
 - **The plugin is asked for at start.** Streamline loads only the plugins it is told of when it starts, before the device, so the plugin of
-  Ray Reconstruction is asked for only when the project's `render.upscaler.rayReconstruction` is true when the game starts (a game that
-  never uses it does not pay its load time and memory). A `window.upscaler` or `render.upscaler` change to true later in a run that started
+  Ray Reconstruction is asked for only when the project's `render.upscaler.rayReconstruction` is true and its `mode` is `dlss` or
+  `auto` when the game starts (a game that never uses it does not pay its load time and memory). A `window.upscaler` or `render.upscaler` change to true later in a run that started
   with the project setting off is refused: `render.supports` `dlssRayReconstruction` says to set the project setting and restart.
 - **The graphics presets turn it off.** `low`, `medium` and `high` write a whole upscaler (mode `auto`, a quality, sharpness 0.5), so
   `rayReconstruction` is false while one is on; `ultra` and `custom` keep the game's own setting (docs/UPSCALING.md, "Graphics presets").
@@ -177,37 +177,44 @@ What the tests cannot say (they use a fake Streamline) and a machine with an NVI
 
 ## Intel XeSS
 
-The `xess` mode. Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11 (Intel
-Arc only: on another GPU the reason says to run the game on D3D12 or Vulkan). On Vulkan XeSS asks for instance and device extensions
-and device features (`xessVKGetRequiredInstanceExtensions`, `...DeviceExtensions`, `xessVKGetRequiredDeviceFeatures`): the engine
-registers a device hook that loads the library before the instance exists, asks it and adds what it says to the device (an
-extension the driver lacks, or a feature structure the hook does not know, makes the hook mark XeSS unavailable and the reason says
-which). The probe reads what the device was granted, so a device made without them says so with the names. The library is probed
-once (it must load, export every function of the backend and answer a version of 3.0 or newer). One XeSS context is made per
-device and initialised again only when the output size, the quality or the input format changes, or when the render size leaves the range
-`xessGetOptimalInputResolution` gives for the quality (its minimum and maximum; a library without that export keeps the old rule: any
-render size change) (the GPU is waited for first), never per frame; a size inside the range only changes the velocity scale. The
-context is also made again after the device was made again (the engine's device generation counter changes, which an address
-cannot tell). While it is made again the probe is not blocked: the library snapshot and the context have separate locks. the quality is the nearest XeSS setting to the upscale ratio (1.3, 1.5, 1.7, 2.0, 2.3, 3.0; the five
-names of `quality` land exactly) and a dynamic resolution that wobbles near a boundary keeps the setting it has (and inside the range, the quality of the context). The engine passes
-its own render size, the jitter, the exposure and the reset flag (a cut, a resize or a frame after a failure), the responsive mask
-(an empty one when no item asked for a reactive mask) and an output image made with storage usage. The depth and the motion XeSS
-reads are made by the same preparation pass as MetalFX's (depth 0..1, motion in UV units, with the velocity scale set to the render
-size). The context is destroyed, after the GPU is idle, when the renderer shuts down. A failing call is reported with XeSS's own
-words ("unsupported device", "unsupported driver", ...) and the mode is off for the run. Not checked by the tests (they use a fake
-library): that the real library's picture is right, which a D3D12 or Vulkan run on a GPU shows.
+The `xess` mode. Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11
+(Intel Arc only: on another GPU the reason says to run the game on D3D12 or Vulkan). On Vulkan XeSS asks for instance and device
+extensions and device features (`xessVKGetRequiredInstanceExtensions`, `...DeviceExtensions`, `xessVKGetRequiredDeviceFeatures`):
+the engine registers a device hook that loads the library before the instance exists, asks it and adds what it says to the device
+(an extension the driver lacks, or a feature structure the hook does not know, makes the hook mark XeSS unavailable and the reason
+says which). The probe reads what the device was granted, so a device made without them says so with the names. The library is
+probed once (it must load, export every function of the backend and answer a version of 3.0 or newer).
+
+One XeSS context is made per device. It is initialised again (the GPU is waited for first) only when the output size, the quality
+or the input format changes, or when the render size leaves the range `xessGetOptimalInputResolution` gives for the quality (its
+minimum and maximum). A library without that export keeps the old rule: any render size change. It is never initialised per frame,
+and a size inside the range only changes the velocity scale. The context is also made again after the device was made again (the
+engine's device generation counter changes, which an address cannot tell). While it is made again the probe is not blocked: the
+library snapshot and the context have separate locks.
+
+The quality is the nearest XeSS setting to the upscale ratio (1.3, 1.5, 1.7, 2.0, 2.3, 3.0; the five names of `quality` land
+exactly), and a dynamic resolution that wobbles near a boundary keeps the setting it has (and inside the range, the quality of the
+context). A render size outside the range of the setting in use, when the nearest setting is that same one, cannot be helped by
+initialising again: the frame is refused with "the render size WxH is outside XeSS's input range AxB..CxD for quality Q" (the
+picture is not cut or stretched to fit) and the usual fallback draws. The engine passes its own render size, the jitter, the
+exposure and the reset flag (a cut, a resize or a frame after a failure), the responsive mask (an empty one when no item asked for a
+reactive mask) and an output image made with storage usage. The depth and the motion XeSS reads are made by the same preparation
+pass as MetalFX's (depth 0..1, motion in UV units, with the velocity scale set to the render size). The context is destroyed,
+after the GPU is idle, when the renderer shuts down. A failing call is reported with XeSS's own words ("unsupported device",
+"unsupported driver", ...) and the mode is off for the run. Not checked by the tests (they use a fake library): that the real
+library's picture is right, which a D3D12 or Vulkan run on a GPU shows.
 
 ## AMD FSR 3.1
 
 `fsr` runs on D3D12 and Vulkan on any GPU (never D3D11) and needs `factoria setup fidelityfx` (the loader of the backend and the
 upscaler DLL). The probe loads the loader, needs its four exports (`ffxCreateContext`, `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`)
 and asks `ffxQuery` which FSR versions it has for this GPU: none is "no FSR provider for this GPU" and a newest below 3.1 is refused;
-on Vulkan the device must be 1.1 or newer (FSR asks for no extension the engine does not enable). One FSR context is made per device,
-for the largest render size (the base scale), the output size, the quality and the flags (linear light is `HDR` input, display values
-the non-linear colour space; depth is always inverted and infinite; `dynamicResolution` is set whenever the dynamic resolution is switched on, whatever its current step, so the first step down does not
-make a context), and is
-made again (after the GPU is idle) only when one of them changes, never per frame; a render size that moves under the maximum does
-not make one. The five qualities are FSR's five modes in order (`native` 0, `quality` 1.5x, `balanced` 1.7x, `performance` 2x,
+on Vulkan the device must be 1.1 or newer (FSR asks for no extension the engine does not enable). One FSR context is made per
+device, for the largest render size (the base scale), the output size, the quality and the flags. Linear light is `HDR` input,
+display values the non-linear colour space, and depth is always inverted and infinite. `dynamicResolution` is set whenever the
+dynamic resolution is switched on, whatever its current step, so the first step down does not make a context. The context is made
+again (after the GPU is idle) only when one of them changes, never per frame; a render size that moves under the maximum does not
+make one. The five qualities are FSR's five modes in order (`native` 0, `quality` 1.5x, `balanced` 1.7x, `performance` 2x,
 `ultraPerformance` 3x); the engine feeds its own render size, so the mode only keys the context. Each frame passes: the colour, the
 depth (the preparation pass writes FSR's reversed infinite depth, `near / distance`, 0 for the sky), the motion (UV units; the motion
 scale is the render size, so FSR reads pixels), the reactive mask when there is one, an output with storage usage, the jitter in
@@ -223,9 +230,10 @@ added to the process's user DLL directories (`AddDllDirectory`, once per folder;
 error number). Windows searches those directories only for a load that asks for them (`LOAD_LIBRARY_SEARCH_USER_DIRS` or
 `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`): a DLL the vendor library loads later that way (the upscaler DLL next to FSR's loader) is found
 whatever the current folder is, while a plain `LoadLibrary` of a bare name is not helped (the engine does not change the search order
-of the whole process); whether each SDK's loads find their neighbours is item 5 of the check list below. A library that fails to load names the Windows error number of that load (`GetLastError`, read before anything else can
-change it). The label of the mode in `render.supports` and the menus is "FSR 3.1+" (the library may offer a newer one), and a
-debug-level log line says which versions `ffxQuery` listed. The text of the last FidelityFX message is cleared before each dispatch,
+of the whole process); whether each SDK's loads find their neighbours is item 5 of the check list below. A library that fails to
+load names the Windows error number of that load (`GetLastError`, read before anything else can change it). The label of the
+mode in `render.supports` and the menus is "FSR 3.1+" (the library may offer a newer one), and a debug-level log line says which
+versions `ffxQuery` listed. The text of the last FidelityFX message is cleared before each dispatch,
 so a failure never quotes the message of an earlier call.
 
 ## Hardware check list (M78)
@@ -249,14 +257,15 @@ write the result next to the item:
    finds the loader's neighbour DLLs (if not, the SDK loads them with a plain `LoadLibrary`, which `AddDllDirectory` does not
    reach: the fix is `SetDllDirectoryW` around the load), an exported game with the DLLs next to the executable too.
 6. **XeSS, Vulkan**: the device is made with the instance and device extensions and features `xessVKGet...` named (the Vulkan
-   device was made with them: check with the validation layer or the driver's device report), `render.supports` `xess` is true, and the first frame draws. A GPU without one of the extensions says so
-   in the reason.
+   device was made with them: check with the validation layer or the driver's device report), `render.supports` `xess` is true,
+   and the first frame draws. A GPU without one of the extensions says so in the reason.
 7. **XeSS, D3D12, Vulkan and D3D11 (Intel Arc)**: the picture is right; the **sign of the jitter and of the motion** (the engine passes
    its own: the motion is previous minus current in UV units, scaled to pixels by `xessSetVelocityScale`; the jitter is in render
    pixels) is the one XeSS wants: a still camera shows no shimmer, a moving one no ghost trail. If one is flipped, flip it at the
    one place that passes it (`render_upscale_xess.cpp`) and say so here.
 8. **XeSS, dynamic resolution**: render sizes inside the range `xessGetOptimalInputResolution` gives make no `xessInit` (no GPU
-   wait hitch in the frame times), a size outside it makes one, and a library without that export keeps working (it initialises again at every size).
+   wait hitch in the frame times), a size outside it makes one (or, when the setting stays the same, a refusal that names the
+   range), and a library without that export keeps working (it initialises again at every size).
 9. **XeSS, device lost and made again**: after a device reset the next frame makes a new context, with no stale handle.
 10. **Both, a permanent failure**: force a failing frame (a size the SDK refuses): one warning, the temporal upscaler draws from then
     on, and the depth and motion images the SDK used are given back (the GPU memory of the process drops by two render-size images).

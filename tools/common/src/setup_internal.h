@@ -127,6 +127,9 @@ std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& 
 // place; when the move fails the old one is put back.
 std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to);
 
+// The id of this process (the `.old-<pid>-<n>` folder replace_dir makes belongs to the process that made it, for as long as it runs).
+int current_process_id();
+
 // The folder that holds the one top-level folder of an unpacked archive (cmake-3.31.6-.../, FactorIA/...): `root` itself
 // when it holds several entries or none.
 stdfs::path single_child_dir(const stdfs::path& root);

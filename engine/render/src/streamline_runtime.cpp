@@ -196,6 +196,14 @@ constexpr std::uint64_t kSdkVersion =
     (std::uint64_t(2) << 48) | (std::uint64_t(14) << 32) | (std::uint64_t(16) << 16) | 0xfedcu;
 constexpr VendorLibrarySpec kStreamlineSpec{"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"};
 
+std::atomic<StreamlineEnvReader> g_env_reader{nullptr};  // a test's reader of the environment (null: std::getenv)
+
+// The text of an environment variable of the game's process, null when it is not set.
+const char* environment_text(const char* name) {
+    const StreamlineEnvReader reader = g_env_reader.load();
+    return reader ? reader(name) : std::getenv(name);
+}
+
 template <class Fn>
 void bind(VendorLibrary& lib, const char* name, Fn& fn, std::string& missing) {
     void* address = lib.symbol(name);
@@ -607,8 +615,8 @@ struct StreamlineRuntime::Impl {
         prefs.numFeaturesToLoad = static_cast<std::uint32_t>(features_.size());
         // NVIDIA's registration of a game gives it an application id; without one it is 0 (Streamline runs, NVIDIA's per-title overrides do not
         // apply). The project id is the GUID of the game (a custom engine must give one): FactorIA's own unless the game sets its own.
-        prefs.applicationId = streamline_application_id(std::getenv("FA_STREAMLINE_APP_ID"));
-        projectId_ = streamline_project_id(std::getenv("FA_STREAMLINE_PROJECT_ID"));
+        prefs.applicationId = streamline_application_id(environment_text("FA_STREAMLINE_APP_ID"));
+        projectId_ = streamline_project_id(environment_text("FA_STREAMLINE_PROJECT_ID"));
         prefs.engine = 0;  // eCustom
         prefs.engineVersion = fa::engine_version();
         prefs.projectId = projectId_.c_str();
@@ -1015,5 +1023,6 @@ void register_streamline_runtime() {
 }
 
 void set_streamline_runtime_for_test(StreamlineRuntime* runtime) { g_test_runtime.store(runtime); }
+void set_streamline_environment_for_test(StreamlineEnvReader reader) { g_env_reader.store(reader); }
 
 }  // namespace fa::render

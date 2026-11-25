@@ -254,6 +254,12 @@ TEST_CASE("upscaler vendors: dlss, xess and fsr parse, round-trip and get a did-
     }
     CHECK(vendor_upscaler_index(UpscalerMode::MetalFx) == -1);
     CHECK(vendor_upscaler_index(UpscalerMode::Auto) == -1);
+    // Only a game that can draw with DLSS asks Streamline for Ray Reconstruction's plugin.
+    CHECK(upscaler_mode_may_use_dlss(UpscalerMode::Dlss));
+    CHECK(upscaler_mode_may_use_dlss(UpscalerMode::Auto));
+    for (const UpscalerMode m : {UpscalerMode::Stretch, UpscalerMode::Spatial, UpscalerMode::Temporal,
+                                 UpscalerMode::MetalFx, UpscalerMode::Xess, UpscalerMode::Fsr})
+        CHECK_FALSE(upscaler_mode_may_use_dlss(m));
     auto typo = parse_upscaler_settings(Json::object({{"mode", "dlls"}}), "render.upscaler", UpscalerSettings{});
     REQUIRE_FALSE(typo.ok());
     CHECK(typo.error().message.find("render.upscaler/mode") != std::string::npos);

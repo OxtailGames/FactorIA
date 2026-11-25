@@ -88,13 +88,12 @@ std::string vulkan_version_text(std::uint32_t v) {
 struct FeatureStruct {
     std::int32_t type;
     std::size_t bytes;
-    const char* name;
 };
 constexpr FeatureStruct kFeatureStructs[] = {
-    {1000059000, 16 + 55 * 4, "VkPhysicalDeviceFeatures2"},
-    {49, 16 + 12 * 4, "VkPhysicalDeviceVulkan11Features"},
-    {51, 16 + 47 * 4, "VkPhysicalDeviceVulkan12Features"},
-    {53, 16 + 15 * 4, "VkPhysicalDeviceVulkan13Features"},
+    {1000059000, 16 + 55 * 4},  // VkPhysicalDeviceFeatures2
+    {49, 16 + 12 * 4},          // VkPhysicalDeviceVulkan11Features
+    {51, 16 + 47 * 4},          // VkPhysicalDeviceVulkan12Features
+    {53, 16 + 15 * 4},          // VkPhysicalDeviceVulkan13Features
 };
 constexpr int kMaxFeatureStructs = 16;  // a sanity bound on a chain: a longer one (or a loop) is not XeSS's
 
@@ -126,6 +125,20 @@ Result<void> copy_feature_chain(const void* chain, std::vector<std::vector<std::
         at = static_cast<const std::uint8_t*>(next);
     }
     return {};
+}
+
+// The name of a quality setting for a sentence.
+const char* xess_quality_name(std::int32_t quality) {
+    switch (quality) {
+        case abi::kQualityUltraPerformance: return "ultra performance";
+        case abi::kQualityPerformance: return "performance";
+        case abi::kQualityBalanced: return "balanced";
+        case abi::kQualityQuality: return "quality";
+        case abi::kQualityUltraQuality: return "ultra quality";
+        case abi::kQualityUltraQualityPlus: return "ultra quality plus";
+        case abi::kQualityAa: return "AA";
+        default: return "(unknown)";
+    }
 }
 
 // What the library said to a call that went wrong, as the sentence of an error.
@@ -167,8 +180,8 @@ private:
 
     // What a context was initialised for, and the GPU objects that go with it.
     struct Context {
-        std::uint64_t deviceGeneration =
-            0;  // gpu::Device::generation(): the address of a device made later can be the same
+        // gpu::Device::generation(): the address of a device made later can be the same.
+        std::uint64_t deviceGeneration = 0;
         gpu::Backend backend = gpu::Backend::Recording;
         Loaded loaded;  // the library and functions this context was made with: a later probe does not change them
         abi::Context handle = nullptr;
@@ -289,8 +302,8 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
         loaded_.api = api;
         loaded_.backend = env.backend;
     }
-    FA_INFO("render", "XeSS {} is available on {} ({}).", version_text(version), vendor_backend_label(env.backend),
-            fa::fs::path_to_utf8(found));
+    FA_DEBUG("render", "XeSS {} is available on {} ({}).", version_text(version), vendor_backend_label(env.backend),
+             fa::fs::path_to_utf8(found));
     p.available = true;
     return p;
 }
@@ -361,7 +374,15 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
     const bool sameSettings = ctx_.initialized && ctx_.outW == in.outW && ctx_.outH == in.outH &&
                               ctx_.quality == quality && ctx_.flags == flags;
     // Without a range from the library, only the size of the init is known to work. With one, a size outside it cannot be helped by
-    // initialising again at the same quality: the frame goes on and XeSS answers for it.
+    // initialising again at the same quality (the range depends on the output and the quality only), and XeSS would refuse the frame
+    // without saying why: the refusal says it. The picture is not cut or stretched to fit: the render size is what the scene was drawn at.
+    if (sameSettings && ctx_.rangeKnown && !in_range(in))
+        return "the render size " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
+               " is outside XeSS's input range " + std::to_string(ctx_.inputMin.x) + "x" +
+               std::to_string(ctx_.inputMin.y) + ".." + std::to_string(ctx_.inputMax.x) + "x" +
+               std::to_string(ctx_.inputMax.y) + " for quality " + xess_quality_name(quality) + " at an output of " +
+               std::to_string(in.outW) + "x" + std::to_string(in.outH) +
+               ". Choose another render.upscaler.quality (or window.renderScale).";
     if (sameSettings && (ctx_.rangeKnown || (in.renderW == ctx_.renderW && in.renderH == ctx_.renderH))) {
         if (in.renderW != ctx_.renderW || in.renderH != ctx_.renderH) {
             // A step of the dynamic resolution: the motion scale follows the render size, the history is kept.
@@ -785,7 +806,7 @@ std::shared_ptr<XessDeviceHook> g_process_hook;
 
 void XessDeviceHook::vulkan_instance_request(gpu::VulkanInstanceRequest& request) {
     std::lock_guard<std::mutex> lock(mutex_);
-    granted_ = XessVulkanGrant{};
+    if (live_ == 0) granted_ = XessVulkanGrant{};  // a device that lives keeps its grant
     askedInstance_.clear();
     askedDevice_.clear();
     installed_ = false;
@@ -821,11 +842,15 @@ void XessDeviceHook::vulkan_device_created(const gpu::VulkanDeviceCreated&) {
     std::lock_guard<std::mutex> lock(mutex_);
     granted_.instanceExtensions = askedInstance_;
     granted_.deviceExtensions = askedDevice_;
+    ++live_;
 }
 
 void XessDeviceHook::device_destroying() {
+    // The callback names no device: the grant is the last device's, and it goes with the last device that lives (a second Vulkan device
+    // made while the first lives, and going first, leaves it).
     std::lock_guard<std::mutex> lock(mutex_);
-    granted_ = XessVulkanGrant{};
+    if (live_ > 0) --live_;
+    if (live_ == 0) granted_ = XessVulkanGrant{};
 }
 
 XessVulkanGrant XessDeviceHook::grant() const {

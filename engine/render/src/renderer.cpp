@@ -7,6 +7,7 @@
 #include "render_features.h"
 #include "render_latency_antilag2.h"
 #include "render_scene.h"
+#include "render_upscale_dlss.h"
 #include "render_upscale_xess.h"
 #include "streamline_runtime.h"
 #include "fa/scene/jitter.h"
@@ -594,7 +595,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
             // exists. It does nothing where the GPU is not NVIDIA or the library is not installed (Windows only).
             if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) {
                 // Streamline loads only the plugins slInit is told of: Ray Reconstruction's (sl.dlss_d) is asked when the project uses it.
-                if (desc.rayReconstruction) streamline_runtime().add_feature(sl_abi::kFeatureDlssRr);
+                streamline_ask_upscaler_features(streamline_runtime(), desc.rayReconstruction);
                 register_streamline_runtime();
             }
             // XeSS asks a Vulkan device for the extensions and features it runs on (nothing where it is not installed).

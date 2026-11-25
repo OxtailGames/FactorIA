@@ -19,6 +19,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -1006,8 +1007,13 @@ TEST_CASE("streamline: slInit gets FactorIA's project GUID and no application id
     CHECK(sl::streamline_project_id("01234567-89AB-cdef-0123-456789abcdef") == "01234567-89AB-cdef-0123-456789abcdef");
     // The default is itself a GUID, so slInit is given one.
     CHECK(sl::streamline_project_id(sl::kDefaultProjectId) == sl::kDefaultProjectId);
-    // And the start: the variables are not set in a test run (a developer who exports them gets what they set).
-    if (!std::getenv("FA_STREAMLINE_APP_ID") && !std::getenv("FA_STREAMLINE_PROJECT_ID")) {
+    // And the start: the environment is the test's own (a developer who exports the variables does not change it).
+    struct EnvGuard {
+        explicit EnvGuard(render::StreamlineEnvReader reader) { render::set_streamline_environment_for_test(reader); }
+        ~EnvGuard() { render::set_streamline_environment_for_test(nullptr); }
+    };
+    SUBCASE("the variables are not set") {
+        EnvGuard env([](const char*) -> const char* { return nullptr; });
         sx.reset();
         FakeLoader loader;
         LoaderGuard guard(&loader);
@@ -1018,6 +1024,37 @@ TEST_CASE("streamline: slInit gets FactorIA's project GUID and no application id
         CHECK(sx.inits == 1);
         CHECK(sx.prefsAppId == 0u);
         CHECK(sx.prefsProjectId == sl::kDefaultProjectId);
+    }
+    SUBCASE("the variables are set") {
+        EnvGuard env([](const char* name) -> const char* {
+            return std::string_view(name) == "FA_STREAMLINE_APP_ID" ? "4711" : "01234567-89AB-cdef-0123-456789abcdef";
+        });
+        sx.reset();
+        FakeLoader loader;
+        LoaderGuard guard(&loader);
+        AdapterFx adapter;
+        render::StreamlineRuntime rt({sl::kFeatureDlss}, make_host(adapter));
+        gpu::D3d12DeviceCreated c;
+        run_d3d12(rt, c);
+        CHECK(sx.inits == 1);
+        CHECK(sx.prefsAppId == 4711u);
+        CHECK(sx.prefsProjectId == "01234567-89AB-cdef-0123-456789abcdef");
+    }
+}
+
+TEST_CASE("dlss: the renderer asks Streamline for Ray Reconstruction's plugin only when the game asked for it") {
+    for (const bool asked : {false, true}) {
+        sx.reset();
+        FakeLoader loader;
+        LoaderGuard guard(&loader);
+        AdapterFx adapter;
+        render::StreamlineRuntime rt({sl::kFeatureDlss}, make_host(adapter));
+        render::streamline_ask_upscaler_features(rt, asked);  // what Renderer::init does before it makes the device
+        gpu::D3d12DeviceCreated c;
+        run_d3d12(rt, c);
+        CHECK(rt.feature_asked(sl::kFeatureDlssRr) == asked);
+        CHECK(rt.feature_asked(sl::kFeatureDlss));
+        CHECK((std::find(sx.loaded.begin(), sx.loaded.end(), sl::kFeatureDlssRr) != sx.loaded.end()) == asked);
     }
 }
 

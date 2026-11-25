@@ -128,7 +128,7 @@ struct VendorFrame {
 class VendorUpscaler {
 public:
     virtual ~VendorUpscaler() = default;
-    virtual std::string_view name() const = 0;      // "DLSS", "XeSS", "FSR 3.1"
+    virtual std::string_view name() const = 0;      // "DLSS", "XeSS", "FSR 3.1+"
     virtual std::string_view mode() const = 0;      // the render.upscaler mode name: "dlss", "xess", "fsr"
     virtual std::string_view setup_id() const = 0;  // "streamline", "xess", "fidelityfx"
     virtual unsigned backends() const = 0;          // the bits (1 << gpu::Backend) of the backends it can draw on
