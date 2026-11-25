@@ -39,7 +39,10 @@ void Renderer::Impl::set_framegen_env(render::FeatureEnv& env) {
 void Renderer::set_frame_generation(const render::FrameGenSettings& settings) {
     if (!initialized()) return;
     impl_->framegen.set_settings(settings);
+    impl_->sync_reflex_for_framegen();
 }
+
+void Renderer::Impl::sync_reflex_for_framegen() { latency.require_reflex(framegen.requires_reflex()); }
 
 const render::FrameGenSettings& Renderer::frame_generation() const {
     return initialized() ? impl_->framegen.settings() : no_frame_generation();

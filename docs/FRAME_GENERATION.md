@@ -8,10 +8,9 @@ generation, Intel XeSS frame generation). It is off by default, and the swapchai
 { "render": { "frameGeneration": { "mode": "auto", "minBaseFps": 60 } } }
 ```
 
-> **State of this build.** This is the seam: the setting, the choice of the provider, the refusals, the `minBaseFps` rule, the hand-off
-> of the frame and the readout. **No vendor provider is registered yet**: each of the three arrives in its own package (DLSS through
-> Streamline, FSR 3 through FidelityFX, XeSS frame generation), and until then every mode other than `off` is *refused* and
-> `render.frame_generation` says which package fills it. Nothing is generated, nothing changes in the picture.
+> **State of this build.** The seam (the setting, the choice of the provider, the refusals, the `minBaseFps` rule, the hand-off of the
+> frame and the readout) and the **NVIDIA DLSS frame generation** provider are in. The AMD FSR 3 and the Intel XeSS providers arrive in
+> their own packages; until then `fsr` and `xess` are *refused* and `render.frame_generation` says which package fills them.
 
 `mode`:
 
@@ -109,7 +108,46 @@ The editor's Profiler window shows the same line. In a run with no window (a hea
 `state: "off"` or `"refused"` and why, with zero frames; nothing is invented.
 
 `render.supports` has the rows `dlssFrameGen`, `fsrFrameGen` and `xessFrameGen` with their Direct3D 12 and Vulkan keys (XeSS: Direct3D 12
-only); a row is false with the provider's reason while no provider is there.
+only); a row is false with the provider's reason while no provider is there or the provider cannot run here.
+
+## NVIDIA DLSS frame generation
+
+DLSS frame generation (DLSS-G) is reached through NVIDIA Streamline, the runtime that also draws DLSS and Reflex (`factoria setup
+streamline` installs `sl.interposer.dll`, `sl.dlss_g.dll`, `nvngx_dlssg.dll` and the Reflex plugins; the engine ships no NVIDIA code).
+
+- **Where it runs.** Windows, an **NVIDIA GeForce RTX 40 series GPU or newer**, Direct3D 12 or Vulkan, a recent NVIDIA driver and, on
+  Windows, "Hardware-accelerated GPU scheduling" turned on. Streamline answers whether the machine qualifies; when it says no,
+  `render.frame_generation` returns `modes.dlss.reason` with Streamline's own words, what it needs and what to update or turn on. Direct3D 11
+  never runs it. Streamline loads its plugins before the device exists: the engine adds DLSS frame generation to the list of Streamline's
+  features when the game starts with `render.frameGeneration` set to anything but `off` (which is why a game started with `off` cannot turn it
+  on later: the reason says "restart the game"). A game with frame generation set to `fsr` on an NVIDIA GPU also loads that plugin; it is not
+  used.
+- **Reflex is turned on for it.** DLSS-G reads the markers of NVIDIA Reflex in every frame (its status says "Reflex not detected" without
+  them), so while this provider runs the engine runs Reflex whatever `render.latency` says: the mode `off` (or the one of another maker)
+  becomes `reflex`, `reflex` and `auto` keep their own `boost`. The setting itself is not changed and comes back when frame generation stops
+  (`render.latency` says "NVIDIA Reflex is on because DLSS frame generation needs it" in its `reason`). If Reflex cannot start, the frame is
+  refused with that reason and nothing is generated. Streamline's Reflex and PC latency plugins must be installed.
+- **What it does.** Every frame the engine gives Streamline the camera (`slSetConstants`: the unjittered projection, the matrix to the
+  previous frame's clip space, the jitter, the planes, the camera's place and axes; the depth is the reversed infinite one, `near / d`) and the
+  tags: the depth and the motion vectors of the render size and, **only when the frame has screen-space items** (UI, text, debug overlay),
+  the picture before them (`hudless`). Streamline generates the frame between two rendered ones inside Present, from the picture the window
+  shows, which still has the items: with a hudless tag it composites the generated frame without smearing them. No UI colour-and-alpha buffer
+  is tagged (the items are in the final picture). It generates **one frame** between two rendered ones (`numFramesToGenerate` is 1;
+  the multi-frame generation of the RTX 50 series is not used).
+- **The frame rate.** `generatedFrames` is what Streamline reports (`slDLSSGGetState`, once per rendered frame) and `presentedFps` follows. The
+  `minBaseFps` rule turns generation off with `slDLSSGSetOptions` (the resources stay allocated, so it comes back at once) and the engine
+  gives them back when the provider stops.
+- **What refuses a frame.** An orthographic camera (the depth reprojection of DLSS-G is built for a perspective lens; the reason says to use
+  a perspective camera or turn frame generation off). A projection that is not a number. A status of Streamline's after the frame went out: a
+  picture smaller than the SDK allows (the reason gives the minimum), the swapchain's HDR format, constants Streamline cannot use. The inputs
+  of such a frame are still sent, so the next present can recover; the report's `reason` says why and the next frame resets the history.
+- **Not checked by the tests** (they use a fake Streamline, and this host has no RTX GPU): that the real library accepts the declarations as
+  they are, that it generates and that the motion and depth give no artefacts. Things to look at on a machine with an RTX 40 series GPU:
+  whether Streamline refuses the camera constants as a duplicate of the ones the DLSS upscaler sets earlier in the same frame (the engine keeps
+  going and logs it once), the colour encoding of the hudless picture against the window's (display-linear in the engine, as `presented`), and
+  an orthographic camera (refused today).
+- **What NVIDIA asks of a game that ships DLSS** (the license of the NVIDIA RTX SDKs; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super
+  Resolution"): notify NVIDIA before the game's commercial release, credit NVIDIA and show its marks.
 
 ## For a provider
 

@@ -187,8 +187,30 @@ void LatencyController::stop_provider() {
     running_ = nullptr;
 }
 
+LatencySettings LatencyController::effective_settings() const {
+    LatencySettings s = settings_;
+    // A feature that cannot run without Reflex (DLSS frame generation) puts it on whatever the player chose, except the modes that already
+    // use it (reflex itself, and auto, which is Reflex on an NVIDIA GPU).
+    if (reflexRequired_ && s.mode != LatencyMode::Reflex && s.mode != LatencyMode::Auto) {
+        s.mode = LatencyMode::Reflex;
+        s.boost = false;
+    }
+    return s;
+}
+
+bool LatencyController::reflex_forced() const {
+    return reflexRequired_ && settings_.mode != LatencyMode::Reflex && settings_.mode != LatencyMode::Auto;
+}
+
+void LatencyController::require_reflex(bool required) {
+    if (required == reflexRequired_) return;
+    reflexRequired_ = required;
+    apply();
+}
+
 void LatencyController::apply() {
-    if (!device_ || settings_.mode == LatencyMode::Off) {
+    const LatencySettings eff = effective_settings();
+    if (!device_ || eff.mode == LatencyMode::Off) {
         stop_provider();
         driver_ = LatencyDriver::None;
         return;
@@ -201,7 +223,7 @@ void LatencyController::apply() {
     LatencyDriver want = LatencyDriver::None;
     for (int round = 0; round < 3; ++round) {
         c.reflex = c.antiLag2 = c.xell = false;
-        switch (settings_.mode) {
+        switch (eff.mode) {
             case LatencyMode::Reflex: c.reflex = usable(LatencyDriver::Reflex); break;
             case LatencyMode::AntiLag2: c.antiLag2 = usable(LatencyDriver::AntiLag2); break;
             case LatencyMode::Xell: c.xell = usable(LatencyDriver::Xell); break;
@@ -212,7 +234,7 @@ void LatencyController::apply() {
                 break;
             case LatencyMode::Off: break;
         }
-        want = effective_latency_driver(settings_, c);
+        want = effective_latency_driver(eff, c);
         LatencyProvider* p = latency_provider(want);
         if (!p) break;  // none, or the engine's pacing
         if (running_ == p) break;
@@ -231,7 +253,7 @@ void LatencyController::apply() {
     if (running_ && running_ != latency_provider(want))
         stop_provider();  // the engine's own pacing (or none) runs: no SDK
     driver_ = want;
-    if (running_) running_->configure(true, settings_.boost, 0);
+    if (running_) running_->configure(true, eff.boost, 0);
 }
 
 double LatencyController::pacing_sleep_ms(double refreshHz) const {

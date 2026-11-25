@@ -104,6 +104,13 @@ public:
     // sleep mode. A provider whose start() failed is not tried again (the engine's pacing runs).
     void set_settings(const LatencySettings& s);
     const LatencySettings& settings() const { return settings_; }
+    // A feature that cannot run without NVIDIA Reflex (DLSS frame generation: it needs the markers of every frame) asks for it here. While
+    // required, Reflex runs whatever the player's mode (the modes off, anti-lag 2 and xell become reflex; reflex and auto keep their own boost
+    // choice); the player's setting itself is not changed and comes back when the requirement ends. It lasts across attach and detach.
+    void require_reflex(bool required);
+    bool reflex_required() const { return reflexRequired_; }
+    // Whether Reflex is on only because of require_reflex (the player's mode would not have started it).
+    bool reflex_forced() const;
     LatencyDriver driver() const { return driver_; }
     // What the machine can run, asking each provider once; `reasons[i]` (0 reflex, 1 antilag2, 2 xell) says why one cannot ("" when usable).
     LatencyCaps caps();
@@ -137,11 +144,13 @@ private:
     Slot& slot(LatencyDriver d);
     void stop_provider();
     void apply();
+    LatencySettings effective_settings() const;  // settings_ with the requirement of require_reflex applied
 
     gpu::Device* device_ = nullptr;
     VendorEnv env_{};
     bool pacingAllowed_ = false;
     LatencySettings settings_{};
+    bool reflexRequired_ = false;
     LatencyDriver driver_ = LatencyDriver::None;
     LatencyProvider* running_ = nullptr;  // the provider started on device_
     Slot slots_[3];                       // reflex, antilag2, xell

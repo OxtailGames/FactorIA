@@ -27,6 +27,11 @@ struct ReflexApi {
 // all there, else the sentence of the first that is not (Streamline's own result, and what to do).
 std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& api);
 
+// Whether Reflex is on right now (slReflexSetOptions accepted a mode other than off, and no stop or new device since): the PC latency markers
+// of every frame reach Streamline then, which DLSS frame generation needs (it reports eFailReflexNotDetectedAtRuntime without them). Any
+// thread.
+bool reflex_running();
+
 // The PCL marker (sl::PCLMarker) the engine's marker is sent as; -1 for a marker Reflex has no use for (the player's input sample: the PCL
 // marker of it is deprecated, and Reflex finds the input by itself).
 std::int32_t reflex_pcl_marker(LatencyMarker marker);

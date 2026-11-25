@@ -113,8 +113,11 @@ no NVIDIA code.
 - **What it does.** At the start Reflex is set off; `reflex` (or `auto`) sets Low Latency and `boost` sets Low Latency Boost, with no
   frame limit (the driver decides). `slReflexSleep` runs once per frame before the input is read, and each marker of "The markers"
   goes to `slPCLSetMarker` with the frame's token, except the input sample (its PCL marker is deprecated: Reflex finds the input
-  itself). Reflex and DLSS share the token of the frame, so a game that uses both gives Streamline one frame to follow. Turning the
-  mode off sets Reflex off again. Without the PC latency plugin Reflex still sleeps, only the markers are not sent.
+  itself). Reflex, DLSS and DLSS frame generation share the token of the frame, so a game that uses them gives Streamline one frame to
+  follow. Turning the mode off sets Reflex off again, **unless DLSS frame generation runs**: it cannot generate without Reflex's markers, so
+  the engine keeps Reflex on (Low Latency, no boost; `reflex` and `auto` keep their `boost`) while it runs, whatever the mode, and
+  `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS frame generation needs it". The mode itself does not change, and the
+  state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency plugin Reflex still sleeps, only the markers are not sent.
 - **When it stops.** A refusal of any call logs one warning and the frame goes on; once the device is destroyed the provider calls
   Streamline no more (its library shuts down with the device).
 - **The report.** `render.latency`'s `vendor` has `source` `Reflex`, `frames` (how many of Reflex's last frames it measured),
