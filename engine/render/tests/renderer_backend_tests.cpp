@@ -146,7 +146,7 @@ struct BackendRenderer {
 };
 
 // One frame of `world` on `r`, read back through the device.
-fa::Image draw_on(Renderer& r, World& world) {
+[[maybe_unused]] fa::Image draw_on(Renderer& r, World& world) {
     r.update(world);
     r.begin_frame();
     r.render_world(world, 0.0f);

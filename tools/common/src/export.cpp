@@ -972,9 +972,9 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         // Linux: the Vulkan variant next to the player ships as the game's executable, the GL player as its fallback
         // (export.linux.vulkanPlayer; a player without the variant beside it ships alone, as before).
         if (plan.platform == "linux" && p.settings.linux.vulkanPlayer) {
-            std::error_code ec;
+            std::error_code vulkanError;
             const stdfs::path vulkan = vulkan_player_beside(plan.player);
-            if (stdfs::is_regular_file(os_path(vulkan), ec)) {
+            if (stdfs::is_regular_file(os_path(vulkan), vulkanError)) {
                 if (auto r = check_player_build(options, vulkan, plan.platform, plan.warnings); !r.ok())
                     return r.error();
                 plan.vulkanPlayer = vulkan;

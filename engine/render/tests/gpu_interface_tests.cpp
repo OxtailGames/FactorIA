@@ -765,15 +765,15 @@ TEST_CASE("RecordingDevice: misuses inside a list name the list, the command and
     SUBCASE("a device without base vertex reports draw_ex's") {
         DeviceInit init;
         init.recordingDefaultCaps = false;  // nothing: like the oldest GLES3
-        RecordingDevice small(init);
-        Scene t(small);
-        CommandList& cl = small.begin_commands("main");
+        RecordingDevice oldest(init);
+        Scene t(oldest);
+        CommandList& cl = oldest.begin_commands("main");
         ready(cl, t);
         cl.draw_ex(0, 3, 1, 4, 0);
         cl.end_pass();
-        small.submit(cl);
-        CHECK(has_error(small.take_errors(), {"baseVertex is set on a device without it"}));
-        CHECK(!small.pixel_format_caps(PixelFormat::Rgba8).write);  // no compute, no storage images
+        oldest.submit(cl);
+        CHECK(has_error(oldest.take_errors(), {"baseVertex is set on a device without it"}));
+        CHECK(!oldest.pixel_format_caps(PixelFormat::Rgba8).write);  // no compute, no storage images
     }
 }
 

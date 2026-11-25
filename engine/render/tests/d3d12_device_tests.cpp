@@ -682,21 +682,21 @@ TEST_CASE("d3d12: copy_buffer_to_image with aligned rows and with rows that need
     sd.width = 8;
     sd.height = 4;
     sd.usage.copyDst = true;
-    const Image small = dev->make_image(sd);
-    REQUIRE(dev->state(small) == ResourceState::Valid);
+    const Image tiny = dev->make_image(sd);
+    REQUIRE(dev->state(tiny) == ResourceState::Valid);
     CommandList& list2 = dev->begin_commands("unaligned");
     BufferImageCopy u;
     u.src = buf;
     u.srcOffset = 4;
     u.bytesPerRow = 28;
-    u.dst.image = small;
+    u.dst.image = tiny;
     u.dst.x = 2;
     u.dst.y = 1;
     u.size.width = 5;
     u.size.height = 3;
     list2.copy_buffer_to_image(u);
     submit_and_finish(*dev, list2);
-    r = dev->read_image_region(small, 0, 0, 2, 1, 5, 3, out);
+    r = dev->read_image_region(tiny, 0, 0, 2, 1, 5, 3, out);
     REQUIRE_MESSAGE(r, r.error().to_string());
     std::vector<std::uint8_t> expected;
     for (int row = 0; row < 3; ++row)
@@ -811,10 +811,11 @@ TEST_CASE("d3d12: the upload ring wraps, and an upload that does not fit takes a
     list2.write_buffer(w);
     submit_and_finish(*dev, list2);
     CHECK(dev->counters().dedicatedUploads == 2);
+    // Before the read: read_buffer's own copy list holds the buffer until the open frame ends.
+    CHECK(dev->counters().pendingReleases == 0);  // the dedicated upload buffers went with their frames
     r = dev->read_buffer(b, 0, big.size(), out);
     REQUIRE(r);
     CHECK(out == big);
-    CHECK(dev->counters().pendingReleases == 0);  // the dedicated upload buffers went with their frames
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));

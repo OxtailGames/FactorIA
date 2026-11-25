@@ -91,9 +91,17 @@ endif()
 
 # Linux: one section per function and per data object, so the player's --gc-sections (player/CMakeLists.txt) can drop what
 # no game calls. Set for every target (the engine archives and external/ too) because the linker only removes whole sections.
-# The Android NDK toolchain already sets both flags, Apple's -dead_strip needs neither, MSVC Release has /OPT:REF.
+# The Android NDK toolchain already sets both flags, Apple's -dead_strip needs neither; MSVC: below.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-ffunction-sections -fdata-sections)
+endif()
+# MSVC: the same for data. /OPT:REF only drops COMDATs, and without /Gw a static const array is plain .rdata in every
+# object that includes its header: the generated shader headers (shaders/*.glsl.h, reached through renderer_impl.h by
+# 16 renderer sources) put about 1.3 MB of SPIR-V and DXBC in each, which made fa_render of the Windows player 28.7 MB.
+# /Gw gives every global datum its own COMDAT (REF drops the unreferenced ones, ICF folds identical ones) and
+# /Zc:inline stops emitting unreferenced internal functions and data at all.
+if(MSVC)
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Gw> $<$<COMPILE_LANGUAGE:C,CXX>:/Zc:inline>)
 endif()
 
 if(FA_BUILD_TESTS)
