@@ -122,6 +122,19 @@
       "sharpness": "Sharpness: {percent} %",
       "dynLabel": "Dynamic resolution: {choice}",
       "dyn": { "off": "Off", "30": "30 fps", "60": "60 fps", "display": "Display refresh", "custom": "Custom" },
+      "latLabel": "Low latency: {mode}",
+      "latDrawn": "{mode}, runs as {drawn}",
+      "latBoost": "Low latency boost",
+      "latPage": "Low latency",
+      "latm": { "off": "Off", "auto": "Auto", "reflex": "Reflex", "antilag2": "Anti-Lag 2", "xell": "XeLL" },
+      "latd": { "none": "nothing here", "pacing": "the engine's own pacing", "reflex": "Reflex", "antilag2": "Anti-Lag 2", "xell": "XeLL" },
+      "latunsup": {
+        "off": "always available",
+        "auto": "always available",
+        "reflex": "needs an NVIDIA GPU on Windows",
+        "antilag2": "needs an AMD Radeon GPU on Windows",
+        "xell": "needs Windows, Direct3D 12 and the XeSS runtime"
+      },
       "unsupNote": "Not available here: {modes}.",
       "stretchNote": "This game is drawn with plain scaling (pixel art), whatever the mode."
     },

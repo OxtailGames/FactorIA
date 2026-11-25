@@ -48,6 +48,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   the report has Reflex's own simulation-to-present time. A GPU, a driver or a backend without Reflex says why in `render.supports` and the
   engine's own pacing runs. The engine ships no NVIDIA code (its own declarations of the C interface of Streamline 2.14.16). LATENCY.md,
   "NVIDIA Reflex".
+- **Low-latency settings in the editor and the menu kit (M78):** the editor's View > Graphics window has a **Low latency** group (mode combo,
+  Boost checkbox, a line saying what the mode does on this machine; a mode `render.supports` says cannot run is greyed out with its reason as
+  the tooltip) that Saves `render.latency`, and `project.graphics` takes `latency {mode, boost}`. The menu kit's Graphics tab (third page, "Low latency") has
+  a Low latency row of mode buttons and a boost switch, hidden or greyed out by `render.supports` like the upscaler modes, saved in
+  `settings.graphics.latency` and applied at start. LATENCY.md, "Where to set it".
 
 ### Rendering
 

@@ -25,6 +25,20 @@ The setting is read and changed with the command `render.latency` (`{"mode":"ant
 sets it at start; the command changes it while the game runs (the SDK is started or stopped at once). A wrong name fails with the
 valid values and a "did you mean", and changes nothing.
 
+## Where to set it
+
+- **Project file:** `render.latency` in `factoria.json`, or the command `project.graphics {"latency":{"mode":"auto"}}` (it writes only that key).
+- **Editor:** View > Graphics, group **Low latency**: the **Mode** combo (off, auto, reflex, antilag2, xell), a **Boost** checkbox and a line
+  that says what the mode does on this machine. A mode that `render.supports` says cannot run here (`reflex`, `antilag2` or `xell`, with the
+  row's reason) is greyed out in the combo and its reason is the tooltip; **Boost** is greyed out for the modes without one (off,
+  antilag2). **Save** writes `render.latency` (removed again when the mode is off with no boost), **Revert** reads the file. A project that
+  names a mode this machine cannot run still opens: the line shows the reason and that a run uses the engine's own pacing. Only a run of the
+  game paces, so there is nothing to preview in the editor's viewport; the Profiler shows the input-to-present time of a run.
+- **Menu kit** (`docs/MENUS.md`): the third page of the options' Graphics tab (Low latency) has a row of buttons (`gfx_latency_off`,
+  `_auto`, `_reflex`, `_antilag2`, `_xell`) and a boost switch (`gfx_latency_boost`, shown for the modes that have one). Like the upscaler
+  modes, a mode this machine cannot run is greyed out and named with its reason in the note under the rows. The choice is applied at once with
+  `render.latency`, saved in `settings.graphics.latency` (`{mode, boost}`, only the keys the player chose) and applied again at each start.
+
 ## What runs: the driver
 
 `render.latency` returns `driver`, the path that really runs:

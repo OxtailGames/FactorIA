@@ -1,5 +1,5 @@
 // The Graphics settings window's rules (fa/tooling/graphics_settings.h): reading, checking and saving render.graphicsPreset,
-// render.upscaler and render.dynamicResolution in factoria.json, with the engine's own validation. No window, no GPU.
+// render.upscaler, render.dynamicResolution and render.latency in factoria.json, with the engine's own validation. No window, no GPU.
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -357,4 +357,86 @@ TEST_CASE("project.graphics writes only the keys it is given, with the numbers o
     auto s = read_graphics_settings(d.str());
     REQUIRE(s.ok());
     CHECK(s->dynamic.minScale == doctest::Approx(0.33f));
+}
+
+TEST_CASE("graphics settings: render.latency is saved as its own key, read back and read by the project loader") {
+    Dir d;
+    d.write(kBare);
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK(s->latencyMode == "off");
+    CHECK_FALSE(s->latencyBoost);
+    CHECK(latency_modes() == std::vector<std::string>{"off", "auto", "reflex", "antilag2", "xell"});
+    CHECK(latency_mode_has_boost("xell"));
+    CHECK(latency_mode_has_boost("auto"));
+    CHECK_FALSE(latency_mode_has_boost("antilag2"));
+    CHECK_FALSE(latency_mode_has_boost("off"));
+    s->latencyMode = "auto";
+    s->latencyBoost = true;
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    const std::string text = d.read();
+    CHECK(text.find("\"latency\"") != std::string::npos);
+    CHECK(text.find("\"physics\": { \"fixedHz\": 60 }") != std::string::npos);
+    CHECK(text.find("upscaler") == std::string::npos);  // the upscaler is at its default: no key
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == *s);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->latency.mode == render::LatencyMode::Auto);
+    CHECK(project->latency.boost);
+    // Back to the defaults: the key and the empty render object go.
+    REQUIRE(write_graphics_settings(d.str(), GraphicsSettings{}).ok());
+    CHECK(d.read() == kBare);
+}
+
+TEST_CASE("graphics settings: a wrong latency mode is named by pointer with a did-you-mean, and nothing is written") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.latencyMode = "antilag";
+    const auto problems = check_graphics_settings(g);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].pointer == "/render/latency/mode");
+    CHECK(problems[0].message.find("antilag2") != std::string::npos);
+    CHECK_FALSE(write_graphics_settings(d.str(), g).ok());
+    CHECK(d.read() == kBare);
+    d.write(R"({"format":"factoria.project/1","name":"G","render":{"latency":{"mode":"xel"}}})");
+    auto bad = read_graphics_settings(d.str());
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("/render/latency") != std::string::npos);
+}
+
+TEST_CASE("project.graphics reads and writes the latency key, and only when it is given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call("project.graphics", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["latency"]["mode"] == "off");
+    CHECK(r.result["latency"]["boost"] == false);
+    CHECK(r.result["written"] == false);
+    r = registry.call("project.graphics", Json::parse(R"({"latency":{"mode":"xell"}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["written"] == true);
+    CHECK(r.result["latency"]["mode"] == "xell");
+    r = registry.call("project.graphics", Json::parse(R"({"latency":{"boost":true}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["latency"]["mode"] == "xell");  // the key not given stays
+    CHECK(r.result["latency"]["boost"] == true);
+    r = registry.call("project.graphics", Json::parse(R"({"preset":"low"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["latency"]["mode"] == "xell");  // another key leaves it alone
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->latency.mode == render::LatencyMode::Xell);
+    CHECK(project->latency.boost);
+    const std::string before = d.read();
+    r = registry.call("project.graphics", Json::parse(R"({"latency":{"mode":"reflexx"}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(d.read() == before);
+    r = registry.call("project.graphics", Json::parse(R"({"latency":{"mode":"off","boost":false}})"));
+    REQUIRE(r.ok);
+    CHECK(d.read().find("latency") == std::string::npos);  // at the default: the key goes
 }
