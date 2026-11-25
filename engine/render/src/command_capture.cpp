@@ -13,7 +13,8 @@ std::uint32_t CommandCapture::add_label(const char* label) {
 }
 
 std::size_t CommandCapture::add_bytes(const void* data, std::size_t size) {
-    const std::size_t at = bytes_.size();
+    // 16-byte aligned (as the vector's storage is): a replayed uniform block or write may be read as floats or vec4.
+    const std::size_t at = (bytes_.size() + 15) & ~std::size_t(15);
     if (size == 0 || !data) return at;
     bytes_.resize(at + size);
     std::memcpy(bytes_.data() + at, data, size);
@@ -142,9 +143,9 @@ void CommandCapture::write_buffer(const gpu::BufferWrite& write) {
     Call c;
     c.op = Op::WriteBuffer;
     c.index = std::uint32_t(writes_.size());
-    c.size = n;
+    c.size = write.data.ptr ? n : 0;  // no source: nothing copied, so the replay reads nothing past the copy
     c.offset = add_bytes(write.data.ptr ? static_cast<const unsigned char*>(write.data.ptr) + write.srcOffset : nullptr,
-                         write.data.ptr ? n : 0);
+                         c.size);
     w.srcOffset = 0;
     w.size = write.size ? n : 0;
     writes_.push_back(w);

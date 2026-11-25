@@ -1611,8 +1611,8 @@ public:
         FA_ASSERT(list_, "Gpu::commands() before Gpu::init() or after shutdown()");
         return *list_;
     }
-    // Ends the frame on the device: submits the frame's list, commits (Device::commit) and begins the next list. Async
-    // compute work still pending is waited for first (wait_compute_all).
+    // Ends the frame on the device: submits the frame's list, then makes the graphics queue wait (on the GPU) for the
+    // async compute work still pending (wait_queue), commits (Device::commit) and begins the next list.
     void commit_frame();
 
     // ---- parallel recording and async compute (M77-P10d; docs/design/ARCHITECTURE_RENDERING_QUEUES.md) ----------------
