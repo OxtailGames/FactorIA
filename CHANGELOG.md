@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+- **Intel XeSS frame generation (M78):** mode `xess` (and `auto` on an Intel GPU) of `render.frameGeneration` now runs XeSS-FG's proxy
+  swapchain on Windows, Direct3D 12, an Intel Arc GPU, with `libxess_fg.dll` and `libxell.dll` of `factoria setup xess`. XeLL runs with it
+  even when `render.latency` is off (one shared context; a missing `libxell.dll` is refused with the fix), `render.supports` has real reasons
+  in `xessFrameGen`, and an SDK failure while it runs is logged once and keeps it off for the run. Not tested on Intel hardware.
+  docs/FRAME_GENERATION.md, "XeSS Frame Generation".
 - **Frame generation seam (M78):** `render.frameGeneration` (project key `render.frameGeneration {mode, minBaseFps}` and the command
   `render.frame_generation`): `mode` off, auto (the GPU maker's SDK), dlss, fsr or xess, and the base frame rate below which generation
   switches off (default 60, back on at 10% above). This package is the seam and no vendor SDK yet: a provider interface with one empty slot

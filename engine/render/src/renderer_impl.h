@@ -318,6 +318,8 @@ struct Renderer::Impl {
     FrameGenCamera fgCamera;
     std::vector<const char*>
         outputPassLog;  // the output passes run by the last frame, in order (tests: RendererTestAccess::output_passes)
+    void
+    sync_framegen_latency();  // XeSS frame generation running => the latency controller runs XeLL (render_framegen_xess.h)
     void set_framegen_env(render::FeatureEnv& env);  // render.supports: the three frame-generation providers' answers
     // outTarget into hudlessTarget: a copy, or (`grade` set) drawn through the colour filter, as the picture shown is.
     void framegen_hudless_copy(const PassContext& c, const PostPlan* grade);

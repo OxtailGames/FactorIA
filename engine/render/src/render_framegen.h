@@ -15,8 +15,8 @@
 // items (it is told the picture has them: `hudDrawn`). Generation therefore needs the upscale stage with a temporal frame (the jitter, the
 // depth and the motion exist only there): without it the controller refuses, and says what to switch on.
 //
-// This package has no vendor provider: every slot is empty and says which package fills it (register_framegen_provider, the one call a
-// provider makes). The tests put fakes in with set_framegen_provider_for_test.
+// Each slot is filled by its package (register_framegen_provider, the one call a provider makes; the Xess slot by render_framegen_xess.h);
+// an empty slot says which package fills it. The tests put fakes in with set_framegen_provider_for_test.
 #pragma once
 
 #include <array>
@@ -133,6 +133,10 @@ public:
     virtual bool dispatch(FrameGenFrame& frame) = 0;
     // The frames the SDK has generated since start() (it reads its own counter); 0 when it reports none. Never blocks.
     virtual std::uint64_t generated_frames() { return 0; }
+    // The reason this provider stays off for the rest of the run after the SDK failed while running (a frame it could not tag, a present it
+    // could not generate): "" while it has not. The controller reads it after a refused frame and when it answers provider_reason; the
+    // provider logs it once itself. The default is "never fails after start".
+    virtual std::string failure() const { return {}; }
     // Gives back what start() made on `device`, before the device or the swapchain goes or the mode changes. It must tolerate a device
     // that was lost.
     virtual void stop(gpu::Device& device) = 0;

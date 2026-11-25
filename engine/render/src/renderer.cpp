@@ -1802,6 +1802,7 @@ void Renderer::Impl::render(World& world, float dt) {
     // (a test's fake) is the one the rate is measured with; mode off is one branch.
     framegen.set_inputs(upscale_active(), temporalFrame);
     framegen.begin_frame(render::latency_clock().now_ms());
+    sync_framegen_latency();
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)

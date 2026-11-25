@@ -23,6 +23,8 @@
 
 namespace fa::render {
 
+class XellShare;  // render_latency_xell.h
+
 // ---- the clock --------------------------------------------------------------------------------------------------------------------
 
 // Where the controller reads the time and sleeps. A test puts a fake in with set_latency_clock_for_test, so the pacing and the readout do not
@@ -62,6 +64,8 @@ public:
     virtual Json vendor_report() { return Json(); }
     // Gives back what start() made on `device` (the context), before the device goes or the mode changes.
     virtual void stop(gpu::Device& device) = 0;
+    // The XeLL context the provider shares with XeSS frame generation (render_latency_xell.h); null for every other provider.
+    virtual XellShare* xell_share() { return nullptr; }
 };
 
 // The provider of slot `driver` (Reflex, AntiLag2, Xell), or null for a driver that has no slot (none, the engine's pacing).
@@ -105,6 +109,11 @@ public:
     void set_settings(const LatencySettings& s);
     const LatencySettings& settings() const { return settings_; }
     LatencyDriver driver() const { return driver_; }
+    // A driver another part of the renderer needs (Intel XeSS frame generation needs XeLL: it runs while that is set, whatever the setting
+    // says, even `off`); None = no requirement. (The requirer checks the driver is usable first: a required one that cannot start falls to
+    // the engine's own pacing like any other.)
+    void require_driver(LatencyDriver d);
+    LatencyDriver required_driver() const { return required_; }
     // What the machine can run, asking each provider once; `reasons[i]` (0 reflex, 1 antilag2, 2 xell) says why one cannot ("" when usable).
     LatencyCaps caps();
     std::string provider_reason(LatencyDriver d);  // "" when `d`'s provider is usable here, else why not
@@ -143,6 +152,7 @@ private:
     bool pacingAllowed_ = false;
     LatencySettings settings_{};
     LatencyDriver driver_ = LatencyDriver::None;
+    LatencyDriver required_ = LatencyDriver::None;
     LatencyProvider* running_ = nullptr;  // the provider started on device_
     Slot slots_[3];                       // reflex, antilag2, xell
 

@@ -292,6 +292,28 @@ the rest is private to `fa_render`:
   real headless renderer with a fake provider (the frame it gets, the passes it runs, off stops it; `RendererTestAccess::framegen_assume_hooked`
   stands for the swapchain hook a headless run has no window for). No vendor SDK, and no D3D12 or Vulkan swapchain, is exercised.
 
+- **Intel XeSS frame generation (M78-P5d): `render_framegen_xess.{h,cpp}`.** The provider of the `xess` slot and its `DeviceHook`: one object
+  (`make_xess_framegen_provider()`, registered by the provider table). The C ABI of `xefg_swapchain.h` and `xefg_swapchain_d3d12.h` (XeSS
+  3.0.2) is declared in the header (64-bit `static_assert`s on every struct), the functions come from `libxess_fg.dll` through
+  `VendorLibrary::symbol`, and the tests (`framegen_xess_tests.cpp`) run against a fake table. XeSS-FG is a proxy swapchain, so the work is in
+  `d3d12_create_swapchain`: XeLL's context (below), `xefgSwapChainD3D12CreateContext`, `SetLatencyReduction` **before** `InitFromSwapChainDesc`
+  (`applicationSwapChain` null, one interpolated frame, `uiMode` none, flags 0: unjittered motion, non-inverted depth), then
+  `GetSwapChainPtr` for `IDXGISwapChain1`, which the hook returns with its one reference. It makes no swapchain (and says nothing) on a
+  GPU that is not Intel (vendor id read from `IDXGIAdapter1::GetDesc1` through the vtable, no Windows header), without the library, or
+  without `libxell.dll`: the probe is what tells the user. A library that is installed and fails sets `error`, which marks the hook
+  unavailable for the device. The context is destroyed lazily (when the next swapchain is made, and at `device_destroying`, the
+  swapchain's references must be gone) and always before XeLL's. `start` only checks that the hook made the swapchain of this device,
+  `configure` sets XeLL's sleep mode and `SetEnabled`, `dispatch` tags depth and motion (ONLY_NOW, COPY_SOURCE through `begin_native`) and the
+  constants, `present_begin` calls `SetPresentId`, `present_end` counts `framesPresented - 1`. A failing call is `fail()`: logged once,
+  `failure()` (a new virtual of the seam) keeps the reason, the probe and `provider_reason` repeat it and the controller stops the provider
+  for the run.
+- **XeLL shared (`XellShare`, `render_latency_xell.h`).** The XeLL latency provider owns the context; XeSS-FG takes a reference when it makes
+  the swapchain (before the latency controller exists) and the context goes with the last reference (`LatencyProvider::xell_share()`).
+  `LatencyController::require_driver(Xell)` forces XeLL on while XeSS-FG is the running provider (`Renderer::Impl::sync_framegen_latency`)
+  whatever `render.latency` is; `latency_status` says so. XeLL's last sleep id is the present id of the frame's tags.
+- **Open.** The hook is not told the mode (`RendererDesc::frameGeneration` is a bool): on an Intel GPU with both libraries it makes the proxy
+  swapchain even when another provider's mode was chosen. Depth and projection conventions are untested on hardware.
+
 ## Tests
 
 - **`engine/render/tests/latency_tests.cpp`.** Fakes everywhere (a recording device with a backend and a PCI vendor, a clock, providers,

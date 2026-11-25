@@ -39,6 +39,7 @@ void Renderer::Impl::set_framegen_env(render::FeatureEnv& env) {
 void Renderer::set_frame_generation(const render::FrameGenSettings& settings) {
     if (!initialized()) return;
     impl_->framegen.set_settings(settings);
+    impl_->sync_framegen_latency();
 }
 
 const render::FrameGenSettings& Renderer::frame_generation() const {
@@ -190,7 +191,18 @@ void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, bool fi
     f.frameTimeMs = frameDt * 1000.0f;
     f.frameId = upscaleTaa.serial;
     f.reset = !upscaleTaa.prevValid;
-    if (framegen.dispatch(f)) ++stats.drawCalls;  // the provider's own pass
+    if (framegen.dispatch(f)) {
+        ++stats.drawCalls;  // the provider's own pass
+    } else {
+        sync_framegen_latency();  // a provider that failed for good (XeSS) is stopped: XeLL need not run for it any more
+    }
+}
+
+// Intel XeSS frame generation cannot run without XeLL (it is told XeLL's context before it makes the swapchain): while it is the provider
+// that runs, the latency controller runs XeLL whatever render.latency says.
+void Renderer::Impl::sync_framegen_latency() {
+    latency.require_driver(framegen.provider() == render::FrameGenSlot::Xess ? render::LatencyDriver::Xell
+                                                                             : render::LatencyDriver::None);
 }
 
 }  // namespace fa

@@ -521,9 +521,13 @@ std::vector<FeatureDef> build_table() {
          "a generated frame "
          "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
          "upscaler. Windows on "
-         "D3D12 with an Intel Arc GPU and the XeSS SDK installed (`factoria setup xess`); its provider arrives with "
-         "the XeSS frame "
-         "generation package, so the row is false until then (render.supports gives the reason).",
+         "D3D12 with an Intel Arc GPU and the XeSS SDK installed (`factoria setup xess`: libxess_fg.dll and "
+         "libxell.dll). "
+         "XeSS frame generation cannot run without Intel XeLL, so XeLL runs with it whatever render.latency says. The "
+         "game must start with the mode set (the XeSS swapchain is made when the window opens). render.supports "
+         "gives the reason when it is false: the SDK is not installed, the backend or GPU does not suit it, XeLL is "
+         "missing, or it failed earlier in this run (it then stays off until the game restarts). Not tested on "
+         "hardware in this build.",
          nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
