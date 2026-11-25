@@ -2001,7 +2001,7 @@ VkFramebuffer VulkanDevice::framebuffer(VkRenderPass renderPass, const std::vect
     {
         std::lock_guard<std::mutex> lock(resMutex_);
         for (std::size_t i = 0; i < viewIds.size() && i < serials.size(); ++i) {
-            const ViewRecord* v = views_.get(viewIds[i]);
+            const ViewRecord* v = views_.get(static_cast<std::uint32_t>(viewIds[i]));
             if (!v || v->serial != serials[i]) {
                 deadSerial = serials[i];
                 deadId = viewIds[i];
