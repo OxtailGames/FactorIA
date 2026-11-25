@@ -14,6 +14,7 @@
 #include <doctest.h>
 
 #include "fa/render/ies.h"
+#include "glsl_source.h"
 #include "fa_test_paths.h"
 #include "light_atlas.h"
 #include "light_clusters.h"
@@ -253,17 +254,6 @@ std::vector<std::string> unqualified_floats(const std::string& src) {
     return bad;
 }
 
-std::string generated_source(const std::string& header, const std::string& symbol) {
-    const std::size_t at = header.find(symbol);
-    REQUIRE(at != std::string::npos);
-    const std::size_t open = header.find('{', at), close = header.find('}', open);
-    REQUIRE(close != std::string::npos);
-    std::string src;
-    for (std::size_t i = header.find("0x", open); i != std::string::npos && i < close; i = header.find("0x", i + 2))
-        src.push_back(char(std::strtoul(header.substr(i + 2, 2).c_str(), nullptr, 16)));
-    return src;
-}
-
 }  // namespace
 
 TEST_CASE(
@@ -271,10 +261,8 @@ TEST_CASE(
     // ltc.glsl's guards (1e-24, 1e-10, 1e-7) and dot(a, a) of a vector a few hundred metres long do not survive fp16. sokol-shdc writes
     // `precision mediump float;` as the default of a GLSL ES 3.00 fragment shader and qualifies every declaration with highp; this reads
     // the generated header and checks that the shader the area lights run in has no declaration without it and no explicit lower one.
-    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/mesh.glsl.h", std::ios::binary);
-    REQUIRE(in.good());
-    const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    const std::string src = generated_source(header, "mesh_fs_source_glsl300es[");
+    const std::string src = glsl_source_from_header("mesh.glsl.h", "mesh_fs_source_glsl300es");
+    REQUIRE(!src.empty());
     CHECK(src.find("precision mediump float;") != std::string::npos);
     CHECK(src.find("fa_ltc_quad") != std::string::npos);  // the area path is in this source
     CHECK(src.find("fa_area_shade") != std::string::npos);
@@ -294,11 +282,9 @@ TEST_CASE("2D light cookies: cookie_coord of the light buffer and quad programs 
     // GLSL ES 3.00 source highp (the same reason as the area-light test above); this reads the generated sources and checks the function.
     for (const char* file : {"light", "quad"}) {
         CAPTURE(file);
-        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/" + file + ".glsl.h",
-                         std::ios::binary);
-        REQUIRE(in.good());
-        const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        const std::string src = generated_source(header, std::string(file) + "_fs_source_glsl300es[");
+        const std::string src =
+            glsl_source_from_header(std::string(file) + ".glsl.h", std::string(file) + "_fs_source_glsl300es");
+        REQUIRE(!src.empty());
         const std::size_t at = src.find("cookie_coord(highp vec4 cell, highp vec4 xf, highp vec2 off)");
         REQUIRE(at != std::string::npos);
         const std::size_t end = src.find("\n    }\n", at);
