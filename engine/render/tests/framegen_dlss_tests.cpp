@@ -43,7 +43,8 @@ namespace {
 // ---- the fake library ---------------------------------------------------------------------------------------------------------------
 
 struct Gx {
-    SlR initRc = 0, supportedRc = 0, tokenRc = 0, setOptionsRc = 0, getStateRc = 0, constantsRc = 0, tagRc = 0, reflexRc = 0;
+    SlR initRc = 0, supportedRc = 0, tokenRc = 0, setOptionsRc = 0, getStateRc = 0, constantsRc = 0, tagRc = 0,
+        reflexRc = 0;
     std::uint32_t refusedFeature = 0xFFFFFFFFu;  // the feature slIsFeatureSupported refuses (with supportedRc)
     // what slDLSSGGetState answers
     std::uint32_t status = 0, minSize = 64, presented = 1, maxFrames = 1;
@@ -75,7 +76,9 @@ SlR f_shutdown() {
     ++gx.shutdowns;
     return 0;
 }
-SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) { return feature == gx.refusedFeature ? gx.supportedRc : 0; }
+SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) {
+    return feature == gx.refusedFeature ? gx.supportedRc : 0;
+}
 SlR f_free(std::uint32_t feature, const sl::ViewportHandle*) {
     gx.events.push_back("free");
     gx.tagFeatureFreed = feature;
@@ -96,7 +99,9 @@ SlR f_upgrade(void** p) {
 SlR f_set_d3d(void*) { return 0; }
 SlR f_set_vk(const sl::VulkanInfo*) { return 0; }
 void marker_fn() {}
-void* f_vk_proc(void*, const char* name) { return std::string(name) == "vkQueuePresentKHR" ? reinterpret_cast<void*>(&marker_fn) : nullptr; }
+void* f_vk_proc(void*, const char* name) {
+    return std::string(name) == "vkQueuePresentKHR" ? reinterpret_cast<void*>(&marker_fn) : nullptr;
+}
 SlR f_token(void** token, const std::uint32_t*) {
     ++gx.tokenCalls;
     gx.events.push_back("token");
@@ -150,13 +155,20 @@ SlR f_pcl_marker(std::uint32_t, void*) { return 0; }
 SlR f_function(std::uint32_t feature, const char* name, void** fn) {
     const std::string n = name;
     if (std::find(g_hidden.begin(), g_hidden.end(), n) != g_hidden.end()) return sl::kErrorFeatureMissing;
-    if (n == "slDLSSGSetOptions" && feature == sl::kFeatureDlssG) *fn = reinterpret_cast<void*>(&f_dlssg_options);
-    else if (n == "slDLSSGGetState" && feature == sl::kFeatureDlssG) *fn = reinterpret_cast<void*>(&f_dlssg_state);
-    else if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_options);
-    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_state);
-    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_sleep);
-    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl) *fn = reinterpret_cast<void*>(&f_pcl_marker);
-    else return sl::kErrorFeatureMissing;
+    if (n == "slDLSSGSetOptions" && feature == sl::kFeatureDlssG)
+        *fn = reinterpret_cast<void*>(&f_dlssg_options);
+    else if (n == "slDLSSGGetState" && feature == sl::kFeatureDlssG)
+        *fn = reinterpret_cast<void*>(&f_dlssg_state);
+    else if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_options);
+    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_state);
+    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_sleep);
+    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl)
+        *fn = reinterpret_cast<void*>(&f_pcl_marker);
+    else
+        return sl::kErrorFeatureMissing;
     return 0;
 }
 
@@ -387,8 +399,10 @@ struct Rig {
         g_hidden.clear();
         render::set_streamline_runtime_for_test(&runtime);
         if (ready) {
-            if (b == gpu::Backend::Vulkan) run_vulkan(runtime);
-            else run_d3d12(runtime);
+            if (b == gpu::Backend::Vulkan)
+                run_vulkan(runtime);
+            else
+                run_d3d12(runtime);
             REQUIRE(runtime.status().ready);
         }
         depth = dev.image(renderW, renderH, gpu::PixelFormat::R32F);
@@ -471,7 +485,8 @@ struct Rig {
 
 // ---- the slot and the ABI ----------------------------------------------------------------------------------------------------------
 
-TEST_CASE("dlss frame generation: the build's provider fills the DLSS slot, and the ABI is the size Streamline 2.14.16 has") {
+TEST_CASE(
+    "dlss frame generation: the build's provider fills the DLSS slot, and the ABI is the size Streamline 2.14.16 has") {
     render::FrameGenProvider* p = render::framegen_provider(FrameGenSlot::Dlss);
     REQUIRE(p != nullptr);
     CHECK(p->name() == "DLSS frame generation");
@@ -587,7 +602,8 @@ TEST_CASE("dlss frame generation: asking for frame generation adds DLSS-G to the
 
 // ---- start, configure, stop ----------------------------------------------------------------------------------------------------------
 
-TEST_CASE("dlss frame generation: start sends the options off once and reads the state; configure sends on and off only on a change") {
+TEST_CASE("dlss frame generation: start sends the options off once and reads the state; configure sends on and off "
+          "only on a change") {
     Rig r(gpu::Backend::D3d12);
     r.reflex.start(r.dev);
     gx.events.clear();
@@ -733,7 +749,8 @@ TEST_CASE("dlss frame generation: a frame sends the constants and the tags with 
     }
 }
 
-TEST_CASE("dlss frame generation: the depth and the motion are tagged always, the hudless picture only with items over it") {
+TEST_CASE(
+    "dlss frame generation: the depth and the motion are tagged always, the hudless picture only with items over it") {
     Rig r(gpu::Backend::D3d12);
     r.start_all();
     r.dlssg->configure(true);
@@ -880,7 +897,8 @@ TEST_CASE("dlss frame generation: a frame is refused while Reflex is not running
     CHECK(r.dlssg->dispatch(again));
 }
 
-TEST_CASE("dlss frame generation: the status Streamline reports becomes the reason, once per cause, after the frame went out") {
+TEST_CASE("dlss frame generation: the status Streamline reports becomes the reason, once per cause, after the frame "
+          "went out") {
     Rig r(gpu::Backend::D3d12);
     r.start_all();
     r.dlssg->configure(true);
@@ -990,7 +1008,8 @@ TEST_CASE("dlss frame generation on Vulkan: the tags carry the image, its sample
 
 // ---- the renderer's side ---------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("dlss frame generation through the controller: Reflex is required while it runs, and generation follows the base rate") {
+TEST_CASE("dlss frame generation through the controller: Reflex is required while it runs, and generation follows the "
+          "base rate") {
     Rig r(gpu::Backend::D3d12);
     render::FrameGenController c;
     render::set_framegen_provider_for_test(FrameGenSlot::Dlss, r.dlssg.get());

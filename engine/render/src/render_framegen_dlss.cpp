@@ -51,7 +51,8 @@ struct DlssgApi {
 // The two functions of the DLSS-G plugin, from slGetFeatureFunction. "" when both are there, else the sentence of the first that is not.
 std::string load_dlssg_api(const StreamlineApi& sl, DlssgApi& api) {
     if (!sl.getFeatureFunction)
-        return "NVIDIA Streamline has no slGetFeatureFunction (it is not Streamline 2.x): " + std::string(kSetupHint) + ".";
+        return "NVIDIA Streamline has no slGetFeatureFunction (it is not Streamline 2.x): " + std::string(kSetupHint) +
+               ".";
     DlssgApi a;
     const auto get = [&](const char* name, auto& fn) -> std::string {
         void* address = nullptr;
@@ -71,7 +72,8 @@ std::string load_dlssg_api(const StreamlineApi& sl, DlssgApi& api) {
 // What a machine that cannot run DLSS-G is told, after Streamline's own words.
 std::string unsupported_text(const std::string& why) {
     return "DLSS frame generation is not available on this machine: " + why +
-           " It needs an NVIDIA GeForce RTX 40 series GPU or newer, Windows 10 or 11 with \"Hardware-accelerated GPU scheduling\" "
+           " It needs an NVIDIA GeForce RTX 40 series GPU or newer, Windows 10 or 11 with \"Hardware-accelerated GPU "
+           "scheduling\" "
            "turned on, and a recent NVIDIA graphics driver.";
 }
 
@@ -111,16 +113,20 @@ Mat4 projection_of(const FrameGenFrame& f) {
 const char* status_sentence(std::uint32_t bitValue) {
     switch (bitValue) {
         case abi::kDlssgFailReflexNotDetectedAtRuntime:
-            return "Streamline did not see NVIDIA Reflex's markers at the last present (frame generation needs Reflex on and its "
+            return "Streamline did not see NVIDIA Reflex's markers at the last present (frame generation needs Reflex "
+                   "on and its "
                    "simulation, render submit and present markers of every frame).";
         case abi::kDlssgFailHdrFormatNotSupported:
-            return "the swapchain's HDR format is not one DLSS frame generation supports (it takes the 10-bit HDR10 and the 16-bit scRGB "
+            return "the swapchain's HDR format is not one DLSS frame generation supports (it takes the 10-bit HDR10 "
+                   "and the 16-bit scRGB "
                    "formats): use an SDR display mode or another HDR output.";
         case abi::kDlssgFailCommonConstantsInvalid:
-            return "Streamline rejected the camera constants of the last frame (a matrix, a plane or the motion vector scale it cannot "
+            return "Streamline rejected the camera constants of the last frame (a matrix, a plane or the motion vector "
+                   "scale it cannot "
                    "use).";
         case abi::kDlssgFailGetCurrentBackBufferIndexNotCalled:
-            return "Streamline's swapchain was not asked for the current back buffer (the window's swapchain is not the one Streamline "
+            return "Streamline's swapchain was not asked for the current back buffer (the window's swapchain is not "
+                   "the one Streamline "
                    "hooked): this is a bug in the engine's integration, please report it.";
         default: return "";
     }
@@ -165,8 +171,8 @@ private:
         frame.error = std::move(why);
         return false;
     }
-    std::string describe(FrameGenFrame& frame, int slotIndex, std::uint32_t type, gpu::Image image, int w, int h, int& count,
-                         abi::Resource* resources, abi::ResourceTag* tags, gpu::NativeUse* uses);
+    std::string describe(FrameGenFrame& frame, int slotIndex, std::uint32_t type, gpu::Image image, int w, int h,
+                         int& count, abi::Resource* resources, abi::ResourceTag* tags, gpu::NativeUse* uses);
 
     gpu::Device* device_ = nullptr;
     std::uint64_t generation_ = 0;  // the Streamline set-up the functions below belong to
@@ -208,7 +214,8 @@ VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {
     const StreamlineStatus status = runtime.status();
     if (!status.ready) {
         if (status.tried) {
-            p.reason = status.reason.empty() ? "NVIDIA Streamline did not start with the graphics device." : status.reason;
+            p.reason =
+                status.reason.empty() ? "NVIDIA Streamline did not start with the graphics device." : status.reason;
             return p;
         }
         // Streamline never saw this device: say whether the library is there, which is what the user can do something about.
@@ -217,18 +224,21 @@ VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {
         if (vendor_loader().find(spec, &why).empty())
             p.reason = std::string("DLSS frame generation is not installed: ") + kSetupHint + " (" + why + ").";
         else
-            p.reason = "NVIDIA Streamline is installed, but it was not started when the graphics device was made (the renderer starts it "
+            p.reason = "NVIDIA Streamline is installed, but it was not started when the graphics device was made (the "
+                       "renderer starts it "
                        "before it makes a Direct3D 12 or Vulkan device): restart the game.";
         return p;
     }
     if (status.backend != env.backend) {
-        p.reason = std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) + " and this device is " +
-                   vendor_backend_label(env.backend) + ".";
+        p.reason = std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) +
+                   " and this device is " + vendor_backend_label(env.backend) + ".";
         return p;
     }
     if (!runtime.feature_asked(abi::kFeatureDlssG)) {
-        p.reason = "DLSS frame generation was not set up when the graphics device was made (Streamline loads its plugin before the "
-                   "device exists): set render.frameGeneration.mode in factoria.json (or turn it on in the settings) and restart the game.";
+        p.reason = "DLSS frame generation was not set up when the graphics device was made (Streamline loads its "
+                   "plugin before the "
+                   "device exists): set render.frameGeneration.mode in factoria.json (or turn it on in the settings) "
+                   "and restart the game.";
         return p;
     }
     if (const std::string why = runtime.feature_reason(abi::kFeatureDlssG); !why.empty()) {
@@ -241,7 +251,9 @@ VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {
         return p;
     }
     if (const std::string why = runtime.feature_reason(abi::kFeaturePcl); !why.empty()) {
-        p.reason = "DLSS frame generation needs the PC latency markers of Streamline's PCL plugin, which is not available: " + why;
+        p.reason =
+            "DLSS frame generation needs the PC latency markers of Streamline's PCL plugin, which is not available: " +
+            why;
         return p;
     }
     const StreamlineApi* sl = runtime.api();
@@ -264,14 +276,17 @@ std::string DlssFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
     const std::uint64_t generation = runtime.ready_generation();
     const StreamlineStatus status = runtime.status();
     if (generation == 0)
-        return status.reason.empty() ? std::string("NVIDIA Streamline is not running on this device (") + kSetupHint + ")"
-                                     : status.reason;
+        return status.reason.empty()
+                   ? std::string("NVIDIA Streamline is not running on this device (") + kSetupHint + ")"
+                   : status.reason;
     if (device.backend() != gpu::Backend::D3d12 && device.backend() != gpu::Backend::Vulkan)
         return "DLSS frame generation runs on Direct3D 12 and Vulkan";
     if (status.backend != device.backend())
-        return std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) + ", not for this device";
+        return std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) +
+               ", not for this device";
     if (!runtime.feature_asked(abi::kFeatureDlssG))
-        return "DLSS frame generation was not set up when the graphics device was made: set render.frameGeneration.mode in "
+        return "DLSS frame generation was not set up when the graphics device was made: set "
+               "render.frameGeneration.mode in "
                "factoria.json and restart the game";
     if (const std::string why = runtime.feature_reason(abi::kFeatureDlssG); !why.empty()) return unsupported_text(why);
     if (const std::string why = runtime.feature_reason(abi::kFeatureReflex); !why.empty())
@@ -279,7 +294,8 @@ std::string DlssFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
     const StreamlineApi* sl = runtime.api();
     if (!sl) return "NVIDIA Streamline is not running on this device";
     DlssgApi api;
-    if (std::string why = load_dlssg_api(*sl, api); !why.empty()) return "DLSS frame generation's plugin did not load: " + why;
+    if (std::string why = load_dlssg_api(*sl, api); !why.empty())
+        return "DLSS frame generation's plugin did not load: " + why;
 
     api_ = api;
     device_ = &device;
@@ -304,7 +320,8 @@ std::string DlssFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
     }
     maxFrames_ = state.numFramesToGenerateMax;
     minSize_ = state.minWidthOrHeight;
-    FA_INFO("render", "DLSS frame generation is ready (it generates {} frame(s) between two rendered ones at most)", maxFrames_);
+    FA_INFO("render", "DLSS frame generation is ready (it generates {} frame(s) between two rendered ones at most)",
+            maxFrames_);
     return {};
 }
 
@@ -322,7 +339,8 @@ bool DlssFrameGenProvider::send_options() {
     abi::DlssgOptions options;
     abi::init_dlssg_options(options);
     options.mode = want.mode;
-    options.numFramesToGenerate = 1;  // multi frame generation (RTX 50) is not used: one generated frame per rendered one
+    options.numFramesToGenerate =
+        1;  // multi frame generation (RTX 50) is not used: one generated frame per rendered one
     options.flags = want.flags;
     options.mvecDepthWidth = want.mvecW;
     options.mvecDepthHeight = want.mvecH;
@@ -366,8 +384,9 @@ void DlssFrameGenProvider::drop_views(gpu::Device& device) {
 }
 
 // Describes one image for slSetTagForFrame: the native object, its size and the state the native section leaves it in. "" or the reason.
-std::string DlssFrameGenProvider::describe(FrameGenFrame& frame, int slotIndex, std::uint32_t type, gpu::Image image, int w, int h,
-                                           int& count, abi::Resource* resources, abi::ResourceTag* tags, gpu::NativeUse* uses) {
+std::string DlssFrameGenProvider::describe(FrameGenFrame& frame, int slotIndex, std::uint32_t type, gpu::Image image,
+                                           int w, int h, int& count, abi::Resource* resources, abi::ResourceTag* tags,
+                                           gpu::NativeUse* uses) {
     gpu::Device& device = *frame.device;
     abi::Resource& resource = resources[count];
     abi::init_resource(resource);
@@ -377,21 +396,23 @@ std::string DlssFrameGenProvider::describe(FrameGenFrame& frame, int slotIndex, 
     resource.mipLevels = 1;
     resource.arrayLayers = 1;
     if (device.backend() == gpu::Backend::Vulkan) {
-        ViewSlot& slot = views_[slotIndex];
-        if (slot.view.valid() && slot.image != image) {
-            device.destroy_view(slot.view);
-            slot = ViewSlot{};
+        ViewSlot& viewSlot = views_[slotIndex];
+        if (viewSlot.view.valid() && viewSlot.image != image) {
+            device.destroy_view(viewSlot.view);
+            viewSlot = ViewSlot{};
         }
-        if (!slot.view.valid()) {
+        if (!viewSlot.view.valid()) {
             gpu::ViewDesc v;
             v.texture.image = image;
             v.label = "dlssg-input";
-            slot.view = device.make_view(v);
-            slot.image = image;
-            if (!slot.view.valid()) return "the GPU could not make a sampled view of an image DLSS frame generation reads";
+            viewSlot.view = device.make_view(v);
+            viewSlot.image = image;
+            if (!viewSlot.view.valid())
+                return "the GPU could not make a sampled view of an image DLSS frame generation reads";
         }
-        const gpu::NativeView nv = device.native_view(slot.view);
-        if (!ni.vkImage || !nv.vkImageView) return "the Vulkan image or view of a DLSS frame generation input is not known to the device";
+        const gpu::NativeView nv = device.native_view(viewSlot.view);
+        if (!ni.vkImage || !nv.vkImageView)
+            return "the Vulkan image or view of a DLSS frame generation input is not known to the device";
         resource.native = handle_of(ni.vkImage);
         resource.view = handle_of(nv.vkImageView);
         resource.nativeFormat = nv.nativeFormat;
@@ -404,13 +425,15 @@ std::string DlssFrameGenProvider::describe(FrameGenFrame& frame, int slotIndex, 
         if (!ni.resource) return "the device gave no native resource for a DLSS frame generation input";
         resource.native = const_cast<void*>(ni.resource);
         resource.nativeFormat = ni.nativeFormat;
-        resource.state = frame.list->queue() == gpu::QueueKind::Compute ? kD3d12ShaderReadCompute : kD3d12ShaderReadGraphics;
+        resource.state =
+            frame.list->queue() == gpu::QueueKind::Compute ? kD3d12ShaderReadCompute : kD3d12ShaderReadGraphics;
     }
     abi::ResourceTag& tag = tags[count];
     abi::init_resource_tag(tag);
     tag.resource = &resource;
     tag.type = type;
-    tag.lifecycle = abi::kValidUntilPresent;  // generation reads the images inside Present, after the frame's own passes
+    tag.lifecycle =
+        abi::kValidUntilPresent;  // generation reads the images inside Present, after the frame's own passes
     tag.extent = abi::Extent{0, 0, std::uint32_t(w), std::uint32_t(h)};
     uses[count].image = image;
     uses[count].state = gpu::NativeState::ShaderRead;
@@ -421,37 +444,48 @@ std::string DlssFrameGenProvider::describe(FrameGenFrame& frame, int slotIndex, 
 bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
     frame.error.clear();
     StreamlineRuntime& runtime = streamline_runtime();
-    if (!frame.device || !frame.list) return refuse(frame, "DLSS frame generation was given no device or no command list.");
+    if (!frame.device || !frame.list)
+        return refuse(frame, "DLSS frame generation was given no device or no command list.");
     if (!live(runtime) || frame.device != device_)
-        return refuse(frame, "NVIDIA Streamline is not running on this device (the device was made again since DLSS frame generation "
-                             "started).");
+        return refuse(
+            frame,
+            "NVIDIA Streamline is not running on this device (the device was made again since DLSS frame generation "
+            "started).");
     const StreamlineApi* sl = runtime.api();
     if (!sl) return refuse(frame, "NVIDIA Streamline is not running on this device.");
     if (!frame.depth.valid() || !frame.motion.valid())
         return refuse(frame, "DLSS frame generation needs the depth and motion images of the frame (the frame has no " +
                                  std::string(!frame.depth.valid() ? "depth" : "motion") + " image).");
     if (frame.renderW <= 0 || frame.renderH <= 0 || frame.outW <= 0 || frame.outH <= 0)
-        return refuse(frame, "DLSS frame generation was given an empty picture (" + std::to_string(frame.renderW) + "x" +
-                                 std::to_string(frame.renderH) + " -> " + std::to_string(frame.outW) + "x" +
+        return refuse(frame, "DLSS frame generation was given an empty picture (" + std::to_string(frame.renderW) +
+                                 "x" + std::to_string(frame.renderH) + " -> " + std::to_string(frame.outW) + "x" +
                                  std::to_string(frame.outH) + ").");
     if (!frame.cameraPerspective)
-        return refuse(frame, "DLSS frame generation needs a perspective camera: this frame is drawn with an orthographic one (its depth "
-                             "reprojection is built for a perspective lens). Use a perspective camera, or set "
-                             "render.frameGeneration.mode to \"off\".");
+        return refuse(
+            frame,
+            "DLSS frame generation needs a perspective camera: this frame is drawn with an orthographic one (its depth "
+            "reprojection is built for a perspective lens). Use a perspective camera, or set "
+            "render.frameGeneration.mode to \"off\".");
     if (!frame.depthReversed || !frame.depthInfinite)
-        return refuse(frame, "DLSS frame generation was given a depth that is not the reversed infinite one it asked for (a bug in the "
-                             "engine's frame generation pass): please report it.");
+        return refuse(
+            frame,
+            "DLSS frame generation was given a depth that is not the reversed infinite one it asked for (a bug in the "
+            "engine's frame generation pass): please report it.");
     if (!finite_all(frame.proj, 8) || !finite_all(frame.prevFromView.m, 16) || !std::isfinite(frame.cameraNear) ||
         !std::isfinite(frame.cameraFar) || !std::isfinite(frame.cameraFovY) || std::fabs(frame.proj[0]) < 1e-6f ||
         std::fabs(frame.proj[1]) < 1e-6f || std::fabs(frame.proj[6]) < 1e-6f || !(frame.cameraNear > 0.0f))
-        return refuse(frame, "the camera of this frame has a projection DLSS frame generation cannot use (a matrix with a value that is "
-                             "not a number, or a lens with no field of view or no near plane).");
+        return refuse(
+            frame,
+            "the camera of this frame has a projection DLSS frame generation cannot use (a matrix with a value that is "
+            "not a number, or a lens with no field of view or no near plane).");
     // Reflex: DLSS-G reports eFailReflexNotDetectedAtRuntime when the markers of the frame do not arrive. The renderer turns Reflex on while
     // this provider runs; when it cannot (its own refusal), generation is refused with the reason of that.
     if (!reflex_running())
-        return refuse(frame, "DLSS frame generation needs NVIDIA Reflex running, and it is not: the engine turns Reflex on while frame "
-                             "generation runs, so its provider did not start. See render.supports for the reason Reflex gives, or "
-                             "set render.frameGeneration.mode to \"off\".");
+        return refuse(
+            frame,
+            "DLSS frame generation needs NVIDIA Reflex running, and it is not: the engine turns Reflex on while frame "
+            "generation runs, so its provider did not start. See render.supports for the reason Reflex gives, or "
+            "set render.frameGeneration.mode to \"off\".");
     if (!optionsError_.empty()) return refuse(frame, optionsError_);
 
     // The sizes the options carry: sent again only when a size changed.
@@ -462,7 +496,8 @@ bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
     if (!send_options()) return refuse(frame, optionsError_);
 
     std::string why;
-    void* const token = runtime.frame_token(nullptr, &why);  // the same token Reflex's markers and the upscaler's evaluation use
+    void* const token =
+        runtime.frame_token(nullptr, &why);  // the same token Reflex's markers and the upscaler's evaluation use
     if (!token) return refuse(frame, why);
 
     abi::ViewportHandle viewport;
@@ -511,7 +546,8 @@ bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
         // tags below still go out, and the frame generates from the constants that were set first.
         if (r != abi::kErrorDuplicatedConstants) return refuse(frame, streamline_refusal("slSetConstants", r));
         if (!warnedConstants_)
-            FA_WARN("render", "DLSS frame generation: Streamline kept the camera constants set earlier in the frame ({})",
+            FA_WARN("render",
+                    "DLSS frame generation: Streamline kept the camera constants set earlier in the frame ({})",
                     streamline_result_text(r));
         warnedConstants_ = true;
     }
@@ -522,33 +558,43 @@ bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
     gpu::NativeUse uses[3];
     int count = 0;
     {
-        std::string e = describe(frame, 0, abi::kBufferDepth, frame.depth, frame.renderW, frame.renderH, count, resources, tags, uses);
+        std::string e = describe(frame, 0, abi::kBufferDepth, frame.depth, frame.renderW, frame.renderH, count,
+                                 resources, tags, uses);
         if (e.empty())
-            e = describe(frame, 1, abi::kBufferMotionVectors, frame.motion, frame.renderW, frame.renderH, count, resources, tags, uses);
+            e = describe(frame, 1, abi::kBufferMotionVectors, frame.motion, frame.renderW, frame.renderH, count,
+                         resources, tags, uses);
         if (e.empty() && frame.hudDrawn && frame.hudless.valid())
-            e = describe(frame, 2, abi::kBufferHudLessColor, frame.hudless, frame.outW, frame.outH, count, resources, tags, uses);
+            e = describe(frame, 2, abi::kBufferHudLessColor, frame.hudless, frame.outW, frame.outH, count, resources,
+                         tags, uses);
         if (!e.empty()) return refuse(frame, "DLSS frame generation: " + e + ".");
     }
-    const fa::Result<gpu::NativeCommands> native = frame.list->begin_native(std::span<const gpu::NativeUse>(uses, std::size_t(count)));
-    if (!native) return refuse(frame, "DLSS frame generation could not open a native command section: " + native.error().message);
+    const fa::Result<gpu::NativeCommands> native =
+        frame.list->begin_native(std::span<const gpu::NativeUse>(uses, std::size_t(count)));
+    if (!native)
+        return refuse(frame,
+                      "DLSS frame generation could not open a native command section: " + native.error().message);
     void* const list = const_cast<void*>(native->list);
     const SlResult tagged = sl->setTagForFrame(token, &viewport, tags, std::uint32_t(count), list);
     // The section is closed whatever Streamline answered: the images are left in the states they were declared in.
     const fa::Result<void> closed = frame.list->end_native();
-    if (tagged != abi::kOk) return refuse(frame, "DLSS frame generation failed to tag the frame: " + streamline_refusal("slSetTagForFrame", tagged));
+    if (tagged != abi::kOk)
+        return refuse(frame, "DLSS frame generation failed to tag the frame: " +
+                                 streamline_refusal("slSetTagForFrame", tagged));
     if (!closed)
-        return refuse(frame, "DLSS frame generation tagged the frame, but its native command section could not be closed: " +
-                                 closed.error().message);
+        return refuse(frame,
+                      "DLSS frame generation tagged the frame, but its native command section could not be closed: " +
+                          closed.error().message);
 
     // What Streamline said about the last present, read when the frame began: generation that is on and does not run says why. The frame's
     // constants and tags are sent either way, so the next present can recover without the history being lost.
     if (enabled_ && statusOn_ && (status_ & kFailMask) != 0) {
         std::string text = "DLSS frame generation is not running: ";
         if ((status_ & abi::kDlssgFailResolutionTooLow) != 0)
-            text += "the picture is smaller than the SDK allows (its shorter side must be at least " + std::to_string(minSize_) +
-                    " pixels): use a larger window or resolution. ";
-        for (const std::uint32_t b : {abi::kDlssgFailReflexNotDetectedAtRuntime, abi::kDlssgFailHdrFormatNotSupported,
-                                      abi::kDlssgFailCommonConstantsInvalid, abi::kDlssgFailGetCurrentBackBufferIndexNotCalled})
+            text += "the picture is smaller than the SDK allows (its shorter side must be at least " +
+                    std::to_string(minSize_) + " pixels): use a larger window or resolution. ";
+        for (const std::uint32_t b :
+             {abi::kDlssgFailReflexNotDetectedAtRuntime, abi::kDlssgFailHdrFormatNotSupported,
+              abi::kDlssgFailCommonConstantsInvalid, abi::kDlssgFailGetCurrentBackBufferIndexNotCalled})
             if ((status_ & b) != 0) text += std::string(status_sentence(b)) + " ";
         text.pop_back();
         return refuse(frame, std::move(text));
@@ -577,7 +623,8 @@ std::uint64_t DlssFrameGenProvider::generated_frames() {
     if (state.numFramesActuallyPresented > 1) generated_ += state.numFramesActuallyPresented - 1;
     if (!loggedVram_ && state.estimatedVRAMUsageInBytes > 0) {
         loggedVram_ = true;
-        FA_INFO("render", "DLSS frame generation: Streamline estimates {} MB of video memory", state.estimatedVRAMUsageInBytes >> 20);
+        FA_INFO("render", "DLSS frame generation: Streamline estimates {} MB of video memory",
+                state.estimatedVRAMUsageInBytes >> 20);
     }
     return generated_;
 }
@@ -595,7 +642,8 @@ void DlssFrameGenProvider::forget() {
     generated_ = 0;
     loggedVram_ = warnedOptions_ = warnedState_ = warnedConstants_ = false;
     optionsError_.clear();
-    for (ViewSlot& s : views_) s = ViewSlot{};  // the views went with their device (stop() destroys them while it is alive)
+    for (ViewSlot& s : views_)
+        s = ViewSlot{};  // the views went with their device (stop() destroys them while it is alive)
 }
 
 void DlssFrameGenProvider::stop(gpu::Device& device) {
@@ -605,7 +653,8 @@ void DlssFrameGenProvider::stop(gpu::Device& device) {
     // library has shut down).
     if (live(runtime)) {
         // The GPU may still be running the last frame with the SDK's resources: wait, then give them back.
-        if (const fa::Result<void> idle = device.wait_idle(); !idle) FA_WARN("render", "DLSS frame generation: {}", idle.error().message);
+        if (const fa::Result<void> idle = device.wait_idle(); !idle)
+            FA_WARN("render", "DLSS frame generation: {}", idle.error().message);
         enabled_ = false;
         retain_ = false;
         send_options();
