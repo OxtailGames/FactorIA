@@ -25,8 +25,8 @@ namespace fa::render {
 namespace ffx_abi {
 
 using ReturnCode = std::uint32_t;  // ffxReturnCode_t
-inline constexpr ReturnCode kOk = 0, kError = 1, kUnknownDescType = 2, kRuntimeError = 3, kNoProvider = 4, kMemoryError = 5,
-                            kParameterError = 6, kNoSupportNewDescType = 7;
+inline constexpr ReturnCode kOk = 0, kError = 1, kUnknownDescType = 2, kRuntimeError = 3, kNoProvider = 4,
+                            kMemoryError = 5, kParameterError = 6, kNoSupportNewDescType = 7;
 
 using Context = void*;  // ffxContext
 
@@ -39,8 +39,8 @@ using Message = void (*)(std::uint32_t type, const wchar_t* message);  // ffxApi
 
 // The descriptor types (the effect id of the upscaler is 0x00010000, the Vulkan backend's 0x01000000).
 inline constexpr std::uint64_t kCreateBackendDx12 = 0x00000002, kCreateBackendVkDeprecated = 0x00000003,
-                               kCreateBackendVk = 0x01000003, kCreateUpscale = 0x00010000, kDispatchUpscale = 0x00010001,
-                               kQueryGetVersions = 4;
+                               kCreateBackendVk = 0x01000003, kCreateUpscale = 0x00010000,
+                               kDispatchUpscale = 0x00010001, kQueryGetVersions = 4;
 
 // The three structures the engine hands to a backend, and what a query answers.
 struct Dimensions2D {
@@ -91,9 +91,10 @@ inline constexpr std::uint32_t kUsageReadOnly = 0, kUsageUav = 1u << 1;
 inline constexpr std::uint32_t kStateUnorderedAccess = 1u << 1, kStatePixelComputeRead = (1u << 3) | (1u << 2);
 
 // FFX_API_SURFACE_FORMAT_* (the ones a frame of the engine has).
-inline constexpr std::uint32_t kFormatUnknown = 0, kFormatR32G32B32A32Float = 3, kFormatR16G16B16A16Float = 4, kFormatR8G8B8A8Unorm = 10,
-                               kFormatR8G8B8A8Srgb = 12, kFormatB8G8R8A8Unorm = 14, kFormatB8G8R8A8Srgb = 15, kFormatR11G11B10Float = 16,
-                               kFormatR10G10B10A2Unorm = 17, kFormatR16G16Float = 18, kFormatR8Unorm = 25, kFormatR32Float = 28,
+inline constexpr std::uint32_t kFormatUnknown = 0, kFormatR32G32B32A32Float = 3, kFormatR16G16B16A16Float = 4,
+                               kFormatR8G8B8A8Unorm = 10, kFormatR8G8B8A8Srgb = 12, kFormatB8G8R8A8Unorm = 14,
+                               kFormatB8G8R8A8Srgb = 15, kFormatR11G11B10Float = 16, kFormatR10G10B10A2Unorm = 17,
+                               kFormatR16G16Float = 18, kFormatR8Unorm = 25, kFormatR32Float = 28,
                                kFormatR9G9B9E5SharedExp = 29;
 
 // ffxCreateContextDescUpscale and its flags (FfxApiCreateContextUpscaleFlags).
