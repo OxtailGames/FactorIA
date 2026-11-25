@@ -15,6 +15,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   `licenses/<id>/`, as the new `export.pack.vendorSdks` says (`"auto"` by default, `"none"`, or a list of ids; a listed SDK that is
   not installed fails the export naming `factoria setup <id>`). The export's next steps repeat NVIDIA's obligations (notify NVIDIA before
   a commercial release, credits). EXPORTING_SETUP.md, "Vendor SDK licences".
+- **Device hooks for vendor SDKs (M78, engine side):** the engine's D3D12 and Vulkan devices let an SDK take part in making the
+  device and the swapchain (Vulkan instance and device extensions, feature structs, queues and wrapped functions; D3D12 factory,
+  device and queue replaced by wrappers; a swapchain made or wrapped by the SDK; callbacks around every present with a frame id).
+  What the machine lacks makes that SDK unavailable with a reason, never the device. The Vulkan swapchain's images now report
+  their usage and format to native access, and D3D11's `end_native` clears the context's state. ARCHITECTURE_RENDERING_HOOKS.md.
 
 ### Rendering
 

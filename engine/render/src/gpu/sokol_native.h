@@ -43,6 +43,10 @@ bool native_read_buffer(Device& device, Buffer buffer, std::size_t offset, std::
 // Metal the read-write texture tier decides (Tier 1: the 32-bit single-channel formats only). OpenGL 4.3 loads every
 // format its shader declares with a layout qualifier. False + `why` (a sentence about this GPU) when it cannot.
 bool native_storage_image_loadable(const Device& device, PixelFormat format, std::string* why);
+// Direct3D 11 only (readback_d3d11.cpp): ID3D11DeviceContext::ClearState on the immediate context, so nothing a
+// native section bound (shaders, views, render targets, states of a vendor SDK) leaks into sokol's next pass.
+// SokolCommandList::end_native calls it, outside a pass, before reset_state_cache().
+void native_d3d11_clear_state(Device& device);
 // Called by SokolDevice::make_image after the image was made (image_gl.cpp). OpenGL ES: sokol_gfx gives every sampler a
 // mipmap min filter and creates textures with glTexStorage2D, trusting the driver to clamp the effective max level to
 // the storage's levels; the Android emulator's software GLES 3.0 does not, so every texture without a full mip chain

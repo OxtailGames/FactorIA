@@ -333,5 +333,6 @@ command list. The interface is the same as on Vulkan ([ARCHITECTURE_RENDERING_VU
   native formats against `d3d12::format_info`, a `ClearRenderTargetView` through `native_view`'s descriptor and a
   `CopyBufferRegion` read back by the engine, a `ResourceBarrier` to the shader-resource states handed back in
   `leftIn` and read back, and the refusals, with no debug-layer error (where the Graphics Tools are installed).
-- **Not built yet (M78-P2b).** A hook before the device is made and around the swapchain (what Streamline needs) has no
-  entry point yet.
+- **Device hooks (M78-P2b).** An SDK that takes part in making the device and the swapchain (Streamline's upgraded
+  factory, device and queue, FSR 3's proxy swapchain, a call around every present) does it through a `DeviceHook`:
+  [ARCHITECTURE_RENDERING_HOOKS.md](ARCHITECTURE_RENDERING_HOOKS.md).

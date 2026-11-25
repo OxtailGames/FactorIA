@@ -663,3 +663,9 @@ The engine's own Direct3D 12 device (M77-P7, M77-P9) has a page of its own:
 
 The engine's own Vulkan device (M77-P8a, M77-P8c) has a page of its own:
 [ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md).
+
+## Device hooks for vendor SDKs
+
+`DeviceInit::hooks` and `register_device_hook` (M78-P2b) let an SDK take part in making the D3D12 and Vulkan devices and
+their swapchains; the other backends mark each hook unavailable with the reason:
+[ARCHITECTURE_RENDERING_HOOKS.md](ARCHITECTURE_RENDERING_HOOKS.md).

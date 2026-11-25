@@ -309,7 +309,12 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     d.Flags = UINT(DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT) |
               (tearing ? UINT(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) : 0u);
     Com<IDXGISwapChain1> chain1;
-    HRESULT hr = factory_->CreateSwapChainForHwnd(queue_.get(), hwnd, &d, nullptr, nullptr, chain1.put());
+    // The device hooks (gpu/device_hooks.h) may change the description, make the swapchain themselves (a frame
+    // generation proxy) or wrap the one made.
+    const bool byHook = !hooks_.empty() && hooks_make_swapchain(hwnd, d, chain1);
+    HRESULT hr = S_OK;
+    if (!byHook) hr = factory_->CreateSwapChainForHwnd(queue_.get(), hwnd, &d, nullptr, nullptr, chain1.put());
+    if (SUCCEEDED(hr) && !hooks_.empty()) hooks_swapchain_created(chain1);
     if (FAILED(hr)) {
         drain_messages();
         return make_error(where + ": IDXGIFactory2::CreateSwapChainForHwnd failed with " + hr_text(hr) +
@@ -351,6 +356,10 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     swapColorSpace_ = sf.space;
     swapCount_ = d.BufferCount;
     swapFlags_ = d.Flags;
+    if (DXGI_SWAP_CHAIN_DESC1 made{}; byHook && SUCCEEDED(swapchain_->GetDesc1(&made))) {
+        swapCount_ = made.BufferCount;  // what the hook's swapchain has, for its back buffers and its resizes
+        swapFlags_ = made.Flags;
+    }
     swapTearing_ = tearing != FALSE;
     swapVsync_ = desc.vsync;
     swapWaitTimeouts_ = 0;
@@ -492,8 +501,10 @@ Result<void> D3d12Device::present() {
         return make_error("gpu d3d12: present without a swapchain",
                           "call create_swapchain() with the window's HWND first");
     std::shared_ptr<TrackedResource> back;
+    UINT presented = 0;
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
+        presented = swapIndex_;
         if (!swapAcquired_)
             return make_error("gpu d3d12: present of the swapchain '" + swapLabel_ +
                                   "' without this frame's acquire_swapchain()",
@@ -512,7 +523,15 @@ Result<void> D3d12Device::present() {
     }
     const UINT interval = swapVsync_ ? 1u : 0u;
     const UINT flags = !swapVsync_ && swapTearing_ ? UINT(DXGI_PRESENT_ALLOW_TEARING) : 0u;
-    const HRESULT hr = swapchain_->Present(interval, flags);
+    HRESULT hr = S_OK;
+    if (hooks_.empty()) {
+        hr = swapchain_->Present(interval, flags);
+    } else {  // the hooks see each present (Reflex and Anti-Lag markers, frame generation's pacing)
+        ++presents_;
+        hooks_present(true, presented, S_OK);
+        hr = swapchain_->Present(interval, flags);
+        hooks_present(false, presented, hr);
+    }
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
         swapAcquired_ = false;
@@ -529,6 +548,7 @@ Result<void> D3d12Device::present() {
 void D3d12Device::destroy_swapchain() {
     if (!swapchain_) return;
     release_swap_buffers();
+    if (!hooks_.empty()) hooks_swapchain_destroying();
     if (swapWaitable_) {
         CloseHandle(swapWaitable_);
         swapWaitable_ = nullptr;
@@ -559,5 +579,75 @@ Image D3d12Device::swapchain_image() const {
 int D3d12Device::swapchain_buffer_count() const { return swapchain_ ? int(swapCount_) : 0; }
 bool D3d12Device::swapchain_tearing() const { return swapchain_ && swapTearing_; }
 std::uint64_t D3d12Device::swapchain_wait_timeouts() const { return swapWaitTimeouts_; }
+
+// ---- device hooks (gpu/device_hooks.h) ----
+
+bool D3d12Device::hooks_make_swapchain(HWND hwnd, DXGI_SWAP_CHAIN_DESC1& desc, Com<IDXGISwapChain1>& chain) {
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        const DXGI_SWAP_CHAIN_DESC1 before = desc;
+        D3d12SwapchainCreate sc;
+        sc.factory = factory_.get();
+        sc.queue = queue_.get();
+        sc.hwnd = hwnd;
+        sc.desc = &desc;
+        const bool byHook = h->d3d12_create_swapchain(sc);
+        // The engine's buffer count and flags stay (it waits on the frame latency object, counts its back buffers).
+        desc.BufferCount = before.BufferCount;
+        desc.Flags = before.Flags;
+        std::string error = sc.error;
+        if (error.empty() && byHook && !sc.swapchain)
+            error = "it said it made the swapchain, but gave no IDXGISwapChain1";
+        if (!error.empty()) {
+            if (sc.swapchain) {  // a swapchain handed with an error is released
+                Com<IDXGISwapChain1> drop;
+                *drop.put() = static_cast<IDXGISwapChain1*>(sc.swapchain);
+            }
+            desc = before;
+            hook_unavailable(*h, "making the swapchain failed: " + error +
+                                     "; the engine made its own swapchain without the hook");
+            continue;
+        }
+        if (byHook) {
+            *chain.put() = static_cast<IDXGISwapChain1*>(sc.swapchain);
+            return true;
+        }
+    }
+    return false;
+}
+
+void D3d12Device::hooks_swapchain_created(Com<IDXGISwapChain1>& chain) {
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        void* s = chain.get();
+        h->d3d12_swapchain_created(s);
+        if (s && s != chain.get()) *chain.put() = static_cast<IDXGISwapChain1*>(s);
+    }
+}
+
+void D3d12Device::hooks_swapchain_destroying() {
+    SwapchainEvent e;
+    e.backend = Backend::D3d12;
+    e.swapchain = swapchain_.get();
+    for (const auto& h : hooks_)
+        if (h->available()) h->swapchain_destroying(e);
+}
+
+void D3d12Device::hooks_present(bool begin, UINT image, HRESULT result) {
+    PresentEvent e;
+    e.backend = Backend::D3d12;
+    e.frame = presents_;
+    e.swapchain = swapchain_.get();
+    e.queue = queue_.get();
+    e.imageIndex = std::uint32_t(image);
+    e.result = std::int32_t(result);
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        if (begin)
+            h->present_begin(e);
+        else
+            h->present_end(e);
+    }
+}
 
 }  // namespace fa::gpu::d3d12
