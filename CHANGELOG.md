@@ -33,6 +33,7 @@ Modern GPU backends (M77): the engine has its own D3D12 and Vulkan devices next 
   (`graphics_backend.json`), which the start reads after `FA_GPU_BACKEND` and before `factoria.json`. CI and the release measure
   both players (`linux-x64-vulkan`, `android-<abi>-vulkan`, no budget yet) and the Android emulator smoke follows the game into the
   `:gl` process when the handover happens. docs/RENDERING.md, "Two players on Linux and Android".
+- The player's `log.txt` keeps the whole start when the Vulkan player hands the game to the OpenGL player: the first one starts the file and the OpenGL player appends to it (it starts a new file otherwise).
 - Vulkan backend leftovers (M77 polish): a window surface that lacks the device's default 8-bit colour order (Android offers only RGBA)
   gives the swapchain the other one and the device's default colour format follows it, or fails with a hint naming
   `DeviceInit::environment.defaults.colorFormat` when pipelines made with the old default exist; `acquire_swapchain` waits 100 ms and the
