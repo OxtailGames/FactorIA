@@ -1651,6 +1651,7 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // camera and no viewport is one job that draws all of it in one pass, as before. Bloom and PostProcess.colorFilter act once over
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
+    frameDt = std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     sync_color_space(world);  // before anything is gathered or drawn: the scene's format and the colours depend on it
     // What this frame is drawn for: the window's output as update_output() last answered (the final pass's tonemap and
     // present() read it).

@@ -208,7 +208,7 @@ draws `spatial`; pixel art stays `stretch`.
 - **No SDK is in the engine.** The engine ships no vendor header and no vendor binary. Each SDK is reached through the engine's own
   declaration of its C interface and a function table read at run time from its library (the way DirectStorage is loaded), so a game
   built without them runs everywhere. The libraries are `sl.interposer.dll` (Streamline), `libxess.dll` (XeSS; `libxess_dx11.dll` on D3D11) and
-  `amd_fidelityfx_dx12.dll` (FidelityFX).
+  `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` (FidelityFX: the loader of the backend, with the upscaler DLL next to it).
 - **Where the library is looked for**, in this order: the folder `$FA_STREAMLINE_DIR`, `$FA_XESS_DIR` or `$FA_FIDELITYFX_DIR` names (an
   explicit choice: if the library is not there the search stops, the other places are not tried); the folder of the executable (an
   exported game carries the libraries next to it); the newest version folder of `<factoria home>/tools/<id>/<version>/`, where
@@ -227,10 +227,10 @@ draws `spatial`; pixel art stays `stretch`.
   and the one that draws instead. A frame the SDK refuses (a size it does not take, a lost device) is the same: from then on every
   frame draws without it, with one warning ("fail once, stay off", as MetalFX does) and the temporal upscaler draws that frame, so
   the player never sees a missing picture.
-- **What is real today.** The seam (the modes, the choice, the reasons, the loader, `render.supports`, the menu and the editor) and the
-  XeSS provider below. With a library found, DLSS and FSR still answer "support lands later in M78": nothing of their SDK is called, so
-  those modes draw as the next best until their package lands. Tests put fake providers and a fake loader in the same place the real
-  ones go (`vendor_upscale_tests`, `xess_upscale_tests`).
+- **What is real today.** The seam (the modes, the choice, the reasons, the loader, `render.supports`, the menu and the editor), the
+  XeSS provider and the FSR provider below. With a library found, DLSS still answers "support lands later in M78": nothing of its SDK
+  is called, so that mode draws as the next best until its package lands. Tests put fake providers and a fake loader in the same place
+  the real ones go (`vendor_upscale_tests`, `xess_upscale_tests`, `fsr_upscale_tests`).
 - **XeSS (`xess`).** Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11 (Intel
   Arc only: on another GPU the reason says to run the game on D3D12 or Vulkan). On Vulkan XeSS asks for instance and device extensions;
   if the engine's device did not enable them the reason lists them (M78's device-creation package enables them). The library is probed
@@ -244,6 +244,23 @@ draws `spatial`; pixel art stays `stretch`.
   size). The context is destroyed, after the GPU is idle, when the renderer shuts down. A failing call is reported with XeSS's own
   words ("unsupported device", "unsupported driver", ...) and the mode is off for the run. Not checked by the tests (they use a fake
   library): that the real library's picture is right, which a D3D12 or Vulkan run on a GPU shows.
+- **FSR 3.1 (`fsr`).** D3D12 and Vulkan on any GPU (never D3D11), needs `factoria setup fidelityfx` (the loader of the backend and the
+  upscaler DLL). The probe loads the loader, needs its four exports (`ffxCreateContext`, `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`)
+  and asks `ffxQuery` which FSR versions it has for this GPU: none is "no FSR provider for this GPU" and a newest below 3.1 is refused;
+  on Vulkan the device must be 1.1 or newer (FSR asks for no extension the engine does not enable). One FSR context is made per device,
+  for the largest render size (the base scale), the output size, the quality and the flags (linear light is `HDR` input, display values
+  the non-linear colour space; depth is always inverted and infinite; `dynamicResolution` is set while the render size moves), and is
+  made again (after the GPU is idle) only when one of them changes, never per frame; a render size that moves under the maximum does
+  not make one. The five qualities are FSR's five modes in order (`native` 0, `quality` 1.5x, `balanced` 1.7x, `performance` 2x,
+  `ultraPerformance` 3x); the engine feeds its own render size, so the mode only keys the context. Each frame passes: the colour, the
+  depth (the preparation pass writes FSR's reversed infinite depth, `near / distance`, 0 for the sky), the motion (UV units; the motion
+  scale is the render size, so FSR reads pixels), the reactive mask when there is one, an output with storage usage, the jitter in
+  render pixels (clamped to 1), the pre-exposure (1: the scene is exposed before the stage; no exposure texture), the engine clock's
+  frame time in milliseconds, the camera's near and field of view, sharpening off, and the reset flag (first frame of a context, a cut,
+  a resize, a frame after a failure). The dispatch is recorded inside the native command section with every image declared (colour,
+  depth, motion and mask read, the output written). A failing call is reported with FidelityFX's code and last message, and the mode
+  is off for the run. Not checked by the tests (a fake library): that the real library accepts these resource states and draws the
+  right picture, which a D3D12 and a Vulkan run with the SDK on an AMD GPU and on another maker's show.
 - **The menu kit and the editor** list the three modes (DLSS, XeSS, FSR) greyed out with the reason where `render.supports` says no.
 
 ## Temporal antialiasing

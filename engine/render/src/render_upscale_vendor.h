@@ -124,6 +124,9 @@ public:
     // Whether the output image of a frame it draws needs storage usage (an SDK that writes it from a compute shader). Asked when the
     // renderer decides the frame's images, before upscale().
     virtual bool needs_output_storage() const { return false; }
+    // Whether the depth image it reads is the reversed depth of an infinite far plane (near / distance: 1 at the near plane, 0 for the sky;
+    // FSR's inverted and infinite flags) instead of the 0..1 depth that grows with the distance (d / (d + 1)) the other SDKs read.
+    virtual bool wants_reversed_depth() const { return false; }
     // Gives back what the provider made on `device` (a context of the SDK): the renderer calls it when it shuts down, before the device
     // goes. The provider is a process-wide singleton, so it is also called for a device that never drew with it (nothing to do then).
     virtual void release(gpu::Device& device) { (void)device; }
