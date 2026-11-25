@@ -104,6 +104,16 @@ Result<void> D3d12CommandList::open(const char* label) {
         }                                                                                                              \
     } while (false)
 
+// Writes and copies inside a native section: the engine's barriers and the SDK's commands would interleave on states
+// the section has declared, so the call is refused and skipped (the section stays open).
+#define FA_D3D12_REFUSE_IN_NATIVE(what)                                                                                \
+    do {                                                                                                               \
+        if (nativeOpen_) {                                                                                             \
+            fail(what, "a native section is open (hint: end_native() first; the call is skipped)");                    \
+            return;                                                                                                    \
+        }                                                                                                              \
+    } while (false)
+
 void D3d12CommandList::fail(const char* what, const std::string& error) {
     device_.report(std::string("gpu d3d12: CommandList::") + what + " in list '" + label_ + "': " + error);
 }
@@ -1134,6 +1144,7 @@ Result<void> D3d12CommandList::end_native(std::span<const NativeUse> leftIn) {
 
 void D3d12CommandList::write_buffer(const BufferWrite& w) {
     FA_D3D12_REQUIRE_OPEN("write_buffer");
+    FA_D3D12_REFUSE_IN_NATIVE("write_buffer");
     std::size_t bufferSize = 0;
     std::string label;
     std::shared_ptr<TrackedResource> t = device_.buffer_tracked(w.buffer, &bufferSize, &label);
@@ -1162,6 +1173,7 @@ void D3d12CommandList::write_buffer(const BufferWrite& w) {
 
 void D3d12CommandList::copy_buffer_to_buffer(const BufferCopy& c) {
     FA_D3D12_REQUIRE_OPEN("copy_buffer_to_buffer");
+    FA_D3D12_REFUSE_IN_NATIVE("copy_buffer_to_buffer");
     std::size_t srcSize = 0, dstSize = 0;
     std::string srcLabel, dstLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);
@@ -1318,6 +1330,7 @@ std::size_t region_bytes(const Region& r) {
 
 void D3d12CommandList::write_image(const ImageWrite& w) {
     FA_D3D12_REQUIRE_OPEN("write_image");
+    FA_D3D12_REFUSE_IN_NATIVE("write_image");
     D3d12Device::ImageRecord im;
     if (!device_.image_info(w.dst.image, im)) {
         device_.report("gpu d3d12: CommandList::write_image in list '" + label_ + "': image " +
@@ -1338,6 +1351,7 @@ void D3d12CommandList::write_image(const ImageWrite& w) {
 
 void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     FA_D3D12_REQUIRE_OPEN("copy_buffer_to_image");
+    FA_D3D12_REFUSE_IN_NATIVE("copy_buffer_to_image");
     std::size_t srcSize = 0;
     std::string srcLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);
