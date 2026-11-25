@@ -27,8 +27,8 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - `gpu/device.h` declares `Device` and `CommandList` (pure virtual), `DeviceInit`, `make_device(Backend, DeviceInit)`
   and `built_sokol_backend()` (the one sokol backend a binary has: sokol compiles one per build). `make_device` makes
   the built sokol backend, Recording, D3D12 (Windows; with the engine's pipeline cache file) and Vulkan (where
-  `FA_RENDER_VULKAN` is on, with the `DeviceInit` it was given and the engine's Vulkan pipeline cache file); `device_backend_compiled(b)` says which this binary can make,
-  and every other request is a teaching error that names the backend to ask for instead.
+  `FA_RENDER_VULKAN` is on, with the `DeviceInit` it was given and the engine's Vulkan pipeline cache file);
+  `device_backend_compiled(b)` says which this binary can make, and every other request is a teaching error that names the backend to ask for instead.
 - `gpu/sokol_device.h` holds `SokolDevice`, its immediate `SokolCommandList`, and the `to_sg` / `from_sg`
   conversions the call sites use while they move over.
 - M77-P1 (this page's first version) lands the interface and its implementations only: `Gpu` does not own a
