@@ -91,7 +91,7 @@ void Renderer::Impl::scaler_history_note(std::uint64_t config) {
 // velocity. A null `prepass` means every pixel is sky, a null `velocity` that no object wrote a motion. `histValid` says the camera of the frame
 // before can be reprojected. False when the two images cannot be made. The caller made sure mfxPrep is ready and the assets have their white image.
 bool Renderer::Impl::run_upscale_prep(const UpscaleInput& in, const PassContext& c, const Target* prepass,
-                                      const Target* velocity, bool histValid) {
+                                      const Target* velocity, bool histValid, float reversedNear) {
     if (!ensure_mfx_target(mfxDepth, "mfx-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH) ||
         !ensure_mfx_target(mfxMotion, "mfx-motion", gpu::PixelFormat::Rg16F, in.renderW, in.renderH))
         return false;
@@ -122,6 +122,8 @@ bool Renderer::Impl::run_upscale_prep(const UpscaleInput& in, const PassContext&
     for (int i = 0; i < 4; ++i) u.pa[i] = upscaleTaa.proj[i];
     for (int i = 0; i < 4; ++i) u.pb[i] = upscaleTaa.proj[4 + i];
     for (int i = 0; i < 16; ++i) u.m[i] = upscaleTaa.prevFromView.m[i];
+    u.d[0] = reversedNear > 0.0f ? 1.0f : 0.0f;
+    u.d[1] = reversedNear;
     list.set_uniforms(UB_upscale_mfx_mfx_params, gpu::Range{&u, sizeof(u)});
     list.draw(0, 3, 1);
     list.end_pass();

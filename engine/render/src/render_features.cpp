@@ -421,7 +421,8 @@ std::vector<FeatureDef> build_table() {
          "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
          nullptr},
         // The vendor upscalers of M78 (docs/UPSCALING.md): the answer is the provider's (render_upscale_vendor.h), asked of the device and the
-        // installed library; the table's backend columns have no D3D12 and Vulkan yet (feature_backend_of), so only the D3D11 column is set.
+        // installed library; the table's backend columns have no D3D12 and Vulkan, so only the D3D11 column is set here, and the report adds
+        // the "D3D12" and "Vulkan" keys of these rows from the provider's own backends (feature_report).
         {"dlss", "",
          "NVIDIA DLSS Super Resolution through Streamline (render.upscaler mode \"dlss\", also picked by \"auto\" on "
          "an NVIDIA GPU): "
@@ -447,8 +448,7 @@ std::vector<FeatureDef> build_table() {
          "AMD FidelityFX Super Resolution 3.1 (render.upscaler mode \"fsr\", also picked by \"auto\" on an AMD GPU): "
          "the jittered "
          "picture, the depth and the motion of the prepass, upscaled by AMD's temporal upscaler on any GPU. Windows on "
-         "D3D12 or Vulkan "
-         "(which have no column in this table yet), and the FidelityFX SDK installed (`factoria setup fidelityfx`). "
+         "D3D12 or Vulkan (never D3D11), and the FidelityFX SDK installed (`factoria setup fidelityfx`). "
          "Where it is missing "
          "the mode draws as \"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
          nullptr},
@@ -470,8 +470,8 @@ std::vector<FeatureDef> build_table() {
     for (const Planned& p : kLighting) {
         const std::string_view row = p.name;
         // metalfx: Metal only. dlss and xess: D3D11 is the one backend of this table they run on (their D3D12 and Vulkan runs are not a
-        // column of it yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); fsr runs on D3D12 and Vulkan only, so no
-        // column is set. The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
+        // column of it; XeSS on D3D11 needs an Intel GPU, which only the probe knows); fsr runs on D3D12 and Vulkan only, so no
+        // column of the table is set. The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
         const unsigned backends = row == "metalfx"                 ? bit(FeatureBackend::Metal)
                                   : row == "dlss" || row == "xess" ? bit(FeatureBackend::D3d11)
                                   : row == "fsr"                   ? 0u
@@ -693,6 +693,12 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         Json backends = Json::object();
         for (int b = 0; b < kFeatureBackendCount; ++b)
             backends[feature_backend_label(FeatureBackend(b))] = (f.backends & bit(FeatureBackend(b))) != 0;
+        // The vendor upscalers also run on D3D12 and Vulkan, which the table has no column for: the provider's own backends say.
+        if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
+            const unsigned runs = vendor_provider(vendor).backends();
+            backends["D3D12"] = (runs & (1u << unsigned(gpu::Backend::D3d12))) != 0;
+            backends["Vulkan"] = (runs & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
+        }
         row["backends"] = backends;
         list.push_back(row);
     }
