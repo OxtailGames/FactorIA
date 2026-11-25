@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "fa/core/log.h"
+#include "fa/core/sleep.h"
 
 namespace fa::render {
 
@@ -24,13 +25,15 @@ public:
         return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
     }
     void sleep_until_ms(double target) override {
-        // Most of the wait is a sleep (the system's timer is coarse: a sleep ends up to a millisecond or two late, and on a loaded machine
-        // more), the last two milliseconds are spent yielding so the frame starts on time. A wait never takes more than a quarter of a
-        // second: the targets are within one frame (a safety net far above any refresh interval).
+        // Most of the wait is a sleep (fa::sleep_precise: a high-resolution timer on Windows, whose plain sleep ends a whole 15 ms tick
+        // late; elsewhere it ends up to a millisecond or two late, and on a loaded machine more), the last two milliseconds are spent
+        // yielding so the frame starts on time. A wait never takes more than a quarter of a second: the targets are within one frame (a
+        // safety net far above any refresh interval).
         const double start = now_ms();
         const double end = std::min(target, start + 250.0);
         for (double left = end - now_ms(); left > 2.0; left = end - now_ms())
-            std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(left - 2.0));
+            sleep_precise(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::duration<double, std::milli>(left - 2.0)));
         while (now_ms() < end) std::this_thread::yield();
     }
 };
@@ -225,7 +228,8 @@ void LatencyController::apply() {
         s.failure = why;
         FA_WARN("render", "low latency: {} could not start: {}", p->name(), why);
     }
-    if (running_ && running_ != latency_provider(want)) stop_provider();  // the engine's own pacing (or none) runs: no SDK
+    if (running_ && running_ != latency_provider(want))
+        stop_provider();  // the engine's own pacing (or none) runs: no SDK
     driver_ = want;
     if (running_) running_->configure(true, settings_.boost, 0);
 }

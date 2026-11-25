@@ -36,9 +36,9 @@ namespace {
 
 class LDevice : public gpu::RecordingDevice {
 public:
-    LDevice(gpu::Backend backend, std::uint32_t pciVendor) : backend_(backend) {
+    LDevice(gpu::Backend deviceBackend, std::uint32_t pciVendor) : backend_(deviceBackend) {
         info_ = gpu::RecordingDevice::info();
-        info_.backend = backend;
+        info_.backend = deviceBackend;
         info_.gpu.vendorId = pciVendor;
         info_.gpu.vendor = gpu::gpu_vendor_from_pci(pciVendor);
     }
@@ -177,7 +177,8 @@ TEST_CASE("latency settings: names, parse, errors that teach") {
     REQUIRE(both.ok());
     CHECK(both.value() == LatencySettings{});
 
-    auto badMode = render::parse_latency_settings(Json::parse(R"({"mode":"antilag"})"), "factoria.json#/render/latency", base);
+    auto badMode =
+        render::parse_latency_settings(Json::parse(R"({"mode":"antilag"})"), "factoria.json#/render/latency", base);
     REQUIRE_FALSE(badMode.ok());
     const std::string text = badMode.error().to_string();
     CHECK(text.find("factoria.json#/render/latency/mode") != std::string::npos);
@@ -909,7 +910,7 @@ TEST_CASE("xell: context, sleep mode, sleep, markers, report") {
     p->sleep(7);
     CHECK(xlfx.sleeps == std::vector<std::uint32_t>{7});
     const std::pair<LatencyMarker, std::int32_t> order[] = {
-        {LatencyMarker::SimulationStart, 0}, {LatencyMarker::InputSample, 6},      {LatencyMarker::SimulationEnd, 1},
+        {LatencyMarker::SimulationStart, 0},   {LatencyMarker::InputSample, 6},     {LatencyMarker::SimulationEnd, 1},
         {LatencyMarker::RenderSubmitStart, 2}, {LatencyMarker::RenderSubmitEnd, 3}, {LatencyMarker::PresentStart, 4},
         {LatencyMarker::PresentEnd, 5}};
     for (const auto& o : order) p->marker(o.first, 7);
