@@ -348,6 +348,26 @@ TEST_CASE("setup action of a component: Install, Reinstall, Open App Store") {
     ds.state = "unsupported";
     CHECK_FALSE(setup_action_for_component(ds, st.home));
     CHECK(setup_what("directstorage", {}) == "the DirectStorage runtime");
+
+    // The vendor SDKs: a button on Windows (missing there) that opens the license dialog first (the install refuses without it).
+    SetupComponent sl;
+    sl.id = "streamline";
+    sl.state = "missing";
+    sl.canInstall = true;
+    sl.installSizeMb = 276;
+    auto slAction = setup_action_for_component(sl, st.home);
+    REQUIRE(slAction);
+    CHECK(slAction->label == "Install");
+    CHECK(slAction->component == "streamline");
+    CHECK(slAction->tooltip.find("license") != std::string::npos);
+    CHECK_FALSE(slAction->options(false).acceptLicenses);
+    CHECK(slAction->options(true).acceptLicenses);
+    sl.state = "unsupported";
+    CHECK_FALSE(setup_action_for_component(sl, st.home));
+    CHECK(setup_what("streamline", {}) == "NVIDIA Streamline");
+    CHECK(setup_what("xess", {}) == "Intel XeSS");
+    CHECK(setup_license_name("android") == "Android SDK");
+    CHECK(setup_license_name("fidelityfx") == setup_what("fidelityfx", {}));
 }
 
 TEST_CASE("setup action of an Export row: android needs its toolchain") {
@@ -669,7 +689,7 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK(st.home == w.home.string());
     REQUIRE(
         st.components.size() ==
-        11);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher and the DirectStorage DLLs (no editor button for the shader, web player and DirectStorage ones yet)
+        14);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher, the DirectStorage DLLs and the three vendor SDKs (Streamline, XeSS, FidelityFX; no editor button for the shader and web player ones yet)
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");
@@ -698,6 +718,39 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     cache.set(fake, 5000.0);
     CHECK(cache.status().home == "/home/factoria");
     CHECK_FALSE(cache.stale(5010.0, 20.0));
+}
+
+TEST_CASE("setup license: an installed vendor SDK (Reinstall) asks for its license text and reaches Ready") {
+    World w;
+    const SetupContext ctx = w.ctx("windows");
+    const VendorSdk* sdk = find_vendor_sdk("streamline");
+    REQUIRE(sdk != nullptr);
+    const stdfs::path dir = fs::path_from_utf8(vendor_sdk_install_dir(ctx, *sdk));
+    for (int i = 0; i < sdk->fileCount; ++i) put(dir / fs::path_from_utf8(vendor_sdk_file_name(sdk->files[i])), "x");
+    REQUIRE(setup_status(ctx, "streamline", false).find("streamline")->state == "installed");
+
+    // The worker asks for the text of an installed SDK too (this test serves none: the failure names the license).
+    SetupLicenseLoad load;
+    REQUIRE(load.start(ctx, "streamline"));
+    poll_until(load, [&] { return !load.loading(); });
+    CHECK(load.state() == SetupLicenseLoad::State::Failed);
+    CHECK(load.error().find(sdk->licenseUrl) != std::string::npos);
+    {
+        std::lock_guard<std::mutex> lock(w.mu);
+        CHECK(std::count(w.requested.begin(), w.requested.end(), std::string(sdk->licenseUrl)) == 1);
+    }
+
+    // The status the worker gets once the text is served: an installed SDK with its license is Ready, not Failed.
+    SetupStatus st;
+    SetupComponent c;
+    c.id = "streamline";
+    c.state = "installed";
+    c.licenses.push_back(SetupLicense{sdk->licenseId, sdk->licenseTitle, "Text"});
+    st.components.push_back(c);
+    load.apply(st);
+    CHECK(load.state() == SetupLicenseLoad::State::Ready);
+    REQUIRE(load.licenses().size() == 1);
+    CHECK(load.licenses()[0].text == "Text");
 }
 
 TEST_CASE("setup license: the text is loaded on a worker; accepted licenses need no dialog") {

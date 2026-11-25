@@ -147,10 +147,32 @@ SetupAction directstorage_action(const SetupComponent& c, const std::string& hom
     return a;
 }
 
+// `setup streamline | xess | fidelityfx`: shown on Windows only (elsewhere the component is "unsupported"). The license
+// dialog comes first, like the Android SDK's.
+SetupAction vendor_sdk_action(const SetupComponent& c, const VendorSdk& sdk, const std::string& home, bool reinstall) {
+    SetupAction a;
+    a.component = sdk.id;
+    a.key = sdk.id;
+    a.force = reinstall;
+    a.label = reinstall ? "Reinstall" : "Install";
+    a.tooltip = std::string(reinstall ? "Downloads it again: " : "Downloads ") + setup_what(sdk.id, {}) + " " +
+                sdk.version + " (SHA-256 checked) and keeps its x64 DLLs and license texts in " +
+                join_path(join_path(home, "tools"), sdk.id) +
+                ". You read and accept the vendor's license first. A Windows export whose project can use it "
+                "(export.pack.vendorSdks) copies the DLLs next to the game." +
+                size_sentence(c.installSizeMb);
+    return a;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Words
+
+std::string setup_license_name(const std::string& component) {
+    if (component == "android") return "Android SDK";
+    return setup_what(component, {});
+}
 
 const char* setup_state_label(const std::string& state) {
     if (state == "installed") return "Installed";
@@ -178,6 +200,11 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "vscode") return "the VS Code debugger";
     if (component == "launcher") return "the app launcher";
     if (component == "directstorage") return "the DirectStorage runtime";
+    if (const VendorSdk* sdk = find_vendor_sdk(component)) {
+        std::string title = sdk->title;  // "NVIDIA Streamline (DLSS, ...)" -> "NVIDIA Streamline"
+        if (const size_t paren = title.find(" ("); paren != std::string::npos) title.resize(paren);
+        return title;
+    }
     if (component != "players") return component;
     std::vector<std::string> desktops;
     bool mobile = false, web = false;
@@ -254,6 +281,7 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
     if (c.id == "vscode") return vscode_action(c, installed);
     if (c.id == "launcher") return launcher_action(c, installed);
     if (c.id == "directstorage") return directstorage_action(c, home, installed);
+    if (const VendorSdk* sdk = find_vendor_sdk(c.id)) return vendor_sdk_action(c, *sdk, home, installed);
     return std::nullopt;
 }
 
@@ -334,7 +362,8 @@ SetupOutcome run_setup(const SetupInstallOptions& options, const SetupContext& c
 std::string setup_summary(const SetupOutcome& o) {
     const std::string what = setup_what(o.options.component, o.options.platforms);
     if (o.cancelled) return "Set up " + what + " cancelled";
-    if (o.licenseRequired) return "Accept the Android SDK license to install " + what;
+    if (o.licenseRequired)
+        return "Accept the " + setup_license_name(o.options.component) + " license to install " + what;
     if (!o.ok) return "Set up " + what + " failed: " + o.error;
     if (o.options.component == "xcode")
         return o.report.nextSteps.empty() ? "Xcode is set up" : "Xcode: the next steps are in Set Up This Computer";
@@ -479,26 +508,41 @@ void SetupStatusCache::set(SetupStatus status, double now) {
     requestedAt_ = now;
 }
 
-bool SetupLicenseLoad::start(const SetupContext& context) {
+bool SetupLicenseLoad::start(const SetupContext& context, const std::string& component) {
     if (job_.running()) return false;
     licenses_.clear();
     error_.clear();
+    component_ = component;
     state_ = State::Loading;
-    return job_.start([context] { return setup_status(context, "android", true); });
+    return job_.start([context, component] { return setup_status(context, component, true); });
 }
 
 bool SetupLicenseLoad::poll() {
     std::optional<SetupStatus> done = job_.take();
     if (!done) return false;
-    const SetupComponent* android = done->find("android");
+    apply(*done);
+    return true;
+}
+
+void SetupLicenseLoad::apply(const SetupStatus& status) {
+    const SetupComponent* android = status.find(component_);
     licenses_.clear();
     error_.clear();
     if (!android) {
         state_ = State::Failed;
-        error_ = "The Android component is not known by this FactorIA.";
+        error_ = "The component '" + component_ + "' is not known by this FactorIA.";
     } else if (!android->licenses.empty()) {
         state_ = State::Ready;
         licenses_ = android->licenses;
+    } else if (component_ != "android") {
+        // A vendor SDK's license is accepted at every install: without its text there is nothing to agree to.
+        state_ = State::Failed;
+        for (const std::string& p : android->problems)
+            if (contains(p, "license")) {
+                error_ = p;
+                break;
+            }
+        if (error_.empty()) error_ = "The license text of " + setup_what(component_, {}) + " could not be fetched.";
     } else {
         // Not fetched (the licenses are accepted already) or not fetchable (the problem says why): only the second is a failure.
         const bool pending = std::any_of(android->problems.begin(), android->problems.end(), [](const std::string& p) {
@@ -515,7 +559,6 @@ bool SetupLicenseLoad::poll() {
                     "The license text could not be fetched. It is also at https://developer.android.com/studio/terms.";
         }
     }
-    return true;
 }
 
 void SetupLicenseLoad::reset() {

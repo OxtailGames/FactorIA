@@ -876,7 +876,8 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     }
     if (const Json* o =
             r.object_member(exp, "/export", "pack", "{\"codecs\": {\".json\": \"zstd\"}, \"useLoadOrder\": true}")) {
-        r.unknown_keys(*o, "/export/pack", names_of({"codec", "codecs", "directStorage", "useLoadOrder"}));
+        r.unknown_keys(*o, "/export/pack",
+                       names_of({"codec", "codecs", "directStorage", "useLoadOrder", "vendorSdks"}));
         if (auto b = o->find("useLoadOrder"); b != o->end() && !b->is_null()) {
             if (!b->is_boolean())
                 r.error("/export/pack/useLoadOrder", "expected true or false, got " + describe_json_value(*b),
@@ -893,6 +894,40 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                         "reads (gdeflate) and ship its DLLs, or remove the key (the default, false).");
             else
                 s.pack.directStorage = b->get<bool>();
+        }
+        if (auto v = o->find("vendorSdks"); v != o->end() && !v->is_null()) {
+            const std::string hint = "Write \"auto\" (the default: ship each installed SDK the project's render "
+                                     "settings can use), \"none\", or "
+                                     "an array of ids such as [\"streamline\", \"xess\"] (" +
+                                     join(vendor_sdk_ids(), ", ") + ") to ship exactly those.";
+            if (v->is_string()) {
+                const std::string mode = v->get<std::string>();
+                if (mode == "auto" || mode == "none")
+                    s.pack.vendorSdks = mode;
+                else
+                    r.error("/export/pack/vendorSdks", "unknown value \"" + mode + "\"",
+                            hint + did_you_mean(mode, std::vector<std::string>{"auto", "none"}));
+            } else if (v->is_array()) {
+                s.pack.vendorSdks = "list";
+                const std::vector<std::string> known = vendor_sdk_ids();
+                for (std::size_t i = 0; i < v->size(); ++i) {
+                    const std::string ptr = "/export/pack/vendorSdks/" + std::to_string(i);
+                    if (!(*v)[i].is_string()) {
+                        r.error(ptr, "expected a vendor SDK id, got " + describe_json_value((*v)[i]), hint);
+                        continue;
+                    }
+                    const std::string id = (*v)[i].get<std::string>();
+                    if (std::find(known.begin(), known.end(), id) == known.end())
+                        r.error(ptr, "unknown vendor SDK \"" + id + "\"", hint + did_you_mean(id, known));
+                    else if (std::find(s.pack.vendorSdkIds.begin(), s.pack.vendorSdkIds.end(), id) ==
+                             s.pack.vendorSdkIds.end())
+                        s.pack.vendorSdkIds.push_back(id);
+                }
+                if (s.pack.vendorSdkIds.empty()) s.pack.vendorSdks = "none";  // [] ships none
+            } else {
+                r.error("/export/pack/vendorSdks",
+                        "expected \"auto\", \"none\" or an array of ids, got " + describe_json_value(*v), hint);
+            }
         }
         if (auto c = o->find("codec"); c != o->end() && !c->is_null()) {
             static const std::array<std::string, 4> kChoices{"auto", "lz4", "zstd", "gdeflate"};

@@ -85,14 +85,15 @@ void Editor::request_setup(const SetupAction& action) {
         return;
     }
     setupPending_ = action;
-    if (action.component == "android") {
-        // The Android SDK license is Google's agreement with the user: it is shown, in full, before anything is downloaded.
+    if (action.component == "android" || find_vendor_sdk(action.component)) {
+        // The Android SDK license is Google's agreement with the user, a vendor SDK's NVIDIA's, Intel's or AMD's: it is
+        // shown, in full, before anything is downloaded.
         setupLicenseOpen_ = true;
         setupLicenseRequest_ = true;
         setupLicenseTick_ = false;
-        if (setupLicense_.state() != SetupLicenseLoad::State::Ready) {
+        if (setupLicense_.state() != SetupLicenseLoad::State::Ready || setupLicense_.component() != action.component) {
             setupLicense_.reset();
-            setupLicense_.start(make_setup_context());
+            setupLicense_.start(make_setup_context(), action.component);
         }
         return;
     }
@@ -126,13 +127,14 @@ void Editor::poll_setup() {
         const int level =
             done->ok ? (done->report.warnings.empty() ? 0 : 1) : (done->cancelled || done->licenseRequired ? 1 : 2);
         notify(setup_summary(*done), level);
-        if (done->licenseRequired && done->options.component == "android") {
+        if (done->licenseRequired &&
+            (done->options.component == "android" || find_vendor_sdk(done->options.component))) {
             // The install refused: the license was not accepted (it changed, or the status was stale). Ask again.
             setupLicenseOpen_ = true;
             setupLicenseRequest_ = true;
             setupLicenseTick_ = false;
             setupLicense_.reset();
-            setupLicense_.start(make_setup_context());
+            setupLicense_.start(make_setup_context(), done->options.component);
         }
         const bool changed = done->ok && !done->report.steps.empty();
         setupLast_ = std::move(done);
@@ -329,8 +331,9 @@ void Editor::draw_setup_window() {
         } else if (o.cancelled) {
             wrapped(kWarn, "Setup of " + what + " cancelled. Nothing was installed by it.");
         } else if (o.licenseRequired) {
-            wrapped(kWarn, "The Android SDK license has to be accepted before anything is downloaded. Press Install "
-                           "again to read it.");
+            wrapped(kWarn,
+                    "The " + setup_license_name(o.options.component) +
+                        " license has to be accepted before anything is downloaded. Press Install again to read it.");
         } else {
             wrapped(kFailed, "Setup of " + what + " failed: " + o.error);
             if (!o.hint.empty()) note("How to fix it: " + o.hint);
@@ -349,10 +352,12 @@ void Editor::draw_setup_window() {
     ImGui::End();
 }
 
-// ---- the Android SDK license ----------------------------------------------------------------------------------------
+// ---- the license of the Android SDK or a vendor SDK -----------------------------------------------------------------
 
 void Editor::draw_setup_license_dialog() {
-    constexpr const char* kPopup = "Android SDK license###SetupLicense";
+    const std::string licenseName = setup_license_name(setupPending_.component);
+    const std::string popupTitle = licenseName + " license###SetupLicense";  // the id is what follows ###
+    const char* kPopup = popupTitle.c_str();
     if (setupLicenseRequest_) {
         ImGui::OpenPopup(kPopup);
         setupLicenseRequest_ = false;
@@ -370,16 +375,24 @@ void Editor::draw_setup_license_dialog() {
     using State = SetupLicenseLoad::State;
     const State state = setupLicense_.state();
     ImGui::PushTextWrapPos(0);
-    note("Installing the Android build tools downloads Google's Android SDK, which comes with a license agreement "
-         "between you and Google. "
-         "Read it, and accept it to continue. FactorIA never accepts it for you, and nothing is downloaded before you "
-         "do.");
+    if (setupPending_.component == "android")
+        note("Installing the Android build tools downloads Google's Android SDK, which comes with a license agreement "
+             "between you and Google. "
+             "Read it, and accept it to continue. FactorIA never accepts it for you, and nothing is downloaded before "
+             "you "
+             "do.");
+    else
+        note("Installing " + licenseName +
+             " downloads the vendor's SDK, which comes with a license agreement between you and "
+             "the vendor; what it asks of your game is at the top of the text. Read it, and accept it to continue. "
+             "FactorIA "
+             "never accepts it for you, and nothing is downloaded before you do.");
     ImGui::Spacing();
 
     const float footerH = ImGui::GetFrameHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y * 3;
     if (state == State::Ready && !setupLicense_.licenses().empty()) {
         const SetupLicense& lic = setupLicense_.licenses().front();
-        ImGui::TextUnformatted(lic.title.empty() ? "Android SDK license" : lic.title.c_str());
+        ImGui::TextUnformatted(lic.title.empty() ? (licenseName + " license").c_str() : lic.title.c_str());
         // The full text in a box of its own, read-only, scrolling.
         if (ImGui::BeginChild("##licensetext", ImVec2(0, -footerH), ImGuiChildFlags_Borders)) {
             ImGui::PushTextWrapPos(0);
@@ -404,7 +417,7 @@ void Editor::draw_setup_license_dialog() {
         wrapped(kFailed, setupLicense_.error());
         if (ImGui::Button("Try again")) {
             setupLicense_.reset();
-            setupLicense_.start(make_setup_context());
+            setupLicense_.start(make_setup_context(), setupPending_.component);
         }
         at_track("setup:license-retry");
         ImGui::Dummy(ImVec2(0, std::max(0.0f, ImGui::GetContentRegionAvail().y - footerH)));
@@ -435,7 +448,7 @@ void Editor::draw_setup_license_dialog() {
         setupLicense_.reset();
         setupLicenseTick_ = false;
         ImGui::CloseCurrentPopup();
-        notify("The Android build tools were not installed: the license was declined.", 1);
+        notify("Nothing was installed: the " + licenseName + " license was declined.", 1);
     }
     at_track("setup:license-decline");
     ImGui::SameLine();

@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+- **Vendor SDKs for upscaling, frame generation and low latency (M78):** `factoria setup streamline`, `setup xess` and `setup fidelityfx`
+  download the redistributable x64 DLLs of NVIDIA Streamline (DLSS, DLSS Frame Generation, Reflex), Intel XeSS (with XeLL) and the
+  AMD FidelityFX SDK (FSR) when you ask, pinned by SHA-256, into `~/.factoria/tools/<id>/<version>/` (older versions are removed;
+  nothing of them is committed to the repository or bundled). Each shows the vendor's license first and installs only after you accept
+  it (`--accept-licenses`, the terminal's `[y/N]`, the editor's license dialog; without it `setup.install` fails with
+  `license_required`). A Windows export copies the installed SDKs the project can use next to the game, with their license texts in
+  `licenses/<id>/`, as the new `export.pack.vendorSdks` says (`"auto"` by default, `"none"`, or a list of ids; a listed SDK that is
+  not installed fails the export naming `factoria setup <id>`). The export's next steps repeat NVIDIA's obligations (notify NVIDIA before
+  a commercial release, credits). EXPORTING_SETUP.md, "Vendor SDK licences".
+
 ## 0.37.0
 
 Modern GPU backends (M77): the engine has its own D3D12 and Vulkan devices next to the sokol ones. A game picks its backend with `render.backend` (`auto`, `d3d11`, `d3d12`, `vulkan`, `metal`, `gl`, `gles3`), `FA_GPU_BACKEND` or the `graphics.backend` command, and the game window draws on D3D12 (Windows) and Vulkan (Windows, Linux, Android) with a fallback to the platform's backend in the same process when the asked one cannot start; Linux and Android also ship a Vulkan player that hands the game to the OpenGL player when Vulkan is missing. Both backends run graphics, async compute and copy queues, record the shadow views on several threads, keep their pipeline caches on disk and measure GPU time; the shader tool emits SPIR-V for Vulkan, and on Windows DirectStorage reads GDeflate blocks of `game.pak` straight into D3D12 buffers and textures. The entries below list them.
