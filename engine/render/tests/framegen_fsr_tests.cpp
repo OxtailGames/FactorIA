@@ -1727,6 +1727,10 @@ TEST_CASE(
     bool answered = false;
     std::thread present;
     bool fired = false;
+    // The Rig ends last and waits for the presents again: the hook goes before the locals it reads (ASan: stack-use-after-scope).
+    struct ClearWait {
+        ~ClearWait() { fk.onWait = nullptr; }
+    } clearWait;
     fk.onWait = [&] {
         if (fired) return;  // the first wait only
         fired = true;
