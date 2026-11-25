@@ -149,10 +149,39 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
         CHECK(qroot[1] + qroot[3] <= 720.0f);
         CHECK(qend[1] + qend[3] <= 720.0f);
     }
-    REQUIRE(eval("world.find('quality_section').active = false; world.find('graphics_section').active = true; "
+    // The third page: the low-latency rows (one mode with a boost switch on, the others greyed out), in each language.
+    REQUIRE(eval("world.find('quality_section').active = false; world.find('latency_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
-                 "m.overrideRenderSupports(null); f.window.upscaler = { mode: 'stretch' }; return 1; })")["ok"] ==
-            true);
+                 "m.overrideRenderSupports((x) => x === 'xell'); m.setLatency({ mode: 'xell', boost: true }); "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    for (const char* lang : {"en", "es", "ar"}) {
+        INFO("low latency page, language " << lang);
+        REQUIRE(set_language(lang)["ok"] == true);
+        engine.step(5);
+        const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+        REQUIRE(st["ok"] == true);
+        const std::vector<float> lbox = rect_of(st, "latency_section"), lnote = rect_of(st, "latency_note"),
+                                 lback = rect_of(st, "gfx_latency_back"), lboost = rect_of(st, "gfx_latency_boost"),
+                                 lroot = rect_of(st, "options");
+        for (const char* id : {"gfx_latency_label", "gfx_latency_off", "gfx_latency_auto", "gfx_latency_reflex",
+                               "gfx_latency_antilag2", "gfx_latency_xell", "gfx_latency_boost"}) {
+            CAPTURE(id);
+            const std::vector<float> r = rect_of(st, id);
+            CHECK(r[0] >= lbox[0] - 0.5f);
+            CHECK(r[0] + r[2] <= lbox[0] + lbox[2] + 0.5f);
+            CHECK(r[1] + r[3] <= lbox[1] + lbox[3] + 0.5f);
+        }
+        CHECK(lboost[1] + lboost[3] <= lnote[1] + 0.5f);
+        CHECK(lnote[1] + lnote[3] <= lback[1] + 0.5f);
+        CHECK(lback[1] + lback[3] <= lbox[1] + lbox[3] + 0.5f);
+        CHECK(lroot[1] >= 0.0f);
+        CHECK(lroot[1] + lroot[3] <= 720.0f);
+    }
+    REQUIRE(eval("world.find('latency_section').active = false; world.find('graphics_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(null); m.setLatency({ mode: 'off', boost: false }); "
+                 "f.window.upscaler = { mode: 'stretch' }; return 1; })")["ok"] == true);
     REQUIRE(set_language("ar")["ok"] == true);
     engine.step(5);
     // Back to the Video tab, which the golden shows.

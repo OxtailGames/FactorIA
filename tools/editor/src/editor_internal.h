@@ -749,8 +749,8 @@ public:
     bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
     bool showSceneSettings_ = false;
 
-    // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset and
-    // render.upscaler {mode, quality, sharpness} in factoria.json, a working copy with Save and Revert, checked by the
+    // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset,
+    // render.upscaler {mode, quality, sharpness}, render.dynamicResolution and render.latency {mode, boost} in factoria.json, a working copy with Save and Revert, checked by the
     // engine's own parsers (fa/tooling/graphics_settings.h). The autotest drives the same functions and widgets.
     void draw_graphics_settings_panel();
     void graphics_settings_reload();                            // reads factoria.json again (opening, Revert)
@@ -759,6 +759,11 @@ public:
     GraphicsSettings graphicsWork_, graphicsSaved_;
     std::string graphicsDir_;  // the project the working copy was read for
     std::string graphicsLoadError_, graphicsMessage_;
+    // The low-latency group: the renderer's render.supports table (read again every 3 s; the autotest sets it with a future graphicsSupportAt_ to
+    // fix what is usable) and the line the group last showed for the chosen mode.
+    Json graphicsSupport_;
+    double graphicsSupportAt_ = 0.0;
+    std::string graphicsLatencyLine_;
 
     // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
     // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a

@@ -1,7 +1,7 @@
-// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler and dynamic resolution, the keys
-// `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness} and `render.dynamicResolution` {enabled, targetMs,
-// minScale, maxScale} of factoria.json (M76, docs/UPSCALING.md). It
-// edits a working copy: Save writes only those three keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
+// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler, dynamic resolution and low latency, the
+// keys `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness}, `render.dynamicResolution` {enabled, targetMs,
+// minScale, maxScale} (M76, docs/UPSCALING.md) and `render.latency` {mode, boost} (M78, docs/LATENCY.md) of factoria.json. It
+// edits a working copy: Save writes only those four keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
@@ -17,6 +17,17 @@ namespace {
 
 void gfx_tip(const char* text) {
     if (!ImGui::BeginItemTooltip()) return;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+// The tooltip of a widget that may be disabled (BeginItemTooltip stays silent on a disabled item).
+void gfx_tip_always(const char* text) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip) ||
+        !ImGui::BeginTooltip())
+        return;
     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
     ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
@@ -41,6 +52,96 @@ bool gfx_combo(const char* label, std::string& value, const std::vector<std::str
     }
     gfx_tip(tip);
     return changed;
+}
+
+// What the renderer says of one low-latency mode (the rows reflex, antilag2 and xell of render.supports): usable here, or the reason
+// it is not. off and auto are always usable (auto falls back to the engine's own pacing). Without a report (no renderer to ask) the
+// SDK modes are not usable, with that as the reason; a report without the row (an older engine) leaves the mode usable.
+struct LatencyRow {
+    bool usable = true;
+    std::string why;
+};
+
+LatencyRow latency_row(const Json& report, const std::string& mode) {
+    LatencyRow r;
+    if (mode == "off" || mode == "auto") return r;
+    const auto features = report.is_object() ? report.find("features") : report.end();
+    if (features == report.end() || !features->is_array()) {
+        r.usable = false;
+        r.why = "The editor has no GPU to ask whether this mode can run here.";
+        return r;
+    }
+    for (const Json& f : *features) {
+        if (!f.is_object() || f.value("name", std::string()) != mode) continue;
+        r.usable = f.value("supported", false);
+        if (!r.usable) r.why = f.value("status", std::string("not available here"));
+        return r;
+    }
+    return r;
+}
+
+// The line under the latency mode: what the chosen mode does on this machine (from the renderer's own table).
+std::string latency_line(const std::string& mode, const Json& report) {
+    if (mode == "off") return "Off: the loop is the one of a game without this setting; nothing is paced.";
+    if (mode == "auto") {
+        std::string usable;
+        for (const char* sdk : {"reflex", "antilag2", "xell"})
+            if (latency_row(report, sdk).usable) usable += (usable.empty() ? "" : ", ") + std::string(sdk);
+        if (usable.empty())
+            return "Auto: no vendor SDK can run on this machine, so a run uses the engine's own pacing (a game window, "
+                   "vsync on).";
+        return "Auto: the SDK of the GPU's maker when it can run (usable on this machine: " + usable +
+               "), else the engine's own pacing.";
+    }
+    const LatencyRow row = latency_row(report, mode);
+    if (row.usable) return "Usable on this machine: a run of the game uses " + mode + ".";
+    return "Not usable on this machine: " + row.why + " A run of the game uses the engine's own pacing instead.";
+}
+
+// The "Low latency" group (render.latency, docs/LATENCY.md): the mode combo with each mode the renderer cannot run greyed out and its
+// reason as the tooltip, the boost checkbox for the modes that have one, and the line that says what the mode does here. It edits `g`
+// only; `support` is the renderer's render.supports report. Returns that line (the autotest reads it).
+std::string draw_latency_group(GraphicsSettings& g, const Json& support,
+                               const std::function<void(const std::string&, bool)>& track,
+                               const std::function<void(const char*)>& show_problem) {
+    ImGui::SeparatorText("Low latency");
+    const bool open = ImGui::BeginCombo("Mode##latency", g.latencyMode.c_str());
+    track("gfx:latMode", true);
+    if (open) {
+        for (const std::string& m : latency_modes()) {
+            const LatencyRow row = latency_row(support, m);
+            ImGui::BeginDisabled(!row.usable);
+            if (ImGui::Selectable(m.c_str(), m == g.latencyMode)) {
+                g.latencyMode = m;
+                if (!latency_mode_has_boost(m)) g.latencyBoost = false;  // a switch the mode does not have is not kept
+            }
+            ImGui::EndDisabled();
+            track("gfx:latMode:" + m, row.usable);
+            if (!row.usable) gfx_tip_always(row.why.c_str());
+        }
+        ImGui::EndCombo();
+    }
+    gfx_tip(
+        "render.latency.mode. off (the default) paces nothing. auto takes the SDK of the GPU's maker when it can run "
+        "(AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex), else the engine's own pacing. reflex, antilag2 and xell name "
+        "one SDK; a mode this machine cannot run is greyed out (hover it for the reason) and a run falls back to "
+        "the engine's own pacing. Only a run of the game paces: the editor's own viewport never does.");
+    show_problem("/render/latency/mode");
+    const bool hasBoost = latency_mode_has_boost(g.latencyMode);
+    ImGui::BeginDisabled(!hasBoost);
+    ImGui::Checkbox("Boost", &g.latencyBoost);
+    track("gfx:latBoost", hasBoost);
+    ImGui::EndDisabled();
+    gfx_tip("render.latency.boost. Keeps the GPU clocks up while the game waits, for less latency at more power "
+            "(Reflex and "
+            "XeLL). Anti-Lag 2, the engine's own pacing and off have no such switch, so it is greyed out for them.");
+    show_problem("/render/latency/boost");
+    const std::string line = latency_line(g.latencyMode, support);
+    const bool warn = g.latencyMode != "off" && g.latencyMode != "auto" && !latency_row(support, g.latencyMode).usable;
+    ImGui::PushStyleColor(ImGuiCol_Text, warn ? kStatusWarn : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", line.c_str());
+    ImGui::PopStyleColor();
+    return line;
 }
 
 }  // namespace
@@ -87,9 +188,9 @@ void Editor::draw_graphics_settings_panel() {
     }
     if (graphicsDir_ != projectDir_) graphics_settings_reload();
     ImGui::TextWrapped(
-        "The preset, the upscaler and the dynamic resolution a run of this game starts with (factoria.json: "
-        "render.graphicsPreset, render.upscaler and render.dynamicResolution). A game can let the player change them "
-        "at run time (the menu kit's Graphics tab).");
+        "The preset, the upscaler, the dynamic resolution and the low-latency mode a run of this game starts with "
+        "(factoria.json: render.graphicsPreset, render.upscaler, render.dynamicResolution and render.latency). A game "
+        "can let the player change them at run time (the menu kit's Graphics tab).");
     draw_play_banner(*this);
     if (!graphicsLoadError_.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
@@ -181,6 +282,15 @@ void Editor::draw_graphics_settings_panel() {
     gfx_tip("render.dynamicResolution.maxScale, 0.25 to 1. The largest share, and where the controller starts.");
     show_problem("/render/dynamicResolution/maxScale");
     ImGui::EndDisabled();
+
+    if (graphicsSupport_.is_null() || time_ - graphicsSupportAt_ > 3.0) {
+        // The renderer's own table (what render.supports answers), not a command call: nothing is logged every few seconds.
+        const Renderer* r = engine_->renderer();
+        graphicsSupport_ = r ? r->supports_report() : Json::object();
+        graphicsSupportAt_ = time_;
+    }
+    graphicsLatencyLine_ = draw_latency_group(
+        g, graphicsSupport_, [this](const std::string& id, bool enabled) { at_track(id, enabled); }, show_problem);
     ImGui::EndChild();
 
     ImGui::Separator();
@@ -197,7 +307,8 @@ void Editor::draw_graphics_settings_panel() {
     if (ImGui::Button("Save", ImVec2(110, 0))) graphics_settings_save();
     ImGui::EndDisabled();
     at_track("gfx:save", canSave);
-    gfx_tip("Writes render.graphicsPreset, render.upscaler and render.dynamicResolution of factoria.json; nothing else "
+    gfx_tip("Writes render.graphicsPreset, render.upscaler, render.dynamicResolution and render.latency of "
+            "factoria.json; nothing else "
             "in the file changes. "
             "Settings at their default are removed from the file.");
     ImGui::SameLine();

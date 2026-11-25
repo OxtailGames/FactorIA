@@ -87,6 +87,7 @@ export default class Options extends Behaviour {
       world.find(`tab_${tab}`).get("Button").color = tab === name ? TAB_SELECTED : TAB_COLOR;
     }
     world.find("quality_section").active = false; // the Graphics tab always opens on its first page
+    world.find("latency_section").active = false;
   }
 
   // ------------------------------------------------------------------------------------------------------------ video
@@ -273,15 +274,24 @@ export default class Options extends Behaviour {
    * the render scale (window.renderScale). Every choice is applied at once and saved in settings.graphics (scripts/settings.js).
    * The preset drives the "Effects quality" row: picking a preset sets that quality and clears the effect switches and the upscaler keys the player
    * set, so the rows always show what the preset does; a row touched afterwards is the player's own fine adjustment and wins over the preset.
+   * The "Low latency" rows are the third page (latency_section, opened by gfx_latency_page; render.latency, docs/LATENCY.md): gfx_latency_<mode> picks off, auto, reflex, antilag2 or xell (a mode this machine cannot run is greyed
+   * out and named in the note, like an upscaler mode), gfx_latency_boost is the boost switch of the modes that have one; saved in settings.graphics.latency.
    * gfx_dynamic (in gfx_dynamic_slot) cycles the dynamic resolution: off, 30 fps, 60 fps, the display's refresh (window.dynamicResolution); an old save has none
    * (null) and the row shows what the game set.
    */
   setupQuality() {
     const g = this.s.graphics;
-    ui.on("click", "gfx_page", () => this.showGraphicsPage(true));
-    ui.on("click", "gfx_page_back", () => this.showGraphicsPage(false));
+    ui.on("click", "gfx_page", () => this.showGraphicsPage("quality"));
+    ui.on("click", "gfx_page_back", () => this.showGraphicsPage("effects"));
+    ui.on("click", "gfx_latency_page", () => this.showGraphicsPage("latency"));
+    ui.on("click", "gfx_latency_back", () => this.showGraphicsPage("quality"));
     for (const name of settings.GRAPHICS_PRESETS) ui.on("click", `gfx_preset_${name}`, () => this.choosePreset(name));
     for (const mode of settings.UPSCALER_MODES) ui.on("click", `gfx_mode_${mode}`, () => this.chooseUpscaler({ mode }));
+    for (const mode of settings.LATENCY_MODES) ui.on("click", `gfx_latency_${mode}`, () => this.chooseLatency({ mode }));
+    ui.on("change", "gfx_latency_boost", (e) => {
+      if (this.syncing || e.value === settings.latencyState().boost) return;
+      this.chooseLatency({ boost: e.value });
+    });
     ui.on("click", "gfx_uq", () => {
       const all = settings.UPSCALER_QUALITIES;
       this.chooseUpscaler({ quality: all[(all.indexOf(window.upscaler.quality) + 1) % all.length] });
@@ -305,12 +315,13 @@ export default class Options extends Behaviour {
     });
   }
 
-  /** Shows the first (effects) or the second (preset and upscaling) page of the Graphics tab, with the focus on the page's first row. */
-  showGraphicsPage(quality) {
-    world.find("graphics_section").active = !quality;
-    world.find("quality_section").active = quality;
-    if (quality) this.refreshQuality();
-    ui.focus(world.find(quality ? "gfx_preset_auto" : "gfx_page"));
+  /** Shows a page of the Graphics tab ("effects", "quality" for preset and upscaling, "latency"), with the focus on the page's first row. */
+  showGraphicsPage(page) {
+    world.find("graphics_section").active = page === "effects";
+    world.find("quality_section").active = page === "quality";
+    world.find("latency_section").active = page === "latency";
+    if (page !== "effects") this.refreshQuality();
+    ui.focus(world.find({ effects: "gfx_page", quality: "gfx_preset_auto", latency: "gfx_latency_auto" }[page]));
   }
 
   /** Runs `change` (an engine call), saves and shows the result; a call the engine refuses is logged and the page shows what is in force. */
@@ -353,6 +364,13 @@ export default class Options extends Behaviour {
     this.applyQuality(() => (window.upscaler = keys));
   }
 
+  /** A low-latency mode or its boost: it applies at once and is saved. A mode with no boost switch drops the boost. */
+  chooseLatency(keys) {
+    const chosen = keys.mode !== undefined && !settings.latencyHasBoost(keys.mode) ? { ...keys, boost: false } : keys;
+    Object.assign(this.s.graphics.latency, chosen);
+    this.applyQuality(() => settings.setLatency(chosen));
+  }
+
   /** What the page shows: the preset and the upscaler in force, the modes this GPU cannot draw greyed out, and the notes that say why. */
   refreshQuality() {
     const g = this.s.graphics;
@@ -385,6 +403,24 @@ export default class Options extends Behaviour {
         const reason = t(`options.gfx.unsup.${name}`);
         reasons.set(reason, [...(reasons.get(reason) ?? []), t(`options.gfx.um.${name}`)]);
       }
+      const lat = settings.latencyState();
+      const latReasons = new Map(); // the same, for the low-latency modes (their own page)
+      world.find("gfx_latency_label").get("Text").text = t("options.gfx.latLabel", {
+        mode: lat.mode === "off" || lat.driver === lat.mode ? t(`options.gfx.latm.${lat.mode}`) : t("options.gfx.latDrawn", { mode: t(`options.gfx.latm.${lat.mode}`), drawn: t(`options.gfx.latd.${lat.driver}`) }),
+      });
+      for (const name of settings.LATENCY_MODES) {
+        const ok = settings.latencyModeSupported(name);
+        const widget = world.find(`gfx_latency_${name}`).get("Button");
+        widget.interactable = ok;
+        widget.text = t(`options.gfx.latm.${name}`);
+        mark(`gfx_latency_${name}`, name === lat.mode);
+        if (ok) continue;
+        const reason = t(`options.gfx.latunsup.${name}`);
+        latReasons.set(reason, [...(latReasons.get(reason) ?? []), t(`options.gfx.latm.${name}`)]);
+      }
+      const boost = world.find("gfx_latency_boost");
+      boost.active = settings.latencyHasBoost(lat.mode);
+      boost.get("Toggle").value = lat.boost;
       const unsupported = [...reasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
       world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");
@@ -399,6 +435,10 @@ export default class Options extends Behaviour {
       const shownSharpness = round2(up.sharpness); // the engine keeps a float: the slider and its label show hundredths
       if (Math.abs(sharpness.value - shownSharpness) > 0.004) sharpness.value = shownSharpness;
       sharpness.label = t("options.gfx.sharpness", { percent: Math.round(shownSharpness * 100) });
+      const latUnsupported = [...latReasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
+      const latNote = world.find("latency_note");
+      latNote.active = latUnsupported.length > 0;
+      latNote.get("Text").text = latUnsupported.length ? t("options.gfx.unsupNote", { modes: latUnsupported.join("; ") }) : "";
       const lines = [];
       if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join("; ") }));
       if (up.effectiveMode === "stretch" && up.mode !== "stretch") lines.push(t("options.gfx.stretchNote"));

@@ -8,6 +8,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/dynamic_resolution.h"
 #include "fa/render/graphics_preset.h"
+#include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 #include "fa/tooling/json_patch.h"
 
@@ -31,6 +32,13 @@ Json upscaler_json(const GraphicsSettings& s) {
 
 Json dynamic_json(const GraphicsSettings& s) { return render::dynamic_resolution_to_json(s.dynamic); }
 
+Json latency_json(const GraphicsSettings& s) {
+    Json j = Json::object();
+    j["mode"] = s.latencyMode;
+    j["boost"] = s.latencyBoost;
+    return j;
+}
+
 }  // namespace
 
 const std::vector<std::string>& graphics_presets() {
@@ -41,6 +49,11 @@ const std::vector<std::string>& upscaler_modes() {
     static const std::vector<std::string> v(render::kUpscalerModeNames.begin(), render::kUpscalerModeNames.end());
     return v;
 }
+const std::vector<std::string>& latency_modes() {
+    static const std::vector<std::string> v(render::kLatencyModeNames.begin(), render::kLatencyModeNames.end());
+    return v;
+}
+bool latency_mode_has_boost(const std::string& mode) { return mode == "auto" || mode == "reflex" || mode == "xell"; }
 const std::vector<std::string>& upscaler_qualities() {
     static const std::vector<std::string> v(render::kUpscalerQualityNames.begin(), render::kUpscalerQualityNames.end());
     return v;
@@ -80,6 +93,13 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
     if (!rangeBad) {
         auto r = render::parse_dynamic_resolution_settings(dyn, where, {});
         if (!r.ok()) out.push_back({"/render/dynamicResolution/minScale", r.error().message + " " + r.error().hint});
+    }
+    // The low-latency setting, one key at a time like the upscaler.
+    for (const char* key : {"mode", "boost"}) {
+        Json one = Json::object();
+        one[key] = latency_json(s)[key];
+        auto r = render::parse_latency_settings(one, std::string(kFile) + "#/render/latency", {});
+        if (!r.ok()) out.push_back({std::string("/render/latency/") + key, r.error().message + " " + r.error().hint});
     }
     return out;
 }
@@ -123,6 +143,12 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
             s.dynamic.targetMs = std::round(s.dynamic.targetMs * 10.0) / 10.0;
         }
     }
+    if (auto lat = render->find("latency"); lat != render->end() && !lat->is_null()) {
+        auto parsed = render::parse_latency_settings(*lat, file + "#/render/latency", {});
+        if (!parsed.ok()) return parsed.error();
+        s.latencyMode = std::string(render::latency_mode_name(parsed->mode));
+        s.latencyBoost = parsed->boost;
+    }
     return s;
 }
 
@@ -146,9 +172,9 @@ struct KeyOp {
 };
 
 // Patches the keys `ops` name into <projectDir>/factoria.json (the others, the order and the formatting stay) and
-// answers whether the file changed. `preset`, `upscaler` and `dynamic` are the three keys of `render`.
+// answers whether the file changed. `preset`, `upscaler`, `dynamic` and `latency` are the four keys of `render`.
 Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& preset, const KeyOp& upscaler,
-                               const KeyOp& dynamic) {
+                               const KeyOp& dynamic, const KeyOp& latency) {
     const std::string path = project_file_path(projectDir);
     // The raw bytes, so a UTF-8 BOM the file starts with is written back (read_text drops it).
     auto bytes = fs::read_bytes(path);
@@ -182,6 +208,7 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
     apply("upscaler", upscaler);
     apply("graphicsPreset", preset);
     apply("dynamicResolution", dynamic);
+    apply("latency", latency);
     if (render.empty()) {
         // Would `render` be empty afterwards? Then the key goes too.
         if (hasRender) ops.push_back({{"render"}, std::nullopt});
@@ -194,6 +221,7 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
         push("upscaler", upscaler);
         push("graphicsPreset", preset);
         push("dynamicResolution", dynamic);
+        push("latency", latency);
     }
     auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();
@@ -219,9 +247,10 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
                           "Fix the field before saving; nothing was written.");
     const GraphicsSettings def;
     const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
-    auto r = patch_render_keys(projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
-                               set_or_remove(upscalerDefault, upscaler_json(s)),
-                               set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)));
+    auto r = patch_render_keys(
+        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
+        set_or_remove(upscalerDefault, upscaler_json(s)), set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)),
+        set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s)));
     if (!r.ok()) return r.error();
     return {};
 }
@@ -232,22 +261,26 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
     info.category = "project";
     info.readOnly = false;
     info.summary =
-        "Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in "
-        "factoria.json.";
+        "Reads or writes the graphics preset, the upscaler, the dynamic resolution and the low-latency mode a game "
+        "starts with, in factoria.json.";
     info.description =
-        "Edits the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of factoria.json "
-        "(docs/UPSCALING.md, \"Graphics presets\"): the settings the run starts with, the ones the editor's View > "
+        "Edits the keys `render.graphicsPreset`, `render.upscaler`, `render.dynamicResolution` and `render.latency` of "
+        "factoria.json (docs/UPSCALING.md, \"Graphics presets\"; docs/LATENCY.md): the settings the run starts with, "
+        "the ones the editor's View > "
         "Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, "
         "ultra "
         "or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, "
-        "maxScale}: the keys you give replace those of the file, the others stay. A value at its default removes its "
-        "key (a `render` object left empty is removed), and every other key and the formatting of the file stay as "
+        "maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or xell): the keys you give replace "
+        "those of the file, the others stay. A value at its default removes its key (a `render` object left empty is "
+        "removed), and every other key and the formatting of the file stay as "
         "they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON "
         "pointer and a \"did you mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
         "{\"upscaler\":{\"mode\":\"auto\",\"quality\":\"balanced\"}}." FA_COMMAND_DETAILS
-        "It does not change a running game: graphics.preset, render.upscaler and render.dynamic_resolution do that, "
+        "It does not change a running game: graphics.preset, render.upscaler, render.dynamic_resolution and "
+        "render.latency do that, "
         "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
-        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, written}; `written` is false when "
+        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, latency: {mode, boost}, written}; "
+        "`written` is false when "
         "the file's bytes did not change (a read, or the same values written the same way; a key given at its "
         "default that the file spelled out is removed, so that counts as a write). Errors: `invalid_argument` (unknown "
         "key or wrong value), "
@@ -260,19 +293,21 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             "sharpness":{"type":"number","minimum":0,"maximum":1}}},
         "dynamicResolution":{"type":"object","description":"render.dynamicResolution: the keys given replace the file's.","properties":{
             "enabled":{"type":"boolean"},"targetMs":{"type":"number","minimum":0},
-            "minScale":{"type":"number","minimum":0.1,"maximum":1},"maxScale":{"type":"number","minimum":0.1,"maximum":1}}}}})");
+            "minScale":{"type":"number","minimum":0.1,"maximum":1},"maxScale":{"type":"number","minimum":0.1,"maximum":1}}},
+        "latency":{"type":"object","description":"render.latency (docs/LATENCY.md): the keys given replace the file's.","properties":{
+            "mode":{"type":"string","enum":["off","auto","reflex","antilag2","xell"]},"boost":{"type":"boolean"}}}}})");
     registry.add(info, [projectDir](const Json& args) {
         if (!args.is_null() && !args.is_object())
             throw CommandError("invalid_argument",
                                "project.graphics takes an object, got " + std::string(args.type_name()) + ".",
                                "Example: {\"preset\":\"medium\"}, or {} to read.");
-        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution"};
+        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution", "latency"};
         if (args.is_object())
             for (auto it = args.begin(); it != args.end(); ++it)
                 if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
-                    throw CommandError("invalid_argument",
-                                       "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
-                                       "project.graphics takes `preset`, `upscaler` and `dynamicResolution`.");
+                    throw CommandError(
+                        "invalid_argument", "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
+                        "project.graphics takes `preset`, `upscaler`, `dynamicResolution` and `latency`.");
         // The numbers of the file as they are (no rounding of the editor's sliders): a key this call does not name is
         // not written, and one it names keeps what the caller wrote.
         auto current = read_graphics_settings(projectDir, false);
@@ -317,12 +352,22 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
             s.dynamic = *parsed;
         }
+        if (const Json* lat = object_arg("latency")) {
+            auto parsed = render::parse_latency_settings(*lat, "project.graphics latency", {});
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            Json merged = latency_json(s);  // the file's keys, replaced by the ones given
+            for (auto it = lat->begin(); it != lat->end(); ++it) merged[it.key()] = it.value();
+            auto both = render::parse_latency_settings(merged, "project.graphics latency", {});
+            if (!both.ok()) throw CommandError("invalid_argument", both.error().message, both.error().hint);
+            s.latencyMode = std::string(render::latency_mode_name(both->mode));
+            s.latencyBoost = both->boost;
+        }
         if (auto problems = check_graphics_settings(s); !problems.empty())
             throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
                                "Fix the value; nothing was written.");
         // Only the keys the call names are written.
         const GraphicsSettings def;
-        KeyOp presetOp, upscalerOp, dynamicOp;
+        KeyOp presetOp, upscalerOp, dynamicOp, latencyOp;
         if (args.is_object() && args.contains("preset") && !args["preset"].is_null())
             presetOp = set_or_remove(s.preset == "custom", Json(s.preset));
         if (object_arg("upscaler"))
@@ -338,9 +383,12 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             }
             dynamicOp = set_or_remove(s.dynamic == def.dynamic, value);
         }
+        if (object_arg("latency"))
+            latencyOp =
+                set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s));
         bool changed = false;
-        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch) {
-            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp);
+        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch) {
+            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp, latencyOp);
             if (!written.ok()) throw CommandError("failed", written.error().message, written.error().hint);
             changed = *written;
         }
@@ -349,6 +397,7 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         out["preset"] = s.preset;
         out["upscaler"] = upscaler_json(s);
         out["dynamicResolution"] = dynamic_json(s);
+        out["latency"] = latency_json(s);
         out["written"] = changed;
         return out;
     });
