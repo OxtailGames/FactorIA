@@ -138,6 +138,40 @@ The swapchain:
   `present_begin` and `present_end` come around `Present`, with the frame id, the back buffer index and the `HRESULT`.
 - **The device's end.** The swapchain goes first, then `device_destroying`, with the GPU idle.
 
+## Streamline runtime core (M78-P4b)
+
+`engine/render/src/streamline_runtime.{h,cpp}`: the first user of the hooks above, shared by every Streamline feature (DLSS
+Super Resolution today, DLSS frame generation and Reflex in later packages).
+
+- **No NVIDIA code.** The structures and functions of the Streamline C interface are the engine's own declarations in
+  `sl_abi` (checked field by field against the MIT headers of tag v2.14.16, with `static_assert`s on sizes and offsets). The
+  library is read at run time through `VendorLibrary` (`sl.interposer.dll`: `$FA_STREAMLINE_DIR`, the executable's folder,
+  `<factoria home>/tools/streamline/<version>/`), and `StreamlineApi` is its table of functions. A test puts a fake table
+  in its place (`set_vendor_loader_for_test`).
+- **One process-wide `StreamlineRuntime`**, a `gpu::DeviceHook`, registered by `register_streamline_runtime()` before the renderer
+  makes its device (Windows, D3D12 and Vulkan only; nothing elsewhere). It serves one device at a time: the features' options
+  are those of the device that drew last.
+- **Manual hooking.** `slInit` runs with `eUseManualHooking`, `eDisableCLStateTracking`, `eDisableDebugText` and
+  `eUseFrameBasedResourceTagging`, before the device exists, so the engine owns the device and the swapchain and Streamline
+  only wraps them.
+- **D3D12.** `d3d12_before_device` reads the adapter's vendor through DXGI: on WARP or a non-NVIDIA adapter the runtime is
+  unavailable with that reason and the library is not loaded. `d3d12_device_created` calls `slSetD3DDevice`, then
+  `slUpgradeInterface` on the device and on the factory (replacements as the `d3d12_device_created` contract above), then
+  `slIsFeatureSupported` for each feature with the adapter's LUID.
+- **Vulkan.** `slGetFeatureRequirements` per feature gives the instance and device extensions, the Vulkan 1.2 and 1.3 feature
+  names (`streamline_vulkan_features` builds the structs the engine merges) and the queues; `vulkan_resolve` hands the engine
+  Streamline's `vkGetInstanceProcAddr` and `vkGetDeviceProcAddr` where it hooks a function; `vulkan_device_created` calls
+  `slSetVulkanInfo` and `slIsFeatureSupported` with the physical device.
+- **Degrading.** Any refusal marks the hook unavailable with `streamline_refusal`: Streamline's own result text and what to do
+  (an NVIDIA driver update, hardware-accelerated GPU scheduling, `factoria setup streamline`). The device is made without it. The
+  provider repeats the reason in `render.supports`.
+- **Per frame.** The provider asks `StreamlineRuntime` for the frame token (`slGetNewFrameToken`, index = presents), sets the
+  constants and tags, and evaluates inside one `begin_native` section (`render_upscale_dlss.cpp`).
+- **Tests.** `engine/render/tests/dlss_upscale_tests.cpp` (ctest `render`): the D3D12 and Vulkan hook order on fakes, every reason
+  the runtime is unavailable, the provider's options (only on a change), constants, tags and evaluation, failures that close the
+  section and reset the history, release, the `auto` choice and the `render.supports` row. The real library and a real RTX GPU
+  are not covered by any test.
+
 ## Tests
 
 - **`engine/render/tests/gpu_native_tests.cpp`.** The registry: each hook added once, the caller's first. The

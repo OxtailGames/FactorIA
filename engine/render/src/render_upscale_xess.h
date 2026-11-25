@@ -1,5 +1,5 @@
-// The XeSS Super Resolution provider of M78 (docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", "Vendor providers"; docs/UPSCALING.md,
-// "XeSS"): Intel's temporal upscaler behind the `xess` upscaler mode. Private to fa_render.
+// The XeSS Super Resolution provider of M78 (docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", "Vendor providers"; docs/UPSCALING_VENDORS.md,
+// "Intel XeSS"): Intel's temporal upscaler behind the `xess` upscaler mode. Private to fa_render.
 //
 // No Intel header or binary is in the engine (decision D2 of M78): this file declares the C ABI of XeSS 3.x the engine calls, written from the
 // SDK's documentation (the structures and enums with the values the library was built with), and every function is taken from the loaded

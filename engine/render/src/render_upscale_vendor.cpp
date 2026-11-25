@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 
+#include "render_upscale_dlss.h"
 #include "render_upscale_fsr.h"
 #include "render_upscale_xess.h"
 
@@ -221,70 +222,9 @@ std::string describe_gpu(GpuVendor v) {
     return "not known (no GPU is open)";
 }
 
-// The three providers: each looks for its library; the SDK calls arrive with the packages of M78 that follow this one (one subclass each
-// replaces probe_found and upscale).
-class LibraryProvider : public VendorUpscaler {
-public:
-    struct Info {
-        std::string_view name, mode, setupId;
-        unsigned backends;
-        VendorLibrarySpec lib;
-        bool nvidiaOnly;
-    };
-    explicit LibraryProvider(Info info) : info_(info) {}
-
-    std::string_view name() const override { return info_.name; }
-    std::string_view mode() const override { return info_.mode; }
-    std::string_view setup_id() const override { return info_.setupId; }
-    unsigned backends() const override { return info_.backends; }
-
-    VendorProbe probe(const VendorEnv& env) override {
-        VendorProbe p;
-        // What the machine decides first: the GPU's maker (DLSS), then the backend and the system. A missing library is last: installing
-        // it is of no use where the GPU or the backend cannot run the SDK.
-        if (info_.nvidiaOnly && env.vendor != GpuVendor::Nvidia) {
-            p.reason =
-                std::string(info_.name) + " needs an NVIDIA RTX GPU; this GPU is " + describe_gpu(env.vendor) + ".";
-            return p;
-        }
-        p.reason = vendor_environment_problem(*this, env);
-        if (!p.reason.empty()) return p;
-        std::string why;
-        const stdfs::path found = vendor_loader().find(info_.lib, &why);
-        if (found.empty()) {
-            p.reason = std::string(info_.name) + " is not installed: run `factoria setup " +
-                       std::string(info_.setupId) + "` (" + why + ").";
-            return p;
-        }
-        return probe_found(found);
-    }
-
-    bool upscale(const UpscaleInput&, VendorFrame& frame) override {
-        frame.error = std::string(info_.name) + " cannot draw a frame yet: its support lands later in M78.";
-        return false;
-    }
-
-protected:
-    // The library is on the disk. M78-P1 stops here (nothing of the SDK is called); each SDK package opens the library, reads the function
-    // table and answers for the GPU.
-    virtual VendorProbe probe_found(const stdfs::path& library) {
-        VendorProbe p;
-        p.reason = std::string(info_.name) + " support lands later in M78 (the library is at " +
-                   fs::path_to_utf8(library) + ").";
-        return p;
-    }
-
-private:
-    Info info_;
-};
-
-constexpr unsigned kD3dAndVulkan = (1u << unsigned(gpu::Backend::D3d12)) | (1u << unsigned(gpu::Backend::Vulkan));
-constexpr unsigned kD3dVulkanAnd11 = kD3dAndVulkan | (1u << unsigned(gpu::Backend::D3d11));
-
 std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> make_providers() {
     std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> t;
-    t[0] = std::make_unique<LibraryProvider>(LibraryProvider::Info{
-        "DLSS", "dlss", "streamline", kD3dVulkanAnd11, {"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"}, true});
+    t[0] = make_dlss_provider();
     t[1] = make_xess_provider();
     t[2] = make_fsr_provider();
     return t;
