@@ -162,9 +162,9 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
             const std::vector<float> lbox = rect_of(st, "latency_section"), lnote = rect_of(st, "latency_note"),
                                      lnav = rect_of(st, "gfx_latency_nav"), lback = rect_of(st, "gfx_latency_back"),
                                      lfg = rect_of(st, "gfx_fg_page"), lroot = rect_of(st, "options");
-            for (const char* id : {"gfx_latency_label", "gfx_latency_off", "gfx_latency_auto", "gfx_latency_reflex",
-                                   "gfx_latency_antilag2", "gfx_latency_xell", "gfx_latency_nav", "gfx_latency_back",
-                                   "gfx_fg_page"}) {
+            for (const char* id :
+                 {"gfx_latency_label", "gfx_latency_off", "gfx_latency_auto", "gfx_latency_reflex",
+                  "gfx_latency_antilag2", "gfx_latency_xell", "gfx_latency_nav", "gfx_latency_back", "gfx_fg_page"}) {
                 CAPTURE(id);
                 const std::vector<float> r = rect_of(st, id);
                 CHECK(r[0] >= lbox[0] - 0.5f);
@@ -206,17 +206,21 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
             const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
             REQUIRE(st["ok"] == true);
             const std::vector<float> fbox = rect_of(st, "framegen_section"), fnote = rect_of(st, "framegen_note"),
-                                     fback = rect_of(st, "gfx_fg_back"), fmin = rect_of(st, "gfx_fg_minfps"),
-                                     froot = rect_of(st, "options");
-            for (const char* id : {"gfx_fg_label", "gfx_fg_off", "gfx_fg_auto", "gfx_fg_dlss", "gfx_fg_fsr", "gfx_fg_xess",
-                                   "gfx_fg_minfps", "framegen_note", "gfx_fg_back"}) {
+                                     fback = rect_of(st, "gfx_fg_back"), froot = rect_of(st, "options");
+            for (const char* id : {"gfx_fg_label", "gfx_fg_off", "gfx_fg_auto", "gfx_fg_dlss", "gfx_fg_fsr",
+                                   "gfx_fg_xess", "framegen_note", "gfx_fg_back"}) {
                 CAPTURE(id);
                 const std::vector<float> r = rect_of(st, id);
                 CHECK(r[0] >= fbox[0] - 0.5f);
                 CHECK(r[0] + r[2] <= fbox[0] + fbox[2] + 0.5f);
                 CHECK(r[1] + r[3] <= fbox[1] + fbox[3] + 0.5f);
             }
-            CHECK(fmin[1] + fmin[3] <= fnote[1] + 0.5f);
+            if (std::string(what) == "dlss chosen, fsr usable") {  // the slider is only on while a mode is on
+                const std::vector<float> fmin = rect_of(st, "gfx_fg_minfps");
+                CHECK(fmin[0] >= fbox[0] - 0.5f);
+                CHECK(fmin[0] + fmin[2] <= fbox[0] + fbox[2] + 0.5f);
+                CHECK(fmin[1] + fmin[3] <= fnote[1] + 0.5f);
+            }
             CHECK(fnote[1] + fnote[3] <= fback[1] + 0.5f);
             CHECK(fback[1] + fback[3] <= fbox[1] + fbox[3] - 8.0f);  // the margin
             CHECK(froot[1] >= 0.0f);
@@ -225,7 +229,8 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
     };
     REQUIRE(eval("world.find('latency_section').active = false; world.find('framegen_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
-                 "m.overrideRenderSupports((x) => x === 'fsrFrameGen'); m.setFrameGeneration({ mode: 'dlss', minBaseFps: 45 }); "
+                 "m.overrideRenderSupports((x) => x === 'fsrFrameGen'); m.setFrameGeneration({ mode: 'dlss', "
+                 "minBaseFps: 45 }); "
                  "return 1; })")["ok"] == true);
     engine.step(3);
     check_framegen_page("dlss chosen, fsr usable");

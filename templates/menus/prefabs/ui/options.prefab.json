@@ -918,7 +918,7 @@
         "active": false,
         "components": {
           "Panel": {
-            "size": [712, 340],
+            "size": [712, 420],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
