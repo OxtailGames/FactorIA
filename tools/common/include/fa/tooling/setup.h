@@ -127,6 +127,139 @@ inline constexpr DirectStoragePackage kSetupDirectStorage = {
     "1.3.0", "8ab6c1082537565388b79050d94fdd7f5f437cd0f1d909e7b19f786042b97177", 3};
 inline constexpr const char* kSetupDirectStorageFiles[] = {"dstorage.dll", "dstoragecore.dll"};
 
+// Vendor SDKs (M78, docs/exporting/EXPORTING_SETUP.md, "Vendor SDK licences"): the redistributable x64 Windows DLLs a
+// game ships with to use a vendor's upscaler, frame generation or latency library: `setup streamline` (NVIDIA Streamline:
+// DLSS, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), `setup xess` (Intel XeSS, XeSS-FG, XeLL) and `setup
+// fidelityfx` (AMD FidelityFX: FSR upscaler and frame generation, DX12 and Vulkan). Nothing of them is part of FactorIA:
+// the install downloads the vendor's own release, checks it against the SHA-256 pinned here (no vendor publishes
+// checksums: FactorIA's maintainers downloaded each file once and pinned its hash), and keeps only the files listed in
+// the table in <home>/tools/<id>/<version>/ (the DLLs flat, the license texts beside them), removing older versions. Any
+// host can install them: the DLLs are copied by a Windows export (export.pack.vendorSdks), never run here. Every one
+// comes with a license the user must read and accept first (SetupInstallOptions::acceptLicenses; code `license_required`).
+// Never in the tables: the Streamline performance-profiling files (sl.nvperf.dll, sl_nvperf.h; a separate, non
+// redistributable Nsight Perf SDK license), the development (unsigned) builds, the denoiser and radiance-cache DLLs.
+struct VendorSdkFile {
+    const char* src;     // inside the archive; with no archive: the path under VendorSdk::baseUrl
+    const char* dst;     // the name in the install folder; nullptr = the file name of src
+    const char* sha256;  // of this file when it is downloaded on its own (no archive); "" inside an archive
+};
+struct VendorSdk {
+    const char* id;             // "streamline" | "xess" | "fidelityfx": the component and export.pack.vendorSdks name
+    const char* title;          // "NVIDIA Streamline (DLSS, DLSS-G, Reflex)"
+    const char* version;        // the folder name under <home>/tools/<id>/ and what the status reports
+    const char* archiveUrl;     // the release .zip; "" = every file is downloaded on its own from baseUrl
+    const char* archiveSha256;  // of the archive
+    const char* baseUrl;        // no archive: baseUrl + "/" + file.src
+    int sizeMb;                 // the download
+    const VendorSdkFile* files;
+    int fileCount;
+    // The license the user accepts before the download. Its text is fetched from licenseUrl when the status is asked for
+    // it (a small file at the pinned tag), checked against licenseSha256 and shown; licenseEnd, when not empty, cuts the
+    // shown text before that line (AMD's license.md goes on with a list of 600 files under other licenses).
+    const char* licenseId;
+    const char* licenseTitle;
+    const char* licenseUrl;
+    const char* licenseSha256;
+    const char* licenseEnd;
+    // What the license asks of the game that ships the DLLs, in a few sentences (the install, the export and the docs say it).
+    const char* obligations;
+};
+
+inline constexpr VendorSdkFile kSetupStreamlineFiles[] = {
+    {"bin/x64/sl.interposer.dll", nullptr, ""},  {"bin/x64/sl.common.dll", nullptr, ""},
+    {"bin/x64/sl.dlss.dll", nullptr, ""},        {"bin/x64/sl.dlss_d.dll", nullptr, ""},
+    {"bin/x64/sl.dlss_g.dll", nullptr, ""},      {"bin/x64/sl.reflex.dll", nullptr, ""},
+    {"bin/x64/sl.pcl.dll", nullptr, ""},         {"bin/x64/nvngx_dlss.dll", nullptr, ""},
+    {"bin/x64/nvngx_dlssd.dll", nullptr, ""},    {"bin/x64/nvngx_dlssg.dll", nullptr, ""},
+    {"bin/x64/NvLowLatencyVk.dll", nullptr, ""}, {"bin/x64/nvngx_dlss.license.txt", nullptr, ""},
+    {"bin/x64/reflex.license.txt", nullptr, ""}, {"license.txt", "sl.license.txt", ""},
+    {"3rd-party-licenses.md", nullptr, ""},
+};
+inline constexpr VendorSdk kSetupStreamline = {
+    "streamline",
+    "NVIDIA Streamline (DLSS, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex)",
+    "2.14.16",
+    "https://github.com/NVIDIA-RTX/Streamline/releases/download/v2.14.16/streamline-sdk-v2.14.16.zip",
+    "32041e51db0cab709a271b72a352281b690c2abbd669a827809401a5dd23956b",
+    "",
+    276,
+    kSetupStreamlineFiles,
+    int(sizeof(kSetupStreamlineFiles) / sizeof(kSetupStreamlineFiles[0])),
+    "nvidia-rtx-sdks-license",
+    "NVIDIA RTX SDKs LICENSE (with the NVIDIA RTX supplement)",
+    "https://raw.githubusercontent.com/NVIDIA-RTX/Streamline/v2.14.16/external/ngx-sdk/license.txt",
+    "3027f23ca5a46dd9cb8183fbd522983a86f64d7daac5982912bf9f214671f294",
+    "",
+    "NVIDIA's license lets a game redistribute these DLLs only as part of the game. Before the game's commercial "
+    "release "
+    "you must notify NVIDIA (https://developer.nvidia.com/sw-notification); the game must credit NVIDIA and show its "
+    "marks (in its credits, and on a splash screen or about box for DLSS); DLSS is for systems with NVIDIA GPUs only; "
+    "keep NVIDIA's license texts with the game (the export copies them to licenses/streamline/)."};
+
+inline constexpr VendorSdkFile kSetupXessFiles[] = {
+    {"bin/libxess.dll", nullptr, ""}, {"bin/libxess_dx11.dll", nullptr, ""}, {"bin/libxess_fg.dll", nullptr, ""},
+    {"bin/libxell.dll", nullptr, ""}, {"LICENSE.txt", nullptr, ""},          {"third-party-programs.txt", nullptr, ""},
+};
+inline constexpr VendorSdk kSetupXess = {
+    "xess",
+    "Intel XeSS (super resolution, frame generation, low latency)",
+    "3.0.2",
+    "https://github.com/intel/xess/releases/download/v3.0.2/XeSS_SDK_3.0.2.zip",
+    "88b8a373f30e33f3558a77a93e634f11b8132fc3047ea1a8edeead32b8471990",
+    "",
+    77,
+    kSetupXessFiles,
+    int(sizeof(kSetupXessFiles) / sizeof(kSetupXessFiles[0])),
+    "intel-simplified-software-license",
+    "Intel Simplified Software License (Version October 2022)",
+    "https://raw.githubusercontent.com/intel/xess/v3.0.2/LICENSE.txt",
+    "784be42c39a4a4d03cf85d88e15e59d75828fca773ce45b8dbfffbd7eaf208df",
+    "",
+    "Intel's license lets a game redistribute these DLLs, unmodified and in binary form, if Intel's copyright notice "
+    "and "
+    "the license terms go with the game (the export copies them to licenses/xess/); no reverse engineering or "
+    "modification, and Intel's name may not be used to endorse the game."};
+
+inline constexpr const char* kFidelityFxBase =
+    "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0";
+inline constexpr VendorSdkFile kSetupFidelityFxFiles[] = {
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_loader_dx12.dll", nullptr,
+     "e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb"},
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_loader_vk.dll", nullptr,
+     "38a56a01fb3565c0757d9f5c1e4e69de4b65e5f2e5769b323b200dc1f142bab9"},
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll", nullptr,
+     "aad4fccccb29084a655f9a4f9f613bd22c8c03fb4a0f8840148cc6543b4ccace"},
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_vk.dll", nullptr,
+     "4a7e895af6e0b615d40a84d59eb8c2b1054ad91cdd0c739567940270d51bdab7"},
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_dx12.dll", nullptr,
+     "e6843252f58b0341a0d80f6a20bc0d840643ee95bc48c22cac08745344577bb6"},
+    {"Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_vk.dll", nullptr,
+     "d002dabff8c5e71eaa715fc99438cd4dc81230262a7897b16bc402efec3498b4"},
+    {"docs/license.md", nullptr, "410f9c138e766e846acf2dc93db768198def0293a017d7e3296815b451688dbe"},
+    {"3rdpartynotice.md", nullptr, "3b69b1a1011622557a81b55a9a211dd797d01b8160924a5ec51b4c3432d33a4f"},
+};
+inline constexpr VendorSdk kSetupFidelityFx = {
+    "fidelityfx",
+    "AMD FidelityFX SDK (FSR upscaler and frame generation, DirectX 12 and Vulkan)",
+    "2.4.0",
+    "",
+    "",
+    kFidelityFxBase,
+    160,
+    kSetupFidelityFxFiles,
+    int(sizeof(kSetupFidelityFxFiles) / sizeof(kSetupFidelityFxFiles[0])),
+    "amd-fidelityfx-license",
+    "AMD FidelityFX SDK license",
+    "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0/docs/license.md",
+    "410f9c138e766e846acf2dc93db768198def0293a017d7e3296815b451688dbe",
+    "These source files",
+    "AMD's license lets a game redistribute these DLLs, unmodified and in binary form only, if AMD's copyright notice, "
+    "permission notice and disclaimers are reproduced in the game's documentation (the export copies them to "
+    "licenses/fidelityfx/); no reverse engineering, decompilation or disassembly."};
+
+// The three above, in the order of the components.
+inline constexpr const VendorSdk* kSetupVendorSdks[] = {&kSetupStreamline, &kSetupXess, &kSetupFidelityFx};
+
 // The folder everything is installed into: $FACTORIA_HOME when set, else <HOME>/.factoria
 // (%USERPROFILE%\.factoria on Windows). It is also where ai.json lives (export.json follows FACTORIA_HOME unless
 // FACTORIA_EXPORT_CONFIG names it).
@@ -215,7 +348,7 @@ struct SetupLicense {
 struct SetupComponent {
     std::string
         id;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
-    // "directstorage"
+    // "directstorage" | "streamline" | "xess" | "fidelityfx"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -236,8 +369,9 @@ struct SetupStatus {
 };
 
 // Every component of this machine, or only `component` ("" = all). Looks at folders and runs version probes
-// (`cmake --version`, `xcodebuild -version`); the only network request is the license text of the Android SDK,
-// fetched when the licenses are not accepted yet and `fetchLicenses` is set.
+// (`cmake --version`, `xcodebuild -version`); the only network request is a license text, fetched when `fetchLicenses`
+// is set: the Android SDK's while it is not accepted yet, and a vendor SDK's (streamline, xess, fidelityfx, installed
+// or not) only when `component` names it.
 SetupStatus setup_status(const SetupContext& context = {}, const std::string& component = {},
                          bool fetchLicenses = true);
 
@@ -248,8 +382,9 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 struct SetupInstallOptions {
     std::string
         component;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
-    // "directstorage"
-    bool acceptLicenses = false;  // android: the user agreed to the Android SDK license
+    // "directstorage" | "streamline" | "xess" | "fidelityfx"
+    bool acceptLicenses =
+        false;  // android, streamline, xess, fidelityfx: the user agreed to the license shown (status: licenses)
     std::vector<std::string>
         platforms;       // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;  // reinstall even when it is found (android, cmake)
@@ -331,6 +466,29 @@ std::string ffmpeg_install_path(const SetupContext& context);
 std::string directstorage_install_dir(const SetupContext& context);
 // That folder when it holds both kSetupDirectStorageFiles; "" when either is missing.
 std::string installed_directstorage_dir(const SetupContext& context);
+
+// The vendor SDK `id` ("streamline" | "xess" | "fidelityfx") of kSetupVendorSdks; nullptr when it is none of them.
+const VendorSdk* find_vendor_sdk(const std::string& id);
+// Every id of kSetupVendorSdks.
+std::vector<std::string> vendor_sdk_ids();
+// <home>/tools/<id>/<version>: where `setup <id>` puts the DLLs and the license texts (the folder may not exist).
+std::string vendor_sdk_install_dir(const SetupContext& context, const VendorSdk& sdk);
+// That folder when it holds every file of the table; "" when any is missing. (Installing writes the folder only once complete.)
+std::string installed_vendor_sdk_dir(const SetupContext& context, const VendorSdk& sdk);
+// Does this file of the table go next to the game's executable (a .dll) or with the license texts (everything else)?
+bool vendor_sdk_file_is_library(const VendorSdkFile& file);
+// The name of `file` in the install folder (VendorSdkFile::dst, else the last part of src).
+std::string vendor_sdk_file_name(const VendorSdkFile& file);
+
+// Which vendor SDKs a project can use, from its factoria.json (`projectJson`), by JSON pointer and tolerant of keys that
+// do not exist (yet) or have another type: render.upscaler.mode "auto" (every SDK that has an upscaler) or a vendor's mode
+// ("dlss" -> streamline, "xess" -> xess, "fsr" -> fidelityfx); render.frameGeneration.mode the same ("auto", dlss, xess,
+// fsr); render.latency.mode "auto" (streamline's Reflex and xess's XeLL), "reflex" -> streamline, "xell" -> xess. Ids in
+// the order of kSetupVendorSdks, once each. `reasons`, when not null, receives per id the pointer and value that asked for it
+// ("/render/upscaler/mode = \"dlss\"").
+std::vector<std::string>
+vendor_sdks_used_by_project(const Json& projectJson,
+                            std::vector<std::pair<std::string, std::string>>* reasons = nullptr);
 
 // When the launcher `setup launcher` wrote opens this factoria but is out of date (an update or a reinstall brought a new
 // icon or version), writes it again and returns true. A missing launcher, or one that opens another factoria (a

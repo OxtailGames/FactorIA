@@ -1109,3 +1109,41 @@ TEST_CASE("export settings: vulkanPlayer of linux and android is a boolean that 
     }
     CHECK(bad.settings.linux.vulkanPlayer);  // a wrong value keeps the default
 }
+
+TEST_CASE(
+    "export settings: export.pack.vendorSdks is auto, none or a list of known ids, and a wrong one names its pointer") {
+    auto none = parse_export_settings(parse(R"({"name": "G"})"));
+    CHECK(none.settings.pack.vendorSdks == "auto");
+    CHECK(none.settings.pack.vendorSdkIds.empty());
+
+    auto text = parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": "none"}}})"));
+    CHECK(text.errors.empty());
+    CHECK(text.warnings.empty());
+    CHECK(text.settings.pack.vendorSdks == "none");
+    CHECK(parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": "auto"}}})")).settings.pack.vendorSdks ==
+          "auto");
+
+    auto list = parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": ["xess", "streamline", "xess"]}}})"));
+    CHECK(list.errors.empty());
+    CHECK(list.settings.pack.vendorSdks == "list");
+    CHECK(list.settings.pack.vendorSdkIds == std::vector<std::string>{"xess", "streamline"});  // order kept, no repeats
+    CHECK(parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": []}}})")).settings.pack.vendorSdks ==
+          "none");
+
+    auto typo = parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": "atuo"}}})"));
+    const ExportSettingsIssue* mode = find_issue(typo.errors, "/export/pack/vendorSdks");
+    REQUIRE(mode != nullptr);
+    CHECK(mode->hint.find("auto") != std::string::npos);
+    CHECK(typo.settings.pack.vendorSdks == "auto");  // an invalid value keeps the default
+
+    auto bad = parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": ["streamlin", 3, "fidelityfx"]}}})"));
+    const ExportSettingsIssue* id = find_issue(bad.errors, "/export/pack/vendorSdks/0");
+    REQUIRE(id != nullptr);
+    CHECK(id->hint.find("streamline") != std::string::npos);  // the list of ids, and the "did you mean"
+    CHECK(find_issue(bad.errors, "/export/pack/vendorSdks/1") != nullptr);
+    CHECK(find_issue(bad.errors, "/export/pack/vendorSdks/2") == nullptr);
+    CHECK(bad.settings.pack.vendorSdkIds == std::vector<std::string>{"fidelityfx"});
+
+    CHECK(find_issue(parse_export_settings(parse(R"({"export": {"pack": {"vendorSdks": true}}})")).errors,
+                     "/export/pack/vendorSdks") != nullptr);
+}
