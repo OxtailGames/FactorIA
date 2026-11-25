@@ -37,6 +37,9 @@ constexpr std::uint32_t kFailMask = abi::kDlssgFailResolutionTooLow | abi::kDlss
                                     abi::kDlssgFailHdrFormatNotSupported | abi::kDlssgFailCommonConstantsInvalid |
                                     abi::kDlssgFailGetCurrentBackBufferIndexNotCalled;
 
+// State reads (one per rendered frame) after generation went on whose "Reflex not detected" bit is ignored.
+constexpr int kReflexGraceFrames = 2;
+
 static_assert(sizeof(abi::Float4x4) == 16 * sizeof(float), "a Mat4 is copied into a Float4x4");
 
 void* handle_of(std::uint64_t v) {
@@ -141,7 +144,8 @@ public:
     bool wants_reversed_depth() const override { return true; }
     bool requires_reflex() const override { return true; }
 
-    std::shared_ptr<gpu::DeviceHook> device_hook() override;
+    std::shared_ptr<gpu::DeviceHook> device_hook() override { return device_hook_for(FrameGenMode::Dlss); }
+    std::shared_ptr<gpu::DeviceHook> device_hook_for(FrameGenMode mode) override;
     VendorProbe probe(const VendorEnv& env) override;
     std::string start(gpu::Device& device, const FrameGenSwapchain& swapchain) override;
     void swapchain_changed(gpu::Device& device, const FrameGenSwapchain& swapchain) override;
@@ -185,17 +189,22 @@ private:
     // What the last slDLSSGGetState said (status is trusted only when it was read with generation on).
     std::uint32_t status_ = 0, minSize_ = 0, maxFrames_ = 0;
     bool statusOn_ = false;
+    int framesOn_ =
+        0;  // the consecutive state reads taken with generation on (the first ones may carry a false Reflex bit)
     std::uint64_t generated_ = 0;
     bool loggedVram_ = false, warnedOptions_ = false, warnedState_ = false, warnedConstants_ = false;
     std::string optionsError_;
     ViewSlot views_[3];  // Vulkan: the sampled views of the depth, the motion and the hudless image
 };
 
-std::shared_ptr<gpu::DeviceHook> DlssFrameGenProvider::device_hook() {
+std::shared_ptr<gpu::DeviceHook> DlssFrameGenProvider::device_hook_for(FrameGenMode mode) {
     // Streamline loads only the features slInit is told of, and DLSS-G asks for its own Vulkan queues and extensions: it is added to the list of
     // the process's runtime (already a hook of every D3D12 and Vulkan device, register_streamline_runtime) the moment a renderer asks for
-    // frame generation, before its device is made. A game that never asks never pays for them.
-    streamline_runtime().add_feature(abi::kFeatureDlssG);
+    // frame generation with a mode DLSS-G serves (`dlss`, or `auto`, which is DLSS-G on an NVIDIA GPU; the GPU is not known yet), before its
+    // device is made. A game that never asks, or names `fsr` or `xess`, never pays for them. Each feature of the list is loaded on its own, so
+    // leaving this one out changes nothing for the DLSS upscaler, Reflex and the PC latency markers that share the runtime. The list is the
+    // process's and keeps what was added: a second renderer of the same process that asks for `fsr` after one asked for `dlss` still has it.
+    if (mode == FrameGenMode::Dlss || mode == FrameGenMode::Auto) streamline_runtime().add_feature(abi::kFeatureDlssG);
     return nullptr;
 }
 
@@ -335,7 +344,11 @@ bool DlssFrameGenProvider::send_options() {
     want.mvecH = std::uint32_t(std::max(renderH_, 0));
     want.colorW = std::uint32_t(std::max(outW_ > 0 ? outW_ : swapW_, 0));
     want.colorH = std::uint32_t(std::max(outH_ > 0 ? outH_ : swapH_, 0));
-    if (sent_ == want) return true;
+    if (sent_ == want) {
+        optionsError_
+            .clear();  // Streamline already holds exactly this: an earlier refusal of another set is of no concern now
+        return true;
+    }
     abi::DlssgOptions options;
     abi::init_dlssg_options(options);
     options.mode = want.mode;
@@ -371,8 +384,12 @@ void DlssFrameGenProvider::swapchain_changed(gpu::Device& device, const FrameGen
     if (device_ != &device) return;
     swapW_ = std::max(swapchain.width, 0);
     swapH_ = std::max(swapchain.height, 0);
-    drop_views(device);  // the images of the old swapchain's size are gone with it
-    outW_ = outH_ = 0;   // the next frame says the size again
+    // The images of the old swapchain's size are gone with it. destroy_view needs no wait for the GPU: the Vulkan and D3D12 devices defer the
+    // release of a view until the frame that is open when it is destroyed has finished on the GPU (VulkanDevice::defer / collect, D3d12Device
+    // the same), and the frames Streamline reads these views in (kValidUntilPresent: inside the Present of a frame already submitted) are
+    // that frame or earlier ones. stop() waits for idle all the same: it gives the SDK's own resources back.
+    drop_views(device);
+    outW_ = outH_ = 0;  // the next frame says the size again
     if (live(streamline_runtime())) send_options();
 }
 
@@ -486,9 +503,9 @@ bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
             "DLSS frame generation needs NVIDIA Reflex running, and it is not: the engine turns Reflex on while frame "
             "generation runs, so its provider did not start. See render.supports for the reason Reflex gives, or "
             "set render.frameGeneration.mode to \"off\".");
-    if (!optionsError_.empty()) return refuse(frame, optionsError_);
 
-    // The sizes the options carry: sent again only when a size changed.
+    // The sizes the options carry: sent again when a size changed, and again every frame while Streamline refuses the last set (a refusal
+    // that was transient, a driver busy for a moment, does not stick until the mode changes; the warning is logged once).
     renderW_ = frame.renderW;
     renderH_ = frame.renderH;
     outW_ = frame.outW;
@@ -587,15 +604,19 @@ bool DlssFrameGenProvider::dispatch(FrameGenFrame& frame) {
 
     // What Streamline said about the last present, read when the frame began: generation that is on and does not run says why. The frame's
     // constants and tags are sent either way, so the next present can recover without the history being lost.
-    if (enabled_ && statusOn_ && (status_ & kFailMask) != 0) {
+    // The Reflex bit is not held against the first frames after generation went on: Streamline sets it when the present it just saw had no
+    // markers, which is true of the one present between the options that switched generation on and the first marked frame.
+    std::uint32_t failing = status_ & kFailMask;
+    if (framesOn_ <= kReflexGraceFrames) failing &= ~abi::kDlssgFailReflexNotDetectedAtRuntime;
+    if (enabled_ && statusOn_ && failing != 0) {
         std::string text = "DLSS frame generation is not running: ";
-        if ((status_ & abi::kDlssgFailResolutionTooLow) != 0)
+        if ((failing & abi::kDlssgFailResolutionTooLow) != 0)
             text += "the picture is smaller than the SDK allows (its shorter side must be at least " +
                     std::to_string(minSize_) + " pixels): use a larger window or resolution. ";
         for (const std::uint32_t b :
              {abi::kDlssgFailReflexNotDetectedAtRuntime, abi::kDlssgFailHdrFormatNotSupported,
               abi::kDlssgFailCommonConstantsInvalid, abi::kDlssgFailGetCurrentBackBufferIndexNotCalled})
-            if ((status_ & b) != 0) text += std::string(status_sentence(b)) + " ";
+            if ((failing & b) != 0) text += std::string(status_sentence(b)) + " ";
         text.pop_back();
         return refuse(frame, std::move(text));
     }
@@ -618,6 +639,7 @@ std::uint64_t DlssFrameGenProvider::generated_frames() {
     }
     status_ = state.status;
     statusOn_ = sent_.valid && sent_.mode == abi::kDlssgOn;
+    framesOn_ = statusOn_ ? std::min(framesOn_ + 1, 1000) : 0;
     minSize_ = state.minWidthOrHeight;
     maxFrames_ = state.numFramesToGenerateMax;
     if (state.numFramesActuallyPresented > 1) generated_ += state.numFramesActuallyPresented - 1;
@@ -639,6 +661,7 @@ void DlssFrameGenProvider::forget() {
     swapW_ = swapH_ = renderW_ = renderH_ = outW_ = outH_ = 0;
     status_ = minSize_ = maxFrames_ = 0;
     statusOn_ = false;
+    framesOn_ = 0;
     generated_ = 0;
     loggedVram_ = warnedOptions_ = warnedState_ = warnedConstants_ = false;
     optionsError_.clear();

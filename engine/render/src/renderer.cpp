@@ -2205,14 +2205,18 @@ void Renderer::set_native_window(const void* window) {
     if (!initialized() || !impl_->windowManaged) return;
     Impl& im = *impl_;
     if (!window) {
-        // The window is going: its swapchain goes now, while the window still exists (the device waits for its images).
+        // The window is going: its swapchain goes now, while the window still exists (the device waits for its images). The frame generation
+        // provider is told first, so it lets go of what it holds of the swapchain (and generation is off) before the swapchain is destroyed.
+        im.framegen.set_swapchain(render::FrameGenSwapchain{im.gpu.device().backend(), 0, 0, im.windowDesc.vsync});
         im.gpu.device().destroy_swapchain();
         im.windowDesc.nativeWindow = nullptr;
         FA_INFO("render", "Renderer: the window went; its swapchain is destroyed until the next one");
-        im.framegen.set_swapchain(render::FrameGenSwapchain{im.gpu.device().backend(), 0, 0, im.windowDesc.vsync});
         return;
     }
-    if (window != im.windowDesc.nativeWindow) im.gpu.device().destroy_swapchain();  // none on a new window yet
+    if (window != im.windowDesc.nativeWindow) {
+        im.framegen.set_swapchain(render::FrameGenSwapchain{im.gpu.device().backend(), 0, 0, im.windowDesc.vsync});
+        im.gpu.device().destroy_swapchain();  // none on a new window yet
+    }
     im.windowDesc.nativeWindow = window;
     im.windowRemakeFailed = false;  // present() makes the swapchain on it
 }

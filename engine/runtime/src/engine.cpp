@@ -2380,7 +2380,10 @@ Json Engine::profile_frame_generation() {
     if (j.is_object() && !j.empty() &&
         !(j.value("state", std::string()) == "off" && j.value("reason", std::string()).empty()))
         return j;
-    const Json st = frame_generation_status();
+    // The profiler asks for this every frame: with the setting off nothing is asked of the providers (frame_generation_status probes each SDK,
+    // which loads its libraries), so a game that never turns frame generation on never loads one because a profiler is open.
+    const Json st =
+        impl_->frameGeneration.mode == render::FrameGenMode::Off ? Json::object() : frame_generation_status();
     j = Json::object();
     j["provider"] = "none";
     j["state"] = st.value("state", std::string("off"));

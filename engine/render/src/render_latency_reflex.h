@@ -31,6 +31,9 @@ std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& ap
 // of every frame reach Streamline then, which DLSS frame generation needs (it reports eFailReflexNotDetectedAtRuntime without them). Any
 // thread.
 bool reflex_running();
+// Puts the process-wide flag of reflex_running back to false: a test that started a Reflex provider and did not stop it (or one whose
+// provider never started) leaves nothing for the next test case to read, whatever order the cases run in.
+void reset_reflex_running_for_test();
 
 // The PCL marker (sl::PCLMarker) the engine's marker is sent as; -1 for a marker Reflex has no use for (the player's input sample: the PCL
 // marker of it is deprecated, and Reflex finds the input by itself).

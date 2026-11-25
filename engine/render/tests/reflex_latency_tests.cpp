@@ -245,10 +245,12 @@ struct Rig {
     explicit Rig(bool ready = true) {
         rx.reset();
         g_hiddenFunctions.clear();
+        render::reset_reflex_running_for_test();  // reflex_running() is the process's: no case reads what another left
         render::set_streamline_runtime_for_test(&runtime);
         if (ready) run_d3d12(runtime);
     }
     ~Rig() {
+        render::reset_reflex_running_for_test();
         render::set_streamline_runtime_for_test(nullptr);
         g_hiddenFunctions.clear();
     }
