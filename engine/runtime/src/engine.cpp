@@ -1205,8 +1205,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.frameGeneration = I.windowed && !config.editorMode && I.frameGeneration.mode != render::FrameGenMode::Off;
         rd.frameGenerationMode = I.frameGeneration.mode;
         // Ray Reconstruction's plugin is loaded only for a game that can draw with DLSS (mode "dlss", or "auto" where it picks DLSS).
+        // A project that asked for it under another mode is told which setting to change (rayReconstructionNeedsMode).
         rd.rayReconstruction =
             I.project.upscaler.rayReconstruction && render::upscaler_mode_may_use_dlss(I.project.upscaler.mode);
+        rd.rayReconstructionNeedsMode = I.project.upscaler.rayReconstruction && !rd.rayReconstruction;
         std::string gerr;
         bool ok = false;
         // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native

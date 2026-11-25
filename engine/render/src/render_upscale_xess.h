@@ -191,7 +191,6 @@ private:
     bool installed_ = false;                                // the library answered the instance request
     std::vector<std::string> askedInstance_, askedDevice_;  // what the last request asked
     XessVulkanGrant granted_;                               // what the device made last enabled
-    int live_ = 0;  // the devices made and not yet destroyed (device_destroying names none)
 };
 std::shared_ptr<XessDeviceHook> make_xess_device_hook();
 // Registers the process's hook once (the renderer calls it before it makes a Vulkan device); xess_vulkan_grant() is that hook's grant.

@@ -102,8 +102,10 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
 
 - **The plugin is asked for at start.** Streamline loads only the plugins it is told of when it starts, before the device, so the plugin of
   Ray Reconstruction is asked for only when the project's `render.upscaler.rayReconstruction` is true and its `mode` is `dlss` or
-  `auto` when the game starts (a game that never uses it does not pay its load time and memory). A `window.upscaler` or `render.upscaler` change to true later in a run that started
-  with the project setting off is refused: `render.supports` `dlssRayReconstruction` says to set the project setting and restart.
+  `auto` when the game starts (a game that never uses it does not pay its load time and memory). A `window.upscaler` or `render.upscaler`
+  change to true later in a run that started without the plugin is refused, and `render.supports` `dlssRayReconstruction` says which
+  setting to change before the restart: `render.upscaler.rayReconstruction` when it is false in factoria.json, `render.upscaler.mode`
+  (to `dlss` or `auto`) when the flag is already true and the game starts in another mode.
 - **The graphics presets turn it off.** `low`, `medium` and `high` write a whole upscaler (mode `auto`, a quality, sharpness 0.5), so
   `rayReconstruction` is false while one is on; `ultra` and `custom` keep the game's own setting (docs/UPSCALING.md, "Graphics presets").
 
@@ -195,8 +197,9 @@ library snapshot and the context have separate locks.
 The quality is the nearest XeSS setting to the upscale ratio (1.3, 1.5, 1.7, 2.0, 2.3, 3.0; the five names of `quality` land
 exactly), and a dynamic resolution that wobbles near a boundary keeps the setting it has (and inside the range, the quality of the
 context). A render size outside the range of the setting in use, when the nearest setting is that same one, cannot be helped by
-initialising again: the frame is refused with "the render size WxH is outside XeSS's input range AxB..CxD for quality Q" (the
-picture is not cut or stretched to fit) and the usual fallback draws. The engine passes its own render size, the jitter, the
+initialising again: XeSS is off for the rest of the run, with "the render size WxH is outside XeSS's input range AxB..CxD for
+quality Q" as its reason (the picture is not cut or stretched to fit), and the usual fallback draws; a new `render.upscaler.quality` in
+factoria.json takes effect at the next start. The engine passes its own render size, the jitter, the
 exposure and the reset flag (a cut, a resize or a frame after a failure), the responsive mask (an empty one when no item asked for a
 reactive mask) and an output image made with storage usage. The depth and the motion XeSS reads are made by the same preparation
 pass as MetalFX's (depth 0..1, motion in UV units, with the velocity scale set to the render size). The context is destroyed,

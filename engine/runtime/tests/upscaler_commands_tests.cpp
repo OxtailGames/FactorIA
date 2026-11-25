@@ -136,6 +136,31 @@ TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything
     e.shutdown();
 }
 
+TEST_CASE("rayReconstruction: only a project that starts in dlss or auto asks for the plugin, and one that asked in "
+          "another mode is told") {
+    struct Row {
+        const char* mode;
+        bool flag;
+        bool asks;
+        bool needsMode;
+    };
+    const Row rows[] = {{"temporal", true, false, true},   {"stretch", true, false, true},
+                        {"dlss", true, true, false},       {"auto", true, true, false},
+                        {"temporal", false, false, false}, {"dlss", false, false, false}};
+    for (const Row& row : rows) {
+        INFO("mode " << row.mode << ", rayReconstruction " << row.flag);
+        TempProject p("rrstart", std::string(R"(, "render": { "upscaler": { "mode": ")") + row.mode +
+                                     R"(", "rayReconstruction": )" + (row.flag ? "true" : "false") + " } }");
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+        REQUIRE(e.renderer() != nullptr);
+        CHECK(e.renderer()->desc().rayReconstruction == row.asks);
+        CHECK(e.renderer()->desc().rayReconstructionNeedsMode == row.needsMode);
+        e.shutdown();
+    }
+}
+
 TEST_CASE("rayReconstruction: the project's key, the command, the script and render.supports agree") {
     TempProject p("rr", R"(, "render": { "upscaler": { "mode": "dlss", "rayReconstruction": true } })");
     auto s = load_project(p.path());
