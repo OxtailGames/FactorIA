@@ -290,7 +290,8 @@ public:
     // The ID3D12Resource of an image: a distinct pointer per image id (0 for the handle that was never given an image).
     gpu::NativeImage native_image(gpu::Image image) const override {
         gpu::NativeImage n;
-        if (image.valid() && !noResources) n.resource = reinterpret_cast<const void*>(std::uintptr_t(0x5000 + image.id));
+        if (image.valid() && !noResources)
+            n.resource = reinterpret_cast<const void*>(std::uintptr_t(0x5000 + image.id));
         return n;
     }
     bool noResources = false;
@@ -394,7 +395,8 @@ TEST_CASE("xess frame generation: the declared C ABI has the SDK's sizes") {
     CHECK(sizeof(fg::Guid) == 16);
 }
 
-TEST_CASE("xess frame generation: the library is libxess_fg.dll of `factoria setup xess`, and a missing export is named") {
+TEST_CASE(
+    "xess frame generation: the library is libxess_fg.dll of `factoria setup xess`, and a missing export is named") {
     const render::VendorLibrarySpec spec = render::xefg_library_spec();
     CHECK(std::string(spec.fileName) == "libxess_fg.dll");
     CHECK(std::string(spec.setupId) == "xess");
@@ -440,7 +442,8 @@ TEST_CASE("xess frame generation: the projection is the Direct3D one, row-major 
     render::xefg_projection(ortho, -1000.0f, 1000.0f, m);
     CHECK(at(3, 2) == doctest::Approx(0.0f));
     CHECK(at(3, 3) == doctest::Approx(1.0f));
-    CHECK(at(2, 2) * 1000.0f - at(2, 3) == doctest::Approx(-1.0f).epsilon(1e-4));  // z of the far plane (view z = -1000)... maps to 1
+    CHECK(at(2, 2) * 1000.0f - at(2, 3) ==
+          doctest::Approx(-1.0f).epsilon(1e-4));  // z of the far plane (view z = -1000)... maps to 1
 }
 
 // ---- the probe ------------------------------------------------------------------------------------------------------------------------
@@ -518,7 +521,8 @@ TEST_CASE("xess frame generation: probe reasons") {
 
 // ---- the hook makes the swapchain -----------------------------------------------------------------------------------------------------
 
-TEST_CASE("xess frame generation: the swapchain is made from XeLL, the context, XeLL told to it, and the window's description") {
+TEST_CASE("xess frame generation: the swapchain is made from XeLL, the context, XeLL told to it, and the window's "
+          "description") {
     if (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
@@ -552,7 +556,8 @@ TEST_CASE("xess frame generation: the swapchain is made from XeLL, the context, 
     CHECK(xlfx.contexts == 0);
 }
 
-TEST_CASE("xess frame generation: the hook makes no swapchain where it cannot, and says why only when something broke") {
+TEST_CASE(
+    "xess frame generation: the hook makes no swapchain where it cannot, and says why only when something broke") {
     if (sizeof(void*) != 8) return;
     Rig rig;
     {  // not an Intel GPU: the engine makes its own swapchain, nothing of Intel is touched
@@ -613,7 +618,7 @@ TEST_CASE("xess frame generation: a failing SDK call gives everything back, XeSS
     if (sizeof(void*) != 8) return;
     struct Case {
         const char* what;
-        std::int32_t FgFx::*field;
+        std::int32_t FgFx::* field;
         std::int32_t rc;
         const char* call;
     };
@@ -670,7 +675,8 @@ TEST_CASE("xess frame generation: a swapchain made again destroys the context be
 
 // ---- start, configure, stop -----------------------------------------------------------------------------------------------------------
 
-TEST_CASE("xess frame generation: start needs the swapchain of this device; configure sets XeLL's sleep mode before it enables") {
+TEST_CASE("xess frame generation: start needs the swapchain of this device; configure sets XeLL's sleep mode before it "
+          "enables") {
     if (sizeof(void*) != 8) return;
     Rig rig;
     Hook h;
@@ -788,7 +794,8 @@ struct FrameRig {
 
 }  // namespace
 
-TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, only now), the constants and the XeLL frame id") {
+TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, only now), the constants and the XeLL "
+          "frame id") {
     if (sizeof(void*) != 8) return;
     FrameRig r;
     // The XeLL controller's last sleep names the present that will show the frame.
@@ -797,7 +804,8 @@ TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, on
     CHECK(r.f.error.empty());
     REQUIRE(fgfx.constants.size() == 1);
     REQUIRE(fgfx.tags.size() == 2);
-    const std::vector<std::string> order = {"fg.tagConstants", "list.begin", "fg.tagResource", "fg.tagResource", "list.end"};
+    const std::vector<std::string> order = {"fg.tagConstants", "list.begin", "fg.tagResource", "fg.tagResource",
+                                            "list.end"};
     CHECK(g_events == order);
     // The native section declared both images in the copy-source state.
     REQUIRE(r.list.uses.size() == 2);
@@ -838,7 +846,8 @@ TEST_CASE("xess frame generation: a frame tags depth and motion (copy source, on
     CHECK(fgfx.constants[1].second.resetHistory == 0);
 }
 
-TEST_CASE("xess frame generation: the present id of the tag is the one the present sets, XeLL's frame id when it has one") {
+TEST_CASE(
+    "xess frame generation: the present id of the tag is the one the present sets, XeLL's frame id when it has one") {
     if (sizeof(void*) != 8) return;
     FrameRig r;
     // Without a XeLL frame id (no controller gave one yet) the id is the count of presents plus one.
@@ -883,7 +892,8 @@ TEST_CASE("xess frame generation: the generated frames are what the swapchain sa
     CHECK(contains(r.h.p->failure(), "mismatched input resources"));
 }
 
-TEST_CASE("xess frame generation: a frame the SDK refuses is a failure for the run; one the engine cannot give is not") {
+TEST_CASE(
+    "xess frame generation: a frame the SDK refuses is a failure for the run; one the engine cannot give is not") {
     if (sizeof(void*) != 8) return;
     {  // no native resource for an image: this frame only
         FrameRig r;
@@ -1014,7 +1024,7 @@ TEST_CASE("xess frame generation: XeLL runs with it whatever render.latency says
     CHECK(lc.required_driver() == LatencyDriver::Xell);
     CHECK(lc.driver() == LatencyDriver::Xell);
     CHECK(lc.settings().mode == render::LatencyMode::Off);  // the setting itself is untouched
-    CHECK(count_of("xell.create") == 1);                    // the context the swapchain took is the one the controller uses
+    CHECK(count_of("xell.create") == 1);  // the context the swapchain took is the one the controller uses
     REQUIRE_FALSE(xlfx.modes.empty());
     CHECK((xlfx.modes.back().flags & xl::kFlagLowLatency) != 0);
     // The frame ids the controller gives XeLL are the present ids of the tags.

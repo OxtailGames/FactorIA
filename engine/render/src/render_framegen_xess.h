@@ -113,7 +113,8 @@ struct XefgApi {
     xefg_abi::SetPresentIdFn setPresentId = nullptr;
     xefg_abi::TagFrameConstantsFn tagFrameConstants = nullptr;
     xefg_abi::D3d12TagFrameResourceFn d3d12TagFrameResource = nullptr;
-    xefg_abi::GetLastPresentStatusFn getLastPresentStatus = nullptr;  // optional: a library without it counts no generated frames
+    xefg_abi::GetLastPresentStatusFn getLastPresentStatus =
+        nullptr;  // optional: a library without it counts no generated frames
 };
 
 VendorLibrarySpec xefg_library_spec();

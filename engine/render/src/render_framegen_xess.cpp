@@ -137,8 +137,8 @@ private:
     std::atomic<bool> live_{false};  // the swapchain of ctx_ exists (swapchain_destroying clears it)
     std::atomic<bool> running_{false};
     bool enabled_ = false;
-    std::uint32_t taggedId_ = 0;   // the present id the last dispatch tagged (0: none since the last present)
-    std::uint64_t presents_ = 0;   // PresentEvent::frame of the last present begun
+    std::uint32_t taggedId_ = 0;  // the present id the last dispatch tagged (0: none since the last present)
+    std::uint64_t presents_ = 0;  // PresentEvent::frame of the last present begun
     std::atomic<std::uint64_t> generated_{0};
 };
 
@@ -204,11 +204,13 @@ std::string XessFrameGenProvider::load_library(bool* installed) {
 VendorProbe XessFrameGenProvider::probe(const VendorEnv& env) {
     VendorProbe p;
     p.reason = vendor_environment_problem(name(), backends(), env);
-    if (p.reason.empty() && sizeof(void*) != 8) p.reason = "XeSS frame generation's library is 64-bit; this build is not.";
+    if (p.reason.empty() && sizeof(void*) != 8)
+        p.reason = "XeSS frame generation's library is 64-bit; this build is not.";
     if (p.reason.empty() && env.vendor != GpuVendor::Intel)
-        p.reason = "XeSS frame generation needs an Intel Arc GPU; this GPU is " +
-                   (env.vendor == GpuVendor::None ? std::string("not known") : std::string(gpu_vendor_name(env.vendor))) +
-                   "'s. Use render.frameGeneration.mode \"dlss\" on NVIDIA or \"fsr\" on any GPU.";
+        p.reason =
+            "XeSS frame generation needs an Intel Arc GPU; this GPU is " +
+            (env.vendor == GpuVendor::None ? std::string("not known") : std::string(gpu_vendor_name(env.vendor))) +
+            "'s. Use render.frameGeneration.mode \"dlss\" on NVIDIA or \"fsr\" on any GPU.";
     if (p.reason.empty()) p.reason = failure();
     if (p.reason.empty()) p.reason = load_library(nullptr);
     if (p.reason.empty()) p.reason = xell_problem();
@@ -225,8 +227,7 @@ void XessFrameGenProvider::d3d12_device_created(gpu::D3d12DeviceCreated& created
         std::lock_guard<std::mutex> lock(failMutex_);
         failure_.clear();  // a new device is a new run: what failed on the one before does not count
     }
-    if (!intel_)
-        hookProblem_ = "this GPU is not an Intel one (XeSS frame generation needs an Intel Arc GPU)";
+    if (!intel_) hookProblem_ = "this GPU is not an Intel one (XeSS frame generation needs an Intel Arc GPU)";
 }
 
 bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& create) {
@@ -243,7 +244,9 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
     bool installed = false;
     if (std::string why = load_library(&installed); !why.empty()) {
         hookProblem_ = why;
-        if (installed) create.error = why;  // a library that is there and does not work is an error; one that is not there is the probe's
+        if (installed)
+            create.error =
+                why;  // a library that is there and does not work is an error; one that is not there is the probe's
         return false;
     }
     if (std::string why = xell_problem(); !why.empty()) {
@@ -269,25 +272,29 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
         return false;
     };
     abi::Handle handle = nullptr;
-    if (const std::int32_t rc = api_.d3d12Create(const_cast<void*>(device_), &handle);  // NOLINT: the SDK takes a non-const device
+    if (const std::int32_t rc =
+            api_.d3d12Create(const_cast<void*>(device_), &handle);  // NOLINT: the SDK takes a non-const device
         rc < 0 || !handle)
-        return give_up("XeSS frame generation could not make its context: " + call_failed("xefgSwapChainD3D12CreateContext", rc));
+        return give_up("XeSS frame generation could not make its context: " +
+                       call_failed("xefgSwapChainD3D12CreateContext", rc));
     ctx_ = handle;
     // XeSS-FG refuses to initialise without XeLL: it is told before the swapchain exists.
     if (const std::int32_t rc = api_.setLatencyReduction(ctx_, xell_.ctx); rc < 0)
-        return give_up("XeSS frame generation could not use XeLL: " + call_failed("xefgSwapChainSetLatencyReduction", rc));
+        return give_up("XeSS frame generation could not use XeLL: " +
+                       call_failed("xefgSwapChainSetLatencyReduction", rc));
     abi::D3d12InitParams params{};
     params.maxInterpolatedFrames = 1;  // one generated frame between two rendered ones
     params.uiMode = abi::kUiModeNone;  // the screen-space items are in the picture: they are interpolated with it
-    if (const std::int32_t rc = api_.d3d12InitFromDesc(ctx_, const_cast<void*>(create.hwnd), create.desc, nullptr,  // NOLINT
-                                                       const_cast<void*>(create.queue), const_cast<void*>(create.factory),
-                                                       &params);
+    if (const std::int32_t rc =
+            api_.d3d12InitFromDesc(ctx_, const_cast<void*>(create.hwnd), create.desc, nullptr,  // NOLINT
+                                   const_cast<void*>(create.queue), const_cast<void*>(create.factory), &params);
         rc < 0)
         return give_up("XeSS frame generation could not make the window's swapchain: " +
-                     call_failed("xefgSwapChainD3D12InitFromSwapChainDesc", rc));
+                       call_failed("xefgSwapChainD3D12InitFromSwapChainDesc", rc));
     void* swapchain = nullptr;
     if (const std::int32_t rc = api_.d3d12GetSwapChainPtr(ctx_, &kIidSwapChain1, &swapchain); rc < 0 || !swapchain)
-        return give_up("XeSS frame generation gave no swapchain: " + call_failed("xefgSwapChainD3D12GetSwapChainPtr", rc));
+        return give_up("XeSS frame generation gave no swapchain: " +
+                       call_failed("xefgSwapChainD3D12GetSwapChainPtr", rc));
     create.swapchain = swapchain;
     live_ = true;
     enabled_ = false;
@@ -301,7 +308,8 @@ std::string XessFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
     if (std::string why = failure(); !why.empty()) return why;
     if (!available()) return "XeSS frame generation's swapchain hook was not used: " + unavailable_reason();
     if (!ctx_ || !live_ || device.native().device != device_) {
-        if (!hookProblem_.empty()) return "XeSS frame generation did not make the window's swapchain: " + hookProblem_ + ".";
+        if (!hookProblem_.empty())
+            return "XeSS frame generation did not make the window's swapchain: " + hookProblem_ + ".";
         return "XeSS frame generation did not make the window's swapchain (the game must start with "
                "render.frameGeneration.mode set, on an Intel Arc GPU with Direct3D 12).";
     }
@@ -345,7 +353,8 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
         return false;
     }
     gpu::Device& device = *frame.device;
-    void* const depth = const_cast<void*>(device.native_image(frame.depth).resource);  // NOLINT: the SDK takes a non-const resource
+    void* const depth =
+        const_cast<void*>(device.native_image(frame.depth).resource);  // NOLINT: the SDK takes a non-const resource
     void* const motion = const_cast<void*>(device.native_image(frame.motion).resource);  // NOLINT
     if (!depth || !motion) {
         frame.error = std::string("XeSS frame generation: the device gave no native resource for the ") +
@@ -397,7 +406,8 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
     std::int32_t rc = abi::kResultSuccess;
     const char* what = "";
     for (const abi::D3d12ResourceData& d : data) {
-        rc = api_.d3d12TagFrameResource(ctx_, const_cast<void*>(native->list), presentId, &d);  // NOLINT: a non-const list
+        rc = api_.d3d12TagFrameResource(ctx_, const_cast<void*>(native->list), presentId,
+                                        &d);  // NOLINT: a non-const list
         if (rc < 0) {
             what = d.type == abi::kResourceDepth ? "depth" : "motion vector";
             break;
@@ -406,13 +416,14 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
     // The section is closed whatever XeSS-FG answered: the images are left in the state they were declared in.
     const Result<void> closed = frame.list->end_native();
     if (rc < 0) {
-        fail("tagging the " + std::string(what) + " image: " + call_failed("xefgSwapChainD3D12TagFrameResource", rc) + ".");
+        fail("tagging the " + std::string(what) + " image: " + call_failed("xefgSwapChainD3D12TagFrameResource", rc) +
+             ".");
         frame.error = failure();
         return false;
     }
     if (!closed) {
-        frame.error =
-            "XeSS frame generation tagged the frame, but its native command section could not be closed: " + closed.error().message;
+        frame.error = "XeSS frame generation tagged the frame, but its native command section could not be closed: " +
+                      closed.error().message;
         return false;
     }
     return true;
