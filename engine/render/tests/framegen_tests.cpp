@@ -229,13 +229,15 @@ TEST_CASE("frame generation settings: the provider a mode names on what the mach
 
 // ---- the slot table ----------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("frame generation providers: the DLSS slot has its provider, the others say which package fills them") {
-    // M78-P5b: the DLSS frame generation provider is in its slot (render_framegen_dlss.h); FSR 3 and XeSS arrive with their packages.
+TEST_CASE("frame generation providers: the DLSS and XeSS slots have their providers, the FSR slot says which package fills it") {
+    // M78-P5b: the DLSS frame generation provider is in its slot (render_framegen_dlss.h); P5d: XeSS (render_framegen_xess.h,
+    // framegen_xess_tests.cpp); FSR 3 arrives with its package.
     const render::FrameGenProvider* dlss = render::framegen_provider(FrameGenSlot::Dlss);
     REQUIRE(dlss != nullptr);
     CHECK(dlss->slot() == FrameGenSlot::Dlss);
     CHECK(dlss->setup_id() == "streamline");
-    for (FrameGenSlot s : {FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) != nullptr);
+    for (FrameGenSlot s : {FrameGenSlot::Fsr}) {
         CAPTURE(render::frame_gen_slot_name(s));
         CHECK(render::framegen_provider(s) == nullptr);
         const std::string why = render::framegen_absent_reason(s);
@@ -936,8 +938,9 @@ TEST_CASE("frame generation: a provider's device hook goes to the devices of ren
     auto hook = std::make_shared<FakeSwapchainHook>();
     FakeProvider dlss(FrameGenSlot::Dlss);
     dlss.hook = hook;
-    FakeProvider noHook(FrameGenSlot::Fsr);  // a provider with no hook adds none
-    ProviderGuard g1(FrameGenSlot::Dlss, &dlss), g2(FrameGenSlot::Fsr, &noHook);
+    FakeProvider noHook(FrameGenSlot::Fsr);   // a provider with no hook adds none
+    FakeProvider noXess(FrameGenSlot::Xess);  // (the Xess slot's own provider has a hook)
+    ProviderGuard g1(FrameGenSlot::Dlss, &dlss), g2(FrameGenSlot::Fsr, &noHook), g3(FrameGenSlot::Xess, &noXess);
 
     const auto hooks = render::framegen_device_hooks();
     REQUIRE(hooks.size() == 1);

@@ -1804,6 +1804,7 @@ void Renderer::Impl::render(World& world, float dt) {
     framegen.set_inputs(upscale_active(), temporalFrame);
     framegen.begin_frame(render::latency_clock().now_ms());
     sync_reflex_for_framegen();  // a provider that started or stopped this frame changes what Reflex has to do
+    sync_framegen_latency();
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)

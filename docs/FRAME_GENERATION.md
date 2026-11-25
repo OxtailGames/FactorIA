@@ -9,8 +9,10 @@ generation, Intel XeSS frame generation). It is off by default, and the swapchai
 ```
 
 > **State of this build.** The seam (the setting, the choice of the provider, the refusals, the `minBaseFps` rule, the hand-off of the
-> frame and the readout) and the **NVIDIA DLSS frame generation** provider are in. The AMD FSR 3 and the Intel XeSS providers arrive in
-> their own packages; until then `fsr` and `xess` are *refused* and `render.frame_generation` says which package fills them.
+> frame and the readout), the **NVIDIA DLSS frame generation** provider and **the `xess` provider** (Intel XeSS frame generation, below) are
+> in. The `fsr` provider arrives in its own package: until then that mode is *refused* and `render.frame_generation` says which package
+> fills it. The `xess` provider is written from the SDK's public headers and tested against fake libraries; **it has not been run on an Intel
+> GPU**.
 
 `mode`:
 
@@ -56,6 +58,33 @@ kept). A wrong name fails with the valid values and a "did you mean", and change
 - `reason`: why the state is not `active` (the SDK's own words where it has them);
 - `modes`: per SDK `{available, reason, setupId}`, where `setupId` is what `factoria setup <id>` installs;
 - `changed`, and `report`: the readout below.
+
+## XeSS Frame Generation
+
+Mode `xess` (or `auto` on an Intel GPU): Intel's XeSS frame generation on Windows, Direct3D 12, an Intel Arc GPU. `factoria setup xess`
+installs `libxess_fg.dll` and `libxell.dll` (XeSS 3.0.2, next to `libxess.dll`); the engine ships none of Intel's code and loads the two
+libraries at run time. **Not tested on Intel hardware**: it is written from the SDK's headers and tested against fake libraries, so what
+the real swapchain does with the engine's depth and motion (the depth convention, the projection) is for a machine with an Arc GPU to
+confirm.
+
+- **The swapchain.** XeSS-FG is a proxy swapchain: the library makes the window's swapchain itself and presents the rendered and the
+  generated frames in order. The engine hands it the window's description when the game starts, which is why `render.frameGeneration`
+  must be set before the game starts (see "What it needs"). The provider asks for no interface composition (`uiMode` none): the screen-space
+  items are in the picture XeSS-FG interpolates.
+- **XeLL runs with it.** XeSS-FG needs Intel XeLL (low latency) and cannot run without it, so **XeLL starts whenever XeSS frame
+  generation runs, even when `render.latency` is `off`** (the setting itself is untouched; `render.latency` and the profiler's latency
+  line say that XeLL runs because of frame generation). XeLL's context is shared, so choosing `xell` for `render.latency` as well uses
+  the same one. The frame ids XeLL is given are the present ids XeSS-FG is tagged with. A machine without `libxell.dll` is refused with
+  "run `factoria setup xess`".
+- **What each frame gives it.** The depth and the motion of the temporal upscaler's frame (copy-source state, this frame only, at the
+  render size), the camera's view and projection matrices (unjittered), the jitter, the frame time, and a history reset after a camera
+  cut.
+- **When it says no.** `render.supports` has the row `xessFrameGen` and `render.frame_generation` the reason: not an Intel GPU, not
+  Direct3D 12, not Windows, the SDK or XeLL not installed (`factoria setup xess`), a driver too old for the swapchain API, or a failure
+  earlier in this run. A call of the SDK that fails while the game runs is logged once with its name and result, and XeSS frame generation
+  stays off until the game restarts (it never fails the device).
+- **Known limit.** The game's mode is not told to the swapchain hook: on an Intel GPU with both libraries installed, a game started with
+  any mode other than `off` gets XeSS-FG's swapchain, also when the mode was `dlss` or `fsr` (which an Intel GPU refuses anyway).
 
 ## The minimum base frame rate
 
