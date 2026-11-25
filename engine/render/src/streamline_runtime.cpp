@@ -512,6 +512,7 @@ struct StreamlineRuntime::Impl {
     // get two tokens and Streamline would see two frames.
     mutable std::mutex mu_;
     std::vector<std::uint32_t> features_;
+    std::string projectId_;  // slInit's prefs point at it: it lives as long as Streamline may read it
     StreamlineHost host_;
 
     Phase phase_ = Phase::Idle;
@@ -590,10 +591,10 @@ struct StreamlineRuntime::Impl {
         // NVIDIA's registration of a game gives it an application id; without one it is 0 (Streamline runs, NVIDIA's per-title overrides do not
         // apply). The project id is the GUID of the game (a custom engine must give one): FactorIA's own unless the game sets its own.
         prefs.applicationId = streamline_application_id(std::getenv("FA_STREAMLINE_APP_ID"));
-        const std::string projectId = streamline_project_id(std::getenv("FA_STREAMLINE_PROJECT_ID"));
+        projectId_ = streamline_project_id(std::getenv("FA_STREAMLINE_PROJECT_ID"));
         prefs.engine = 0;  // eCustom
         prefs.engineVersion = fa::engine_version();
-        prefs.projectId = projectId.c_str();
+        prefs.projectId = projectId_.c_str();
         prefs.renderApi = backend == gpu::Backend::Vulkan ? kRenderApiVulkan : kRenderApiD3d12;
         if (const Result r = api.init(&prefs, kSdkVersion); r != kOk) return streamline_refusal("slInit", r);
         lib_ = std::move(lib);
