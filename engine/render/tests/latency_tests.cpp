@@ -14,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -501,6 +502,29 @@ TEST_CASE("latency controller: the engine's own pacing sleeps before the input i
     run_frame(c, clock, 30.0, 1.0, 60.0);
     run_frame(c, clock, 30.0, 1.0, 60.0);
     CHECK(c.pacing_sleep_ms(60.0) == 0.0);
+}
+
+TEST_CASE("latency controller: a frame that never reached RenderSubmitEnd closes its id but adds no sample") {
+    LDevice dev(gpu::Backend::Vulkan, 0x106b);
+    FakeClock clock;
+    ClockGuard cg(&clock);
+    render::LatencyController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Apple), true);
+    c.set_settings(settings(LatencyMode::Auto));
+    run_frame(c, clock, 6.0, 2.0);
+    CHECK(c.report().samples == 1);
+    const std::uint64_t id = c.frame_id();
+    // The acquire failed (a minimized window): PresentStart, then PresentEnd with no submit between them.
+    c.frame_begin(0.0);
+    c.mark(LatencyMarker::InputSample);
+    clock.t += 1.0;
+    c.mark(LatencyMarker::PresentStart);
+    c.mark(LatencyMarker::PresentEnd);
+    CHECK(c.frame_id() == id + 1);  // the id is closed
+    CHECK(c.report().samples == 1);
+    CHECK(c.report().maxMs == doctest::Approx(8.0));
+    run_frame(c, clock, 6.0, 2.0);
+    CHECK(c.report().samples == 2);
 }
 
 TEST_CASE("latency controller: the readout is input to present, once per frame") {
@@ -1058,6 +1082,35 @@ TEST_CASE("xell: context, sleep mode, sleep, markers, report") {
     CHECK(xlfx.events.back() == "destroy");
     p->sleep(8);
     CHECK(xlfx.sleeps.size() == 1);
+}
+
+TEST_CASE("xell: the report is served to the thread that started the provider only, and stop() frees it") {
+    XlLoader loader;
+    LoaderGuard lg(&loader);
+    xlfx.reset();
+    auto p = render::make_xell_provider();
+    LDevice dev(gpu::Backend::D3d12, 0x8086);
+    REQUIRE(p->probe(env_of(dev, GpuVendor::Intel)).available);
+    xlfx.reports.assign(1, xl::FrameReport{});
+    xlfx.reports[0].frameId = 7;
+    xlfx.reports[0].simStart = 1'000'000;
+    xlfx.reports[0].presentEnd = 7'000'000;
+    CHECK(p->start(dev).empty());
+    p->configure(true, false, 0);
+    CHECK(p->vendor_report()["source"] == "XeLL");  // the owner
+    Json fromOther;
+    std::thread([&] { fromOther = p->vendor_report(); }).join();
+    CHECK(fromOther.is_null());  // another thread: empty, not a race (warned once)
+    std::thread([&] { fromOther = p->vendor_report(); }).join();
+    CHECK(fromOther.is_null());
+    p->stop(dev);
+    // stop() cleared the owner: the next start (on another thread) owns it, and the thread that started before is the stranger now.
+    bool started = false;
+    std::thread([&] { started = p->start(dev).empty(); }).join();
+    REQUIRE(started);
+    p->configure(true, false, 0);
+    CHECK(p->vendor_report().is_null());  // this thread is not the owner of the new start
+    p->stop(dev);
 }
 
 TEST_CASE("xell: a context the SDK refuses is a reason, not a device failure") {
