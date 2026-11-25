@@ -222,6 +222,17 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
     if (debugUtils_) enabled.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     const bool portabilityEnumeration = has_extension(extensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     if (portabilityEnumeration) enabled.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    // The window's extensions where the loader has them (a headless device needs none): the surface, this platform's
+    // surfaces, the HDR colour spaces.
+    const char* platformSurface = platform_surface_extension();
+    surfaceExtension_ = platformSurface && has_extension(extensions, VK_KHR_SURFACE_EXTENSION_NAME) &&
+                        has_extension(extensions, platformSurface);
+    if (surfaceExtension_) {
+        enabled.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+        enabled.push_back(platformSurface);
+        colorspaceExtension_ = has_extension(extensions, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        if (colorspaceExtension_) enabled.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+    }
 
     std::vector<const char*> layers;
     bool syncValidation = false;  // VulkanOptions::synchronizationValidation, with a layer that has it
@@ -358,6 +369,13 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
     FA_VK_INSTANCE_FUNCTIONS(FA_VK_LOAD_INSTANCE)
     if (debugUtils_) {
         FA_VK_DEBUG_FUNCTIONS(FA_VK_LOAD_INSTANCE)
+    }
+    if (surfaceExtension_) {
+        FA_VK_SURFACE_FUNCTIONS(FA_VK_LOAD_INSTANCE)
+        if (!fn_.vkDestroySurfaceKHR || !fn_.vkGetPhysicalDeviceSurfaceSupportKHR ||
+            !fn_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR || !fn_.vkGetPhysicalDeviceSurfaceFormatsKHR ||
+            !fn_.vkGetPhysicalDeviceSurfacePresentModesKHR)
+            surfaceExtension_ = false;  // create_swapchain says there is no window path
     }
 #undef FA_VK_LOAD_INSTANCE
 #define FA_VK_CHECK_INSTANCE(name)                                                                                     \
@@ -525,6 +543,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     std::vector<const char*> enabled;
     portability_ = has_extension(extensions, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
     if (portability_) enabled.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+    swapchainExtension_ = surfaceExtension_ && has_extension(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    if (swapchainExtension_) enabled.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     const bool core13 = apiVersion_ >= VK_API_VERSION_1_3;
     const bool sync2Extension = !core13 && has_extension(extensions, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
 
@@ -655,6 +675,13 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     if (!fn_.name) return missing(#name);
     FA_VK_DEVICE_FUNCTIONS(FA_VK_LOAD_DEVICE)
 #undef FA_VK_LOAD_DEVICE
+    if (swapchainExtension_) {
+#define FA_VK_LOAD_SWAPCHAIN(name)                                                                                     \
+    fn_.name = reinterpret_cast<PFN_##name>(fn_.vkGetDeviceProcAddr(device_, #name));                                  \
+    if (!fn_.name) swapchainExtension_ = false;  // create_swapchain says there is no window path
+        FA_VK_SWAPCHAIN_FUNCTIONS(FA_VK_LOAD_SWAPCHAIN)
+#undef FA_VK_LOAD_SWAPCHAIN
+    }
     if (sync2)
         fn_.vkCmdPipelineBarrier2 = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
             fn_.vkGetDeviceProcAddr(device_, core13 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR"));
@@ -919,6 +946,8 @@ bool VulkanDevice::storage_image_loadable(PixelFormat format, std::string* why) 
 }
 
 VulkanDevice::~VulkanDevice() {
+    // The window first: its images' records and semaphores go while the queues and the pools still work.
+    if (device_ && queues_[0].timeline) destroy_swapchain();
     if (device_ && queues_[0].timeline) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
     }
@@ -1514,12 +1543,13 @@ void VulkanDevice::check_owners(const VulkanCommandList& list, const std::uint64
 }
 
 bool VulkanDevice::submit_signal(QueueKind queue, const VkCommandBuffer* cmds, std::uint32_t count, const char* what,
-                                 const std::uint64_t* waits) {
+                                 const std::uint64_t* waits, VkSemaphore binaryWait, VkSemaphore binarySignal) {
     QueueRecord& q = queues_[int(queue)];
-    // The other queues' timelines it waits for: the list's wait_list() values and the queue's wait_queue() floors.
-    VkSemaphore waitSemaphores[kQueueKinds] = {};
-    std::uint64_t waitValues[kQueueKinds] = {};
-    VkPipelineStageFlags waitStages[kQueueKinds] = {};
+    // The other queues' timelines it waits for: the list's wait_list() values and the queue's wait_queue() floors; then
+    // the swapchain's acquire semaphore (a binary one: its value is ignored).
+    VkSemaphore waitSemaphores[kQueueKinds + 1] = {};
+    std::uint64_t waitValues[kQueueKinds + 1] = {};
+    VkPipelineStageFlags waitStages[kQueueKinds + 1] = {};
     std::uint32_t waitCount = 0;
     for (int k = 0; k < kQueueKinds; ++k) {
         if (k == int(queue) || !queues_[k].own) continue;
@@ -1538,13 +1568,22 @@ bool VulkanDevice::submit_signal(QueueKind queue, const VkCommandBuffer* cmds, s
         waitStages[waitCount] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         ++waitCount;
     }
+    if (binaryWait) {
+        // The acquired image's first use chains with this stage: its tracked state after the acquire names it.
+        waitSemaphores[waitCount] = binaryWait;
+        waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        ++waitCount;
+    }
     const std::uint64_t value = q.value + 1;
+    const VkSemaphore signals[2] = {q.timeline, binarySignal};
+    const std::uint64_t signalValues[2] = {value, 0};
+    const std::uint32_t signalCount = binarySignal ? 2u : 1u;
     VkTimelineSemaphoreSubmitInfo ts{};
     ts.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     ts.waitSemaphoreValueCount = waitCount;
     ts.pWaitSemaphoreValues = waitCount ? waitValues : nullptr;
-    ts.signalSemaphoreValueCount = 1;
-    ts.pSignalSemaphoreValues = &value;
+    ts.signalSemaphoreValueCount = signalCount;
+    ts.pSignalSemaphoreValues = signalValues;
     VkSubmitInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     si.pNext = &ts;
@@ -1553,8 +1592,8 @@ bool VulkanDevice::submit_signal(QueueKind queue, const VkCommandBuffer* cmds, s
     si.pWaitDstStageMask = waitCount ? waitStages : nullptr;
     si.commandBufferCount = count;
     si.pCommandBuffers = cmds;
-    si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores = &q.timeline;
+    si.signalSemaphoreCount = signalCount;
+    si.pSignalSemaphores = signals;
     const VkResult r = fn_.vkQueueSubmit(q.queue, 1, &si, VK_NULL_HANDLE);
     if (r != VK_SUCCESS) {
         report(vk_error(std::string("vkQueueSubmit (") + what + ", " + queue_name(queue) + " queue)", r,
@@ -1569,7 +1608,7 @@ bool VulkanDevice::submit_signal(QueueKind queue, const VkCommandBuffer* cmds, s
     return true;
 }
 
-bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> handoffs) {
+bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> handoffs, VkSemaphore signal) {
     const QueueRecord& q = queues_[int(list.queue_)];
     list.flush_barriers();
     if (list.scopeOpen_) list.close_scope();  // a timed scope left open ends with its list
@@ -1705,8 +1744,19 @@ bool VulkanDevice::execute(VulkanCommandList& list, std::span<const Handed> hand
     for (int k = 0; k < kQueueKinds; ++k)
         if (k != int(list.queue_)) waits[k] = std::max(list.waits_[k], q.waitFloor[k]);
     check_owners(list, waits);
-    if (!submit_signal(list.queue_, cmds, n, list.label_.c_str(), waits)) return drop();  // reported
+    // The first graphics list that uses the image acquire_swapchain() took waits until the presentation engine let go
+    // of it.
+    const bool acquireWait =
+        swapWait_ && list.queue_ == QueueKind::Graphics && swapWaitImage_ && list.useIndex_.count(swapWaitImage_);
+    if (!submit_signal(list.queue_, cmds, n, list.label_.c_str(), waits, acquireWait ? swapWait_ : VK_NULL_HANDLE,
+                       signal))
+        return drop();  // reported
     list.fence_ = q.value;
+    if (acquireWait) {
+        if (swapWaitSlot_ < acquireSemaphores_.size()) acquireSemaphores_[swapWaitSlot_].waitedAt = q.value;
+        swapWait_ = VK_NULL_HANDLE;
+        swapWaitImage_ = nullptr;
+    }
     for (VulkanCommandList::Use& u : list.uses_) {
         TrackedResource& t = *u.res;
         const bool acquire = t.acquireFrom != VK_QUEUE_FAMILY_IGNORED;

@@ -5,8 +5,10 @@
 // no error; the drawing cases draw with the SPIR-V of tests/shaders/vulkan_test.glsl (the twins of
 // d3d12_device_tests.cpp's HLSL) and check their targets per texel. A machine without a Vulkan loader or device, or with
 // a loader older than 1.2, says so (MESSAGE) and passes, unless FA_VULKAN_REQUIRE=1 (the Linux CI job): then a skip and
-// a missing validation layer fail. Where the backend is not built (web, iOS) one case checks the factory's teaching
-// error.
+// a missing validation layer fail. The swapchain cases (M77-P9d) make a native window of their own (a CAMetalLayer on
+// macOS, an X11 window of xvfb on Linux, a hidden HWND on Windows) and skip where there is none, or where the driver
+// has no window path; under FA_VULKAN_REQUIRE=1 that skip fails too. Where the backend is not built (web, iOS) one
+// case checks the factory's teaching error.
 #include <doctest.h>
 
 #include <algorithm>
@@ -20,6 +22,23 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// The swapchain cases make a native window of their own (TestWindow below).
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <dlfcn.h>
+#endif
 
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
@@ -1042,6 +1061,7 @@ Range bytes_of(const Vec4& v) { return Range{v.data(), sizeof(float) * v.size()}
 ShaderDesc fill_shader_desc() { return from_sg(*vktest_fill_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc instance_shader_desc() { return from_sg(*vktest_instance_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc two_views_shader_desc() { return from_sg(*vktest_two_views_shader_desc(SG_BACKEND_VULKAN)); }
+ShaderDesc two_buffers_shader_desc() { return from_sg(*vktest_two_buffers_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc compute_shader_desc() { return from_sg(*vktest_compute_shader_desc(SG_BACKEND_VULKAN)); }
 ShaderDesc sample_shader_desc() { return from_sg(*vktest_sample_shader_desc(SG_BACKEND_VULKAN)); }
 
@@ -1314,6 +1334,49 @@ TEST_CASE("vulkan: an indexed instanced draw with a base vertex") {
     const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 8, 4), 8, 4, 0, [](int x, int) {
         return x < 4 ? std::array<int, 4>{255, 0, 0, 255} : std::array<int, 4>{0, 255, 0, 255};
     });
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("vulkan: a packed vertex buffer next to one with offsets of its own, and a buffer with no usage flag") {
+    auto dev = make_vk();
+    if (!dev) return;
+    const Shader shader = dev->make_shader(two_buffers_shader_desc());
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    // Buffer 0: position and colour, offsets left at 0 and stride 0 (packed: 0 and 8, stride 24). Buffer 1: a shift at
+    // offset 4 of a 12-byte vertex. Packing the whole layout, or none of it, would read the colour from the position.
+    PipelineDesc pd = render_desc(shader, PixelFormat::Rgba8);
+    pd.layout.attrs[0].format = VertexFormat::Float2;
+    pd.layout.attrs[1].format = VertexFormat::Float4;
+    pd.layout.attrs[2] = VertexAttr{1, 4, VertexFormat::Float2};
+    pd.layout.buffers[1].stride = 12;
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    // A fullscreen triangle in green; the word before each shift would move it off the target if it were read.
+    const Buffer vertices = make_vertex_buffer(*dev, {-1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f,  //
+                                                      3.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f,   //
+                                                      -1.0f, 3.0f, 0.0f, 1.0f, 0.0f, 1.0f});
+    // BufferUsage: no usage flag at all is a vertex buffer, and set_bindings takes it as one.
+    const std::vector<float> shifts = {9.0f, 0.0f, 0.0f, 9.0f, 0.0f, 0.0f, 9.0f, 0.0f, 0.0f};
+    BufferDesc sd;
+    sd.size = shifts.size() * sizeof(float);
+    sd.data = Range{shifts.data(), sd.size};
+    sd.label = "shifts";
+    const Buffer shiftBuffer = dev->make_buffer(sd);
+    REQUIRE_MESSAGE(dev->state(shiftBuffer) == ResourceState::Valid, all_errors(*dev));
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    CommandList& list = dev->begin_commands("two-buffers");
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 1.0f, 1.0f}));
+    list.set_pipeline(pip);
+    Bindings b;
+    b.vertexBuffers[0] = vertices;
+    b.vertexBuffers[1] = shiftBuffer;
+    list.set_bindings(b);
+    list.draw(0, 3);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, t.image, 4, 4), 4, 4, 0,
+                                           [](int, int) { return std::array<int, 4>{0, 255, 0, 255}; });
     CHECK_MESSAGE(bad.empty(), bad);
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
@@ -1667,7 +1730,8 @@ TEST_CASE("vulkan: the command list says what is wrong, skips what depends on it
     PassDesc window = PassDesc::for_swapchain(sc, dev->environment_defaults());
     window.label = "window";
     list.begin_pass(window);
-    CHECK(contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) comes in M77-P9"));
+    CHECK(
+        contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) without a swapchain"));
     std::size_t before = dev->errors().size();
     list.set_pipeline(rgba8);  // inside a failed pass: skipped without another error
     list.draw(0, 3);
@@ -3487,6 +3551,355 @@ TEST_CASE("vulkan: a wait for a token never issued, a resource of another queue 
     CHECK(contains(all_errors(*dev), "queue, which has no render passes"));
 
     step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+// ---- the window: a swapchain on a native window the case makes itself ---------------------------------------------
+
+namespace {
+
+// A native window of the platform, made without a window library, so the swapchain cases run in the test binary: a
+// CAMetalLayer (macOS, through the Objective-C runtime; MoltenVK presents into a layer that is on no screen), an X11
+// window of $DISPLAY (Linux, libX11 opened at run time: the Linux CI job runs under xvfb), a hidden popup HWND
+// (Windows). `window` is null, and `why` says why, where there is none.
+struct TestWindow {
+    const void* window = nullptr;
+    const void* display = nullptr;
+    std::string why;
+
+#if defined(__APPLE__)
+    using Msg = id (*)(id, SEL);
+    struct Size {
+        double width, height;
+    };
+    struct Rect {
+        double x, y, width, height;
+    };
+    id layer = nullptr;
+
+    TestWindow(int width, int height) {
+        (void)dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_LAZY | RTLD_GLOBAL);
+        Class cls = objc_getClass("CAMetalLayer");
+        if (!cls) {
+            why = "no CAMetalLayer class (QuartzCore did not load)";
+            return;
+        }
+        const auto send = reinterpret_cast<Msg>(&objc_msgSend);
+        layer = send(send(reinterpret_cast<id>(cls), sel_registerName("alloc")), sel_registerName("init"));
+        if (!layer) {
+            why = "[CAMetalLayer new] gave nil";
+            return;
+        }
+        resize(width, height);
+        window = layer;
+    }
+    void resize(int width, int height) {
+        reinterpret_cast<void (*)(id, SEL, Rect)>(&objc_msgSend)(layer, sel_registerName("setBounds:"),
+                                                                 Rect{0.0, 0.0, double(width), double(height)});
+        reinterpret_cast<void (*)(id, SEL, Size)>(&objc_msgSend)(layer, sel_registerName("setDrawableSize:"),
+                                                                 Size{double(width), double(height)});
+    }
+    ~TestWindow() {
+        if (layer) reinterpret_cast<void (*)(id, SEL)>(&objc_msgSend)(layer, sel_registerName("release"));
+    }
+#elif defined(_WIN32)
+    HWND hwnd = nullptr;
+
+    TestWindow(int width, int height) {
+        hwnd = CreateWindowExW(0, L"STATIC", L"fa vulkan swapchain test", WS_POPUP, 0, 0, width, height, nullptr,
+                               nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!hwnd) {
+            why = "CreateWindowExW failed (error " + std::to_string(GetLastError()) + ")";
+            return;
+        }
+        window = hwnd;
+    }
+    void resize(int width, int height) {
+        SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    ~TestWindow() {
+        if (hwnd) DestroyWindow(hwnd);
+    }
+#elif defined(__linux__) && !defined(__ANDROID__)
+    // The libX11 calls the case needs (Display* is a void*, a Window an unsigned long XID).
+    void* lib = nullptr;
+    void* dpy = nullptr;
+    unsigned long xid = 0;
+    void* (*open_display)(const char*) = nullptr;
+    unsigned long (*root_window)(void*) = nullptr;
+    unsigned long (*create_window)(void*, unsigned long, int, int, unsigned, unsigned, unsigned, unsigned long,
+                                   unsigned long) = nullptr;
+    int (*map_window)(void*, unsigned long) = nullptr;
+    int (*resize_window)(void*, unsigned long, unsigned, unsigned) = nullptr;
+    int (*sync)(void*, int) = nullptr;
+    int (*destroy_window)(void*, unsigned long) = nullptr;
+    int (*close_display)(void*) = nullptr;
+
+    template <class F>
+    bool load(F& f, const char* name) {
+        f = reinterpret_cast<F>(dlsym(lib, name));
+        return f != nullptr;
+    }
+
+    TestWindow(int width, int height) {
+        const char* env = std::getenv("DISPLAY");
+        if (!env || !*env) {
+            why = "no X11 display ($DISPLAY is not set)";
+            return;
+        }
+        lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+        if (!lib) {
+            why = "no libX11.so.6";
+            return;
+        }
+        if (!load(open_display, "XOpenDisplay") || !load(root_window, "XDefaultRootWindow") ||
+            !load(create_window, "XCreateSimpleWindow") || !load(map_window, "XMapWindow") ||
+            !load(resize_window, "XResizeWindow") || !load(sync, "XSync") || !load(destroy_window, "XDestroyWindow") ||
+            !load(close_display, "XCloseDisplay")) {
+            why = "libX11.so.6 lacks a function the case needs";
+            return;
+        }
+        dpy = open_display(nullptr);
+        if (!dpy) {
+            why = std::string("XOpenDisplay(") + env + ") failed";
+            return;
+        }
+        xid = create_window(dpy, root_window(dpy), 0, 0, unsigned(width), unsigned(height), 0, 0, 0);
+        if (!xid) {
+            why = "XCreateSimpleWindow failed";
+            return;
+        }
+        map_window(dpy, xid);
+        sync(dpy, 0);
+        window = reinterpret_cast<const void*>(std::uintptr_t(xid));
+        display = dpy;
+    }
+    void resize(int width, int height) {
+        resize_window(dpy, xid, unsigned(width), unsigned(height));
+        sync(dpy, 0);
+    }
+    ~TestWindow() {
+        if (dpy && xid) destroy_window(dpy, xid);
+        if (dpy) close_display(dpy);
+        if (lib) dlclose(lib);
+    }
+#else
+    TestWindow(int, int) { why = "this platform's test makes no native window"; }
+    void resize(int, int) {}
+#endif
+    TestWindow(const TestWindow&) = delete;
+    TestWindow& operator=(const TestWindow&) = delete;
+};
+
+// Whether a swapchain case runs: a device, a native window and a window path. Under FA_VULKAN_REQUIRE=1 (Linux CI, an
+// X11 display of xvfb and lavapipe's WSI) a missing window path fails the case instead of skipping it.
+bool window_path(VulkanDevice& dev, const TestWindow& win) {
+    std::string why;
+    if (!win.window)
+        why = "no native window here: " + win.why;
+    else if (!dev.swapchain_format_supported(PixelFormat::Default, &why))
+        why = "no window path: " + why;
+    else
+        return true;
+    if (vulkan_required())
+        FAIL("vulkan: FA_VULKAN_REQUIRE=1 and the swapchain case cannot run: " << why);
+    else
+        MESSAGE("vulkan: the swapchain case is skipped, " << why);
+    return false;
+}
+
+// One frame into the window: acquire, a pass that clears the image (and the depth image) to `clear`, submit, commit,
+// an optional readback of the acquired image, present. Returns the acquired swapchain.
+Swapchain window_frame(VulkanDevice& dev, Color clear, std::vector<std::uint8_t>* pixels = nullptr) {
+    auto acquired = dev.acquire_swapchain(Swapchain{});
+    REQUIRE_MESSAGE(acquired, acquired.error().to_string());
+    const Swapchain sc = acquired.value();
+    auto again = dev.acquire_swapchain(Swapchain{});  // a second acquire of the frame: the same image
+    REQUIRE_MESSAGE(again, again.error().to_string());
+    CHECK(again.value().width == sc.width);
+    PassDesc pass = PassDesc::for_swapchain(sc, dev.environment_defaults());
+    pass.label = "window-clear";
+    pass.colorLoad = LoadAction::Clear;
+    pass.clearColor = clear;
+    pass.depthLoad = LoadAction::Clear;
+    pass.stencilLoad = LoadAction::Clear;
+    CommandList& list = dev.begin_commands("window");
+    list.begin_pass(pass);
+    list.end_pass();
+    dev.submit(list);
+    dev.commit();
+    if (pixels) *pixels = read_rgba8(dev, dev.swapchain_image(), sc.width, sc.height);
+    auto shown = dev.present();
+    CHECK_MESSAGE(shown, shown.error().to_string());
+    CHECK(dev.swapchain_image().id == 0);
+    return sc;
+}
+
+}  // namespace
+
+TEST_CASE("vulkan: create_swapchain says what is wrong before it touches a window") {
+    auto dev = make_vk();
+    if (!dev) return;
+    SwapchainDesc d;
+    d.label = "bad";
+    auto none = dev->create_swapchain(d);
+    REQUIRE(!none);
+    CHECK(contains(none.error().to_string(), "SwapchainDesc::nativeWindow is null"));
+    CHECK(contains(none.error().to_string(), "RendererDesc::headless"));
+    CHECK(!dev->has_swapchain());
+    CHECK(!dev->present());
+    CHECK(!dev->acquire_swapchain(Swapchain{}));
+    CHECK(!dev->resize_swapchain(8, 8));
+    dev->destroy_swapchain();  // nothing to destroy: nothing happens
+
+    std::string why;
+    CHECK(!dev->swapchain_format_supported(PixelFormat::R32F, &why));
+    CHECK(!why.empty());
+    if (!dev->swapchain_format_supported(PixelFormat::Default, &why)) {
+        MESSAGE("vulkan: no window path here (" << why << "): the checks of a desc with a window are skipped");
+        return;
+    }
+    // A desc with a window but a wrong field: refused before the window is read (the handle is never dereferenced).
+    static const int notAWindow = 0;
+    d.nativeWindow = &notAWindow;
+    d.sampleCount = 3;
+    auto samples = dev->create_swapchain(d);
+    REQUIRE(!samples);
+    CHECK(contains(samples.error().to_string(), "sampleCount 3 is not 1, 2, 4 or 8"));
+    d.sampleCount = 1;
+    d.width = -4;
+    auto size = dev->create_swapchain(d);
+    REQUIRE(!size);
+    CHECK(contains(size.error().to_string(), "a size of -4x"));
+    d.width = 0;
+    d.colorFormat = PixelFormat::R32F;
+    auto format = dev->create_swapchain(d);
+    REQUIRE(!format);
+    CHECK(contains(format.error().to_string(), pixel_format_name(PixelFormat::R32F)));
+    CHECK(!dev->has_swapchain());
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and made again when out of date") {
+    auto dev = make_vk();
+    if (!dev) return;
+    TestWindow win(64, 48);
+    if (!window_path(*dev, win)) return;
+
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 64;
+    d.height = 48;
+    d.label = "test-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    CHECK(dev->has_swapchain());
+    CHECK(dev->swapchain_image_count() >= dev->frames_in_flight() + 1);
+    CHECK(dev->swapchain_present_mode() == VK_PRESENT_MODE_FIFO_KHR);  // vsync
+    auto twice = dev->create_swapchain(d);
+    REQUIRE(!twice);
+    CHECK(contains(twice.error().to_string(), "has a swapchain already"));
+
+    // Three frames, the first one read back before it is shown (BGRA or RGBA, read as RGBA).
+    std::vector<std::uint8_t> pixels;
+    const Swapchain first = window_frame(*dev, Color{1.0f, 0.25f, 0.0f, 1.0f}, &pixels);
+    CHECK(first.width == 64);
+    CHECK(first.height == 48);
+    CHECK(first.sampleCount == 1);
+    const std::string bad = first_mismatch(pixels, first.width, first.height, 1,
+                                           [](int, int) { return std::array<int, 4>{255, 64, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    for (int i = 0; i < 2; ++i) window_frame(*dev, Color{0.0f, 0.0f, float(i), 1.0f});
+
+    // present() without this frame's acquire, and a resize between acquire and present, are refused.
+    auto early = dev->present();
+    REQUIRE(!early);
+    CHECK(contains(early.error().to_string(), "without this frame's acquire_swapchain()"));
+
+    // The window grows: resize_swapchain makes the swapchain again at the new size.
+    const std::uint64_t before = dev->swapchain_recreations();
+    win.resize(96, 64);
+    auto resized = dev->resize_swapchain(96, 64);
+    REQUIRE_MESSAGE(resized, resized.error().to_string());
+    CHECK(dev->swapchain_recreations() == before + 1);
+    auto same = dev->resize_swapchain(96, 64);  // the same size again: nothing to make
+    REQUIRE_MESSAGE(same, same.error().to_string());
+    CHECK(dev->swapchain_recreations() == before + 1);
+    const Swapchain grown = window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f});
+    CHECK(grown.width == 96);
+    CHECK(grown.height == 64);
+
+    auto acquired = dev->acquire_swapchain(Swapchain{});
+    REQUIRE_MESSAGE(acquired, acquired.error().to_string());
+    auto busy = dev->resize_swapchain(32, 32);
+    REQUIRE(!busy);
+    CHECK(contains(busy.error().to_string(), "between acquire_swapchain() and present()"));
+    {
+        PassDesc pass = PassDesc::for_swapchain(acquired.value(), dev->environment_defaults());
+        pass.colorLoad = LoadAction::Clear;
+        pass.depthLoad = LoadAction::Clear;
+        pass.stencilLoad = LoadAction::Clear;
+        CommandList& list = dev->begin_commands("window");
+        list.begin_pass(pass);
+        list.end_pass();
+        dev->submit(list);
+        dev->commit();
+        auto shown = dev->present();
+        CHECK_MESSAGE(shown, shown.error().to_string());
+    }
+
+    // An out-of-date swapchain (the window changed under it) is made again at the next acquire.
+    dev->mark_swapchain_out_of_date_for_tests();
+    const std::uint64_t stale = dev->swapchain_recreations();
+    const Swapchain remade = window_frame(*dev, Color{0.0f, 0.0f, 1.0f, 1.0f});
+    CHECK(dev->swapchain_recreations() == stale + 1);
+    CHECK(remade.width > 0);
+    CHECK(remade.height > 0);
+
+    // An image acquired and never drawn into does not stop the swapchain from going.
+    auto left = dev->acquire_swapchain(Swapchain{});
+    REQUIRE_MESSAGE(left, left.error().to_string());
+    dev->destroy_swapchain();
+    CHECK(!dev->has_swapchain());
+    CHECK(!dev->present());
+    auto r = dev->wait_idle();
+    CHECK_MESSAGE(r, r.error().to_string());
+
+    // A second swapchain on the same window, without vsync (MAILBOX or IMMEDIATE where the surface has one).
+    d.vsync = false;
+    auto again = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(again, again.error().to_string());
+    window_frame(*dev, Color{1.0f, 1.0f, 1.0f, 1.0f});
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("vulkan: a 4x MSAA swapchain resolves into the acquired image") {
+    auto dev = make_vk();
+    if (!dev) return;
+    TestWindow win(32, 32);
+    if (!window_path(*dev, win)) return;
+    if (!dev->pixel_format_caps(dev->environment_defaults().colorFormat).msaa) {
+        MESSAGE("vulkan: the device cannot multisample its window format: skipped");
+        return;
+    }
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.sampleCount = 4;
+    d.label = "msaa-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    std::vector<std::uint8_t> pixels;
+    const Swapchain sc = window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f}, &pixels);
+    CHECK(sc.sampleCount == 4);
+    const std::string bad =
+        first_mismatch(pixels, sc.width, sc.height, 1, [](int, int) { return std::array<int, 4>{0, 255, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    dev->destroy_swapchain();
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
