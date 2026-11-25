@@ -16,6 +16,7 @@
 #include "render_features.h"
 #include "render_upscale.h"
 #include "render_upscale_vendor.h"
+#include "streamline_runtime.h"
 #include "renderer_test_access.h"
 #include "fa/render/upscaler.h"
 
@@ -129,6 +130,9 @@ TEST_CASE("vendor loader: next to the executable beats the setup folder, and the
 TEST_CASE("vendor providers: a probe says what is wrong in the order GPU maker, backend, system, library") {
     FakeLoader loader;
     LoaderGuard guard(&loader);
+    // The process's Streamline runtime may have seen a device of an earlier case (the D3D12 and Vulkan tests make real ones on
+    // Windows CI) and kept that device's reason: this case asks about a machine that never started it.
+    render::streamline_runtime().device_destroying();
     render::VendorUpscaler& dlss = render::vendor_provider(0);
     render::VendorUpscaler& xess = render::vendor_provider(1);
     render::VendorUpscaler& fsr = render::vendor_provider(2);
