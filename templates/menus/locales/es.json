@@ -106,9 +106,9 @@
         "spatial": "necesita una ventana con GPU",
         "temporal": "no disponible en esta GPU o versión",
         "metalfx": "solo GPU de Apple",
-        "dlss": "necesita el runtime del fabricante en Windows (DLSS: una GPU NVIDIA RTX)",
-        "xess": "necesita el runtime del fabricante en Windows (DLSS: una GPU NVIDIA RTX)",
-        "fsr": "necesita el runtime del fabricante en Windows (DLSS: una GPU NVIDIA RTX)"
+        "dlss": "necesita una GPU NVIDIA RTX y el runtime del fabricante en Windows",
+        "xess": "necesita el runtime del fabricante en Windows",
+        "fsr": "necesita el runtime del fabricante en Windows"
       },
       "uq": {
         "native": "Nativa",
@@ -154,6 +154,8 @@
       "fgHint": "La generación de fotogramas añade retardo a los controles: se recomienda un modo de baja latencia (la página anterior).",
       "fgHintDlss": "La generación de fotogramas añade retardo a los controles. DLSS activa NVIDIA Reflex por sí mismo; los demás modos de baja latencia están en la página anterior.",
       "unsupNote": "No disponible aquí: {modes}.",
+      "listSep": ", ",
+      "groupSep": "; ",
       "stretchNote": "Este juego se dibuja con escalado simple (pixel art), sea cual sea el modo."
     },
     "volume": {
