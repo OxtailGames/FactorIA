@@ -119,7 +119,7 @@ upscaler uses (docs/UPSCALING.md, "Vendor upscalers").
 
 How it takes part: FidelityFX makes the window's swapchain. When the game starts with `render.frameGeneration.mode` `fsr` (or `auto` on an
 AMD GPU), the engine lets FidelityFX create it: on Direct3D 12 a proxy swapchain that presents the rendered and the generated frames, on
-Vulkan the swapchain functions FidelityFX replaces (the device then also asks for three queues: async compute, present and image acquire).
+Vulkan the swapchain functions FidelityFX replaces (the device then also asks for three queues: async compute, present and image acquire; the present queue must come from a family that can present to the window, and when none does the swapchain is refused with the reason).
 A swapchain can not be taken over later, so changing to `fsr` while the game runs says "restart the game". On the first frame the provider
 makes the frame generation context for the display size and the swapchain's format; each frame it tells the swapchain whether to generate, which
 picture is the one before the screen-space items, and the frame number, and it hands over the depth, the motion, the camera and the jitter of

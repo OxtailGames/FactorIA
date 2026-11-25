@@ -38,10 +38,13 @@ static_assert(sizeof(abi::CreateFrameGenerationDesc) == 40, "ffxCreateContextDes
 static_assert(sizeof(abi::CreateHudlessDesc) == 24, "ffxCreateContextDescFrameGenerationHudless");
 static_assert(sizeof(abi::CreateVersionDesc) == 24, "ffxCreateContextDescFrameGeneration...Version");
 static_assert(sizeof(abi::ConfigureFrameGenerationDesc) == 144, "ffxConfigureDescFrameGeneration");
-static_assert(offsetof(abi::ConfigureFrameGenerationDesc, frameGenerationEnabled) == 56, "ffxConfigureDescFrameGeneration::frameGenerationEnabled");
-static_assert(offsetof(abi::ConfigureFrameGenerationDesc, hudlessColor) == 64, "ffxConfigureDescFrameGeneration::HUDLessColor");
+static_assert(offsetof(abi::ConfigureFrameGenerationDesc, frameGenerationEnabled) == 56,
+              "ffxConfigureDescFrameGeneration::frameGenerationEnabled");
+static_assert(offsetof(abi::ConfigureFrameGenerationDesc, hudlessColor) == 64,
+              "ffxConfigureDescFrameGeneration::HUDLessColor");
 static_assert(offsetof(abi::ConfigureFrameGenerationDesc, flags) == 112, "ffxConfigureDescFrameGeneration::flags");
-static_assert(offsetof(abi::ConfigureFrameGenerationDesc, generationRect) == 120, "ffxConfigureDescFrameGeneration::generationRect");
+static_assert(offsetof(abi::ConfigureFrameGenerationDesc, generationRect) == 120,
+              "ffxConfigureDescFrameGeneration::generationRect");
 static_assert(offsetof(abi::ConfigureFrameGenerationDesc, frameId) == 136, "ffxConfigureDescFrameGeneration::frameID");
 static_assert(sizeof(abi::PrepareV2Desc) == 232, "ffxDispatchDescFrameGenerationPrepareV2");
 static_assert(offsetof(abi::PrepareV2Desc, commandList) == 32, "PrepareV2::commandList");
@@ -69,8 +72,8 @@ struct VkCreateInfoMirror {  // VkSwapchainCreateInfoKHR, 64-bit layout
     const void* pNext;
     std::uint32_t flags;
     std::uint64_t surface;
-    std::uint32_t minImageCount, imageFormat, imageColorSpace, width, height, imageArrayLayers, imageUsage, imageSharingMode,
-        queueFamilyIndexCount;
+    std::uint32_t minImageCount, imageFormat, imageColorSpace, width, height, imageArrayLayers, imageUsage,
+        imageSharingMode, queueFamilyIndexCount;
     const void* queueFamilyIndices;
     std::uint32_t preTransform, compositeAlpha, presentMode, clipped;
     std::uint64_t oldSwapchain;
@@ -83,7 +86,47 @@ static_assert(offsetof(VkCreateInfoMirror, oldSwapchain) == 96, "VkSwapchainCrea
 
 constexpr unsigned bit(gpu::Backend b) { return 1u << unsigned(b); }
 constexpr std::uint32_t kPciVendorAmd = 0x1002;
-constexpr std::uint32_t kVkQueueComputeBit = 0x2, kVkQueueTransferBit = 0x4;
+constexpr std::uint32_t kVkQueueGraphicsBit = 0x1, kVkQueueComputeBit = 0x2;
+// A graphics family offers the present queue only when it has queues to spare after the engine's own (graphics, async compute, copy), the
+// asynchronous compute queue of this hook and the present queue itself.
+constexpr std::uint32_t kGraphicsFamilyQueuesForPresent = 5;
+
+struct VkQueueFamilyMirror {  // VkQueueFamilyProperties
+    std::uint32_t queueFlags, queueCount, timestampValidBits, minImageTransferGranularity[3];
+};
+static_assert(sizeof(VkQueueFamilyMirror) == 24, "VkQueueFamilyProperties");
+
+using VoidFn = void (*)();
+using GetInstanceProcFn = VoidFn (*)(const void* instance, const char* name);  // vkGetInstanceProcAddr
+using QueueFamiliesFn = void (*)(const void* physicalDevice, std::uint32_t* count,
+                                 VkQueueFamilyMirror* out);  // ...QueueFamilyProperties
+using SurfaceSupportFn = std::int32_t (*)(const void* physicalDevice, std::uint32_t family, std::uint64_t surface,
+                                          std::uint32_t* supported);  // vkGetPhysicalDeviceSurfaceSupportKHR
+
+// The flags of the queue FidelityFX presents on. The SDK presents with vkQueuePresentKHR on it and refuses a family that cannot present to the
+// window (FrameInterpolationSwapchainVK.cpp, init(): vkGetPhysicalDeviceSurfaceSupportKHR on its family). A queue family with the graphics and
+// compute bits presents on every GPU (the SDK's sample asks for one first: Kits/Cauldron2/framework/render/vk/device_vk.cpp, "frame
+// interpolation present queue"), so it is asked for when the graphics family has the queues for it; otherwise the compute bit alone, which
+// AMD's GPUs present from (their graphics family has one queue). A transfer-only queue is never asked for: NVIDIA's cannot present. Whether the
+// family the device gave can present to the window is checked when the swapchain is made.
+std::uint32_t present_queue_flags(const gpu::VulkanPhysicalDevice& pd) {
+    const auto get = reinterpret_cast<GetInstanceProcFn>(pd.getInstanceProcAddr);  // NOLINT
+    if (!get || !pd.instance || !pd.physicalDevice) return kVkQueueComputeBit;
+    const auto families =
+        reinterpret_cast<QueueFamiliesFn>(get(pd.instance, "vkGetPhysicalDeviceQueueFamilyProperties"));  // NOLINT
+    if (!families) return kVkQueueComputeBit;
+    std::uint32_t n = 0;
+    families(pd.physicalDevice, &n, nullptr);
+    if (n == 0 || n > 64) return kVkQueueComputeBit;
+    std::vector<VkQueueFamilyMirror> props(n);
+    families(pd.physicalDevice, &n, props.data());
+    for (std::uint32_t i = 0; i < n && i < props.size(); ++i) {
+        constexpr std::uint32_t kBoth = kVkQueueGraphicsBit | kVkQueueComputeBit;
+        if ((props[i].queueFlags & kBoth) == kBoth && props[i].queueCount >= kGraphicsFamilyQueuesForPresent)
+            return kBoth;
+    }
+    return kVkQueueComputeBit;
+}
 
 // Takes `name` from the library into `fn`; the first one that is missing is remembered in `missing`.
 template <class Fn>
@@ -98,7 +141,8 @@ void bind(VendorLibrary& lib, const char* name, Fn& fn, std::string& missing) {
 
 // What the library said to a call that went wrong, as the sentence of an error.
 std::string call_failed(const char* function, std::uint32_t code) {
-    std::string text = std::string(function) + " answered \"" + fsr_result_text(code) + "\" (" + std::to_string(code) + ")";
+    std::string text =
+        std::string(function) + " answered \"" + fsr_result_text(code) + "\" (" + std::to_string(code) + ")";
     if (code == abi::kNoProvider)
         text += ": the library has no FSR frame generation provider for this GPU or driver";
     else if (code == abi::kParameterError)
@@ -130,7 +174,7 @@ void* swap_pointer(std::uint64_t handle) { return reinterpret_cast<void*>(std::u
 // What the hook decided to do with a retired Vulkan swapchain handle (a swapchain the engine still destroys after a hook replaced it).
 enum class Retired : std::uint8_t {
     None,
-    Skip,    // FidelityFX destroyed it already (it was replaced through the context's `swapchain` in/out pointer): the destroy is skipped
+    Skip,  // FidelityFX destroyed it already (it was replaced through the context's `swapchain` in/out pointer): the destroy is skipped
     Destroy  // its context is gone, the proxy is not: the engine's destroy goes to FidelityFX's destroy function
 };
 
@@ -147,6 +191,8 @@ struct Core {
     // Vulkan: what the hook was given when the device was made
     void* vkDevice = nullptr;
     void* vkPhysicalDevice = nullptr;
+    const void* vkInstance = nullptr;
+    gpu::HookProcAddr vkGetInstanceProcAddr = nullptr;
     abi::QueueInfo vkQueues[4]{};  // game, async compute, present, image acquire
     bool vkQueuesOk = false;
     // the swapchain
@@ -160,7 +206,8 @@ struct Core {
     abi::Context fgCtx = nullptr;
     abi::CreateFrameGenerationDesc fgKey{};
     std::uint32_t fgHudlessFormat = abi::kFormatUnknown;
-    std::string fgFailedKey, fgFailure;  // the key of a context that could not be made, and why (not tried again until it changes)
+    std::string fgFailedKey,
+        fgFailure;  // the key of a context that could not be made, and why (not tried again until it changes)
     // the provider's
     bool started = false;
     bool enabled = false;
@@ -176,6 +223,10 @@ struct Core {
     void teardown_fg(gpu::Device* device);
     void teardown_swapchain();
     void wait_presents();
+    // Vulkan: "" when the family of the present queue can present to `surface`, else why FidelityFX's swapchain cannot be made.
+    std::string check_present_support(std::uint64_t surface) const;
+    // Vulkan: ends the proxy swapchain FidelityFX made (its own destroy function, no context) once its contexts are gone.
+    void destroy_swapchain_proxy(std::uint64_t handle) const;
     // Both contexts, in the SDK's order: generation off and its context, the presents that are in flight, then the swapchain's.
     void teardown_all() {
         const bool waited = fgCtx != nullptr;  // teardown_fg waits for the presents itself
@@ -203,7 +254,8 @@ std::string Core::ensure_library(gpu::Backend backend) {
     FsrFgApi a;
     if (const std::string missing = fsr_fg_load_api(*loaded, a); !missing.empty()) {
         return "FidelityFX's library " + loaded->path() + " has no export " + missing +
-               " (it is not the FidelityFX API loader of SDK 2.x): run `factoria setup fidelityfx` to install the version "
+               " (it is not the FidelityFX API loader of SDK 2.x): run `factoria setup fidelityfx` to install the "
+               "version "
                "FactorIA was tested with.";
     }
     lib = std::move(loaded);
@@ -234,14 +286,16 @@ std::string Core::configure_fg(bool enable, const abi::Resource* hudless, int ou
     if (hudless) cfg.hudlessColor = *hudless;
     cfg.generationRect = {0, 0, outW, outH};
     cfg.frameId = frameId;
-    if (const abi::ReturnCode rc = api.configure(&fgCtx, &cfg.header); rc != abi::kOk) return call_failed("ffxConfigure", rc);
+    if (const abi::ReturnCode rc = api.configure(&fgCtx, &cfg.header); rc != abi::kOk)
+        return call_failed("ffxConfigure", rc);
     return {};
 }
 
 void Core::wait_presents() {
     if (!swapCtx || !api.dispatch) return;
     abi::WaitForPresentsDesc wait{};
-    wait.header.type = apiBackend == gpu::Backend::Vulkan ? abi::kDispatchSwapchainWaitVk : abi::kDispatchSwapchainWaitDx12;
+    wait.header.type =
+        apiBackend == gpu::Backend::Vulkan ? abi::kDispatchSwapchainWaitVk : abi::kDispatchSwapchainWaitDx12;
     if (const abi::ReturnCode rc = api.dispatch(&swapCtx, &wait.header); rc != abi::kOk)
         FA_WARN("render", "FSR frame generation: {}", call_failed("ffxDispatch(wait for presents)", rc));
 }
@@ -259,7 +313,8 @@ void Core::teardown_fg(gpu::Device* device) {
     }
     wait_presents();
     if (device) {
-        if (const Result<void> idle = device->wait_idle(); !idle) FA_WARN("render", "FSR frame generation: {}", idle.error().message);
+        if (const Result<void> idle = device->wait_idle(); !idle)
+            FA_WARN("render", "FSR frame generation: {}", idle.error().message);
     }
     if (api.destroyContext) {
         if (const abi::ReturnCode rc = api.destroyContext(&fgCtx, nullptr); rc != abi::kOk)
@@ -278,6 +333,36 @@ void Core::teardown_swapchain() {
             FA_WARN("render", "FSR frame generation: {}", call_failed("ffxDestroyContext(swapchain)", rc));
     }
     swapCtx = nullptr;
+}
+
+std::string Core::check_present_support(std::uint64_t surface) const {
+    const std::uint32_t family = vkQueues[2].familyIndex;
+    const auto get = reinterpret_cast<GetInstanceProcFn>(vkGetInstanceProcAddr);  // NOLINT
+    const auto supports =
+        get && vkInstance ? reinterpret_cast<SurfaceSupportFn>(get(vkInstance, "vkGetPhysicalDeviceSurfaceSupportKHR"))
+                          : nullptr;  // NOLINT
+    if (!supports || !vkPhysicalDevice)
+        return "FSR frame generation could not check that its present queue can present to the window: the Vulkan "
+               "loader has no "
+               "vkGetPhysicalDeviceSurfaceSupportKHR (VK_KHR_surface is off).";
+    std::uint32_t can = 0;
+    const std::int32_t rc = supports(vkPhysicalDevice, family, surface, &can);
+    if (rc != 0)
+        return "FSR frame generation could not check that its present queue (family " + std::to_string(family) +
+               ") can present to the window: vkGetPhysicalDeviceSurfaceSupportKHR answered " + std::to_string(rc) + ".";
+    if (!can)
+        return "this GPU gave FSR frame generation no queue that can present to the window (queue family " +
+               std::to_string(family) +
+               " does not support presenting to it, vkGetPhysicalDeviceSurfaceSupportKHR); FidelityFX's swapchain "
+               "needs one: use "
+               "frameGeneration \"off\" on this GPU or driver.";
+    return {};
+}
+
+void Core::destroy_swapchain_proxy(std::uint64_t handle) const {
+    using DestroyProxyFn = void (*)(void* device, void* swapchain, const void* allocator, void* context);
+    if (!vkDestroyFn || !vkDevice || handle == 0) return;
+    reinterpret_cast<DestroyProxyFn>(vkDestroyFn)(vkDevice, swap_pointer(handle), nullptr, nullptr);  // NOLINT
 }
 
 // ---- the Vulkan replacement functions ---------------------------------------------------------------------------------------------------
@@ -334,11 +419,14 @@ public:
         Core& c = *core_;
         std::lock_guard<std::mutex> lock(c.mutex);
         c.vkQueuesOk = false;
-        c.vendorOk = c.armedMode == FrameGenMode::Fsr || (c.armedMode == FrameGenMode::Auto && pd.vendorId == kPciVendorAmd);
+        c.vendorOk =
+            c.armedMode == FrameGenMode::Fsr || (c.armedMode == FrameGenMode::Auto && pd.vendorId == kPciVendorAmd);
         if (!c.vendorOk) return;
-        // FidelityFX's swapchain wants a queue of its own for the interpolation (compute), the present and the image acquire.
+        // FidelityFX's swapchain wants a queue of its own for the interpolation (compute: its family needs the compute bit), the present (a
+        // family that can present to the window: present_queue_flags) and the image acquire (any: it only submits semaphores). The SDK
+        // refuses two roles on one queue (FrameInterpolationSwapchainVK.cpp, init()), and the engine grants each request its own queue.
         req.queues.push_back({kVkQueueComputeBit, 1});
-        req.queues.push_back({kVkQueueTransferBit, 1});
+        req.queues.push_back({present_queue_flags(pd), 1});
         req.queues.push_back({0, 1});
     }
 
@@ -348,6 +436,8 @@ public:
         if (!c.vendorOk) return;
         c.vkDevice = const_cast<void*>(made.native.device);
         c.vkPhysicalDevice = const_cast<void*>(made.native.physicalDevice);
+        c.vkInstance = made.native.instance;
+        c.vkGetInstanceProcAddr = made.native.getInstanceProcAddr;
         c.vkQueues[0] = {const_cast<void*>(made.native.context), made.native.graphicsFamily, nullptr};
         c.vkQueuesOk = made.queues.size() >= 3;
         for (std::size_t i = 0; i < 3 && i < made.queues.size(); ++i)
@@ -367,26 +457,48 @@ public:
         };
         if (std::string why = c.ensure_library(gpu::Backend::Vulkan); !why.empty()) return fail(std::move(why));
         if (!c.vkQueuesOk)
-            return fail("the Vulkan device gave FSR frame generation fewer than the three queues it asked for (compute, present, image "
+            return fail("the Vulkan device gave FSR frame generation fewer than the three queues it asked for "
+                        "(compute, present, image "
                         "acquire): this GPU's queue families cannot serve FidelityFX's swapchain.");
         VkCreateInfoMirror ci{};
         std::memcpy(&ci, sc.createInfo, sizeof(ci));
         const std::uint64_t old = ci.oldSwapchain;
         // A swapchain that is not FSR's (the engine's own, made before the hook) is the engine's to replace.
         if (old != 0 && (!c.swapCtx || old != c.swapHandle)) return false;
-        // The old context goes first: frame generation, then the swapchain's (the SDK's shutdown order), which the new context replaces.
+        // The queue FidelityFX presents on must be able to present to this window: the SDK refuses the swapchain otherwise
+        // (FrameInterpolationSwapchainVK.cpp, init(): vkGetPhysicalDeviceSurfaceSupportKHR on the present queue's family), and the reason
+        // is clearer here, before anything of the old swapchain is touched.
+        if (std::string why = c.check_present_support(ci.surface); !why.empty()) return fail(std::move(why));
+        // What FidelityFX does with the handle it is given (FidelityFX SDK 2.4, Kits/FidelityFX/framegeneration/fsr3/vk/):
+        //  - ffx_provider_framegenerationswapchain_vk.cpp:232-234 passes `*desc->swapchain` to ffxReplaceSwapchainForFrameinterpolationVK as
+        //    the GAME's native VkSwapchainKHR, and FrameInterpolationSwapChainVK.cpp:469-474 and :487 use it as `oldSwapchain` of the
+        //    driver's vkCreateSwapchainKHR and then call the driver's vkDestroySwapchainKHR on it (docs/techniques/
+        //    frame-interpolation-swap-chain.md:74: "swapchain is the VkSwapchainKHR to replace. It is destroyed during context creation ...
+        //    It may be VK_NULL_HANDLE. If createInfo.oldSwapchain is not VK_NULL_HANDLE, it must be the same handle").
+        //  - The swapchain of an earlier FidelityFX context is not such a handle: it is the SDK's proxy object
+        //    (ffx_provider_framegenerationswapchain_vk.cpp:106-114, :144-154), which the driver does not own, so handing it to the SDK again
+        //    would give the driver a handle it never made. A resize therefore ends the old proxy through the SDK's own destroy function
+        //    (after its frame generation context and its swapchain context, the SDK's shutdown order) and makes the new swapchain from no
+        //    handle (VK_NULL_HANDLE, the "may be" case above, and createInfo.oldSwapchain = 0). The engine still destroys the old handle
+        //    after this call (it always does): that destroy is skipped (Retired::Skip), also when the creation below fails.
         if (c.swapCtx) {
+            const std::uint64_t prior = c.swapHandle;
             c.teardown_all();
-            c.retiredHandle = old;
-            c.retired = Retired::Destroy;
+            c.destroy_swapchain_proxy(prior);
+            c.swapHandle = 0;
+            if (old != 0) {
+                c.retiredHandle = old;
+                c.retired = Retired::Skip;
+            }
         }
-        std::uint64_t handle = old;
+        ci.oldSwapchain = 0;
+        std::uint64_t handle = 0;
         abi::SwapchainVkDesc desc{};
         desc.header.type = abi::kCreateSwapchainVk;
         desc.physicalDevice = c.vkPhysicalDevice;
         desc.device = c.vkDevice;
         desc.swapchain = &handle;
-        std::memcpy(desc.createInfo, sc.createInfo, abi::kVkSwapchainCreateInfoSize);
+        std::memcpy(desc.createInfo, &ci, abi::kVkSwapchainCreateInfoSize);
         desc.gameQueue = c.vkQueues[0];
         desc.asyncComputeQueue = c.vkQueues[1];
         desc.presentQueue = c.vkQueues[2];
@@ -401,11 +513,6 @@ public:
             return fail("FSR frame generation could not make its Vulkan swapchain " + std::to_string(ci.width) + "x" +
                         std::to_string(ci.height) + ": " + call_failed("ffxCreateContext(swapchain)", rc) + ".");
         }
-        // FidelityFX destroyed the swapchain it replaced: the engine's own destroy of it (it runs after this call) is skipped.
-        if (old != 0) {
-            c.retiredHandle = old;
-            c.retired = Retired::Skip;
-        }
         c.swapCtx = ctx;
         c.swapHandle = handle;
         c.backFormat = fsr_fg_vulkan_format(ci.imageFormat);
@@ -417,12 +524,18 @@ public:
             return fail("FSR frame generation could not get its Vulkan swapchain functions: " +
                         call_failed("ffxQuery(swapchain functions)", rc) + ".");
         }
-        const char* absent = !fns.destroySwapchain      ? "vkDestroySwapchainKHR"
+        const char* absent = !fns.destroySwapchain     ? "vkDestroySwapchainKHR"
                              : !fns.getSwapchainImages ? "vkGetSwapchainImagesKHR"
                              : !fns.acquireNextImage   ? "vkAcquireNextImageKHR"
                              : !fns.queuePresent       ? "vkQueuePresentKHR"
                                                        : nullptr;
         if (absent) {
+            // The swapchain FidelityFX made holds the window's surface: it goes first (with its own destroy, when the library gave one), so
+            // the engine's own swapchain can be made on the surface.
+            if (fns.destroySwapchain) {
+                c.vkDestroyFn = fns.destroySwapchain;
+                c.destroy_swapchain_proxy(c.swapHandle);
+            }
             c.teardown_swapchain();
             c.swapHandle = 0;
             return fail(std::string("FSR frame generation's Vulkan swapchain has no replacement for ") + absent +
@@ -446,7 +559,8 @@ public:
     void d3d12_device_created(gpu::D3d12DeviceCreated& made) override {
         Core& c = *core_;
         std::lock_guard<std::mutex> lock(c.mutex);
-        c.vendorOk = c.armedMode == FrameGenMode::Fsr || (c.armedMode == FrameGenMode::Auto && adapter_vendor(made.adapter) == kPciVendorAmd);
+        c.vendorOk = c.armedMode == FrameGenMode::Fsr ||
+                     (c.armedMode == FrameGenMode::Auto && adapter_vendor(made.adapter) == kPciVendorAmd);
     }
 
     bool d3d12_create_swapchain(gpu::D3d12SwapchainCreate& sc) override {
@@ -477,10 +591,11 @@ public:
         version.version = abi::kSwapchainVersion;
         desc.header.next = &version.header;
         abi::Context ctx = nullptr;
-        if (const abi::ReturnCode rc = c.api.createContext(&ctx, &desc.header, nullptr); rc != abi::kOk || !ctx || !proxy) {
+        if (const abi::ReturnCode rc = c.api.createContext(&ctx, &desc.header, nullptr);
+            rc != abi::kOk || !ctx || !proxy) {
             if (ctx && c.api.destroyContext) c.api.destroyContext(&ctx, nullptr);
-            return fail("FSR frame generation could not make its Direct3D 12 swapchain " + std::to_string(head.width) + "x" +
-                        std::to_string(head.height) + ": " + call_failed("ffxCreateContext(swapchain)", rc) +
+            return fail("FSR frame generation could not make its Direct3D 12 swapchain " + std::to_string(head.width) +
+                        "x" + std::to_string(head.height) + ": " + call_failed("ffxCreateContext(swapchain)", rc) +
                         (rc == abi::kOk ? ": it gave no swapchain" : "") + ".");
         }
         c.swapCtx = ctx;
@@ -561,11 +676,14 @@ public:
     void swapchain_changed(gpu::Device& device, const FrameGenSwapchain& swapchain) override;
     void configure(bool enabled) override;
     bool dispatch(FrameGenFrame& frame) override;
-    std::uint64_t generated_frames() override { return core_->generated.load(std::memory_order_relaxed) - core_->generatedAtStart; }
+    std::uint64_t generated_frames() override {
+        return core_->generated.load(std::memory_order_relaxed) - core_->generatedAtStart;
+    }
     void stop(gpu::Device& device) override;
 
 private:
-    std::string ensure_context(gpu::Device& device, const FrameGenFrame& frame, std::uint32_t flags, std::uint32_t hudlessFormat);
+    std::string ensure_context(gpu::Device& device, const FrameGenFrame& frame, std::uint32_t flags,
+                               std::uint32_t hudlessFormat);
 
     std::shared_ptr<Core> core_;
     std::shared_ptr<FsrHook> hook_;
@@ -585,7 +703,8 @@ VendorProbe FsrFrameGenProvider::probe(const VendorEnv& env) {
     }
     // Ask the library which frame generation providers it has for this GPU (a null context: the query is made before any).
     const gpu::NativeDevice nd = env.device ? env.device->native() : gpu::NativeDevice{};
-    abi::VkDeviceContext vkContext{const_cast<void*>(nd.device), const_cast<void*>(nd.physicalDevice), nd.getDeviceProcAddr};
+    abi::VkDeviceContext vkContext{const_cast<void*>(nd.device), const_cast<void*>(nd.physicalDevice),
+                                   nd.getDeviceProcAddr};
     abi::QueryGetVersions q{};
     q.header.type = abi::kQueryGetVersions;
     q.createDescType = abi::kCreateFrameGeneration;
@@ -593,14 +712,16 @@ VendorProbe FsrFrameGenProvider::probe(const VendorEnv& env) {
     std::uint64_t count = 0;
     q.outputCount = &count;
     if (const abi::ReturnCode rc = c.api.query(nullptr, &q.header); rc != abi::kOk) {
-        p.reason = "FidelityFX's library " + c.lib->path() + " did not list its frame generation versions: " +
-                   call_failed("ffxQuery(get versions)", rc) + ". Run `factoria setup fidelityfx` to install it again.";
+        p.reason = "FidelityFX's library " + c.lib->path() +
+                   " did not list its frame generation versions: " + call_failed("ffxQuery(get versions)", rc) +
+                   ". Run `factoria setup fidelityfx` to install it again.";
         return p;
     }
     if (count == 0) {
-        p.reason = "FidelityFX's library " + c.lib->path() + " has no FSR 3 frame generation provider for this GPU on " +
-                   vendor_backend_label(env.backend) +
-                   " (its frame generation DLL is missing next to it, or the driver is too old): run `factoria setup fidelityfx` "
+        p.reason = "FidelityFX's library " + c.lib->path() +
+                   " has no FSR 3 frame generation provider for this GPU on " + vendor_backend_label(env.backend) +
+                   " (its frame generation DLL is missing next to it, or the driver is too old): run `factoria setup "
+                   "fidelityfx` "
                    "to install the whole SDK, or update the GPU driver.";
         return p;
     }
@@ -611,21 +732,26 @@ VendorProbe FsrFrameGenProvider::probe(const VendorEnv& env) {
 std::string FsrFrameGenProvider::start(gpu::Device& device, const FrameGenSwapchain& swapchain) {
     Core& c = *core_;
     std::lock_guard<std::mutex> lock(c.mutex);
-    if (!c.lib || !c.api.createContext) return "FSR frame generation was not found by its probe (its library is not loaded).";
+    if (!c.lib || !c.api.createContext)
+        return "FSR frame generation was not found by its probe (its library is not loaded).";
     if (device.backend() != c.apiBackend) {
-        return "FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) + " and this device is " +
-               vendor_backend_label(device.backend()) + ".";
+        return "FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) +
+               " and this device is " + vendor_backend_label(device.backend()) + ".";
     }
     if (!c.swapCtx) {
         if (!c.hookReason.empty()) return "FSR frame generation could not take the window's swapchain: " + c.hookReason;
         if (!c.accepts() && c.armedMode == FrameGenMode::Auto)
-            return "mode auto uses FSR frame generation on an AMD GPU only; this device's maker is not AMD. Name the mode `fsr` to use it "
+            return "mode auto uses FSR frame generation on an AMD GPU only; this device's maker is not AMD. Name the "
+                   "mode `fsr` to use it "
                    "anyway.";
-        return "the window's swapchain is not FidelityFX's: FSR frame generation takes part in making it, so the renderer must be made "
-               "with RendererDesc::frameGeneration on (factoria.json render.frameGeneration) and a window on Direct3D 12 or Vulkan.";
+        return "the window's swapchain is not FidelityFX's: FSR frame generation takes part in making it, so the "
+               "renderer must be made "
+               "with RendererDesc::frameGeneration on (factoria.json render.frameGeneration) and a window on Direct3D "
+               "12 or Vulkan.";
     }
     if (c.backFormat == abi::kFormatUnknown)
-        return "the window's swapchain format has no FidelityFX name: frame generation needs an 8-bit, 10-bit or 16-bit float RGBA "
+        return "the window's swapchain format has no FidelityFX name: frame generation needs an 8-bit, 10-bit or "
+               "16-bit float RGBA "
                "swapchain.";
     // The context is made on the first frame (it needs the picture's size and formats).
     c.started = true;
@@ -662,13 +788,14 @@ std::string FsrFrameGenProvider::ensure_context(gpu::Device& device, const Frame
     Core& c = *core_;
     const std::uint32_t maxW = std::uint32_t(std::max(frame.renderW, int(c.fgKey.maxRenderSize.width)));
     const std::uint32_t maxH = std::uint32_t(std::max(frame.renderH, int(c.fgKey.maxRenderSize.height)));
-    if (c.fgCtx && c.fgKey.displaySize.width == std::uint32_t(frame.outW) && c.fgKey.displaySize.height == std::uint32_t(frame.outH) &&
-        c.fgKey.flags == flags && c.fgKey.backBufferFormat == c.backFormat && c.fgHudlessFormat == hudlessFormat &&
+    if (c.fgCtx && c.fgKey.displaySize.width == std::uint32_t(frame.outW) &&
+        c.fgKey.displaySize.height == std::uint32_t(frame.outH) && c.fgKey.flags == flags &&
+        c.fgKey.backBufferFormat == c.backFormat && c.fgHudlessFormat == hudlessFormat &&
         frame.renderW <= int(c.fgKey.maxRenderSize.width) && frame.renderH <= int(c.fgKey.maxRenderSize.height))
         return {};
-    const std::string key = std::to_string(frame.outW) + "x" + std::to_string(frame.outH) + "/" + std::to_string(maxW) + "x" +
-                            std::to_string(maxH) + "/" + std::to_string(flags) + "/" + std::to_string(c.backFormat) + "/" +
-                            std::to_string(hudlessFormat);
+    const std::string key = std::to_string(frame.outW) + "x" + std::to_string(frame.outH) + "/" + std::to_string(maxW) +
+                            "x" + std::to_string(maxH) + "/" + std::to_string(flags) + "/" +
+                            std::to_string(c.backFormat) + "/" + std::to_string(hudlessFormat);
     // A context that could not be made is not tried again every frame: the same picture would fail the same way.
     if (!c.fgFailedKey.empty() && c.fgFailedKey == key) return c.fgFailure;
     c.teardown_fg(&device);
@@ -728,27 +855,35 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
         frame.error = std::move(why);
         return false;
     };
-    if (!c.started || !c.lib || !c.api.dispatch) return fail("FSR frame generation was not started (the controller starts it before the first frame).");
+    if (!c.started || !c.lib || !c.api.dispatch)
+        return fail("FSR frame generation was not started (the controller starts it before the first frame).");
     if (!frame.device || !frame.list) return fail("FSR frame generation was given no device or no command list.");
     gpu::Device& device = *frame.device;
     if (device.backend() != c.apiBackend)
-        return fail("FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) + " and this device is " +
-                    vendor_backend_label(device.backend()) + ".");
+        return fail("FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) +
+                    " and this device is " + vendor_backend_label(device.backend()) + ".");
     if (!c.swapCtx)
-        return fail("FSR frame generation has no swapchain: it was destroyed or never made (the window's swapchain is made again with the "
+        return fail("FSR frame generation has no swapchain: it was destroyed or never made (the window's swapchain is "
+                    "made again with the "
                     "next frame generation start).");
     if (!frame.depth.valid() || !frame.motion.valid() || (frame.hudDrawn && !frame.hudless.valid())) {
-        return fail(std::string("FSR frame generation needs the depth and the motion of the frame (and the picture before the screen-space items "
+        return fail(std::string("FSR frame generation needs the depth and the motion of the frame (and the picture "
+                                "before the screen-space items "
                                 "when they were drawn): the frame has no ") +
-                    (!frame.depth.valid() ? "depth" : !frame.motion.valid() ? "motion" : "hudless picture") + " image.");
+                    (!frame.depth.valid()    ? "depth"
+                     : !frame.motion.valid() ? "motion"
+                                             : "hudless picture") +
+                    " image.");
     }
     if (frame.renderW <= 0 || frame.renderH <= 0 || frame.outW <= 0 || frame.outH <= 0)
-        return fail("FSR frame generation was given an empty picture (" + std::to_string(frame.renderW) + "x" + std::to_string(frame.renderH) +
-                    " -> " + std::to_string(frame.outW) + "x" + std::to_string(frame.outH) + ").");
+        return fail("FSR frame generation was given an empty picture (" + std::to_string(frame.renderW) + "x" +
+                    std::to_string(frame.renderH) + " -> " + std::to_string(frame.outW) + "x" +
+                    std::to_string(frame.outH) + ").");
     const std::uint32_t hudlessFormat = fsr_surface_format(frame.colorFormat);
     if (hudlessFormat == abi::kFormatUnknown)
         return fail("FSR frame generation: the picture's pixel format has no FidelityFX name.");
-    if (std::string why = ensure_context(device, frame, fsr_fg_create_flags(frame), hudlessFormat); !why.empty()) return fail(std::move(why));
+    if (std::string why = ensure_context(device, frame, fsr_fg_create_flags(frame), hudlessFormat); !why.empty())
+        return fail(std::move(why));
 
     const gpu::Backend backend = device.backend();
     // The handles come before the native section opens: a failure here leaves the list as it was.
@@ -764,13 +899,20 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
     // swapchain's own picture is the hudless one.
     const bool withHudless = frame.hudDrawn;
     abi::Resource hudless{};
-    if (withHudless) hudless = make_resource(handle_of(frame.hudless, "hudless picture"), hudlessFormat, frame.outW, frame.outH, false);
-    const abi::Resource depth = make_resource(handle_of(frame.depth, "depth"), abi::kFormatR32Float, frame.renderW, frame.renderH, false);
-    const abi::Resource motion = make_resource(handle_of(frame.motion, "motion"), abi::kFormatR16G16Float, frame.renderW, frame.renderH, false);
-    if (!missing.empty()) return fail("FSR frame generation: the device gave no native resource for the " + missing + " image.");
+    if (withHudless)
+        hudless =
+            make_resource(handle_of(frame.hudless, "hudless picture"), hudlessFormat, frame.outW, frame.outH, false);
+    const abi::Resource depth =
+        make_resource(handle_of(frame.depth, "depth"), abi::kFormatR32Float, frame.renderW, frame.renderH, false);
+    const abi::Resource motion =
+        make_resource(handle_of(frame.motion, "motion"), abi::kFormatR16G16Float, frame.renderW, frame.renderH, false);
+    if (!missing.empty())
+        return fail("FSR frame generation: the device gave no native resource for the " + missing + " image.");
 
     // The frame's description for the swapchain: the hudless picture, the frame number, and generation on or off.
-    if (const std::string why = c.configure_fg(c.enabled, withHudless ? &hudless : nullptr, frame.outW, frame.outH, frame.frameId); !why.empty())
+    if (const std::string why =
+            c.configure_fg(c.enabled, withHudless ? &hudless : nullptr, frame.outW, frame.outH, frame.frameId);
+        !why.empty())
         return fail("FSR frame generation could not describe the frame: " + why + ".");
 
     const auto finite = [](float v, float limit) { return std::isfinite(v) ? std::clamp(v, -limit, limit) : 0.0f; };
@@ -783,11 +925,13 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
     // The motion image is in fractions of the picture: FSR reads pixels of the render size.
     d.motionVectorScale = {float(frame.renderW) * (frame.motionScaleX > 0.0f ? frame.motionScaleX : 1.0f),
                            float(frame.renderH) * (frame.motionScaleY > 0.0f ? frame.motionScaleY : 1.0f)};
-    d.frameTimeDelta = std::isfinite(frame.frameTimeMs) && frame.frameTimeMs > 0.0f ? frame.frameTimeMs : 1000.0f / 60.0f;
+    d.frameTimeDelta =
+        std::isfinite(frame.frameTimeMs) && frame.frameTimeMs > 0.0f ? frame.frameTimeMs : 1000.0f / 60.0f;
     d.reset = frame.reset || c.needReset;
     d.cameraNear = std::isfinite(frame.cameraNear) && frame.cameraNear > 0.0f ? frame.cameraNear : 0.1f;
-    d.cameraFar = frame.depthInfinite ? std::numeric_limits<float>::max()
-                                      : (std::isfinite(frame.cameraFar) && frame.cameraFar > d.cameraNear ? frame.cameraFar : 1000.0f);
+    d.cameraFar = frame.depthInfinite
+                      ? std::numeric_limits<float>::max()
+                      : (std::isfinite(frame.cameraFar) && frame.cameraFar > d.cameraNear ? frame.cameraFar : 1000.0f);
     d.cameraFovAngleVertical = std::isfinite(frame.cameraFovY) && frame.cameraFovY > 0.0f ? frame.cameraFovY : 1.0f;
     d.viewSpaceToMetersFactor = 1.0f;
     d.depth = depth;
@@ -814,14 +958,18 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
     use(frame.depth);
     use(frame.motion);
     if (withHudless) use(frame.hudless);
-    const Result<gpu::NativeCommands> native = frame.list->begin_native(std::span<const gpu::NativeUse>(uses, useCount));
+    const Result<gpu::NativeCommands> native =
+        frame.list->begin_native(std::span<const gpu::NativeUse>(uses, useCount));
     if (!native) return fail("FSR frame generation could not open a native command section: " + native.error().message);
     d.commandList = const_cast<void*>(native->list);
     const abi::ReturnCode rc = c.api.dispatch(&c.fgCtx, &d.header);
     // The section is closed whatever FSR answered: the images are left in the states they were declared in.
     const Result<void> closed = frame.list->end_native();
-    if (rc != abi::kOk) return fail("FSR frame generation failed to prepare a frame: " + call_failed("ffxDispatch", rc) + ".");
-    if (!closed) return fail("FSR frame generation prepared a frame, but its native command section could not be closed: " + closed.error().message);
+    if (rc != abi::kOk)
+        return fail("FSR frame generation failed to prepare a frame: " + call_failed("ffxDispatch", rc) + ".");
+    if (!closed)
+        return fail("FSR frame generation prepared a frame, but its native command section could not be closed: " +
+                    closed.error().message);
     c.needReset = false;
     return true;
 }
@@ -876,14 +1024,14 @@ std::uint32_t fsr_fg_dxgi_format(std::uint32_t f) {
 
 std::uint32_t fsr_fg_vulkan_format(std::uint32_t f) {
     switch (f) {
-        case 37: return abi::kFormatR8G8B8A8Unorm;      // VK_FORMAT_R8G8B8A8_UNORM
-        case 43: return abi::kFormatR8G8B8A8Srgb;       // VK_FORMAT_R8G8B8A8_SRGB
-        case 44: return abi::kFormatB8G8R8A8Unorm;      // VK_FORMAT_B8G8R8A8_UNORM
-        case 50: return abi::kFormatB8G8R8A8Srgb;       // VK_FORMAT_B8G8R8A8_SRGB
-        case 64: return abi::kFormatR10G10B10A2Unorm;   // VK_FORMAT_A2B10G10R10_UNORM_PACK32
-        case 97: return abi::kFormatR16G16B16A16Float;  // VK_FORMAT_R16G16B16A16_SFLOAT
-        case 109: return abi::kFormatR32G32B32A32Float; // VK_FORMAT_R32G32B32A32_SFLOAT
-        case 122: return abi::kFormatR11G11B10Float;    // VK_FORMAT_B10G11R11_UFLOAT_PACK32
+        case 37: return abi::kFormatR8G8B8A8Unorm;       // VK_FORMAT_R8G8B8A8_UNORM
+        case 43: return abi::kFormatR8G8B8A8Srgb;        // VK_FORMAT_R8G8B8A8_SRGB
+        case 44: return abi::kFormatB8G8R8A8Unorm;       // VK_FORMAT_B8G8R8A8_UNORM
+        case 50: return abi::kFormatB8G8R8A8Srgb;        // VK_FORMAT_B8G8R8A8_SRGB
+        case 64: return abi::kFormatR10G10B10A2Unorm;    // VK_FORMAT_A2B10G10R10_UNORM_PACK32
+        case 97: return abi::kFormatR16G16B16A16Float;   // VK_FORMAT_R16G16B16A16_SFLOAT
+        case 109: return abi::kFormatR32G32B32A32Float;  // VK_FORMAT_R32G32B32A32_SFLOAT
+        case 122: return abi::kFormatR11G11B10Float;     // VK_FORMAT_B10G11R11_UFLOAT_PACK32
         default: return abi::kFormatUnknown;
     }
 }
