@@ -421,7 +421,8 @@ public:
         if (in.rayReconstruction) {
             ++rrFrames;
             guidesGiven = frame.normalRoughness.id != 0 && frame.diffuseAlbedo.id != 0 &&
-                          frame.specularAlbedo.id != 0 && in.camera.valid && in.camera.perspective;
+                          frame.specularAlbedo.id != 0 && frame.rrDepth.id != 0 && in.rrDepth.id != 0 &&
+                          in.camera.valid && in.camera.perspective;
             normalViewValid = in.normalRoughness.id != 0;
             if (rrRefuses)
                 frame.rayReconstructionFallback =
@@ -460,7 +461,17 @@ TEST_CASE(
     own.r.set_upscaler(u);
     own.frame(s.w, 2);
     CHECK(fake.rrProbes == 1);  // asked once, never per frame
-    REQUIRE(own.r.supports("dlssRayReconstruction"));
+    if (!own.r.supports("dlssRayReconstruction")) {
+        // A device whose pipeline is not linear cannot give Ray Reconstruction its colour: the row says so, and there is nothing more to see.
+        const Json report = own.r.supports_report();
+        std::string why;
+        for (const Json& f : report["features"])
+            if (f["name"] == "dlssRayReconstruction") why = f["status"].dump();
+        MESSAGE("Ray Reconstruction is not supported on this device, the frame draws Super Resolution: " << why);
+        CHECK(why.find("linear") != std::string::npos);
+        CHECK(fake.rrFrames == 0);
+        return;
+    }
     CHECK(fake.asked);
     CHECK(fake.rrFrames >= 1);
     CHECK(fake.guidesGiven);

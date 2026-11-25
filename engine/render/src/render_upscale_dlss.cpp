@@ -387,7 +387,8 @@ std::string DlssProvider::draw(const UpscaleInput& in, VendorFrame& frame, const
     constants.cameraFov = 1.0f;
     constants.cameraAspectRatio = float(in.outW) / float(in.outH);
     constants.motionVectorsInvalidValue = FLT_MIN;
-    constants.depthInverted = kFalse;  // the prep pass writes 0..1 growing with the distance
+    constants.depthInverted =
+        kFalse;  // Super Resolution: the prep pass writes 0..1 growing with the distance; Ray Reconstruction: the projection's depth
     constants.cameraMotionIncluded = kTrue;
     constants.motionVectors3d = kFalse;
     constants.orthographicProjection = kFalse;
@@ -438,6 +439,8 @@ std::string DlssProvider::draw(const UpscaleInput& in, VendorFrame& frame, const
     };
     int count = 4;
     if (rr) {
+        items[1] = {kBufferDepth, frame.rrDepth, in.rrDepth,
+                    in.renderW,   in.renderH,    false};  // the depth of the projection it is told
         items[count++] = {kBufferAlbedo, frame.diffuseAlbedo, in.diffuseAlbedo, in.renderW, in.renderH, false};
         items[count++] = {
             kBufferSpecularAlbedo, frame.specularAlbedo, in.specularAlbedo, in.renderW, in.renderH, false};
@@ -566,8 +569,10 @@ bool DlssProvider::upscale(const UpscaleInput& in, VendorFrame& frame) {
         // got them, or that Streamline refuses, is drawn with Super Resolution and says why.
         std::string why;
         if (!frame.normalRoughness.valid() || !frame.diffuseAlbedo.valid() || !frame.specularAlbedo.valid() ||
-            !in.normalRoughness.valid() || !in.diffuseAlbedo.valid() || !in.specularAlbedo.valid())
-            why = "the frame has no guide images (normal and roughness, diffuse albedo, specular albedo)";
+            !in.normalRoughness.valid() || !in.diffuseAlbedo.valid() || !in.specularAlbedo.valid() ||
+            !frame.rrDepth.valid() || !in.rrDepth.valid())
+            why = "the frame has no guide images (normal and roughness, diffuse albedo, specular albedo, depth of the "
+                  "projection)";
         else if (!in.camera.valid)
             why = "the frame has no camera matrices";
         else if (!in.linear)

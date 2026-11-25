@@ -17,9 +17,9 @@ bool RrGuidesPrep::ready(gpu::Device& dev) {
         if (shader_.id) dev.destroy_shader(shader_);
         shader_ = {};
         state_ = -1;
-        FA_ERROR("render",
-                 "The DLSS Ray Reconstruction guides shader failed to compile (see the sokol log lines above); DLSS draws with Super "
-                 "Resolution instead. Hint: set render.upscaler rayReconstruction to false to silence this.");
+        FA_ERROR("render", "The DLSS Ray Reconstruction guides shader failed to compile (see the sokol log lines "
+                           "above); DLSS draws with Super "
+                           "Resolution instead. Hint: set render.upscaler rayReconstruction to false to silence this.");
         return false;
     }
     state_ = 1;
@@ -30,7 +30,7 @@ gpu::Pipeline RrGuidesPrep::pipeline(const TargetFormat& format) {
     for (const Entry& e : pipelines_)
         if (e.format == format) return e.pipeline;
     if (state_ <= 0 || !device_) return {};
-    // `pos`; two colour targets (the normal with the roughness, and the albedo): make_triangle_pipeline takes both from `format`.
+    // `pos`; two colour targets (the normal with the roughness, and the depth): make_triangle_pipeline takes both from `format`.
     const gpu::Pipeline p = make_triangle_pipeline(*device_, shader_, format, "upscale-rr-guides");
     if (device_->state(p) != gpu::ResourceState::Valid)
         FA_ERROR("render", "failed to create pipeline 'upscale-rr-guides'");

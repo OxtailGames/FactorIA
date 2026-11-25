@@ -283,7 +283,7 @@ struct Renderer::Impl {
     // render.supports says why (rrFailedWhy). rrWarned*: the one warning of a frame that cannot use it (not linear, dynamic resolution) and
     // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
     render::RrGuidesPrep rrPrep;
-    Target rrNormal, rrDiffuse, rrSpecular;
+    Target rrNormal, rrDiffuse, rrSpecular, rrDepth;
     render::VendorProbe rrProbe;
     bool rrProbed = false;
     bool rrFailed = false;

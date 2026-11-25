@@ -390,21 +390,23 @@ bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
     return false;
 }
 
-// The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): the world normal with a roughness and a diffuse albedo from the
-// depth prepass, and a cleared specular albedo. The renderer is a forward renderer with no material G-buffer, so the roughness and the two
-// albedos are constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null `prepass` means every pixel is sky. False when the
-// three images cannot be made. The caller made sure rrPrep is ready.
+// The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): from the depth prepass, the world normal with a roughness and the
+// hardware depth of the camera's projection (Ray Reconstruction is told that projection, so it cannot read the prepass's d / (d + 1)), and
+// a cleared image for each albedo. The renderer is a forward renderer with no material G-buffer, so the roughness and the two albedos are
+// constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null `prepass` means every pixel is sky. False when the four images
+// cannot be made. The caller made sure rrPrep is ready.
 bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass) {
     if (!ensure_mfx_target(rrNormal, "rr-normal-roughness", gpu::PixelFormat::Rgba16F, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrDiffuse, "rr-diffuse-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
-        !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH))
+        !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrDepth, "rr-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH))
         return false;
     constexpr float kRoughness = 0.5f, kDiffuseAlbedo = 0.5f, kSpecularAlbedo = 0.04f;
     gpu::CommandList& list = pass_list(c, gpu);
     {
         PassDesc p = pass_into(rrNormal, "upscale-rr-guides");
-        p.color1 = rrDiffuse.colorAtt;
-        p.format.color1 = rrDiffuse.format.color;
+        p.color1 = rrDepth.colorAtt;
+        p.format.color1 = rrDepth.format.color;
         p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
         p.colorStore = gpu::StoreAction::Store;
         const gpu::Pipeline pipeline = rrPrep.pipeline(p.format);  // before the pass: nothing is made inside one
@@ -428,16 +430,18 @@ bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c,
         u.back[1] = back.y;
         u.back[2] = back.z;
         u.back[3] = prepass ? 1.0f : 0.0f;
-        u.albedo[0] = u.albedo[1] = u.albedo[2] = kDiffuseAlbedo;
+        render::rr_depth_terms(upscaleTaa.projection, u.zrow);  // the unjittered projection the provider is told too
         list.set_uniforms(UB_upscale_rr_rr_params, gpu::Range{&u, sizeof(u)});
         list.draw(0, 3, 1);
         list.end_pass();
         ++stats.drawCalls;
     }
-    {
-        PassDesc p = pass_into(rrSpecular, "upscale-rr-specular");
+    // The two albedos are constants (the renderer has no material G-buffer): a clear pass each.
+    for (int i = 0; i < 2; ++i) {
+        const float v = i == 0 ? kDiffuseAlbedo : kSpecularAlbedo;
+        PassDesc p = pass_into(i == 0 ? rrDiffuse : rrSpecular, i == 0 ? "upscale-rr-diffuse" : "upscale-rr-specular");
         p.colorLoad = gpu::LoadAction::Clear;
-        p.clearColor = gpu::Color{kSpecularAlbedo, kSpecularAlbedo, kSpecularAlbedo, 1.0f};
+        p.clearColor = gpu::Color{v, v, v, 1.0f};
         p.colorStore = gpu::StoreAction::Store;
         list.begin_pass(p);
         list.end_pass();
@@ -451,6 +455,7 @@ void Renderer::Impl::free_rr_images() {
     destroy_target(gpu.device(), rrNormal);
     destroy_target(gpu.device(), rrDiffuse);
     destroy_target(gpu.device(), rrSpecular);
+    destroy_target(gpu.device(), rrDepth);
 }
 
 // The vendor implementation into `out` (M78): the provider of `impl` is given the frame's images and the pass's command list. False
@@ -572,9 +577,11 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
         f.normalRoughness = rrNormal.color;
         f.diffuseAlbedo = rrDiffuse.color;
         f.specularAlbedo = rrSpecular.color;
+        f.rrDepth = rrDepth.color;
         in.normalRoughness = rrNormal.texView;
         in.diffuseAlbedo = rrDiffuse.texView;
         in.specularAlbedo = rrSpecular.texView;
+        in.rrDepth = rrDepth.texView;
     }
     mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
     if (!provider.upscale(in, f)) return vendor_fail(index, f.error);
