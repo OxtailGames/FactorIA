@@ -264,6 +264,16 @@ struct NamedHook : DeviceHook {
 TEST_CASE("device hooks: the registry adds its hooks once to every device; a backend without hooks says why") {
     auto mine = std::make_shared<NamedHook>("caller's (test)");
     auto registered = std::make_shared<NamedHook>("registered (test)");
+    // Hooks the process registered before this case (a runtime an earlier case loaded on Windows) go aside and come back.
+    struct Aside {
+        DeviceHooks hooks = registered_device_hooks();
+        Aside() {
+            for (const auto& h : hooks) unregister_device_hook(h.get());
+        }
+        ~Aside() {
+            for (const auto& h : hooks) register_device_hook(h);
+        }
+    } aside;
     register_device_hook(registered);
     register_device_hook(registered);  // once
     REQUIRE(registered_device_hooks().size() == 1);

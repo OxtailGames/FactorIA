@@ -262,8 +262,10 @@ SlR f_set_vk(const sl::VulkanInfo* info) {
     sx.vulkanInfo = *info;
     return sx.vkInfoRc;
 }
-void marker_instance_fn() {}
-void marker_device_fn() {}
+// Two distinct bodies: MSVC's /OPT:ICF folds identical functions into one address, and the test tells them apart.
+volatile int g_marker_calls = 0;
+void marker_instance_fn() { g_marker_calls = 1; }
+void marker_device_fn() { g_marker_calls = 2; }
 void* f_vk_instance_proc(void*, const char* name) {
     return std::string(name) == "vkQueuePresentKHR" ? reinterpret_cast<void*>(&marker_instance_fn) : nullptr;
 }
