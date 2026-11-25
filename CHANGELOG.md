@@ -104,9 +104,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   library over `D3d12Options::pipelineCacheTrimBytes` (64 MiB) is rebuilt at save with only the PSOs that run used, so the file does not
   grow without bound. A save that fails (serializing, a library over 1 GiB, a reader that holds the file, a full disk) is a warning that
   names the file and keeps the old one, and waits for a reader at most three 1 ms tries instead of about a second (a scanner that holds
-  the temporary file is waited for up to 160 ms); a read-only cache file gets a hint that names the attribute to clear, and a failed
+  the temporary file is waited for up to 8 x 20 ms: 160 ms nominal, about 250 ms with the Windows timer steps); a read-only cache file gets a hint that names the attribute to clear, and a failed
   write is tried again at the next save or the next run; temporary files a crashed save left in the folder are removed at load; a write
-  is logged with its size. After a trim, PSOs the file holds that this run had not asked for yet are still loaded from it. The shader cache report has a `pipelineCache` object (`trimmed` counts the rebuilds). The
+  is logged with its size. After a trim, PSOs the file holds that this run had not asked for yet are still loaded from it. The shader
+  cache report has a `pipelineCache` object (`trimmed` counts the rebuilds). The
   backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
   `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
   the device was lost. A renderer on D3D12 (`RendererDesc::backend`, M77-P9b) uses the file.

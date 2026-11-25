@@ -374,10 +374,10 @@ Result<void> FrameGraph::execute(TargetPool& pool, gpu::CommandList* commands) {
 Result<void> FrameGraph::execute_on(TargetPool& pool, gpu::CommandList* const* current) {
     struct ForgetCommands {  // PassContext::commands() is null again once execute() returns, whatever the way out
         gpu::CommandList*& list;
-        gpu::CommandList* const*& current;
+        gpu::CommandList* const*& slot;
         ~ForgetCommands() {
             list = nullptr;
-            current = nullptr;
+            slot = nullptr;
         }
     } forgetCommands{commands_, current_};
     if (released_) {

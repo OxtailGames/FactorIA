@@ -126,7 +126,8 @@ enum class CacheWriteFailure {
     TargetHeld,    // another process holds the old file open: Windows replaces no open file
     TempHeld,      // an antivirus or indexer holds the temporary file we just wrote
     ReadOnlyFile,  // the old file has the read-only attribute
-    FolderDenied,  // access denied, and nothing holds either file: the folder's or the file's permissions
+    FolderDenied,  // access denied, and no sharing violation on either file: the permissions, or a holder that shares delete
+                   // (a mapped view: it answers access denied, so the probe cannot tell it from the permissions)
     Other,         // a full disk, a missing folder, anything else
 };
 // The Win32 error numbers it knows: 5 ERROR_ACCESS_DENIED, 32 ERROR_SHARING_VIOLATION, 33 ERROR_LOCK_VIOLATION, 1224
@@ -136,7 +137,8 @@ CacheWriteFailure d3d12_classify_cache_write_error(unsigned winError, bool tempH
                                                    bool targetReadOnly);
 // How long a save waits before it gives up on a failure: `retries` more tries, `sleepMs` apart. The target held (a
 // reader that stays is not waited for: the old file is kept) and access denied are 3 x 1 ms; a held temporary file (a
-// scanner that lets go within a moment) is 8 x 20 ms, 160 ms, still bounded; the rest are not retried.
+// scanner that lets go within a moment) is 8 x 20 ms: 160 ms nominal, about 250 ms with the Windows timer steps (a
+// sleep of 20 ms lasts 15.6 to 31 ms), still bounded; the rest are not retried.
 struct CacheReplacePolicy {
     int retries = 0;
     int sleepMs = 0;

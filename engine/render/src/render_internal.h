@@ -1631,9 +1631,12 @@ public:
     void submit_in_order(std::span<gpu::CommandList* const> lists);
     // Async compute (only while async_compute()): submits the frame's list handing `uses` (images and buffers; `to` is
     // ignored) to the compute queue, begins the frame's next list and returns a list of the compute queue that waits for
-    // that submit. Record the compute pass on it and give it to end_async_compute with the same `uses`. Make every
-    // resource and pipeline before: nothing may be recorded on commands() between the two calls.
-    gpu::CommandList& begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses);
+    // that submit. Record the compute pass on it and give it to end_async_compute with the same `uses` and `guard`. Make
+    // every resource and pipeline before: nothing may be recorded on commands() between the two calls. A compute list
+    // that still guards the pool target `guard` is waited for first (wait_compute_for), as the frame graph does before a
+    // pass that declares it: `uses` are back on the graphics queue when they are handed over.
+    gpu::CommandList& begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses,
+                                          std::uint64_t guard);
     // Submits `compute` handing `uses` back to the graphics queue. The graphics queue waits for it only before the first
     // frame-graph pass that declares the pool target `guard` (wait_compute_for, from the graph's `before` hook) or at the
     // frame's end (commit_frame, shutdown): the graphics passes between run while the compute queue works.

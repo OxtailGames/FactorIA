@@ -1,16 +1,20 @@
 // Shader program creation with a disk cache where the backend allows one (docs/PERFORMANCE.md "Startup", per-backend table).
 //
-//   D3D11  sokol compiles the HLSL of a shader with D3DCompile every start (8 built-in programs: ~0.3-1 s cold). The engine
-//          compiles it itself the first time, stores the bytecode (DXBC) in fs::cache_dir() and hands sokol the bytecode
-//          next time: no compiler is loaded or run. DXBC does not depend on the graphics card or driver (the driver turns it
-//          into machine code), so the key is the backend, the compiler target and flags, the engine version and a hash of the
-//          source: a changed shader, another engine version or other flags make a file Stale and it is rebuilt.
-//   others sokol_gfx gives no way to hand it a compiled program (GL links from source inside the driver call, Metal builds
+//   D3D11, D3D12  Without the engine's help the device compiles the HLSL of a shader with D3DCompile every start (8
+//          built-in programs: ~0.3-1 s cold). The engine compiles it itself the first time (D3D12: to shader model 5.1,
+//          which has its own targets and keys), stores the bytecode (DXBC) in fs::cache_dir() and hands the device the
+//          bytecode next time: no compiler is loaded or run. DXBC does not depend on the graphics card or driver (the
+//          driver turns it into machine code), so the key is the backend, the compiler target and flags, the engine
+//          version and a hash of the source: a changed shader, another engine version or other flags make a file Stale
+//          and it is rebuilt. D3D12 also keeps a pipeline library of its own (gpu/d3d12_pipelines_win32.cpp).
+//   Vulkan  The generated header carries SPIR-V; it is decoded and handed to the device, which has no compiler to run, so
+//          there is nothing to cache here (the pipeline cache of the device is what a restart reuses).
+//   others  Metal and OpenGL cannot be given a compiled program (GL links from source inside the driver call, Metal builds
 //          its library from MSL source), so there is nothing to cache from here: the driver's own shader cache and the OS's
 //          Metal cache do that. The creation is still timed, so the startup report says what it costs.
 //
 // Everything here runs on the thread that owns the graphics context (the main thread). It reaches the GPU through
-// gpu::Device (no sokol_gfx.h here).
+// gpu::Device (no graphics API header here).
 #pragma once
 
 #include <cstdint>
@@ -44,7 +48,7 @@ struct ShaderBuildStats {
     Json to_json(const char* backend) const;
 };
 
-// Compiles one stage to bytecode: returns false and sets `error` when it cannot (the caller lets sokol compile and report).
+// Compiles one stage to bytecode: returns false and sets `error` when it cannot (the caller lets the device compile and report).
 using StageCompiler =
     std::function<bool(const gpu::ShaderFunction& fn, std::vector<std::uint8_t>& bytecode, std::string& error)>;
 
@@ -66,7 +70,7 @@ std::string shader_cache_file_name(std::string_view label, std::string_view stag
 // null or empty).
 gpu::Shader make_shader(gpu::Device& device, const gpu::ShaderDesc& desc, const char* label = nullptr);
 // The cache layer itself, for a caller that makes the program some other way: `make` is called
-// once, with the desc to make (`prepared`: the stages compiled to bytecode on D3D11) or nullptr for `desc` itself
+// once, with the desc to make (`prepared`: the stages compiled to bytecode on D3D11 and D3D12, decoded SPIR-V on Vulkan) or nullptr for `desc` itself
 // (another backend, or a stage the engine could not compile: the backend compiles it and reports why).
 gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, const char* label,
                             const std::function<gpu::Shader(const gpu::ShaderDesc* prepared)>& make);

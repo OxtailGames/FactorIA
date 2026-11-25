@@ -2288,20 +2288,31 @@ TEST_CASE("d3d12: a cache library over the trim size is rebuilt at save with onl
         REQUIRE_MESSAGE(saved, saved.error().to_string());
         CHECK(dev->counters().pipelineCacheTrimmed == 1);
         CHECK(dev->counters().pipelineCacheStored == 1);
+        // A PSO the trim left out is still in the replaced library (retiredLibraries_): asking for it is a hit, it is
+        // stored in the new library, and the next save writes it.
+        const Pipeline rgba16 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba16F));
+        REQUIRE_MESSAGE(dev->state(rgba16) == ResourceState::Valid, all_errors(*dev));
+        CHECK(dev->counters().psoLibraryHits == 2);
+        CHECK(dev->counters().psoLibraryMisses == 0);
+        saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheStored == 2);
+        CHECK(dev->counters().pipelineCacheTrimmed == 1);
         check_fill_draws(*dev, rgba8);  // a PSO loaded from the replaced library still draws
         CHECK(cache_warnings(*dev).empty());
         CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
     }
     const fa::gpu::D3d12PipelineCacheTotals after = fa::gpu::d3d12_pipeline_cache_totals();
     CHECK(after.filesTrimmed == before.filesTrimmed + 1);
-    // The next run finds the one it kept; the two the trim left out are compiled again.
+    // The next run finds the two the file holds (the one the trim kept and the one asked for from the retired library);
+    // the third is compiled again.
     auto dev = make_cached_warp(dir.file());
     REQUIRE(dev);
     make_cache_pipelines(*dev);
     const d3d12::D3d12Counters c = dev->counters();
     CHECK(c.pipelineCacheDiscarded == 0);
-    CHECK(c.psoLibraryHits == 1);
-    CHECK(c.psoLibraryMisses == 2);
+    CHECK(c.psoLibraryHits == 2);
+    CHECK(c.psoLibraryMisses == 1);
     CHECK(c.pipelineCacheTrimmed == 0);  // the default trim size: three PSOs are far under it
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }

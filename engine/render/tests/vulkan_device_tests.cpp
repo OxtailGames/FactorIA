@@ -3930,7 +3930,7 @@ TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and
     CHECK(grown.width == 96);
     CHECK(grown.height == 64);
 
-    auto acquired = dev->acquire_swapchain(Swapchain{});
+    auto acquired = acquire_retrying(*dev);
     REQUIRE_MESSAGE(acquired, acquired.error().to_string());
     auto busy = dev->resize_swapchain(32, 32);
     REQUIRE(!busy);
@@ -3958,7 +3958,7 @@ TEST_CASE("vulkan: a swapchain on a window: acquire, clear, present, resize, and
     CHECK(remade.height > 0);
 
     // An image acquired and never drawn into does not stop the swapchain from going.
-    auto left = dev->acquire_swapchain(Swapchain{});
+    auto left = acquire_retrying(*dev);
     REQUIRE_MESSAGE(left, left.error().to_string());
     dev->destroy_swapchain();
     CHECK(!dev->has_swapchain());
@@ -4188,6 +4188,8 @@ TEST_CASE("vulkan: a readback of a window image the surface made without TRANSFE
     // The frame still goes out: the refusal changed nothing.
     PassDesc pass = PassDesc::for_swapchain(acquired.value(), dev->environment_defaults());
     pass.colorLoad = LoadAction::Clear;
+    pass.depthLoad = LoadAction::Clear;
+    pass.stencilLoad = LoadAction::Clear;
     CommandList& list = dev->begin_commands("window");
     list.begin_pass(pass);
     list.end_pass();
@@ -4253,12 +4255,16 @@ TEST_CASE("vulkan: swapchain_format_supported is safe from another thread while 
     d.label = "thread-window";
     auto made = dev->create_swapchain(d);
     REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
+    // A concrete format the surface offers: PixelFormat::Default is answered before the snapshot is read.
+    const PixelFormat surfaceFormat = dev->environment_defaults().colorFormat;
+    REQUIRE(surfaceFormat != PixelFormat::Default);
+    REQUIRE(dev->swapchain_format_supported(surfaceFormat, nullptr));
     std::atomic<bool> stop{false};
     std::atomic<int> refused{0};
     std::thread asker([&] {
         while (!stop.load()) {
             std::string why;
-            if (!dev->swapchain_format_supported(PixelFormat::Default, &why)) ++refused;
+            if (!dev->swapchain_format_supported(surfaceFormat, &why)) ++refused;
         }
     });
     // Each resize makes the swapchain again, and with it asks the surface for its formats again.

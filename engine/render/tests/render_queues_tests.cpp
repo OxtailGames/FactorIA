@@ -301,7 +301,7 @@ TEST_CASE("render queues: async compute hands its resources to the compute queue
     gpu::QueueHandoff uses[2];
     uses[0].image = image;
     uses[1].buffer = cells;
-    gpu::CommandList& compute = rg.gpu.begin_async_compute("hiz-reduce", uses);
+    gpu::CommandList& compute = rg.gpu.begin_async_compute("hiz-reduce", uses, 42);
     CHECK(compute.queue() == gpu::QueueKind::Compute);
     compute.push_debug_group("reduce");
     compute.pop_debug_group();
@@ -336,7 +336,7 @@ TEST_CASE("render queues: async compute hands its resources to the compute queue
 
     // Work nothing waited for: commit_frame makes the graphics queue wait for it.
     rg.dev->clear_commands();
-    gpu::CommandList& again = rg.gpu.begin_async_compute("hiz-reduce", uses);
+    gpu::CommandList& again = rg.gpu.begin_async_compute("hiz-reduce", uses, 42);
     rg.gpu.end_async_compute(again, uses, 42);
     rg.gpu.commit_frame();
     CHECK_FALSE(rg.gpu.compute_pending());

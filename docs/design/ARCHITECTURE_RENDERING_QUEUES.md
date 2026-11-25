@@ -64,7 +64,8 @@ How (`Gpu::begin_async_compute`, `end_async_compute`):
    `Compute`; a new frame list begins.
 2. A compute list (`begin_commands("hiz-reduce", QueueKind::Compute)`) waits for that token (`wait_list`), records the
    compute pass and is submitted with `submit_token` handing both back to `Graphics`. The token and the pool handle of the
-   prepass target (the guard) go on `Gpu`'s pending list.
+   prepass target (the guard) go on `Gpu`'s pending list. `begin_async_compute(label, uses, guard)` first waits for a
+   compute list still pending with the same guard (a second camera that reuses the pool target), so two never overlap.
 3. The graphics passes after it run meanwhile. The frame graph's `PassHooks::before` (set only while async compute is in
    use) gives `Gpu::wait_compute_for` the pool handles of the next pass's reads and writes; the first pass that declares
    the prepass target makes the graphics queue wait (`submit` of the frame list, `wait_queue(Graphics, token)`, a new

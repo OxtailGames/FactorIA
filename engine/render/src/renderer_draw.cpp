@@ -3443,7 +3443,18 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const Result<void> recorded = jobs::parallel_for("render.shadow_record", groups, 1, [&](const jobs::Chunk& c) {
         for (std::size_t g = c.begin; g < c.end; ++g) shadowCaptures[g]->replay(*lists[g]);
     });
-    if (!recorded) FA_ERROR("render", "The shadow views could not be recorded: {}", recorded.error().message);
+    if (!recorded) {
+        // A chunk that failed may have left its list inside the pass: close every list, so the device finds none open at
+        // submit. Warned once: a failure that repeats would fill the log at the frame rate.
+        // Passes do not nest, so one end_pass closes it (a loop could spin on a list the device refuses to touch).
+        for (std::size_t g = 0; g < groups; ++g)
+            if (lists[g]->pass_state() != gpu::PassState::None) lists[g]->end_pass();
+        if (!warnedShadowRecord) {
+            warnedShadowRecord = true;
+            FA_ERROR("render", "The shadow views could not be recorded (this message is shown once): {}",
+                     recorded.error().message);
+        }
+    }
     gpu.submit_in_order(std::span<gpu::CommandList* const>(lists.data(), groups));
 }
 

@@ -23,6 +23,9 @@ std::size_t CommandCapture::add_bytes(const void* data, std::size_t size) {
 
 void CommandCapture::begin_pass(const gpu::PassDesc& pass) {
     FA_ASSERT(state_ == gpu::PassState::None, "CommandCapture::begin_pass inside a pass");
+    // The desc is stored by value and replayed later: a pass into the window points at a Swapchain that is not owned and
+    // is valid only for begin_pass, so a captured list never draws to the window.
+    FA_ASSERT(!pass.swapchain, "CommandCapture::begin_pass: a captured pass cannot draw into the swapchain");
     Call c;
     c.op = Op::BeginPass;
     c.index = std::uint32_t(passes_.size());

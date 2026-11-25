@@ -36,6 +36,8 @@ struct UiPainterImpl {
     std::unordered_map<gpu::TargetFormat, gpu::Pipeline> pipelines;
     // The views whose image format the device cannot filter linearly (a 32-bit float picture on some GPUs): they are
     // always sampled with `nearest`, whatever UiDrawCommand::nearest says, because a linear sampler on them is an error.
+    // Latent today: make_texture only makes RGBA8 pictures, which every device filters, so only note_view_format() (a
+    // test, or a later picture of another format) can add a view; UiDrawCommand::view documents "filterable".
     std::unordered_set<std::uint32_t> unfilterableViews;
 
     // What upload() wrote for the frame it saw, per list: where its vertices and indices are in the buffers.

@@ -1018,7 +1018,14 @@ void remove_orphan_cache_temps(const std::filesystem::path& cacheFile) {
     const std::string cacheName = fs::path_to_utf8(cacheFile.filename());
     for (const std::string& name : d3d12_orphan_cache_temps(entries, cacheName)) {
         const std::filesystem::path orphan = folder / fs::path_from_utf8(name);
-        if (DeleteFileW(fs::os_path(orphan).c_str())) FA_INFO("render", "gpu d3d12: removed the leftover {}", name);
+        // A scanner that holds the leftover for a moment (a sharing violation) is tried again 2 more times, 1 ms apart.
+        bool removed = false;
+        for (int attempt = 0; attempt < 3 && !removed; ++attempt) {
+            removed = DeleteFileW(fs::os_path(orphan).c_str()) != 0;
+            if (removed || GetLastError() != ERROR_SHARING_VIOLATION) break;
+            Sleep(1);
+        }
+        if (removed) FA_INFO("render", "gpu d3d12: removed the leftover {}", name);
     }
 }
 

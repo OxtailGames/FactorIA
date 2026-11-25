@@ -31,7 +31,8 @@ namespace fa::render {
 namespace {
 
 ShaderBuildStats g_stats;
-// Whether the engine compiles and caches the shader stages itself: on the D3D11 build (sokol's one backend there),
+// Whether the engine compiles and caches the shader stages itself: on the Windows build (D3D11 and D3D12 both take
+// bytecode from it),
 // answered by the build, not by the last program made, so a report before the first shader is right too.
 bool engine_caches_here() {
 #if defined(SOKOL_D3D11)
@@ -42,10 +43,11 @@ bool engine_caches_here() {
 }
 
 #if defined(SOKOL_D3D11)
-// D3DCompile is loaded from d3dcompiler_47.dll like sokol does (no import library, no header of the compiler needed).
+// D3DCompile is loaded from d3dcompiler_47.dll (no import library, no header of the compiler needed).
 using PD3DCompile = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR,
                                      UINT, UINT, ID3DBlob**, ID3DBlob**);
-// The flags sokol_gfx uses when shader_debugging is off (sokol_gfx.h, _sg_d3d11_compile_shader) plus PREFER_FLOW_CONTROL: without
+// The flags the engine compiles with: the ones sokol_gfx uses for D3D11 when shader_debugging is off, plus
+// PREFER_FLOW_CONTROL: without
 // it d3dcompiler_47 flattens the branches of the 3D lighting into one straight line and, on some programs (a custom material
 // whose lighting() walks the lights and then reads the shadow of one), recurses until its stack overflows and the process
 // dies (fxc /O3 crashes the same way; /Gfp is this flag). The cache key names them.
@@ -67,7 +69,7 @@ bool d3d_compile_stage(const gpu::ShaderFunction& fn, std::vector<std::uint8_t>&
                                fn.entry ? fn.entry : "main", fn.d3d11Target, kCompileFlags, 0, &code, &messages);
     if (messages)
         messages
-            ->Release();  // warnings: sokol shows them when it compiles; here a failure falls back to sokol, which reports it
+            ->Release();  // warnings: the device shows them when it compiles; here a failure falls back to the device, which reports it
     if (FAILED(hr) || !code) {
         if (code) code->Release();
         error = "D3DCompile failed";
@@ -235,7 +237,7 @@ gpu::Shader make_shader_via(gpu::Backend backend, const gpu::ShaderDesc& desc, c
             std::vector<std::uint8_t>* bytes;
             const char* name;
         };
-        // sokol's D3D11 backend compiles compute itself: only D3D12 takes a compute stage from here.
+        // the D3D11 device compiles compute itself: only D3D12 takes a compute stage from here.
         const Stage stages[] = {{&copy.vertexFunc, &vs, "vs"},
                                 {&copy.fragmentFunc, &fsb, "fs"},
                                 {d3d12 ? &copy.computeFunc : nullptr, &csb, "cs"}};
