@@ -4,16 +4,16 @@
     "name": "Options",
     "components": {
       "Panel": {
-        "size": [760, 680],
-        "minSize": [760, 680],
+        "size": [760, 636],
+        "minSize": [760, 636],
         "fit": true,
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
         "direction": "auto",
         "align": "start",
-        "spacing": 12,
-        "padding": [20, 20, 20, 20]
+        "spacing": 8,
+        "padding": [14, 14, 14, 14]
       },
       "Script": {
         "path": "scripts/ui/options.js"
@@ -26,7 +26,7 @@
           "Text": {
             "text": "Options",
             "key": "options.title",
-            "fontSize": 40,
+            "fontSize": 32,
             "space": "screen",
             "layer": 301
           }
@@ -374,7 +374,7 @@
         "active": false,
         "components": {
           "Panel": {
-            "size": [712, 460],
+            "size": [712, 448],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -660,6 +660,7 @@
                 "layer": 302,
                 "color": [0, 0, 0, 0],
                 "layout": "column",
+                "padding": [0, 0, 0, 0],
                 "fit": true
               }
             },
@@ -683,7 +684,7 @@
             "components": {
               "Text": {
                 "text": "",
-                "fontSize": 18,
+                "fontSize": 16,
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",
                 "align": "start",
@@ -1026,7 +1027,7 @@
                 "label": "Minimum base fps",
                 "min": 0,
                 "max": 240,
-                "step": 5,
+                "step": 1,
                 "size": [560, 36],
                 "layer": 302
               }
