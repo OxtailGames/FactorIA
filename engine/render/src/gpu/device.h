@@ -55,6 +55,7 @@
 #include <vector>
 
 #include "fa/core/types.h"
+#include "gpu/device_hooks.h"
 #include "gpu/types.h"
 
 namespace fa::gpu {
@@ -227,6 +228,10 @@ struct DeviceInit {
     Features recordingFeatures{};
     Limits recordingLimits{};
     bool recordingDefaultCaps = true;
+    // Vendor SDKs' part in making the device and its swapchain (gpu/device_hooks.h): called by the D3D12 and Vulkan
+    // backends only; make_device() adds the registered hooks (register_device_hook) and marks every hook unavailable
+    // on a backend that calls none.
+    DeviceHooks hooks;
 };
 
 // ---- the window: swapchain and present (Device::create_swapchain and the calls after it) --------------------------

@@ -1150,7 +1150,11 @@ Result<void> SokolCommandList::end_native(std::span<const NativeUse> leftIn) {
                           "call end_native once after each begin_native that succeeded");
     const std::string error = check_native(leftIn, "leftIn");
     if (!error.empty()) return make_error(at + error, "fix that entry; the section is still open");
-    // The native commands may have bound shaders, views and states of their own: sokol binds everything again.
+    // The native commands may have bound shaders, views and states of their own: Direct3D 11 unbinds them all
+    // (ClearState on the immediate context), and sokol binds everything again.
+#if defined(SOKOL_D3D11)
+    native_d3d11_clear_state(device_);
+#endif
     device_.reset_state_cache();
     nativeOpen_ = false;
     return {};

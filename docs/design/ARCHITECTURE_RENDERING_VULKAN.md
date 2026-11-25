@@ -487,11 +487,12 @@ command buffer. `gpu/types.h` and `gpu/device.h` give them what they need, with 
   engine records nothing on the list: `begin_pass` and `begin_compute_pass` fail the pass with "a native section is
   open". A list submitted with its section open is reported and closed as declared.
 - **Elsewhere.** D3D11 hands out its immediate context (it tracks no state, so `uses` is only checked and `end_native`
-  resets sokol's state cache); GL, Metal and the `RecordingDevice` refuse with an error. GL and Metal still fill
+  clears the context's state with `ClearState` and resets sokol's state cache); GL, Metal and the `RecordingDevice` refuse with an error. GL and Metal still fill
   `DeviceInfo::gpu`, best effort, from the vendor the driver's name says (no device id).
-- **Not built yet (M78-P2b).** An SDK that must take part in creating the device (instance and device extensions,
-  feature chains, a hook on the swapchain) has no entry point yet; the fields above are only what an SDK needs once the
-  device exists.
+- **Device hooks (M78-P2b).** An SDK that takes part in making the device (instance and device extensions, feature
+  structs, queues, functions it wraps) and the swapchain (made or wrapped, a call around every present) does it through
+  a `DeviceHook`: [ARCHITECTURE_RENDERING_HOOKS.md](ARCHITECTURE_RENDERING_HOOKS.md). The swapchain's images carry their
+  usage and format in `native_image` like every other image.
 
 ## Tests
 

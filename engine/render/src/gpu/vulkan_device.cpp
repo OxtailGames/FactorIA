@@ -21,6 +21,7 @@ Result<std::unique_ptr<Device>> make_vulkan_device(const VulkanOptions&) {
 
 #include <algorithm>
 #include <climits>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -75,6 +76,93 @@ bool has_extension(const std::vector<VkExtensionProperties>& list, const char* n
     for (const VkExtensionProperties& e : list)
         if (std::strcmp(e.extensionName, name) == 0) return true;
     return false;
+}
+
+// ---- device hooks (gpu/device_hooks.h) ----
+
+// A feature struct of the device's create info chain, as the hooks' structs of the same type merge into it.
+struct ChainedFeatures {
+    VkStructureType type;
+    void* s;
+    std::size_t size;
+};
+
+std::string feature_struct_name(VkStructureType t) {
+    switch (t) {
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2: return "VkPhysicalDeviceFeatures2";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: return "VkPhysicalDeviceVulkan11Features";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: return "VkPhysicalDeviceVulkan12Features";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES: return "VkPhysicalDeviceVulkan13Features";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR:
+            return "VkPhysicalDeviceSynchronization2Features";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR:
+            return "VkPhysicalDevicePortabilitySubsetFeaturesKHR";
+        default: return "the feature struct of sType " + std::to_string(std::int64_t(t));
+    }
+}
+
+void set_next(void* s, void* next) {
+    std::memcpy(static_cast<std::uint8_t*>(s) + offsetof(VkBaseOutStructure, pNext), &next, sizeof next);
+}
+
+// A hook's feature struct (checked: check_hook_features) into the chain: OR-ed into the struct of its type already
+// there, else chained after `end` (which becomes it).
+void merge_hook_features(std::vector<std::uint8_t>& f, std::vector<ChainedFeatures>& chained, void*& end) {
+    constexpr std::size_t kHeader = sizeof(VkBaseOutStructure);
+    VkStructureType type{};
+    std::memcpy(&type, f.data(), sizeof type);
+    for (ChainedFeatures& c : chained) {
+        if (c.type != type) continue;
+        auto* dst = static_cast<std::uint8_t*>(c.s);
+        const std::size_t n = std::min(c.size, f.size());
+        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= n; at += sizeof(VkBool32)) {
+            VkBool32 have = VK_FALSE, want = VK_FALSE;
+            std::memcpy(&have, dst + at, sizeof have);
+            std::memcpy(&want, f.data() + at, sizeof want);
+            if (want && !have) {
+                have = VK_TRUE;
+                std::memcpy(dst + at, &have, sizeof have);
+            }
+        }
+        return;
+    }
+    set_next(f.data(), nullptr);
+    set_next(end, f.data());
+    end = f.data();
+    chained.push_back({type, f.data(), f.size()});
+}
+
+// The family a hook's queue comes from: one with every bit of `flags` and a queue no one took. A graphics queue takes
+// the engine's graphics family first; any other, a family that does not draw first. UINT32_MAX = none.
+std::uint32_t pick_hook_queue_family(const std::vector<VkQueueFamilyProperties>& families, std::uint32_t gfx,
+                                     std::uint32_t flags, const std::vector<std::uint32_t>& taken) {
+    auto fits = [&](std::uint32_t i) {
+        return (families[i].queueFlags & flags) == flags && families[i].queueCount > taken[i];
+    };
+    const auto n = std::uint32_t(families.size());
+    if ((flags & VK_QUEUE_GRAPHICS_BIT) && gfx < n && fits(gfx)) return gfx;
+    if (!(flags & VK_QUEUE_GRAPHICS_BIT))
+        for (std::uint32_t i = 0; i < n; ++i)
+            if (!(families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && fits(i)) return i;
+    for (std::uint32_t i = 0; i < n; ++i)
+        if (fits(i)) return i;
+    return UINT32_MAX;
+}
+
+std::string hex_text(std::uint32_t v) {
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%x", unsigned(v));
+    return buf;
+}
+
+std::string queue_families_text(const std::vector<VkQueueFamilyProperties>& families,
+                                const std::vector<std::uint32_t>& taken) {
+    std::string out;
+    for (std::size_t i = 0; i < families.size(); ++i)
+        out += (out.empty() ? "" : "; ") + std::string("family ") + std::to_string(i) + ": flags 0x" +
+               hex_text(families[i].queueFlags) + ", " + std::to_string(families[i].queueCount) + " queues, " +
+               std::to_string(taken[i]) + " taken";
+    return out;
 }
 
 const char* device_type_name(VkPhysicalDeviceType t) {
@@ -280,6 +368,41 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
         }
     }
 
+    // Device hooks (gpu/device_hooks.h): the instance extensions each asks for. One the loader lacks makes that hook
+    // unavailable, and it adds nothing.
+    hooks_ = options.init.hooks;
+    for (const auto& h : hooks_) h->mark_available();
+    hookGrants_.assign(hooks_.size(), HookGrant{});
+    std::vector<std::string> hookExtensions;  // what the hooks added (kept alive for vkCreateInstance)
+    std::vector<DeviceHook*> instanceAdders;  // the hooks that added one
+    for (const auto& h : hooks_) {
+        VulkanInstanceRequest req;
+        h->vulkan_instance_request(req);
+        std::string missing;
+        for (const std::string& e : req.extensions)
+            if (!has_extension(extensions, e.c_str())) missing += (missing.empty() ? "" : ", ") + e;
+        if (!missing.empty()) {
+            hook_unavailable(*h, "the Vulkan loader " + library_.path + " has no instance extension " + missing +
+                                     " (update the Vulkan loader and the GPU driver, or install the SDK's runtime "
+                                     "the extension comes with)");
+            continue;
+        }
+        bool added = false;
+        auto add = [&](const std::string& e) {
+            for (const char* have : enabled)
+                if (e == have) return;
+            for (const std::string& have : hookExtensions)
+                if (e == have) return;
+            hookExtensions.push_back(e);
+            added = true;
+        };
+        for (const std::string& e : req.extensions) add(e);
+        for (const std::string& e : req.optionalExtensions)
+            if (has_extension(extensions, e.c_str())) add(e);
+        if (added) instanceAdders.push_back(h.get());
+    }
+    for (const std::string& e : hookExtensions) enabled.push_back(e.c_str());
+
     VkApplicationInfo app{};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName = "FactorIA";
@@ -350,6 +473,25 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
         ci.ppEnabledLayerNames = nullptr;
         r = fn_.vkCreateInstance(&ci, nullptr, &instance_);
     }
+    if (r != VK_SUCCESS && !hookExtensions.empty() && r != VK_ERROR_INCOMPATIBLE_DRIVER) {
+        // The loader listed the hooks' extensions but the instance does not come up with them: made again without
+        // them, and the hooks that asked are unavailable.
+        for (DeviceHook* h : instanceAdders)
+            hook_unavailable(*h, "vkCreateInstance failed with " + result_text(r) +
+                                     " with the instance extensions it asked for; the instance was made without "
+                                     "them (update the Vulkan loader and the GPU driver)");
+        enabled.erase(std::remove_if(enabled.begin(), enabled.end(),
+                                     [&](const char* e) {
+                                         for (const std::string& x : hookExtensions)
+                                             if (x.c_str() == e) return true;
+                                         return false;
+                                     }),
+                      enabled.end());
+        ci.enabledExtensionCount = std::uint32_t(enabled.size());
+        ci.ppEnabledExtensionNames = enabled.data();
+        instance_ = VK_NULL_HANDLE;
+        r = fn_.vkCreateInstance(&ci, nullptr, &instance_);
+    }
     if (r == VK_ERROR_INCOMPATIBLE_DRIVER)
         return make_error("gpu vulkan: no Vulkan device: the loader " + library_.path +
                               " found no driver (vkCreateInstance: " + result_text(r) + ")",
@@ -378,6 +520,14 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
             surfaceExtension_ = false;  // create_swapchain says there is no window path
     }
 #undef FA_VK_LOAD_INSTANCE
+    if (!hooks_.empty()) {  // a hook may hand its own instance functions (vkCreateDevice: Streamline's interposer)
+#define FA_VK_HOOK_INSTANCE(name)                                                                                      \
+    fn_.name = reinterpret_cast<PFN_##name>(resolve_hooked(#name, nullptr, reinterpret_cast<HookProcAddr>(fn_.name)));
+        FA_VK_INSTANCE_FUNCTIONS(FA_VK_HOOK_INSTANCE)
+        FA_VK_DEBUG_FUNCTIONS(FA_VK_HOOK_INSTANCE)
+        FA_VK_SURFACE_FUNCTIONS(FA_VK_HOOK_INSTANCE)
+#undef FA_VK_HOOK_INSTANCE
+    }
 #define FA_VK_CHECK_INSTANCE(name)                                                                                     \
     if (!fn_.name)                                                                                                     \
         return make_error("gpu vulkan: the loader " + library_.path + " gives no " #name,                              \
@@ -397,6 +547,8 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
     }
     apiVersion_ = requested;
     syncValidation_ = syncValidation;
+    for (const auto& h : hooks_)
+        if (h->available()) h->vulkan_instance_created(instance_, reinterpret_cast<HookProcAddr>(gipa));
     return {};
 }
 
@@ -636,32 +788,184 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     features_.mrtIndependentWriteMask = q.independentBlend == VK_TRUE;
     features_.dualSourceBlending = q.dualSrcBlend == VK_TRUE;
 
-    // One create info per family, with as many queues as its highest index needs (the async compute queue may be the
-    // graphics family's second).
-    const float priorities[2] = {1.0f, 1.0f};
-    VkDeviceQueueCreateInfo queues[kQueueKinds]{};
-    std::uint32_t queueInfos = 0;
-    for (const QueueRecord& rec : queues_) {
-        if (!rec.own) continue;
-        VkDeviceQueueCreateInfo* info = nullptr;
-        for (std::uint32_t i = 0; i < queueInfos; ++i)
-            if (queues[i].queueFamilyIndex == rec.family) info = &queues[i];
-        if (!info) {
-            info = &queues[queueInfos++];
-            info->sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            info->queueFamilyIndex = rec.family;
-            info->pQueuePriorities = priorities;
+    // The queues of each family: as many as its highest index needs (the async compute queue may be the graphics
+    // family's second).
+    std::vector<std::uint32_t> engineQueues(qn, 0);
+    for (const QueueRecord& rec : queues_)
+        if (rec.own && rec.family < qn) engineQueues[rec.family] = std::max(engineQueues[rec.family], rec.index + 1);
+
+    // Device hooks (gpu/device_hooks.h): what each asks of the device, merged into the create info below. The last
+    // struct of the chain gets the hooks' own feature structs after it; the snapshots undo every merge for the retry.
+    void* chainEnd = portability_              ? static_cast<void*>(&ePort)
+                     : core13                  ? static_cast<void*>(&e13)
+                     : eSync2.synchronization2 ? static_cast<void*>(&eSync2)
+                                               : static_cast<void*>(&e12);
+    const VkPhysicalDeviceFeatures2 snap2 = e2;
+    const VkPhysicalDeviceVulkan12Features snap12 = e12;
+    const VkPhysicalDeviceVulkan13Features snap13 = e13;
+    const VkPhysicalDeviceSynchronization2FeaturesKHR snapSync2 = eSync2;
+    const VkPhysicalDevicePortabilitySubsetFeaturesKHR snapPort = ePort;
+    const std::size_t engineExtensions = enabled.size();
+    std::vector<std::uint32_t> familyQueues = engineQueues;    // with the hooks' queues
+    std::vector<VulkanDeviceRequest> requests(hooks_.size());  // their strings and structs live to vkCreateDevice
+    std::vector<std::size_t> deviceAdders;                     // the hooks that added something
+    // "" when the device has every bit a hook's feature struct asks for; else what is wrong.
+    auto check_hook_features = [&](const std::vector<std::uint8_t>& f, bool vulkan13) -> std::string {
+        constexpr std::size_t kHeader = sizeof(VkBaseOutStructure);
+        if (f.size() < kHeader + sizeof(VkBool32) || (f.size() - kHeader) % sizeof(VkBool32) != 0)
+            return "a feature struct of " + std::to_string(f.size()) +
+                   " bytes is not a Vk*Features struct (VulkanDeviceRequest::add_features(the struct))";
+        VkStructureType type{};
+        std::memcpy(&type, f.data(), sizeof type);
+        const std::string name = feature_struct_name(type);
+        if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES && !vulkan13)
+            return "it asks for " + name + ", but the device is made with Vulkan " + version_text(apiVersion_) + " (" +
+                   deviceName_ + "; update the GPU driver and the Vulkan loader for Vulkan 1.3)";
+        // What the device has, asked with a zeroed copy of the struct.
+        std::vector<std::uint8_t> has(f.size(), 0);
+        std::memcpy(has.data(), &type, sizeof type);
+        VkPhysicalDeviceFeatures2 query{};
+        query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        const std::uint8_t* got = has.data();
+        if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2) {
+            fn_.vkGetPhysicalDeviceFeatures2(physical_, &query);
+            got = reinterpret_cast<const std::uint8_t*>(&query);
+        } else {
+            query.pNext = has.data();
+            fn_.vkGetPhysicalDeviceFeatures2(physical_, &query);
         }
-        info->queueCount = std::max(info->queueCount, rec.index + 1);
+        const std::size_t n =
+            std::min(f.size(), type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 ? sizeof(VkPhysicalDeviceFeatures2)
+                                                                                    : f.size());
+        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= n; at += sizeof(VkBool32)) {
+            VkBool32 want = VK_FALSE, have = VK_FALSE;
+            std::memcpy(&want, f.data() + at, sizeof want);
+            std::memcpy(&have, got + at, sizeof have);
+            if (want && !have)
+                return deviceName_ + " lacks the feature " + name + " member " +
+                       std::to_string((at - kHeader) / sizeof(VkBool32)) +
+                       " (counting its VkBool32 members from 0; update the GPU driver, or the feature needs another "
+                       "GPU)";
+        }
+        return {};
+    };
+    if (!hooks_.empty()) {
+        std::vector<ChainedFeatures> chained = {
+            {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &e2, sizeof e2},
+            {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &e12, sizeof e12}};
+        if (core13)
+            chained.push_back({VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &e13, sizeof e13});
+        else if (eSync2.synchronization2)
+            chained.push_back(
+                {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, &eSync2, sizeof eSync2});
+        if (portability_)
+            chained.push_back(
+                {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR, &ePort, sizeof ePort});
+        VulkanPhysicalDevice pd;
+        pd.instance = instance_;
+        pd.physicalDevice = physical_;
+        pd.getInstanceProcAddr = reinterpret_cast<HookProcAddr>(library_.getInstanceProcAddr);
+        pd.apiVersion = apiVersion_;
+        pd.vendorId = props_.vendorID;
+        pd.deviceId = props_.deviceID;
+        pd.name = deviceName_;
+        for (std::size_t i = 0; i < hooks_.size(); ++i) {
+            DeviceHook& h = *hooks_[i];
+            if (!h.available()) continue;
+            VulkanDeviceRequest& req = requests[i];
+            h.vulkan_device_request(pd, req);
+            std::string why;
+            for (const std::string& e : req.extensions)
+                if (why.empty() && !has_extension(extensions, e.c_str()))
+                    why = deviceName_ + " has no device extension " + e +
+                          " (update the GPU driver; the feature needs a GPU and driver that have it)";
+            for (const std::vector<std::uint8_t>& f : req.features)
+                if (why.empty()) why = check_hook_features(f, core13);
+            std::vector<std::uint32_t> taken = familyQueues;
+            std::vector<VulkanQueueGrant> grants;
+            for (const VulkanQueueRequest& q : req.queues) {
+                for (std::uint32_t k = 0; k < std::min<std::uint32_t>(q.count, 64u) && why.empty(); ++k) {
+                    const std::uint32_t f = pick_hook_queue_family(families, gfx, q.flags, taken);
+                    if (f == UINT32_MAX) {
+                        why = deviceName_ + " has no queue family with the flags 0x" + hex_text(q.flags) +
+                              " and a queue left for it (" + queue_families_text(families, taken) +
+                              "; the engine takes its own first)";
+                        break;
+                    }
+                    grants.push_back({f, taken[f]++, nullptr});
+                }
+            }
+            if (!why.empty()) {
+                hook_unavailable(h, why);
+                continue;
+            }
+            bool added = !grants.empty() || !req.features.empty();
+            auto add = [&](const std::string& e) {
+                for (const char* have : enabled)
+                    if (e == have) return;
+                enabled.push_back(e.c_str());
+                added = true;
+            };
+            for (const std::string& e : req.extensions) add(e);
+            for (const std::string& e : req.optionalExtensions)
+                if (has_extension(extensions, e.c_str())) {
+                    add(e);
+                    hookGrants_[i].optionalExtensions.push_back(e);
+                }
+            for (std::vector<std::uint8_t>& f : req.features) merge_hook_features(f, chained, chainEnd);
+            familyQueues = std::move(taken);
+            hookGrants_[i].queues = std::move(grants);
+            if (added) deviceAdders.push_back(i);
+        }
     }
+
+    std::vector<VkDeviceQueueCreateInfo> queueInfos;
+    std::vector<float> priorities;
+    auto queue_infos = [&](const std::vector<std::uint32_t>& counts) {
+        queueInfos.clear();
+        priorities.assign(*std::max_element(counts.begin(), counts.end()), 1.0f);
+        for (std::uint32_t f = 0; f < qn; ++f) {
+            if (!counts[f]) continue;
+            VkDeviceQueueCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            info.queueFamilyIndex = f;
+            info.queueCount = counts[f];
+            info.pQueuePriorities = priorities.data();
+            queueInfos.push_back(info);
+        }
+    };
+    queue_infos(familyQueues);
     VkDeviceCreateInfo dci{};
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dci.pNext = &e2;
-    dci.queueCreateInfoCount = queueInfos;
-    dci.pQueueCreateInfos = queues;
+    dci.queueCreateInfoCount = std::uint32_t(queueInfos.size());
+    dci.pQueueCreateInfos = queueInfos.data();
     dci.enabledExtensionCount = std::uint32_t(enabled.size());
     dci.ppEnabledExtensionNames = enabled.data();
     r = fn_.vkCreateDevice(physical_, &dci, nullptr, &device_);
+    if (r != VK_SUCCESS && !deviceAdders.empty()) {
+        // Not with what the hooks asked: the device is made again as the engine alone would make it, and those hooks
+        // are unavailable.
+        for (std::size_t i : deviceAdders) {
+            hook_unavailable(*hooks_[i], "vkCreateDevice on " + deviceName_ + " failed with " + result_text(r) +
+                                             " with what it asked for (extensions, features, queues); the device was "
+                                             "made without it (run with VulkanOptions::validation for the cause)");
+            hookGrants_[i] = HookGrant{};
+        }
+        e2 = snap2;
+        e12 = snap12;
+        e13 = snap13;
+        eSync2 = snapSync2;
+        ePort = snapPort;
+        enabled.resize(engineExtensions);
+        queue_infos(engineQueues);
+        dci.queueCreateInfoCount = std::uint32_t(queueInfos.size());
+        dci.pQueueCreateInfos = queueInfos.data();
+        dci.enabledExtensionCount = std::uint32_t(enabled.size());
+        dci.ppEnabledExtensionNames = enabled.data();
+        device_ = VK_NULL_HANDLE;
+        r = fn_.vkCreateDevice(physical_, &dci, nullptr, &device_);
+    }
     if (r != VK_SUCCESS || !device_) return vk_error("vkCreateDevice on " + deviceName_, r, "update the GPU driver");
 
     // A function the driver does not give: the device is destroyed here (the destructor may not have
@@ -691,6 +995,22 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     if (sync2)
         fn_.vkCmdPipelineBarrier2 = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
             fn_.vkGetDeviceProcAddr(device_, core13 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR"));
+    if (!hooks_.empty()) {  // a hook may hand its own device functions (vkQueuePresentKHR: Streamline's interposer)
+#define FA_VK_HOOK_DEVICE(name)                                                                                        \
+    fn_.name = reinterpret_cast<PFN_##name>(resolve_hooked(#name, device_, reinterpret_cast<HookProcAddr>(fn_.name)));
+        FA_VK_DEVICE_FUNCTIONS(FA_VK_HOOK_DEVICE)
+        FA_VK_SWAPCHAIN_FUNCTIONS(FA_VK_HOOK_DEVICE)
+        FA_VK_HOOK_DEVICE(vkSetHdrMetadataEXT)
+        FA_VK_HOOK_DEVICE(vkCmdPipelineBarrier2)
+#undef FA_VK_HOOK_DEVICE
+        // The hooks' queues.
+        for (std::size_t i = 0; i < hooks_.size(); ++i)
+            for (VulkanQueueGrant& g : hookGrants_[i].queues) {
+                VkQueue q = VK_NULL_HANDLE;
+                fn_.vkGetDeviceQueue(device_, g.family, g.index, &q);
+                g.queue = q;
+            }
+    }
 
     // Each queue and its timeline semaphore.
     VkSemaphoreTypeCreateInfo type{};
@@ -867,6 +1187,8 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
             synchronization2_active() ? ", synchronization2" : "", portability_ ? ", portability subset" : "",
             framesInFlight_, library_.path);
     init_timer();
+    swapFns_ = engine_swap_functions();
+    if (!hooks_.empty()) hooks_device_created();
     return {};
 }
 
@@ -970,8 +1292,15 @@ bool VulkanDevice::storage_image_loadable(PixelFormat format, std::string* why) 
 }
 
 VulkanDevice::~VulkanDevice() {
-    // The window first: its images' records and semaphores go while the queues and the pools still work.
+    // The window first: its images' records and semaphores go while the queues and the pools still work (the hooks
+    // hear it, through the functions they gave).
     if (device_ && queues_[0].timeline) destroy_swapchain();
+    // Then the hooks (slShutdown and the SDKs' contexts): the GPU idle, every other object still there.
+    if (device_ && !hooks_.empty()) {
+        (void)fn_.vkDeviceWaitIdle(device_);
+        for (const auto& h : hooks_)
+            if (h->available()) h->device_destroying();
+    }
     if (device_ && queues_[0].timeline) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
     }
@@ -1051,6 +1380,37 @@ PixelFormatCaps VulkanDevice::pixel_format_caps(PixelFormat format) const {
     const std::uint32_t i = std::uint32_t(format);
     if (i >= std::uint32_t(PixelFormat::Count)) return {};
     return caps_[i];
+}
+
+// ---- device hooks (gpu/device_hooks.h) ----
+
+void VulkanDevice::hook_unavailable(DeviceHook& hook, std::string reason) {
+    if (!hook.available()) return;
+    hook.mark_unavailable(std::move(reason));
+    const std::string w = device_hook_warning(Backend::Vulkan, hook);
+    FA_WARN("render", "{}", w);
+    std::lock_guard<std::mutex> lock(msgMutex_);
+    warnings_.push_back(w);
+}
+
+HookProcAddr VulkanDevice::resolve_hooked(const char* name, const void* device, HookProcAddr p) {
+    if (!p) return p;  // what the loader does not give stays absent (the engine reads null as "not there")
+    for (const auto& h : hooks_)
+        if (h->available())
+            if (HookProcAddr r = h->vulkan_resolve(name, device, p)) p = r;
+    return p;
+}
+
+void VulkanDevice::hooks_device_created() {
+    const NativeDevice nd = native();
+    for (std::size_t i = 0; i < hooks_.size(); ++i) {
+        if (!hooks_[i]->available()) continue;
+        VulkanDeviceCreated c;
+        c.native = nd;
+        c.queues = hookGrants_[i].queues;
+        c.enabledOptionalExtensions = hookGrants_[i].optionalExtensions;
+        hooks_[i]->vulkan_device_created(c);
+    }
 }
 
 NativeDevice VulkanDevice::native() const {
