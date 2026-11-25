@@ -71,8 +71,8 @@ dialect the tool writes the texts the programs use (one after the other, a NUL a
 (level 19; one frame is about half the size of one frame per text, because the variants of a program share most of their code) and puts
 `fa::shader_text::get(<header>_<dialect>_pack, offset)` where sokol-shdc had `(const char*)<array>`. `src/shader_text.{h,cpp}` decodes a pack
 the first time one of its texts is asked for (in the `*_shader_desc()` the header caches, so once per shader and translation unit) into a
-cache keyed by the content of the frame (two independent 64-bit hashes and the sizes; no copy of the bytes is kept, so a frame that goes away leaves no dangling key), thread-safe, that lives as long as the process: the cached `sg_shader_desc` keeps a pointer into it. The
-driver receives the bytes sokol-shdc wrote. A text no program reads (a variant of a template that no program calls) is dropped. Sizes at M78,
+cache keyed by the frame's content (two 64-bit hashes and the sizes, no copy of the bytes), thread-safe, that lives as long as the
+process: the cached `sg_shader_desc` keeps a pointer into it. The driver receives the bytes sokol-shdc wrote. A text no program reads (a variant of a template that no program calls) is dropped. Sizes at M78,
 the texts the players link: GLSL ES 941,595 -> 158,753 bytes, GLSL 4.30 889,035 -> 157,544 bytes. The other dialects keep their arrays (Metal
 and HLSL sources are not in the web, Android or Linux players). Behind `FA_SHADER_TEXT_CHECK` each header also has a table with the FNV-1a hash
 of every original text, and `compile_shaders.sh` writes `tests/shader_text_index.h`, which lists them all with every shader_desc function:
