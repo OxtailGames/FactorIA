@@ -497,10 +497,11 @@ std::vector<FeatureDef> build_table() {
         // metalfx: Metal only. xess: D3D11 is the one backend of this table it runs on (its D3D12 and Vulkan runs are not a column of it
         // yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); dlss, fsr and the latency SDKs (reflex, antilag2, xell) run on
         // D3D12 and Vulkan only, so no column is set. The row's answer always comes from the provider's probe, whatever this column says.
-        const unsigned backends = row == "metalfx" ? bit(FeatureBackend::Metal)
-                                  : row == "xess"  ? bit(FeatureBackend::D3d11)
-                                  : row == "dlss" || row == "fsr" || row == "reflex" || row == "antilag2" || row == "xell" ? 0u
-                                                                                                                         : kEveryGpu;
+        const unsigned backends =
+            row == "metalfx" ? bit(FeatureBackend::Metal)
+            : row == "xess"  ? bit(FeatureBackend::D3d11)
+            : row == "dlss" || row == "fsr" || row == "reflex" || row == "antilag2" || row == "xell" ? 0u
+                                                                                                     : kEveryGpu;
         t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)

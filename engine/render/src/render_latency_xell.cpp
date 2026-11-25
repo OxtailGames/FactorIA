@@ -79,7 +79,8 @@ VendorProbe XellProvider::probe(const VendorEnv& env) {
     if (p.reason.empty() && sizeof(void*) != 8) p.reason = "XeLL's library is 64-bit; this build is not.";
     if (!p.reason.empty()) {
         if (env.backend == gpu::Backend::Vulkan || env.backend == gpu::Backend::D3d11)
-            p.reason += " XeLL has a Direct3D 12 entry point only: run the game on Direct3D 12, or choose another latency mode.";
+            p.reason += " XeLL has a Direct3D 12 entry point only: run the game on Direct3D 12, or choose another "
+                        "latency mode.";
         return p;
     }
     std::string why;
@@ -102,7 +103,8 @@ VendorProbe XellProvider::probe(const VendorEnv& env) {
     }
     abi::Version version{};
     if (const std::int32_t rc = api.getVersion(&version); rc != abi::kResultSuccess) {
-        p.reason = "XeLL's library " + lib->path() + " did not answer its version: " + call_failed("xellGetVersion", rc) +
+        p.reason = "XeLL's library " + lib->path() +
+                   " did not answer its version: " + call_failed("xellGetVersion", rc) +
                    ". Run `factoria setup xess` to install it again.";
         return p;
     }
@@ -134,8 +136,10 @@ std::string XellProvider::start(gpu::Device& device) {
     if (device.backend() != gpu::Backend::D3d12) return "XeLL runs on Direct3D 12 only";
     const gpu::NativeDevice nd = device.native();
     abi::Context handle = nullptr;
-    const std::int32_t rc = api_.d3d12Create(const_cast<void*>(nd.device), &handle);  // NOLINT: the SDK takes a non-const device
-    if (rc != abi::kResultSuccess || !handle) return "XeLL could not make its context: " + call_failed("xellD3D12CreateContext", rc);
+    const std::int32_t rc =
+        api_.d3d12Create(const_cast<void*>(nd.device), &handle);  // NOLINT: the SDK takes a non-const device
+    if (rc != abi::kResultSuccess || !handle)
+        return "XeLL could not make its context: " + call_failed("xellD3D12CreateContext", rc);
     ctx_ = handle;
     device_ = &device;
     enabled_ = false;

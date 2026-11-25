@@ -62,7 +62,8 @@ std::string AntiLag2Provider::create_interface(const void* nativeDevice, abi::In
     std::unique_ptr<VendorLibrary> lib = vendor_loader().open_loaded(kDriverModule, &why);
     if (!lib)
         return std::string("the AMD driver's ") + kDriverModule + " is not loaded (" + why +
-               "): Anti-Lag 2 is part of the Radeon driver. Update the AMD Adrenalin driver, or choose another latency mode.";
+               "): Anti-Lag 2 is part of the Radeon driver. Update the AMD Adrenalin driver, or choose another latency "
+               "mode.";
     void* fn = lib->symbol(kCreateExport);
     if (!fn)
         return std::string("the AMD driver (") + lib->path() + ") has no " + kCreateExport +
@@ -74,7 +75,8 @@ std::string AntiLag2Provider::create_interface(const void* nativeDevice, abi::In
         if (hr < 0 || !made)
             return "the AMD driver refused Anti-Lag 2 on this GPU (" + std::string(kCreateExport) + " answered " +
                    std::to_string(hr) +
-                   "): it needs a Radeon RX 7000 series or newer with a recent Adrenalin driver. Update the driver, or choose "
+                   "): it needs a Radeon RX 7000 series or newer with a recent Adrenalin driver. Update the driver, or "
+                   "choose "
                    "another latency mode.";
         out = static_cast<abi::Interface*>(made);
     }
@@ -90,7 +92,8 @@ VendorProbe AntiLag2Provider::probe(const VendorEnv& env) {
                    ". Choose \"auto\", which uses the SDK of the GPU's maker, or another mode.";
     if (!p.reason.empty()) {
         if (env.backend == gpu::Backend::D3d11)  // the AMD interface of Direct3D 11 is not implemented
-            p.reason += " Anti-Lag 2 on Direct3D 11 is not supported by FactorIA: run the game on Direct3D 12 or Vulkan, or choose another latency mode.";
+            p.reason += " Anti-Lag 2 on Direct3D 11 is not supported by FactorIA: run the game on Direct3D 12 or "
+                        "Vulkan, or choose another latency mode.";
         return p;
     }
 
@@ -100,7 +103,8 @@ VendorProbe AntiLag2Provider::probe(const VendorEnv& env) {
             p.reason = hook->requested() && !hook->available()
                            ? "the Vulkan device was made without VK_AMD_anti_lag: " + hook->unavailable_reason() +
                                  " Update the AMD Adrenalin driver, or run the game on Direct3D 12."
-                           : "the Vulkan device was made without VK_AMD_anti_lag (it is asked for when the device is made, on an AMD "
+                           : "the Vulkan device was made without VK_AMD_anti_lag (it is asked for when the device is "
+                             "made, on an AMD "
                              "GPU, on Windows). Restart the game, or run it on Direct3D 12.";
             return p;
         }
@@ -135,7 +139,8 @@ std::string AntiLag2Provider::start(gpu::Device& device) {
         if (const std::int32_t hr = iface_->vtbl->updateAntiLagState(iface_, &data); hr < 0) {
             iface_->vtbl->release(iface_);
             iface_ = nullptr;
-            return "the AMD driver's Anti-Lag 2 interface refused its first state (answered " + std::to_string(hr) + ")";
+            return "the AMD driver's Anti-Lag 2 interface refused its first state (answered " + std::to_string(hr) +
+                   ")";
         }
     } else {
         return "AMD Anti-Lag 2 runs on Direct3D 12 and Vulkan";
@@ -219,7 +224,8 @@ void AntiLag2Hook::vulkan_device_created(const gpu::VulkanDeviceCreated& created
     std::lock_guard<std::mutex> lock(mutex_);
     if (!requested_ || !created.native.getDeviceProcAddr) return;
     using GetDeviceProcAddr = gpu::HookProcAddr (*)(const void* device, const char* name);
-    const auto get = reinterpret_cast<GetDeviceProcAddr>(created.native.getDeviceProcAddr);  // NOLINT: PFN_vkGetDeviceProcAddr
+    const auto get =
+        reinterpret_cast<GetDeviceProcAddr>(created.native.getDeviceProcAddr);  // NOLINT: PFN_vkGetDeviceProcAddr
     const gpu::HookProcAddr fn = get(created.native.device, "vkAntiLagUpdateAMD");
     if (!fn) return;
     update_ = reinterpret_cast<abi::VkUpdateFn>(fn);  // NOLINT: PFN_vkAntiLagUpdateAMD

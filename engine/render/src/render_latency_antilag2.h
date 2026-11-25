@@ -33,7 +33,7 @@ inline constexpr Guid kAntiLagApiIid = {0x44085fbe, 0xe839, 0x40c5, {0xbf, 0x38,
 
 // AMD::AntiLag2DX12 APIData_v1: what UpdateAntiLagState takes (the SDK calls it with eMode 2 first).
 struct ApiDataV1 {
-    std::uint32_t size;  // sizeof(ApiDataV1)
+    std::uint32_t size;     // sizeof(ApiDataV1)
     std::uint32_t version;  // 1
     std::uint32_t mode;     // kModeOn, kModeOff
     char* controlStr;       // null
