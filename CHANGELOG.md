@@ -18,7 +18,7 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   start: where it cannot, or when the game's choice is `gl`/`gles3`, it hands the game to the OpenGL player with the marker
   `FA_GPU_FALLBACK_FROM=vulkan` and the reason (Linux: `execv` of `<exe>-gl` next to it; Android: it starts `factoria.engine.GlActivity`,
   process `:gl`, with the same two as intent extras, and finishes). The OpenGL player records them as `gpu.fallbackFrom` and
-  `fallbackReason` in the startup report and never hands back. A Vulkan start that fails in the window (today always, as the window of
+  `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (today always, as the window of
   these platforms is an OpenGL one: `EngineConfig::gpuBackendFailed`) reaches the player before the in-process fallback of the game
   window (M77-P9e1), so the OpenGL player takes over; the in-process fallback is the last resort when it is not there. A hand-over
   because the window cannot take the swapchain says so (`the window path is not available on this platform yet`), not that a driver

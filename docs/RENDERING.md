@@ -392,11 +392,11 @@ the same player whose renderer also has the engine's Vulkan backend and the SPIR
 - **What starts, in order.** The Vulkan player starts first, and its `auto` is Vulkan. (1) Before it opens a window it reads the choice
   in the order above and, when the choice is Vulkan, checks that a Vulkan instance and device can be made. When the choice is `gl` or
   `gles3` it runs the OpenGL player directly; when Vulkan cannot start it runs the OpenGL player with the environment variables
-  `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). (2) In the window, a
+  `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). (2) Linux: in the window, a
   Vulkan start that fails (no surface, no swapchain, or a window that cannot take one) is reported to the player
   (`EngineConfig::gpuBackendFailed`) **before** the in-process fallback below, and the player runs the OpenGL player in the same way.
   (3) Only when the OpenGL player is not there, or cannot be started, does the Vulkan player draw with its own sokol (OpenGL) backend
-  in this process, with the in-process warning and `backendFallback` of the section above. So a Vulkan failure always reaches the OpenGL
+  in this process, with the in-process warning and `backendFallback` of the section above. So on Linux a Vulkan failure always reaches the OpenGL
   player when it exists, and the in-process fallback is the last resort. The OpenGL player records the marker as `fallbackFrom` and
   `fallbackReason` in the startup report and in `graphics.backend`, and never starts another player; a player that carries the marker
   never hands over either, so there is no loop. A check run (`--input`, `--dump-state`, `--screenshot`) in `auto` runs the OpenGL
