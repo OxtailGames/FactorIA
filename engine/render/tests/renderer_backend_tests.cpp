@@ -556,7 +556,7 @@ struct RendererTestWindow {
 
 // A renderer on `backend` that draws into `window` (RendererDesc::nativeWindow), two frames presented, and no present
 // error logged. "" = it ran; else why it could not start (the caller decides whether that is a skip).
-std::string draw_into_native_window(GpuBackend backend, const RendererTestWindow& window) {
+[[maybe_unused]] std::string draw_into_native_window(GpuBackend backend, const RendererTestWindow& window) {
     Renderer r;
     RendererDesc d;
     d.designWidth = kW;
