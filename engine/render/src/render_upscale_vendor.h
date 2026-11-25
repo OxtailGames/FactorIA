@@ -114,6 +114,8 @@ struct VendorFrame {
     gpu::Image color{}, depth{}, velocity{}, reactive{}, output{};
     // DLSS Ray Reconstruction's guides (UpscaleInput::normalRoughness, diffuseAlbedo, specularAlbedo), null when the frame has none.
     gpu::Image normalRoughness{}, diffuseAlbedo{}, specularAlbedo{};
+    gpu::Image
+        rrDepth{};  // the hardware depth of the camera's projection that Ray Reconstruction reads in place of `depth`
     gpu::PixelFormat colorFormat = gpu::PixelFormat::None, outputFormat = gpu::PixelFormat::None;
     std::string error;
     // Set by upscale(): whether the frame was drawn with Ray Reconstruction; and, when UpscaleInput::rayReconstruction asked for it and the

@@ -105,6 +105,9 @@ struct UpscaleInput {
     gpu::View
         diffuseAlbedo{};  // RGBA8: the diffuse reflectance (a constant today: the renderer has no material G-buffer)
     gpu::View specularAlbedo{};  // RGBA8: the specular reflectance (a constant today)
+    // R32F: the hardware depth of `camera.proj` (clip z / clip w of the unjittered projection, 0..1, 1 for the sky). Ray Reconstruction is
+    // told the projection and rebuilds the view position from this depth, so it reads it instead of `depth` (d / (d + 1)).
+    gpu::View rrDepth{};
 };
 
 }  // namespace fa::render

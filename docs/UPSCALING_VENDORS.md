@@ -94,16 +94,18 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   before M79 (ray-traced reflections and global illumination, M79.4) feeds it real noisy signals.
 - **What M79 adds.** The ray-traced passes give it a noisy specular and diffuse light, the specular hit distance and real material
   guides; M79.4 replaces the approximations below with the renderer's own values and reads the hit distance.
-- **The guides.** With Ray Reconstruction on, a pass (`shaders/upscale_rr.glsl`, "upscale-rr-guides") makes three images at the render
-  size from the depth and normal prepass; they are made only on the frames that use Ray Reconstruction, never for Super Resolution.
-  They are tagged next to the four buffers Super Resolution takes (colour in, depth, motion vectors, colour out):
+- **The guides.** With Ray Reconstruction on, a pass (`shaders/upscale_rr.glsl`, "upscale-rr-guides") makes four images at the render
+  size from the depth and normal prepass (a draw for the normal and the depth, a clear for each albedo); they are made only on the
+  frames that use Ray Reconstruction, never for Super Resolution. They are tagged with the colour in, the motion vectors and the colour
+  out that Super Resolution takes, and a depth of their own:
 
   | Buffer | What the engine gives | Approximation |
   |---|---|---|
   | normals and roughness (`NormalRoughness`, packed: roughness in `w`) | the prepass normal turned into **world space** with the camera's axes (a pixel with no mesh, the sky, gets a normal facing the camera) | roughness is the constant 0.5 |
   | diffuse albedo (`Albedo`) | none in a forward renderer | the constant 0.5 grey |
   | specular albedo (`SpecularAlbedo`) | none | the constant 0.04, the reflectance of a dielectric at normal incidence |
-  | depth, motion vectors | the same images as Super Resolution | none |
+  | depth (`Depth`) | **hardware depth**: clip z / clip w of the camera's unjittered projection (0..1 growing with the distance, 1 for the sky), computed from the prepass's view distance | none; it is not the depth Super Resolution reads (the prepass's d / (d + 1)), because Ray Reconstruction rebuilds the view position from the depth and the matrices it is told, and the two must agree |
+  | motion vectors | the same image as Super Resolution | none |
 
   The specular motion vectors and the hit distance are not given (Ray Reconstruction takes them as optional). The normal space the
   network expects (world or view, and the sign of the axes) is not verified on hardware: the engine sends world-space normals and the
@@ -123,7 +125,7 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   `render.supports` with `{"feature":"dlssRayReconstruction"}` says the reason (`render.upscaler` always reports the setting you
   chose, not what drew).
 - **The cost.** Ray Reconstruction is a larger network than Super Resolution (NVIDIA publishes no figure for a given GPU): expect a
-  higher cost per frame than Super Resolution at the same size, and three more render-size images (one RGBA16F, two RGBA8) with the
+  higher cost per frame than Super Resolution at the same size, and four more render-size images (one RGBA16F, one R32F, two RGBA8) with the
   guides pass. Measure it with `perf.measure` on your GPU.
 - **Not tested.** The tests use a fake Streamline (feature switch, the seven tags and their order, the options and matrices sent, the
   fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen.

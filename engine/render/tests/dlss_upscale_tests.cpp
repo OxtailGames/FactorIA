@@ -25,6 +25,7 @@
 #include "gpu/recording_device.h"
 #include "render_features.h"
 #include "render_upscale_dlss.h"
+#include "render_upscale_rr.h"
 #include "render_upscale_vendor.h"
 #include "streamline_runtime.h"
 
@@ -1371,7 +1372,7 @@ bool near_identity(const Mat4& m, float eps = 1e-3f) {
 // A frame with the guides and a camera: the images, their views and a real view and projection (with a camera of the frame before).
 struct RrFx {
     Rig& rig;
-    gpu::Image normalRoughness, diffuse, specular;
+    gpu::Image normalRoughness, diffuse, specular, hwDepth;
     Mat4 view = Mat4::translate({-1.0f, -2.0f, -3.0f});
     Mat4 proj = Mat4::perspective(1.0f, 16.0f / 9.0f, 0.1f, 100.0f, true);
     Mat4 prevFromView = proj * Mat4::translate({0.1f, 0.0f, 0.0f});
@@ -1379,6 +1380,9 @@ struct RrFx {
         normalRoughness = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba16F);
         diffuse = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba8);
         specular = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba8);
+        hwDepth = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::R32F);
+        rig.frame.rrDepth = hwDepth;
+        rig.in.rrDepth = rig.dev.view(hwDepth);
         rig.frame.normalRoughness = normalRoughness;
         rig.frame.diffuseAlbedo = diffuse;
         rig.frame.specularAlbedo = specular;
@@ -1401,7 +1405,7 @@ struct RrFx {
         c.farPlane = 100.0f;
     }
     ~RrFx() {
-        for (const gpu::Image i : {normalRoughness, diffuse, specular}) rig.dev.destroy_image(i);
+        for (const gpu::Image i : {normalRoughness, diffuse, specular, hwDepth}) rig.dev.destroy_image(i);
     }
 };
 
@@ -1507,6 +1511,10 @@ TEST_CASE(
     CHECK(sx.tags[4].type == sl::kBufferAlbedo);
     CHECK(sx.tags[5].type == sl::kBufferSpecularAlbedo);
     CHECK(sx.tags[6].type == sl::kBufferNormalRoughness);
+    // The depth tagged is the one made from the projection the constants carry, not the d / (d + 1) of Super Resolution.
+    CHECK(sx.resources[1].native == reinterpret_cast<void*>(std::uintptr_t(fx.hwDepth.id) * 16));
+    CHECK(sx.resources[1].native != reinterpret_cast<void*>(std::uintptr_t(rig.depth.id) * 16));
+    CHECK(sx.constants.depthInverted == sl::kFalse);
     CHECK(sx.resources[4].native == reinterpret_cast<void*>(std::uintptr_t(fx.diffuse.id) * 16));
     CHECK(sx.resources[5].native == reinterpret_cast<void*>(std::uintptr_t(fx.specular.id) * 16));
     CHECK(sx.resources[6].native == reinterpret_cast<void*>(std::uintptr_t(fx.normalRoughness.id) * 16));
@@ -1694,4 +1702,37 @@ TEST_CASE("dlss ray reconstruction D3D12: a provider without the feature (the ot
     const render::VendorProbe p = plain.probe_ray_reconstruction(render::VendorEnv{});
     CHECK_FALSE(p.available);
     CHECK(p.reason.find("Plain") != std::string::npos);
+}
+
+TEST_CASE("dlss ray reconstruction: the depth guide is the hardware depth of the projection the constants carry") {
+    // The guides shader writes clip z / clip w from the projection's depth terms (shaders/upscale_rr.glsl): a known view distance must land
+    // where the projection puts it, because Streamline rebuilds the view position from this depth and the matrices it is told.
+    const Mat4 proj = Mat4::perspective(60.0f, 16.0f / 9.0f, 0.1f, 100.0f, true);
+    float terms[4];
+    render::rr_depth_terms(proj, terms);
+    for (const float d : {0.1f, 0.5f, 1.0f, 7.5f, 42.0f, 100.0f}) {
+        const float viaMatrix = [&] {
+            const float z = -d;  // a point d in front of the camera, on its axis
+            const float clipZ = proj.at(2, 2) * z + proj.at(3, 2);
+            const float clipW = proj.at(2, 3) * z + proj.at(3, 3);
+            return clipZ / clipW;
+        }();
+        CHECK(render::rr_hardware_depth(terms, d, true) == doctest::Approx(viaMatrix).epsilon(1e-5));
+    }
+    CHECK(std::fabs(render::rr_hardware_depth(terms, 0.1f, true)) < 1e-4f);                        // the near plane
+    CHECK(render::rr_hardware_depth(terms, 100.0f, true) == doctest::Approx(1.0f).epsilon(1e-4));  // the far plane
+    CHECK(render::rr_hardware_depth(terms, 5.0f, false) == 1.0f);                                  // the sky
+    // Streamline's own inverse: clipToCameraView of the constants maps (x, y, depth) back to the view distance it came from.
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    fx.proj = proj;
+    std::memcpy(rig.in.camera.proj, proj.m, sizeof(rig.in.camera.proj));
+    REQUIRE(rig.draw());
+    REQUIRE(rig.frame.usedRayReconstruction);
+    const Mat4 clipToView = mat_from(sx.constants.clipToCameraView);
+    const float d = 12.0f;
+    const float ndcDepth = render::rr_hardware_depth(terms, d, true);
+    const Vec4 clip{0.0f, 0.0f, ndcDepth, 1.0f};  // a point on the view axis, with w = 1 before the divide
+    const Vec4 v = clipToView * clip;
+    CHECK(-v.z / v.w == doctest::Approx(d).epsilon(1e-3));
 }

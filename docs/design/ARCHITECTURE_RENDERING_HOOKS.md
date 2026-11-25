@@ -189,17 +189,18 @@ Super Resolution and Reflex today, DLSS frame generation in a later package).
   others answer "no ray reconstruction". The renderer asks once (`Renderer::Impl::rr_probe`) and `set_vendor_env` builds the
   `dlssRayReconstruction` row of `render.supports` from it (also not linear, DLSS off, failed earlier).
 - **Decision per frame** (`Renderer::Impl::vendor_upscale`, index 0 only): the setting, a usable machine, `in.linear`,
-  no dynamic resolution, a perspective camera, then the guides pass (`run_rr_guides`: world normal and roughness to colour 0, diffuse
-  albedo to colour 1, a clear pass for the specular albedo). `UpscaleInput` carries the guide views and an `UpscaleCamera`
+  no dynamic resolution, a perspective camera, then the guides pass (`run_rr_guides`: world normal and roughness to colour 0, the
+  hardware depth of `camera.proj` to colour 1 (R32F; `rr_depth_terms` and `rr_hardware_depth` are the formula the shader repeats), and a
+  clear pass for each albedo). `UpscaleInput` carries the guide views and an `UpscaleCamera`
   (view, projection and previous-frame matrices, the camera axes and planes, from the TAA plan).
 - **Provider.** `draw(in, frame, api, runtime, rr)` shares the frame token, constants and native section with Super Resolution. With `rr`
   it sets the options every frame (`slDLSSDSetOptions`: the camera's view matrices change), tags seven buffers in the order colour in,
-  depth, motion, colour out, albedo, specular albedo, normal-roughness, and evaluates `kFeatureDlssRr`. Matrices: `fa::Mat4` is column
+  depth (that hardware depth, `VendorFrame::rrDepth`: the constants carry the projection, so the prepass's d / (d + 1) would not agree), motion, colour out, albedo, specular albedo, normal-roughness, and evaluates `kFeatureDlssRr`. Matrices: `fa::Mat4` is column
   major with column vectors, the same memory as Streamline's row-major `Float4x4` with row vectors, so they are copied as they are.
   A switch between the two features, a lost device or a failed frame resets the history. When Ray Reconstruction cannot draw, `upscale`
   draws the same frame with Super Resolution and sets `VendorFrame::rayReconstructionFallback`; the renderer logs it once and, for a
   frame Streamline refused, latches `rrFailed`.
-- **Tests.** `dlss_upscale_tests.cpp` ("dlss ray reconstruction ..."): the probe and its reasons, the feature switch, the tags, the options
+- **Tests.** `dlss_upscale_tests.cpp` ("dlss ray reconstruction ..."): the probe and its reasons, the feature switch, the tags (the depth tag is the hardware-depth image, whose values `rr_hardware_depth` gives for a known distance), the options
   and matrices, every fall back, the switch back and device loss, release; `upscaler_tests.cpp` and `upscaler_commands_tests.cpp`: the
   setting.
 
