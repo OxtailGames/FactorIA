@@ -95,6 +95,13 @@ The controller measures the base frame rate over the last 30 rendered frames and
 - after it was turned off for a low rate it turns on again only at **10% above** `minBaseFps` (60: back on at 66);
 - two switches are at least 90 rendered frames apart, so a rate that hovers at the limit does not flap.
 
+A game whose rate is **held at `minBaseFps` by vsync** (60 on a 60 Hz display with `minBaseFps` 60) measures a hair below it, so it pauses
+and, needing 66 to resume, stays paused: the `reason` of the paused state says so when the rate is close to the limit. Set `minBaseFps`
+below the display's rate (45 for a 60 Hz display), or 0 for no rule.
+
+The statistics (`baseFps`, `presentedFps`, the counts) start again when the mode leaves `off` or returns to it, so the first window after
+turning frame generation on is measured on its own.
+
 The first 30 frames after a start only measure (`state: "measuring"`). The rate is measured with the engine clock of the frame, not the
 display's refresh, so it is the game's own, whatever the generated frames add.
 
@@ -149,8 +156,10 @@ streamline` installs `sl.interposer.dll`, `sl.dlss_g.dll`, `nvngx_dlssg.dll` and
   `render.frame_generation` returns `modes.dlss.reason` with Streamline's own words, what it needs and what to update or turn on. Direct3D 11
   never runs it. Streamline loads its plugins before the device exists: the engine adds DLSS frame generation to the list of Streamline's
   features when the game starts with `render.frameGeneration` set to anything but `off` (which is why a game started with `off` cannot turn it
-  on later: the reason says "restart the game"). A game with frame generation set to `fsr` on an NVIDIA GPU also loads that plugin; it is not
-  used.
+  on later: the reason says "restart the game"). Only the modes `dlss` and `auto` add it (`auto` cannot know the GPU's maker yet): a game
+  started with `fsr` or `xess` does not load the plugin, and the DLSS upscaler, Reflex and the latency markers, which share Streamline's
+  runtime, load their own plugins as before. Streamline's feature list belongs to the process and keeps what was added, so a second renderer
+  of the same process that names `fsr` after one that named `dlss` still has it.
 - **Reflex is turned on for it.** DLSS-G reads the markers of NVIDIA Reflex in every frame (its status says "Reflex not detected" without
   them), so while this provider runs the engine runs Reflex whatever `render.latency` says: the mode `off` (or the one of another maker)
   becomes `reflex`, `reflex` and `auto` keep their own `boost`. The setting itself is not changed and comes back when frame generation stops
@@ -162,7 +171,9 @@ streamline` installs `sl.interposer.dll`, `sl.dlss_g.dll`, `nvngx_dlssg.dll` and
   the picture before them (`hudless`). Streamline generates the frame between two rendered ones inside Present, from the picture the window
   shows, which still has the items: with a hudless tag it composites the generated frame without smearing them. No UI colour-and-alpha buffer
   is tagged (the items are in the final picture). It generates **one frame** between two rendered ones (`numFramesToGenerate` is 1;
-  the multi-frame generation of the RTX 50 series is not used).
+  the multi-frame generation of the RTX 50 series is not used). A refusal of `slDLSSGSetOptions` that may be transient (a driver busy for a
+  moment) is sent again on the next frame, not kept until the mode changes. Streamline's "Reflex not detected" bit is ignored for the first
+  two frames after generation goes on: the present between the options and the first marked frame has no markers.
 - **The frame rate.** `generatedFrames` is what Streamline reports (`slDLSSGGetState`, once per rendered frame) and `presentedFps` follows. The
   `minBaseFps` rule turns generation off with `slDLSSGSetOptions` (the resources stay allocated, so it comes back at once) and the engine
   gives them back when the provider stops.
@@ -173,8 +184,11 @@ streamline` installs `sl.interposer.dll`, `sl.dlss_g.dll`, `nvngx_dlssg.dll` and
 - **Not checked by the tests** (they use a fake Streamline, and this host has no RTX GPU): that the real library accepts the declarations as
   they are, that it generates and that the motion and depth give no artefacts. Things to look at on a machine with an RTX 40 series GPU:
   whether Streamline refuses the camera constants as a duplicate of the ones the DLSS upscaler sets earlier in the same frame (the engine keeps
-  going and logs it once), the colour encoding of the hudless picture against the window's (display-linear in the engine, as `presented`), and
-  an orthographic camera (refused today).
+  going and logs it once), the colour encoding of the hudless picture against the window's (display-linear in the engine, as `presented`),
+  whether it accepts the `R32F` depth image of the render size, what it makes of a finite `cameraFar` next to the reversed infinite depth
+  (the constants carry the camera's own far plane), that `numFramesActuallyPresented - 1` is the number of generated frames (the count the
+  profiler shows), the sign of the jitter and of the motion vectors (the jitter is in render pixels, x right and y down, as the temporal
+  upscaler draws it; the motion is previous - current in fractions of the picture), and an orthographic camera (refused today).
 - **What NVIDIA asks of a game that ships DLSS** (the license of the NVIDIA RTX SDKs; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super
   Resolution"): notify NVIDIA before the game's commercial release, credit NVIDIA and show its marks.
 

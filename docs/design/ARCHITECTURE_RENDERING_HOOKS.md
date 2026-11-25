@@ -253,7 +253,10 @@ the rest is private to `fa_render`:
   it available). The same hook object serves each device that has it and passes everything through once `stop()` ran. Without the hook the
   controller refuses with "restart the game": a swapchain cannot be taken over afterwards. A provider is told when the swapchain it runs on
   changes (`swapchain_changed`: made again after the window came back, resized, or lost with width and height 0; `Renderer::present` and
-  `set_native_window` call `FrameGenController::set_swapchain`) and the next frame carries `reset`.
+  `set_native_window` call `FrameGenController::set_swapchain`) and the next frame carries `reset`. A swapchain made again at the **same size**
+  (the device lost it) is told with `remade = true`, which `set_swapchain` takes as a change: a provider's views of the old one are out of date.
+  A swapchain of 0 x 0 (the window went) is a refusal ("the window has no swapchain", generation off), told BEFORE `destroy_swapchain` so the
+  provider lets go of it first. The statistics restart when the mode leaves or returns to `off`.
 - **`FrameGenFrame`** is everything the three SDKs' constants need, so a provider package does not reshape it: the images (`hudless`,
   `presented`, `depth`, `motion`), the depth convention (`depthReversed` / `depthInfinite`, from `FrameGenProvider::wants_reversed_depth`: the
   upscaler's preparation pass makes either `d / (d + 1)` or the reversed infinite `near / d`, and `framegen_pass` remakes it if the upscaler left
@@ -295,17 +298,20 @@ the rest is private to `fa_render`:
     queues and extensions, so `device_hook()` (called by `framegen_device_hooks()` when a renderer asks for frame generation, before its device
     exists) calls `StreamlineRuntime::add_feature(kFeatureDlssG)` and returns no hook of its own: the process's runtime is already a hook of
     every D3D12 and Vulkan device (`register_streamline_runtime`). A device made without the feature cannot get it (`feature_asked`; the probe
-    says "restart"). `framegen_device_hooks()` asks every slot, so a game that starts with `fsr` on NVIDIA also loads the DLSS-G plugin.
+    says "restart"). `framegen_device_hooks(mode)` asks every slot and `device_hook_for(mode)` adds the feature only for `dlss` and `auto`: a game started with
+    `fsr` or `xess` does not load the plugin. Each feature of Streamline's list is loaded on its own (`vk_instance_request` and the D3D12 loop
+    go through `features_` one by one), so leaving this one out changes nothing for the DLSS upscaler, Reflex and PCL. The list is the
+    process's and keeps what was added (`add_feature`).
   - **No evaluate.** DLSS-G generates inside Present. `dispatch` sets the constants of the frame (`slSetConstants`, the same frame token as
     Reflex and DLSS: `StreamlineRuntime::frame_token`) and tags the depth, the motion vectors and, when `FrameGenFrame::hudDrawn`, the hudless
     colour with the lifecycle `kValidUntilPresent`, inside a native section of the frame's list (`begin_native` with every image declared
-    shader-read, `end_native` always closed). On Vulkan the sampled views are made once per image and kept in three slots. The matrices are
+    shader-read, `end_native` always closed). On Vulkan the sampled views are made once per image and kept in three slots. A view replaced (another image) or dropped (`swapchain_changed`) goes through `destroy_view`, which both devices defer until the frame that is open has finished on the GPU (`defer` / `collect`), so no wait for idle is needed; `stop` waits all the same. The matrices are
     Streamline's row-major row-vector ones: a `Mat4` (column-major, column vectors) is copied as is, which is the transpose. The depth is
     the reversed infinite `near / d` the provider asks for (`wants_reversed_depth`), so the projection's clip z row is `[0, 0, 0, near]` and the
     row of `prevFromView` (made with the engine's own depth row) is replaced by the same one before `clipToPrevClip` is built. An orthographic
     camera is refused (its reprojection is not built). `kErrorDuplicatedConstants` (the DLSS upscaler sets the frame's constants too) is
     logged once and not fatal.
-  - **Options and state.** `configure(bool)` sends `slDLSSGSetOptions` only when mode, flags or sizes change (`numFramesToGenerate` 1, the
+  - **Options and state.** `configure(bool)` sends `slDLSSGSetOptions` only when mode, flags or sizes change (a refused set is sent again by the next `dispatch`; the status's Reflex bit is ignored for the first two state reads after generation goes on) (`numFramesToGenerate` 1, the
     resources are retained while off and given back in `stop`). `generated_frames()` is the only caller of `slDLSSGGetState` (not thread
     safe, once per rendered frame from the controller's `begin_frame`): `numFramesActuallyPresented` counts every frame Streamline presented
     since the last call, so `max(0, presented - 1)` is added to the count; the status bits are trusted only when they were read while generation

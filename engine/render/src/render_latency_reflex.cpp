@@ -294,6 +294,8 @@ void ReflexProvider::stop(gpu::Device& device) {
 
 bool reflex_running() { return g_reflexRunning.load(); }
 
+void reset_reflex_running_for_test() { g_reflexRunning.store(false); }
+
 std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& api) {
     if (!sl.getFeatureFunction)
         return "NVIDIA Streamline has no slGetFeatureFunction (it is not Streamline 2.x): " + std::string(kSetupHint) +

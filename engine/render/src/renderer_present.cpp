@@ -88,7 +88,9 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
                 im.swapH = sd.height;
                 im.resizeFailed = false;
                 im.presentFailed = false;
-                im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), sd.width, sd.height, sd.vsync});
+                // A new swapchain object, whatever its size: what a provider holds of the old one (views, sizes) is out of date.
+                im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), sd.width, sd.height, sd.vsync},
+                                          true);
                 FA_INFO("render", "Renderer::present: the window's swapchain was made again ({}x{})", sd.width,
                         sd.height);
             }

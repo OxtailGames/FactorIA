@@ -61,7 +61,9 @@ SlR f_shutdown() {
     ++rx.shutdowns;
     return 0;
 }
-SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) { return feature == rx.refusedFeature ? rx.supportedRc : 0; }
+SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) {
+    return feature == rx.refusedFeature ? rx.supportedRc : 0;
+}
 SlR f_free(std::uint32_t, const sl::ViewportHandle*) { return 0; }
 SlR f_upgrade(void** p) {
     if (*p == &rx.deviceMarker) *p = &rx.proxyDevice;
@@ -86,7 +88,8 @@ SlR f_reflex_state(sl::ReflexState* s) {
     if (rx.stateRc != 0) return rx.stateRc;
     s->lowLatencyAvailable = rx.lowLatencyAvailable;
     s->latencyReportAvailable = rx.reportAvailable;
-    for (std::size_t i = 0; i < rx.reports.size() && i < std::size_t(sl::kReflexFrameReportCount); ++i) s->frameReport[i] = rx.reports[i];
+    for (std::size_t i = 0; i < rx.reports.size() && i < std::size_t(sl::kReflexFrameReportCount); ++i)
+        s->frameReport[i] = rx.reports[i];
     return 0;
 }
 SlR f_reflex_sleep(void* frame) {
@@ -102,12 +105,18 @@ SlR f_pcl_marker(std::uint32_t marker, void* frame) {
 std::vector<std::string> g_hiddenFunctions;
 SlR f_function(std::uint32_t feature, const char* name, void** fn) {
     const std::string n = name;
-    if (std::find(g_hiddenFunctions.begin(), g_hiddenFunctions.end(), n) != g_hiddenFunctions.end()) return sl::kErrorFeatureMissing;
-    if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_options);
-    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_state);
-    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_sleep);
-    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl) *fn = reinterpret_cast<void*>(&f_pcl_marker);
-    else return sl::kErrorFeatureMissing;
+    if (std::find(g_hiddenFunctions.begin(), g_hiddenFunctions.end(), n) != g_hiddenFunctions.end())
+        return sl::kErrorFeatureMissing;
+    if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_options);
+    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_state);
+    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_sleep);
+    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl)
+        *fn = reinterpret_cast<void*>(&f_pcl_marker);
+    else
+        return sl::kErrorFeatureMissing;
     return 0;
 }
 
@@ -234,10 +243,12 @@ struct Rig {
     explicit Rig(bool ready = true) {
         rx.reset();
         g_hiddenFunctions.clear();
+        render::reset_reflex_running_for_test();  // reflex_running() is the process's: no case reads what another left
         render::set_streamline_runtime_for_test(&runtime);
         if (ready) run_d3d12(runtime);
     }
     ~Rig() {
+        render::reset_reflex_running_for_test();
         render::set_streamline_runtime_for_test(nullptr);
         g_hiddenFunctions.clear();
     }
@@ -271,7 +282,8 @@ LatencySettings settings(LatencyMode m, bool boost = false) {
 
 bool has(const std::string& text, const char* part) { return text.find(part) != std::string::npos; }
 
-sl::ReflexReport report_of(std::uint64_t frameId, std::uint64_t simStart, std::uint64_t presentEnd, std::uint32_t gpuFrameUs = 0) {
+sl::ReflexReport report_of(std::uint64_t frameId, std::uint64_t simStart, std::uint64_t presentEnd,
+                           std::uint32_t gpuFrameUs = 0) {
     sl::ReflexReport r{};
     r.frameId = frameId;
     r.simStartTime = simStart;
@@ -403,7 +415,8 @@ TEST_CASE("reflex probe: every refusal says what to do") {
 
 // ---- start and configure ---------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("reflex: start sets the options off once; configure sends the mode, the boost and the frame limit only when they change") {
+TEST_CASE("reflex: start sets the options off once; configure sends the mode, the boost and the frame limit only when "
+          "they change") {
     Rig r;
     REQUIRE(r.reflex->start(r.dev).empty());
     REQUIRE(rx.options.size() == 1);
@@ -573,9 +586,9 @@ TEST_CASE("reflex through the controller: auto on NVIDIA picks Reflex, which sle
         e.frame = std::uint64_t(frame + 1);
         r.runtime.present_end(e);
     }
-    CHECK(rx.sleepTokens.size() == 3);        // once per frame
-    CHECK(rx.markers.size() == 3 * 6);        // the input sample has no PCL marker
-    CHECK(rx.tokenCalls == 3);                // one token per frame, shared by the sleep and the markers
+    CHECK(rx.sleepTokens.size() == 3);  // once per frame
+    CHECK(rx.markers.size() == 3 * 6);  // the input sample has no PCL marker
+    CHECK(rx.tokenCalls == 3);          // one token per frame, shared by the sleep and the markers
     // Within each frame the sleep is the first call after the token, then the simulation start.
     std::size_t sleeps = 0;
     for (std::size_t i = 0; i + 1 < rx.events.size(); ++i)
@@ -599,7 +612,8 @@ TEST_CASE("reflex through the controller: auto on NVIDIA picks Reflex, which sle
     c.detach();
 }
 
-TEST_CASE("reflex through the controller: auto on NVIDIA without Streamline is the engine's own pacing, with the reason") {
+TEST_CASE(
+    "reflex through the controller: auto on NVIDIA without Streamline is the engine's own pacing, with the reason") {
     ClockGuard clock;
     Rig r(false);
     r.loader.installed = false;
@@ -648,7 +662,7 @@ TEST_CASE("reflex: the vendor report is the span from simulation start to presen
     r.reflex->configure(true, false, 0);
     CHECK(r.reflex->vendor_report().is_null());  // no frame measured yet
 
-    rx.reports = {report_of(10, 1000, 9000, 4000),  // 8 ms
+    rx.reports = {report_of(10, 1000, 9000, 4000),   // 8 ms
                   report_of(11, 2000, 12000, 6000),  // 10 ms
                   report_of(0, 0, 0),                // an empty slot
                   report_of(12, 5000, 5000),         // never presented
