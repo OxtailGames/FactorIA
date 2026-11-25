@@ -834,10 +834,10 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
             query.pNext = has.data();
             fn_.vkGetPhysicalDeviceFeatures2(physical_, &query);
         }
-        const std::size_t n =
+        const std::size_t count =
             std::min(f.size(), type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 ? sizeof(VkPhysicalDeviceFeatures2)
                                                                                     : f.size());
-        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= n; at += sizeof(VkBool32)) {
+        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= count; at += sizeof(VkBool32)) {
             VkBool32 want = VK_FALSE, have = VK_FALSE;
             std::memcpy(&want, f.data() + at, sizeof want);
             std::memcpy(&have, got + at, sizeof have);
@@ -875,19 +875,19 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
             VulkanDeviceRequest& req = requests[i];
             h.vulkan_device_request(pd, req);
             std::string why;
-            for (const std::string& e : req.extensions)
-                if (why.empty() && !has_extension(extensions, e.c_str()))
-                    why = deviceName_ + " has no device extension " + e +
+            for (const std::string& ext : req.extensions)
+                if (why.empty() && !has_extension(extensions, ext.c_str()))
+                    why = deviceName_ + " has no device extension " + ext +
                           " (update the GPU driver; the feature needs a GPU and driver that have it)";
             for (const std::vector<std::uint8_t>& f : req.features)
                 if (why.empty()) why = check_hook_features(f, core13);
             std::vector<std::uint32_t> taken = familyQueues;
             std::vector<VulkanQueueGrant> grants;
-            for (const VulkanQueueRequest& q : req.queues) {
-                for (std::uint32_t k = 0; k < std::min<std::uint32_t>(q.count, 64u) && why.empty(); ++k) {
-                    const std::uint32_t f = pick_hook_queue_family(families, gfx, q.flags, taken);
+            for (const VulkanQueueRequest& request : req.queues) {
+                for (std::uint32_t k = 0; k < std::min<std::uint32_t>(request.count, 64u) && why.empty(); ++k) {
+                    const std::uint32_t f = pick_hook_queue_family(families, gfx, request.flags, taken);
                     if (f == UINT32_MAX) {
-                        why = deviceName_ + " has no queue family with the flags 0x" + hex_text(q.flags) +
+                        why = deviceName_ + " has no queue family with the flags 0x" + hex_text(request.flags) +
                               " and a queue left for it (" + queue_families_text(families, taken) +
                               "; the engine takes its own first)";
                         break;
@@ -900,17 +900,17 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
                 continue;
             }
             bool added = !grants.empty() || !req.features.empty();
-            auto add = [&](const std::string& e) {
+            auto add = [&](const std::string& ext) {
                 for (const char* have : enabled)
-                    if (e == have) return;
-                enabled.push_back(e.c_str());
+                    if (ext == have) return;
+                enabled.push_back(ext.c_str());
                 added = true;
             };
-            for (const std::string& e : req.extensions) add(e);
-            for (const std::string& e : req.optionalExtensions)
-                if (has_extension(extensions, e.c_str())) {
-                    add(e);
-                    hookGrants_[i].optionalExtensions.push_back(e);
+            for (const std::string& ext : req.extensions) add(ext);
+            for (const std::string& ext : req.optionalExtensions)
+                if (has_extension(extensions, ext.c_str())) {
+                    add(ext);
+                    hookGrants_[i].optionalExtensions.push_back(ext);
                 }
             for (std::vector<std::uint8_t>& f : req.features) merge_hook_features(f, chained, chainEnd);
             familyQueues = std::move(taken);
@@ -1006,9 +1006,9 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         // The hooks' queues.
         for (std::size_t i = 0; i < hooks_.size(); ++i)
             for (VulkanQueueGrant& g : hookGrants_[i].queues) {
-                VkQueue q = VK_NULL_HANDLE;
-                fn_.vkGetDeviceQueue(device_, g.family, g.index, &q);
-                g.queue = q;
+                VkQueue hookQueue = VK_NULL_HANDLE;
+                fn_.vkGetDeviceQueue(device_, g.family, g.index, &hookQueue);
+                g.queue = hookQueue;
             }
     }
 
