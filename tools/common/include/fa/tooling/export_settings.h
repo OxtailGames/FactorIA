@@ -156,6 +156,13 @@ struct PackExportSettings {
     // `setup directstorage` installed next to the game (a warning when they are not installed), whose pack reader then
     // reads its gdeflate files through DirectStorage (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). Default off.
     bool directStorage = false;
+    // export.pack.vendorSdks: which vendor SDKs (`setup streamline | xess | fidelityfx`: NVIDIA Streamline, Intel XeSS, AMD
+    // FidelityFX) a Windows export copies next to the game, with their license texts in licenses/<id>/. "auto" (default)
+    // ships each installed SDK the project's render settings can use (render.upscaler, render.frameGeneration and
+    // render.latency modes in factoria.json) and says in the export report when one is not installed; "none" ships none;
+    // "list" ships exactly `vendorSdkIds` and fails when one is not installed. Other platforms ship nothing.
+    std::string vendorSdks = "auto";
+    std::vector<std::string> vendorSdkIds;  // vendorSdks == "list": the ids, in the order written, without repeats
     bool operator==(const PackExportSettings&) const = default;
 };
 

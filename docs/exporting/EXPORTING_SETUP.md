@@ -22,6 +22,10 @@ factoria setup shaders                             # sokol-shdc, the shader comp
 factoria setup ffmpeg                              # ffmpeg, so --record-video trailer.mp4 works without installing it by hand
 factoria setup launcher                            # macOS/Linux: an app that opens the editor with the FactorIA icon (Dock, Launchpad, app menu)
 factoria setup directstorage                       # the DirectStorage DLLs a Windows export with export.pack.directStorage ships with the game
+factoria setup streamline                          # NVIDIA Streamline (DLSS, Frame Generation, Reflex) DLLs; shows NVIDIA's license first
+factoria setup xess                                # Intel XeSS (upscaling, frame generation, XeLL) DLLs; shows Intel's license first
+factoria setup fidelityfx                          # AMD FidelityFX SDK (FSR) DLLs; shows AMD's license first
+factoria setup streamline --accept-licenses        # you have read the license and accept it (scripts)
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -37,6 +41,9 @@ factoria setup directstorage                       # the DirectStorage DLLs a Wi
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](EXPORTING_DESKTOP.md#linux-appimage)) |
 | `launcher` | nothing is downloaded: an app that opens this factoria's editor with the FactorIA icon. macOS: `~/Applications/FactorIA.app` (for the Dock, Launchpad and Spotlight; the editor's output goes to `~/Library/Logs/FactorIA/editor.log`), registered with Launch Services so the Dock shows the new icon. Linux: `factoria.desktop` and its 256 px icon under `~/.local/share` (or `$XDG_DATA_HOME`). `partial` when it opens another factoria, was not written by FactorIA, or carries an older version or icon; the editor rewrites, at start, one that opens it but is out of date (after an update or a reinstall). `unsupported` on Windows, where the installer adds the Start menu entry | - | none: it is how a person opens the editor |
 | `directstorage` | the NuGet package Microsoft.Direct3D.DirectStorage 1.3.0 (a zip), checked against a SHA-256 compiled into FactorIA; only its x64 `dstorage.dll` and `dstoragecore.dll` (redistributable) and its `LICENSE.txt` are kept, in `$FACTORIA_HOME/tools/directstorage/1.3.0/`. Any computer can install it: the DLLs are copied, never run here | about 3 MB | `--release --platform windows` with `export.pack.directStorage` ([Compression and pack order](EXPORTING_DESKTOP.md#compression-and-pack-order)); without it that export warns and the game decodes on the CPU |
+| `streamline` | NVIDIA Streamline 2.14.16 (DLSS super resolution, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), from the release zip of `github.com/NVIDIA-RTX/Streamline`, checked against a SHA-256 compiled into FactorIA: only the signed x64 `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.dlss_d.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, the `nvngx_dlss*.dll` runtimes and NVIDIA's license texts are kept, in `$FACTORIA_HOME/tools/streamline/2.14.16/` (the profiling DLLs `sl.nvperf` and `sl_nvperf`, the development builds, headers and libraries never are). Shows NVIDIA's license first; it must be accepted ([Vendor SDK licences](#vendor-sdk-licences)). Any computer can install it: the DLLs are copied, never run here | about 276 MB | `--platform windows` of a game whose `render.upscaler`, `render.frameGeneration` or `render.latency` can use DLSS or Reflex (`export.pack.vendorSdks`) |
+| `xess` | Intel XeSS 3.0.2 (super resolution, frame generation, XeLL low latency) from the release zip of `github.com/intel/xess`, checked against a SHA-256 compiled into FactorIA: the x64 `libxess.dll`, `libxess_dx11.dll`, `libxess_fg.dll`, `libxell.dll`, `LICENSE.txt` and `third-party-programs.txt`, in `$FACTORIA_HOME/tools/xess/3.0.2/`. Shows Intel's license first; it must be accepted | about 77 MB | `--platform windows` of a game that can use XeSS or XeLL |
+| `fidelityfx` | AMD FidelityFX SDK 2.4.0: the signed x64 `amd_fidelityfx_loader`, `upscaler` and `framegeneration` DLLs for DirectX 12 and Vulkan (FSR upscaling and frame generation; not the denoiser or the radiance cache) and `docs/license.md` and `3rdpartynotice.md` at the release's tag, each file checked against its own SHA-256 compiled into FactorIA, in `$FACTORIA_HOME/tools/fidelityfx/2.4.0/`. Shows AMD's license first; it must be accepted. AMD Anti-Lag 2 needs nothing installed | about 160 MB | `--platform windows` of a game that can use FSR |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
 
@@ -50,6 +57,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   (the checkout)        build/web-release/player/ and .cache/emsdk/: what `setup webplayer` builds and fetches, inside the engine checkout, not here
   tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
   tools/sokol-shdc/     <commit>/sokol-shdc[.exe] (folders of older commits are removed by the next install)
+  tools/streamline/     <version>/ the DLLs flat, with NVIDIA's license texts (the same for xess/ and fidelityfx/; older versions are removed by the next install)
   export.json           machine settings: learns where the JDK and the SDK are (below)
 ```
 
@@ -234,6 +242,7 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | Desktop, Web | `export.pack.codecs` (directly in `export`) | `{}` (each type's default) | The codec of an extension inside `game.pak`: `{".json": "zstd", ".bin": "store"}`. Edited in `factoria.json` only. See [Compression and pack order](EXPORTING_DESKTOP.md#compression-and-pack-order). |
 | Desktop, Web | `export.pack.codec` | `"auto"` | `"auto"`, `"lz4"`, `"zstd"` or `"gdeflate"`: the codec of every file `game.pak` would compress (a type stored by default, and an extension in `export.pack.codecs`, keep theirs). `"auto"` keeps each type's default, and packs `gdeflate` for a Windows export with `export.pack.directStorage` on. |
 | Windows | `export.pack.directStorage` | `false` | With `export.pack.codec` `"auto"` a Windows export packs its compressed files as `gdeflate`, and a `--release` export copies the DirectStorage DLLs of `factoria setup directstorage` next to the game, which reads those files through DirectStorage (a warning when they are not installed: the game then decodes them on the CPU). See [Compression and pack order](EXPORTING_DESKTOP.md#compression-and-pack-order). |
+| Windows | `export.pack.vendorSdks` | `"auto"` | Which vendor SDKs (`setup streamline`, `setup xess`, `setup fidelityfx`) a Windows export copies next to the game, with their license texts in `licenses/<id>/`. `"auto"` ships each installed SDK the project can use (`render.upscaler.mode`, `render.frameGeneration.mode` and `render.latency.mode` in `factoria.json`: `auto`, or `dlss`/`reflex` for Streamline, `xess`/`xell` for XeSS, `fsr` for FidelityFX) and lists the others that are not installed in the next steps; `"none"` ships none; an array such as `["streamline", "xess"]` ships exactly those and fails, naming `factoria setup <id>`, when one is not installed. Other platforms ship nothing. See [Vendor SDK licences](#vendor-sdk-licences). |
 | Desktop, Web | `export.pack.useLoadOrder` | `true` | Writes `game.pak` in the order play sessions first read the files (`.factoria/cache/load-order.json`); `false` packs by path. |
 
 Wrong types or values are errors that name the JSON pointer and the fix
@@ -242,6 +251,31 @@ Wrong types or values are errors that name the JSON pointer and the fix
 may know keys an older one does not. `fa::save_export_settings` patches the text of `icon` and `export` in
 `factoria.json` and nothing else: every other key, the key order, the indentation, the array style and the line
 endings stay as they are, fields equal to their default are removed, and a save with no change does not touch the file.
+
+### Vendor SDK licences
+
+The DLLs of `setup streamline`, `setup xess` and `setup fidelityfx` are not part of FactorIA: they are the vendors' own
+redistributable files, downloaded when you ask and checked against a SHA-256 FactorIA's maintainers pinned (no vendor
+publishes checksums). Each comes with a license between you and the vendor. The install shows its text first (the same text
+`setup.status` lists under `components[].licenses`), in a terminal asks `[y/N]` (the editor's Set Up This Computer window opens
+a dialog with an "I accept" checkbox), and refuses with the code `license_required` until you pass `--accept-licenses`
+(`setup.install` `acceptLicenses: true`) after reading it. An AI must ask you before it does. Nothing is downloaded before
+you accept.
+
+- **NVIDIA Streamline (DLSS, Frame Generation, Reflex)**: the NVIDIA RTX SDKs license lets a game redistribute the DLLs only
+  as part of the game. Before the game's commercial release you must notify NVIDIA
+  (<https://developer.nvidia.com/sw-notification>); the game must credit NVIDIA and show its marks (in its credits, and on a
+  splash screen or about box for DLSS); DLSS runs on systems with NVIDIA GPUs only. A Windows export that ships Streamline
+  repeats this in its next steps and copies NVIDIA's license texts to `licenses/streamline/`.
+- **Intel XeSS (XeSS, XeSS-FG, XeLL)**: keep Intel's copyright notice and license terms (`LICENSE.txt`,
+  `third-party-programs.txt`) with the game, which the export does in `licenses/xess/`.
+- **AMD FidelityFX SDK (FSR)**: binary redistribution with AMD's copyright notice and conditions (`license.md`,
+  `3rdpartynotice.md`), copied to `licenses/fidelityfx/`. AMD Anti-Lag 2 needs nothing installed.
+
+`export.pack.vendorSdks` (default `"auto"`) decides what a Windows export ships; the DLLs go next to the game's executable,
+the license texts under `licenses/<id>/` (ship that folder with the game). Whether a game can use an SDK is read from
+`factoria.json` (`render.upscaler.mode`, `render.frameGeneration.mode`, `render.latency.mode`; a missing key means no); when the
+project can use one that is not installed, the export says so in its next steps and the game runs with what it has.
 
 ### Machine settings: `~/.factoria/export.json`
 

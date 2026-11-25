@@ -67,6 +67,11 @@ struct Project {
     std::vector<stdfs::path> pluginFolders;  // every plugin's folder: the ones inside the project stay out of game/
     // Shipped path -> the file copy_game copies instead of <dir>/<path>: what the asset steps converted (export_assets.cpp).
     std::map<std::string, stdfs::path> staged;
+    // A windows export: the vendor SDKs (`setup streamline | xess | fidelityfx`) whose DLLs and license texts it copies
+    // next to the executable, from export.pack.vendorSdks (resolve_vendor_sdks, export.cpp); empty for other platforms.
+    std::vector<std::string> vendorSdks;
+    // "auto" only: the SDKs the render settings can use that are not installed here (id, what asked for it).
+    std::vector<std::pair<std::string, std::string>> vendorSdksMissing;
 };
 
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------

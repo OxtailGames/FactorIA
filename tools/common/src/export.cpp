@@ -221,6 +221,46 @@ bool is_java_keyword(const std::string& s) {
 
 // ---- project -----------------------------------------------------------------------------------
 
+// export.pack.vendorSdks of a windows export: which installed vendor SDKs ship (Project::vendorSdks). "list" with an SDK that
+// is not installed fails here, before any asset work; "auto" ships the installed ones the project's render settings can use
+// and remembers the others for an info line.
+static Result<void> resolve_vendor_sdks(const ExportOptions& o, const Json& projectJson, Project& p) {
+    const PackExportSettings& pack = p.settings.pack;
+    if (pack.vendorSdks == "none") return {};
+    const SetupContext defaultContext;
+    const SetupContext& ctx = o.setup ? *o.setup : defaultContext;
+    if (pack.vendorSdks == "list") {
+        for (const std::string& id : pack.vendorSdkIds) {
+            const VendorSdk* sdk = find_vendor_sdk(id);
+            if (!sdk) continue;  // parse_export_settings checked the ids
+            if (installed_vendor_sdk_dir(ctx, *sdk).empty())
+                return err(
+                    "export: factoria.json#/export/pack/vendorSdks asks for the vendor SDK '" + id +
+                        "', which is not installed on this computer",
+                    "Run `factoria setup " + id +
+                        "` (it shows the license and asks you to accept it), then export again; or remove '" + id +
+                        "' from export.pack.vendorSdks (\"auto\" ships the installed SDKs the project uses, \"none\" "
+                        "ships none).");
+            p.vendorSdks.push_back(id);
+        }
+        return {};
+    }
+    std::vector<std::pair<std::string, std::string>> reasons;
+    for (const std::string& id : vendor_sdks_used_by_project(projectJson, &reasons)) {
+        const VendorSdk* sdk = find_vendor_sdk(id);
+        if (!sdk) continue;
+        if (!installed_vendor_sdk_dir(ctx, *sdk).empty()) {
+            p.vendorSdks.push_back(id);
+            continue;
+        }
+        std::string why;
+        for (const auto& [rid, rwhy] : reasons)
+            if (rid == id) why = rwhy;
+        p.vendorSdksMissing.emplace_back(id, why);
+    }
+    return {};
+}
+
 Result<Project> load_and_validate(const ExportOptions& o, const std::string& platform,
                                   std::vector<std::string>& warnings) {
     Project p;
@@ -301,6 +341,8 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     auto settings = load_export_settings(generic(p.dir), &warnings);
     if (!settings.ok()) return settings.error();
     p.settings = std::move(settings.value());
+    if (platform == "windows")
+        if (auto r = resolve_vendor_sdks(o, j, p); !r.ok()) return r.error();
     // Native plugins: the export needs each one's build for this platform (docs/EXTENDING.md, "Native plugins").
     auto project = j.contains("plugins") ? load_project(generic(p.dir)) : Result<ProjectSettings>(ProjectSettings{});
     if (!project.ok()) return project.error();

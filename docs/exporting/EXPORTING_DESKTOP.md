@@ -433,6 +433,12 @@ DLLs are not installed the export still succeeds, with a warning that says to ru
 game decodes those files on the CPU; the game does the same, and logs why once, when the DLLs are missing, older than
 DirectStorage 1.1 or a read through them fails (`FA_DIRECTSTORAGE=0` turns it off; docs/design/ARCHITECTURE_FILES.md,
 "DirectStorage", repository only, not in the binary). A wrong value is an error with its JSON pointer and a "did you mean".
+`export.pack.vendorSdks` (default `"auto"`) is the same idea for the vendors' upscaler, frame generation and latency DLLs: a
+Windows export (release or folder) copies the installed SDKs of `factoria setup streamline | xess | fidelityfx` that the
+project's `render.upscaler`, `render.frameGeneration` and `render.latency` modes can use next to the executable, and their
+license texts to `licenses/<id>/`; `"none"` ships none, and an array of ids ships exactly those and fails when one is not
+installed ([Vendor SDK licences](EXPORTING_SETUP.md#vendor-sdk-licences): what each license asks of the game, NVIDIA's
+notification before a commercial release included).
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
 editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`: what
 the engine and the scripts read after `factoria.json`, which is read by its full path and is not listed) and, per scene,

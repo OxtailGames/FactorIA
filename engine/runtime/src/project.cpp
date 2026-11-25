@@ -1976,6 +1976,14 @@ constexpr const char* kSchemaText =
               "type": "boolean",
               "default": true,
               "description": "true (default): the files go into the pack in the order the game first read them in play sessions (the editor's Play, factoria run, play.auto record it per scene in .factoria/cache/load-order.json): the main scene's files first, then each scene's in the order the scenes first loaded, then the files no session read, by path. Reading a pack front to back is what disks and SSDs do fastest. false, or no session recorded yet: by path. The export says which order it used and how many files it covered."
+            },
+            "vendorSdks": {
+              "oneOf": [
+                {"type": "string", "enum": ["auto", "none"]},
+                {"type": "array", "items": {"type": "string", "enum": ["streamline", "xess", "fidelityfx"]}, "uniqueItems": true}
+              ],
+              "default": "auto",
+              "description": "Which vendor SDKs a Windows export copies next to the game, with their license texts in licenses/<id>/: \"auto\" (default) ships each one that is installed (`factoria setup streamline | xess | fidelityfx`) and that the project's render settings can use (render.upscaler.mode and render.frameGeneration.mode auto, dlss, xess or fsr; render.latency.mode auto, reflex or xell), and says in the export report when one is not installed; \"none\" ships none; an array of ids ships exactly those and fails when one is not installed. streamline is NVIDIA Streamline (DLSS, Frame Generation, Reflex), xess Intel XeSS, fidelityfx the AMD FidelityFX SDK. Each SDK's license is accepted when it is installed; NVIDIA's asks you to notify NVIDIA before a commercial release (the export report repeats it). Other platforms ship nothing."
             }
           }
         },

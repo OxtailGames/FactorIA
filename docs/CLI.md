@@ -110,7 +110,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|webplayer|cmake|xcode|appimage|shaders|vscode|ffmpeg|launcher|directstorage] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|webplayer|cmake|xcode|appimage|shaders|vscode|ffmpeg|launcher|directstorage|streamline|xess|fidelityfx] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -132,7 +132,14 @@ one, so it is for source builds. `ffmpeg` installs the static ffmpeg 6.0 build (
 Microsoft.Direct3D.DirectStorage 1.3.0 (about 3 MB, pinned by SHA-256) and keeps its x64 `dstorage.dll` and `dstoragecore.dll`
 in `~/.factoria/tools/directstorage/1.3.0/`; a Windows release export with `export.pack.directStorage` copies them next to the
 game, which then reads its gdeflate files through DirectStorage (any computer can install it; off Windows its status is
-`unsupported`, not needed there, and `factoria setup` without a component does not install it). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
+`unsupported`, not needed there, and `factoria setup` without a component does not install it). `streamline`, `xess` and
+`fidelityfx` download NVIDIA Streamline (DLSS, Frame Generation, Reflex; about 276 MB), Intel XeSS (about 77 MB) and the AMD FidelityFX
+SDK (FSR; about 160 MB), each pinned by SHA-256, and keep their x64 DLLs and license texts in `~/.factoria/tools/<id>/<version>/`
+(older versions are removed). Each shows its vendor's license first and asks `[y/N]`; without a terminal it refuses with
+`license_required` until `--accept-licenses` says you have read and accepted it (NVIDIA's asks you to notify NVIDIA before a
+commercial release). A Windows export copies them next to the game as `export.pack.vendorSdks` says (default `"auto"`: the
+installed ones the project's render settings can use), with the license texts in `licenses/<id>/`
+([EXPORTING_SETUP.md](exporting/EXPORTING_SETUP.md#vendor-sdk-licences)). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
 removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `launcher` writes an app

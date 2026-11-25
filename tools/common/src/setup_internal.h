@@ -11,6 +11,7 @@
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
 //   setup_directstorage.cpp the DirectStorage DLLs a Windows export puts next to the game
+//   setup_vendor_sdks.cpp  the DLLs of NVIDIA Streamline, Intel XeSS and AMD FidelityFX a Windows export ships (and what a project can use)
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
 //   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
 #pragma once
@@ -171,6 +172,13 @@ SetupResult directstorage_install(const SetupContext& ctx, const SetupInstallOpt
 // The install of one given package (tests pass one whose hash matches their fake download, and its `url`; "" = NuGet's).
 SetupResult directstorage_install_package(const SetupContext& ctx, const SetupInstallOptions& options,
                                           const DirectStoragePackage& package, const std::string& url);
+
+// streamline, xess and fidelityfx (fa/tooling/setup.h, VendorSdk). The install of one given SDK (tests pass one whose hashes
+// match their fake downloads).
+SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, bool fetchLicenses);
+SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOptions& options, const VendorSdk& sdk);
+SetupComponent vendor_sdk_status_by_id(const SetupContext& ctx, const std::string& id, bool fetchLicenses);
+SetupResult vendor_sdk_install_by_id(const SetupContext& ctx, const SetupInstallOptions& options);
 
 SetupComponent vscode_status(const SetupContext& ctx);
 SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);
