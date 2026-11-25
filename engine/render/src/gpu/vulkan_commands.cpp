@@ -138,6 +138,16 @@ Result<void> VulkanCommandList::open(const char* label) {
         }                                                                                                              \
     } while (false)
 
+// Writes and copies inside a native section: the engine's barriers and the SDK's commands would interleave on states
+// the section has declared, so the call is refused and skipped (the section stays open).
+#define FA_VK_REFUSE_IN_NATIVE(what)                                                                                   \
+    do {                                                                                                               \
+        if (nativeOpen_) {                                                                                             \
+            fail(what, "a native section is open (hint: end_native() first; the call is skipped)");                    \
+            return;                                                                                                    \
+        }                                                                                                              \
+    } while (false)
+
 void VulkanCommandList::fail(const char* what, const std::string& error) {
     device_.report(std::string("gpu vulkan: CommandList::") + what + " in list '" + label_ + "': " + error);
 }
@@ -1381,13 +1391,25 @@ void VulkanCommandList::assume_native(const NativeDecl& d) {
     if (it == useIndex_.end()) return;  // begin_native required every declared resource
     Use& u = uses_[it->second];
     SubState s = native_state(d.state, d.res->image != VK_NULL_HANDLE);
-    s.access = VK_ACCESS_2_MEMORY_WRITE_BIT;  // a write: the next use, even a read in this layout, waits for it
+    // A state the native commands can write (storage, attachments, copy destination, Common): the next use, even a read
+    // in this layout, waits for it. A read-only state (ShaderRead, DepthRead, CopySource) wrote nothing: it keeps its
+    // read access, so a later read in the same layout needs no barrier (begin_native's barrier already moved the
+    // resource there), and `since` keeps the last write's scope for the next write to wait on.
+    const bool writes = access_writes(s.access);
+    if (writes) s.access = VK_ACCESS_2_MEMORY_WRITE_BIT;
     for (int l = d.range.layer; l < d.range.layer + d.range.layerCount; ++l)
         for (int m = d.range.mip; m < d.range.mip + d.range.mipCount; ++m) {
             const std::uint32_t sub = d.res->subresource(std::uint32_t(m), std::uint32_t(l));
             if (sub >= u.current.size()) continue;
-            u.current[sub] = s;
-            u.since[sub] = s;
+            if (writes) {
+                u.current[sub] = s;
+                u.since[sub] = s;
+            } else if (u.current[sub].layout != s.layout) {
+                // The native commands moved it to another read-only layout (leftIn): their own barrier made the
+                // earlier writes visible, so this is the state `since` starts from.
+                u.current[sub] = s;
+                u.since[sub] = s;
+            }  // else: begin_native put it here already and merged this state's stages and access into current
         }
 }
 
@@ -1591,6 +1613,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
 
 void VulkanCommandList::write_buffer(const BufferWrite& w) {
     FA_VK_REQUIRE_OPEN("write_buffer");
+    FA_VK_REFUSE_IN_NATIVE("write_buffer");
     std::size_t bufferSize = 0;
     std::string label;
     std::shared_ptr<TrackedResource> t = device_.buffer_tracked(w.buffer, &bufferSize, &label);
@@ -1623,6 +1646,7 @@ void VulkanCommandList::write_buffer(const BufferWrite& w) {
 
 void VulkanCommandList::copy_buffer_to_buffer(const BufferCopy& c) {
     FA_VK_REQUIRE_OPEN("copy_buffer_to_buffer");
+    FA_VK_REFUSE_IN_NATIVE("copy_buffer_to_buffer");
     std::size_t srcSize = 0, dstSize = 0;
     std::string srcLabel, dstLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);
@@ -1772,6 +1796,7 @@ std::size_t region_bytes(const Region& r) {
 
 void VulkanCommandList::write_image(const ImageWrite& w) {
     FA_VK_REQUIRE_OPEN("write_image");
+    FA_VK_REFUSE_IN_NATIVE("write_image");
     VulkanDevice::ImageRecord im;
     if (!device_.image_info(w.dst.image, im)) {
         device_.report("gpu vulkan: CommandList::write_image in list '" + label_ + "': image " +
@@ -1792,6 +1817,7 @@ void VulkanCommandList::write_image(const ImageWrite& w) {
 
 void VulkanCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     FA_VK_REQUIRE_OPEN("copy_buffer_to_image");
+    FA_VK_REFUSE_IN_NATIVE("copy_buffer_to_image");
     std::size_t srcSize = 0;
     std::string srcLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);

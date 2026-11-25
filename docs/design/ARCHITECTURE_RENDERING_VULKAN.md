@@ -482,11 +482,16 @@ for are checked at probe, until M78-P2b enables them). `gpu/types.h` and `gpu/de
   A buffer has no layout: its state is the access alone.
 - **After the section.** `end_native(leftIn)` takes the subresources the native commands left in another state (each
   inside a range `uses` declared, or the call fails naming the mip and layer and the section stays open). The tracking
-  then takes every declared range as last written by `ALL_COMMANDS` with `MEMORY_WRITE` in its declared or `leftIn`
-  layout, so the engine's next use of any of them waits for the native commands with a barrier, and the bind state is
-  reset (the native commands may have bound pipelines and descriptor sets of their own). While a section is open the
-  engine records nothing on the list: `begin_pass` and `begin_compute_pass` fail the pass with "a native section is
-  open". A list submitted with its section open is reported and closed as declared.
+  then takes every declared range in a state the native commands can write (`Common`, `UnorderedAccess`, `RenderTarget`,
+  `DepthWrite`, `CopyDest`) as last written by `ALL_COMMANDS` with `MEMORY_WRITE` in its declared or `leftIn` layout, so
+  the engine's next use of any of them waits for the native commands with a barrier. A read-only state (`ShaderRead`,
+  `DepthRead`, `CopySource`) keeps its read access: nothing wrote, and a later read in the same layout needs no barrier
+  (only a `leftIn` into another read-only layout is taken as that layout's new state). The bind state is reset (the
+  native commands may have bound pipelines and descriptor sets of their own). While a section is open the engine
+  records nothing on the list: `begin_pass` and `begin_compute_pass` fail the pass with "a native section is open", and
+  `write_buffer`, `write_image`, `copy_buffer_to_buffer` and `copy_buffer_to_image` are reported with the same words
+  and skipped (the section stays open; the engine's transfer barriers would interleave with the SDK's). A list submitted
+  with its section open is reported and closed as declared.
 - **Elsewhere.** D3D11 hands out its immediate context (it tracks no state, so `uses` is only checked and `end_native`
   clears the context's state with `ClearState` and resets sokol's state cache); GL, Metal and the `RecordingDevice` refuse with an error. GL and Metal still fill
   `DeviceInfo::gpu`, best effort, from the vendor the driver's name says (no device id).

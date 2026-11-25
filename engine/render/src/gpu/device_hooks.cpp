@@ -58,6 +58,7 @@ DeviceHooks with_registered_hooks(const DeviceHooks& hooks) {
 
 void mark_hooks_unsupported(const DeviceHooks& hooks, Backend backend) {
     for (const auto& h : hooks) {
+        if (!h || h->in_use()) continue;  // a live D3D12 or Vulkan device uses it: its state is not ours to change
         h->mark_available();
         h->mark_unavailable(std::string("the ") + backend_name(backend) +
                             " backend calls no device hooks: vendor SDKs that change how the device or the swapchain "

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <ios>
 #include <memory>
 #include <string>
 #include <vector>
@@ -439,10 +440,59 @@ TEST_CASE(
     CHECK(contains(nested.error().message, "open already"));
     list.begin_pass(pass);
     list.end_pass();
+    // Writes and copies inside a section are refused and skipped; the section stays open (the next call proves it).
+    BufferDesc bufDesc;
+    bufDesc.size = 64;
+    bufDesc.usage.copySrc = true;
+    bufDesc.usage.copyDst = true;
+    bufDesc.label = "native-refused-a";
+    const Buffer refusedA = dev->make_buffer(bufDesc);
+    bufDesc.label = "native-refused-b";
+    const Buffer refusedB = dev->make_buffer(bufDesc);
+    const std::vector<std::uint8_t> bytes(64, 7);
+    BufferWrite bw;
+    bw.buffer = refusedA;
+    bw.data = Range{bytes.data(), bytes.size()};
+    list.write_buffer(bw);
+    BufferCopy bc;
+    bc.src = refusedA;
+    bc.dst = refusedB;
+    bc.size = 16;
+    list.copy_buffer_to_buffer(bc);
+    ImageWrite iw;
+    iw.data = Range{bytes.data(), bytes.size()};
+    iw.bytesPerRow = 16;
+    iw.dst.image = img;
+    iw.size.width = 4;
+    iw.size.height = 4;
+    list.write_image(iw);
+    BufferImageCopy ic;
+    ic.src = refusedA;
+    ic.bytesPerRow = 16;
+    ic.dst.image = img;
+    ic.size.width = 4;
+    ic.size.height = 4;
+    list.copy_buffer_to_image(ic);
+    const std::string refused = all_errors(*dev);
+    for (const char* call : {"write_buffer", "copy_buffer_to_buffer", "write_image", "copy_buffer_to_image"})
+        CHECK_MESSAGE(contains(refused, std::string("CommandList::") + call +
+                                            " in list 'native-misuse': a native "
+                                            "section is open (hint: end_native() "
+                                            "first; the call is skipped)"),
+                      call);
+    auto closed = list.end_native();
+    CHECK_MESSAGE(closed, closed.error().to_string());  // still open: the refused calls did not close it
+    n = list.begin_native(one);
+    REQUIRE_MESSAGE(n, n.error().to_string());
     submit_and_finish(*dev, list);
     const std::string errors = all_errors(*dev);
     CHECK(contains(errors, "a native section is open (hint: end_native() first"));
     CHECK(contains(errors, "still has a native section open"));
+
+    // A submitted list records nothing: begin_native says so instead of opening a section on it.
+    r = list.begin_native({});
+    REQUIRE(!r);
+    CHECK(contains(r.error().message, "the list is not recording"));
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 
     // A list on the transfer queue takes no native section (a device without one runs the list on another queue,
@@ -460,6 +510,8 @@ TEST_CASE(
     dev->commit();
     REQUIRE(dev->wait_idle());
 
+    dev->destroy_buffer(refusedA);
+    dev->destroy_buffer(refusedB);
     dev->destroy_view(rtv);
     dev->destroy_image(img);
     dev->destroy_image(target);

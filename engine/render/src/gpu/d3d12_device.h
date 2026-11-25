@@ -1367,6 +1367,8 @@ private:
     // Device hooks (gpu/device_hooks.h; D3d12Options::init.hooks), in their order; presents_: the presents so far
     // (PresentEvent::frame, render thread).
     DeviceHooks hooks_;
+    std::vector<char> hookCreated_;  // per hook: d3d12_device_created ran, so device_destroying follows (only then)
+    HookAttachment hookUse_;         // after hooks_: detaches once the destructor body has called device_destroying
     std::uint64_t presents_ = 0;
     // Marks `hook` unavailable with `reason`, logs it and keeps it in warnings().
     void hook_unavailable(DeviceHook& hook, std::string reason);
@@ -1376,7 +1378,7 @@ private:
     // DeviceHook::d3d12_create_swapchain: true when a hook made `chain`; `desc` as the hooks left it.
     bool hooks_make_swapchain(HWND hwnd, DXGI_SWAP_CHAIN_DESC1& desc, Com<IDXGISwapChain1>& chain);
     void hooks_swapchain_created(Com<IDXGISwapChain1>& chain);
-    void hooks_swapchain_destroying();
+    void hooks_swapchain_destroying(const void* swapchain);
     void hooks_present(bool begin, UINT image, HRESULT result);
 
     // Messages (msgMutex_)
