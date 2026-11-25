@@ -23,6 +23,10 @@
 #include "gpu/d3d12_device.h"
 #include "gpu/sokol_device.h"
 #include "shaders/blit.glsl.h"
+#if defined(_WIN32)
+#include <d3d11.h>
+#include <dxgi1_2.h>
+#endif
 
 using namespace fa::gpu;
 
@@ -3144,6 +3148,143 @@ TEST_CASE("d3d12: create_swapchain checks its desc before any DXGI work; the for
             CHECK(!hdr.error().hint.empty());
             CHECK(!dev->has_swapchain());
         }
+    }
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+// ---- one HWND, three owners in turn (the handoff of app_claim_native_window / app_release_native_window) ---------------
+
+namespace {
+
+// What the platform's d3d11::Presenter holds for the window (engine/platform/src/d3d11_present_win32.cpp, private to
+// fa_platform): a WARP D3D11 device and a flip-model swapchain on the HWND. Made and destroyed here the same way (views
+// first, then ClearState and Flush, then the swapchain, the context and the device) so that the window is free for
+// the next owner: DXGI allows one flip-model swapchain per window.
+struct D3d11Window {
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* context = nullptr;
+    IDXGISwapChain1* swap = nullptr;
+
+    ~D3d11Window() { destroy(); }
+    bool create(HWND hwnd, int width, int height, std::string& error) {
+        const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0};
+        D3D_FEATURE_LEVEL got{};
+        HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 1, D3D11_SDK_VERSION, &device,
+                                       &got, &context);
+        if (FAILED(hr)) {
+            error = "D3D11CreateDevice (WARP) failed, HRESULT " + std::to_string(std::uint32_t(hr));
+            destroy();
+            return false;
+        }
+        IDXGIDevice* dxgiDevice = nullptr;
+        IDXGIAdapter* adapter = nullptr;
+        IDXGIFactory2* factory = nullptr;
+        hr = device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
+        if (SUCCEEDED(hr)) hr = dxgiDevice->GetAdapter(&adapter);
+        if (SUCCEEDED(hr)) hr = adapter->GetParent(IID_PPV_ARGS(&factory));
+        if (SUCCEEDED(hr)) {
+            DXGI_SWAP_CHAIN_DESC1 sd{};
+            sd.Width = UINT(width);
+            sd.Height = UINT(height);
+            sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            sd.SampleDesc.Count = 1;
+            sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            sd.BufferCount = 2;
+            sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+            hr = factory->CreateSwapChainForHwnd(device, hwnd, &sd, nullptr, nullptr, &swap);
+        }
+        if (factory) factory->Release();
+        if (adapter) adapter->Release();
+        if (dxgiDevice) dxgiDevice->Release();
+        if (FAILED(hr)) {
+            error = "a D3D11 flip-model swapchain on the window failed, HRESULT " + std::to_string(std::uint32_t(hr));
+            destroy();
+            return false;
+        }
+        return true;
+    }
+    // One frame cleared to `rgba` and presented without waiting for a vblank (a hidden window is occluded: a success).
+    HRESULT present_clear(const float (&rgba)[4]) {
+        ID3D11Texture2D* back = nullptr;
+        HRESULT hr = swap->GetBuffer(0, IID_PPV_ARGS(&back));
+        if (FAILED(hr)) return hr;
+        ID3D11RenderTargetView* view = nullptr;
+        hr = device->CreateRenderTargetView(back, nullptr, &view);
+        back->Release();
+        if (FAILED(hr)) return hr;
+        context->ClearRenderTargetView(view, rgba);
+        view->Release();
+        return swap->Present(0, 0);
+    }
+    void destroy() {
+        if (context) {
+            context->ClearState();
+            context->Flush();
+        }
+        if (swap) swap->Release();
+        if (context) context->Release();
+        if (device) device->Release();
+        swap = nullptr;
+        context = nullptr;
+        device = nullptr;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("d3d12: one window passes from a D3D11 swapchain to D3D12 and back to D3D11, and each presents") {
+    auto dev = make_warp();
+    if (!dev) return;
+    HiddenWindow win(64, 48);
+    if (!win.hwnd) {
+        MESSAGE("d3d12: skipped, Windows made no window (error " << GetLastError() << ")");
+        return;
+    }
+    const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+
+    // 1. The platform's D3D11 presenter draws on the window (what sokol_gfx does until a device claims it).
+    {
+        D3d11Window d3d11;
+        std::string error;
+        if (!d3d11.create(win.hwnd, 64, 48, error)) {
+            MESSAGE("d3d12: skipped, D3D11 on WARP is not available here: " << error);
+            return;
+        }
+        const HRESULT shown = d3d11.present_clear(red);
+        CHECK_MESSAGE(SUCCEEDED(shown), "the first D3D11 present, HRESULT " << std::uint32_t(shown));
+        // 2. app_claim_native_window destroys the presenter first: one flip-model swapchain per window.
+    }
+
+    // 3. D3D12 claims the window: its own swapchain on the same HWND, frames read back before present.
+    {
+        SwapchainDesc d;
+        d.nativeWindow = win.hwnd;
+        d.vsync = false;
+        d.label = "handoff-window";
+        auto made = dev->create_swapchain(d);
+        REQUIRE_MESSAGE(made, made.error().to_string());
+        std::vector<std::uint8_t> px;
+        const Swapchain sc = swapchain_frame(*dev, Color{0.0f, 0.0f, 1.0f, 1.0f}, px);
+        const std::string bad =
+            first_mismatch(px, sc.width, sc.height, 1, [&](int, int) { return std::array<int, 4>{0, 0, 255, 255}; });
+        CHECK_MESSAGE(bad.empty(), bad);
+        // 4. app_release_native_window: the device lets the window go (the GPU finishes with the buffers first).
+        dev->destroy_swapchain();
+        CHECK(!dev->has_swapchain());
+        auto idle = dev->wait_idle();
+        CHECK_MESSAGE(idle, idle.error().to_string());
+    }
+
+    // 5. The D3D11 presenter makes its swapchain on the window again and presents (the fallback after a failed claim,
+    // and every release).
+    {
+        D3d11Window again;
+        std::string error;
+        REQUIRE_MESSAGE(again.create(win.hwnd, 64, 48, error), error);
+        const HRESULT shown = again.present_clear(green);
+        CHECK_MESSAGE(SUCCEEDED(shown),
+                      "the D3D11 present after D3D12 released the window, HRESULT " << std::uint32_t(shown));
     }
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }

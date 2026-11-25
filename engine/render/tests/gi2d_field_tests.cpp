@@ -21,6 +21,7 @@
 #include "fa/scene/tilemap.h"
 #include "frame_graph.h"
 #include "gi2d.h"
+#include "gi2d_test_support.h"
 #include "gpu/recording_device.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -55,18 +56,16 @@ struct Own {
         g.gpu.end_frame();
     }
     // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks them is a bug to see, not a
-    // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say so.
+    // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say what is missing.
     bool gi_ready() {
         REQUIRE(renderer_gpu(r)->has_device());
         const gpu::Device& dev = renderer_gpu(r)->device();
-        const bool floatOk = Gi2dSystem::float_targets_ok(dev);
+        const std::string missing = gi2d_missing_targets(dev);
+        if (missing.empty()) return true;
         const gpu::Backend api = dev.backend();
-        if (api == gpu::Backend::Gl || api == gpu::Backend::D3d11 || api == gpu::Backend::Metal) {
-            INFO("this backend must have RGBA16F render targets that blend and filter");
-            REQUIRE(floatOk);
-        }
-        if (!floatOk) MESSAGE("no RGBA16F targets on this GPU: the field is not drawn here");
-        return floatOk;
+        if (api == gpu::Backend::Gl || api == gpu::Backend::D3d11 || api == gpu::Backend::Metal) FAIL(missing);
+        MESSAGE(missing);
+        return false;
     }
 };
 
