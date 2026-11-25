@@ -1554,7 +1554,21 @@ TEST_CASE("dlss ray reconstruction: the probe is DLSS's plus the plugin, and the
           std::string::npos);  // the project setting and a restart
     CHECK(p.reason.find("restart") != std::string::npos);
     CHECK(std::find(sx.loaded.begin(), sx.loaded.end(), sl::kFeatureDlssRr) ==
-          sx.loaded.end());  // slInit was not told of the plugin
+          sx.loaded.end());                                             // slInit was not told of the plugin
+    CHECK(p.reason.find("render.upscaler.mode") == std::string::npos);  // the flag is the one to set here, not the mode
+    // The project asked (the flag is true) but starts in a mode that never draws with DLSS: the hint names the mode, not the flag.
+    render::streamline_ask_upscaler_features(rt, false, true);
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    CHECK(p.reason.find("render.upscaler.rayReconstruction is true") != std::string::npos);
+    CHECK(p.reason.find("Set render.upscaler.mode to \"dlss\" or \"auto\" in factoria.json and restart") !=
+          std::string::npos);
+    CHECK(p.reason.find("Set render.upscaler.rayReconstruction") == std::string::npos);
+    render::streamline_ask_upscaler_features(rt, false, false);  // the next renderer says nothing of it
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK(p.reason.find("Set render.upscaler.rayReconstruction to true in factoria.json and restart") !=
+          std::string::npos);
     env.backend = gpu::Backend::Vulkan;
     p = dlss->probe_ray_reconstruction(env);
     CHECK_FALSE(p.available);

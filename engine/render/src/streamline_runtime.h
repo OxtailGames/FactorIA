@@ -522,6 +522,11 @@ public:
     void add_feature(std::uint32_t feature);
     // Whether `feature` was in the list the set-up of the current device used (so feature_reason is Streamline's own answer for it).
     bool feature_asked(std::uint32_t feature) const;
+    // Why `feature` is not in the list on purpose, for the answer of a provider whose plugin was not asked ("" clears it): the project asked for
+    // the feature but the run cannot use it (Ray Reconstruction's plugin is not loaded under a mode that never draws with DLSS). Kept across
+    // devices; the next renderer sets it again.
+    void set_feature_skipped_reason(std::uint32_t feature, std::string reason);
+    std::string feature_skipped_reason(std::uint32_t feature) const;
 
     StreamlineStatus status() const;
     // "" when Streamline says `feature` runs on this machine, else its reason (slIsFeatureSupported's answer, with what to do). Meaningful

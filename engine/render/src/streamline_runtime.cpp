@@ -537,6 +537,8 @@ struct StreamlineRuntime::Impl {
     // get two tokens and Streamline would see two frames.
     mutable std::mutex mu_;
     std::vector<std::uint32_t> features_;
+    std::vector<std::pair<std::uint32_t, std::string>>
+        skipped_;            // feature -> why it was left out of features_ (set_feature_skipped_reason)
     std::string projectId_;  // slInit's prefs point at it: it lives as long as Streamline may read it
     StreamlineHost host_;
 
@@ -930,6 +932,26 @@ void StreamlineRuntime::add_feature(std::uint32_t feature) {
     std::lock_guard lock(impl_->mu_);
     if (std::find(impl_->features_.begin(), impl_->features_.end(), feature) == impl_->features_.end())
         impl_->features_.push_back(feature);
+}
+
+void StreamlineRuntime::set_feature_skipped_reason(std::uint32_t feature, std::string reason) {
+    std::lock_guard lock(impl_->mu_);
+    for (auto it = impl_->skipped_.begin(); it != impl_->skipped_.end(); ++it) {
+        if (it->first != feature) continue;
+        if (reason.empty())
+            impl_->skipped_.erase(it);
+        else
+            it->second = std::move(reason);
+        return;
+    }
+    if (!reason.empty()) impl_->skipped_.emplace_back(feature, std::move(reason));
+}
+
+std::string StreamlineRuntime::feature_skipped_reason(std::uint32_t feature) const {
+    std::lock_guard lock(impl_->mu_);
+    for (const auto& s : impl_->skipped_)
+        if (s.first == feature) return s.second;
+    return {};
 }
 
 bool StreamlineRuntime::feature_asked(std::uint32_t feature) const {

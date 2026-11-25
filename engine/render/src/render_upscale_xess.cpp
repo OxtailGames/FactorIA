@@ -375,14 +375,17 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
                               ctx_.quality == quality && ctx_.flags == flags;
     // Without a range from the library, only the size of the init is known to work. With one, a size outside it cannot be helped by
     // initialising again at the same quality (the range depends on the output and the quality only), and XeSS would refuse the frame
-    // without saying why: the refusal says it. The picture is not cut or stretched to fit: the render size is what the scene was drawn at.
+    // without saying why: the refusal says it. Like every failure of the provider it turns XeSS off for the rest of the run (vendor_fail),
+    // so the message says that and what to change for the next start. The picture is not cut or stretched to fit.
     if (sameSettings && ctx_.rangeKnown && !in_range(in))
         return "the render size " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
                " is outside XeSS's input range " + std::to_string(ctx_.inputMin.x) + "x" +
                std::to_string(ctx_.inputMin.y) + ".." + std::to_string(ctx_.inputMax.x) + "x" +
                std::to_string(ctx_.inputMax.y) + " for quality " + xess_quality_name(quality) + " at an output of " +
                std::to_string(in.outW) + "x" + std::to_string(in.outH) +
-               ". Choose another render.upscaler.quality (or window.renderScale).";
+               ". XeSS is off for the rest of this run and the usual fallback draws; to use it, change "
+               "render.upscaler.quality in "
+               "factoria.json and restart.";
     if (sameSettings && (ctx_.rangeKnown || (in.renderW == ctx_.renderW && in.renderH == ctx_.renderH))) {
         if (in.renderW != ctx_.renderW || in.renderH != ctx_.renderH) {
             // A step of the dynamic resolution: the motion scale follows the render size, the history is kept.
@@ -806,7 +809,7 @@ std::shared_ptr<XessDeviceHook> g_process_hook;
 
 void XessDeviceHook::vulkan_instance_request(gpu::VulkanInstanceRequest& request) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (live_ == 0) granted_ = XessVulkanGrant{};  // a device that lives keeps its grant
+    granted_ = XessVulkanGrant{};
     askedInstance_.clear();
     askedDevice_.clear();
     installed_ = false;
@@ -842,15 +845,12 @@ void XessDeviceHook::vulkan_device_created(const gpu::VulkanDeviceCreated&) {
     std::lock_guard<std::mutex> lock(mutex_);
     granted_.instanceExtensions = askedInstance_;
     granted_.deviceExtensions = askedDevice_;
-    ++live_;
 }
 
 void XessDeviceHook::device_destroying() {
-    // The callback names no device: the grant is the last device's, and it goes with the last device that lives (a second Vulkan device
-    // made while the first lives, and going first, leaves it).
+    // The hook serves one live device (gpu::HookAttachment gives a second one no callbacks), so the device that goes is the one the grant is for.
     std::lock_guard<std::mutex> lock(mutex_);
-    if (live_ > 0) --live_;
-    if (live_ == 0) granted_ = XessVulkanGrant{};
+    granted_ = XessVulkanGrant{};
 }
 
 XessVulkanGrant XessDeviceHook::grant() const {

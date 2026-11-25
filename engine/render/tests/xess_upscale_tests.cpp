@@ -969,7 +969,10 @@ TEST_CASE(
           std::string::npos);
     CHECK(fx.inits == 1);
     CHECK(fx.executes == executes);  // XeSS was not called with it
-    // A size inside the range draws again with the same context.
+    CHECK(r.frame.error.find("XeSS is off for the rest of this run") != std::string::npos);
+    CHECK(r.frame.error.find("window.renderScale") == std::string::npos);  // a run-time change would not bring it back
+    // The provider itself keeps no state of the refusal (the renderer turns the provider off for the run): a size inside the range
+    // draws again with the same context.
     r.resize(155, 87, 320, 180);
     REQUIRE_MESSAGE(r.draw(), r.frame.error);
     CHECK(fx.inits == 1);
@@ -1133,21 +1136,6 @@ TEST_CASE("xess Vulkan device hook: the extensions and feature structs XeSS asks
         CHECK(grant.deviceExtensions == fx.deviceExtensions);
         CHECK(grant.unavailableReason.empty());
         hook->device_destroying();
-        CHECK(hook->grant().deviceExtensions.empty());
-    }
-    SUBCASE("a second device going first leaves the grant of the one that lives") {
-        const auto hook = render::make_xess_device_hook();
-        gpu::VulkanInstanceRequest instance;
-        gpu::VulkanDeviceRequest device;
-        hook->vulkan_instance_request(instance);
-        hook->vulkan_device_request(pd, device);
-        hook->vulkan_device_created(gpu::VulkanDeviceCreated{});
-        hook->vulkan_instance_request(instance);  // the second device
-        hook->vulkan_device_request(pd, device);
-        hook->vulkan_device_created(gpu::VulkanDeviceCreated{});
-        hook->device_destroying();  // one of them goes
-        CHECK(hook->grant().deviceExtensions == fx.deviceExtensions);
-        hook->device_destroying();  // the last one
         CHECK(hook->grant().deviceExtensions.empty());
     }
     SUBCASE("a library that is not installed asks for nothing and does not turn the hook off") {
