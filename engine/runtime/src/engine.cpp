@@ -303,6 +303,11 @@ void Engine::Impl::apply_project_settings() {
         appliedProjectLatency = project.latency;
         self->set_latency(render::latency_to_json(project.latency), "factoria.json");
     }
+    // The frame generation setting of factoria.json ("render.frameGeneration"), applied when it changes. Always valid.
+    if (!appliedProjectFrameGen || *appliedProjectFrameGen != project.frameGeneration) {
+        appliedProjectFrameGen = project.frameGeneration;
+        self->set_frame_generation(render::frame_gen_to_json(project.frameGeneration), "factoria.json");
+    }
     // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
     // load_project checked it.
     if (!appliedProjectDynRes || *appliedProjectDynRes != project.dynamicResolution) {
@@ -1186,6 +1191,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.backend = I.gpuChoice.backend;
         rd.asyncCompute = I.project.renderAsyncCompute;
         rd.multiThreadRecording = I.project.renderMultiThreadRecording;
+        // Frame generation owns the swapchain (a provider hooks its creation), so the renderer is told at its start; only a game window has one.
+        rd.frameGeneration = I.windowed && !config.editorMode && I.frameGeneration.mode != render::FrameGenMode::Off;
         std::string gerr;
         bool ok = false;
         // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native
@@ -1296,6 +1303,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
             // The low-latency setting: a window the game draws into only (the editor's own loop and a headless run have no display to pace).
             if (I.windowed && !config.editorMode) I.renderer->set_latency(I.latency);
+            if (I.windowed && !config.editorMode) I.renderer->set_frame_generation(I.frameGeneration);
             // The project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality
             // draws below the window's size from the first frame).
             I.sync_dynamic_resolution();
@@ -2083,6 +2091,47 @@ Json Engine::latency_status() {
 
 Json Engine::latency_report() { return impl_->renderer ? impl_->renderer->latency_report() : Json::object(); }
 
+std::string Engine::set_frame_generation(const Json& value, const std::string& where) {
+    auto parsed = render::parse_frame_gen_settings(value, where, impl_->frameGeneration);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->frameGeneration = parsed.value();
+    if (impl_->renderer && impl_->windowed && !impl_->cfg.editorMode)
+        impl_->renderer->set_frame_generation(impl_->frameGeneration);
+    return std::string();
+}
+
+const render::FrameGenSettings& Engine::frame_generation() const { return impl_->frameGeneration; }
+
+Json Engine::frame_generation_status() {
+    Json j;
+    if (impl_->renderer) {
+        j = impl_->renderer->frame_generation_status();
+        if (!(impl_->windowed && !impl_->cfg.editorMode) && impl_->frameGeneration.mode != render::FrameGenMode::Off) {
+            j["mode"] = std::string(render::frame_gen_mode_name(impl_->frameGeneration.mode));
+            j["minBaseFps"] = impl_->frameGeneration.minBaseFps;
+            j["provider"] = "none";
+            j["state"] = "refused";
+            j["reason"] =
+                "Frame generation acts in a game window only: this run is headless or the editor's own loop, so "
+                "nothing is generated.";
+        }
+        return j;
+    }
+    j = render::frame_gen_to_json(impl_->frameGeneration);
+    j["provider"] = "none";
+    j["state"] = impl_->frameGeneration.mode == render::FrameGenMode::Off ? "off" : "refused";
+    j["reason"] =
+        impl_->frameGeneration.mode == render::FrameGenMode::Off
+            ? std::string()
+            : std::string("No renderer: the engine runs with graphics=false, so the setting is only remembered.");
+    j["modes"] = Json::object();
+    return j;
+}
+
+Json Engine::frame_generation_report() {
+    return impl_->renderer ? impl_->renderer->frame_generation_report() : Json::object();
+}
+
 std::string Engine::set_dynamic_resolution(const Json& value, const std::string& where) {
     std::string err = ScriptHost::set_dynamic_resolution(value, where);
     if (err.empty()) {
@@ -2298,6 +2347,27 @@ void Engine::profile_latency(std::string* driver, std::string* reason) {
         why = "no frame was presented while this was measured";
     if (driver) *driver = name;
     if (reason) *reason = why;
+}
+
+Json Engine::profile_frame_generation() {
+    Json j = frame_generation_report();
+    if (j.is_object() && !j.empty() &&
+        !(j.value("state", std::string()) == "off" && j.value("reason", std::string()).empty()))
+        return j;
+    const Json st = frame_generation_status();
+    j = Json::object();
+    j["provider"] = "none";
+    j["state"] = st.value("state", std::string("off"));
+    j["generating"] = false;
+    j["baseFps"] = 0.0;
+    j["presentedFps"] = 0.0;
+    j["renderedFrames"] = 0;
+    j["generatedFrames"] = 0;
+    std::string why = st.value("reason", std::string());
+    if (why.empty())
+        why = "render.frameGeneration is off (set mode auto, or the one of the GPU's maker: docs/FRAME_GENERATION.md)";
+    j["reason"] = why;
+    return j;
 }
 
 void Engine::step_frames(int n) { step(n); }

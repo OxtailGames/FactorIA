@@ -368,6 +368,9 @@ const std::vector<DocManifestEntry>& manifest() {
          "Low latency (render.latency): AMD Anti-Lag 2, Intel XeLL, the engine's own pacing, the input-to-present "
          "readout.",
          aud({kGameAi, kUser, kEngineDev})},
+        {"frame-generation",
+         "Frame generation (render.frameGeneration): DLSS, FSR 3 and XeSS generated frames, minBaseFps, the readout.",
+         aud({kGameAi, kUser, kEngineDev})},
         {"rigging", "Skeletons for 3D models (*.rig.json): bones, weights and poses.", aud({kGameAi})},
         {"scripting", "The JavaScript API: behaviours, entities, events, input, timers, modules.", aud({kGameAi})},
         {"scripting-world-input", "Scripting pages: the entity API, world, input, window, device presets and gamepads.",

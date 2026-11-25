@@ -122,6 +122,13 @@ struct RendererTestAccess {
     static bool upscale_used_history(Renderer& r);
     // M78-P1: the vendor upscalers: vendor_failed: provider `index` (0 dlss, 1 xess, 2 fsr) refused a frame and is off for the run.
     static bool vendor_failed(Renderer& r, int index);
+    // M78-P5a: frame generation. output_passes: the passes of the output stage the last frame ran, in order (upscale, framegen-hudless,
+    // hud-over-upscale, framegen); hudless_target_alive: the picture-before-the-items copy exists.
+    static std::vector<std::string> output_passes(Renderer& r);
+    static bool hudless_target_alive(Renderer& r);
+    // A headless test renderer has no window swapchain for a provider's hook: this tells the controller the device was made with the hooks (what a
+    // windowed renderer with RendererDesc::frameGeneration is told), so a fake provider can start. Call it before set_frame_generation.
+    static void framegen_assume_hooked(Renderer& r);
     // M76-P5b: MetalFX. mfx_failed: the renderer gave it up (creation or a frame failed); mfx_encoded: frames the scaler encoded since it was
     // made; mfx_generation: scalers made; mfx_reset: the last MetalFX temporal frame reset the scaler's history. Hooks: the next scaler
     // creation fails, and the sign of the jitter and of the motion handed to MetalFX (-1 flips it, to show the sign matters).

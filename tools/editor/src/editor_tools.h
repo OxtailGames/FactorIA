@@ -79,6 +79,8 @@ struct ProfilerView {
     double latencyMs = 0;
     bool haveLatency = false;
     std::string latencyDriver = "none", latencyReason = "no frame presented yet";
+    // The frame generation readout (M78, Engine::profile_frame_generation): provider, state, baseFps, presentedFps, generatedFrames, reason.
+    Json frameGeneration;
     ProfMemory memory;
     bool haveMemory = false;
     // The post-processing passes of the last sampled frame (fa::post_pass_times): CPU time to record each, GPU time where the

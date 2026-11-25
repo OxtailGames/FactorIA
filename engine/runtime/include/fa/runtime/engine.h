@@ -348,6 +348,16 @@ public:
     Json latency_status();
     // The measured input-to-present time of the last frames and the vendor's own report ({} without a renderer).
     Json latency_report();
+    // render.frame_generation (M78, docs/FRAME_GENERATION.md): the frame generation setting {mode, minBaseFps}. A change is applied to the renderer
+    // at once (a provider needs it from the start of the run: the swapchain is made then); an error is returned and nothing changes. Without a
+    // renderer (graphics=false, headless) the value is only remembered.
+    std::string set_frame_generation(const Json& value, const std::string& where = "render.frame_generation");
+    const render::FrameGenSettings& frame_generation() const;
+    // The setting, the provider that runs it, the state of the controller and why not the one asked for, as render.frame_generation returns it
+    // (Renderer::frame_generation_status).
+    Json frame_generation_status();
+    // The base and presented frame rates and the generated frames of the last frames ({} without a renderer).
+    Json frame_generation_report();
     // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
     // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
     std::string set_dynamic_resolution(const Json& value,
@@ -398,6 +408,9 @@ public:
     // The driver that measures the input-to-present time (ProfFrame::latencyMs: "none", "pacing", "reflex", "antilag2", "xell") and why no
     // frame carries one while the driver is none (the setting is off, a headless run, ...). The times come with the profiler's frames.
     void profile_latency(std::string* driver, std::string* reason);
+    // The frame generation readout of the profile (ProfileSummary::set_frame_generation): the renderer's report, or a "off" block that says why
+    // nothing was generated (the setting is off, a headless run, no provider).
+    Json profile_frame_generation();
 
     // Loading trace (EngineConfig::traceLoads, fa/core/load_trace.h). begin_load_trace starts a new one (a play session of the
     // editor starts here; a trace already running is ended first, its order handed to loadOrderSink); loading_report is the

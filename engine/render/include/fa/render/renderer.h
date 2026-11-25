@@ -42,6 +42,7 @@
 #include "fa/render/gpu_info.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/ui_painter.h"
+#include "fa/render/framegen.h"
 #include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
@@ -172,6 +173,10 @@ struct RendererDesc {
     // D3d12 and Vulkan without `headless`: the present mode of their swapchain (true: FIFO / sync interval 1). The
     // sokol backends follow the platform's (app_set_vsync).
     bool vsync = true;
+    // M78 (factoria.json render.frameGeneration; docs/FRAME_GENERATION.md): the game asks for frame generation, so the providers' device hooks are
+    // registered before the device is made (they take part in making the swapchain, which cannot be changed later). False: the mode can be
+    // set at run time, but a provider never starts and the reason says to restart with the setting on. Only D3d12 and Vulkan in a window use it.
+    bool frameGeneration = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -461,6 +466,19 @@ public:
     double take_latency_ms();
     // The readout: {"driver", "lastMs", "avgMs", "p95Ms", "maxMs", "samples", "vendor"} (vendor: the SDK's own report, or null).
     Json latency_report();
+    // The engine-wide frame-generation setting (fa/render/framegen.h, M78; docs/FRAME_GENERATION.md). The provider that runs is
+    // effective_frame_generation(): the mode's SDK when it is usable here, else none (the reason is in frame_generation_status). Whether it
+    // generates this frame is the controller's: it needs the temporal upscaler's frame and a base frame rate of at least minBaseFps. Needs an
+    // initialised renderer (before init() the calls do nothing). Off (the default) costs nothing.
+    void set_frame_generation(const render::FrameGenSettings& settings);
+    const render::FrameGenSettings& frame_generation() const;
+    render::FrameGenSlot effective_frame_generation() const;
+    // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:
+    // {"available", "reason"}} for dlss, fsr and xess}. Asks each SDK once.
+    Json frame_generation_status();
+    // The readout: {"provider", "state", "generating", "baseFps", "presentedFps", "renderedFrames", "generatedFrames", "reason"} (the rates over
+    // the last 30 rendered frames; "reason" says why nothing runs or why generation is paused).
+    Json frame_generation_report();
     render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
     render::UpscalerMode
     effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised
