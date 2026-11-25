@@ -8322,7 +8322,7 @@ Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameM
 
 ### `render.frame_generation` (modifies state)
 
-Not released yet (on main after 0.37.0).
+Since 0.38.0.
 
 Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered ones.
 
@@ -8404,7 +8404,7 @@ Draws the picture as it is now and reads the pixels along the segment `from` -> 
 
 ### `render.latency` (modifies state)
 
-Not released yet (on main after 0.37.0).
+Since 0.38.0.
 
 Reads or changes the low-latency setting: how the game shortens the time from an input to the frame it shows.
 
