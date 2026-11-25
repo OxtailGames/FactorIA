@@ -34,6 +34,7 @@
 #include "activity_end.h"
 #include "ime_android.h"
 #endif
+#include "d3d11_present.h"
 #include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -243,7 +244,21 @@ void on_frame() {
     if (g.desc.input)
         mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
     if (--g.framesToInsets <= 0) refresh_insets();
+#if defined(FA_D3D11_PRESENTER)
+    // Windows: sokol_app has no graphics API (sokol_impl.c), so the window's swapchain follows the framebuffer size here
+    // and the frame is presented after the game drew it. No presenter yet (the game has not asked for its device, or draws
+    // with D3D12 or Vulkan on its own swapchain): nothing to do.
+    d3d11::Presenter* presenter = d3d11::window_presenter();
+    if (presenter) presenter->resize(sapp_width(), sapp_height());
+#endif
     if (g.desc.frame) g.desc.frame(dt);
+#if defined(FA_D3D11_PRESENTER)
+    presenter = d3d11::window_presenter();  // the frame may have made it (its first app_gfx_environment())
+    if (presenter) {
+        const int interval = g.vsync ? std::max(1, sapp_query_desc().swap_interval) : 0;
+        presenter->present(interval, d3d11::in_modal_move_size_loop());
+    }
+#endif
 }
 
 #if !(defined(__ANDROID__) ||                                                                                          \
@@ -271,6 +286,9 @@ void on_cleanup() {
     ime_android_attach(false);
 #endif
     if (g.desc.cleanup) g.desc.cleanup();
+#if defined(FA_D3D11_PRESENTER)
+    d3d11::window_presenter_release();  // after sg_shutdown(): sokol_gfx used its device
+#endif
     g.active = false;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
     // macOS: sapp_run() does not return; Cocoa ends the process with 0 right after this callback. Use our code instead.
@@ -477,19 +495,43 @@ int run_app(const AppDesc& desc) {
 bool gfx_device_active() { return sg_isvalid(); }
 
 GfxEnvironment app_gfx_environment() {
+#if defined(FA_D3D11_PRESENTER)
+    // The window's D3D11 device, made on the first call (d3d11_present_win32.cpp). Without one (no Direct3D 11, the error
+    // was logged) the environment has a null device and sg_setup() fails the way it did when sokol_app could not make it.
+    if (const d3d11::Presenter* p = d3d11::window_presenter_ensure()) return p->environment();
+    return d3d11::Presenter().environment();
+#else
     GfxEnvironment out{};
     sg_environment env = sglue_environment();
     std::memcpy(out.storage, &env, sizeof(env));
     return out;
+#endif
 }
 
 GfxSwapchain app_gfx_swapchain() {
+#if defined(FA_D3D11_PRESENTER)
+    if (const d3d11::Presenter* p = d3d11::window_presenter()) return p->swapchain();
+    return d3d11::Presenter().swapchain();  // invalid: sokol_gfx skips the pass
+#else
     GfxSwapchain out{};
     sg_swapchain sc = sglue_swapchain();
     // HDR10 (hdr_output.cpp): sokol_app knows only its 8-bit and 16-bit float formats, so the 10-bit one is said here.
     if (fa_sapp_swapchain_kind() == 2) sc.color_format = SG_PIXELFORMAT_RGB10A2;
     std::memcpy(out.storage, &sc, sizeof(sc));
     return out;
+#endif
+}
+
+bool app_read_window_back_buffer(int width, int height, std::uint8_t* rgba) {
+#if defined(FA_D3D11_PRESENTER)
+    const d3d11::Presenter* p = d3d11::window_presenter();
+    return p && p->read_back_buffer(width, height, rgba);
+#else
+    (void)width;
+    (void)height;
+    (void)rgba;
+    return false;
+#endif
 }
 
 int app_framebuffer_width() { return sapp_isvalid() ? sapp_width() : g.fbW; }
