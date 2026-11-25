@@ -280,7 +280,7 @@ TEST_CASE("vulkan: the feature structs of a hook are read member by member and m
         VulkanDeviceRequest add;
         add.add_features(f12);
         REQUIRE(add.features[0].size() == sizeof(f12));
-        if (sizeof(f12) > 204) std::memset(add.features[0].data() + 204, 0xff, sizeof(f12) - 204);
+        if constexpr (sizeof(f12) > 204) std::memset(add.features[0].data() + 204, 0xff, sizeof(f12) - 204);
         padded->features = add.features;
     }
     // A struct an older per-feature struct of Vulkan 1.2: the engine chains Vulkan12Features already.
