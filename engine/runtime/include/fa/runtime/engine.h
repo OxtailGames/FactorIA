@@ -84,7 +84,7 @@ struct EngineConfig {
     // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
     // D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the native window from the
     // platform) or headless offscreen; when the one asked for cannot start (no driver, no such GPU, a window that cannot
-    // take its swapchain: an OpenGL window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
+    // take its swapchain: Android's OpenGL ES window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
     // only), and when that does not take the process over it warns once with the first error and draws with the sokol
     // backend of this build in the same process. Engine::startup_report names the one that runs, the one asked for and
     // why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
@@ -98,8 +98,9 @@ struct EngineConfig {
     // returns, so a Vulkan failure is never hidden by it. `why` starts with kGpuWindowPathReason when the window cannot
     // take the swapchain at all (fa/runtime/gpu_backend_choice.h).
     std::function<void(const std::string& backend, const std::string& why)> gpuBackendFailed;
-    // Tests: called before each start of the renderer on a backend; a non-empty answer makes that start fail with it
-    // (before any device is made), so the fallback can be checked on a machine where every backend works. Empty = none.
+    // Tests: called before each start of the renderer on a backend (in a window, after D3D12 or Vulkan claimed it); a
+    // non-empty answer makes that start fail with it (before any device is made; a claimed window is released), so the
+    // fallback can be checked on a machine where every backend works. Empty = none.
     std::function<std::string(GpuBackend backend)> gpuStartFault;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with

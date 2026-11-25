@@ -71,3 +71,12 @@ endif()
 if(WIN32 AND TARGET fa_test_platform)
     target_link_libraries(fa_test_platform PRIVATE ws2_32)  # tests/http_test_server.h: a local HTTP server
 endif()
+# sokol_app's OpenGL surface leaves the X11 window for a GPU device and comes back (tests/gl_surface_handover_tests_linux.cpp):
+# a real window, under xvfb. Alone in its process: sokol_app and sokol_gfx are singletons.
+find_program(FA_XVFB_RUN xvfb-run)
+if(TARGET fa_test_platform AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
+    add_test(NAME platform_windowed_gl_handover
+        COMMAND ${CMAKE_COMMAND} -E env FA_WINDOWED_SMOKE=1 ${FA_XVFB_RUN} -a -s "-screen 0 1280x720x24"
+                $<TARGET_FILE:fa_test_platform> "-tc=gl surface handover*"
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()

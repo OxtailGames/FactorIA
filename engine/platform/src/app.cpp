@@ -45,6 +45,12 @@
 #include <emscripten.h>
 #endif
 
+// Linux with sokol_app's GLX window (M77-P9e3): its OpenGL surface leaves the window while a Vulkan device presents
+// there (fa_sapp_gl_surface_release in sokol_impl.c). An EGL window (SOKOL_FORCE_EGL, a GLES3 build) keeps it.
+#if defined(__linux__) && !defined(__ANDROID__) && defined(SOKOL_GLCORE) && !defined(SOKOL_FORCE_EGL)
+#define FA_GL_WINDOW_HANDOVER 1
+#endif
+
 namespace fa {
 
 static_assert(sizeof(sg_environment) <= sizeof(GfxEnvironment::storage), "GfxEnvironment storage too small");
@@ -271,6 +277,16 @@ void on_frame() {
 int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 #endif
 
+#if defined(FA_GL_WINDOW_HANDOVER)
+// sokol_app's OpenGL surface back on the window after a device let it go (nothing when it never left).
+void restore_gl_surface() {
+    if (fa_sapp_gl_surface_state() == 0) return;
+    char why[512];
+    if (!fa_sapp_gl_surface_restore(why, sizeof why))
+        FA_ERROR("platform", "The window's OpenGL surface could not come back: {}", why);
+}
+#endif
+
 void on_cleanup() {
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
     g.watchdog.reset();
@@ -293,6 +309,11 @@ void on_cleanup() {
     if (g.desc.cleanup) g.desc.cleanup();
 #if defined(FA_D3D11_PRESENTER)
     d3d11::window_presenter_release();  // after sg_shutdown(): sokol_gfx used its device
+#endif
+#if defined(FA_GL_WINDOW_HANDOVER)
+    // A device that still had the window (a host that did not call app_release_native_window()) is gone with the app's
+    // cleanup: sokol_app's shutdown then finds the GLX state it made, a GLXWindow, and destroys it.
+    restore_gl_surface();
 #endif
     g.presenter = WindowPresenter::None;
     g.deviceBackend.clear();
@@ -566,7 +587,8 @@ GfxSwapchain app_gfx_swapchain() {
 
 NativeWindow app_native_window() {
     NativeWindow out;
-#if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+#if (defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)) && !defined(FA_GL_WINDOW_HANDOVER)
+    // Android (until M77-P9e3b), a Linux EGL window, the web: sokol_app's OpenGL surface stays on the window.
     out.busy = "sokol_app made an OpenGL context on this window and swaps its buffers after every frame, so a Vulkan "
                "device cannot make its own swapchain on it (hint: this build draws its window with OpenGL; leave "
                "render.backend on auto here, or run headless)";
@@ -589,6 +611,21 @@ Result<NativeWindow> app_claim_native_window(const std::string& backend) {
         window_presenter_step(g.presenter, WindowPresenterEvent::DeviceClaim, gfx_device_active(), handles.busy);
     if (!step.error.empty())
         return make_error("the window cannot be handed to the " + backend + " device: " + step.error);
+#if defined(FA_GL_WINDOW_HANDOVER)
+    // sokol_app's GLX surface is on the window from its start, whatever the presenter state says (None too: the runner
+    // opened no sokol context), so it leaves on every claim. A driver that refuses keeps the window on OpenGL and the
+    // claim fails with its reason (the engine falls back to OpenGL in process and reports it).
+    {
+        char why[512];
+        if (!fa_sapp_gl_surface_release(why, sizeof why))
+            return make_error("the window cannot be handed to the " + backend + " device: " + why);
+        if (fa_sapp_gl_surface_state() == 2)
+            FA_INFO("platform", "The window's OpenGL context waits for the {} device with no drawable (no pbuffer: {})",
+                    backend, why);
+        else
+            FA_INFO("platform", "The window's OpenGL context waits for the {} device on a 1x1 pbuffer", backend);
+    }
+#endif
     if (step.releasePlatform) {
 #if defined(FA_D3D11_PRESENTER)
         // One flip-model swapchain per HWND: the D3D11 presenter's goes (ClearState + Flush release it at once) before the
@@ -608,6 +645,9 @@ void app_release_native_window() {
     if (g.presenter == WindowPresenter::Device) g.deviceBackend.clear();
     g.presenter = step.next;
     g.presenterRefusalLogged = false;
+#if defined(FA_GL_WINDOW_HANDOVER)
+    restore_gl_surface();  // the device's swapchain is gone: sokol_app's OpenGL surface goes back on the window
+#endif
 }
 
 WindowPresenter app_window_presenter() { return g.presenter; }

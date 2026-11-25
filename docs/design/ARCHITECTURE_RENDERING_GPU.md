@@ -443,9 +443,9 @@ platform (`WindowPresenter::Platform`: sokol_app's own, or the D3D11 presenter a
 (`WindowPresenter::Device`). `window_presenter_step` (window_presenter.cpp, pure, tested on every platform in
 window_presenter_tests.cpp) is the state machine app.cpp acts on: `app_gfx_environment()` asks for the platform's
 (refused, logged once, while a device holds the window), `app_claim_native_window(backend)` hands the native handles
-to a device (refused when the window is busy: an OpenGL or GLES window, whose buffers sokol_app swaps; when a graphics
-context draws with the platform's swapchain; when another device holds it) and on Windows releases an idle D3D11
-presenter, and `app_release_native_window()` gives it back. While a device holds it `app_gfx_swapchain()` is invalid,
+to a device (refused when the window is busy: an Android, Linux EGL or web window, whose buffers sokol_app swaps;
+when a graphics context draws with the platform's swapchain; when another device holds it) and on Windows releases an
+idle D3D11 presenter, and `app_release_native_window()` gives it back. While a device holds it `app_gfx_swapchain()` is invalid,
 `app_gfx_formats()` gives the window's formats without a device, `app_set_vsync` is false (the present mode is the
 swapchain's, set from `RendererDesc::vsync` at start), HDR output is blocked with a reason (`hdrOutput`: "not
 available on the <backend> backend yet") and `swapchain_format` is empty. The runner (runners.cpp) works out
@@ -459,8 +459,27 @@ engine makes the platform's swapchain itself. Before that fallback `start_gpu_ba
 fallback never hides a Vulkan failure from it; it runs only when the callback is empty or returns. A claim refused because the
 window cannot take a swapchain at all gives a reason that starts with `kGpuWindowPathReason` (`gpu_window_path_reason`), which the
 marker's warning in the OpenGL player reads (`is_gpu_window_path_reason`). `EngineConfig::gpuStartFault` makes a backend fail in tests
-(gpu_backend_tests.cpp), and renderer_backend_tests.cpp draws D3D12 and Vulkan into a real window (an HWND, a
-CAMetalLayer on MoltenVK).
+(gpu_backend_tests.cpp; it runs after the claim, so a fault also checks that the claim is released), and
+renderer_backend_tests.cpp draws D3D12 and Vulkan into a real window (an HWND, a CAMetalLayer on MoltenVK).
+
+**The OpenGL surface leaves a Linux window** (M77-P9e3a, sokol_window.h, sokol_impl.c): sokol_app's GLX window keeps
+its context for the whole run, so a GLX window is not busy. `app_claim_native_window` calls
+`fa_sapp_gl_surface_release`: the context becomes current on a 1x1 pbuffer of the window's GLXFBConfig (or, when that
+config has no pbuffers or the driver refuses one, on no drawable, which GLX_ARB_create_context allows for a 3.0+
+context), the GLXWindow is destroyed and sokol_app's per-frame swap becomes a no-op, so nothing draws or swaps with GL
+on the X11 window while the device's swapchain is on it; X errors are trapped (Xlib's default handler ends the
+process). When neither works, nothing changes and the claim fails with the driver's reason, which `start_gpu_backend`
+turns into the fallback. `app_release_native_window` and app.cpp's cleanup (a run that quits while a device holds the
+window) call `fa_sapp_gl_surface_restore`: a new GLXWindow on the same X11 window, the context current on it, the swap
+and the swap interval back, the pbuffer destroyed. sokol_app reads the X11 window size every frame either way, so a
+resize reaches `app_framebuffer_width` and the device's `resize_swapchain`. A build whose sokol_app uses EGL on Linux
+(`SOKOL_FORCE_EGL`, GLES3) keeps its window busy and the release refuses with that reason; Android's EGL surface is
+M77-P9e3b. Tests, Linux only under xvfb: `platform_windowed_gl_handover` (gl_surface_handover_tests_linux.cpp: claim,
+resize, release, GL draws red again, a claim refused while sokol_gfx draws, quit while claimed),
+`runtime_windowed_vulkan` and `runtime_windowed_vulkan_fallback` (windowed_vulkan_tests_linux.cpp: the game on
+lavapipe, presented into the window, a resize, vsync refused, a red corner read back from the X server; and a
+`gpuStartFault` after the claim, which gives the window back to GL in the same process). The Vulkan one passes with a
+message on a machine without a Vulkan driver unless `FA_VULKAN_REQUIRE=1`, as the Linux CI job sets.
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
