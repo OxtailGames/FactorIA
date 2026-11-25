@@ -196,6 +196,16 @@ struct Engine::Impl {
     // set. The renderer holds the same value once it exists; the engine passes the display's refresh rate to it every frame.
     render::LatencySettings latency;
     std::optional<render::LatencySettings> appliedProjectLatency;  // the project's render.latency last applied
+    // Engine::profile_latency is asked every frame the profiler is on; the status it reads is built (JSON, every provider's reason) only when
+    // the setting, the driver that runs or the 64-frame bucket changed.
+    struct LatencyProfileCache {
+        bool valid = false;
+        render::LatencyMode mode = render::LatencyMode::Off;
+        bool boost = false;
+        render::LatencyDriver driver = render::LatencyDriver::None;
+        std::uint64_t bucket = 0;
+        std::string name, reason;  // the status' "driver" and "reason"
+    } latencyProfileCache;
     // The frame generation setting (M78, docs/FRAME_GENERATION.md): the project's render.frameGeneration, or what render.frame_generation /
     // Engine::set_frame_generation last set. The renderer holds the same value once it exists.
     render::FrameGenSettings frameGeneration;

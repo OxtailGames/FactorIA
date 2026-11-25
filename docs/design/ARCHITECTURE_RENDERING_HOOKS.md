@@ -232,7 +232,8 @@ the rest is private to `fa_render`:
 
 - **`render_latency.{h,cpp}`: the seam.** A `LatencyProvider` is one SDK (`probe`, `start`, `configure`, `sleep`, `marker`,
   `vendor_report`, `stop`). The table has three slots, Reflex, Anti-Lag 2 and XeLL; `register_latency_provider()` fills one (the
-  Reflex provider is in the table from the start; the others register the same way in a test). The
+  table has the three providers of the build from the start; `register_latency_provider()` replaces one, and a test puts a fake in with
+  `set_latency_provider_for_test(driver, fake)` and takes it out again with null). The
   `LatencyController` (one per renderer) chooses the driver from the mode, the GPU's maker and the probes, starts the provider when the
   device exists, and falls back to the engine's own pacing when the SDK is unavailable or a call fails. With the mode `off` its calls
   are one branch. Its clock is replaceable, so the tests drive time themselves.
@@ -331,11 +332,13 @@ the rest is private to `fa_render`:
     safe, once per rendered frame from the controller's `begin_frame`): `numFramesActuallyPresented` counts every frame Streamline presented
     since the last call, so `max(0, presented - 1)` is added to the count; the status bits are trusted only when they were read while generation
     was on and turn into the frame's refusal reason after the inputs went out.
-  - **Reflex.** `FrameGenProvider::requires_reflex()` -> `FrameGenController::requires_reflex()` -> `LatencyController::require_reflex(bool)`,
-    called by `Renderer::Impl::sync_reflex_for_framegen` after `attach`, `set_frame_generation` and each `begin_frame`. While required, the
-    latency controller's effective settings turn the modes `off`, `antilag2` and `xell` into `reflex` (no boost); `reflex` and `auto` are kept
-    (`effective_settings`, `reflex_forced`); the player's setting is not rewritten. `dispatch` also refuses a frame while `reflex_running()` (a
-    process flag the Reflex provider sets with its options) is false.
+  - **The latency SDK a provider needs.** One requirement for every provider: `Renderer::Impl::sync_framegen_latency` (after `attach`,
+    `set_frame_generation` and each `begin_frame`, and when a provider failed for good) calls `LatencyController::require_driver(d)`, with
+    Reflex while `FrameGenController::requires_reflex()` (DLSS-G), XeLL while the running provider is XeSS, and none otherwise. While a driver
+    is required, `effective_settings` turns every mode that does not already start it (`mode_starts`: `reflex`, or `auto` on the maker's own
+    GPU) into that driver's mode (Reflex without boost), even `off`; the player's setting is not rewritten. `forced()` (what the readout of
+    `latency_status` says) is true only when the required driver is the one that runs: if its SDK failed to start, nothing is said to be on.
+    `dispatch` also refuses a frame while `reflex_running()` (a process flag the Reflex provider sets with its options) is false.
 - **The engine** (`Engine::set_frame_generation`, the command `render.frame_generation`, `profile_frame_generation`): the setting is applied
   to a windowed, non-editor renderer only (like latency); `rd.frameGeneration` is on when the project's mode is not `off` at the start.
   `ProfileSummary::set_frame_generation` stores the readout as `profile.frameGeneration`.

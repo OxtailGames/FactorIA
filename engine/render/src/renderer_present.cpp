@@ -113,6 +113,9 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
             im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), fbW, fbH, im.windowDesc.vsync});
         }
     }
+    // The frame's work is done and what follows only waits: the acquire blocks on the display (D3D12 waits for the swapchain's frame-latency
+    // object), so PresentStart is marked before it, or the engine's own pacing and the SDK would count that wait as work.
+    im.latency.mark(render::LatencyMarker::PresentStart);
     // The image of the window to draw into: on the sokol devices the frame's surface as sokol_app gave it.
     auto acquired = device.acquire_swapchain(gpu::swapchain_of(swapchain));
     if (!acquired) {
@@ -152,7 +155,6 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     im.gpu.commit_frame();
     im.gpu.note_commit();
     im.latency.mark(render::LatencyMarker::RenderSubmitEnd);
-    im.latency.mark(render::LatencyMarker::PresentStart);
     if (auto shown = device.present(); !shown) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", shown.error().to_string());
         im.presentFailed = true;

@@ -187,30 +187,39 @@ void LatencyController::stop_provider() {
     running_ = nullptr;
 }
 
+bool LatencyController::mode_starts(LatencyMode mode, LatencyDriver d) const {
+    switch (mode) {
+        case LatencyMode::Reflex: return d == LatencyDriver::Reflex;
+        case LatencyMode::AntiLag2: return d == LatencyDriver::AntiLag2;
+        case LatencyMode::Xell: return d == LatencyDriver::Xell;
+        case LatencyMode::Auto:
+            return (d == LatencyDriver::Reflex && env_.vendor == GpuVendor::Nvidia) ||
+                   (d == LatencyDriver::AntiLag2 && env_.vendor == GpuVendor::Amd) ||
+                   (d == LatencyDriver::Xell && env_.vendor == GpuVendor::Intel);
+        case LatencyMode::Off: break;
+    }
+    return false;
+}
+
 LatencySettings LatencyController::effective_settings() const {
     LatencySettings s = settings_;
-    // A feature that cannot run without Reflex (DLSS frame generation) puts it on whatever the player chose, except the modes that already
-    // use it (reflex itself, and auto, which is Reflex on an NVIDIA GPU).
-    if (reflexRequired_ && s.mode != LatencyMode::Reflex && s.mode != LatencyMode::Auto) {
-        s.mode = LatencyMode::Reflex;
-        s.boost = false;
+    // A feature that cannot run without one SDK (DLSS frame generation: Reflex; XeSS frame generation: XeLL) puts it on whatever the player
+    // chose, even over `off`, except the modes that already start it.
+    if (slot_index(required_) >= 0 && !mode_starts(s.mode, required_)) {
+        s.mode = required_ == LatencyDriver::Reflex     ? LatencyMode::Reflex
+                 : required_ == LatencyDriver::AntiLag2 ? LatencyMode::AntiLag2
+                                                        : LatencyMode::Xell;
+        if (required_ == LatencyDriver::Reflex) s.boost = false;
     }
-    // A feature that cannot run without XeLL (XeSS frame generation) puts it on the same way, even over `off`.
-    if (required_ == LatencyDriver::Xell) s.mode = LatencyMode::Xell;
     return s;
 }
 
-bool LatencyController::reflex_forced() const {
-    return reflexRequired_ && settings_.mode != LatencyMode::Reflex && settings_.mode != LatencyMode::Auto;
-}
-
-void LatencyController::require_reflex(bool required) {
-    if (required == reflexRequired_) return;
-    reflexRequired_ = required;
-    apply();
+bool LatencyController::forced() const {
+    return slot_index(required_) >= 0 && driver_ == required_ && !mode_starts(settings_.mode, required_);
 }
 
 void LatencyController::require_driver(LatencyDriver d) {
+    if (slot_index(d) < 0) d = LatencyDriver::None;  // the engine's pacing is no SDK to require
     if (d == required_) return;
     required_ = d;
     apply();

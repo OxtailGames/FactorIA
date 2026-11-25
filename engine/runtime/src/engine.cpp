@@ -830,9 +830,19 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             jobOwner.run_main_thread_tasks();
             jobs::run_main_thread_tasks();
         }
-        // The engine's own pacing sleeps here (before the input is sampled), or the vendor's Sleep call does; nothing runs while the
-        // setting is off. The frame id of the markers below is the count of presents so far plus one.
-        if (profiled && renderer) renderer->latency_frame_begin(latency_pacing_hz());
+    }
+    // The engine's own pacing sleeps here (before the input is sampled), or the vendor's Sleep call does; nothing runs while the setting is
+    // off. The frame id of the markers below is the count of presents so far plus one. The sleep is waiting, not work: the profiler shows it
+    // as its own zone "Latency", outside the Platform system's time.
+    if (profiled && renderer) {
+        // A zone only while a driver runs: with the setting off nothing sleeps and the profile has no "Latency" line.
+        const bool zoned = Profiler::on() && renderer->effective_latency() != render::LatencyDriver::None;
+        const double t0 = zoned ? Profiler::now_ms() : 0.0;
+        renderer->latency_frame_begin(latency_pacing_hz());
+        if (zoned) Profiler::get().add_zone("Latency", Profiler::now_ms() - t0);
+    }
+    {
+        ProfSystemScope prof(ProfSystem::Platform);
         platform.frame();
         if (profiled && renderer) renderer->latency_mark(render::LatencyMarker::InputSample);
         tick_background_loads();  // scene.preload / assets.preload / async scene.load: this frame's share, then their handles hear it
@@ -2339,9 +2349,24 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
 }
 
 void Engine::profile_latency(std::string* driver, std::string* reason) {
-    const Json st = latency_status();
-    const std::string name = st.value("driver", std::string("none"));
-    std::string why = st.value("reason", std::string());
+    // The status is a JSON object with every provider's answer: rebuilt when what it depends on changed, not on every frame of a session.
+    Impl::LatencyProfileCache& cache = impl_->latencyProfileCache;
+    const render::LatencyDriver running =
+        impl_->renderer ? impl_->renderer->effective_latency() : render::LatencyDriver::None;
+    const std::uint64_t bucket = impl_->frame / 64;
+    if (!cache.valid || cache.mode != impl_->latency.mode || cache.boost != impl_->latency.boost ||
+        cache.driver != running || cache.bucket != bucket) {
+        const Json st = latency_status();
+        cache.valid = true;
+        cache.mode = impl_->latency.mode;
+        cache.boost = impl_->latency.boost;
+        cache.driver = running;
+        cache.bucket = bucket;
+        cache.name = st.value("driver", std::string("none"));
+        cache.reason = st.value("reason", std::string());
+    }
+    const std::string& name = cache.name;
+    std::string why = cache.reason;
     if (name == "none" && why.empty())
         why = "render.latency is off (set mode auto, or the one of the GPU's maker: docs/LATENCY.md)";
     else if (name != "none")

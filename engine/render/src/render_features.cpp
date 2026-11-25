@@ -476,11 +476,11 @@ std::vector<FeatureDef> build_table() {
         {"reflex", "",
          "NVIDIA Reflex low latency (render.latency mode \"reflex\", also picked by \"auto\" on an NVIDIA GPU): the "
          "loop sleeps before the "
-         "input is read so the frame the player sees is as new as possible. Windows with an NVIDIA GPU, through "
-         "Streamline "
-         "(D3D12 or Vulkan, `factoria setup streamline`, and a driver with Reflex Low Latency). Where it cannot run "
-         "the mode runs the engine's own pacing "
-         "(render.supports gives the reason).",
+         "input is read so the frame the player sees is as new as possible. Windows with an NVIDIA GeForce GTX 900 "
+         "series or newer on "
+         "D3D12 or Vulkan, and the Streamline SDK installed (`factoria setup streamline`). Where it is missing the "
+         "mode "
+         "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
          nullptr},
         {"antilag2", "",
          "AMD Anti-Lag 2 low latency (render.latency mode \"antilag2\", also picked by \"auto\" on an AMD GPU): the "
@@ -497,16 +497,15 @@ std::vector<FeatureDef> build_table() {
          "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
          nullptr},
         // The frame-generation providers of M78 (docs/FRAME_GENERATION.md; render.frameGeneration): the answer is the provider's (render_framegen.h).
-        // The FSR 3 provider is in the build (render_framegen_fsr.h); the DLSS and XeSS slots are empty until their packages land, so those
-        // rows are false and say so.
+        // The three providers are in the build (render_framegen_{dlss,fsr,xess}.h); a row is false where its provider cannot run.
         {"dlssFrameGen", "",
          "NVIDIA DLSS frame generation (render.frameGeneration mode \"dlss\", also picked by \"auto\" on an NVIDIA "
          "GPU): a generated "
          "frame between two rendered ones, made from the picture before the HUD, the depth and the motion of the "
          "temporal upscaler. "
-         "Windows on D3D12 or Vulkan with an RTX GPU, through Streamline (`factoria setup streamline`); its provider "
-         "arrives with the "
-         "Streamline DLSS-G package, so the row is false until then (render.supports gives the reason).",
+         "Windows on D3D12 or Vulkan with an RTX GPU, through Streamline (`factoria setup streamline`); it cannot run "
+         "without NVIDIA Reflex, so Reflex runs with it whatever render.latency says. The row is false where it cannot "
+         "run, with the reason in render.supports.",
          nullptr},
         {"fsrFrameGen", "",
          "AMD FSR 3 frame generation (render.frameGeneration mode \"fsr\", also picked by \"auto\" on an AMD GPU): a "

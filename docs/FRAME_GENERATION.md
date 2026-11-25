@@ -59,39 +59,6 @@ kept). A wrong name fails with the valid values and a "did you mean", and change
 - `modes`: per SDK `{available, reason, setupId}`, where `setupId` is what `factoria setup <id>` installs;
 - `changed`, and `report`: the readout below.
 
-## XeSS Frame Generation
-
-Mode `xess` (or `auto` on an Intel GPU): Intel's XeSS frame generation on Windows, Direct3D 12, an Intel Arc GPU. `factoria setup xess`
-installs `libxess_fg.dll` and `libxell.dll` (XeSS 3.0.2, next to `libxess.dll`); the engine ships none of Intel's code and loads the two
-libraries at run time. **Not tested on Intel hardware**: it is written from the SDK's headers and tested against fake libraries, so what
-the real swapchain does with the engine's depth and motion (the depth convention, the projection) is for a machine with an Arc GPU to
-confirm.
-
-- **The swapchain.** XeSS-FG is a proxy swapchain: the library makes the window's swapchain itself and presents the rendered and the
-  generated frames in order. The engine hands it the window's description when the game starts, which is why `render.frameGeneration`
-  must be set before the game starts (see "What it needs"). The provider asks for no interface composition (`uiMode` none): the screen-space
-  items are in the picture XeSS-FG interpolates.
-- **XeLL runs with it.** XeSS-FG needs Intel XeLL (low latency) and cannot run without it, so **XeLL starts whenever XeSS frame
-  generation runs, even when `render.latency` is `off`** (the setting itself is untouched; `render.latency` and the profiler's latency
-  line say that XeLL runs because of frame generation). XeLL's context is shared, so choosing `xell` for `render.latency` as well uses
-  the same one. The frame ids XeLL is given are the present ids XeSS-FG is tagged with. A machine without `libxell.dll` is refused with
-  "run `factoria setup xess`".
-- **What each frame gives it.** The depth and the motion of the temporal upscaler's frame (copy-source state, this frame only, at the
-  render size), the camera's view and projection matrices (unjittered), the jitter, the frame time, and a history reset after a camera
-  cut.
-- **When it says no.** `render.supports` has the row `xessFrameGen` and `render.frame_generation` the reason: not an Intel GPU, not
-  Direct3D 12, not Windows, the SDK or XeLL not installed (`factoria setup xess`), a driver too old for the swapchain API, or a failure
-  earlier in this run. A call of the SDK that fails while the game runs is logged once with its name and result, and XeSS frame generation
-  stays off until the game restarts (it never fails the device). The one exception is the result the swapchain reports for a present it
-  could not generate: one such present (a resize, a device that stalled for a frame) is let go, and only five presents in a row turn
-  generation off for the run.
-- **When the window is made again.** A new swapchain starts with generation off; the provider remembers what the controller last asked for and
-  turns generation back on with the first frame of the new swapchain. A frame's tag, its present id and XeLL's frame id are always the same
-  number (XeLL's last sleep id): presents with generation off do not move it, and when XeLL's ids go back (its context made again) they are
-  followed. Only a frame dispatched twice before XeLL's next sleep gets the last id plus one.
-- **Which games get its swapchain.** Only a game started with `xess`, or with `auto` on an Intel GPU; `dlss` and `fsr` leave the window's
-  swapchain to their own providers.
-
 ## The minimum base frame rate
 
 The controller measures the base frame rate over the last 30 rendered frames and decides once per frame:
@@ -176,9 +143,10 @@ streamline` installs `sl.interposer.dll`, `sl.dlss_g.dll`, `nvngx_dlssg.dll` and
   used.
 - **Reflex is turned on for it.** DLSS-G reads the markers of NVIDIA Reflex in every frame (its status says "Reflex not detected" without
   them), so while this provider runs the engine runs Reflex whatever `render.latency` says: the mode `off` (or the one of another maker)
-  becomes `reflex`, `reflex` and `auto` keep their own `boost`. The setting itself is not changed and comes back when frame generation stops
-  (`render.latency` says "NVIDIA Reflex is on because DLSS frame generation needs it" in its `reason`). If Reflex cannot start, the frame is
-  refused with that reason and nothing is generated. Streamline's Reflex and PC latency plugins must be installed.
+  becomes `reflex`; `reflex`, and `auto` on an NVIDIA GPU, keep their own `boost`. The setting itself is not changed and comes back when
+  frame generation stops (`render.latency` says "NVIDIA Reflex is on because DLSS frame generation needs it" in its `reason`, only while
+  Reflex really runs). If Reflex cannot start, the frame is refused with that reason, nothing is generated and the `reason` does not claim
+  that Reflex is on. Streamline's Reflex and PC latency plugins must be installed.
 - **What it does.** Every frame the engine gives Streamline the camera (`slSetConstants`: the unjittered projection, the matrix to the
   previous frame's clip space, the jitter, the planes, the camera's place and axes; the depth is the reversed infinite one, `near / d`) and the
   tags: the depth and the motion vectors of the render size and, **only when the frame has screen-space items** (UI, text, debug overlay),
@@ -235,6 +203,39 @@ frames, turning generation on or off repeats the number of the last frame it was
 picture itself, on each of the two backends, and the order in which the real library wants its Direct3D 12 proxy swapchain released (the
 engine follows FidelityFX's own sample: the generation context and the presents in flight first, the swapchain's context after the engine
 released the proxy).
+
+## XeSS Frame Generation
+
+Mode `xess` (or `auto` on an Intel GPU): Intel's XeSS frame generation on Windows, Direct3D 12, an Intel Arc GPU. `factoria setup xess`
+installs `libxess_fg.dll` and `libxell.dll` (XeSS 3.0.2, next to `libxess.dll`); the engine ships none of Intel's code and loads the two
+libraries at run time. **Not tested on Intel hardware**: it is written from the SDK's headers and tested against fake libraries, so what
+the real swapchain does with the engine's depth and motion (the depth convention, the projection) is for a machine with an Arc GPU to
+confirm.
+
+- **The swapchain.** XeSS-FG is a proxy swapchain: the library makes the window's swapchain itself and presents the rendered and the
+  generated frames in order. The engine hands it the window's description when the game starts, which is why `render.frameGeneration`
+  must be set before the game starts (see "What it needs"). The provider asks for no interface composition (`uiMode` none): the screen-space
+  items are in the picture XeSS-FG interpolates.
+- **XeLL runs with it.** XeSS-FG needs Intel XeLL (low latency) and cannot run without it, so **XeLL starts whenever XeSS frame
+  generation runs, even when `render.latency` is `off`** (the setting itself is untouched; `render.latency` and the profiler's latency
+  line say that XeLL runs because of frame generation, while it really runs). XeLL's context is shared, so choosing `xell` for
+  `render.latency` as well uses the same one. The frame ids XeLL is given are the present ids XeSS-FG is tagged with. A machine
+  without `libxell.dll` is refused with "run `factoria setup xess`".
+- **What each frame gives it.** The depth and the motion of the temporal upscaler's frame (copy-source state, this frame only, at the
+  render size), the camera's view and projection matrices (unjittered), the jitter, the frame time, and a history reset after a camera
+  cut.
+- **When it says no.** `render.supports` has the row `xessFrameGen` and `render.frame_generation` the reason: not an Intel GPU, not
+  Direct3D 12, not Windows, the SDK or XeLL not installed (`factoria setup xess`), a driver too old for the swapchain API, or a failure
+  earlier in this run. A call of the SDK that fails while the game runs is logged once with its name and result, and XeSS frame generation
+  stays off until the game restarts (it never fails the device). The one exception is the result the swapchain reports for a present it
+  could not generate: one such present (a resize, a device that stalled for a frame) is let go, and only five presents in a row turn
+  generation off for the run.
+- **When the window is made again.** A new swapchain starts with generation off; the provider remembers what the controller last asked for and
+  turns generation back on with the first frame of the new swapchain. A frame's tag, its present id and XeLL's frame id are always the same
+  number (XeLL's last sleep id): presents with generation off do not move it, and when XeLL's ids go back (its context made again) they are
+  followed. Only a frame dispatched twice before XeLL's next sleep gets the last id plus one.
+- **Which games get its swapchain.** Only a game started with `xess`, or with `auto` on an Intel GPU; `dlss` and `fsr` leave the window's
+  swapchain to their own providers.
 
 ## For a provider
 

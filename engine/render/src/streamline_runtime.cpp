@@ -235,7 +235,7 @@ constexpr const char* kResultNames[] = {
     "out of VRAM (warning)",
 };
 
-const char* result_hint(Result r) {
+const char* result_hint(Result r, std::uint32_t feature) {
     switch (r) {
         case kErrorDriverOutOfDate:
             return "Update the NVIDIA graphics driver (DLSS needs a recent Game Ready or Studio driver).";
@@ -245,6 +245,23 @@ const char* result_hint(Result r) {
         case kErrorNoSupportedAdapterFound:
         case kErrorAdapterNotSupported:
         case kErrorFeatureNotSupported:
+            switch (feature) {
+                case kFeatureDlss:
+                case kFeatureDlssRr:
+                    return "DLSS needs an NVIDIA RTX GPU with a driver that supports it; for DLSS on any other GPU use "
+                           "the XeSS, FSR or "
+                           "temporal upscaler.";
+                case kFeatureDlssG:
+                    return "DLSS frame generation needs an NVIDIA RTX GPU with a driver that supports it (and Reflex); "
+                           "for frame generation "
+                           "on any other GPU use the FSR 3 or XeSS provider.";
+                case kFeatureReflex:
+                case kFeaturePcl:
+                    return "Reflex needs an NVIDIA GeForce GTX 900 series or newer GPU with a driver that supports it; "
+                           "on any other GPU "
+                           "choose another render.latency mode (the engine's own pacing runs where Reflex cannot).";
+                default: break;
+            }
             return "DLSS needs an NVIDIA RTX GPU and Reflex a GeForce GTX 900 series or newer, with a driver that "
                    "supports it; "
                    "for DLSS on any other GPU use the XeSS, FSR or temporal upscaler.";
@@ -421,10 +438,10 @@ std::string streamline_result_text(sl_abi::Result result) {
     return "result " + std::to_string(result);
 }
 
-std::string streamline_refusal(const char* what, sl_abi::Result result) {
+std::string streamline_refusal(const char* what, sl_abi::Result result, std::uint32_t feature) {
     std::string out =
         std::string(what) + " answered \"" + streamline_result_text(result) + "\" (" + std::to_string(result) + ").";
-    if (const std::string hint = result_hint(result); !hint.empty()) out += " " + hint;
+    if (const std::string hint = result_hint(result, feature); !hint.empty()) out += " " + hint;
     return out;
 }
 
@@ -638,7 +655,7 @@ struct StreamlineRuntime::Impl {
             s.feature = feature;
             const Result supported = api_.isFeatureSupported(feature, &info);
             s.supported = supported == kOk;
-            if (!s.supported) s.reason = streamline_refusal("slIsFeatureSupported", supported);
+            if (!s.supported) s.reason = streamline_refusal("slIsFeatureSupported", supported, feature);
             states_.push_back(std::move(s));
         }
         if (const std::string none = none_usable_reason(); !none.empty()) {
@@ -671,7 +688,7 @@ struct StreamlineRuntime::Impl {
             init_feature_requirements(req);
             const Result got = api_.getFeatureRequirements(feature, &req);
             if (got != kOk) {
-                s.reason = streamline_refusal("slGetFeatureRequirements", got);
+                s.reason = streamline_refusal("slGetFeatureRequirements", got, feature);
             } else if ((req.flags & kReqVulkan) == 0) {
                 s.reason = "Streamline says it does not support Vulkan for this feature: run the game on Direct3D 12.";
             } else {
@@ -720,7 +737,7 @@ struct StreamlineRuntime::Impl {
             const Result r = api_.isFeatureSupported(s.feature, &info);
             if (r != kOk) {
                 s.supported = false;
-                s.reason = streamline_refusal("slIsFeatureSupported", r);
+                s.reason = streamline_refusal("slIsFeatureSupported", r, s.feature);
             }
         }
         if (const std::string none = none_usable_reason(); !none.empty())
@@ -945,8 +962,8 @@ std::shared_ptr<StreamlineRuntime>& process_runtime() {
     // device exists, and a plugin that is not installed only makes its feature unsupported (feature_reason says why) while DLSS and the
     // others run. DLSS frame generation is not here: a renderer that asks for frame generation adds it (add_feature) before its device is
     // made, so a game that never does is not asked for the extra Vulkan queues and extensions it needs.
-    static std::shared_ptr<StreamlineRuntime> runtime =
-        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureDlssRr, kFeatureReflex, kFeaturePcl});
+    static std::shared_ptr<StreamlineRuntime> runtime = std::make_shared<StreamlineRuntime>(
+        std::vector<std::uint32_t>{kFeatureDlss, kFeatureDlssRr, kFeatureReflex, kFeaturePcl});
     return runtime;
 }
 }  // namespace
