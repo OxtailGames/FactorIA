@@ -83,6 +83,8 @@ struct RendererTestAccess {
     static void force_velocity(Renderer& r, bool on);
     // Whether the last job the renderer planned (a frame's camera or a capture) asked for the velocity image (PostPlan::needsVelocity).
     static bool last_job_needs_velocity(Renderer& r);
+    // M78: whether the images of the DLSS Ray Reconstruction guides (the normal and roughness, the albedos, the depth) exist now.
+    static bool rr_guide_images(Renderer& r);
     // With several cameras in a frame the probe holds the last one's images; this names the only camera whose images it copies (a null entity: every camera again).
     static void probe_camera(Renderer& r, Entity camera);
     // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.

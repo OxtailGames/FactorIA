@@ -523,6 +523,8 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     // DLSS Ray Reconstruction (M78-P4c): when the setting asks for it, this frame can use it and the guides are made. Else the frame is
     // drawn with Super Resolution, the reason said once; a machine that refuses it, or a frame it refused, stays off.
     in.rayReconstruction = false;
+    bool keepGuides =
+        false;  // the guide images stay while the setting is on and a later frame may use them (a frame that cannot use them, a final pass)
     if (index == 0 && upscaler.rayReconstruction) {
         std::string why;
         bool permanent =
@@ -551,6 +553,7 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
         } else {
             in.rayReconstruction = true;
         }
+        keepGuides = !permanent && !rrFailed;
         if (!in.rayReconstruction) {
             bool& warned = permanent ? rrWarnedUnavailable : rrWarnedFrame;
             if (!warned) {
@@ -565,7 +568,9 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
             }
         }
     }
-    if (!in.rayReconstruction) free_rr_images();
+    // The guides are four images of the render size: a frame that cannot use them (one that is refused for a frame, a final pass) keeps them while the
+    // render size stays; they go when the setting goes false, the machine or a frame refuses them, or another upscaler draws.
+    if (!in.rayReconstruction && !keepGuides) free_rr_images();
     render::VendorFrame f;
     f.device = &gpu.device();
     f.list = &pass_list(c, gpu);
