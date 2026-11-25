@@ -347,6 +347,30 @@ TEST_CASE("render queues: async compute hands its resources to the compute queue
     INFO(joined(rg.dev->errors()));
     CHECK(rg.dev->errors().empty());
 
+    // A second list with the guard of one still pending waits for it first (the first may still own the handed
+    // resources): the graphics queue waits for the first list's token before the second one takes them.
+    rg.dev->clear_commands();
+    gpu::CommandList& first = rg.gpu.begin_async_compute("hiz-reduce", uses, 42);
+    rg.gpu.end_async_compute(first, uses, 42);
+    REQUIRE(rg.gpu.compute_pending());
+    auto graphics_waits = [&]() {
+        int n = 0;
+        for (const gpu::RecordedCommand& c : rg.dev->commands())
+            if (c.kind == gpu::CommandKind::WaitQueue && c.queue == gpu::QueueKind::Graphics) ++n;
+        return n;
+    };
+    CHECK(graphics_waits() == 0);
+    gpu::CommandList& second = rg.gpu.begin_async_compute("hiz-reduce", uses, 42);
+    CHECK(graphics_waits() == 1);
+    CHECK_FALSE(rg.gpu.compute_pending());  // the first list was waited for, so nothing is pending but the second
+    rg.gpu.end_async_compute(second, uses, 42);
+    CHECK(rg.gpu.compute_pending());
+    rg.gpu.commit_frame();
+    CHECK_FALSE(rg.gpu.compute_pending());
+    CHECK(graphics_waits() == 2);  // commit_frame waits for the second list, which no pass waited for
+    INFO(joined(rg.dev->errors()));
+    CHECK(rg.dev->errors().empty());
+
     // Turned off, or on a device without a compute queue, there is no async compute.
     rg.gpu.set_queue_options(false, false);
     CHECK_FALSE(rg.gpu.async_compute());

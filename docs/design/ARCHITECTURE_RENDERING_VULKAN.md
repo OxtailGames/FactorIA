@@ -392,9 +392,12 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   device with `DeviceInit::environment.defaults.colorFormat` set to the format the window offers. The surface's formats
   are asked again from the driver for every new surface and every time the swapchain is made again (a surface recreated
   on Android, a display whose HDR setting changed), and a swapchain made again whose format the surface no longer offers
-  fails with a teaching error; the list sits behind a mutex and `swapchain_format_supported` (const, any thread) reads a
-  copy of it, not the driver again. The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A
-  size of 0 is the window's size.
+  fails with a teaching error. The list sits behind a mutex, and `swapchain_format_supported` (const) reads from any
+  thread only a copy of the list already loaded: the driver query runs on the render thread (`create_swapchain` and each
+  swapchain made again load the list once); a call that finds no list loaded (after a failed query) asks the driver
+  itself, so ask from the render thread then. A swapchain that could not be made again leaves its surface, and
+  `create_swapchain` destroys that surface before it makes a new one (Android refuses a second surface on a window).
+  The present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
 - **The swapchain** has `max(minImageCount, frames in flight + 1)` images (capped by `maxImageCount`), opaque
   composite alpha first, colour-attachment usage plus transfer-source where the surface allows (readbacks). Its
   images are adopted into the device's image pool as external records (their states tracked like any other image's,
@@ -416,7 +419,8 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
   `currentTransform` ROTATE_90 or ROTATE_270, SurfaceFlinger rotates it as it does OpenGL ES's frames; a composition
   pass a pre-rotating renderer would save). Android's loader then answers `VK_SUBOPTIMAL_KHR` at every present; while
   the surface's `currentExtent` is still the swapchain's size that answer keeps the swapchain (a new size still makes
-  it again). Only a surface without IDENTITY gets its `currentTransform`, and the picture comes out turned:
+  it again; the surface is asked once per frame, the acquire and the present of a frame share the answer). Only a
+  surface without IDENTITY gets its `currentTransform`, and the picture comes out turned:
   `swapchain_pre_rotation_degrees()` says how far and a nonzero value is warned once.
   Only the lists of the graphics queue wait for the acquire semaphore: another queue's list that uses the acquired
   image is reported and not submitted. HDR10 (`Rgb10A2`) also sets its mastering metadata (`vkSetHdrMetadataEXT`:
@@ -484,7 +488,8 @@ swapchain resolved into the acquired image, an acquire that times out (injected 
 `inject_acquire_result_for_tests`: the teaching error, the swapchain untouched, the bounded retry), a readback of a
 window image the surface made without `TRANSFER_SRC` (refused), the format fallback succeeding where the asked format is
 hidden (the device made with `Rgba8` as its default, the surface's `Rgba8` hidden) and a swapchain that fails
-(`fail_next_swapchain_for_tests`) leaving the default format as it was, and `swapchain_format_supported` called from a
+(`fail_next_swapchain_for_tests`) leaving the default format as it was, a swapchain lost with its surface kept (`lose_swapchain_keep_surface_for_tests`) made again by
+`create_swapchain` without a leak, and `swapchain_format_supported` called from a
 second thread while the swapchain is made again. The timer case with `hide_timer_results_for_tests` checks the frame
 dropped after 120 polls, and the queue-misuse case a transfer list that begins a render or a compute pass. A machine
 with no window or no window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb)

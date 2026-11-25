@@ -1203,6 +1203,9 @@ public:
     // The next make_swapchain() (the first one of create_swapchain() included) fails with an error before it touches
     // the driver.
     void fail_next_swapchain_for_tests() { failNextSwapchain_ = true; }
+    // The state a swapchain that could not be made again leaves: its swapchain and images are gone, its surface stays
+    // (has_swapchain() false). create_swapchain() on the window then must not leak that surface.
+    void lose_swapchain_keep_surface_for_tests();
     // As a surface that does not allow TRANSFER_SRC on its images: a readback of the window's image is refused.
     void drop_swapchain_transfer_src_for_tests() { swapUsage_ &= ~VkImageUsageFlags(VK_IMAGE_USAGE_TRANSFER_SRC_BIT); }
     // The timer queries read as not available (a driver that never makes them visible), so a timed frame is dropped
@@ -1626,7 +1629,7 @@ private:
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     // The surface's formats (asked per surface and per swapchain made; the mutex below guards them), and the ones a
     // test hides (before create_swapchain()).
-    VkResult load_surface_formats() const;
+    VkResult load_surface_formats(std::vector<VkSurfaceFormatKHR>* out = nullptr) const;
     std::vector<VkSurfaceFormatKHR> surface_formats_snapshot() const;
     void set_hdr_metadata();
     mutable std::mutex surfaceFormatsMutex_;  // guards surfaceFormats_ and surfaceFormatsKnown_ (any thread reads them)
@@ -1641,7 +1644,9 @@ private:
     bool swapPresenterRotates_ = false;
     // A VK_SUBOPTIMAL_KHR with swapPresenterRotates_: true when the surface's size is still the swapchain's (only the
     // rotation differs, as chosen), false when the window changed and the swapchain must be made again.
+    // The answer is asked once per frame (-1: not asked yet; reset at each acquire and each swapchain made).
     bool suboptimal_only_by_rotation();
+    int rotationOnlyAnswer_ = -1;
     bool swapTimeoutLogged_ = false;
     VkResult injectedAcquire_ = VK_SUCCESS;  // tests: the result of the next injectedAcquires_ acquires
     int injectedAcquires_ = 0;
