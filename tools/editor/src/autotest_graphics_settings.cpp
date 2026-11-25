@@ -177,6 +177,10 @@ void Editor::at_section_Q4(AtScript& at) {
     step(4, [this] {
         at_check(graphicsWork_.latencyMode == "auto", "a click on a mode that cannot run is refused");
         at_check(!at_enabled("gfx:save"), "...and nothing is left to save");
+        pendingFocus_ = "Graphics";  // a refused item leaves the combo open: focusing the window closes it
+    });
+    step(3, [this] {
+        at_check(!at_visible("gfx:latMode:xell"), "...and the mode combo is closed again before the next click");
     });
     step(2,
          [this] { graphicsWork_.latencyMode = "reflex"; });  // as a project file written for another machine would be
@@ -245,7 +249,10 @@ void Editor::at_section_Q4(AtScript& at) {
     click("gfx:fgMode:dlss");
     step(4, [this] {
         at_check(graphicsWork_.frameGenMode == "off", "a click on a mode that cannot run is refused");
-        pendingFocus_ = "Graphics";
+        pendingFocus_ = "Graphics";  // a refused item leaves the combo open: focusing the window closes it
+    });
+    step(3, [this] {
+        at_check(!at_visible("gfx:fgMode:fsr"), "...and the mode combo is closed again before the next click");
     });
     click("gfx:fgMode");
     step(4, [] {});

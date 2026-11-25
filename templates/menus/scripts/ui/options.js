@@ -311,14 +311,18 @@ export default class Options extends Behaviour {
     ui.on("click", "gfx_dynamic", () => {
       const all = settings.DYNAMIC_CHOICES;
       const next = all[(all.indexOf(settings.dynamicChoice(this.s)) + 1) % all.length]; // "custom" is not in the list: -1 + 1 = off
-      g.dynamicResolution = next;
-      this.applyQuality(() => settings.applyDynamicChoice(next));
+      this.applyQuality(
+        () => settings.applyDynamicChoice(next),
+        () => (g.dynamicResolution = next),
+      );
     });
     ui.on("change", "gfx_render_scale", (e) => {
       const value = Math.round(Math.min(settings.RENDER_SCALE_MAX, Math.max(settings.RENDER_SCALE_MIN, e.value)) * 100) / 100;
       if (this.syncing || value === (g.renderScale ?? window.renderScale)) return;
-      g.renderScale = value;
-      this.applyQuality(() => (window.renderScale = value));
+      this.applyQuality(
+        () => (window.renderScale = value),
+        () => (g.renderScale = value),
+      );
     });
     ui.on("change", "gfx_sharpness", (e) => {
       const value = Math.round(Math.min(1, Math.max(0, e.value)) * 100) / 100;
@@ -337,14 +341,22 @@ export default class Options extends Behaviour {
     ui.focus(world.find({ effects: "gfx_page", quality: "gfx_preset_auto", latency: "gfx_latency_auto", framegen: "gfx_fg_auto" }[page]));
   }
 
-  /** Runs `change` (an engine call), saves and shows the result; a call the engine refuses is logged and the page shows what is in force. */
-  applyQuality(change) {
+  /**
+   * Runs `change` (an engine call) and, only when the engine accepted it, `record` (what puts the choice in the settings), then saves and shows the result.
+   * A call the engine refuses is logged: nothing is recorded or saved, and the page shows what is in force.
+   */
+  applyQuality(change, record) {
+    let applied = true;
     try {
       change();
     } catch (e) {
+      applied = false;
       console.warn(`options: the graphics choice was not applied: ${e.message}`);
     }
-    settings.save(this.s);
+    if (applied) {
+      record?.();
+      settings.save(this.s);
+    }
     this.refreshQuality();
   }
 
@@ -373,21 +385,27 @@ export default class Options extends Behaviour {
 
   /** An upscaler mode, quality or sharpness: it applies at once and wins over what the preset wrote. */
   chooseUpscaler(keys) {
-    Object.assign(this.s.graphics.upscaler, keys);
-    this.applyQuality(() => (window.upscaler = keys));
+    this.applyQuality(
+      () => (window.upscaler = keys),
+      () => Object.assign(this.s.graphics.upscaler, keys),
+    );
   }
 
   /** A low-latency mode or its boost: it applies at once and is saved. A mode with no boost switch drops the boost. */
   chooseLatency(keys) {
     const chosen = keys.mode !== undefined && !settings.latencyHasBoost(keys.mode) ? { ...keys, boost: false } : keys;
-    Object.assign(this.s.graphics.latency, chosen);
-    this.applyQuality(() => settings.setLatency(chosen));
+    this.applyQuality(
+      () => settings.setLatency(chosen),
+      () => Object.assign(this.s.graphics.latency, chosen),
+    );
   }
 
   /** A frame-generation mode or its minimum base frame rate: it applies at once and is saved (a game that started with it off answers `refused`: the note says so). */
   chooseFrameGen(keys) {
-    Object.assign(this.s.graphics.frameGeneration, keys);
-    this.applyQuality(() => settings.setFrameGeneration(keys));
+    this.applyQuality(
+      () => settings.setFrameGeneration(keys),
+      () => Object.assign(this.s.graphics.frameGeneration, keys),
+    );
   }
 
   /** What the page shows: the preset and the upscaler in force, the modes this GPU cannot draw greyed out, and the notes that say why. */
@@ -397,6 +415,8 @@ export default class Options extends Behaviour {
     const t = (key, args) => i18n.t(key, args);
     const preset = g.preset ?? game.graphics.preset().preset; // never chose: the engine's own (the project's render.graphicsPreset, else custom)
     const pick = settings.presetInForce(this.s);
+    const sep = t("options.gfx.listSep"); // between the modes that share a reason, and between the reasons ("، " and "؛ " in Arabic)
+    const groupSep = t("options.gfx.groupSep");
     const mark = (id, on) => (world.find(id).get("Button").color = on ? TAB_SELECTED : TAB_COLOR);
     this.syncing = true;
     try {
@@ -459,8 +479,8 @@ export default class Options extends Behaviour {
       if (Math.abs(minSlider.value - fg.minBaseFps) > 0.5) minSlider.value = Math.min(fg.minBaseFps, settings.FRAMEGEN_MIN_FPS_MAX);
       minSlider.label = fg.minBaseFps === 0 ? t("options.gfx.fgMinFpsNever") : t("options.gfx.fgMinFps", { fps: fg.minBaseFps });
       const fgLines = [];
-      const fgUnsupported = [...fgReasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
-      if (fgUnsupported.length) fgLines.push(t("options.gfx.unsupNote", { modes: fgUnsupported.join("; ") }));
+      const fgUnsupported = [...fgReasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
+      if (fgUnsupported.length) fgLines.push(t("options.gfx.unsupNote", { modes: fgUnsupported.join(groupSep) }));
       if (fg.mode !== "off") {
         // What runs now: the engine's own state (docs/FRAME_GENERATION.md, "The command"); "refused" covers a game that started with frame generation off.
         const fgState = { measuring: "fgMeasuring", paused: "fgPaused", active: "fgActive" }[fg.state] ?? "fgRefused";
@@ -471,7 +491,7 @@ export default class Options extends Behaviour {
       const fgNote = world.find("framegen_note");
       fgNote.active = fgLines.length > 0;
       fgNote.get("Text").text = fgLines.join(" ");
-      const unsupported = [...reasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
+      const unsupported = [...reasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
       world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");
       world.find("gfx_dynamic").get("Button").text = t("options.gfx.dynLabel", { choice: t(`options.gfx.dyn.${settings.dynamicChoice(this.s)}`) });
@@ -485,12 +505,12 @@ export default class Options extends Behaviour {
       const shownSharpness = round2(up.sharpness); // the engine keeps a float: the slider and its label show hundredths
       if (Math.abs(sharpness.value - shownSharpness) > 0.004) sharpness.value = shownSharpness;
       sharpness.label = t("options.gfx.sharpness", { percent: Math.round(shownSharpness * 100) });
-      const latUnsupported = [...latReasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
+      const latUnsupported = [...latReasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
       const latNote = world.find("latency_note");
       latNote.active = latUnsupported.length > 0;
-      latNote.get("Text").text = latUnsupported.length ? t("options.gfx.unsupNote", { modes: latUnsupported.join("; ") }) : "";
+      latNote.get("Text").text = latUnsupported.length ? t("options.gfx.unsupNote", { modes: latUnsupported.join(groupSep) }) : "";
       const lines = [];
-      if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join("; ") }));
+      if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join(groupSep) }));
       if (up.effectiveMode === "stretch" && up.mode !== "stretch") lines.push(t("options.gfx.stretchNote"));
       const note = world.find("quality_note");
       note.active = lines.length > 0;
