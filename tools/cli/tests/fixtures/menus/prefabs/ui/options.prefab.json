@@ -693,12 +693,188 @@
             }
           },
           {
-            "id": "gfx_page_back",
+            "id": "gfx_page_nav",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_page_back",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Screen effects",
+                    "key": "options.gfx.pageBack",
+                    "size": [280, 40],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              },
+              {
+                "id": "gfx_latency_page",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Low latency",
+                    "key": "options.gfx.latPage",
+                    "size": [280, 40],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "latency_section",
+        "active": false,
+        "components": {
+          "Panel": {
+            "size": [712, 300],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "gfx_latency_label",
+            "components": {
+              "Text": {
+                "text": "Low latency",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_latency_modes",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_latency_off",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Off",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_latency_auto",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Auto",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_latency_reflex",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Reflex",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_latency_antilag2",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Anti-Lag 2",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_latency_xell",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "XeLL",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "gfx_latency_boost",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Low latency boost",
+                "key": "options.gfx.latBoost",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "latency_note",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_latency_back",
             "components": {
               "Button": {
                 "autoSize": true,
-                "text": "Screen effects",
-                "key": "options.gfx.pageBack",
+                "text": "Preset and upscaling",
+                "key": "options.gfx.page",
                 "size": [560, 40],
                 "layer": 302,
                 "fontSize": 20
