@@ -163,6 +163,46 @@ TEST_CASE("shader text: the cache key is the frame's content, not its address or
     CHECK(fa::shader_text::decoded_count() == decoded);
 }
 
+TEST_CASE("shader text: two packs that share the first hash (one cache bucket) are told apart by the second") {
+    auto make = [](char letter) {
+        std::string text = "#version 300 es\nvoid main() {}\n";
+        for (int i = 0; i < 40; ++i)
+            text += std::string("// collision ") + letter + " of a made-up shader " + std::to_string(i) + "\n";
+        fa::CompressOptions options;
+        options.codec = fa::Codec::Zstd;
+        auto frame = fa::compress(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.c_str()), text.size() + 1),
+            options);
+        REQUIRE(bool(frame));
+        return std::make_pair(text, std::move(*frame));
+    };
+    auto [textA, frameA] = make('A');
+    auto [textB, frameB] = make('B');
+    // The two hashes of the frames: different checks, so a shared key is the only thing the cache has to get past.
+    std::uint64_t keyA = 0, checkA = 0, keyB = 0, checkB = 0;
+    fa::shader_text::detail::hash_frame(frameA.data(), frameA.size(), keyA, checkA);
+    fa::shader_text::detail::hash_frame(frameB.data(), frameB.size(), keyB, checkB);
+    CHECK(checkA != checkB);
+    struct SameKey {
+        SameKey() { fa::shader_text::detail::set_same_key_for_test(true); }
+        ~SameKey() { fa::shader_text::detail::set_same_key_for_test(false); }
+    } sameKey;
+    const std::size_t before = fa::shader_text::decoded_count();
+    const char* a = fa::shader_text::get({frameA.data(), frameA.size(), textA.size() + 1}, 0);
+    const char* b = fa::shader_text::get({frameB.data(), frameB.size(), textB.size() + 1}, 0);
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    CHECK(a != b);
+    CHECK(textA == a);
+    CHECK(textB == b);
+    CHECK(fa::shader_text::decoded_count() ==
+          before + 2);  // both were decoded: the second did not take the first's text
+    // Each one is found again in the shared bucket.
+    CHECK(fa::shader_text::get({frameA.data(), frameA.size(), textA.size() + 1}, 0) == a);
+    CHECK(fa::shader_text::get({frameB.data(), frameB.size(), textB.size() + 1}, 0) == b);
+    CHECK(fa::shader_text::decoded_count() == before + 2);
+}
+
 TEST_CASE("shader text: a damaged frame gives an empty string, not a crash") {
     const Texts* blit = find_texts("blit.glsl300es");
     REQUIRE(blit != nullptr);

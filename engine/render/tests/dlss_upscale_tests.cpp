@@ -19,6 +19,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -1006,8 +1007,13 @@ TEST_CASE("streamline: slInit gets FactorIA's project GUID and no application id
     CHECK(sl::streamline_project_id("01234567-89AB-cdef-0123-456789abcdef") == "01234567-89AB-cdef-0123-456789abcdef");
     // The default is itself a GUID, so slInit is given one.
     CHECK(sl::streamline_project_id(sl::kDefaultProjectId) == sl::kDefaultProjectId);
-    // And the start: the variables are not set in a test run (a developer who exports them gets what they set).
-    if (!std::getenv("FA_STREAMLINE_APP_ID") && !std::getenv("FA_STREAMLINE_PROJECT_ID")) {
+    // And the start: the environment is the test's own (a developer who exports the variables does not change it).
+    struct EnvGuard {
+        explicit EnvGuard(render::StreamlineEnvReader reader) { render::set_streamline_environment_for_test(reader); }
+        ~EnvGuard() { render::set_streamline_environment_for_test(nullptr); }
+    };
+    SUBCASE("the variables are not set") {
+        EnvGuard env([](const char*) -> const char* { return nullptr; });
         sx.reset();
         FakeLoader loader;
         LoaderGuard guard(&loader);
@@ -1018,6 +1024,37 @@ TEST_CASE("streamline: slInit gets FactorIA's project GUID and no application id
         CHECK(sx.inits == 1);
         CHECK(sx.prefsAppId == 0u);
         CHECK(sx.prefsProjectId == sl::kDefaultProjectId);
+    }
+    SUBCASE("the variables are set") {
+        EnvGuard env([](const char* name) -> const char* {
+            return std::string_view(name) == "FA_STREAMLINE_APP_ID" ? "4711" : "01234567-89AB-cdef-0123-456789abcdef";
+        });
+        sx.reset();
+        FakeLoader loader;
+        LoaderGuard guard(&loader);
+        AdapterFx adapter;
+        render::StreamlineRuntime rt({sl::kFeatureDlss}, make_host(adapter));
+        gpu::D3d12DeviceCreated c;
+        run_d3d12(rt, c);
+        CHECK(sx.inits == 1);
+        CHECK(sx.prefsAppId == 4711u);
+        CHECK(sx.prefsProjectId == "01234567-89AB-cdef-0123-456789abcdef");
+    }
+}
+
+TEST_CASE("dlss: the renderer asks Streamline for Ray Reconstruction's plugin only when the game asked for it") {
+    for (const bool asked : {false, true}) {
+        sx.reset();
+        FakeLoader loader;
+        LoaderGuard guard(&loader);
+        AdapterFx adapter;
+        render::StreamlineRuntime rt({sl::kFeatureDlss}, make_host(adapter));
+        render::streamline_ask_upscaler_features(rt, asked);  // what Renderer::init does before it makes the device
+        gpu::D3d12DeviceCreated c;
+        run_d3d12(rt, c);
+        CHECK(rt.feature_asked(sl::kFeatureDlssRr) == asked);
+        CHECK(rt.feature_asked(sl::kFeatureDlss));
+        CHECK((std::find(sx.loaded.begin(), sx.loaded.end(), sl::kFeatureDlssRr) != sx.loaded.end()) == asked);
     }
 }
 
@@ -1517,7 +1554,21 @@ TEST_CASE("dlss ray reconstruction: the probe is DLSS's plus the plugin, and the
           std::string::npos);  // the project setting and a restart
     CHECK(p.reason.find("restart") != std::string::npos);
     CHECK(std::find(sx.loaded.begin(), sx.loaded.end(), sl::kFeatureDlssRr) ==
-          sx.loaded.end());  // slInit was not told of the plugin
+          sx.loaded.end());                                             // slInit was not told of the plugin
+    CHECK(p.reason.find("render.upscaler.mode") == std::string::npos);  // the flag is the one to set here, not the mode
+    // The project asked (the flag is true) but starts in a mode that never draws with DLSS: the hint names the mode, not the flag.
+    render::streamline_ask_upscaler_features(rt, false, true);
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    CHECK(p.reason.find("render.upscaler.rayReconstruction is true") != std::string::npos);
+    CHECK(p.reason.find("Set render.upscaler.mode to \"dlss\" or \"auto\" in factoria.json and restart") !=
+          std::string::npos);
+    CHECK(p.reason.find("Set render.upscaler.rayReconstruction") == std::string::npos);
+    render::streamline_ask_upscaler_features(rt, false, false);  // the next renderer says nothing of it
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK(p.reason.find("Set render.upscaler.rayReconstruction to true in factoria.json and restart") !=
+          std::string::npos);
     env.backend = gpu::Backend::Vulkan;
     p = dlss->probe_ray_reconstruction(env);
     CHECK_FALSE(p.available);

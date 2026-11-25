@@ -186,6 +186,9 @@ struct RendererDesc {
     // is not loaded and render.supports "dlssRayReconstruction" says to restart with the project setting on (a game that never uses it is not
     // asked for the plugin's load time and memory).
     bool rayReconstruction = false;
+    // The project asked for Ray Reconstruction (the flag is true) but starts in a mode that never draws with DLSS, so `rayReconstruction` is
+    // false: the answer of render.supports says to set render.upscaler.mode to "dlss" or "auto" and restart, not to set the flag.
+    bool rayReconstructionNeedsMode = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -375,6 +378,8 @@ public:
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
+    // The description init() was given (a default one before). What the engine decided from the project, for tests and tools to check.
+    const RendererDesc& desc() const;
 
     // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/design/ARCHITECTURE_RENDERING.md "Start-up order and the shader cache") ----------------------------------
     // A window player opens the graphics context FIRST (open_context), presents one cleared frame (present_clear) and only
