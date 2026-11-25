@@ -62,6 +62,12 @@ void VulkanDevice::init_timer() {
 
 void VulkanDevice::destroy_timer() {
     std::lock_guard<std::mutex> lock(timerMutex_);
+    // A pool goes once the submissions that write its queries finished: the frames ended and not read yet are waited
+    // for (bounded; a device lost gives up at once).
+    for (int s : timerPending_) {
+        const TimerSlot& slot = timerSlots_[std::size_t(s)];
+        if (slot.fence > 0) (void)wait_timeline(slot.fence, "destroy_timer");
+    }
     for (TimerSlot& slot : timerSlots_)
         if (slot.pool) {
             fn_.vkDestroyQueryPool(device_, slot.pool, nullptr);
@@ -150,11 +156,14 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
             --timerStale_;
             continue;
         }
-        // No VK_QUERY_RESULT_WAIT_BIT: the timeline passed the frame's end, so its queries are there; one that is not
-        // (VK_NOT_READY) is left out rather than waited for.
+        // The timeline passed the frame's end, so its queries were written. VK_QUERY_RESULT_WAIT_BIT all the same: a
+        // driver may signal the timeline before the results are visible (MoltenVK signals it from a command buffer's
+        // completion handler), and without the wait such a frame came back VK_NOT_READY. The wait is that short gap
+        // only; a scope whose list was not submitted is never read (its queries were never written).
         std::uint64_t frame[2] = {};
-        const VkResult fr = fn_.vkGetQueryPoolResults(device_, slot.pool, 0, 2, sizeof(frame), frame,
-                                                      sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
+        const VkResult fr =
+            fn_.vkGetQueryPoolResults(device_, slot.pool, 0, 2, sizeof(frame), frame, sizeof(std::uint64_t),
+                                      VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
         if (fr != VK_SUCCESS) continue;  // this frame is lost
         frameMs.push_back(ticks_between(frame));
         struct Timed {
@@ -165,8 +174,9 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
         for (std::size_t i = 0; i < slot.names.size(); ++i) {
             if (!slot.submitted[i]) continue;
             std::uint64_t t[2] = {};
-            const VkResult sr = fn_.vkGetQueryPoolResults(device_, slot.pool, std::uint32_t(2 + 2 * i), 2, sizeof(t), t,
-                                                          sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
+            const VkResult sr =
+                fn_.vkGetQueryPoolResults(device_, slot.pool, std::uint32_t(2 + 2 * i), 2, sizeof(t), t,
+                                          sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
             if (sr != VK_SUCCESS) continue;
             // In the frame's order: ticks since the frame's start (masked, so a counter that wrapped still sorts).
             scopes.push_back({(t[0] - frame[0]) & mask, {slot.names[i], ticks_between(t)}});

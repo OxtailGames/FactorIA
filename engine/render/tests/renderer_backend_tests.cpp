@@ -456,6 +456,19 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     CHECK(has(windowed.error, "RendererDesc::headless"));
     CHECK(!has(windowed.error, "M77"));
 
+#if defined(FA_RENDER_VULKAN)
+    // Vulkan has a window path, but it makes its swapchain on the window's native handle, which the renderer does not
+    // hand it yet (RendererDesc carries none): it says what it needs.
+    BackendRenderer vkWindowed(GpuBackend::Vulkan, false);
+    REQUIRE(!vkWindowed.ok);
+    if (!has(vkWindowed.error, "Failed to create the GPU device")) {
+        CHECK(has(vkWindowed.error, "cannot draw into the window"));
+        CHECK(has(vkWindowed.error, "SwapchainDesc::nativeWindow is null"));
+        CHECK(has(vkWindowed.error, "RendererDesc::headless"));
+    }
+    CHECK(!has(vkWindowed.error, "M77"));
+#endif
+
 #if !defined(_WIN32)
     BackendRenderer d3d12(GpuBackend::D3d12);
     REQUIRE(!d3d12.ok);
