@@ -383,7 +383,9 @@ the same player whose renderer also has the engine's Vulkan backend and the SPIR
   `gles3` it runs the OpenGL player directly; when Vulkan cannot start it runs the OpenGL player with the environment variables
   `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). The OpenGL player
   records them as `fallbackFrom` and `fallbackReason` in the startup report and in `graphics.backend`, and never starts another player;
-  a player that carries the marker never hands over either, so there is no loop.
+  a player that carries the marker never hands over either, so there is no loop. A check run (`--input`, `--dump-state`,
+  `--screenshot`) in `auto` runs the OpenGL player, so its state and pixels match `factoria run --headless` byte for byte;
+  `FA_GPU_BACKEND=vulkan` checks the Vulkan path.
 - **Linux.** The exported game's `<exe>` is the Vulkan player and `<exe>-gl` the OpenGL one, in the same folder (in a build tree:
   `player/factoria_player_vulkan` and `player/factoria_player`). The Vulkan player replaces its own process with `<exe>-gl` (`execv`,
   same arguments and environment). Without `<exe>-gl` next to it, or when that fails, it warns and draws with its own sokol (OpenGL)
