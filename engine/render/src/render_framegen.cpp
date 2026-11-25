@@ -9,6 +9,8 @@
 
 #include "fa/core/log.h"
 
+#include "render_framegen_fsr.h"
+
 namespace fa::render {
 
 namespace {
@@ -25,8 +27,10 @@ int slot_index(FrameGenSlot s) {
 
 struct ProviderTable {
     std::mutex mutex;
-    std::shared_ptr<FrameGenProvider> registered[3];  // every slot is empty until its package registers a provider
+    std::shared_ptr<FrameGenProvider>
+        registered[3];  // the DLSS and XeSS slots are empty until their packages register a provider
     FrameGenProvider* fake[3] = {};
+    ProviderTable() { registered[1] = make_fsr_framegen_provider(); }
 };
 
 // Never destroyed (the reason the vendor table gives, render_upscale_vendor.cpp): a renderer shut down during the static destruction of the
@@ -78,9 +82,7 @@ const char* framegen_absent_reason(FrameGenSlot slot) {
         case FrameGenSlot::Dlss:
             return "DLSS frame generation arrives with the Streamline DLSS-G provider; this build has no provider for "
                    "it yet.";
-        case FrameGenSlot::Fsr:
-            return "FSR 3 frame generation arrives with the FidelityFX frame generation provider; this build has no "
-                   "provider for it yet.";
+        case FrameGenSlot::Fsr: return "FSR 3 frame generation has no provider in this build.";
         case FrameGenSlot::Xess:
             return "XeSS frame generation arrives with the XeSS frame generation provider; this build has no provider "
                    "for it yet.";
@@ -113,14 +115,14 @@ std::string framegen_environment_problem(const FrameGenProvider& provider, const
     return vendor_environment_problem(provider.name(), provider.backends(), env);
 }
 
-std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks() {
+std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks(FrameGenMode mode) {
     ProviderTable& t = table();
     std::vector<std::shared_ptr<gpu::DeviceHook>> hooks;
     std::lock_guard<std::mutex> lock(t.mutex);
     for (int i = 0; i < 3; ++i) {
         FrameGenProvider* p = t.fake[i] ? t.fake[i] : t.registered[i].get();
         if (!p) continue;
-        std::shared_ptr<gpu::DeviceHook> hook = p->device_hook();
+        std::shared_ptr<gpu::DeviceHook> hook = p->device_hook_for(mode);
         if (!hook) continue;
         const bool twice =
             std::any_of(hooks.begin(), hooks.end(), [&](const auto& h) { return h.get() == hook.get(); });

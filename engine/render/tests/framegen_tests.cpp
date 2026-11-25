@@ -229,8 +229,11 @@ TEST_CASE("frame generation settings: the provider a mode names on what the mach
 
 // ---- the slot table ----------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("frame generation providers: every slot is empty and says which package fills it") {
-    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
+TEST_CASE("frame generation providers: the DLSS and XeSS slots are empty and say which package fills them, FSR 3 has "
+          "its provider") {
+    CHECK(render::framegen_provider(FrameGenSlot::Fsr) != nullptr);
+    CHECK(render::framegen_provider(FrameGenSlot::Fsr)->slot() == FrameGenSlot::Fsr);
+    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Xess}) {
         CAPTURE(render::frame_gen_slot_name(s));
         CHECK(render::framegen_provider(s) == nullptr);
         const std::string why = render::framegen_absent_reason(s);
@@ -238,7 +241,6 @@ TEST_CASE("frame generation providers: every slot is empty and says which packag
         CHECK(why.find("yet") != std::string::npos);
     }
     CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Dlss)).find("Streamline") != std::string::npos);
-    CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Fsr)).find("FidelityFX") != std::string::npos);
     CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Xess)).find("XeSS") != std::string::npos);
     CHECK(std::string(render::framegen_slot_setup_id(FrameGenSlot::Dlss)) == "streamline");
     CHECK(std::string(render::framegen_slot_setup_id(FrameGenSlot::Fsr)) == "fidelityfx");
@@ -251,18 +253,18 @@ TEST_CASE("frame generation providers: every slot is empty and says which packag
 
 TEST_CASE(
     "frame generation providers: a registered provider fills a slot with one call, and a test fake wins over it") {
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == nullptr);
-    auto registered = std::make_shared<FakeProvider>(FrameGenSlot::Fsr);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == nullptr);
+    auto registered = std::make_shared<FakeProvider>(FrameGenSlot::Xess);
     render::register_framegen_provider(registered);
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == registered.get());
-    FakeProvider fake(FrameGenSlot::Fsr);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == registered.get());
+    FakeProvider fake(FrameGenSlot::Xess);
     {
-        ProviderGuard guard(FrameGenSlot::Fsr, &fake);
-        CHECK(render::framegen_provider(FrameGenSlot::Fsr) == &fake);
+        ProviderGuard guard(FrameGenSlot::Xess, &fake);
+        CHECK(render::framegen_provider(FrameGenSlot::Xess) == &fake);
     }
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == registered.get());
-    render::clear_registered_framegen_provider_for_test(FrameGenSlot::Fsr);
-    CHECK(render::framegen_provider(FrameGenSlot::Fsr) == nullptr);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == registered.get());
+    render::clear_registered_framegen_provider_for_test(FrameGenSlot::Xess);
+    CHECK(render::framegen_provider(FrameGenSlot::Xess) == nullptr);
 }
 
 // ---- the controller: the choice and the refusals -------------------------------------------------------------------------------------
@@ -315,7 +317,7 @@ TEST_CASE("frame generation controller: every refusal says what is wrong and how
         c.set_settings(settings(FrameGenMode::Dlss));
         CHECK(c.state() == FrameGenState::Refused);
         CHECK(c.reason().find("Streamline") != std::string::npos);
-        CHECK(c.provider_reason(FrameGenSlot::Fsr).find("FidelityFX") != std::string::npos);
+        CHECK(c.provider_reason(FrameGenSlot::Xess).find("XeSS") != std::string::npos);
     }
     SUBCASE("the provider's probe says no: its sentence is the reason, once") {
         FakeProvider dlss(FrameGenSlot::Dlss);

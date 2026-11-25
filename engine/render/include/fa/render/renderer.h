@@ -177,6 +177,9 @@ struct RendererDesc {
     // registered before the device is made (they take part in making the swapchain, which cannot be changed later). False: the mode can be
     // set at run time, but a provider never starts and the reason says to restart with the setting on. Only D3d12 and Vulkan in a window use it.
     bool frameGeneration = false;
+    // The mode the game asked for (render.frameGeneration.mode; the renderer's frame generation settings can change it later, a provider that
+    // makes the swapchain cannot): each provider's hook decides from it whether it takes part (an FSR swapchain under mode "dlss" would be wrong).
+    render::FrameGenMode frameGenerationMode = render::FrameGenMode::Auto;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,

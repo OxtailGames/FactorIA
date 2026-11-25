@@ -8,10 +8,10 @@ generation, Intel XeSS frame generation). It is off by default, and the swapchai
 { "render": { "frameGeneration": { "mode": "auto", "minBaseFps": 60 } } }
 ```
 
-> **State of this build.** This is the seam: the setting, the choice of the provider, the refusals, the `minBaseFps` rule, the hand-off
-> of the frame and the readout. **No vendor provider is registered yet**: each of the three arrives in its own package (DLSS through
-> Streamline, FSR 3 through FidelityFX, XeSS frame generation), and until then every mode other than `off` is *refused* and
-> `render.frame_generation` says which package fills it. Nothing is generated, nothing changes in the picture.
+> **State of this build.** The seam (the setting, the choice of the provider, the refusals, the `minBaseFps` rule, the hand-off of the
+> frame and the readout) and **one provider: AMD FSR 3 frame generation** (below). The DLSS (Streamline) and XeSS providers arrive in
+> their own packages: until then `dlss` and `xess` are *refused* and `render.frame_generation` says which package fills them. Where FSR 3
+> cannot run (not Windows, FidelityFX not installed, a driver without a frame generation provider) `fsr` is refused too, with the reason.
 
 `mode`:
 
@@ -109,10 +109,39 @@ The editor's Profiler window shows the same line. In a run with no window (a hea
 `state: "off"` or `"refused"` and why, with zero frames; nothing is invented.
 
 `render.supports` has the rows `dlssFrameGen`, `fsrFrameGen` and `xessFrameGen` with their Direct3D 12 and Vulkan keys (XeSS: Direct3D 12
-only); a row is false with the provider's reason while no provider is there.
+only); a row is false with the provider's reason while its provider is not in the build or cannot run on this machine.
+
+## AMD FSR 3 frame generation
+
+Mode `fsr` (also `auto` on an AMD GPU). It runs on Windows, on Direct3D 12 and on Vulkan, on any maker's GPU, through AMD FidelityFX's frame
+generation. `factoria setup fidelityfx` installs the SDK (the engine ships no AMD header or library); it is the same installation the FSR 3.1
+upscaler uses (docs/UPSCALING.md, "Vendor upscalers").
+
+How it takes part: FidelityFX makes the window's swapchain. When the game starts with `render.frameGeneration.mode` `fsr` (or `auto` on an
+AMD GPU), the engine lets FidelityFX create it: on Direct3D 12 a proxy swapchain that presents the rendered and the generated frames, on
+Vulkan the swapchain functions FidelityFX replaces (the device then also asks for three queues: async compute, present and image acquire).
+A swapchain can not be taken over later, so changing to `fsr` while the game runs says "restart the game". On the first frame the provider
+makes the frame generation context for the display size and the swapchain's format; each frame it tells the swapchain whether to generate, which
+picture is the one before the screen-space items, and the frame number, and it hands over the depth, the motion, the camera and the jitter of
+the temporal upscaler. The swapchain interpolates when it presents. The context is made again when the display size or the depth flags change,
+with the history reset. Below `minBaseFps` generation is turned off and the swapchain presents the rendered frames only. When the game shuts
+down, generation is turned off, the presents in flight finish, the GPU goes idle and the contexts are destroyed.
+
+Why `fsr` is refused, in the words of `render.frame_generation`:
+
+- not Windows, or a backend other than D3D12 and Vulkan: the sentence names the backend;
+- no library: "run `factoria setup fidelityfx`"; a library that does not load, or lacks an export, says which;
+- the library lists no frame generation provider for this GPU or driver: update the driver or install the whole SDK;
+- a swapchain FidelityFX could not make (the reason carries its result code): the engine then keeps its own swapchain, so the game still runs
+  without generation;
+- `auto` on a GPU that is not AMD's takes no part (name `fsr` to use it anyway).
+
+A frame FidelityFX refuses is reported with its result code and the next frame resets the history; nothing crashes the game. Not verified
+without an AMD machine: the interpolated picture itself, on each of the two backends.
 
 ## For a provider
 
 The private seam is in `engine/render/src/render_framegen.h`, described in docs/design/ARCHITECTURE_RENDERING_HOOKS.md (repository only, not in the binary), "Frame
-generation (M78)": a package that adds an SDK implements `FrameGenProvider` and calls `register_framegen_provider()` once; nothing else
-changes.
+generation (M78)": a package that adds an SDK implements `FrameGenProvider` and calls `register_framegen_provider()` once (the FSR 3 provider is made with the table); nothing else
+changes. A provider that makes the swapchain answers `device_hook_for(mode)` with its hook only for the modes it serves, so an FSR swapchain
+is never made when the game asked for `dlss`.
