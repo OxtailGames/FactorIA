@@ -331,12 +331,16 @@ bool Presenter::destroy() {
     if (!impl_) return true;
     Impl& m = *impl_;
     bool clean = true;
+    // Flip-model swapchains are destroyed lazily: drop every reference to the swapchain first, then ClearState +
+    // Flush so the destruction happens now (ID3D11DeviceContext::Flush, "Deferred Destruction Issues with Flip
+    // Presentation Swap Chains"). Otherwise a D3D12 or Vulkan swapchain made next on the same HWND gets
+    // E_ACCESSDENIED, and the device keeps a reference.
     m.drop_views(clean);
+    release_last(m.swap, clean);
     if (m.context) {
         m.context->ClearState();
         m.context->Flush();
     }
-    release_last(m.swap, clean);
     release(m.context);  // the immediate context lives as long as the device
     release_last(m.device, clean);
     impl_.reset();
@@ -593,9 +597,10 @@ bool in_modal_move_size_loop() {
 // ---- sokol_window.h on Windows: the swapchain is the presenter's, not sokol_app's -----------------------------------------
 
 extern "C" bool fa_sapp_set_vsync(bool on) {
-    (void)on;  // app.cpp keeps the wish and passes the interval to every present()
+    // app.cpp keeps the wish and passes the interval to every present(). The blit model of Windows before 10 always
+    // syncs: vsync on always works, off only with the flip model.
     const fa::d3d11::Presenter* p = fa::d3d11::window_presenter();
-    return !p || p->flip_model();  // the blit model of Windows before 10 always syncs
+    return on || !p || p->flip_model();
 }
 
 extern "C" int fa_sapp_swapchain_kind(void) {

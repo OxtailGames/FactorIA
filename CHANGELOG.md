@@ -15,7 +15,7 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 - On Windows the window no longer owns a D3D11 device (M77-P9f): sokol_app runs without a graphics API there, and the platform makes the
   D3D11 device and the window's DXGI flip-model swapchain itself, resizes it and presents it (vsync interval, tearing when vsync is off
   and the display allows it, the same frame latency as before), so the D3D12 and Vulkan backends can present on the same window. A lost
-  device is logged once with its reason and what to do. HDR output, the editor's frame readback, fullscreen and HiDPI work as before.
+  device is logged once with its reason and what to do. HDR output, the editor's frame readback, fullscreen and HiDPI work as before (with `AppDesc::highDpi=false` the process is now DPI-unaware and Windows scales the window, as sokol_app does without D3D11).
 - A game chooses its GPU backend (M77-P9a): `"render": {"backend": "auto" | "d3d11" | "d3d12" | "vulkan" | "metal" | "gl" | "gles3" |
   "webgl2"}` in `factoria.json` (a wrong name fails with `/render/backend`, the valid names and a did-you-mean; one the platform or binary
   lacks warns and uses `auto`, which is still the sokol backend of the build), the `FA_GPU_BACKEND` environment variable and
