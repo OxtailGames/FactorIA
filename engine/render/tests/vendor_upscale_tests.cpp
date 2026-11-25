@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "fa/core/fs.h"
+#include "gpu/recording_device.h"
 #include "render_features.h"
 #include "render_upscale.h"
 #include "render_upscale_vendor.h"
@@ -87,7 +88,8 @@ VendorEnv windows_env(gpu::Backend backend, GpuVendor vendor) {
 
 }  // namespace
 
-TEST_CASE("vendor loader: the folder of the environment wins, and when it lacks the library the other places are not tried") {
+TEST_CASE(
+    "vendor loader: the folder of the environment wins, and when it lacks the library the other places are not tried") {
     Scratch s;
     const stdfs::path env = s.dir / "env", exe = s.dir / "exe", home = s.dir / "home";
     s.touch("exe/libxess.dll");
@@ -111,12 +113,13 @@ TEST_CASE("vendor loader: next to the executable beats the setup folder, and the
     roots.home = s.dir / "home";
     std::string why;
     CHECK(render::find_vendor_library(kSpec, roots, &why).empty());
-    CHECK(why.find("factoria setup") == std::string::npos);  // the search reports where it looked; the provider adds the setup hint
+    CHECK(why.find("factoria setup") ==
+          std::string::npos);  // the search reports where it looked; the provider adds the setup hint
     CHECK(why.find("not next to the game") != std::string::npos);
     CHECK(why.find("no version of it") != std::string::npos);
     s.touch("home/tools/xess/2.9.1/libxess.dll");
     s.touch("home/tools/xess/2.10.0/libxess.dll");
-    s.touch("home/tools/xess/2.11.0/readme.txt");  // a version folder without the library does not count
+    s.touch("home/tools/xess/2.11.0/readme.txt");        // a version folder without the library does not count
     s.touch("home/tools/streamline/9.0.0/libxess.dll");  // another setup id is another folder
     CHECK(render::find_vendor_library(kSpec, roots) == s.dir / "home" / "tools" / "xess" / "2.10.0" / "libxess.dll");
     const stdfs::path beside = s.touch("exe/libxess.dll");
@@ -164,17 +167,19 @@ TEST_CASE("vendor providers: a probe says what is wrong in the order GPU maker, 
     CHECK(p.reason.find("factoria setup streamline") != std::string::npos);
     p = fsr.probe(windows_env(gpu::Backend::Vulkan, GpuVendor::Other));
     CHECK(p.reason.find("factoria setup fidelityfx") != std::string::npos);
-    // The library is there: the seam has no SDK call yet, and says so (not "not installed").
+    // The library is there but is not XeSS (the fake loader loads nothing): the file is named, and so is the way to fix it. The SDK's own
+    // calls are tested against a fake library in xess_upscale_tests.cpp.
     Scratch s;
     loader.found = s.touch("libxess.dll");
     p = xess.probe(windows_env(gpu::Backend::D3d12, GpuVendor::Intel));
     CHECK_FALSE(p.available);
-    CHECK(p.reason.find("lands later in M78") != std::string::npos);
+    CHECK(p.reason.find("could not be loaded") != std::string::npos);
+    CHECK(p.reason.find("factoria setup xess") != std::string::npos);
     CHECK(p.reason.find("not installed") == std::string::npos);
     // The library does not rescue an environment that cannot run the SDK.
     p = xess.probe(windows_env(gpu::Backend::Gl, GpuVendor::Intel));
     CHECK(p.reason.find("OpenGL") != std::string::npos);
-    // upscale() of the registered provider draws nothing and says why (the renderer then draws the temporal upscaler).
+    // upscale() of a provider the probe did not accept draws nothing and says why (the renderer then draws the temporal upscaler).
     VendorFrame frame;
     render::UpscaleInput in;
     CHECK_FALSE(xess.upscale(in, frame));
@@ -184,6 +189,13 @@ TEST_CASE("vendor providers: a probe says what is wrong in the order GPU maker, 
 TEST_CASE("vendor providers: without a device the GPU maker is none, with the Recording device too") {
     CHECK(render::gpu_vendor_name(GpuVendor::None) == "none");
     CHECK(render::gpu_vendor_name(GpuVendor::Nvidia) == "NVIDIA");
+    gpu::RecordingDevice recording;
+    CHECK(render::gpu_vendor_of(recording) == GpuVendor::None);
+    const VendorEnv env = render::vendor_env_of(recording);
+    CHECK(env.backend == gpu::Backend::Recording);
+    CHECK(env.vendor == GpuVendor::None);
+    CHECK(env.device == &recording);
+    // The PCI vendor id to maker mapping is tested with a device that has one (xess_upscale_tests.cpp).
 }
 
 namespace {
@@ -315,7 +327,8 @@ TEST_CASE("vendor renderer: a usable provider is handed the jittered frame and i
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(UpscaleImpl::Spatial));
 }
 
-TEST_CASE("vendor renderer: a provider that refuses a frame is off for the run and the temporal upscaler draws instead") {
+TEST_CASE(
+    "vendor renderer: a provider that refuses a frame is off for the run and the temporal upscaler draws instead") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     FakeProvider fake("fsr", true, false);
@@ -333,7 +346,8 @@ TEST_CASE("vendor renderer: a provider that refuses a frame is off for the run a
     // The next best of the chain: the temporal upscaler, or MetalFX on a Mac that has it (it is first in the chain).
     const UpscalerMode next = own.r.effective_upscaler_mode();
     CHECK((next == UpscalerMode::Temporal || next == UpscalerMode::MetalFx));
-    CHECK(RendererTestAccess::upscale_impl(own.r) == int(next == UpscalerMode::MetalFx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
+    CHECK(RendererTestAccess::upscale_impl(own.r) ==
+          int(next == UpscalerMode::MetalFx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
     CHECK_FALSE(own.r.upscaler_caps().fsr);
     Image img;
     std::string err;
@@ -342,7 +356,8 @@ TEST_CASE("vendor renderer: a provider that refuses a frame is off for the run a
     CHECK(img.height == kOutH);
 }
 
-TEST_CASE("vendor renderer: a provider that is not available is never given a frame, and the mode falls to the temporal one with the reason "
+TEST_CASE("vendor renderer: a provider that is not available is never given a frame, and the mode falls to the "
+          "temporal one with the reason "
           "in render.supports") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

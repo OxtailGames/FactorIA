@@ -9,6 +9,8 @@
 
 #include "fa/core/fs.h"
 
+#include "render_upscale_xess.h"
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -97,8 +99,9 @@ std::vector<VersionPart> version_parts(const std::string& name) {
         const std::string piece = name.substr(i, j - i);
         VersionPart p;
         p.text = piece;
-        const bool digits = !piece.empty() && piece.size() <= 18 &&
-                            std::all_of(piece.begin(), piece.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
+        const bool digits = !piece.empty() && piece.size() <= 18 && std::all_of(piece.begin(), piece.end(), [](char c) {
+            return std::isdigit(static_cast<unsigned char>(c)) != 0;
+        });
         if (digits) {
             p.number = true;
             p.value = std::stoull(piece);
@@ -160,7 +163,8 @@ public:
         HMODULE h = LoadLibraryExW(full.c_str(), nullptr, kFlags);
         if (!h) {
             if (why)
-                *why = "Windows could not load " + fs::path_to_utf8(full) + " (error " + std::to_string(GetLastError()) +
+                *why = "Windows could not load " + fs::path_to_utf8(full) + " (error " +
+                       std::to_string(GetLastError()) +
                        "; an x64 game needs the x64 library and its own dependencies next to it)";
             return nullptr;
         }
@@ -238,7 +242,8 @@ public:
         // What the machine decides first: the GPU's maker (DLSS), then the backend and the system. A missing library is last: installing
         // it is of no use where the GPU or the backend cannot run the SDK.
         if (info_.nvidiaOnly && env.vendor != GpuVendor::Nvidia) {
-            p.reason = std::string(info_.name) + " needs an NVIDIA RTX GPU; this GPU is " + describe_gpu(env.vendor) + ".";
+            p.reason =
+                std::string(info_.name) + " needs an NVIDIA RTX GPU; this GPU is " + describe_gpu(env.vendor) + ".";
             return p;
         }
         p.reason = vendor_environment_problem(*this, env);
@@ -246,8 +251,8 @@ public:
         std::string why;
         const stdfs::path found = vendor_loader().find(info_.lib, &why);
         if (found.empty()) {
-            p.reason = std::string(info_.name) + " is not installed: run `factoria setup " + std::string(info_.setupId) +
-                       "` (" + why + ").";
+            p.reason = std::string(info_.name) + " is not installed: run `factoria setup " +
+                       std::string(info_.setupId) + "` (" + why + ").";
             return p;
         }
         return probe_found(found);
@@ -263,7 +268,8 @@ protected:
     // table and answers for the GPU.
     virtual VendorProbe probe_found(const stdfs::path& library) {
         VendorProbe p;
-        p.reason = std::string(info_.name) + " support lands later in M78 (the library is at " + fs::path_to_utf8(library) + ").";
+        p.reason = std::string(info_.name) + " support lands later in M78 (the library is at " +
+                   fs::path_to_utf8(library) + ").";
         return p;
     }
 
@@ -278,10 +284,14 @@ std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> make_providers
     std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> t;
     t[0] = std::make_unique<LibraryProvider>(LibraryProvider::Info{
         "DLSS", "dlss", "streamline", kD3dVulkanAnd11, {"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"}, true});
-    t[1] = std::make_unique<LibraryProvider>(
-        LibraryProvider::Info{"XeSS", "xess", "xess", kD3dVulkanAnd11, {"xess", "FA_XESS_DIR", "libxess.dll"}, false});
-    t[2] = std::make_unique<LibraryProvider>(LibraryProvider::Info{
-        "FSR 3.1", "fsr", "fidelityfx", kD3dAndVulkan, {"fidelityfx", "FA_FIDELITYFX_DIR", "amd_fidelityfx_dx12.dll"}, false});
+    t[1] = make_xess_provider();
+    t[2] = std::make_unique<LibraryProvider>(
+        LibraryProvider::Info{"FSR 3.1",
+                              "fsr",
+                              "fidelityfx",
+                              kD3dAndVulkan,
+                              {"fidelityfx", "FA_FIDELITYFX_DIR", "amd_fidelityfx_dx12.dll"},
+                              false});
     return t;
 }
 
@@ -296,7 +306,9 @@ stdfs::path find_vendor_library(const VendorLibrarySpec& spec, const VendorSearc
         // An explicit choice: the folder $FA_..._DIR names, and no other when it does not hold the library.
         const stdfs::path p = roots.envDir / spec.fileName;
         if (is_file(p)) return p;
-        if (why) *why = std::string(spec.fileName) + " is not in " + fs::path_to_utf8(roots.envDir) + ", the folder $" + spec.dirEnv + " names";
+        if (why)
+            *why = std::string(spec.fileName) + " is not in " + fs::path_to_utf8(roots.envDir) + ", the folder $" +
+                   spec.dirEnv + " names";
         return {};
     }
     note(std::string("$") + spec.dirEnv + " is not set");
@@ -347,12 +359,30 @@ VendorLoader& vendor_loader() {
 void set_vendor_loader_for_test(VendorLoader* fake) { g_loader_override = fake; }
 
 VendorUpscaler& vendor_provider(int index) {
-    static std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> providers = make_providers();
+    // Never destroyed: a Renderer that a static object holds (a test's shared one) shuts down during the static destruction of the
+    // process, and may be the first to ask for a provider then; a static that is made that late would already be gone.
+    static auto* const providers =
+        new std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount>(make_providers());
     const int i = std::clamp(index, 0, kVendorUpscalerCount - 1);
-    return g_provider_override[i] ? *g_provider_override[i] : *providers[std::size_t(i)];
+    return g_provider_override[i] ? *g_provider_override[i] : *(*providers)[std::size_t(i)];
 }
 void set_vendor_provider_for_test(int index, VendorUpscaler* fake) {
     if (index >= 0 && index < kVendorUpscalerCount) g_provider_override[index] = fake;
+}
+
+GpuVendor gpu_vendor_from_identity(const gpu::GpuIdentity& identity) {
+    gpu::GpuVendor v = identity.vendor;
+    if (v == gpu::GpuVendor::Unknown && identity.vendorId != 0) v = gpu::gpu_vendor_from_pci(identity.vendorId);
+    switch (v) {
+        case gpu::GpuVendor::Nvidia: return GpuVendor::Nvidia;
+        case gpu::GpuVendor::Amd: return GpuVendor::Amd;
+        case gpu::GpuVendor::Intel: return GpuVendor::Intel;
+        case gpu::GpuVendor::Apple: return GpuVendor::Apple;
+        case gpu::GpuVendor::Microsoft:
+        case gpu::GpuVendor::Other: return GpuVendor::Other;
+        case gpu::GpuVendor::Unknown: break;
+    }
+    return GpuVendor::None;
 }
 
 GpuVendor gpu_vendor_of(const gpu::Device& device) {
@@ -361,21 +391,28 @@ GpuVendor gpu_vendor_of(const gpu::Device& device) {
         case gpu::Backend::Recording: return GpuVendor::None;
         default: break;
     }
-    // M78-P2a: the device's PCI vendor id (0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel) replaces this answer.
-    return GpuVendor::Other;
+    // A GL driver whose vendor string is not known, or an API that gave no id: some other maker (the SDKs of NVIDIA and Intel are not for it).
+    const GpuVendor v = gpu_vendor_from_identity(device.info().gpu);
+    return v == GpuVendor::None ? GpuVendor::Other : v;
 }
 
 VendorEnv vendor_env_of(const gpu::Device& device) {
     VendorEnv e;
     e.backend = device.backend();
     e.vendor = gpu_vendor_of(device);
+    e.device = &device;  // borrowed for the probe: the providers read its native objects
+    // M78-P2b: the extension lists the creation hooks enabled go into e.vulkanInstanceExtensions / e.vulkanDeviceExtensions.
     return e;
 }
+
+const char* vendor_backend_label(gpu::Backend backend) { return backend_label(backend); }
+std::string vendor_describe_gpu(GpuVendor vendor) { return describe_gpu(vendor); }
 
 std::string vendor_environment_problem(const VendorUpscaler& provider, const VendorEnv& env) {
     const std::string name(provider.name());
     if (!(provider.backends() & backend_bit(env.backend)))
-        return name + " needs " + backend_list(provider.backends()) + "; this game runs on " + backend_label(env.backend) + ".";
+        return name + " needs " + backend_list(provider.backends()) + "; this game runs on " +
+               backend_label(env.backend) + ".";
     if (!env.windows) return name + " works on Windows only; this system is not Windows.";
     return {};
 }

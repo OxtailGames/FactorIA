@@ -959,7 +959,7 @@ public:
     std::vector<std::string> warnings();
     void clear_messages();
     // Waits until the GPU finished everything submitted, then releases what was waiting for it.
-    Result<void> wait_idle();
+    Result<void> wait_idle() override;
     D3d12Counters counters() const;
     // Mip `mip` of layer `layer` (array layer, cube face or 3D slice), the rectangle (x, y, w, h), tightly packed
     // rows top first, in the image's own format. Waits for the GPU.

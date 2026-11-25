@@ -71,6 +71,8 @@ std::uint32_t Device::bindless_index(View) const { return kNoBindlessIndex; }
 
 NativeView Device::native_view(View) const { return {}; }
 
+Result<void> Device::wait_idle() { return {}; }
+
 // ---- native commands: the answer of a backend without them, and the shared checks -----------------------------------
 
 Result<NativeCommands> CommandList::begin_native(std::span<const NativeUse>) {
