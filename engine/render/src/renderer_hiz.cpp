@@ -42,8 +42,18 @@ bool Renderer::Impl::hiz_resolve(World& world) {
     if (mode == OcclusionMode::Cpu) return false;
     if (hizSupport == 0) {
         std::string why;
-        const render::FeatureEnv env = render::feature_env_from_device(gpu.device());
-        bool ok = render::feature_supported(env, render::find_feature("occlusionGpu"), &why);
+        const gpu::Backend backend = gpu.device().backend();
+        bool ok = false;
+        if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) {
+            // The feature table has no column of their own yet (feature_backend_of): the depth pyramid needs compute
+            // shaders and the reads without waiting below, which the device answers itself (M77-P10d: its reduce is the
+            // work of the async compute queue).
+            ok = gpu.device().features().compute;
+            if (!ok) why = "this device has no compute shaders";
+        } else {
+            const render::FeatureEnv env = render::feature_env_from_device(gpu.device());
+            ok = render::feature_supported(env, render::find_feature("occlusionGpu"), &why);
+        }
         if (ok && !gpu.device().async_read_supported()) {
             ok = false;
             why = "this backend cannot read a storage buffer back without waiting";

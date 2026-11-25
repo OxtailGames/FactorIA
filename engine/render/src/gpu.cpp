@@ -1437,6 +1437,8 @@ Gpu::LightImage Gpu::fill_light_image(LightImg& l, int rows, const float* texels
     gpu::ImageWrite w{};
     w.data = {texels, std::size_t(kLightTextureWidth) * std::size_t(rows) * 16};
     w.dst.image = l.image;
+    w.size.width = kLightTextureWidth;  // the whole image, said explicitly: RecordingDevice checks the rectangle
+    w.size.height = rows;
     list_->write_image(w);
     return {l.image, l.view};
 }
