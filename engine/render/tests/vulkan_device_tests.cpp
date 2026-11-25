@@ -4048,8 +4048,10 @@ TEST_CASE("vulkan: a device hook wraps the swapchain's creation and present, and
     d.label = "hooked-window";
     auto made = dev->create_swapchain(d);
     REQUIRE_MESSAGE(made, (made.error().to_string() + "\n" + all_errors(*dev)));
-    CHECK(hook->asked == 1);
-    CHECK(gSwapchainsMade == 1);
+    // At least once: a driver that finds the swapchain out of date at creation makes it again.
+    CHECK(hook->asked >= 1);
+    CHECK(gSwapchainsMade >= 1);
+    CHECK(gSwapchainsMade == hook->asked);
 
     // The back buffer as an SDK sees it (begin_native's NativeImage): its usage and format are the swapchain's.
     auto acquired = acquire_retrying(*dev);

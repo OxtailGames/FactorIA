@@ -587,4 +587,11 @@ TEST_CASE("frame generation modes: what render.supports says of each one, and th
         Json::parse(R"({"provider":"none","state":"refused","reason":"restart the game to turn it on"})");
     CHECK(frame_gen_state_line(refused, 60) == "Refused: restart the game to turn it on");
     CHECK(frame_gen_state_line(Json::parse(R"({"state":"measuring","provider":"dlss"})"), 60).find("Measuring") == 0);
+    // A null or mistyped number or string (a broken or older readout) reads as its default and never throws.
+    CHECK(frame_gen_state_line(
+              Json::parse(
+                  R"({"state":"active","provider":"fsr","baseFps":null,"presentedFps":"x","generatedFrames":null})"),
+              60) == "Active (fsr): base 0.0 fps, presented 0.0 fps, 0 generated.");
+    CHECK(frame_gen_state_line(Json::parse(R"({"state":null,"provider":null,"reason":null})"), 60) ==
+          "Off: nothing is generated.");
 }

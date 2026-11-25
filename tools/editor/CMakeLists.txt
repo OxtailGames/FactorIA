@@ -57,7 +57,7 @@ if(FA_BUILD_TESTS)
         if(editor_autotest_runs)
             # The sections of the autotest (src/autotest_sections.h) in four ctest entries that ctest -j runs at the same time,
             # each in its own window, temp project and output folder (test-output/editor/<entry>, uploaded by CI on failure).
-            # Balanced by the frames each section draws (the table a run prints at the end: about 750 per entry); E, F, M5 and N
+            # Balanced by the frames each section draws (the table a run prints at the end: about 4500 per entry, 13 sections in entry 2 drew 4494); E, F, M5 and N
             # stay together in one entry only for that balance of frames. FA_EDITOR_AUTOTEST=1 alone still plays every section
             # in one window, and FA_EDITOR_AUTOTEST_SECTIONS=K,M only those (docs/EDITOR.md).
             set(editor_autotest_entries

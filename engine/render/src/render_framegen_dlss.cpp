@@ -1,6 +1,7 @@
 #include "render_framegen_dlss.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -166,6 +167,8 @@ private:
         gpu::View view{};
     };
 
+    // Why Streamline was not told to load DLSS-G: the mode the game started with, when it names another SDK, says what to change.
+    std::string not_set_up_reason() const;
     bool live(const StreamlineRuntime& runtime) const { return device_ && runtime.ready_generation() == generation_; }
     bool send_options();
     void read_state();
@@ -194,7 +197,9 @@ private:
     std::uint64_t generated_ = 0;
     bool loggedVram_ = false, warnedOptions_ = false, warnedState_ = false, warnedConstants_ = false;
     std::string optionsError_;
-    ViewSlot views_[3];  // Vulkan: the sampled views of the depth, the motion and the hudless image
+    std::atomic<int> startedMode_{
+        int(FrameGenMode::Off)};  // the mode device_hook_for last saw: what the game started with
+    ViewSlot views_[3];           // Vulkan: the sampled views of the depth, the motion and the hudless image
 };
 
 std::shared_ptr<gpu::DeviceHook> DlssFrameGenProvider::device_hook_for(FrameGenMode mode) {
@@ -204,8 +209,25 @@ std::shared_ptr<gpu::DeviceHook> DlssFrameGenProvider::device_hook_for(FrameGenM
     // device is made. A game that never asks, or names `fsr` or `xess`, never pays for them. Each feature of the list is loaded on its own, so
     // leaving this one out changes nothing for the DLSS upscaler, Reflex and the PC latency markers that share the runtime. The list is the
     // process's and keeps what was added: a second renderer of the same process that asks for `fsr` after one asked for `dlss` still has it.
+    startedMode_.store(int(mode), std::memory_order_relaxed);
     if (mode == FrameGenMode::Dlss || mode == FrameGenMode::Auto) streamline_runtime().add_feature(abi::kFeatureDlssG);
     return nullptr;
+}
+
+std::string DlssFrameGenProvider::not_set_up_reason() const {
+    const FrameGenMode started = FrameGenMode(startedMode_.load(std::memory_order_relaxed));
+    if (started == FrameGenMode::Fsr || started == FrameGenMode::Xess)
+        return "DLSS frame generation was not set up when the graphics device was made: the game started with "
+               "render.frameGeneration.mode \"" +
+               std::string(frame_gen_mode_name(started)) +
+               "\" (Streamline loads its plugin before the device exists). Set it to \"dlss\" or \"auto\" (in "
+               "factoria.json, or in the "
+               "settings) and restart the game.";
+    return "DLSS frame generation was not set up when the graphics device was made (Streamline loads its plugin before "
+           "the device "
+           "exists): set render.frameGeneration.mode to \"dlss\" or \"auto\" in factoria.json (or turn it on in the "
+           "settings) and "
+           "restart the game.";
 }
 
 VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {
@@ -244,10 +266,7 @@ VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {
         return p;
     }
     if (!runtime.feature_asked(abi::kFeatureDlssG)) {
-        p.reason = "DLSS frame generation was not set up when the graphics device was made (Streamline loads its "
-                   "plugin before the "
-                   "device exists): set render.frameGeneration.mode in factoria.json (or turn it on in the settings) "
-                   "and restart the game.";
+        p.reason = not_set_up_reason();
         return p;
     }
     if (const std::string why = runtime.feature_reason(abi::kFeatureDlssG); !why.empty()) {
@@ -293,10 +312,7 @@ std::string DlssFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
     if (status.backend != device.backend())
         return std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) +
                ", not for this device";
-    if (!runtime.feature_asked(abi::kFeatureDlssG))
-        return "DLSS frame generation was not set up when the graphics device was made: set "
-               "render.frameGeneration.mode in "
-               "factoria.json and restart the game";
+    if (!runtime.feature_asked(abi::kFeatureDlssG)) return not_set_up_reason();
     if (const std::string why = runtime.feature_reason(abi::kFeatureDlssG); !why.empty()) return unsupported_text(why);
     if (const std::string why = runtime.feature_reason(abi::kFeatureReflex); !why.empty())
         return "DLSS frame generation needs NVIDIA Reflex: " + why;
@@ -390,7 +406,8 @@ void DlssFrameGenProvider::swapchain_changed(gpu::Device& device, const FrameGen
     // that frame or earlier ones. stop() waits for idle all the same: it gives the SDK's own resources back.
     drop_views(device);
     outW_ = outH_ = 0;  // the next frame says the size again
-    if (live(streamline_runtime())) send_options();
+    // A window with no swapchain (0 x 0: minimised, or lost) is no size to tell Streamline: the real size is sent when it is back.
+    if (live(streamline_runtime()) && swapW_ > 0 && swapH_ > 0) send_options();
 }
 
 void DlssFrameGenProvider::drop_views(gpu::Device& device) {

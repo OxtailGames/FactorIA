@@ -249,8 +249,16 @@ std::unique_ptr<D3d12Device> make_warp(D3d12Options o = {}) {
         MESSAGE("d3d12: skipped, no WARP device: " << d.error().to_string());
         return nullptr;
     }
-    if (!d.value()->debug_layer_active())
+    if (!d.value()->debug_layer_active()) {
+        // The Windows CI job installs Graphics Tools and sets FA_D3D12_REQUIRE_DEBUG_LAYER=1: a runner that lost the layer
+        // fails here instead of passing with no validation.
+        const char* layer = std::getenv("FA_D3D12_REQUIRE_DEBUG_LAYER");
+        if (layer && std::strcmp(layer, "1") == 0) {
+            FAIL("d3d12: FA_D3D12_REQUIRE_DEBUG_LAYER=1 but the debug layer is not installed (Graphics Tools)");
+            return nullptr;
+        }
         MESSAGE("d3d12: the debug layer is not installed (Graphics Tools): the case runs without its checks");
+    }
     return std::move(d.value());
 }
 

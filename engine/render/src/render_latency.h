@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include "fa/core/json.h"
 #include "fa/render/latency.h"
@@ -38,6 +39,9 @@ public:
 };
 LatencyClock& latency_clock();                        // the fake of a test, else the steady clock
 void set_latency_clock_for_test(LatencyClock* fake);  // null puts the steady clock back
+
+// A thread's id as text, for a message that says which thread asked what (the providers' report is for the thread that draws).
+std::string latency_thread_text(std::thread::id id);
 
 // ---- the providers ----------------------------------------------------------------------------------------------------------------
 
@@ -109,7 +113,8 @@ public:
     void set_settings(const LatencySettings& s);
     const LatencySettings& settings() const { return settings_; }
     // A feature that cannot run without one low-latency SDK asks for it here: DLSS frame generation needs NVIDIA Reflex (it reads the markers of
-    // every frame), XeSS frame generation needs Intel XeLL. While `d` (Reflex or Xell) is required, that driver runs whatever the player's mode
+    // every frame), XeSS frame generation needs Intel XeLL; no feature asks for Anti-Lag 2 yet, but it has a slot like the others and is
+    // accepted. While `d` (Reflex, Xell or AntiLag2) is required, that driver runs whatever the player's mode
     // says, even `off`: a mode that would not start it is replaced by the mode of `d` (Reflex without boost). A mode that already starts it
     // (the one that names it, or `auto` on that GPU maker) is kept with its own boost. The player's setting itself is not changed and comes back
     // when the requirement ends. None (or a driver with no provider slot) = no requirement; it lasts across attach and detach. (The requirer
