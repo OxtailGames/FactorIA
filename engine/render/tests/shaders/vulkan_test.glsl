@@ -62,6 +62,27 @@ void main() { frag_color = inst == 0 ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 1.0,
 
 @program instance instance_vs instance_fs
 
+// Two vertex buffers: a position and a colour in buffer 0 (offsets left at 0: packed), a shift at an offset of its own
+// in buffer 1 (the mesh vertex next to the instance data). The colour is drawn as it is.
+@vs two_buffers_vs
+layout(location=0) in vec2 pos;
+layout(location=1) in vec4 color0;
+layout(location=2) in vec2 shift;
+out vec4 color;
+void main() {
+    gl_Position = vec4(pos + shift, 0.0, 1.0);
+    color = color0;
+}
+@end
+
+@fs two_buffers_fs
+in vec4 color;
+out vec4 frag_color;
+void main() { frag_color = color; }
+@end
+
+@program two_buffers two_buffers_vs two_buffers_fs
+
 // Mode 0 writes texel (x, y) of an 8x8 image and word x + 8y of a buffer; mode 1 doubles each word plus one, so it
 // reads what mode 0 wrote.
 @cs compute_cs

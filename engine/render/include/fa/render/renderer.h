@@ -136,7 +136,8 @@ struct RendererDesc {
     bool adoptContext = false;
     // The GPU backend (GpuBackend). A sokol one (Default, or the one this binary was built with) runs on the sokol
     // context as above; any other sokol backend is an init() error. D3d12, Vulkan and Recording make a device of their
-    // own and never open, adopt or close the sokol context; without `headless` init() fails (no window path yet).
+    // own and never open, adopt or close the sokol context; without `headless` init() fails (D3d12 and Recording have
+    // no window path yet; Vulkan makes its swapchain on the window's native handle, which this desc does not carry yet).
     GpuBackend backend = GpuBackend::Default;
 };
 

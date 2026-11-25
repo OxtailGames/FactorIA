@@ -7,7 +7,8 @@ passes, draws and dispatches, M77-P8b1 the GPU timers, the asynchronous reads an
 lavapipe's synchronization validation asks for, M77-P8b2 the pipeline cache on disk, the descriptor pool chains, the
 eviction of the caches, the framebuffer cache and the SPIR-V checks. M77-P9b lets the renderer draw through it
 offscreen (`RendererDesc::backend = GpuBackend::Vulkan`, [ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md),
-"The renderer on its backend"); the window (its swapchain) is a later package.
+"The renderer on its backend"); M77-P9d gives it the window: a swapchain on the native window ("Swapchain" below), which
+the renderer reaches once it hands the device the window's native handle (a later package).
 
 ## Where it is built
 
@@ -135,10 +136,13 @@ the image) are teaching errors.
 `timer_begin_frame` resets the frame's pool and writes its start timestamp on the prelude, `timer_end_frame` writes the
 end one and submits the prelude, and a full ring skips the frame instead of waiting. `CommandList::begin_timed_scope`
 writes a `BOTTOM_OF_PIPE` timestamp into the list (in the pass's secondary when a pass is open); scopes do not nest (a
-begin ends the open one, submit ends the last). `timer_poll` reads, without waiting, the frames whose timeline value
-passed: ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
+begin ends the open one, submit ends the last). `timer_poll` reads the frames whose timeline value passed, never one
+still in flight (`VK_QUERY_RESULT_WAIT_BIT` covers only the short gap where a driver signals the timeline before the
+results are visible, as MoltenVK does from a command buffer's completion handler; without it such a frame came back
+`VK_NOT_READY`): ticks masked to the queue family's `timestampValidBits`, times `timestampPeriod` nanoseconds; a scope whose
 list was not submitted before the frame ended is never read, so no query that was never written is asked for.
-`timer_forget` drops the frames in flight. A queue family without timestamps (`timestampValidBits` 0) or a driver
+`timer_forget` drops the frames in flight, and `destroy_timer` waits for the frames ended and not read yet before
+it destroys their pools. A queue family without timestamps (`timestampValidBits` 0) or a driver
 without a timestamp period makes `timer_supported()` false with a reason naming the device. The timers time the
 graphics queue: `begin_timed_scope` on a list of the compute or transfer queue, or of any queue whose family has no
 timestamps, is ignored (its list records no query).
@@ -289,8 +293,8 @@ file was read and the data differs. The write is atomic (a temporary file, then 
 which takes long Windows paths and removes its temporary on a failure). A failure (a directory that cannot be made, a
 file another process holds open on Windows, a full disk) is one warning plus an error from `save_pipeline_cache()`,
 and the old file stays. `counters().pipelineCacheLoaded`, `pipelineCacheFileBytes`, `pipelineCacheStored`,
-`pipelineCacheDiscarded` and `pipelineCacheStoreFailed` follow it, like `D3d12Counters` on D3D12. The renderer
-assigns the path in M77-P9.
+`pipelineCacheDiscarded` and `pipelineCacheStoreFailed` follow it, like `D3d12Counters` on D3D12.
+`make_device(Backend::Vulkan)`, the renderer's device, passes `vulkan_pipeline_cache_file()`.
 
 **Render passes.** Dynamic rendering is off (MoltenVK and the Vulkan 1.2 baseline): a `VkRenderPass` is cached by its
 formats, sample count and load/store operations (`counters().renderPassCacheHits` / `renderPassCacheMisses`). Its
@@ -306,7 +310,8 @@ and releases it once its frame is done.
 
 **Passes.** `begin_pass` makes the same checks as the D3D12 backend, with the same texts: the attachments are live
 views of the right kind, of one size, with the formats and sample count `PassDesc::format` says, and the resolve target
-single-sampled; a pass into the window (`PassDesc::swapchain`) reports that it comes in M77-P9. A failed pass reports
+single-sampled; a pass into the window (`PassDesc::swapchain`) is a pass into the views of the image
+`acquire_swapchain()` took ("Swapchain" below), and one with no image acquired reports that. A failed pass reports
 once and skips what is recorded in it without another error. Load actions are Vulkan load operations (`Clear` takes
 `clearColor` and `clearDepth`; the stencil is cleared to 0, as on D3D12); a resolve attachment makes the pass resolve the MSAA colour at its end.
 
@@ -353,9 +358,46 @@ A texture view and a storage image view of one subresource in the same dispatch 
 refused at the dispatch with the mip and layer and what to do instead (bind another mip or layer, read the storage
 image in the shader, or copy the image).
 
-**Not yet.** The window: a pass into it reports an error, and `create_swapchain` and the calls after it fail with the
-`Device` default's teaching error (draw offscreen, or pick the sokol backend). `make_device(Backend::Vulkan)` makes the
-device with its options at their defaults, so the renderer's path for the pipeline cache file is still to come.
+## Swapchain (M77-P9d)
+
+`vulkan_surface.cpp` makes the `VkSurfaceKHR` of `SwapchainDesc::nativeWindow`: an HWND (`VK_KHR_win32_surface`), an
+X11 `Window` with its `Display*` in `nativeDisplay` (`VK_KHR_xlib_surface`, declared locally so no Xlib header is
+needed), an `ANativeWindow*` (`VK_KHR_android_surface`) or a `CAMetalLayer*` (macOS on MoltenVK,
+`VK_EXT_metal_surface`). The instance asks for `VK_KHR_surface`, the platform's surface extension and
+`VK_EXT_swapchain_colorspace` where the loader has them, the device for `VK_KHR_swapchain`; without them
+`swapchain_format_supported()` is false and `create_swapchain` says the driver has no window path (offscreen drawing
+still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
+
+- **`create_swapchain`** checks the desc before it touches the window (a swapchain already, a null `nativeWindow`, a
+  negative size, a sample count that is not 1, 2, 4 or 8, a format the backend does not show, a format that cannot be
+  multisampled), then makes the surface, checks that the graphics queue family presents to it, and picks its format:
+  `Bgra8`/`Rgba8` (and their sRGB twins) in `SRGB_NONLINEAR`, `Rgba16F` in `EXTENDED_SRGB_LINEAR` (scRGB), `Rgb10A2`
+  in `HDR10_ST2084`; `Default` is the device's SDR format, or `Bgra8` then `Rgba8` when the surface lacks it. The
+  present mode is FIFO with `vsync`, else MAILBOX, then IMMEDIATE, then FIFO. A size of 0 is the window's size.
+- **The swapchain** has `max(minImageCount, frames in flight + 1)` images (capped by `maxImageCount`), opaque
+  composite alpha first, colour-attachment usage plus transfer-source where the surface allows (readbacks). Its
+  images are adopted into the device's image pool as external records (their states tracked like any other image's,
+  never destroyed by the device), each with a view and a render-finished semaphore; the swapchain's depth-stencil image
+  (`EnvironmentDefaults::depthFormat`) and, with `sampleCount > 1`, its multisampled colour image are ordinary images
+  of the device. There is one acquire semaphore more than images, each reused only once the timeline value of the
+  submission that waited for it passed.
+- **`acquire_swapchain`** (a second call in the same frame hands back the same image) waits, at most 10 s, for the
+  next image, marks it `UNDEFINED` (its contents are not kept), and makes the first graphics list submitted after it
+  that uses the image wait for the acquire semaphore at `COLOR_ATTACHMENT_OUTPUT`. A `PassDesc::for_swapchain` pass
+  (`begin_pass`) becomes a pass into views: the acquired image (or the MSAA image, resolved into the acquired one at
+  `end_pass`) and the depth-stencil image; a `Swapchain` of another size is refused.
+- **`present`** submits the device's own list that moves the image to `PRESENT_SRC_KHR`, signals the image's
+  render-finished semaphore, and calls `vkQueuePresentKHR` on the graphics queue (under the queue lock).
+- **Out of date.** `VK_ERROR_OUT_OF_DATE_KHR` or `VK_SUBOPTIMAL_KHR` (from acquire or present: the window changed)
+  marks the swapchain stale, and the next `acquire_swapchain()` makes it again at the window's size (the surface's
+  `currentExtent`; a surface without one keeps the asked size) with `oldSwapchain`, then acquires once more.
+  `resize_swapchain(w, h)` makes it again at that size (refused between acquire and present; nothing to do when the
+  size and the images are the same). A window with no area (minimised) is an error at that acquire, so the caller
+  skips the frame. Before the images go, an image acquired and never drawn into has its acquire semaphore consumed by an
+  empty submission, and the device waits for the GPU and the presentation engine (`vkDeviceWaitIdle`: presentation is
+  on no timeline).
+- **`destroy_swapchain`** (and the device's destructor, first) releases the images' records, views and semaphores,
+  then the swapchain and the surface.
 
 ## Tests
 
@@ -399,4 +441,12 @@ macOS through MoltenVK (`brew install vulkan-loader molten-vk vulkan-validationl
 driver is installed, and on the Linux CI job, which installs Mesa's lavapipe and the validation layers
 (`mesa-vulkan-drivers libvulkan1 vulkan-validationlayers`) and sets `FA_VULKAN_REQUIRE=1`: there a skip or a missing
 validation layer fails the case.
-`VulkanDevice::counters()`, `fn()`, `pipeline_state()` and `read_image_region` exist for these tests.
+M77-P9d added the swapchain, on a native window each case makes itself (a `CAMetalLayer` through the Objective-C
+runtime on macOS, an X11 window of `$DISPLAY` through libX11 opened at run time on Linux, a hidden popup HWND on
+Windows): the errors of a desc, three frames cleared, presented and the first read back, a second acquire in a frame,
+`present` without an acquire, `resize_swapchain` (and a resize between acquire and present refused), a swapchain
+marked out of date made again at the next acquire, an image acquired and never drawn into when the swapchain goes, a
+swapchain without vsync, and a 4x MSAA swapchain resolved into the acquired image. A machine with no window or no
+window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb) that fails.
+`VulkanDevice::counters()`, `fn()`, `pipeline_state()`, `read_image_region` and the `swapchain_*` accessors exist for
+these tests.

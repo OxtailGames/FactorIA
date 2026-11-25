@@ -168,7 +168,8 @@ struct DeviceInit {
 // swapchain already (the native fields stay null and are not read); an explicit backend (D3D12, Vulkan) makes its own
 // swapchain on the native window.
 struct SwapchainDesc {
-    const void* nativeWindow = nullptr;   // HWND (Windows), ANativeWindow* (Android), the X11 Window (Linux)
+    // HWND (Windows), ANativeWindow* (Android), the X11 Window (Linux), a CAMetalLayer* (macOS: Vulkan on MoltenVK)
+    const void* nativeWindow = nullptr;
     const void* nativeDisplay = nullptr;  // the X11 Display* (Linux); null elsewhere
     int width = 0;                        // framebuffer pixels; 0 = the window's size
     int height = 0;
@@ -438,9 +439,11 @@ private:
 //  * Recording: a RecordingDevice (no GPU).
 //  * D3d12: make_d3d12_device (gpu/d3d12_device.h) with `init` and the engine's pipeline cache file
 //    (d3d12_pipeline_cache_file()); an error off Windows.
-//  * Vulkan: make_vulkan_device (gpu/vulkan_device.h) with `init` and the other options at their defaults, in a build
-//    whose renderer has Vulkan (FA_RENDER_VULKAN: the SPIR-V of the built-in shaders); an error elsewhere.
-// D3D12 and Vulkan draw offscreen only for now (no window path: create_swapchain fails).
+//  * Vulkan: make_vulkan_device (gpu/vulkan_device.h) with `init` and the engine's pipeline cache file
+//    (vulkan_pipeline_cache_file()), in a build whose renderer has Vulkan (FA_RENDER_VULKAN: the SPIR-V of the built-in
+//    shaders); an error elsewhere.
+// D3D12 draws offscreen only for now (no window path: create_swapchain fails); Vulkan makes its swapchain on the
+// SwapchainDesc's native window.
 Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init = {});
 
 // Whether make_device(backend) can succeed in this binary: the built sokol backend, Recording, D3d12 on Windows, Vulkan
