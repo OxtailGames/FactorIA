@@ -84,7 +84,7 @@ struct EngineConfig {
     // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
     // D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the native window from the
     // platform) or headless offscreen; when the one asked for cannot start (no driver, no such GPU, a window that cannot
-    // take its swapchain: Android's OpenGL ES window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
+    // take its swapchain: a Linux EGL build's window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
     // only), and when that does not take the process over it warns once with the first error and draws with the sokol
     // backend of this build in the same process. Engine::startup_report names the one that runs, the one asked for and
     // why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).

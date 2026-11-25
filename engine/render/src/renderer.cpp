@@ -623,6 +623,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         sd.vsync = desc.vsync;
         if (auto made = im.gpu.device().create_swapchain(sd); !made)
             return fail("The renderer cannot draw into the window: " + made.error().to_string());
+        if (sd.nativeWindow && im.gpu.device().has_swapchain() &&
+            (im.gpu.device().backend() == gpu::Backend::D3d12 || im.gpu.device().backend() == gpu::Backend::Vulkan)) {
+            im.windowDesc = sd;  // its label is a literal: it lives as long as the program
+            im.windowManaged = true;
+        }
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     compute_->attach(&im.gpu, im.assets.get());
@@ -2107,6 +2112,21 @@ void Renderer::Impl::render(World& world, float dt) {
     gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+}
+
+void Renderer::set_native_window(const void* window) {
+    if (!initialized() || !impl_->windowManaged) return;
+    Impl& im = *impl_;
+    if (!window) {
+        // The window is going: its swapchain goes now, while the window still exists (the device waits for its images).
+        im.gpu.device().destroy_swapchain();
+        im.windowDesc.nativeWindow = nullptr;
+        FA_INFO("render", "Renderer: the window went; its swapchain is destroyed until the next one");
+        return;
+    }
+    if (window != im.windowDesc.nativeWindow) im.gpu.device().destroy_swapchain();  // none on a new window yet
+    im.windowDesc.nativeWindow = window;
+    im.windowRemakeFailed = false;  // present() makes the swapchain on it
 }
 
 void Renderer::end_frame() {

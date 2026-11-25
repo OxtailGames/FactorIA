@@ -21,8 +21,7 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (`EngineConfig::gpuBackendFailed`)
   reaches the player before the in-process fallback of the game window (M77-P9e1), so the OpenGL player takes over; the in-process
   fallback is the last resort when it is not there. A hand-over because the window cannot take the swapchain says so (`the window path
-  is not available on this platform yet`), not that a driver update would bring Vulkan back: on Android, whose window keeps its OpenGL
-  ES surface until M77-P9e3b, a windowed game is still drawn with OpenGL ES in the end. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
+  is not available on this platform yet`), not that a driver update would bring Vulkan back. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
   and GlActivity); `export.linux.vulkanPlayer` / `export.android.vulkanPlayer: false` ship the OpenGL player only, and so do
   players or prebuilt libraries without the Vulkan one. `factoria setup players` copies the Linux Vulkan player of a release that has
   it. The new command `graphics.backend` reads which backend draws, what was asked and from where, the fallback that started this
@@ -44,11 +43,25 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   takes the window's native handle from the platform (`app_claim_native_window`) and the renderer makes its swapchain on it
   (`RendererDesc::nativeWindow`, `RendererDesc::vsync`); the platform then makes no swapchain of its own, since a window holds one
   (`WindowPresenter`, a state machine tested on every platform). On Windows that is the player itself; on macOS `vulkan` presents
-  through MoltenVK in a build that has it (Linux: see below; Android windows cannot take it yet). A backend that cannot
+  through MoltenVK in a build that has it (Linux and Android: see below). A backend that cannot
   start falls back to `auto` in the same process, in a window and headless alike: one warning keeps its first error, and the startup
   report names it in `gpu.backendFallback`. While D3D12 or Vulkan holds the window, HDR output says it is not available on that
   backend and the vsync is the swapchain's present mode. Also on Windows: the D3D11 presenter's resize reads only a live presenter,
   and a `ResizeBuffers` the driver refuses is warned once per size, not every frame.
+- Vulkan draws the game window on Android (M77-P9e3b): the window's OpenGL ES context moves to a 1x1 pbuffer (or to no surface,
+  `EGL_KHR_surfaceless_context`) and its EGL window surface goes while the Vulkan device holds the window, as on Linux; the Android
+  window is no longer busy, so the Vulkan player draws a windowed game with Vulkan instead of OpenGL ES. When the game goes to the
+  background the Vulkan swapchain is destroyed before the window goes, and it is made again on the new window when the game comes back
+  (`app_set_native_window_listener`, `Renderer::set_native_window`); a Vulkan `VK_ERROR_SURFACE_LOST_KHR` destroys the swapchain, and
+  the next frame makes it again. A Vulkan start that fails in the window falls back to OpenGL ES in the same process, with the EGL
+  surface back on the window. The window-path reason (`the window path is not available on this platform yet`) is now given only by a
+  Linux build whose window draws through EGL. Back from Home after a hand-over to `GlActivity`, the new launcher activity Android
+  starts on top of it (`singleTask`) brings it back at once instead of probing Vulkan again (`android_gl_activity_in_task`), so a
+  probe that now succeeds no longer starts a second game. Two Vulkan fixes the Android window needed: the swapchain takes the
+  IDENTITY `preTransform` and SurfaceFlinger rotates the picture (with the surface's own ROTATE_90 transform a landscape game came out
+  turned and squeezed on a phone), and the suboptimal answer Android's loader gives for that at every present no longer makes the
+  swapchain again; the swapchain gets no debug name on Android (the handle is the loader's, and the emulator's Mesa driver aborted the
+  process on it).
 - Vulkan draws the game window on Linux (M77-P9e3a): with `render.backend` on `vulkan` the X11 window's OpenGL context moves to a
   1x1 pbuffer (or to no drawable where the driver has no pbuffers) and its swap stops, so the Vulkan device makes its swapchain on
   the window; when the device lets the window go the OpenGL surface comes back on it with its vsync, so a Vulkan start that fails

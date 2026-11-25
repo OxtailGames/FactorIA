@@ -1217,9 +1217,10 @@ public:
         return timerDropped_;
     }
     static constexpr std::uint32_t kTimerMaxNotReady = 120;  // polls a frame whose queries are not available waits
-    // How far the window's surface is rotated against the display (0, 90, 180 or 270 degrees: Android's
-    // currentTransform). The swapchain's preTransform is that transform and it does not pre-rotate the drawing, so a
-    // value other than 0 means the picture comes out turned by it until the renderer draws pre-rotated.
+    // How far the swapchain's preTransform rotates (0, 90, 180 or 270 degrees). The renderer does not draw pre-rotated,
+    // so the swapchain takes the IDENTITY transform wherever the surface offers it, and the presentation engine turns
+    // the picture as the display is turned (Android's SurfaceFlinger, as for OpenGL ES): 0. Only a surface that offers
+    // no IDENTITY gets its currentTransform, and a value other than 0 means the picture comes out turned by it.
     int swapchain_pre_rotation_degrees() const;
     // Tests: the window's surface is made to lack `format` (as an Android surface lacks BGRA), so the swapchain's
     // Default format fallback runs. Before create_swapchain().
@@ -1635,6 +1636,12 @@ private:
     mutable std::atomic<bool> defaultColorUsed_{false};
     int swapPreRotation_ = 0;
     bool swapRotationWarned_ = false;
+    // The swapchain's preTransform is IDENTITY while the surface's currentTransform is not: Android's loader then
+    // answers VK_SUBOPTIMAL_KHR at every present, which is not a reason to make the swapchain again by itself.
+    bool swapPresenterRotates_ = false;
+    // A VK_SUBOPTIMAL_KHR with swapPresenterRotates_: true when the surface's size is still the swapchain's (only the
+    // rotation differs, as chosen), false when the window changed and the swapchain must be made again.
+    bool suboptimal_only_by_rotation();
     bool swapTimeoutLogged_ = false;
     VkResult injectedAcquire_ = VK_SUCCESS;  // tests: the result of the next injectedAcquires_ acquires
     int injectedAcquires_ = 0;

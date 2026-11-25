@@ -340,6 +340,10 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
     return true;
 }
 int fa_sapp_gl_surface_state(void) { return 0; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;
+    (void)user;
+}
 
 // ---- IME (ime_apple.mm) -------------------------------------------------------------------------------------------------
 void* fa_sapp_macos_view(void) {

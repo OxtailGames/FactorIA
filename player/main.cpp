@@ -650,6 +650,15 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     // draws the game when it asks for OpenGL or when Vulkan cannot start. A failure later, in the window, falls back in
     // this process (this library carries the GLES3 backend too).
     cfg.gpuBackendAuto = fa::GpuBackend::Vulkan;
+    // Back from Home while the OpenGL activity holds the game: this launcher is singleTask, so Android starts a new
+    // Vulkan activity on top of it. The OpenGL one comes back as it was (singleTask: onNewIntent, no new game), with no
+    // Vulkan probe and no second game here, whatever the probe would say now.
+    if (fa::android_gl_activity_in_task(activity)) {
+        FA_INFO("player", "the OpenGL activity holds the game in this task: brought back without probing Vulkan");
+        auto r = fa::android_start_gl_activity(activity, "", "");
+        if (r.ok()) return handover_desc();
+        FA_WARN("player", "{}", r.error().to_string());
+    }
     if (auto proj = fa::load_project(""); proj.ok()) {
         std::string vulkanFailure;
         const fa::GpuLaunchDecision launch =

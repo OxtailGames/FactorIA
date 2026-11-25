@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <utility>
 #if defined(__APPLE__)
@@ -45,9 +46,11 @@
 #include <emscripten.h>
 #endif
 
-// Linux with sokol_app's GLX window (M77-P9e3): its OpenGL surface leaves the window while a Vulkan device presents
-// there (fa_sapp_gl_surface_release in sokol_impl.c). An EGL window (SOKOL_FORCE_EGL, a GLES3 build) keeps it.
-#if defined(__linux__) && !defined(__ANDROID__) && defined(SOKOL_GLCORE) && !defined(SOKOL_FORCE_EGL)
+// Linux with sokol_app's GLX window (M77-P9e3) and Android's EGL window (M77-P9e3b): the OpenGL surface leaves the window
+// while a Vulkan device presents there (fa_sapp_gl_surface_release in sokol_impl.c). A Linux EGL window (SOKOL_FORCE_EGL,
+// a GLES3 build) keeps it.
+#if (defined(__linux__) && !defined(__ANDROID__) && defined(SOKOL_GLCORE) && !defined(SOKOL_FORCE_EGL)) ||             \
+    defined(__ANDROID__)
 #define FA_GL_WINDOW_HANDOVER 1
 #endif
 
@@ -312,7 +315,8 @@ void on_cleanup() {
 #endif
 #if defined(FA_GL_WINDOW_HANDOVER)
     // A device that still had the window (a host that did not call app_release_native_window()) is gone with the app's
-    // cleanup: sokol_app's shutdown then finds the GLX state it made, a GLXWindow, and destroys it.
+    // cleanup: sokol_app's shutdown then finds the state it made, a window surface, and destroys it.
+    app_set_native_window_listener({});
     restore_gl_surface();
 #endif
     g.presenter = WindowPresenter::None;
@@ -588,7 +592,7 @@ GfxSwapchain app_gfx_swapchain() {
 NativeWindow app_native_window() {
     NativeWindow out;
 #if (defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)) && !defined(FA_GL_WINDOW_HANDOVER)
-    // Android (until M77-P9e3b), a Linux EGL window, the web: sokol_app's OpenGL surface stays on the window.
+    // A Linux EGL window, the web: sokol_app's OpenGL surface stays on the window.
     out.busy = "sokol_app made an OpenGL context on this window and swaps its buffers after every frame, so a Vulkan "
                "device cannot make its own swapchain on it (hint: this build draws its window with OpenGL; leave "
                "render.backend on auto here, or run headless)";
@@ -612,8 +616,8 @@ Result<NativeWindow> app_claim_native_window(const std::string& backend) {
     if (!step.error.empty())
         return make_error("the window cannot be handed to the " + backend + " device: " + step.error);
 #if defined(FA_GL_WINDOW_HANDOVER)
-    // sokol_app's GLX surface is on the window from its start, whatever the presenter state says (None too: the runner
-    // opened no sokol context), so it leaves on every claim. A driver that refuses keeps the window on OpenGL and the
+    // sokol_app's GLX or EGL surface is on the window from its start, whatever the presenter state says (None too: the
+    // runner opened no sokol context), so it leaves on every claim. A driver that refuses keeps the window on OpenGL and the
     // claim fails with its reason (the engine falls back to OpenGL in process and reports it).
     {
         char why[512];
@@ -639,7 +643,32 @@ Result<NativeWindow> app_claim_native_window(const std::string& backend) {
     return handles;
 }
 
+#if defined(FA_GL_WINDOW_HANDOVER)
+namespace {
+std::function<void(const void*)>& window_listener() {
+    static std::function<void(const void*)> listener;
+    return listener;
+}
+// sokol_impl.c's listener: on sokol_app's loop thread, the frame thread (no lock: nothing else touches it).
+void hear_native_window(void* window, void*) {
+    if (window_listener()) window_listener()(window);
+}
+}  // namespace
+#endif
+
+void app_set_native_window_listener(std::function<void(const void* window)> listener) {
+#if defined(FA_GL_WINDOW_HANDOVER)
+    window_listener() = std::move(listener);
+    fa_sapp_gl_surface_set_window_listener(window_listener() ? hear_native_window : nullptr, nullptr);
+#else
+    (void)listener;  // the window lives as long as the app: nothing to hear
+#endif
+}
+
 void app_release_native_window() {
+#if defined(FA_GL_WINDOW_HANDOVER)
+    app_set_native_window_listener({});  // the device has no swapchain to remake any more
+#endif
     const WindowPresenterStep step =
         window_presenter_step(g.presenter, WindowPresenterEvent::DeviceRelease, gfx_device_active(), "");
     if (g.presenter == WindowPresenter::Device) g.deviceBackend.clear();
