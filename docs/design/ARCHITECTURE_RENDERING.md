@@ -523,3 +523,6 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   `Device::wait_idle` when size, quality (`xess_quality_for_ratio`) or flags change), runs `Execute` inside `begin_native` /
   `end_native` with colour, depth, velocity and mask `ShaderRead` and the output `UnorderedAccess`, and a failed call is `frame.error`
   with `needReset` for the next frame. `xess_upscale_tests.cpp` drives it with a fake library and a RecordingDevice.
+- **FSR 3.1 (M78-P4a, `src/render_upscale_fsr.*`).** `ffx_abi` (our declarations, sizes checked) and `FsrApi` (`ffxCreateContext`,
+  `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`); one context per device keyed by max render size, output size, quality and flags;
+  `wants_reversed_depth()` makes `run_upscale_prep` write `near / max(depth, near)` (shader `d` uniform). `fsr_upscale_tests.cpp`.

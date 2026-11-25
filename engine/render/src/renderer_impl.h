@@ -282,8 +282,9 @@ struct Renderer::Impl {
     bool ensure_mfx_target(Target& t, const char* label, gpu::PixelFormat format, int w, int h);
     // The preparation pass and the history rule MetalFX and the vendor SDKs share (renderer_metalfx.cpp): run_upscale_prep draws mfxDepth and
     // mfxMotion; scaler_history_valid says whether the history of the frame before still holds (and gives the key scaler_history_note stores).
+    // `reversedNear` > 0 makes the depth image the reversed infinite depth reversedNear / distance (VendorUpscaler::wants_reversed_depth).
     bool run_upscale_prep(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
-                          const Target* velocity, bool histValid);
+                          const Target* velocity, bool histValid, float reversedNear = 0.0f);
     bool scaler_history_valid(const render::UpscaleInput& in, std::uint64_t& config) const;
     void scaler_history_note(std::uint64_t config);
     bool ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth);
@@ -390,6 +391,8 @@ struct Renderer::Impl {
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
+    float frameDt =
+        0.0f;  // the dt of the frame being rendered (seconds, the engine clock): the vendor upscalers' frame time
     UpscalerSettings
         upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
     QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)

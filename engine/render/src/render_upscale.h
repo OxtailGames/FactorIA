@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "fa/render/upscaler.h"
+
 #include "gpu/types.h"
 
 namespace fa::render {
@@ -70,6 +72,15 @@ struct UpscaleInput {
     bool linear =
         false;  // `color` holds linear light (a linear scene without a final pass): filters work on a perceptual curve
     float sharpness = 0.0f;  // UpscalerSettings::sharpness, 0..1: the sharpen of Spatial (Stretch ignores it)
+    // What the vendor SDKs (M78) ask besides the picture; filled by Renderer::Impl::vendor_upscale.
+    UpscalerQuality quality = UpscalerQuality::Native;  // the quality the game asked for (UpscalerSettings::quality)
+    int maxRenderW = 0, maxRenderH = 0;  // the largest render size the game can draw at (its base scale); >= renderW/H
+    bool dynamicResolution = false;      // the render size moves under the game's base scale (the dynamic resolution)
+    float frameTimeMs =
+        0.0f;  // the time this frame stands for, in milliseconds: the engine clock's dt (not the wall clock)
+    float cameraNear =
+        0.1f;  // the near plane the prepared depth was made for (render_upscale_vendor.h, reversed depth)
+    float cameraFovY = 1.0f;  // the camera's vertical field of view in radians (2 * atan(1 / P11))
 };
 
 }  // namespace fa::render

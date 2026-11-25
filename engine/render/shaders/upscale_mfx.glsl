@@ -6,7 +6,9 @@
 //
 //   in   tex_p  the prepass: r = the linear view depth in world units (a = 1 where a mesh was drawn, else 0)
 //        tex_v  the velocity: rg = uvPrev - uvCurr (unjittered, y down), 1024 where no object wrote one (VelocityRef::kNone)
-//   out  location 0 (R32F)  the depth in 0..1 (d / (d + 1): increasing with the distance, 1 for the sky and every pixel no mesh wrote)
+//   out  location 0 (R32F)  the depth in 0..1 (d / (d + 1): increasing with the distance, 1 for the sky and every pixel no mesh wrote). Kind 1
+//                           (FSR, `d.x` = 1): the reversed depth of an infinite far plane, near / max(d, near): 1 at the near plane, towards 0 with
+//                           the distance, 0 for the sky and every pixel no mesh wrote (the depth FSR reads with its inverted and infinite flags).
 //        location 1 (RG16F) the motion in UV units of the picture (y down), pointing from the pixel to where its surface was on the frame
 //                           before: the velocity when an object wrote one, else the camera's own movement reprojected from the depth with the
 //                           matrix `m`, as the temporal resolve does (taa_shared.glsl); the sentinel never reaches MetalFX. The caller sets
@@ -38,6 +40,7 @@ layout(binding=0) uniform mfx_params {
     vec4 pa;    // the projection of the camera: P00, P11, P02, P12
     vec4 pb;    // P03, P13, P32, P33
     mat4 m;     // previous (unjittered) view-projection * inverse view: a view-space position of this frame -> the clip position it had on the frame before
+    vec4 d;     // x = the depth kind (0: d / (d + 1), 1: the reversed infinite depth near / d), y = the near plane of kind 1
 };
 in vec2 uv;
 layout(location=0) out vec4 out_depth;
@@ -49,7 +52,8 @@ void main() {
     vec4 pre = textureLod(sampler2D(tex_p, smp_pt), uv, 0.0);
     bool drawn = j.w > 0.5 && pre.a > 0.5;
     float depth = drawn ? pre.r : FAR;
-    out_depth = vec4(drawn ? depth / (depth + 1.0) : 1.0, 0.0, 0.0, 1.0);
+    float outDepth = d.x > 0.5 ? (drawn ? d.y / max(depth, d.y) : 0.0) : (drawn ? depth / (depth + 1.0) : 1.0);
+    out_depth = vec4(outDepth, 0.0, 0.0, 1.0);
 
     vec2 mv = vec2(0.0);
     bool known = false;
