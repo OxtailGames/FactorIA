@@ -203,9 +203,10 @@ keeps the file as it is. The write goes to a temporary file next to the cache, t
 no open file) is waited for three 1 ms tries (up to about 50 ms with Windows' timer steps), not the second of
 `fs::replace_file`, since a cache is only a speed-up; when the move fails because the TEMPORARY file is the one held (an
 antivirus or indexer scanning what was just written: opening the temporary file for delete is a sharing violation) the
-save waits up to 8 x 20 ms (bounded, 100 to 200 ms in all). Access denied is told apart by probing: the old file
+save waits up to 8 x 20 ms (bounded: 160 ms nominal, about 250 ms with the Windows timer steps). Access denied is told apart by probing: the old file
 read-only (a hint that says to clear the attribute, `attrib -r <file>`), the old file held (as a reader), or neither
-(the folder's or the file's permissions; the hint says to check them). `d3d12_classify_cache_write_error`,
+(the folder's or the file's permissions, or a program that holds the file with delete sharing, a mapped view, which
+answers access denied too: the hint names both). `d3d12_classify_cache_write_error`,
 `d3d12_cache_replace_policy` and `d3d12_cache_write_hint` are the pure parts, tested on every platform. Every failure
 (serializing the library, a library over 1 GiB, a reader, a full disk) keeps the old file, counts in `storeFailed`,
 leaves the library to the next save (or the next run, when the device is destroyed first), and is a warning that

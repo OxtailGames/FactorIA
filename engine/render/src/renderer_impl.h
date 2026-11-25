@@ -546,7 +546,8 @@ struct Renderer::Impl {
     HizShown hizShown, hizPrev;
     bool warnedHizRead = false;
     bool warnedHizPipeline = false;
-    int hizReduces = 0;  // reduce passes run since the renderer was made (tests)
+    bool warnedShadowRecord = false;  // the parallel shadow recording failed once (logged once)
+    int hizReduces = 0;               // reduce passes run since the renderer was made (tests)
     // The mode of the world's SceneSettings against what this GPU can do; one warning when `gpu` was asked for and cannot be had.
     bool hiz_resolve(World& world);
     // Start of Renderer::begin_frame (before sokol's frame begins): ask for the copy of every reduce of the frame before and take the
