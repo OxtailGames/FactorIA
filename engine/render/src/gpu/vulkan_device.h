@@ -1186,7 +1186,7 @@ public:
     // Waits until the GPU finished everything submitted on every queue, then releases what is pending: the current
     // frame's destroyed objects too when no list is open (an open list's command buffer may name them: they wait for
     // its frame then). Their upload ring room is freed by the frame's commit, as lists may still be open.
-    Result<void> wait_idle();
+    Result<void> wait_idle() override;
     VulkanCounters counters() const;
     // Mip `mip` of layer `layer` (array layer, cube face or 3D slice), the rectangle (x, y, w, h), tightly packed rows
     // top first, in the image's own format. Waits for the GPU.

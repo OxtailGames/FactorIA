@@ -20,6 +20,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   device and queue replaced by wrappers; a swapchain made or wrapped by the SDK; callbacks around every present with a frame id).
   What the machine lacks makes that SDK unavailable with a reason, never the device. The Vulkan swapchain's images now report
   their usage and format to native access, and D3D11's `end_native` clears the context's state. ARCHITECTURE_RENDERING_HOOKS.md.
+- **Intel XeSS Super Resolution (M78):** `render.upscaler` mode `xess` now draws with XeSS 3.x when `libxess.dll` is installed
+  (`factoria setup xess`): D3D12 and Vulkan on any GPU, Direct3D 11 on Intel Arc, and `auto` picks it on an Intel GPU. One context is made
+  per device and initialised again only when the size, quality or input format changes; a call that fails turns the mode off for the
+  run, with XeSS's own reason, and the temporal upscaler draws. The depth and motion XeSS reads come from the preparation pass MetalFX
+  uses, now on every GPU backend. UPSCALING.md, "Vendor upscalers".
 
 ### Rendering
 

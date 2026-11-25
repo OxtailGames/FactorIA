@@ -438,7 +438,8 @@ std::vector<FeatureDef> build_table() {
          "jittered picture, "
          "the depth and the motion of the prepass, upscaled by Intel's network (XMX on Intel Arc, a DP4a fallback on "
          "other GPUs). Windows "
-         "on D3D12, Vulkan or D3D11, and the XeSS SDK installed (`factoria setup xess`). Where it is missing the mode "
+         "on D3D12 and Vulkan (any GPU) or D3D11 (Intel Arc only), and the XeSS 3.x SDK installed (`factoria setup "
+         "xess`). Where it is missing the mode "
          "draws as "
          "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
          nullptr},
@@ -469,7 +470,8 @@ std::vector<FeatureDef> build_table() {
     for (const Planned& p : kLighting) {
         const std::string_view row = p.name;
         // metalfx: Metal only. dlss and xess: D3D11 is the one backend of this table they run on (their D3D12 and Vulkan runs are not a
-        // column of it yet); fsr runs on D3D12 and Vulkan only, so no column is set.
+        // column of it yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); fsr runs on D3D12 and Vulkan only, so no
+        // column is set. The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
         const unsigned backends = row == "metalfx"                 ? bit(FeatureBackend::Metal)
                                   : row == "dlss" || row == "xess" ? bit(FeatureBackend::D3d11)
                                   : row == "fsr"                   ? 0u

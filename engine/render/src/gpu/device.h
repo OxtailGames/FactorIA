@@ -275,6 +275,9 @@ public:
     virtual NativeBuffer native_buffer(Buffer buffer) const = 0;
     // The native view handle and format (M78: D3D12 and Vulkan; empty elsewhere and for a dead view).
     virtual NativeView native_view(View view) const;
+    // Waits until the GPU finished everything submitted (D3D12 and Vulkan: every queue). The default does nothing: a device whose
+    // driver orders the work itself (D3D11, GL, Metal) needs no wait before a vendor SDK's context is made again or destroyed.
+    virtual Result<void> wait_idle();
     // The Metal command-buffer access (MetalFX); null on every backend that is not Metal. The MTLTexture of an image is
     // native_image(image).texture.
     virtual MetalNative* native_metal() = 0;

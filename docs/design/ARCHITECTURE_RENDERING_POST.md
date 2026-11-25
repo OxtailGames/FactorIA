@@ -208,8 +208,8 @@ each.
 ### The renderer's MetalFX stage (M76-P5b)
 
 `UpscaleImpl::MetalFx` (`render_upscale.h`) is the first case of `run_upscale`; the code is `src/renderer_metalfx.cpp`
-(`Impl::metalfx_upscale`), the preparation program `shaders/upscale_mfx.glsl` (Metal dialects only; `src/render_upscale_metalfx.*`, class
-`MetalFxPrep`) and the tests `metalfx_renderer_tests.cpp` (they skip with a MESSAGE where MetalFX is missing) and the P5b cases of
+(`Impl::metalfx_upscale`), the preparation program `shaders/upscale_mfx.glsl` (Metal, HLSL and SPIR-V dialects: the vendor SDKs of M78 use its
+preparation pass too; `src/render_upscale_metalfx.*`, class `MetalFxPrep`) and the tests `metalfx_renderer_tests.cpp` (they skip with a MESSAGE where MetalFX is missing) and the P5b cases of
 `upscale_tests.cpp`.
 
 - **Which frame.** `Renderer::render` decides, with the rest of the upscale frame, `mfxFrame` (effective mode MetalFx with the temporal

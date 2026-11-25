@@ -1,6 +1,8 @@
-// shdc-slang: metal_macos:metal_ios:metal_sim
-// FactorIA MetalFX input preparation (M76-P5b): one fragment pass at the render resolution that turns what the depth prepass wrote into what the
-// MetalFX temporal scaler reads. Metal only (MetalFX is), so only the Metal dialects are compiled.
+// shdc-slang: glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk
+// FactorIA temporal-upscaler input preparation (M76-P5b, M78): one fragment pass at the render resolution that turns what the depth prepass wrote
+// into what the MetalFX temporal scaler and the vendor SDKs (XeSS, DLSS, FSR) read. The vendor SDKs run on Metal, D3D11 and D3D12 (hlsl5) and
+// Vulkan, whose texture space is top-down, so the uv below needs no flip. The GL and WebGPU dialects are compiled too so that the pass (and the
+// provider hand-off tests with a fake provider) runs on every backend; no SDK reads its result on OpenGL, where the uv is not flipped.
 //
 //   in   tex_p  the prepass: r = the linear view depth in world units (a = 1 where a mesh was drawn, else 0)
 //        tex_v  the velocity: rg = uvPrev - uvCurr (unjittered, y down), 1024 where no object wrote one (VelocityRef::kNone)
@@ -10,8 +12,8 @@
 //                           matrix `m`, as the temporal resolve does (taa_shared.glsl); the sentinel never reaches MetalFX. The caller sets
 //                           MetalFX's motion scale to the render size (the unit of the image is the picture's width and height).
 //
-// Why not hand MetalFX the prepass as it is: its depth is in world units up to 60000 (MetalFX reads a 0..1 depth), and where no object wrote a
-// velocity the image holds 1024, which MetalFX would take for a motion of a thousand pictures.
+// Why not hand MetalFX the prepass as it is: its depth is in world units up to 60000 (the scalers read a 0..1 depth), and where no object wrote a
+// velocity the image holds 1024, which a scaler would take for a motion of a thousand pictures.
 @module upscale_mfx
 
 @vs vs

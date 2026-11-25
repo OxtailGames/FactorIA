@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/render/upscaler.h"
 
@@ -30,7 +31,8 @@ namespace fa::render {
 
 // One library an SDK is reached through.
 struct VendorLibrarySpec {
-    const char* setupId;   // "streamline", "xess", "fidelityfx": the `factoria setup` id and the folder under <factoria_home>/tools
+    const char*
+        setupId;  // "streamline", "xess", "fidelityfx": the `factoria setup` id and the folder under <factoria_home>/tools
     const char* dirEnv;    // "FA_STREAMLINE_DIR", "FA_XESS_DIR", "FA_FIDELITYFX_DIR"
     const char* fileName;  // the library's file name, e.g. "sl.interposer.dll"
 };
@@ -66,7 +68,7 @@ public:
     // Null and `why` (when given) the system's reason when the file cannot be loaded.
     virtual std::unique_ptr<VendorLibrary> load(const std::filesystem::path& path, std::string* why) = 0;
 };
-VendorLoader& vendor_loader();                         // the fake of a test, else the process's
+VendorLoader& vendor_loader();                        // the fake of a test, else the process's
 void set_vendor_loader_for_test(VendorLoader* fake);  // null puts the process's back
 
 // ---- the providers ----------------------------------------------------------------------------------------------------------------
@@ -75,6 +77,12 @@ void set_vendor_loader_for_test(VendorLoader* fake);  // null puts the process's
 struct VendorEnv {
     gpu::Backend backend = gpu::Backend::Recording;
     GpuVendor vendor = GpuVendor::None;
+    // The device the provider will draw on (null in a test that only fills in the fields below): an SDK reads its native objects (the
+    // Vulkan instance and physical device, the API version) to answer for this GPU.
+    const gpu::Device* device = nullptr;
+    // Vulkan: the instance and device extensions the engine enabled when it made the device. M78-P2b (m78/hooks) fills them in from the
+    // creation hooks; until it lands they stay empty, so an SDK that needs an extension reports it missing.
+    std::vector<std::string> vulkanInstanceExtensions, vulkanDeviceExtensions;
 #if defined(_WIN32)
     bool windows = true;
 #else
@@ -113,6 +121,12 @@ public:
     virtual VendorProbe probe(const VendorEnv& env) = 0;
     // Draws `in` into frame.output; false (and frame.error) when it cannot, and the renderer draws the temporal upscaler instead.
     virtual bool upscale(const UpscaleInput& in, VendorFrame& frame) = 0;
+    // Whether the output image of a frame it draws needs storage usage (an SDK that writes it from a compute shader). Asked when the
+    // renderer decides the frame's images, before upscale().
+    virtual bool needs_output_storage() const { return false; }
+    // Gives back what the provider made on `device` (a context of the SDK): the renderer calls it when it shuts down, before the device
+    // goes. The provider is a process-wide singleton, so it is also called for a device that never drew with it (nothing to do then).
+    virtual void release(gpu::Device& device) { (void)device; }
 };
 
 // The provider of vendor index 0 (dlss), 1 (xess), 2 (fsr): the registered one, or the fake of a test.
@@ -121,7 +135,14 @@ void set_vendor_provider_for_test(int index, VendorUpscaler* fake);  // null put
 
 // The maker of the GPU of `device`, and its probe environment.
 GpuVendor gpu_vendor_of(const gpu::Device& device);
+// The maker of the GPU an API identified: Nvidia, Amd, Intel and Apple by their PCI vendor id (gpu::gpu_vendor_from_pci), None for no
+// identity at all (no vendor id and an unknown maker), Other for the rest (Microsoft's WARP, Mesa's rasterisers, Arm, Qualcomm).
+GpuVendor gpu_vendor_from_identity(const gpu::GpuIdentity& identity);
 VendorEnv vendor_env_of(const gpu::Device& device);
+
+// How the refusals name a backend ("D3D12", "Vulkan") and a maker ("an Intel GPU"); a provider's own sentences use the same words.
+const char* vendor_backend_label(gpu::Backend backend);
+std::string vendor_describe_gpu(GpuVendor vendor);
 
 // The sentence of a provider refused by `env`'s backend, GPU maker or system ("" when none refuses it): the checks every provider shares,
 // in the order backend, system. The GPU maker check of DLSS is its own.
