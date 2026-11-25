@@ -105,17 +105,70 @@ void set_next(void* s, void* next) {
     std::memcpy(static_cast<std::uint8_t*>(s) + offsetof(VkBaseOutStructure, pNext), &next, sizeof next);
 }
 
-// A hook's feature struct (checked: check_hook_features) into the chain: OR-ed into the struct of its type already
-// there, else chained after `end` (which becomes it).
-void merge_hook_features(std::vector<std::uint8_t>& f, std::vector<ChainedFeatures>& chained, void*& end) {
-    constexpr std::size_t kHeader = sizeof(VkBaseOutStructure);
+constexpr std::size_t kFeatureHeader = sizeof(VkBaseOutStructure);  // sType and pNext: the VkBool32 members follow
+
+// The offset of the last VkBool32 member of a feature struct the engine knows; the struct's own padding after it (a
+// Vulkan12Features is 204 bytes of members in 208) holds no feature. 0 = a type the engine does not know.
+std::size_t known_last_bool(VkStructureType t) {
+    switch (t) {
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2:
+            return offsetof(VkPhysicalDeviceFeatures2, features) + offsetof(VkPhysicalDeviceFeatures, inheritedQueries);
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES:
+            return offsetof(VkPhysicalDeviceVulkan11Features, shaderDrawParameters);
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES:
+            return offsetof(VkPhysicalDeviceVulkan12Features, subgroupBroadcastDynamicId);
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES:
+            return offsetof(VkPhysicalDeviceVulkan13Features, maintenance4);
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR:
+            return offsetof(VkPhysicalDeviceSynchronization2FeaturesKHR, synchronization2);
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR:
+            return offsetof(VkPhysicalDevicePortabilitySubsetFeaturesKHR, vertexAttributeAccessBeyondStride);
+        default: return 0;
+    }
+}
+
+// The bytes of a hook's feature struct that hold features: the header and the VkBool32 members, never the padding
+// after the last one. A struct the engine knows has the members it has; any other has `declared` of them
+// (VulkanDeviceRequest::add_features(s, members)), or every 4 bytes after the header when none is declared. 0 and
+// `why` when the bytes are no feature struct.
+std::size_t hook_feature_bytes(const std::vector<std::uint8_t>& f, std::uint32_t declared, std::string& why) {
+    if (f.size() < kFeatureHeader + sizeof(VkBool32) || (f.size() - kFeatureHeader) % sizeof(VkBool32) != 0) {
+        why = "a feature struct of " + std::to_string(f.size()) +
+              " bytes is not a Vk*Features struct (VulkanDeviceRequest::add_features(the struct))";
+        return 0;
+    }
+    VkStructureType type{};
+    std::memcpy(&type, f.data(), sizeof type);
+    if (const std::size_t last = known_last_bool(type)) {
+        const std::size_t bytes = last + sizeof(VkBool32);
+        if (f.size() < bytes) {
+            why = feature_struct_name(type) + " needs " + std::to_string(bytes) + " bytes, the struct given has " +
+                  std::to_string(f.size()) + " (pass the whole struct: add_features(the struct))";
+            return 0;
+        }
+        return bytes;
+    }
+    if (declared == 0) return f.size();
+    const std::size_t bytes = kFeatureHeader + std::size_t(declared) * sizeof(VkBool32);
+    if (bytes > f.size()) {
+        why = "a feature struct of " + std::to_string(f.size()) + " bytes cannot hold the " + std::to_string(declared) +
+              " members add_features declared";
+        return 0;
+    }
+    return bytes;
+}
+
+// A hook's feature struct (checked: check_hook_features; `used` = hook_feature_bytes) into the chain: OR-ed into the
+// struct of its type already there, else chained after `end` (which becomes it).
+void merge_hook_features(std::vector<std::uint8_t>& f, std::size_t used, std::vector<ChainedFeatures>& chained,
+                         void*& end) {
     VkStructureType type{};
     std::memcpy(&type, f.data(), sizeof type);
     for (ChainedFeatures& c : chained) {
         if (c.type != type) continue;
         auto* dst = static_cast<std::uint8_t*>(c.s);
-        const std::size_t n = std::min(c.size, f.size());
-        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= n; at += sizeof(VkBool32)) {
+        const std::size_t n = std::min(c.size, used);
+        for (std::size_t at = kFeatureHeader; at + sizeof(VkBool32) <= n; at += sizeof(VkBool32)) {
             VkBool32 have = VK_FALSE, want = VK_FALSE;
             std::memcpy(&have, dst + at, sizeof have);
             std::memcpy(&want, f.data() + at, sizeof want);
@@ -130,6 +183,33 @@ void merge_hook_features(std::vector<std::uint8_t>& f, std::vector<ChainedFeatur
     set_next(end, f.data());
     end = f.data();
     chained.push_back({type, f.data(), f.size()});
+}
+
+// The older per-feature struct a core struct of the engine's chain covers (Vulkan forbids both in one chain): the name
+// of the core struct, "" when the type is not one of them. On a Vulkan 1.3 device the engine chains Vulkan13Features
+// (synchronization2, dynamic rendering, maintenance4); the Vulkan12Features struct is always chained.
+const char* covered_by_core(VkStructureType t, bool core13) {
+    switch (t) {
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES:
+            return "VkPhysicalDeviceVulkan12Features";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR:  // the same value as the core 1.3 one
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES:
+            return core13 ? "VkPhysicalDeviceVulkan13Features" : "";
+        default: return "";
+    }
 }
 
 // The family a hook's queue comes from: one with every bit of `flags` and a queue no one took. A graphics queue takes
@@ -371,7 +451,7 @@ Result<void> VulkanDevice::init_instance(const VulkanOptions& options) {
     // Device hooks (gpu/device_hooks.h): the instance extensions each asks for. One the loader lacks makes that hook
     // unavailable, and it adds nothing.
     hooks_ = options.init.hooks;
-    for (const auto& h : hooks_) h->mark_available();
+    hookUse_.attach(hooks_);  // available again unless another device holds it (gpu/device_hooks.h)
     hookGrants_.assign(hooks_.size(), HookGrant{});
     std::vector<std::string> hookExtensions;  // what the hooks added (kept alive for vkCreateInstance)
     std::vector<DeviceHook*> instanceAdders;  // the hooks that added one
@@ -809,18 +889,46 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     std::vector<std::uint32_t> familyQueues = engineQueues;    // with the hooks' queues
     std::vector<VulkanDeviceRequest> requests(hooks_.size());  // their strings and structs live to vkCreateDevice
     std::vector<std::size_t> deviceAdders;                     // the hooks that added something
-    // "" when the device has every bit a hook's feature struct asks for; else what is wrong.
-    auto check_hook_features = [&](const std::vector<std::uint8_t>& f, bool vulkan13) -> std::string {
-        constexpr std::size_t kHeader = sizeof(VkBaseOutStructure);
-        if (f.size() < kHeader + sizeof(VkBool32) || (f.size() - kHeader) % sizeof(VkBool32) != 0)
-            return "a feature struct of " + std::to_string(f.size()) +
-                   " bytes is not a Vk*Features struct (VulkanDeviceRequest::add_features(the struct))";
+    // "" when the device has every bit a hook's feature struct asks for and the struct fits the device; else what is
+    // wrong. `used`: the bytes of it that hold features (hook_feature_bytes).
+    auto check_hook_features = [&](const std::vector<std::uint8_t>& f, std::uint32_t declared,
+                                   const VulkanDeviceRequest& req, bool vulkan13, std::size_t& used) -> std::string {
+        std::string bad;
+        used = hook_feature_bytes(f, declared, bad);
+        if (!bad.empty()) return bad;
         VkStructureType type{};
         std::memcpy(&type, f.data(), sizeof type);
         const std::string name = feature_struct_name(type);
         if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES && !vulkan13)
             return "it asks for " + name + ", but the device is made with Vulkan " + version_text(apiVersion_) + " (" +
                    deviceName_ + "; update the GPU driver and the Vulkan loader for Vulkan 1.3)";
+        // A struct a core struct of the engine's chain covers: both in one chain is invalid usage (for the
+        // synchronization2 struct next to Vulkan13Features: VUID-VkDeviceCreateInfo-pNext-06532).
+        if (const std::string core = covered_by_core(type, vulkan13); !core.empty())
+            return "it asks for " + name + ", which " + core +
+                   " covers and the engine chains already (Vulkan forbids "
+                   "both in one chain): ask for the member in " +
+                   core + " instead";
+        // An extension's struct needs its extension on the device.
+        auto requested = [&](const char* ext) {
+            for (const std::string& e : req.extensions)
+                if (e == ext) return true;
+            for (const char* e : enabled)
+                if (std::strcmp(e, ext) == 0) return true;
+            return false;
+        };
+        if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR &&
+            !requested(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME))
+            return "it asks for " + name +
+                   " without the device extension " VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME
+                   " (add it to VulkanDeviceRequest::extensions)";
+        if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR && !portability_)
+            return "it asks for " + name + ", but " + deviceName_ + " is not a portability subset device";
+        if (!known_last_bool(type) && req.extensions.empty())
+            return "it asks for the feature struct of sType " + std::to_string(std::int64_t(type)) +
+                   " without a required device extension: an extension's struct needs its extension (add it to "
+                   "VulkanDeviceRequest::extensions; a struct of a core Vulkan version is VkPhysicalDeviceFeatures2 or "
+                   "VkPhysicalDeviceVulkan11Features, 12 or 13)";
         // What the device has, asked with a zeroed copy of the struct.
         std::vector<std::uint8_t> has(f.size(), 0);
         std::memcpy(has.data(), &type, sizeof type);
@@ -834,16 +942,13 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
             query.pNext = has.data();
             fn_.vkGetPhysicalDeviceFeatures2(physical_, &query);
         }
-        const std::size_t count =
-            std::min(f.size(), type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 ? sizeof(VkPhysicalDeviceFeatures2)
-                                                                                    : f.size());
-        for (std::size_t at = kHeader; at + sizeof(VkBool32) <= count; at += sizeof(VkBool32)) {
+        for (std::size_t at = kFeatureHeader; at + sizeof(VkBool32) <= used; at += sizeof(VkBool32)) {
             VkBool32 want = VK_FALSE, have = VK_FALSE;
             std::memcpy(&want, f.data() + at, sizeof want);
             std::memcpy(&have, got + at, sizeof have);
             if (want && !have)
                 return deviceName_ + " lacks the feature " + name + " member " +
-                       std::to_string((at - kHeader) / sizeof(VkBool32)) +
+                       std::to_string((at - kFeatureHeader) / sizeof(VkBool32)) +
                        " (counting its VkBool32 members from 0; update the GPU driver, or the feature needs another "
                        "GPU)";
         }
@@ -879,8 +984,12 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
                 if (why.empty() && !has_extension(extensions, ext.c_str()))
                     why = deviceName_ + " has no device extension " + ext +
                           " (update the GPU driver; the feature needs a GPU and driver that have it)";
-            for (const std::vector<std::uint8_t>& f : req.features)
-                if (why.empty()) why = check_hook_features(f, core13);
+            std::vector<std::size_t> used(req.features.size(), 0);  // the bytes of each struct that hold features
+            for (std::size_t k = 0; k < req.features.size(); ++k)
+                if (why.empty())
+                    why =
+                        check_hook_features(req.features[k], k < req.featureMembers.size() ? req.featureMembers[k] : 0,
+                                            req, core13, used[k]);
             std::vector<std::uint32_t> taken = familyQueues;
             std::vector<VulkanQueueGrant> grants;
             for (const VulkanQueueRequest& request : req.queues) {
@@ -912,7 +1021,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
                     add(ext);
                     hookGrants_[i].optionalExtensions.push_back(ext);
                 }
-            for (std::vector<std::uint8_t>& f : req.features) merge_hook_features(f, chained, chainEnd);
+            for (std::size_t k = 0; k < req.features.size(); ++k)
+                merge_hook_features(req.features[k], used[k], chained, chainEnd);
             familyQueues = std::move(taken);
             hookGrants_[i].queues = std::move(grants);
             if (added) deviceAdders.push_back(i);
@@ -942,6 +1052,10 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     dci.pQueueCreateInfos = queueInfos.data();
     dci.enabledExtensionCount = std::uint32_t(enabled.size());
     dci.ppEnabledExtensionNames = enabled.data();
+    // A hook that became unavailable while its request was checked keeps none of the instance functions it replaced
+    // (vkCreateDevice goes to the engine's own: the device is made as without that hook).
+    if (std::any_of(hooks_.begin(), hooks_.end(), [](const auto& h) { return !h->available(); }))
+        reload_instance_functions();
     r = fn_.vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS && !deviceAdders.empty()) {
         // Not with what the hooks asked: the device is made again as the engine alone would make it, and those hooks
@@ -964,6 +1078,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         dci.enabledExtensionCount = std::uint32_t(enabled.size());
         dci.ppEnabledExtensionNames = enabled.data();
         device_ = VK_NULL_HANDLE;
+        reload_instance_functions();
         r = fn_.vkCreateDevice(physical_, &dci, nullptr, &device_);
     }
     if (r != VK_SUCCESS || !device_) return vk_error("vkCreateDevice on " + deviceName_, r, "update the GPU driver");
@@ -1298,8 +1413,9 @@ VulkanDevice::~VulkanDevice() {
     // Then the hooks (slShutdown and the SDKs' contexts): the GPU idle, every other object still there.
     if (device_ && !hooks_.empty()) {
         (void)fn_.vkDeviceWaitIdle(device_);
-        for (const auto& h : hooks_)
-            if (h->available()) h->device_destroying();
+        for (std::size_t i = 0; i < hooks_.size(); ++i)  // only a hook that heard vulkan_device_created
+            if (i < hookGrants_.size() && hookGrants_[i].created && hooks_[i]->available())
+                hooks_[i]->device_destroying();
     }
     if (device_ && queues_[0].timeline) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
@@ -1401,6 +1517,21 @@ HookProcAddr VulkanDevice::resolve_hooked(const char* name, const void* device, 
     return p;
 }
 
+void VulkanDevice::reload_instance_functions() {
+    const PFN_vkGetInstanceProcAddr gipa = library_.getInstanceProcAddr;
+#define FA_VK_RELOAD_INSTANCE(name)                                                                                    \
+    fn_.name = reinterpret_cast<PFN_##name>(                                                                           \
+        resolve_hooked(#name, nullptr, reinterpret_cast<HookProcAddr>(gipa(instance_, #name))));
+    FA_VK_INSTANCE_FUNCTIONS(FA_VK_RELOAD_INSTANCE)
+    if (debugUtils_) {
+        FA_VK_DEBUG_FUNCTIONS(FA_VK_RELOAD_INSTANCE)
+    }
+    if (surfaceExtension_) {
+        FA_VK_SURFACE_FUNCTIONS(FA_VK_RELOAD_INSTANCE)
+    }
+#undef FA_VK_RELOAD_INSTANCE
+}
+
 void VulkanDevice::hooks_device_created() {
     const NativeDevice nd = native();
     for (std::size_t i = 0; i < hooks_.size(); ++i) {
@@ -1409,6 +1540,7 @@ void VulkanDevice::hooks_device_created() {
         c.native = nd;
         c.queues = hookGrants_[i].queues;
         c.enabledOptionalExtensions = hookGrants_[i].optionalExtensions;
+        hookGrants_[i].created = true;
         hooks_[i]->vulkan_device_created(c);
     }
 }

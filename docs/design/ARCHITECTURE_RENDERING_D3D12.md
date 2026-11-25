@@ -327,13 +327,23 @@ the colour, depth, velocity and mask in `ShaderRead` and the output in `Unordere
   state of each one to its `leftIn` state with no barrier (the native commands recorded their own transitions); the
   next engine use transitions from there, and a UAV the engine binds again gets its UAV barrier. It sets the engine's
   two shader-visible descriptor heaps again and resets the bind state (root signature, pipeline, tables). While the
-  section is open `begin_pass` and `begin_compute_pass` fail the pass; a list submitted with its section open is
-  reported and closed as declared. The native commands may not close, reset or submit the list.
+  section is open `begin_pass` and `begin_compute_pass` fail the pass, and `write_buffer`, `write_image`,
+  `copy_buffer_to_buffer` and `copy_buffer_to_image` are reported and skipped (the section stays open); a list
+  submitted with its section open is reported and closed as declared. The native commands may not close, reset or
+  submit the list.
+- **`Common` and implicit promotion.** A resource declared `Common` (and left in it) is tracked as `COMMON`, but D3D12
+  promotes a `COMMON` buffer, or a texture with simultaneous access, to the state the first command uses, and decays it
+  back to `COMMON` only when a command queue execution ends. A native command that uses a `Common` resource therefore
+  leaves it in the promoted state inside the list: name that state in `leftIn` (for example `CopyDest` after a native
+  copy into it), or the engine's next use transitions from `COMMON` while the resource is not in it
+  (`BEFORE_AFTER_MISMATCH`). Declare the state the commands need instead of `Common` where it is known.
 - **Tests.** `engine/render/tests/d3d12_native_tests.cpp` (ctest `render_gpu_native`, Windows, on WARP; it skips with a
   MESSAGE without WARP unless `FA_D3D12_REQUIRE=1`): the identity (Microsoft, software, the LUID of `GetDesc1`), the
   native formats against `d3d12::format_info`, a `ClearRenderTargetView` through `native_view`'s descriptor and a
   `CopyBufferRegion` read back by the engine, a `ResourceBarrier` to the shader-resource states handed back in
-  `leftIn` and read back, and the refusals, with no debug-layer error (where the Graphics Tools are installed).
+  `leftIn` and read back, and the refusals (a write or copy inside a section, a submitted list), with no debug-layer
+  error (where the Graphics Tools are installed; with `FA_D3D12_REQUIRE_DEBUG_LAYER=1` a Windows without them fails
+  instead of passing on pixels alone: a CI job that installs them sets it).
 - **Device hooks (M78-P2b).** An SDK that takes part in making the device and the swapchain (Streamline's upgraded
   factory, device and queue, FSR 3's proxy swapchain, a call around every present) does it through a `DeviceHook`:
   [ARCHITECTURE_RENDERING_HOOKS.md](ARCHITECTURE_RENDERING_HOOKS.md).

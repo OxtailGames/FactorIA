@@ -133,7 +133,9 @@ public:
     // a pass, on a Graphics or Compute list (RenderTarget and the depth states on a Graphics list only), one section
     // at a time. The resources the native commands touch must all be in `uses`; the engine records nothing else on the
     // list before end_native() (begin_pass refuses: D3D12 and Vulkan fail the pass, D3D11 closes the section; both
-    // report it), and the native commands may not end or reset the list.
+    // report it; D3D12 and Vulkan also report and skip write_buffer, write_image, copy_buffer_to_buffer and
+    // copy_buffer_to_image), and the native commands may not end or reset the list. A list that is not recording (a
+    // submitted one) answers an error.
     // D3D12 and Vulkan; D3D11 gives its immediate context (it tracks no state: `uses` is only checked); GL, Metal and
     // the RecordingDevice answer an error. An error records nothing and opens nothing; a resource or a range that does
     // not exist, a state its usage does not allow, two states for one subresource, all name the entry (uses[i]).
@@ -141,7 +143,8 @@ public:
     // Closes the native section. `leftIn` names the subresources the native commands left in another state than the
     // one begin_native declared (each in a range begin_native declared); the others are as declared. The engine's
     // tracking takes these states and waits for the native commands' writes before its next use of any declared
-    // resource, then binds again (pipelines, descriptor heaps and sets the native commands may have changed). An error
+    // resource, then binds again (pipelines, descriptor heaps and sets the native commands may have changed). D3D12: a
+    // resource declared Common that a native command used is promoted implicitly: name the promoted state here. An error
     // changes nothing and leaves the section open (call it again with a correct list); submitting a list whose section
     // is still open reports it and closes it as declared.
     virtual Result<void> end_native(std::span<const NativeUse> leftIn);

@@ -242,8 +242,12 @@ GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, con
                     // WARP, the Microsoft Basic Render Driver: vendor 0x1414, device 0x8C.
                     id.software = desc.VendorId == kPciVendorMicrosoft && desc.DeviceId == 0x8C;
                 }
-                if (adapter) *adapter = found;
-                found->Release();  // the D3D11 device keeps its adapter alive: the pointer stays valid with it
+                // The caller keeps the reference GetAdapter gave (native_release_adapter() drops it): the pointer stays
+                // valid for as long as the device that handed it out.
+                if (adapter)
+                    *adapter = found;
+                else
+                    found->Release();
             }
             dxgiDevice->Release();
         }
@@ -268,6 +272,14 @@ GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, con
     (void)native;
 #endif
     return id;
+}
+
+void native_release_adapter(const void* adapter) {
+#if defined(SOKOL_D3D11)
+    if (adapter) static_cast<IDXGIAdapter*>(const_cast<void*>(adapter))->Release();
+#else
+    (void)adapter;
+#endif
 }
 
 }  // namespace fa::gpu

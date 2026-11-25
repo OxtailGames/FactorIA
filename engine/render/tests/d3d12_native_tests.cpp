@@ -2,7 +2,8 @@
 // access for vendor SDKs"): the device names its adapter (vendor, device, LUID) and a command list records raw D3D12
 // commands between begin_native and end_native, with the engine's barriers around them. On Windows every case makes a
 // WARP device with the debug layer and checks that the layer reported no error; a Windows without WARP says so and
-// passes, unless FA_D3D12_REQUIRE=1 (the Windows CI job). Nothing runs elsewhere (gpu_native_tests.cpp checks the
+// passes, unless FA_D3D12_REQUIRE=1 (the Windows CI job); a Windows without the debug layer (Graphics Tools) runs them
+// without its checks, unless FA_D3D12_REQUIRE_DEBUG_LAYER=1. Nothing runs elsewhere (gpu_native_tests.cpp checks the
 // backend-neutral part).
 #include <doctest.h>
 
@@ -42,8 +43,17 @@ std::unique_ptr<D3d12Device> make_warp() {
         MESSAGE("d3d12: skipped, no WARP device: " << d.error().to_string());
         return nullptr;
     }
-    if (!d.value()->debug_layer_active())
+    if (!d.value()->debug_layer_active()) {
+        // Without the layer the cases below only check pixels: a CI job that installed Graphics Tools sets
+        // FA_D3D12_REQUIRE_DEBUG_LAYER=1 so that a runner image that lost it fails here instead of passing blind.
+        const char* layer = std::getenv("FA_D3D12_REQUIRE_DEBUG_LAYER");
+        if (layer && std::strcmp(layer, "1") == 0) {
+            FAIL("d3d12: FA_D3D12_REQUIRE_DEBUG_LAYER=1 but the debug layer is not installed (Graphics Tools): the "
+                 "native cases would only check pixels");
+            return nullptr;
+        }
         MESSAGE("d3d12: the debug layer is not installed (Graphics Tools): the case runs without its checks");
+    }
     return std::move(d.value());
 }
 
@@ -319,10 +329,61 @@ TEST_CASE("d3d12 native: misuses are refused, and an open section is closed at s
     REQUIRE_MESSAGE(n, n.error().to_string());
     list.begin_pass(pass);  // refused: the pass fails
     list.end_pass();
+
+    // Writes and copies inside a section are refused and skipped; the section stays open (the next call proves it).
+    BufferDesc bufDesc;
+    bufDesc.size = 64;
+    bufDesc.usage.copySrc = true;
+    bufDesc.usage.copyDst = true;
+    bufDesc.label = "native-refused-a";
+    const Buffer refusedA = dev->make_buffer(bufDesc);
+    bufDesc.label = "native-refused-b";
+    const Buffer refusedB = dev->make_buffer(bufDesc);
+    const std::vector<std::uint8_t> bytes(64, 7);
+    BufferWrite bw;
+    bw.buffer = refusedA;
+    bw.data = Range{bytes.data(), bytes.size()};
+    list.write_buffer(bw);
+    BufferCopy bc;
+    bc.src = refusedA;
+    bc.dst = refusedB;
+    bc.size = 16;
+    list.copy_buffer_to_buffer(bc);
+    ImageWrite iw;
+    iw.data = Range{bytes.data(), bytes.size()};
+    iw.bytesPerRow = 16;
+    iw.dst.image = img;
+    iw.size.width = 4;
+    iw.size.height = 4;
+    list.write_image(iw);
+    BufferImageCopy ic;
+    ic.src = refusedA;
+    ic.bytesPerRow = 16;
+    ic.dst.image = img;
+    ic.size.width = 4;
+    ic.size.height = 4;
+    list.copy_buffer_to_image(ic);
+    const std::string refused = all_errors(*dev);
+    for (const char* call : {"write_buffer", "copy_buffer_to_buffer", "write_image", "copy_buffer_to_image"})
+        CHECK_MESSAGE(contains(refused, std::string("CommandList::") + call +
+                                            " in list 'native-misuse': a native "
+                                            "section is open (hint: end_native() "
+                                            "first; the call is skipped)"),
+                      call);
+    auto closed = list.end_native();
+    CHECK_MESSAGE(closed, closed.error().to_string());  // still open: the refused calls did not close it
+    // The section left open here is closed at submit (see below).
+    n = list.begin_native(one);
+    REQUIRE_MESSAGE(n, n.error().to_string());
     submit_and_finish(*dev, list);
     const std::string errors = all_errors(*dev);
     CHECK(contains(errors, "a native section is open (hint: end_native() first"));
     CHECK(contains(errors, "still has a native section open"));
+
+    // A submitted list records nothing: begin_native says so instead of opening a section on it.
+    r = list.begin_native({});
+    REQUIRE(!r);
+    CHECK(contains(r.error().message, "the list is not recording"));
 
     // A list on the copy queue takes no native section (a device without one runs the list on another queue, which
     // takes it).
@@ -339,6 +400,8 @@ TEST_CASE("d3d12 native: misuses are refused, and an open section is closed at s
     dev->commit();
     REQUIRE(dev->wait_idle());
 
+    dev->destroy_buffer(refusedA);
+    dev->destroy_buffer(refusedB);
     dev->destroy_view(rtv);
     dev->destroy_image(img);
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));

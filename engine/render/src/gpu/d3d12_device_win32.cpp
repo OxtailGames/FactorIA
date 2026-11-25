@@ -167,7 +167,7 @@ Result<std::unique_ptr<D3d12Device>> D3d12Device::create(const D3d12Options& opt
 
 Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
     hooks_ = options.init.hooks;
-    for (const auto& h : hooks_) h->mark_available();
+    hookUse_.attach(hooks_);  // available again unless another device holds it (gpu/device_hooks.h)
     UINT factoryFlags = 0;
     if (options.debugLayer) {
         Com<ID3D12Debug> debug;
@@ -312,13 +312,16 @@ void adopt(Com<T>& held, void* replaced) {
 }  // namespace
 
 void D3d12Device::hooks_device_created() {
-    for (const auto& h : hooks_) {
+    hookCreated_.assign(hooks_.size(), 0);
+    for (std::size_t i = 0; i < hooks_.size(); ++i) {
+        const auto& h = hooks_[i];
         if (!h->available()) continue;
         D3d12DeviceCreated c;
         c.factory = factory_.get();
         c.device = device_.get();
         c.queue = queue_.get();
         c.adapter = adapter_.get();
+        hookCreated_[i] = 1;
         h->d3d12_device_created(c);
         if (!c.error.empty()) {
             // Changes nothing; a replacement it handed anyway is released.
@@ -592,10 +595,14 @@ D3d12Device::~D3d12Device() {
     // The window's swapchain goes before the queue it presents on (it waits for the GPU first; the hooks hear it).
     destroy_swapchain();
     // Then the hooks (slShutdown and the SDKs' contexts): the GPU idle, every other object still there.
-    if (!hooks_.empty() && device_ && queue_ && fence_) {
-        if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
-        for (const auto& h : hooks_)
-            if (h->available()) h->device_destroying();
+    // Only a hook that heard d3d12_device_created hears it (an init that failed before, or at the fence, never told
+    // them the device was made).
+    if (!hooks_.empty() && device_ && queue_) {
+        if (fence_) {
+            if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
+        }
+        for (std::size_t i = 0; i < hooks_.size(); ++i)
+            if (i < hookCreated_.size() && hookCreated_[i] && hooks_[i]->available()) hooks_[i]->device_destroying();
     }
     // The PSOs made since the cache file was loaded go to it. save_pipeline_cache logs what happened itself: the file
     // it wrote (info), or a warning that says why it wrote none and that the old file stays.

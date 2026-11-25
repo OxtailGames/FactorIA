@@ -314,7 +314,18 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     const bool byHook = !hooks_.empty() && hooks_make_swapchain(hwnd, d, chain1);
     HRESULT hr = S_OK;
     if (!byHook) hr = factory_->CreateSwapChainForHwnd(queue_.get(), hwnd, &d, nullptr, nullptr, chain1.put());
-    if (SUCCEEDED(hr) && !hooks_.empty()) hooks_swapchain_created(chain1);
+    const bool hooksTold = SUCCEEDED(hr) && !hooks_.empty();
+    if (hooksTold) hooks_swapchain_created(chain1);
+    // The hooks heard swapchain_created: a swapchain dropped by one of the errors below (before the device keeps it)
+    // makes them hear swapchain_destroying too, so the two callbacks always pair.
+    struct Pairing {
+        D3d12Device& device;
+        const void* chain;
+        bool armed;
+        ~Pairing() {
+            if (armed) device.hooks_swapchain_destroying(chain);
+        }
+    } pairing{*this, chain1.get(), hooksTold};
     if (FAILED(hr)) {
         drain_messages();
         return make_error(where + ": IDXGIFactory2::CreateSwapChainForHwnd failed with " + hr_text(hr) +
@@ -348,6 +359,7 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
                           "the swapchain was made with DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT; a driver "
                           "bug otherwise");
 
+    pairing.armed = false;  // the device keeps it: destroy_swapchain() tells the hooks
     swapchain_ = std::move(chain);
     swapWaitable_ = swapchain_->GetFrameLatencyWaitableObject();
     swapLabel_ = label;
@@ -548,7 +560,7 @@ Result<void> D3d12Device::present() {
 void D3d12Device::destroy_swapchain() {
     if (!swapchain_) return;
     release_swap_buffers();
-    if (!hooks_.empty()) hooks_swapchain_destroying();
+    if (!hooks_.empty()) hooks_swapchain_destroying(swapchain_.get());
     if (swapWaitable_) {
         CloseHandle(swapWaitable_);
         swapWaitable_ = nullptr;
@@ -625,10 +637,10 @@ void D3d12Device::hooks_swapchain_created(Com<IDXGISwapChain1>& chain) {
     }
 }
 
-void D3d12Device::hooks_swapchain_destroying() {
+void D3d12Device::hooks_swapchain_destroying(const void* swapchain) {
     SwapchainEvent e;
     e.backend = Backend::D3d12;
-    e.swapchain = swapchain_.get();
+    e.swapchain = swapchain;
     for (const auto& h : hooks_)
         if (h->available()) h->swapchain_destroying(e);
 }

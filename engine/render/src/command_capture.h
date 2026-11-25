@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,9 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    // A capture is replayed later and on another thread: native commands cannot be kept (the answer names the capture).
+    Result<gpu::NativeCommands> begin_native(std::span<const gpu::NativeUse> uses) override;
+    using gpu::CommandList::begin_native;
 
     // Records every captured call on `list`, in order. Reads only this capture (any thread, once the capture is done).
     void replay(gpu::CommandList& list) const;
