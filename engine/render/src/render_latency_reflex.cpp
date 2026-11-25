@@ -57,11 +57,12 @@ private:
     std::uint32_t mode_ = abi::kReflexOff, frameLimitUs_ = 0;  // the last options sent
     void* token_ = nullptr;                                    // the token of tokenFrame_
     std::uint64_t tokenFrame_ = 0;
-    bool warnedSleep_ = false, warnedMarker_ = false, warnedOptions_ = false, warnedToken_ = false,
-         warnedReportThread_ = false;
+    bool warnedSleep_ = false, warnedMarker_ = false, warnedOptions_ = false, warnedToken_ = false;
+    std::atomic<bool> warnedReportThread_{
+        false};  // set by the thread that asked the report, which is not the one that draws
     std::unique_ptr<abi::ReflexState> state_;  // 12.8 KB, made once by start(): kept for the report
-    std::thread::id
-        owner_;  // the thread that started the provider (the one that draws): the only one that may ask the SDK
+    // The thread that started the provider (the one that draws): the only one that may ask the SDK. Atomic: another thread reads it to refuse.
+    std::atomic<std::thread::id> owner_{};
 };
 
 VendorProbe ReflexProvider::probe(const VendorEnv& env) {
@@ -255,9 +256,9 @@ Json ReflexProvider::vendor_report() {
     // slReflexGetState is not thread safe: only the thread that draws reads it (the report of another thread is empty, not a race). The state
     // was initialised by start() and the SDK fills every report each call, so it is not cleared again here (12.8 KB).
     if (std::this_thread::get_id() != owner_) {
-        if (!warnedReportThread_)
-            FA_WARN("render", "Reflex: the report was asked from a thread that does not draw: left empty");
-        warnedReportThread_ = true;
+        if (!warnedReportThread_.exchange(true))
+            FA_WARN("render", "Reflex: the report was asked from thread {}, not from thread {} that draws: left empty",
+                    latency_thread_text(std::this_thread::get_id()), latency_thread_text(owner_));
         return Json();
     }
     if (api_.getState(state_.get()) != abi::kOk || !state_->latencyReportAvailable) return Json();
@@ -299,7 +300,8 @@ void ReflexProvider::forget() {
     frameLimitUs_ = 0;
     token_ = nullptr;
     tokenFrame_ = 0;
-    warnedSleep_ = warnedMarker_ = warnedOptions_ = warnedToken_ = warnedReportThread_ = false;
+    warnedSleep_ = warnedMarker_ = warnedOptions_ = warnedToken_ = false;
+    warnedReportThread_ = false;
     owner_ = std::thread::id();
     state_.reset();
 }
