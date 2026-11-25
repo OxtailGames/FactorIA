@@ -2,6 +2,7 @@
 // factoria.json render.backend, then "auto". Pure functions, so tests and tools can check the decision without an engine.
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,30 @@ struct GpuBackendChoice {
 Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, const char* envValue,
                                             const std::string& projectValue);
 
-// The one warning of a window that could not use the backend it asked for: what was asked, why it failed and what draws.
-std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used);
+// The one warning of a run that could not use the backend it asked for (M77-P9e1): what was asked, why it failed (the
+// first error, kept whole), what draws instead and how to choose. `windowed`: the window draws with `used`, else the
+// headless run does.
+std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used,
+                                         bool windowed = true);
+
+// One start of the renderer on `backend`: "" = it started; else why not (the device's or the swapchain's error).
+using GpuBackendStart = std::function<std::string(GpuBackend backend)>;
+
+struct GpuBackendStartResult {
+    bool ok = false;
+    GpuBackend used = GpuBackend::Default;  // the backend that started (the last one tried when none did)
+    // The first attempt's error when the run fell back to Default ("" = it did not fall back): the startup report's
+    // gpu.backendFallback.
+    std::string fallbackReason;
+    std::string warning;  // gpu_backend_fallback_warning of that fallback ("" = none)
+    std::string error;    // !ok: what failed, every attempt's error (the first one first)
+};
+
+// The in-process fallback (M77-P9e1): starts `asked`; when it fails and it is not one that runs on the sokol context
+// (gpu_backend_on_context: D3d12, Vulkan), starts Default (the build's sokol backend, `defaultName` in the warning)
+// and keeps the first error as the reason. Default or the build's own sokol backend failing is not retried: there is
+// nothing else to draw with. Pure, so every platform's tests check it with a `start` that fails on purpose.
+GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart& start, const std::string& defaultName,
+                                        bool windowed);
 
 }  // namespace fa

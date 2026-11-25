@@ -1156,27 +1156,62 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.backend = I.gpuChoice.backend;
         std::string gerr;
         bool ok = false;
-        if (I.windowed) {
-            I.renderer = std::make_unique<Renderer>();
-            ok = I.renderer->init(rd, *gfx, &gerr);
-            if (!ok && rd.backend != GpuBackend::Default) {
-                // The engine's own backends have no swapchain yet (P9c, P9d): one warning, and the window draws with the
-                // backend of this build rather than stay black or crash.
-                const std::string msg = gpu_backend_fallback_warning(rd.backend, gerr, Renderer::backend_name());
-                FA_WARN("engine", "{}", msg);
-                I.startupProblems.push_back("graphics: " + msg);
-                I.renderer->shutdown();
-                rd.backend = GpuBackend::Default;
-                I.renderer = std::make_unique<Renderer>();
-                gerr.clear();
-                ok = I.renderer->init(rd, *gfx, &gerr);
+        // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native window
+        // first (the platform's swapchain goes: one per window) and give it back when they fail, so the fallback below
+        // makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
+        const bool appWindow = I.windowed && !config.editorMode && app_native_window().window != nullptr;
+        auto start = [&](GpuBackend backend) -> std::string {
+            if (config.gpuStartFault)
+                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) return fault;
+            RendererDesc d = rd;
+            d.backend = backend;
+            GfxEnvironment env = I.windowed ? *gfx : I.gpu->environment();
+            if (I.windowed && !gpu_backend_on_context(backend)) {
+                if (config.editorMode)
+                    return std::string("the editor draws the game into its own view with the ") +
+                           Renderer::backend_name() + " backend; " + gpu_backend_name(backend) +
+                           " draws into a game window (factoria run) or headless";
+                auto claim = app_claim_native_window(gpu_backend_name(backend));
+                if (!claim) return claim.error().to_string();
+                d.nativeWindow.window = claim->window;
+                d.nativeWindow.display = claim->display;
+                d.nativeWindow.width = app_framebuffer_width();
+                d.nativeWindow.height = app_framebuffer_height();
+                d.vsync = app_vsync();
+                d.adoptContext = false;   // a device of its own: no sokol context to adopt
+                env = app_gfx_formats();  // the window's formats, no device: D3D12 and Vulkan make their own
+                I.windowClaimed = true;
+            } else if (appWindow && !gfx_device_active()) {
+                // The sokol backend in a game window whose context the runner left closed (it asked for D3D12 or Vulkan):
+                // the platform's swapchain is made now (Windows: the D3D11 presenter).
+                env = app_gfx_environment();
             }
-        } else {
+            I.renderer = std::make_unique<Renderer>();
+            std::string why;
+            if (I.renderer->init(d, env, &why)) return "";
+            I.renderer->shutdown();
+            I.renderer.reset();
+            if (I.windowClaimed) {
+                app_release_native_window();  // the renderer destroyed its swapchain: the window is free again
+                I.windowClaimed = false;
+            }
+            return why.empty() ? std::string("Renderer::init failed") : why;
+        };
+        if (!I.windowed) {
             I.gpu = std::make_unique<HeadlessGpu>();
             ok = I.gpu->init(&gerr);
-            if (ok) {
-                I.renderer = std::make_unique<Renderer>();
-                ok = I.renderer->init(rd, I.gpu->environment(), &gerr);
+        } else {
+            ok = true;
+        }
+        if (ok) {
+            const GpuBackendStartResult started =
+                start_gpu_backend(rd.backend, start, Renderer::backend_name(), I.windowed);
+            ok = started.ok;
+            gerr = started.error;
+            I.gpuFallbackReason = started.fallbackReason;
+            if (!started.warning.empty()) {
+                FA_WARN("engine", "{}", started.warning);
+                I.startupProblems.push_back("graphics: " + started.warning);
             }
         }
         if (!ok) {
@@ -1388,6 +1423,8 @@ void Engine::shutdown() {
     I.world.clear();
     if (I.renderer) I.renderer->shutdown();
     I.renderer.reset();
+    if (I.windowClaimed) app_release_native_window();  // its swapchain is gone with the renderer
+    I.windowClaimed = false;
     if (I.gpu) I.gpu->shutdown();
     I.gpu.reset();
 }
@@ -1437,6 +1474,8 @@ Json Engine::startup_report() const {
         const GpuBackend asked = impl_->gpuChoice.requested;
         if (asked != GpuBackend::Default && asked != impl_->renderer->device_backend())
             j["gpu"]["requestedBackend"] = gpu_backend_name(asked);
+        // Why it fell back to this build's backend in process (M77-P9e1): the first attempt's error.
+        if (!impl_->gpuFallbackReason.empty()) j["gpu"]["backendFallback"] = impl_->gpuFallbackReason;
     }
     return j;
 }

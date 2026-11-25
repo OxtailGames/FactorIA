@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <format>
 #include <chrono>
+#include <cstdlib>
 #include <optional>
 
 #include "engine_impl.h"
@@ -47,6 +48,9 @@ struct WindowedState {
     std::unique_ptr<StartupSequence> sequence;
     bool contextOpened =
         false;  // d.init opened the graphics context (Renderer::open_context): d.cleanup closes it if still open
+    // The run asks for D3D12 or Vulkan on a window that can take their swapchain: d.init opened no sokol context and made
+    // no platform swapchain, the engine claims the window (Engine::init).
+    bool deviceWindow = false;
     bool firstGameFrame = true;
     bool startupLogged = false;
 };
@@ -153,7 +157,9 @@ std::vector<AppIconImage> load_window_icon(const std::string& projectDir, const 
 
 // Frame 2 of the window: reads the game (Engine::init) and does what has to happen once it exists. False = it could not start.
 bool start_game(WindowedState& st) {
-    GfxEnvironment env = app_gfx_environment();
+    // A run that asked for D3D12 or Vulkan hands the window's formats only: the engine claims the native window for that
+    // device, and makes the platform's swapchain itself when it falls back (Engine::init).
+    GfxEnvironment env = st.deviceWindow ? app_gfx_formats() : app_gfx_environment();
     std::string err;
     st.ok = st.engine.init(st.cfg, &env, &err);
     if (!st.ok) {
@@ -235,7 +241,15 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.init = [st] {
         // The window and its graphics context exist now. Opening the context is all this callback does with the GPU; reading
         // the game happens in frame 2 (start_game), after frame 1 presented a clear frame (StartupSequence).
-        GfxEnvironment env = app_gfx_environment();
+        // A run that asks for D3D12 or Vulkan opens no sokol context and makes no platform swapchain: the window takes one
+        // swapchain, which that device makes in Engine::init (or the platform's, made there, when it falls back). Its
+        // frame 1 presents nothing. A window that cannot take a device's swapchain (an OpenGL one) opens the context as
+        // usual and the engine falls back with the reason.
+        if (st->cfg.graphics && !st->cfg.editorMode) {
+            auto chosen =
+                choose_gpu_backend(st->cfg.gpuBackend, std::getenv("FA_GPU_BACKEND"), st->project.renderBackend);
+            st->deviceWindow = chosen && !gpu_backend_on_context(chosen->backend) && app_native_window().busy.empty();
+        }
         std::string err;
         // The wall clock is read here and in refresh_clock_date only: the player's date goes into the config like the seed
         // does (--date overrides, and then it never changes).
@@ -245,7 +259,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             st->cfg.dateUtcOffsetMinutes = today.utcOffsetMinutes;
             st->clockDate = today;
         }
-        if (st->cfg.graphics && !st->cfg.editorMode) {
+        if (st->cfg.graphics && !st->cfg.editorMode && !st->deviceWindow) {
+            GfxEnvironment env = app_gfx_environment();
             st->contextOpened = Renderer::open_context(env, &err);
             st->cfg.adoptGraphicsContext = st->contextOpened;
             // Not usable: Engine::init tries again, fails the same way and runs without graphics, as it always did.
@@ -255,7 +270,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             if (st->contextOpened) Renderer::present_clear(app_gfx_swapchain());
         };
         hooks.init = [st] { return start_game(*st); };
-        hooks.warm = [st] { return st->contextOpened ? st->engine.warm_step(app_gfx_swapchain()) : 0; };
+        hooks.warm = [st] {
+            return st->contextOpened || st->deviceWindow ? st->engine.warm_step(app_gfx_swapchain()) : 0;
+        };
         st->sequence = std::make_unique<StartupSequence>(std::move(hooks), &st->engine.startup_timeline());
     };
     d.frame = [st](double dt) {
@@ -294,7 +311,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             if (t["gpu"].is_object() && t["gpu"].contains("backend")) {
                 backend = t["gpu"]["backend"].get<std::string>();
                 if (t["gpu"].contains("requestedBackend"))
-                    backend += " (asked for " + t["gpu"]["requestedBackend"].get<std::string>() + ")";
+                    backend += " (asked for " + t["gpu"]["requestedBackend"].get<std::string>() +
+                               (t["gpu"].contains("backendFallback") ? ", which could not start: see the warning above)"
+                                                                     : ")");
             }
             FA_INFO("player",
                     "startup: first frame presented at {} ms, game ready at {} ms (reading the game {} ms, GPU warm-up "

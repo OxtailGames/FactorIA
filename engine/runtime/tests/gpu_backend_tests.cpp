@@ -6,11 +6,13 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/render/renderer.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/gpu_backend_choice.h"
+#include "fa/runtime/internal/engine_impl.h"
 #include "fa/runtime/project.h"
 
 using namespace fa;
@@ -174,11 +176,129 @@ TEST_CASE(
     }
 }
 
-TEST_CASE("gpu backend: the window fallback warning says what was asked, why and what draws") {
+TEST_CASE("gpu backend: the fallback warning says what was asked, why, what draws and how to choose") {
     const std::string w = gpu_backend_fallback_warning(GpuBackend::Vulkan, "no swapchain", "glcore");
     CHECK(w.find("vulkan") != std::string::npos);
     CHECK(w.find("no swapchain") != std::string::npos);
     CHECK(w.find("glcore") != std::string::npos);
+    CHECK(w.find("the window") != std::string::npos);
+    CHECK(w.find("render.backend") != std::string::npos);
+    CHECK(w.find("cannot draw into a window yet") == std::string::npos);  // they do now (M77-P9e1)
+    const std::string headless = gpu_backend_fallback_warning(GpuBackend::D3d12, "no adapter", "d3d11", false);
+    CHECK(headless.find("headless") != std::string::npos);
+    CHECK(headless.find("no adapter") != std::string::npos);
+}
+
+TEST_CASE("gpu backend: start_gpu_backend falls back to the build's backend once and keeps the first error") {
+    std::vector<GpuBackend> tried;
+    auto failing = [&](const std::string& vulkanError, const std::string& defaultError) {
+        tried.clear();
+        return [&tried, vulkanError, defaultError](GpuBackend b) {
+            tried.push_back(b);
+            return b == GpuBackend::Default ? defaultError : vulkanError;
+        };
+    };
+    // The asked backend starts: no fallback.
+    GpuBackendStartResult r = start_gpu_backend(GpuBackend::Vulkan, failing("", ""), "glcore", true);
+    CHECK(r.ok);
+    CHECK(r.used == GpuBackend::Vulkan);
+    CHECK(r.fallbackReason.empty());
+    CHECK(r.warning.empty());
+    CHECK(tried.size() == 1);
+    // It fails: Default starts, the first error is the reason and the warning keeps it.
+    r = start_gpu_backend(GpuBackend::Vulkan, failing("no Vulkan driver", ""), "glcore", true);
+    CHECK(r.ok);
+    CHECK(r.used == GpuBackend::Default);
+    CHECK(r.fallbackReason == "no Vulkan driver");
+    CHECK(r.warning.find("no Vulkan driver") != std::string::npos);
+    CHECK(r.warning.find("glcore") != std::string::npos);
+    REQUIRE(tried.size() == 2);
+    CHECK(tried[1] == GpuBackend::Default);
+    // D3D12 the same, headless.
+    r = start_gpu_backend(GpuBackend::D3d12, failing("no adapter", ""), "d3d11", false);
+    CHECK(r.ok);
+    CHECK(r.used == GpuBackend::Default);
+    CHECK(r.warning.find("headless") != std::string::npos);
+    // Both fail: not ok, both errors, the first one first.
+    r = start_gpu_backend(GpuBackend::Vulkan, failing("first error", "second error"), "glcore", true);
+    CHECK_FALSE(r.ok);
+    CHECK(r.fallbackReason == "first error");
+    CHECK(r.error.find("first error") < r.error.find("second error"));
+    // Default, or the build's own sokol backend, is never retried: nothing else draws.
+    r = start_gpu_backend(GpuBackend::Default, failing("x", "sg_setup failed"), "glcore", true);
+    CHECK_FALSE(r.ok);
+    CHECK(r.error == "sg_setup failed");
+    CHECK(r.fallbackReason.empty());
+    CHECK(tried.size() == 1);
+    CHECK(gpu_backend_on_context(GpuBackend::Default));
+    CHECK_FALSE(gpu_backend_on_context(GpuBackend::Vulkan));
+    CHECK_FALSE(gpu_backend_on_context(GpuBackend::D3d12));
+    CHECK_FALSE(gpu_backend_on_context(GpuBackend::Recording));
+    CHECK(gpu_backend_on_context(GpuBackend::Metal));  // a sokol backend (this binary may not have it)
+}
+
+namespace {
+// A backend this binary can make besides Default (D3D12 or Vulkan), or Default when it has none.
+GpuBackend an_own_backend() {
+    for (GpuBackend b : {GpuBackend::Vulkan, GpuBackend::D3d12})
+        if (gpu_backend_available(b)) return b;
+    return GpuBackend::Default;
+}
+}  // namespace
+
+TEST_CASE("gpu backend: a backend that cannot start falls back in process and the report says why") {
+    TempProject proj("fallback");
+    ScopedEnv env("FA_GPU_BACKEND", nullptr);
+    const GpuBackend own = an_own_backend();
+    if (own == GpuBackend::Default) {
+        MESSAGE("this build has neither D3D12 nor Vulkan: the in-process fallback was not checked");
+        return;
+    }
+    // Headless: the asked backend fails at its start (forced, so every machine checks it), the build's backend draws.
+    {
+        EngineConfig c = cfg(proj);
+        c.gpuBackend = gpu_backend_name(own);
+        std::vector<GpuBackend> tried;
+        c.gpuStartFault = [&tried, own](GpuBackend b) {
+            tried.push_back(b);
+            return b == own ? std::string("forced failure of the test") : std::string();
+        };
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        REQUIRE(tried.size() == 2);
+        CHECK(tried[0] == own);
+        CHECK(tried[1] == GpuBackend::Default);
+        if (e.renderer()) {
+            const Json g = e.startup_report()["gpu"];
+            CHECK(g["backend"].get<std::string>() == std::string(Renderer::backend_name()));
+            CHECK(g["requestedBackend"] == gpu_backend_name(own));
+            CHECK(g["backendFallback"] == "forced failure of the test");
+            bool warned = false;
+            for (const std::string& p : e.runtime_impl().startupProblems)
+                warned = warned || p.find("forced failure of the test") != std::string::npos;
+            CHECK(warned);
+        } else {
+            MESSAGE("no GPU here: the fallback's renderer did not start either");
+        }
+        e.shutdown();
+    }
+    // Both fail: the engine runs without graphics and says both errors.
+    {
+        EngineConfig c = cfg(proj);
+        c.gpuBackend = gpu_backend_name(own);
+        c.gpuStartFault = [](GpuBackend b) { return std::string("forced ") + gpu_backend_name(b); };
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        CHECK(e.renderer() == nullptr);
+        bool both = false;
+        for (const std::string& p : e.runtime_impl().startupProblems)
+            both = both || (p.find(std::string("forced ") + gpu_backend_name(own)) != std::string::npos &&
+                            p.find("forced auto") != std::string::npos);
+        CHECK(both);
+        e.shutdown();
+    }
 }
 
 TEST_CASE("gpu backend: a headless engine uses the asked backend and the report names the device's") {
