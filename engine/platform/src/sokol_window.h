@@ -59,6 +59,11 @@ void* fa_sapp_ios_textfield(void);
 void fa_sapp_macos_key_down(const void* nsevent, bool chars);
 // Linux: sets the window's WM_CLASS to `name` (AppDesc::appName). false: not available here.
 bool fa_sapp_set_class_name(const char* name);
+// The window's native handles for a GPU device that makes its own swapchain on it (app_native_window, M77-P9e1): the HWND
+// (Windows), the X11 Window as an integer in `*window` and its Display* in `*display` (Linux), the ANativeWindow* of the
+// current surface (Android), the CAMetalLayer* sokol_app made for its view (macOS). false (both left null): no window yet,
+// or this platform hands none (iOS, the web).
+bool fa_sapp_native_window(void** window, void** display);
 // HDR output (hdr_output.cpp). The kind of pixels the window's swapchain holds: 0 = sokol_app's standard 8-bit format, 1 = 16-bit
 // float (D3D11: R16G16B16A16_FLOAT for scRGB; Metal: RGBA16Float with EDR on, in extended sRGB, or extended LINEAR sRGB when
 // `linear`), 2 = 10-bit (D3D11 only: R10G10B10A2_UNORM for HDR10, never with MSAA). Switches between frames (before the

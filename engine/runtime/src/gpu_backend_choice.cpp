@@ -55,9 +55,41 @@ Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, cons
     return c;
 }
 
-std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used) {
-    return std::string("The ") + gpu_backend_name(asked) + " backend cannot draw into a window yet (" + why +
-           "); the window uses the " + used + " backend instead.";
+std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used,
+                                         bool windowed) {
+    const std::string name = gpu_backend_name(asked);
+    return "The " + name + " backend could not start (" + why + "); " +
+           (windowed ? "the window" : "this headless run") + " draws with the " + used +
+           " backend of this build instead (hint: fix what the error says, or set "
+           "render.backend to \"auto\" in factoria.json, FA_GPU_BACKEND or EngineConfig.gpuBackend to stop asking "
+           "for " +
+           name + ").";
+}
+
+GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart& start, const std::string& defaultName,
+                                        bool windowed) {
+    GpuBackendStartResult r;
+    r.used = asked;
+    const std::string first = start ? start(asked) : std::string("no start function");
+    if (first.empty()) {
+        r.ok = true;
+        return r;
+    }
+    if (gpu_backend_on_context(asked)) {  // the build's own backend: nothing to fall back to
+        r.error = first;
+        return r;
+    }
+    r.fallbackReason = first;
+    r.warning = gpu_backend_fallback_warning(asked, first, defaultName, windowed);
+    r.used = GpuBackend::Default;
+    const std::string second = start(GpuBackend::Default);
+    if (second.empty()) {
+        r.ok = true;
+        return r;
+    }
+    r.error = std::string("the ") + gpu_backend_name(asked) + " backend failed (" + first + "), and so did the " +
+              defaultName + " backend of this build (" + second + ")";
+    return r;
 }
 
 }  // namespace fa

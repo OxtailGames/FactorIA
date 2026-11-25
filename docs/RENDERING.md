@@ -361,12 +361,20 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
   another sokol backend than the one built) starts the game with one warning that says which backends the binary has, and uses `auto`.
 - The environment variable `FA_GPU_BACKEND` (same names) overrides `factoria.json`, for tests and for players that tools run;
   `EngineConfig::gpuBackend` overrides both. A wrong name in the variable fails the start with the same teaching error.
-- `d3d12` and `vulkan` draw offscreen only until their window paths land. A headless run (`factoria call`, `factoria test`, the MCP
-  server, tests) uses the one asked for; on a machine with no driver for it, that run has no graphics (a warning says so: no
-  renders or captures), so leave such runs on `auto`. In a window the renderer cannot start on them: the engine warns once (what was asked, why
-  it failed, what draws instead) and the window uses the `auto` backend.
+- `d3d12` and `vulkan` draw into the game window with a swapchain of their own (M77-P9e1): the engine takes the window's native
+  handle from the platform, which then makes no swapchain of its own (a window holds one). On Windows that is the player itself
+  (it carries Direct3D 11, Direct3D 12 and Vulkan); on macOS `vulkan` presents through MoltenVK in a build that has it. On Linux
+  and Android the window is an OpenGL one, which cannot take a Vulkan swapchain yet, so they fall back as below. A headless run
+  (`factoria call`, `factoria test`, the MCP server, tests) draws offscreen on the one asked for. The editor draws the game into
+  its own view with the `auto` backend.
+- When the backend asked for cannot start (no driver, no such GPU, a window that cannot take its swapchain), the engine falls back
+  to `auto` in the same process, in a window and headless alike: one warning keeps the first error whole, says what draws instead
+  and how to stop asking (set `"auto"`). Only `auto` failing as well leaves the run without graphics (a warning says so: no renders
+  or captures). HDR output is not available while D3D12 or Vulkan draws the window (`hdrOutput` says why), and the window's vsync
+  is the swapchain's present mode, set when it starts.
 - The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
-  backend of the renderer's device in `backend`, and the one asked for in `requestedBackend` when they differ.
+  backend of the renderer's device in `backend`, the one asked for in `requestedBackend` when they differ, and in `backendFallback`
+  the first error of the one asked for when it fell back.
 
 ## Temporal effects and upscaling at a glance (M76)
 
