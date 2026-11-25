@@ -433,7 +433,33 @@ NativeImage D3d12Device::native_image(Image image) const {
     NativeImage n;
     std::lock_guard<std::mutex> lock(resMutex_);
     const ImageRecord* r = images_.get(image.id);
-    if (r && r->tracked) n.texture = n.resource = r->tracked->resource.get();  // ID3D12Resource*
+    if (r && r->tracked) {
+        n.texture = n.resource = r->tracked->resource.get();  // ID3D12Resource*
+        n.nativeFormat = std::uint32_t(format_info(r->format).resource);
+    }
+    return n;
+}
+
+NativeView D3d12Device::native_view(View view) const {
+    NativeView n;
+    std::lock_guard<std::mutex> lock(resMutex_);
+    const ViewRecord* v = views_.get(view.id);
+    if (!v || !v->tracked) return n;
+    if (v->heap >= 0 && v->descriptor != kNoDescriptor)
+        n.d3d12Descriptor = std::uint64_t(cpuHeaps_[std::size_t(v->heap)].cpu(v->descriptor).ptr);
+    n.image = v->image;
+    n.mip = v->mip;
+    n.mipCount = v->mipCount;
+    n.slice = v->slice;
+    n.sliceCount = v->sliceCount;
+    if (v->type == ViewType::StorageBuffer) {
+        n.nativeFormat = std::uint32_t(DXGI_FORMAT_R32_TYPELESS);  // the raw SRV
+    } else if (const ImageRecord* im = v->image.id ? images_.get(v->image.id) : nullptr) {
+        const FormatInfo fi = format_info(im->format);
+        const bool attachment = v->type == ViewType::ColorAttachment || v->type == ViewType::ResolveAttachment ||
+                                v->type == ViewType::DepthStencilAttachment;
+        n.nativeFormat = std::uint32_t(attachment ? fi.rtv : fi.srv);
+    }
     return n;
 }
 

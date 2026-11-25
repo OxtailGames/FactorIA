@@ -298,3 +298,40 @@ checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_ro
 `FA_D3D12_WARP=1` makes the device on WARP and `FA_D3D12_DEBUG=1` turns the debug layer on. The renderer case of
 `renderer_backend_tests.cpp` sets both and draws the 2D and 3D scenes on D3D12 against the sokol backend's pictures
 (the Vulkan case's tolerance); it skips with a MESSAGE without WARP, unless `FA_D3D12_REQUIRE=1` (the Windows CI job).
+
+## Native access for vendor SDKs (M78)
+
+The upscalers and latency SDKs of M78 (Streamline, XeSS, FSR 3.1) record their own D3D12 commands into the engine's
+command list. The interface is the same as on Vulkan ([ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md),
+"Native access for vendor SDKs", which lists the checks of each entry); here is what D3D12 does with it.
+
+- **Which GPU.** `DeviceInfo::gpu` comes from the adapter's `DXGI_ADAPTER_DESC1`: `vendorId`, `deviceId`, the LUID
+  (`luidValid` always true), `vendor` through `gpu_vendor_from_pci`, and `software` on WARP (Microsoft 0x1414). The
+  sokol D3D11 backend fills the same fields from its device's DXGI adapter (`software` for WARP's 0x1414 / 0x8C).
+- **The objects.** `native()` gives `device` (`ID3D12Device*`), `context` (the direct `ID3D12CommandQueue*`),
+  `computeQueue` (the compute queue) and `adapter` (`IDXGIAdapter1*`; D3D11: its `IDXGIAdapter*`), all borrowed: they
+  live as long as the `Device`, and an SDK that keeps one longer `AddRef`s it. `native_image()` adds `resource` and
+  `nativeFormat` (the resource's `DXGI_FORMAT`, typeless for depth); `native_buffer()` gives the `ID3D12Resource*`;
+  `native_view()` gives the view's CPU descriptor (`d3d12Descriptor`, in the engine's non-shader-visible heap of its
+  kind: copy it, never write into it; a storage buffer's is its raw view as `R32_TYPELESS`) and its format (the RTV or
+  DSV format for an attachment view, the SRV format otherwise), image, mips and slices.
+- **Recording.** `begin_native(uses)` makes the same checks as on Vulkan, then moves each range to its state through
+  the engine's tracking (a UAV barrier first for an `UnorderedAccess` entry the engine left in that state, so its
+  writes finish before the SDK's), flushes the barriers and answers `NativeCommands{D3d12, ID3D12GraphicsCommandList*,
+  queue}`. `Common` is `COMMON`, `ShaderRead` `PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE` (only
+  `NON_PIXEL_SHADER_RESOURCE` on a compute list), `UnorderedAccess` `UNORDERED_ACCESS`, `RenderTarget` `RENDER_TARGET`,
+  `DepthWrite` `DEPTH_WRITE`, `DepthRead` `DEPTH_READ` with the shader-resource states, `CopySource` `COPY_SOURCE`,
+  `CopyDest` `COPY_DEST`.
+- **After the section.** `end_native(leftIn)` checks that each `leftIn` subresource was declared, then sets the tracked
+  state of each one to its `leftIn` state with no barrier (the native commands recorded their own transitions); the
+  next engine use transitions from there, and a UAV the engine binds again gets its UAV barrier. It sets the engine's
+  two shader-visible descriptor heaps again and resets the bind state (root signature, pipeline, tables). While the
+  section is open `begin_pass` and `begin_compute_pass` fail the pass; a list submitted with its section open is
+  reported and closed as declared. The native commands may not close, reset or submit the list.
+- **Tests.** `engine/render/tests/d3d12_native_tests.cpp` (ctest `render_gpu_native`, Windows, on WARP; it skips with a
+  MESSAGE without WARP unless `FA_D3D12_REQUIRE=1`): the identity (Microsoft, software, the LUID of `GetDesc1`), the
+  native formats against `d3d12::format_info`, a `ClearRenderTargetView` through `native_view`'s descriptor and a
+  `CopyBufferRegion` read back by the engine, a `ResourceBarrier` to the shader-resource states handed back in
+  `leftIn` and read back, and the refusals, with no debug-layer error (where the Graphics Tools are installed).
+- **Not built yet (M78-P2b).** A hook before the device is made and around the swapchain (what Streamline needs) has no
+  entry point yet.
