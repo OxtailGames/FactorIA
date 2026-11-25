@@ -132,7 +132,8 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
         else if (id == "directstorage")
             st.components.push_back(setup_detail::directstorage_status(ctx));
         else if (find_vendor_sdk(id))
-            st.components.push_back(setup_detail::vendor_sdk_status_by_id(ctx, id, fetchLicenses));
+            // A vendor SDK's license text is a network request of its own: fetched only when that component is asked for.
+            st.components.push_back(setup_detail::vendor_sdk_status_by_id(ctx, id, fetchLicenses && component == id));
         else
             st.components.push_back(setup_detail::ffmpeg_status(ctx));
     }
@@ -230,18 +231,20 @@ void register_setup_commands(CommandRegistry& registry) {
             "installed | missing | "
             "partial | unsupported "
             "(nothing to do on this computer). problems[] says what is missing and how to fix it; "
-            "`setup.install` fixes everything except Xcode. `licenses` (android, streamline, xess and fidelityfx; only "
-            "while the "
-            "license is not accepted yet: the vendor SDKs list theirs until installed) holds {id, title, text}: the "
-            "full license the user must read "
-            "and agree to before `setup.install` with acceptLicenses. The only network request is the fetch "
-            "of that license text (fetchLicenses false skips it). Everything installed lives under `home` "
+            "`setup.install` fixes everything except Xcode. `licenses` (android, streamline, xess and fidelityfx) "
+            "holds "
+            "{id, title, text}: the full license the user must read "
+            "and agree to before `setup.install` with acceptLicenses. Android lists it while it is not accepted yet; "
+            "a vendor SDK lists it, installed or not (a reinstall asks again), only when that component is asked for "
+            "(`component`), because it is fetched on its own. The only network request is the fetch "
+            "of that license text (fetchLicenses false skips it; without `component` only Android's is fetched). "
+            "Everything installed lives under `home` "
             "($FACTORIA_HOME, default ~/.factoria). Details: docs_read {\"name\":\"exporting\"}.";
         info.inputSchema = Json::parse(R"({
           "type":"object",
           "properties":{
             "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage","streamline","xess","fidelityfx"],"description":"Only this component (default: all of them)."},
-            "fetchLicenses":{"type":"boolean","default":true,"description":"Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI)."}
+            "fetchLicenses":{"type":"boolean","default":true,"description":"Download the license text (a network request): Android's when it is not accepted yet; a vendor SDK's (streamline, xess, fidelityfx) when `component` names it, installed or not. false = skip it (a polling UI)."}
           }})");
         registry.add(info, [cache](const Json& args) {
             const std::string component = tooling_detail::arg_string(args, "component", false);
@@ -354,7 +357,7 @@ void register_setup_commands(CommandRegistry& registry) {
             return r.report.to_json();
         });
     }
-    // setup.status probes the installed tools (process) and may fetch the Android license text (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
+    // setup.status probes the installed tools (process) and may fetch the Android license text, or a vendor SDK's when asked for it by name (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
     declare_command_capabilities(
         registry, {{"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
                    {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process,

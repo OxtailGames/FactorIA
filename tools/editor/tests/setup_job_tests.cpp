@@ -720,6 +720,39 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK_FALSE(cache.stale(5010.0, 20.0));
 }
 
+TEST_CASE("setup license: an installed vendor SDK (Reinstall) asks for its license text and reaches Ready") {
+    World w;
+    const SetupContext ctx = w.ctx("windows");
+    const VendorSdk* sdk = find_vendor_sdk("streamline");
+    REQUIRE(sdk != nullptr);
+    const stdfs::path dir = fs::path_from_utf8(vendor_sdk_install_dir(ctx, *sdk));
+    for (int i = 0; i < sdk->fileCount; ++i) put(dir / fs::path_from_utf8(vendor_sdk_file_name(sdk->files[i])), "x");
+    REQUIRE(setup_status(ctx, "streamline", false).find("streamline")->state == "installed");
+
+    // The worker asks for the text of an installed SDK too (this test serves none: the failure names the license).
+    SetupLicenseLoad load;
+    REQUIRE(load.start(ctx, "streamline"));
+    poll_until(load, [&] { return !load.loading(); });
+    CHECK(load.state() == SetupLicenseLoad::State::Failed);
+    CHECK(load.error().find(sdk->licenseUrl) != std::string::npos);
+    {
+        std::lock_guard<std::mutex> lock(w.mu);
+        CHECK(std::count(w.requested.begin(), w.requested.end(), std::string(sdk->licenseUrl)) == 1);
+    }
+
+    // The status the worker gets once the text is served: an installed SDK with its license is Ready, not Failed.
+    SetupStatus st;
+    SetupComponent c;
+    c.id = "streamline";
+    c.state = "installed";
+    c.licenses.push_back(SetupLicense{sdk->licenseId, sdk->licenseTitle, "Text"});
+    st.components.push_back(c);
+    load.apply(st);
+    CHECK(load.state() == SetupLicenseLoad::State::Ready);
+    REQUIRE(load.licenses().size() == 1);
+    CHECK(load.licenses()[0].text == "Text");
+}
+
 TEST_CASE("setup license: the text is loaded on a worker; accepted licenses need no dialog") {
     World w;
     SetupLicenseLoad load;
