@@ -577,8 +577,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         }
         device = std::move(made.value());
     }
-    // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's, D3D12 and Vulkan have no
-    // window path yet and say so.
+    // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's; D3D12 has no window path yet,
+    // and Vulkan makes its own on the window's native handle, which this desc does not carry yet: both say so.
     auto fail = [&](const std::string& why) {
         if (error) *error = why;
         im.gpu.shutdown();

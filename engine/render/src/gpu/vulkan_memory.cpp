@@ -37,7 +37,7 @@ TrackedResource::~TrackedResource() {
     if (!device || !device->device_) return;
     const VkFunctions& f = device->fn_;
     if (buffer) f.vkDestroyBuffer(device->device_, buffer, nullptr);
-    if (image) f.vkDestroyImage(device->device_, image, nullptr);
+    if (image && !external) f.vkDestroyImage(device->device_, image, nullptr);
     if (memory.ok()) device->memory_.free(memory);
 }
 

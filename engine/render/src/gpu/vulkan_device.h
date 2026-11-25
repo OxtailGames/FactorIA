@@ -21,8 +21,9 @@
 // layout, cached descriptor set layouts, pipeline layouts, render passes and pipelines (a VkPipelineCache under them),
 // render passes recorded into secondary command buffers, compute passes, bindings, uniforms through dynamic uniform
 // buffers, viewports, scissors, draws and dispatches. What M77-P8b1 built: GPU timers (timestamp query pools,
-// vulkan_timers.cpp), asynchronous buffer and image reads (vulkan_readback.cpp) and storage_image_loadable. A pass into
-// the window comes in M77-P9 (until then begin_pass reports an error naming it). What M77-P10c built: the graphics,
+// vulkan_timers.cpp), asynchronous buffer and image reads (vulkan_readback.cpp) and storage_image_loadable. What M77-P9d
+// built: the window (vulkan_swapchain.cpp, vulkan_surface.cpp): a VkSurfaceKHR on the native window, its swapchain, the
+// passes into it, acquire and present on the graphics queue. What M77-P10c built: the graphics,
 // async compute and transfer queues with a timeline semaphore each, sync tokens, queue handoffs (queue family
 // ownership transfers), recording from several threads, bindless indices (Device: "Queues, threads and bindless").
 #pragma once
@@ -96,8 +97,8 @@ struct VulkanOptions {
     // cache layout, a cut or corrupt one, is thrown away with a warning), written when the device is destroyed if it
     // gained pipelines (or VulkanDevice::save_pipeline_cache() at a point of the caller's choice). The write is atomic
     // (a temporary file renamed over the old one); one that fails (a directory that cannot be written, a file another
-    // process holds open on Windows) is a warning and keeps the old file. Empty = in memory only. The renderer gives
-    // vulkan_pipeline_cache_file().
+    // process holds open on Windows) is a warning and keeps the old file. Empty = in memory only. make_device() (the
+    // renderer's device) gives vulkan_pipeline_cache_file().
     std::filesystem::path pipelineCacheFile;
 };
 
@@ -265,14 +266,31 @@ std::string prepare_validation_layer();
     X(vkCmdResetQueryPool)                                                                                             \
     X(vkCmdWriteTimestamp)                                                                                             \
     X(vkGetQueryPoolResults)
+// VK_KHR_surface (instance functions; null when the instance does not have it: no window).
+#define FA_VK_SURFACE_FUNCTIONS(X)                                                                                     \
+    X(vkDestroySurfaceKHR)                                                                                             \
+    X(vkGetPhysicalDeviceSurfaceSupportKHR)                                                                            \
+    X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)                                                                       \
+    X(vkGetPhysicalDeviceSurfaceFormatsKHR)                                                                            \
+    X(vkGetPhysicalDeviceSurfacePresentModesKHR)
+// VK_KHR_swapchain (device functions; null when the device does not have it: no window).
+#define FA_VK_SWAPCHAIN_FUNCTIONS(X)                                                                                   \
+    X(vkCreateSwapchainKHR)                                                                                            \
+    X(vkDestroySwapchainKHR)                                                                                           \
+    X(vkGetSwapchainImagesKHR)                                                                                         \
+    X(vkAcquireNextImageKHR)                                                                                           \
+    X(vkQueuePresentKHR)
 
-// Every function the backend calls (VK_NO_PROTOTYPES: there are no others).
+// Every function the backend calls (VK_NO_PROTOTYPES: there are no others; the platform's vkCreate*SurfaceKHR is taken
+// where the surface is made, vulkan_surface.cpp).
 struct VkFunctions {
 #define FA_VK_MEMBER(name) PFN_##name name = nullptr;
     FA_VK_GLOBAL_FUNCTIONS(FA_VK_MEMBER)
     FA_VK_INSTANCE_FUNCTIONS(FA_VK_MEMBER)
     FA_VK_DEBUG_FUNCTIONS(FA_VK_MEMBER)
     FA_VK_DEVICE_FUNCTIONS(FA_VK_MEMBER)
+    FA_VK_SURFACE_FUNCTIONS(FA_VK_MEMBER)
+    FA_VK_SWAPCHAIN_FUNCTIONS(FA_VK_MEMBER)
 #undef FA_VK_MEMBER
     // vkCmdPipelineBarrier2 (Vulkan 1.3) or vkCmdPipelineBarrier2KHR; null = the Vulkan 1.0 barriers.
     PFN_vkCmdPipelineBarrier2 vkCmdPipelineBarrier2 = nullptr;
@@ -419,11 +437,13 @@ inline SubState transfer_read_state(bool image) {
 // A buffer or an image whose state the backend tracks: one SubState per (mip, layer), the state the queue leaves it in
 // after the lists submitted so far. Shared by the buffer or image record, its views, the command lists that use it and
 // the deferred-release queue, so a resource destroyed while a list still holds it stays alive. The destructor destroys
-// the Vulkan object and frees its memory (it takes no device lock but the allocator's).
+// the Vulkan object and frees its memory (it takes no device lock but the allocator's); an `external` image (a
+// swapchain's, which the swapchain owns) is not destroyed.
 struct TrackedResource {
     VulkanDevice* device = nullptr;
     VkBuffer buffer = VK_NULL_HANDLE;
     VkImage image = VK_NULL_HANDLE;
+    bool external = false;
     Allocation memory{};
     VkImageAspectFlags aspects = 0;  // images: what a barrier names
     std::vector<SubState> states;
@@ -1041,6 +1061,21 @@ public:
     bool remove_commit_listener(void (*func)(void* user), void* user) override;
     void reset_state_cache() override {}
 
+    // The window (vulkan_swapchain.cpp; ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain"): a VkSurfaceKHR on
+    // SwapchainDesc::nativeWindow (an HWND, an X11 Window with its Display, an ANativeWindow, a CAMetalLayer on macOS)
+    // and a swapchain of frames in flight + 1 images, presented on the graphics queue. Its images are images of the
+    // device's pool (their states tracked like any other's), so a PassDesc::for_swapchain pass is a pass into views
+    // of the image acquire_swapchain() took, with the swapchain's own depth-stencil image and, with sampleCount > 1, its
+    // multisampled colour image resolved into the acquired one. An out-of-date or suboptimal swapchain (the window
+    // changed) is made again at the next acquire_swapchain(). Render thread.
+    Result<void> create_swapchain(const SwapchainDesc& desc) override;
+    Result<void> resize_swapchain(int width, int height) override;
+    Result<Swapchain> acquire_swapchain(const Swapchain& windowFrame) override;
+    Result<void> present() override;
+    void destroy_swapchain() override;
+    bool has_swapchain() const override;
+    bool swapchain_format_supported(PixelFormat format, std::string* why) const override;
+
     void enable_stats(bool on) override { statsEnabled_ = on; }
     bool stats_enabled() const override { return statsEnabled_; }
     TotalStats total_stats() const override;
@@ -1147,6 +1182,15 @@ public:
     // teaching error that also goes to warnings(). Render thread.
     Result<void> save_pipeline_cache();
     const std::filesystem::path& pipeline_cache_file() const { return cacheFile_; }
+    // The swapchain (tests): the image acquire_swapchain() took this frame (id 0 between present() and the next
+    // acquire), its number of images, its present mode, how many times it was made again (resize_swapchain, an
+    // out-of-date or suboptimal swapchain), and a swapchain marked out of date as when the window changed, so the
+    // next acquire_swapchain() makes it again.
+    Image swapchain_image() const;
+    int swapchain_image_count() const;
+    VkPresentModeKHR swapchain_present_mode() const;
+    std::uint64_t swapchain_recreations() const;
+    void mark_swapchain_out_of_date_for_tests();
     // Tests of the path of a device without 2D views of 3D images (VK_KHR_portability_subset's imageView2DOn3DImage):
     // false makes the device refuse them as such a device does.
     void set_image_view_2d_on_3d_for_tests(bool on) { imageView2DOn3D_ = on && imageView2DOn3DReal_; }
@@ -1281,13 +1325,27 @@ private:
     // Ends `list`, records its fix-up barriers (with the acquires of resources handed to its queue), the releases of
     // `handoffs` at its end, submits both with the list's waits and signals its queue's timeline (list.fence_). The
     // resources' tracked states and owners and the list's timed scopes change only when the submission worked; false
-    // (reported) otherwise. Under queueMutex_.
-    bool execute(VulkanCommandList& list, std::span<const Handed> handoffs = {});
+    // (reported) otherwise. The first graphics list that uses the image acquire_swapchain() took also waits for its
+    // acquire semaphore; `signal` (a binary semaphore: present's render-finished one) is signalled too. Under
+    // queueMutex_.
+    bool execute(VulkanCommandList& list, std::span<const Handed> handoffs = {}, VkSemaphore signal = VK_NULL_HANDLE);
     // Submits `count` command buffers on `queue`, waiting for `waits` (one value per queue; null = none) and the
     // queue's wait_queue() floors (values its timelines never signalled are reported and not waited for), and
-    // signals ++value of its timeline. Under queueMutex_.
+    // signals ++value of its timeline. `binaryWait` (waited for at the colour attachment output stage) and
+    // `binarySignal` are binary semaphores (the swapchain's), VK_NULL_HANDLE = none. Under queueMutex_.
     bool submit_signal(QueueKind queue, const VkCommandBuffer* cmds, std::uint32_t count, const char* what,
-                       const std::uint64_t* waits = nullptr);
+                       const std::uint64_t* waits = nullptr, VkSemaphore binaryWait = VK_NULL_HANDLE,
+                       VkSemaphore binarySignal = VK_NULL_HANDLE);
+    // The swapchain (vulkan_swapchain.cpp): the surface's formats and present modes; (re)makes the swapchain at
+    // swapWidth_ x swapHeight_ (`windowSize`: the window's size, where the surface has one) from the old one (released
+    // after); its images' records, views, depth-stencil and MSAA images; their release (the GPU finishes what uses them
+    // first).
+    Result<void> make_swapchain(const std::string& where, bool windowSize);
+    Result<void> make_swap_images(const std::string& where);
+    void release_swap_images();
+    // A PassDesc::for_swapchain pass as a pass into views: the acquired image, the depth-stencil and MSAA images; the
+    // error when there is nothing acquired to draw into. Any recording thread (swapMutex_).
+    std::string swapchain_pass(const PassDesc& pass, PassDesc& into) const;
     // Reports the resources `list` uses on a queue that does not own them, or before it waited for their handoff's
     // token (`waits`: the value of each queue's timeline the submission waits for); a handoff waited for is settled.
     // Under queueMutex_.
@@ -1490,6 +1548,48 @@ private:
     std::array<AsyncRead, kAsyncReads> asyncReads_;
     std::uint32_t readGeneration_ = 0;
 
+    // The window (vulkan_swapchain.cpp). The extensions the instance and device were made with; the surface and its
+    // swapchain (render thread); the acquired image and its sizes, read by begin_pass on any recording thread
+    // (swapMutex_, a leaf lock: nothing is taken under it); the acquire semaphore no submission waited for yet
+    // (queueMutex_).
+    bool surfaceExtension_ = false;     // VK_KHR_surface and the platform's surface extension
+    bool colorspaceExtension_ = false;  // VK_EXT_swapchain_colorspace (scRGB, HDR10)
+    bool swapchainExtension_ = false;   // VK_KHR_swapchain
+    struct SwapImage {
+        Image image{};
+        View view{};
+        std::shared_ptr<TrackedResource> tracked;
+        VkSemaphore renderFinished = VK_NULL_HANDLE;  // signalled by present's submission, waited for by the present
+    };
+    struct AcquireSemaphore {
+        VkSemaphore semaphore = VK_NULL_HANDLE;
+        std::uint64_t waitedAt = 0;  // the graphics timeline value of the submission that waited for it (0 = none)
+    };
+    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+    VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+    std::string swapLabel_;
+    PixelFormat swapFormat_ = PixelFormat::None;
+    VkFormat swapVkFormat_ = VK_FORMAT_UNDEFINED;
+    VkColorSpaceKHR swapColorSpace_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    VkPresentModeKHR swapPresentMode_ = VK_PRESENT_MODE_FIFO_KHR;
+    VkImageUsageFlags swapUsage_ = 0;
+    bool swapVsync_ = true;
+    std::vector<AcquireSemaphore> acquireSemaphores_;
+    std::size_t acquireNext_ = 0;
+    std::uint64_t swapRecreations_ = 0;
+    mutable std::mutex swapMutex_;
+    std::vector<SwapImage> swapImages_;
+    Image swapMsaa_{}, swapDepth_{};
+    View swapMsaaView_{}, swapDepthView_{};
+    int swapWidth_ = 0, swapHeight_ = 0, swapSamples_ = 1;
+    PixelFormat swapDepthFormat_ = PixelFormat::None;
+    bool swapAcquired_ = false;
+    bool swapStale_ = false;  // out of date or suboptimal: made again at the next acquire
+    std::uint32_t swapIndex_ = 0;
+    VkSemaphore swapWait_ = VK_NULL_HANDLE;  // queueMutex_: the acquire semaphore the next use of the image waits for
+    TrackedResource* swapWaitImage_ = nullptr;  // queueMutex_: that image
+    std::size_t swapWaitSlot_ = 0;              // queueMutex_: its acquireSemaphores_ entry
+
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;
     std::vector<std::string> errors_;
@@ -1505,6 +1605,14 @@ private:
 // to draw a point list: a store to a variable decorated BuiltIn PointSize, to that member of gl_PerVertex or to the whole
 // block. A declaration alone does not count (glslang declares the member in every vertex shader). vulkan_pipelines.cpp.
 bool spirv_writes_point_size(const std::vector<std::uint32_t>& words);
+
+// The platform's surfaces (vulkan_surface.cpp): the instance extension a surface on this platform's windows needs
+// (VK_KHR_win32_surface, VK_KHR_xlib_surface, VK_KHR_android_surface, VK_EXT_metal_surface; null where there is none),
+// and the VkSurfaceKHR of `desc`'s native window (VK_NULL_HANDLE with `error` set when it cannot be made). `desc` was
+// checked to name a window.
+const char* platform_surface_extension();
+VkSurfaceKHR make_platform_surface(PFN_vkGetInstanceProcAddr gipa, VkInstance instance, const SwapchainDesc& desc,
+                                   std::string& error);
 
 }  // namespace fa::gpu::vk
 
