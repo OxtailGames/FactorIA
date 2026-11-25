@@ -57,13 +57,13 @@ namespace {
 // of choices as the engine's (fa/runtime/gpu_backend_choice.h); `glPlayerPresent` says whether the OpenGL player is there.
 // A Vulkan device is tried (and dropped) only when this process would draw with Vulkan and could hand over.
 fa::GpuLaunchDecision vulkan_player_decision(const fa::EngineConfig& cfg, const fa::ProjectSettings& project,
-                                             bool glPlayerPresent, std::string* vulkanFailure) {
+                                             bool glPlayerPresent, bool checkRun, std::string* vulkanFailure) {
     fa::GpuBackendInputs in;
     in.config = cfg.gpuBackend;
     in.env = std::getenv("FA_GPU_BACKEND");
     if (!cfg.memoryStorage) in.user = fa::read_gpu_backend_setting(fa::fs::user_dir(), nullptr);
     in.project = project.renderBackend;
-    in.autoBackend = fa::GpuBackend::Vulkan;
+    in.autoBackend = checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan;
     in.fallbackFrom = std::getenv(fa::kGpuFallbackFromEnv);
     in.fallbackReason = std::getenv(fa::kGpuFallbackReasonEnv);
     fa::GpuLaunchInput li;
@@ -480,11 +480,15 @@ int main(int argc, char** argv) {
 #if defined(FA_PLAYER_VULKAN_VARIANT)
         // Before log.txt is started: the OpenGL player that takes over starts it again (its warning names the reason).
         cfg.memoryStorage = checkRun && !persistStorage;
-        cfg.gpuBackendAuto = fa::GpuBackend::Vulkan;
+        // A check run (--input, --dump-state, --screenshot) in "auto" draws like `factoria run --headless`, with the
+        // OpenGL backend, so its state and pixels match that run byte for byte; FA_GPU_BACKEND=vulkan (or the game's
+        // renderBackend) still checks the Vulkan path.
+        cfg.gpuBackendAuto = checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan;
         const stdfs::path glPlayer = fa::gl_player_path();
         const std::vector<std::string> args(argv, argv + argc);
         std::string vulkanFailure;
-        const fa::GpuLaunchDecision launch = vulkan_player_decision(cfg, *proj, !glPlayer.empty(), &vulkanFailure);
+        const fa::GpuLaunchDecision launch =
+            vulkan_player_decision(cfg, *proj, !glPlayer.empty(), checkRun, &vulkanFailure);
         if (launch.action != fa::GpuLaunchAction::Stay) {
             const bool fallback = launch.action == fa::GpuLaunchAction::FallBackToGl;
             auto r = fa::exec_gl_player(glPlayer, args, fallback ? "vulkan" : "", vulkanFailure);
