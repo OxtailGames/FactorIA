@@ -20,11 +20,19 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   device and queue replaced by wrappers; a swapchain made or wrapped by the SDK; callbacks around every present with a frame id).
   What the machine lacks makes that SDK unavailable with a reason, never the device. The Vulkan swapchain's images now report
   their usage and format to native access, and D3D11's `end_native` clears the context's state. ARCHITECTURE_RENDERING_HOOKS.md.
+- **NVIDIA DLSS Super Resolution through Streamline (M78):** `render.upscaler` mode `dlss` now draws with DLSS when Streamline is
+  installed (`factoria setup streamline`) on an NVIDIA RTX GPU, on Direct3D 12 and Vulkan (Windows). The engine starts Streamline
+  before the device exists (its own declarations of the C interface; no NVIDIA header or binary is in the repository), picks the
+  DLSS mode nearest to the quality's upscale ratio, sets the options only when they change and tells DLSS the jitter, depth, motion and
+  exposure each frame. What the machine lacks (the GPU, a driver, the library) makes `dlss` unavailable with Streamline's own reason in
+  `render.supports`, never the device; `auto` picks DLSS on an NVIDIA GPU; a failing frame turns the mode off for the run and the
+  temporal upscaler draws. NVIDIA asks a game to notify it before a commercial release and to credit it. UPSCALING_VENDORS.md,
+  "NVIDIA DLSS Super Resolution"; ARCHITECTURE_RENDERING_HOOKS.md, "Streamline runtime core".
 - **Intel XeSS Super Resolution (M78):** `render.upscaler` mode `xess` now draws with XeSS 3.x when `libxess.dll` is installed
   (`factoria setup xess`): D3D12 and Vulkan on any GPU, Direct3D 11 on Intel Arc, and `auto` picks it on an Intel GPU. One context is made
   per device and initialised again only when the size, quality or input format changes; a call that fails turns the mode off for the
   run, with XeSS's own reason, and the temporal upscaler draws. The depth and motion XeSS reads come from the preparation pass MetalFX
-  uses, now on every GPU backend. UPSCALING.md, "Vendor upscalers".
+  uses, now on every GPU backend. UPSCALING_VENDORS.md, "Intel XeSS".
 
 ### Rendering
 

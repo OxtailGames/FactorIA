@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 
+#include "render_upscale_dlss.h"
 #include "render_upscale_xess.h"
 
 #if defined(_WIN32)
@@ -278,12 +279,10 @@ private:
 };
 
 constexpr unsigned kD3dAndVulkan = (1u << unsigned(gpu::Backend::D3d12)) | (1u << unsigned(gpu::Backend::Vulkan));
-constexpr unsigned kD3dVulkanAnd11 = kD3dAndVulkan | (1u << unsigned(gpu::Backend::D3d11));
 
 std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> make_providers() {
     std::array<std::unique_ptr<VendorUpscaler>, kVendorUpscalerCount> t;
-    t[0] = std::make_unique<LibraryProvider>(LibraryProvider::Info{
-        "DLSS", "dlss", "streamline", kD3dVulkanAnd11, {"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"}, true});
+    t[0] = make_dlss_provider();
     t[1] = make_xess_provider();
     t[2] = std::make_unique<LibraryProvider>(
         LibraryProvider::Info{"FSR 3.1",

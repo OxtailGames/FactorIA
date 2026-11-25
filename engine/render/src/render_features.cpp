@@ -421,13 +421,13 @@ std::vector<FeatureDef> build_table() {
          "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
          nullptr},
         // The vendor upscalers of M78 (docs/UPSCALING.md): the answer is the provider's (render_upscale_vendor.h), asked of the device and the
-        // installed library; the table's backend columns have no D3D12 and Vulkan yet (feature_backend_of), so only the D3D11 column is set.
+        // installed library; the table's backend columns hold no D3D12 or Vulkan (feature_backend_of: dlss and fsr have none).
         {"dlss", "",
          "NVIDIA DLSS Super Resolution through Streamline (render.upscaler mode \"dlss\", also picked by \"auto\" on "
          "an NVIDIA GPU): "
          "the jittered picture, the depth and the motion of the prepass, upscaled by NVIDIA's network. Windows with an "
          "NVIDIA RTX GPU on "
-         "D3D12, Vulkan or D3D11, and the Streamline SDK installed (`factoria setup streamline`; the game developer "
+         "D3D12 or Vulkan, and the Streamline SDK installed (`factoria setup streamline`; the game developer "
          "accepts NVIDIA's "
          "terms there). Where it is missing the mode draws as \"temporal\" or \"spatial\"; the reason is in "
          "render.supports and in the "
@@ -469,13 +469,13 @@ std::vector<FeatureDef> build_table() {
          nullptr}};
     for (const Planned& p : kLighting) {
         const std::string_view row = p.name;
-        // metalfx: Metal only. dlss and xess: D3D11 is the one backend of this table they run on (their D3D12 and Vulkan runs are not a
-        // column of it yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); fsr runs on D3D12 and Vulkan only, so no
-        // column is set. The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
-        const unsigned backends = row == "metalfx"                 ? bit(FeatureBackend::Metal)
-                                  : row == "dlss" || row == "xess" ? bit(FeatureBackend::D3d11)
-                                  : row == "fsr"                   ? 0u
-                                                                   : kEveryGpu;
+        // metalfx: Metal only. xess: D3D11 is the one backend of this table it runs on (its D3D12 and Vulkan runs are not a column of it
+        // yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); dlss and fsr run on D3D12 and Vulkan only, so no column is set.
+        // The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
+        const unsigned backends = row == "metalfx"                ? bit(FeatureBackend::Metal)
+                                  : row == "xess"                 ? bit(FeatureBackend::D3d11)
+                                  : row == "dlss" || row == "fsr" ? 0u
+                                                                  : kEveryGpu;
         t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)

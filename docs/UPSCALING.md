@@ -4,7 +4,8 @@ This page is the contract of the M76 settings. The **temporal antialiasing**, th
 **MetalFX** (Apple GPUs), the plain **stretch**, the **graphics presets** and the **dynamic resolution** draw today (see below). A
 mode the GPU cannot draw draws as the best mode that exists, and `render.supports` says why. M78 adds the modes of the three GPU makers'
 own upscalers, **DLSS** (NVIDIA), **XeSS** (Intel) and **FSR 3.1** (AMD): the modes, the choice of `auto`, the reasons and the fallback
-exist now, and each SDK's own frames arrive with its package of M78 (see "Vendor upscalers" below).
+exist now, DLSS and XeSS draw their own frames, and FSR's arrive with its package of M78 (see "Vendor upscalers" below and
+[UPSCALING_VENDORS.md](UPSCALING_VENDORS.md)).
 
 ## The engine-wide upscaler settings
 
@@ -200,51 +201,11 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
 ## Vendor upscalers: DLSS, XeSS and FSR 3.1 (M78)
 
 `mode` `dlss` (NVIDIA DLSS Super Resolution, through NVIDIA Streamline), `xess` (Intel XeSS) and `fsr` (AMD FidelityFX Super Resolution 3.1)
-hand the upscale to the maker's SDK. They read what the temporal upscaler reads: the jittered picture at the render size, the depth and
-the motion of the depth prepass, the jitter, and the reactive mask (the same one MetalFX gets), and write into the same `upscale` stage,
-with the HUD drawn after it at the window's size. They need a single jittered camera like `temporal`, so a frame of several cameras
-draws `spatial`; pixel art stays `stretch`.
-
-- **No SDK is in the engine.** The engine ships no vendor header and no vendor binary. Each SDK is reached through the engine's own
-  declaration of its C interface and a function table read at run time from its library (the way DirectStorage is loaded), so a game
-  built without them runs everywhere. The libraries are `sl.interposer.dll` (Streamline), `libxess.dll` (XeSS; `libxess_dx11.dll` on D3D11) and
-  `amd_fidelityfx_dx12.dll` (FidelityFX).
-- **Where the library is looked for**, in this order: the folder `$FA_STREAMLINE_DIR`, `$FA_XESS_DIR` or `$FA_FIDELITYFX_DIR` names (an
-  explicit choice: if the library is not there the search stops, the other places are not tried); the folder of the executable (an
-  exported game carries the libraries next to it); the newest version folder of `<factoria home>/tools/<id>/<version>/`, where
-  `factoria setup streamline`, `factoria setup xess` and `factoria setup fidelityfx` install them (factoria home is `$FACTORIA_HOME`,
-  else `~/.factoria`; versions compare as dotted numbers, so 2.10.0 is newer than 2.9.1). Where the licence of an SDK asks for it, the
-  setup command asks the developer to accept it; the engine never downloads anything by itself.
-- **Where each one runs.** Windows only, Direct3D 12 and Vulkan, plus Direct3D 11 for DLSS Super Resolution and XeSS (FSR 3.1 has no D3D11
-  backend). On any other system the three modes exist and report unavailable with that reason. `dlss` needs an NVIDIA RTX GPU; `xess` and
-  `fsr` may be chosen on any GPU (XeSS is fastest on Intel Arc, which has the XMX units; FSR runs on every GPU).
-- **`auto`** tries the SDK of the GPU's maker first (NVIDIA `dlss`, Intel `xess`, AMD `fsr`) when it is installed and usable, and
-  otherwise takes the M76 chain (`metalfx`, `temporal`, `spatial`). An explicit `xess` or `fsr` is never refused for the GPU's maker,
-  only for what is missing; an explicit `dlss` on a GPU that is not an NVIDIA RTX is refused with that reason.
-- **When one cannot draw.** `effectiveMode` says what draws instead (`metalfx`, `temporal`, then `spatial`). `render.supports` rows `dlss`,
-  `xess` and `fsr` give the reason, in the order of what the machine decides: the GPU's maker (DLSS), the backend, the system, and last the
-  library ("DLSS is not installed: run `factoria setup streamline` (...where it looked...)"). The log says it once, with the mode asked
-  and the one that draws instead. A frame the SDK refuses (a size it does not take, a lost device) is the same: from then on every
-  frame draws without it, with one warning ("fail once, stay off", as MetalFX does) and the temporal upscaler draws that frame, so
-  the player never sees a missing picture.
-- **What is real today.** The seam (the modes, the choice, the reasons, the loader, `render.supports`, the menu and the editor) and the
-  XeSS provider below. With a library found, DLSS and FSR still answer "support lands later in M78": nothing of their SDK is called, so
-  those modes draw as the next best until their package lands. Tests put fake providers and a fake loader in the same place the real
-  ones go (`vendor_upscale_tests`, `xess_upscale_tests`).
-- **XeSS (`xess`).** Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11 (Intel
-  Arc only: on another GPU the reason says to run the game on D3D12 or Vulkan). On Vulkan XeSS asks for instance and device extensions;
-  if the engine's device did not enable them the reason lists them (M78's device-creation package enables them). The library is probed
-  once (it must load, export every function of the backend and answer a version of 3.0 or newer). One XeSS context is made per
-  device and initialised again only when the render size, the output size, the quality or the input format changes (the GPU is waited
-  for first), never per frame; the quality is the nearest XeSS setting to the upscale ratio (1.3, 1.5, 1.7, 2.0, 2.3, 3.0; the five
-  names of `quality` land exactly) and a dynamic resolution that wobbles near a boundary keeps the setting it has. The engine passes
-  its own render size, the jitter, the exposure and the reset flag (a cut, a resize or a frame after a failure), the responsive mask
-  (an empty one when no item asked for a reactive mask) and an output image made with storage usage. The depth and the motion XeSS
-  reads are made by the same preparation pass as MetalFX's (depth 0..1, motion in UV units, with the velocity scale set to the render
-  size). The context is destroyed, after the GPU is idle, when the renderer shuts down. A failing call is reported with XeSS's own
-  words ("unsupported device", "unsupported driver", ...) and the mode is off for the run. Not checked by the tests (they use a fake
-  library): that the real library's picture is right, which a D3D12 or Vulkan run on a GPU shows.
-- **The menu kit and the editor** list the three modes (DLSS, XeSS, FSR) greyed out with the reason where `render.supports` says no.
+hand the upscale to the maker's SDK, on Windows (Direct3D 12 and Vulkan; XeSS also Direct3D 11). They read the same jittered picture,
+depth and motion as `temporal`, need a single camera, and fall back to the next best mode with one warning when the SDK is missing, the
+GPU is not suitable or a frame fails. The engine ships no vendor header or binary: the libraries are installed with `factoria setup
+streamline`, `factoria setup xess` and `factoria setup fidelityfx`. The whole description (where the libraries are looked for, `auto`,
+the reasons, the NVIDIA, Intel and AMD sections) is in [UPSCALING_VENDORS.md](UPSCALING_VENDORS.md).
 
 ## Temporal antialiasing
 
@@ -557,7 +518,7 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `spatialUpscaler` | every GPU backend | nothing |
 | `dynamicResolution` | every GPU backend | nothing (the GPU time needs timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) |
 | `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing); the reactive mask needs macOS 14.4 / iOS 17.4, an older OS draws without it |
-| `dlss` | Windows: D3D12, Vulkan, D3D11 | an NVIDIA RTX GPU and Streamline installed (`factoria setup streamline`); `reason` names what is missing |
+| `dlss` | Windows: D3D12, Vulkan | an NVIDIA RTX GPU and Streamline installed (`factoria setup streamline`); `reason` names what is missing |
 | `xess` | Windows: D3D12, Vulkan, D3D11 | the XeSS SDK installed (`factoria setup xess`) |
 | `fsr` | Windows: D3D12, Vulkan | the FidelityFX SDK installed (`factoria setup fidelityfx`) |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
