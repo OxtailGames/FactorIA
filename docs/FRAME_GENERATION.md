@@ -82,7 +82,13 @@ confirm.
 - **When it says no.** `render.supports` has the row `xessFrameGen` and `render.frame_generation` the reason: not an Intel GPU, not
   Direct3D 12, not Windows, the SDK or XeLL not installed (`factoria setup xess`), a driver too old for the swapchain API, or a failure
   earlier in this run. A call of the SDK that fails while the game runs is logged once with its name and result, and XeSS frame generation
-  stays off until the game restarts (it never fails the device).
+  stays off until the game restarts (it never fails the device). The one exception is the result the swapchain reports for a present it
+  could not generate: one such present (a resize, a device that stalled for a frame) is let go, and only five presents in a row turn
+  generation off for the run.
+- **When the window is made again.** A new swapchain starts with generation off; the provider remembers what the controller last asked for and
+  turns generation back on with the first frame of the new swapchain. A frame's tag, its present id and XeLL's frame id are always the same
+  number (XeLL's last sleep id): presents with generation off do not move it, and when XeLL's ids go back (its context made again) they are
+  followed. Only a frame dispatched twice before XeLL's next sleep gets the last id plus one.
 - **Which games get its swapchain.** Only a game started with `xess`, or with `auto` on an Intel GPU; `dlss` and `fsr` leave the window's
   swapchain to their own providers.
 
@@ -220,8 +226,15 @@ Why `fsr` is refused, in the words of `render.frame_generation`:
   without generation;
 - `auto` on a GPU that is not AMD's takes no part (name `fsr` to use it anyway).
 
-A frame FidelityFX refuses is reported with its result code and the next frame resets the history; nothing crashes the game. Not verified
-without an AMD machine: the interpolated picture itself, on each of the two backends.
+`auto` on an AMD GPU with FidelityFX not installed takes no part and says nothing at the start of the game: on Vulkan it asks the device for
+no extra queue and makes no swapchain (`render.frame_generation` and the first start say "run `factoria setup fidelityfx`"); naming `fsr`
+with no library is an error, as before.
+
+A frame FidelityFX refuses is reported with its result code and the next frame resets the history; nothing crashes the game. Between two
+frames, turning generation on or off repeats the number of the last frame it was given. Not verified without an AMD machine: the interpolated
+picture itself, on each of the two backends, and the order in which the real library wants its Direct3D 12 proxy swapchain released (the
+engine follows FidelityFX's own sample: the generation context and the presents in flight first, the swapchain's context after the engine
+released the proxy).
 
 ## For a provider
 
