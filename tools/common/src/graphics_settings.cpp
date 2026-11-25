@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <optional>
 
@@ -50,10 +51,7 @@ Json frame_gen_json(const GraphicsSettings& s) {
 
 // The render.supports row (feature name) of a frame-generation SDK mode, or null for off and auto.
 const char* frame_gen_row_name(const std::string& mode) {
-    return mode == "dlss"   ? "dlssFrameGen"
-           : mode == "fsr"  ? "fsrFrameGen"
-           : mode == "xess" ? "xessFrameGen"
-                            : nullptr;
+    return mode == "dlss" ? "dlssFrameGen" : mode == "fsr" ? "fsrFrameGen" : mode == "xess" ? "xessFrameGen" : nullptr;
 }
 
 std::string fixed1(double v) {
@@ -150,8 +148,7 @@ std::string frame_gen_state_line(const Json& readout, int minBaseFps) {
     if (state == "measuring") return "Measuring the base frame rate (" + provider + "): " + rates + ".";
     if (state == "paused")
         return "Switched off, the base frame rate is below the minimum of " + std::to_string(minBaseFps) + " fps (" +
-               provider + "): " + rates + ". It comes back above " + std::to_string(resume_fps(minBaseFps)) +
-               " fps.";
+               provider + "): " + rates + ". It comes back above " + std::to_string(resume_fps(minBaseFps)) + " fps.";
     return (state == "refused" ? "Refused: " : "Off: ") + (why.empty() ? std::string("nothing is generated.") : why);
 }
 
@@ -403,9 +400,11 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         "Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, "
         "ultra "
         "or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, "
-        "maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or xell) and `frameGeneration` is {mode, "
+        "maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or xell) and `frameGeneration` is "
+        "{mode, "
         "minBaseFps} (mode: off, auto, dlss, fsr or xess; minBaseFps a whole number of 0 to 1000): the keys you give "
-        "replace those of the file, the others stay. A value at its default removes its key (a `render` object left empty is "
+        "replace those of the file, the others stay. A value at its default removes its key (a `render` object left "
+        "empty is "
         "removed), and every other key and the formatting of the file stay as "
         "they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON "
         "pointer and a \"did you mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
@@ -413,7 +412,8 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         "It does not change a running game: graphics.preset, render.upscaler, render.dynamic_resolution, "
         "render.latency and render.frame_generation do that, "
         "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
-        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, latency: {mode, boost}, frameGeneration: {mode, minBaseFps}, written}; "
+        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, latency: {mode, boost}, "
+        "frameGeneration: {mode, minBaseFps}, written}; "
         "`written` is false when "
         "the file's bytes did not change (a read, or the same values written the same way; a key given at its "
         "default that the file spelled out is removed, so that counts as a write). Errors: `invalid_argument` (unknown "
@@ -441,9 +441,10 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         if (args.is_object())
             for (auto it = args.begin(); it != args.end(); ++it)
                 if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
-                    throw CommandError(
-                        "invalid_argument", "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
-                        "project.graphics takes `preset`, `upscaler`, `dynamicResolution`, `latency` and `frameGeneration`.");
+                    throw CommandError("invalid_argument",
+                                       "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
+                                       "project.graphics takes `preset`, `upscaler`, `dynamicResolution`, `latency` "
+                                       "and `frameGeneration`.");
         // The numbers of the file as they are (no rounding of the editor's sliders): a key this call does not name is
         // not written, and one it names keeps what the caller wrote.
         auto current = read_graphics_settings(projectDir, false);
@@ -500,7 +501,8 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         }
         if (const Json* fg = object_arg("frameGeneration")) {
             // The file's keys, replaced by the ones given (an unknown or wrong one is the parser's error, with its place).
-            auto base = render::parse_frame_gen_settings(frame_gen_json(s), "factoria.json#/render/frameGeneration", {});
+            auto base =
+                render::parse_frame_gen_settings(frame_gen_json(s), "factoria.json#/render/frameGeneration", {});
             if (!base.ok()) throw CommandError("failed", base.error().message, base.error().hint);
             auto parsed = render::parse_frame_gen_settings(*fg, "project.graphics frameGeneration", *base);
             if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
@@ -532,8 +534,9 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             latencyOp =
                 set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s));
         if (object_arg("frameGeneration"))
-            frameGenOp = set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
-                                       frame_gen_json(s));
+            frameGenOp =
+                set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
+                              frame_gen_json(s));
         bool changed = false;
         if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch || frameGenOp.touch) {
             auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp);

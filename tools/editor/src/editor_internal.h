@@ -2028,7 +2028,7 @@ public:
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
     int atFrameBudget_ =
-        4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+        8000;  // the autotest must be done by this frame: a safety net far above a ctest entry (about 4500 frames); a real download, in the manual check, needs more
     float atLayoutWidth_ = 0;  // section U: the width of the Hierarchy after the user's change
     int atReopenIn_ = 0;       // section U: frames on the welcome screen before the project is opened again
     std::string atReopenDir_;

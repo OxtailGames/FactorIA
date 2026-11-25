@@ -268,8 +268,8 @@ void Editor::at_section_Q4(AtScript& at) {
                      text.find("\"minBaseFps\": 45") != std::string::npos,
                  "Save writes render.frameGeneration to factoria.json");
         auto back = read_graphics_settings(project_dir());
-        at_check(back.ok() && back->frameGenMode == "fsr" && back->frameGenMinBaseFps == 45 && back->mode == "spatial" &&
-                     back->preset == "low" && back->latencyMode == "off",
+        at_check(back.ok() && back->frameGenMode == "fsr" && back->frameGenMinBaseFps == 45 &&
+                     back->mode == "spatial" && back->preset == "low" && back->latencyMode == "off",
                  "...the engine's own reader finds it again and the other keys are as they were");
         graphicsWork_.latencyMode = "xell";  // a low-latency mode is chosen: the advice goes
     });

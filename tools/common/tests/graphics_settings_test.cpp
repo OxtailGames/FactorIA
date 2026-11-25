@@ -441,7 +441,8 @@ TEST_CASE("project.graphics reads and writes the latency key, and only when it i
     CHECK(d.read().find("latency") == std::string::npos);  // at the default: the key goes
 }
 
-TEST_CASE("graphics settings: render.frameGeneration is saved as its own key, read back and read by the project loader") {
+TEST_CASE(
+    "graphics settings: render.frameGeneration is saved as its own key, read back and read by the project loader") {
     Dir d;
     d.write(kBare);
     auto s = read_graphics_settings(d.str());
@@ -582,7 +583,8 @@ TEST_CASE("frame generation modes: what render.supports says of each one, and th
     const std::string pausedLine = frame_gen_state_line(paused, 60);
     CHECK(pausedLine.find("below the minimum of 60 fps") != std::string::npos);
     CHECK(pausedLine.find("above 66 fps") != std::string::npos);
-    const Json refused = Json::parse(R"({"provider":"none","state":"refused","reason":"restart the game to turn it on"})");
+    const Json refused =
+        Json::parse(R"({"provider":"none","state":"refused","reason":"restart the game to turn it on"})");
     CHECK(frame_gen_state_line(refused, 60) == "Refused: restart the game to turn it on");
     CHECK(frame_gen_state_line(Json::parse(R"({"state":"measuring","provider":"dlss"})"), 60).find("Measuring") == 0);
 }

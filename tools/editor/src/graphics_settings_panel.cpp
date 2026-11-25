@@ -7,6 +7,7 @@
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "editor_internal.h"
 #include "fa/tooling/graphics_settings.h"
@@ -177,11 +178,15 @@ FrameGenLines draw_frame_gen_group(GraphicsSettings& g, const Json& support, con
         ImGui::EndCombo();
     }
     gfx_tip(
-        "render.frameGeneration.mode. off (the default) loads no SDK. auto takes the SDK of the GPU's maker when it can run "
-        "(NVIDIA DLSS, AMD FSR 3, Intel XeSS). dlss, fsr and xess name one SDK; a mode this machine cannot run is greyed "
-        "out (hover it for the reason) and a run shows the rendered frames only. A generated frame sits between two rendered "
+        "render.frameGeneration.mode. off (the default) loads no SDK. auto takes the SDK of the GPU's maker when it "
+        "can run "
+        "(NVIDIA DLSS, AMD FSR 3, Intel XeSS). dlss, fsr and xess name one SDK; a mode this machine cannot run is "
+        "greyed "
+        "out (hover it for the reason) and a run shows the rendered frames only. A generated frame sits between two "
+        "rendered "
         "ones, so the display shows more frames than the game renders. It runs only in a game window on Direct3D 12 or "
-        "Vulkan with the temporal upscaler (a render scale below 1), and a provider takes part in making the window, so "
+        "Vulkan with the temporal upscaler (a render scale below 1), and a provider takes part in making the window, "
+        "so "
         "it is chosen when the game starts. The editor's own viewport never generates.");
     show_problem("/render/frameGeneration/mode");
     const bool on = g.frameGenMode != "off";
@@ -191,9 +196,10 @@ FrameGenLines draw_frame_gen_group(GraphicsSettings& g, const Json& support, con
         g.frameGenMinBaseFps = minFps;
     track("gfx:fgMinFps", on);
     ImGui::EndDisabled();
-    gfx_tip("render.frameGeneration.minBaseFps (0 to 1000; Ctrl+click types a number). The frame rate the game renders at, "
-            "generated frames not counted, below which generation switches off: a generated frame between two slow ones "
-            "adds delay and shows artefacts. It comes back at 10% above. 0 never switches off.");
+    gfx_tip(
+        "render.frameGeneration.minBaseFps (0 to 1000; Ctrl+click types a number). The frame rate the game renders at, "
+        "generated frames not counted, below which generation switches off: a generated frame between two slow ones "
+        "adds delay and shows artefacts. It comes back at 10% above. 0 never switches off.");
     show_problem("/render/frameGeneration/minBaseFps");
     out.describe = frame_gen_describe(g, support);
     const bool warn = on && g.frameGenMode != "auto" && !frame_gen_mode_support(support, g.frameGenMode).usable;
@@ -210,9 +216,10 @@ FrameGenLines draw_frame_gen_group(GraphicsSettings& g, const Json& support, con
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Now, in the editor: %s", out.state.c_str());
     ImGui::PopStyleColor();
-    gfx_tip("The engine's own readout (the Profiler window shows the same line): base frame rate, presented frame rate and "
-            "generated frames while a provider runs, or why none does. The editor's own loop never generates, so a game "
-            "window (factoria run, an export) is where it shows numbers.");
+    gfx_tip(
+        "The engine's own readout (the Profiler window shows the same line): base frame rate, presented frame rate and "
+        "generated frames while a provider runs, or why none does. The editor's own loop never generates, so a game "
+        "window (factoria run, an export) is where it shows numbers.");
     return out;
 }
 
@@ -222,7 +229,8 @@ void Editor::graphics_settings_reload() {
     graphicsDir_ = projectDir_;
     graphicsLoadError_.clear();
     graphicsMessage_.clear();
-    graphicsSupportStale_ = true;  // opening and Revert ask the renderer again (what a vendor probe may touch is read once, not every few seconds)
+    graphicsSupportStale_ =
+        true;  // opening and Revert ask the renderer again (what a vendor probe may touch is read once, not every few seconds)
     if (projectDir_.empty()) return;
     auto s = read_graphics_settings(projectDir_);
     if (s.ok()) {
@@ -262,7 +270,8 @@ void Editor::draw_graphics_settings_panel() {
     if (graphicsDir_ != projectDir_) graphics_settings_reload();
     ImGui::TextWrapped(
         "The preset, the upscaler, the dynamic resolution, the low-latency mode and the frame generation a run of this "
-        "game starts with (factoria.json: render.graphicsPreset, render.upscaler, render.dynamicResolution, render.latency "
+        "game starts with (factoria.json: render.graphicsPreset, render.upscaler, render.dynamicResolution, "
+        "render.latency "
         "and render.frameGeneration). A game "
         "can let the player change them at run time (the menu kit's Graphics tab).");
     draw_play_banner(*this);
@@ -357,8 +366,8 @@ void Editor::draw_graphics_settings_panel() {
     show_problem("/render/dynamicResolution/maxScale");
     ImGui::EndDisabled();
 
-    if (!graphicsSupportPinned_ &&
-        (graphicsSupport_.is_null() || graphicsSupportStale_ || time_ - graphicsSupportAt_ > kGraphicsSupportRefreshS)) {
+    if (!graphicsSupportPinned_ && (graphicsSupport_.is_null() || graphicsSupportStale_ ||
+                                    time_ - graphicsSupportAt_ > kGraphicsSupportRefreshS)) {
         // The renderer's own table (what render.supports answers), not a command call: nothing is logged. A vendor probe behind it may touch
         // the disk, so it is asked when the window opens, on Revert and at most every kGraphicsSupportRefreshS seconds (an SDK installed
         // meanwhile shows up then), never on every frame.

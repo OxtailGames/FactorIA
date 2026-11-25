@@ -647,9 +647,11 @@ test("graphics page: the minimum base frame rate is saved, 0 never switches off,
     expect(frameGen().minBaseFps).toBe(60);
     expect(world.find("gfx_fg_minfps").get("Slider").label).toBe(i18n.t("options.gfx.fgMinFps", { fps: 60 }));
     game.setSlider("gfx_fg_minfps", 45);
+    game.step(1); // the change reaches the page at the next step
     expect(frameGen().minBaseFps).toBe(45);
     expect(saved().frameGeneration).toEqual({ mode: "auto", minBaseFps: 45 });
     game.setSlider("gfx_fg_minfps", 0);
+    game.step(1); // the change reaches the page at the next step
     expect(frameGen().minBaseFps).toBe(0);
     expect(world.find("gfx_fg_minfps").get("Slider").label).toBe(i18n.t("options.gfx.fgMinFpsNever"));
     expect(world.find("framegen_note").get("Text").text).toContain(i18n.t("options.gfx.fgHint"));
