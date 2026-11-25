@@ -14,6 +14,19 @@
 #include "render_latency.h"
 #include "render_latency_xell.h"
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <d3d12.h>
+#include <dxgi.h>
+#endif
+
 namespace fa::render {
 
 namespace {
@@ -30,8 +43,25 @@ static_assert(sizeof(abi::D3d12ResourceData) == 40, "xefg_swapchain_d3d12_resour
 #endif
 static_assert(sizeof(abi::Guid) == 16, "GUID");
 
+// The values of the SDK's enumerations the engine passes (xefg_swapchain.h, xefg_swapchain_d3d12.h): a change in the header of this build's
+// constants is a change of what the library is told, so the build says so.
+static_assert(abi::kResultSuccess == 0, "XEFG_SWAPCHAIN_RESULT_SUCCESS");
+static_assert(abi::kResourceDepth == 1, "XEFG_SWAPCHAIN_RES_DEPTH");
+static_assert(abi::kResourceMotionVector == 2, "XEFG_SWAPCHAIN_RES_MOTION_VECTOR");
+static_assert(abi::kValidityOnlyNow == 1, "XEFG_SWAPCHAIN_RV_ONLY_NOW");
+static_assert(abi::kUiModeNone == 1, "XEFG_SWAPCHAIN_UI_MODE_NONE");
+#if defined(_WIN32)
+static_assert(abi::kStateCopySource == std::uint32_t(D3D12_RESOURCE_STATE_COPY_SOURCE),
+              "the state a tagged resource is handed over in");
+#else
+static_assert(abi::kStateCopySource == 0x800, "D3D12_RESOURCE_STATE_COPY_SOURCE");
+#endif
+
 constexpr unsigned bit(gpu::Backend b) { return 1u << unsigned(b); }
 constexpr std::uint32_t kIntelVendorId = 0x8086;
+// How many presents in a row may report a failed generation before XeSS-FG is turned off for the run (a count of presents, not a time: the
+// result must not depend on how fast the machine renders).
+constexpr int kStatusFailures = 5;
 
 template <class Fn>
 void bind(VendorLibrary& lib, const char* name, Fn& fn, std::string& missing, bool optional = false) {
@@ -62,11 +92,18 @@ std::string call_failed(const char* function, std::int32_t result) {
 // The IID of IDXGISwapChain1, the interface the engine's D3D12 swapchain code takes the hook's swapchain as.
 constexpr abi::Guid kIidSwapChain1 = {0x790a45f7, 0x0d42, 0x4876, {0x98, 0x3a, 0x0a, 0x55, 0xcf, 0xe6, 0xf4, 0xaa}};
 
-// The vendor id of an IDXGIAdapter1, by a raw call of its method GetDesc1 (vtable slot 10; DXGI_ADAPTER_DESC1::VendorId is at byte 256, after
-// the 128 wide characters of the description), so this file needs no Windows header. 0 when `adapter` is null, the call fails, or this is a
-// 32-bit build (whose calling convention differs).
+// The vendor id of an IDXGIAdapter1 (IDXGIAdapter1::GetDesc1, as streamline_runtime.cpp reads its adapters). 0 when `adapter` is null or the call
+// fails. Where there is no DXGI (the tests of the other platforms, whose adapter is a table of function pointers laid out like the COM object)
+// it is the same call made by hand: vtable slot 10, DXGI_ADAPTER_DESC1::VendorId at byte 256 after the 128 wide characters of the description;
+// 0 on a 32-bit build, whose calling convention differs.
 std::uint32_t adapter_vendor_id(const void* adapter) {
-#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
+#if defined(_WIN32)
+    if (!adapter) return 0;
+    auto* a = static_cast<IDXGIAdapter1*>(const_cast<void*>(adapter));  // NOLINT: the COM call takes a non-const this
+    DXGI_ADAPTER_DESC1 desc{};
+    if (FAILED(a->GetDesc1(&desc))) return 0;
+    return desc.VendorId;
+#elif UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
     if (!adapter) return 0;
     using GetDesc1 = std::int32_t (*)(void* self, void* desc);
     void* const* vtable = *static_cast<void* const* const*>(adapter);
@@ -82,6 +119,16 @@ std::uint32_t adapter_vendor_id(const void* adapter) {
 #endif
 }
 
+// ---- threads ----------------------------------------------------------------------------------------------------------------------------
+// Who calls what (XeSS-FG's own threads never call the provider):
+//  - probe(): any thread (the editor probes from its own). It touches only the library (lib_ and api_, under mutex_) and the failure text
+//    (failMutex_); nothing else of the provider.
+//  - failure() and generated_frames(): any thread (failMutex_, an atomic).
+//  - The render thread, the one that makes the device, the window and the frames, makes every other call: d3d12_device_created,
+//    d3d12_create_swapchain, swapchain_destroying, device_destroying, start, configure, dispatch, stop and, around each Present, present_begin
+//    and present_end. So ctx_, share_, device_, enabled_ and the rest of the state below need no lock.
+//  - The library is loaded once and kept for the provider's life: api_ is written once (under mutex_, by whichever thread loads first) and the
+//    render thread reads a copy of it (api()), so a probe from another thread cannot swap a function table under a call.
 class XessFrameGenProvider final : public FrameGenProvider,
                                    public gpu::DeviceHook,
                                    public std::enable_shared_from_this<XessFrameGenProvider> {
@@ -124,8 +171,17 @@ private:
     void fail(const std::string& why);  // "fail once, stay off": keeps the first reason and logs it
     void destroy_context();             // the XeSS-FG context first, then the reference to XeLL's
     std::uint32_t next_present_id(bool consume);
+    // Destroys an XeSS-FG context; a result that says it failed is logged (the handle is gone either way: nothing else can be done with it).
+    void destroy_xefg(abi::Handle ctx);
+    // SetEnabled on the live context, XeLL's sleep mode first. false (and `fail()`) when XeLL or XeSS-FG refuses.
+    bool apply_enabled(bool enabled);
+    // The functions of the library, as the render thread sees them (a copy, taken under the lock that guards the load).
+    XefgApi api() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return api_;
+    }
 
-    std::mutex mutex_;  // the library: the probe may come from another thread than the hook
+    mutable std::mutex mutex_;  // the library: the probe may come from another thread than the hook
     std::unique_ptr<VendorLibrary> lib_;
     XefgApi api_{};
 
@@ -142,9 +198,13 @@ private:
     bool xellHeld_ = false;
     std::atomic<bool> live_{false};  // the swapchain of ctx_ exists (swapchain_destroying clears it)
     std::atomic<bool> running_{false};
-    bool enabled_ = false;
-    std::uint32_t taggedId_ = 0;  // the present id the last dispatch tagged (0: none since the last present)
-    std::uint64_t presents_ = 0;  // PresentEvent::frame of the last present begun
+    bool enabled_ = false;      // what XeSS-FG's swapchain was last told (false on a new swapchain)
+    bool wantEnabled_ = false;  // what the controller last asked (configure): put back on a swapchain made again
+    // Negative results of the swapchain's present status in a row (fewer than kStatusFailures are tolerated: a resize or a device hiccup).
+    int statusFailures_ = 0;
+    std::uint32_t lastPresentId_ = 0;  // the highest present id given to the SDK (ids only grow: see next_present_id)
+    std::uint32_t taggedId_ = 0;       // the present id the last dispatch tagged (0: none since the last present)
+    std::uint64_t presents_ = 0;       // PresentEvent::frame of the last present begun
     std::atomic<std::uint64_t> generated_{0};
 };
 
@@ -190,21 +250,47 @@ std::string XessFrameGenProvider::load_library(bool* installed) {
     if (!lib)
         return "XeSS frame generation's library " + fa::fs::path_to_utf8(found) + " could not be loaded: " + why +
                ". Run `factoria setup xess` to install it again.";
-    XefgApi api;
-    if (const std::string missing = xefg_load_api(*lib, api); !missing.empty())
+    XefgApi loaded;
+    if (const std::string missing = xefg_load_api(*lib, loaded); !missing.empty())
         return "XeSS frame generation's library " + lib->path() + " has no export " + missing +
                " (it is not the XeSS-FG swapchain library): run `factoria setup xess` to install the version "
                "FactorIA was tested with.";
     abi::Version version{};
-    if (const std::int32_t rc = api.getVersion(&version); rc != abi::kResultSuccess)
+    if (const std::int32_t rc = loaded.getVersion(&version); rc != abi::kResultSuccess)
         return "XeSS frame generation's library " + lib->path() +
                " did not answer its version: " + call_failed("xefgSwapChainGetVersion", rc) +
                ". Run `factoria setup xess` to install it again.";
-    FA_INFO("render", "XeSS frame generation: library {} (swapchain API {})", lib->path(), version_text(version));
     std::lock_guard<std::mutex> lock(mutex_);
+    // Another thread may have loaded the library while this one did (the probe and the hook race): the first one stays, because the functions
+    // it gave are in use, and this copy is closed. Replacing it would unload the library under a call.
+    if (lib_ && api_.d3d12Create) return {};
+    FA_INFO("render", "XeSS frame generation: library {} (swapchain API {})", lib->path(), version_text(version));
     lib_ = std::move(lib);
-    api_ = api;
+    api_ = loaded;
     return {};
+}
+
+void XessFrameGenProvider::destroy_xefg(abi::Handle ctx) {
+    if (!ctx) return;
+    if (const std::int32_t rc = api().destroy(ctx); rc < 0)
+        FA_WARN("render", "XeSS frame generation: {}", call_failed("xefgSwapChainDestroy", rc));
+}
+
+bool XessFrameGenProvider::apply_enabled(bool enabled) {
+    if (enabled) {
+        // XeSS-FG finds XeLL's sleep mode on, or refuses to generate.
+        if (std::string why = share_->ensure_sleep_mode(); !why.empty()) {
+            fail("XeLL's sleep mode could not be set (" + why + ").");
+            return false;
+        }
+    }
+    const std::int32_t rc = api().setEnabled(ctx_, enabled ? 1u : 0u);
+    if (rc < 0) {
+        if (enabled) fail(call_failed("xefgSwapChainSetEnabled", rc) + ".");
+        return false;
+    }
+    enabled_ = enabled;
+    return true;
 }
 
 VendorProbe XessFrameGenProvider::probe(const VendorEnv& env) {
@@ -240,10 +326,8 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
     // Another swapchain made before this one (the window was made again): the earlier proxy is gone with its swapchain, and its XeSS-FG context
     // is destroyed now (it can only be destroyed once every reference to the swapchain is released), before the new one is made. XeLL's context
     // stays (this provider's reference to it is kept), so the sleep mode and the frame ids go on.
-    if (ctx_) {
-        api_.destroy(ctx_);
-        ctx_ = nullptr;
-    }
+    destroy_xefg(ctx_);
+    ctx_ = nullptr;
     live_ = false;
     if (!intel_ || !device_) return false;  // the probe says why; the engine makes its own swapchain
     if (!failure().empty()) return false;
@@ -259,6 +343,7 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
         hookProblem_ = why;
         return false;
     }
+    const XefgApi xe = this->api();  // loaded by load_library above, never replaced
     share_ = latency_provider(LatencyDriver::Xell)->xell_share();
     if (!xellHeld_) {
         if (std::string why = share_->acquire(device_, xell_); !why.empty()) {
@@ -269,7 +354,7 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
         xellHeld_ = true;
     }
     const auto give_up = [&](const std::string& why) {
-        if (ctx_) api_.destroy(ctx_);
+        destroy_xefg(ctx_);
         ctx_ = nullptr;
         if (xellHeld_) share_->release(device_);
         xellHeld_ = false;
@@ -279,32 +364,33 @@ bool XessFrameGenProvider::d3d12_create_swapchain(gpu::D3d12SwapchainCreate& cre
     };
     abi::Handle handle = nullptr;
     if (const std::int32_t rc =
-            api_.d3d12Create(const_cast<void*>(device_), &handle);  // NOLINT: the SDK takes a non-const device
+            xe.d3d12Create(const_cast<void*>(device_), &handle);  // NOLINT: the SDK takes a non-const device
         rc < 0 || !handle)
         return give_up("XeSS frame generation could not make its context: " +
                        call_failed("xefgSwapChainD3D12CreateContext", rc));
     ctx_ = handle;
     // XeSS-FG refuses to initialise without XeLL: it is told before the swapchain exists.
-    if (const std::int32_t rc = api_.setLatencyReduction(ctx_, xell_.ctx); rc < 0)
+    if (const std::int32_t rc = xe.setLatencyReduction(ctx_, xell_.ctx); rc < 0)
         return give_up("XeSS frame generation could not use XeLL: " +
                        call_failed("xefgSwapChainSetLatencyReduction", rc));
     abi::D3d12InitParams params{};
     params.maxInterpolatedFrames = 1;  // one generated frame between two rendered ones
     params.uiMode = abi::kUiModeNone;  // the screen-space items are in the picture: they are interpolated with it
     if (const std::int32_t rc =
-            api_.d3d12InitFromDesc(ctx_, const_cast<void*>(create.hwnd), create.desc, nullptr,  // NOLINT
-                                   const_cast<void*>(create.queue), const_cast<void*>(create.factory), &params);
+            xe.d3d12InitFromDesc(ctx_, const_cast<void*>(create.hwnd), create.desc, nullptr,  // NOLINT
+                                 const_cast<void*>(create.queue), const_cast<void*>(create.factory), &params);
         rc < 0)
         return give_up("XeSS frame generation could not make the window's swapchain: " +
                        call_failed("xefgSwapChainD3D12InitFromSwapChainDesc", rc));
     void* swapchain = nullptr;
-    if (const std::int32_t rc = api_.d3d12GetSwapChainPtr(ctx_, &kIidSwapChain1, &swapchain); rc < 0 || !swapchain)
+    if (const std::int32_t rc = xe.d3d12GetSwapChainPtr(ctx_, &kIidSwapChain1, &swapchain); rc < 0 || !swapchain)
         return give_up("XeSS frame generation gave no swapchain: " +
                        call_failed("xefgSwapChainD3D12GetSwapChainPtr", rc));
     create.swapchain = swapchain;
     live_ = true;
-    enabled_ = false;
+    enabled_ = false;  // a new swapchain starts with generation off; dispatch puts wantEnabled_ back
     taggedId_ = 0;
+    statusFailures_ = 0;
     hookProblem_.clear();
     return true;
 }
@@ -324,20 +410,11 @@ std::string XessFrameGenProvider::start(gpu::Device& device, const FrameGenSwapc
 }
 
 void XessFrameGenProvider::configure(bool enabled) {
+    // Remembered even when there is no swapchain to tell now: the controller says it once, and a window made again (a new swapchain, which
+    // starts with generation off) must get it back (dispatch).
+    wantEnabled_ = enabled;
     if (!ctx_ || !live_ || enabled == enabled_) return;
-    if (enabled) {
-        // XeSS-FG finds XeLL's sleep mode on, or refuses to generate.
-        if (std::string why = share_->ensure_sleep_mode(); !why.empty()) {
-            fail("XeLL's sleep mode could not be set (" + why + ").");
-            return;
-        }
-    }
-    const std::int32_t rc = api_.setEnabled(ctx_, enabled ? 1u : 0u);
-    if (rc < 0) {
-        if (enabled) fail(call_failed("xefgSwapChainSetEnabled", rc) + ".");
-        return;
-    }
-    enabled_ = enabled;
+    apply_enabled(enabled);
 }
 
 std::uint32_t XessFrameGenProvider::next_present_id(bool consume) {
@@ -345,6 +422,11 @@ std::uint32_t XessFrameGenProvider::next_present_id(bool consume) {
     // the presents this device made, plus one.
     std::uint32_t id = share_ ? share_->frame_id() : 0u;
     if (id == 0) id = std::uint32_t(presents_ + 1);
+    // Present ids only grow, whatever the sources do: XeLL's frame id and the count of presents restart with a new device or context, and a
+    // paused present is named by the count where a generating one is named by XeLL's id. An id that is not above the last one is the last plus
+    // one. (A 32-bit id wraps after four billion presents; XeSS-FG compares them for equality.)
+    if (id <= lastPresentId_) id = lastPresentId_ + 1;
+    lastPresentId_ = id;
     if (consume) taggedId_ = id;
     return id;
 }
@@ -358,6 +440,12 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
         frame.error = "XeSS frame generation has no swapchain to tag the frame for.";
         return false;
     }
+    // A window made again gave a swapchain that starts with generation off: the controller said "on" once, so it is put back here.
+    if (wantEnabled_ && !enabled_ && !apply_enabled(true)) {
+        frame.error = failure();
+        return false;
+    }
+    const XefgApi xe = this->api();
     gpu::Device& device = *frame.device;
     void* const depth =
         const_cast<void*>(device.native_image(frame.depth).resource);  // NOLINT: the SDK takes a non-const resource
@@ -399,7 +487,7 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
     data[1].type = abi::kResourceMotionVector;
     data[1].resource = motion;
 
-    if (const std::int32_t rc = api_.tagFrameConstants(ctx_, presentId, &c); rc < 0) {
+    if (const std::int32_t rc = xe.tagFrameConstants(ctx_, presentId, &c); rc < 0) {
         fail(call_failed("xefgSwapChainTagFrameConstants", rc) + ".");
         frame.error = failure();
         return false;
@@ -412,8 +500,8 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
     std::int32_t rc = abi::kResultSuccess;
     const char* what = "";
     for (const abi::D3d12ResourceData& d : data) {
-        rc = api_.d3d12TagFrameResource(ctx_, const_cast<void*>(native->list), presentId,
-                                        &d);  // NOLINT: a non-const list
+        rc = xe.d3d12TagFrameResource(ctx_, const_cast<void*>(native->list), presentId,
+                                      &d);  // NOLINT: a non-const list
         if (rc < 0) {
             what = d.type == abi::kResourceDepth ? "depth" : "motion vector";
             break;
@@ -438,8 +526,9 @@ bool XessFrameGenProvider::dispatch(FrameGenFrame& frame) {
 void XessFrameGenProvider::stop(gpu::Device& /*device*/) {
     // Generation off and the hook passes everything through; the proxy swapchain stays (the window presents through it, and XeSS-FG can only be
     // destroyed once the swapchain is released: device_destroying).
+    wantEnabled_ = false;  // the controller turns generation off before it stops the provider; a start again begins off
     if (ctx_ && live_ && enabled_) {
-        api_.setEnabled(ctx_, 0u);
+        api().setEnabled(ctx_, 0u);
         enabled_ = false;
     }
     running_ = false;
@@ -452,18 +541,27 @@ void XessFrameGenProvider::present_begin(const gpu::PresentEvent& e) {
     // The id of the frame the last dispatch tagged; a frame it did not tag (generation paused) is named by XeLL's id all the same.
     const std::uint32_t id = running_ && taggedId_ != 0 ? taggedId_ : next_present_id(false);
     taggedId_ = 0;
-    if (const std::int32_t rc = api_.setPresentId(ctx_, id); rc < 0 && running_)
+    if (const std::int32_t rc = api().setPresentId(ctx_, id); rc < 0 && running_)
         fail(call_failed("xefgSwapChainSetPresentId", rc) + ".");
 }
 
 void XessFrameGenProvider::present_end(const gpu::PresentEvent& /*e*/) {
-    if (!ctx_ || !live_ || !running_ || !api_.getLastPresentStatus) return;
+    if (!ctx_ || !live_ || !running_) return;
+    const XefgApi xe = this->api();
+    if (!xe.getLastPresentStatus) return;
     abi::PresentStatus status{};
-    if (api_.getLastPresentStatus(ctx_, &status) < 0) return;
+    if (xe.getLastPresentStatus(ctx_, &status) < 0) return;
     if (status.isFrameGenEnabled && status.framesPresented > 1)
         generated_.fetch_add(status.framesPresented - 1, std::memory_order_relaxed);
-    if (status.isFrameGenEnabled && status.frameGenResult < 0)
-        fail("generating a frame: " + call_failed("the present", status.frameGenResult) + ".");
+    if (status.isFrameGenEnabled && status.frameGenResult < 0) {
+        // One negative result is not the end: a swapchain being resized or a device that stalled for a frame says it for a present or two.
+        // Only kStatusFailures presents in a row turn XeSS-FG off for the run (a count, so the result does not depend on the machine's speed).
+        if (++statusFailures_ >= kStatusFailures)
+            fail("generating a frame (" + std::to_string(statusFailures_) +
+                 " presents in a row): " + call_failed("the present", status.frameGenResult) + ".");
+    } else {
+        statusFailures_ = 0;
+    }
 }
 
 void XessFrameGenProvider::swapchain_destroying(const gpu::SwapchainEvent& /*e*/) {
@@ -476,7 +574,7 @@ void XessFrameGenProvider::swapchain_destroying(const gpu::SwapchainEvent& /*e*/
 void XessFrameGenProvider::destroy_context() {
     live_ = false;
     if (ctx_) {
-        api_.destroy(ctx_);  // XeSS-FG first: it uses XeLL's context
+        destroy_xefg(ctx_);  // XeSS-FG first: it uses XeLL's context
         ctx_ = nullptr;
     }
     if (xellHeld_ && share_) share_->release(device_);
@@ -485,11 +583,14 @@ void XessFrameGenProvider::destroy_context() {
     xell_ = XellContext{};
     enabled_ = false;
     taggedId_ = 0;
+    statusFailures_ = 0;
 }
 
 void XessFrameGenProvider::device_destroying() {
     destroy_context();
     running_ = false;
+    wantEnabled_ = false;
+    lastPresentId_ = 0;  // a new device counts its presents again, and so does its XeSS-FG context
     device_ = nullptr;
     intel_ = false;
 }

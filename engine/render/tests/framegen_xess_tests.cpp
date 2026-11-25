@@ -11,8 +11,10 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -47,7 +49,7 @@ int count_of(const std::string& event) { return int(std::count(g_events.begin(),
 struct FgFx {
     fg::Version version{1, 0, 0, 0};
     std::int32_t versionRc = 0, createRc = 0, latencyRc = 0, initRc = 0, swapRc = 0, enableRc = 0, presentIdRc = 0,
-                 constantsRc = 0, resourceRc = 0, statusRc = 0;
+                 constantsRc = 0, resourceRc = 0, statusRc = 0, destroyRc = 0;
     int token = 0, swapchainToken = 0, contexts = 0;
     void* createdFor = nullptr;
     void* latencyCtx = nullptr;
@@ -86,7 +88,7 @@ std::int32_t fg_create(void* device, fg::Handle* out) {
 std::int32_t fg_destroy(fg::Handle) {
     g_events.push_back("fg.destroy");
     --fgfx.contexts;
-    return 0;
+    return fgfx.destroyRc;
 }
 std::int32_t fg_init(fg::Handle, void* hwnd, const void* desc, const void* fullscreen, void* queue, void* factory,
                      const fg::D3d12InitParams* params) {
@@ -221,6 +223,7 @@ private:
 class Loader final : public render::VendorLoader {
 public:
     bool fgInstalled = true, xellInstalled = true, fgLoads = true;
+    std::function<void()> onFgLoad;  // runs when libxess_fg is loaded (before the library is handed back)
     std::vector<std::string> fgHidden;
     std::filesystem::path find(const render::VendorLibrarySpec& spec, std::string* why) override {
         const std::string file = spec.fileName;
@@ -243,6 +246,7 @@ public:
                 if (why) *why = "the fake loader cannot load it";
                 return nullptr;
             }
+            if (onFgLoad) onFgLoad();
             auto l = std::make_unique<FgLib>();
             l->hidden = fgHidden;
             return l;
@@ -869,7 +873,8 @@ TEST_CASE(
     CHECK(r.h.p->dispatch(r.f));
     REQUIRE(fgfx.constants.size() == 1);
     const std::uint32_t tagged = fgfx.constants[0].first;
-    CHECK(tagged == 10);
+    CHECK(tagged ==
+          11);  // 10 was the id of the present above: ids only grow, a frame is never tagged with one already used
     e.frame = 10;
     r.h.hook->present_begin(e);
     REQUIRE(fgfx.presentIds.size() == 2);
@@ -895,11 +900,166 @@ TEST_CASE("xess frame generation: the generated frames are what the swapchain sa
     fgfx.status.framesPresented = 2;
     r.h.hook->present_end(e);
     CHECK(r.h.p->generated_frames() == 1);  // generation is off: whatever the status says is not counted
-    // A present the SDK could not generate is a failure of the run.
+    // A present the SDK could not generate is a failure of the run once it happens on end (kStatusFailures presents in a row: see the next case).
     fgfx.status.isFrameGenEnabled = 1;
     fgfx.status.frameGenResult = -12;
-    r.h.hook->present_end(e);
+    for (int i = 0; i < 5; ++i) r.h.hook->present_end(e);
     CHECK(contains(r.h.p->failure(), "mismatched input resources"));
+}
+
+TEST_CASE("xess frame generation: a negative result of one or a few presents is tolerated, five in a row turn it off "
+          "for the run") {
+    if (sizeof(void*) != 8) return;
+    FrameRig r;
+    gpu::PresentEvent e;
+    e.frame = 1;
+    r.h.hook->present_begin(e);
+    fgfx.status.isFrameGenEnabled = 1;
+    fgfx.status.framesPresented = 2;
+    fgfx.status.frameGenResult = -12;
+    for (int i = 0; i < 4; ++i) r.h.hook->present_end(e);
+    CHECK(r.h.p->failure().empty());  // four in a row: a resize or a stalled device says it for a few presents
+    fgfx.status.frameGenResult = 0;
+    r.h.hook->present_end(e);  // one good present starts the count again
+    fgfx.status.frameGenResult = -12;
+    for (int i = 0; i < 4; ++i) r.h.hook->present_end(e);
+    CHECK(r.h.p->failure().empty());
+    // A present with generation off ends the series (it is not a failed generation): the count starts again from this one.
+    fgfx.status.isFrameGenEnabled = 0;
+    r.h.hook->present_end(e);
+    fgfx.status.isFrameGenEnabled = 1;
+    r.h.hook->present_end(e);  // one
+    CHECK(r.h.p->failure().empty());
+    for (int i = 0; i < 3; ++i) r.h.hook->present_end(e);
+    CHECK(r.h.p->failure().empty());
+    r.h.hook->present_end(e);  // five
+    CHECK(contains(r.h.p->failure(), "mismatched input resources"));
+    CHECK(contains(r.h.p->failure(), "5 presents in a row"));
+}
+
+TEST_CASE("xess frame generation: present ids only grow, across XeLL's ids restarting, a swapchain made again and a "
+          "new device") {
+    if (sizeof(void*) != 8) return;
+    FrameRig r;
+    std::vector<std::uint32_t> ids;  // every id the SDK was given, in order: tags and present ids
+    const auto collect = [&] {
+        ids.clear();
+        // fgfx.presentIds and fgfx.constants are two lists of the same sequence of ids: merge by checking each grows alone
+        for (const auto& c : fgfx.constants) ids.push_back(c.first);
+    };
+    gpu::PresentEvent e;
+    r.rig.xell->sleep(41);
+    CHECK(r.h.p->dispatch(r.f));
+    e.frame = 1;
+    r.h.hook->present_begin(e);
+    r.h.hook->present_end(e);
+    r.rig.xell->sleep(7);  // XeLL's frame ids start again (a new XeLL context)
+    CHECK(r.h.p->dispatch(r.f));
+    e.frame = 2;
+    r.h.hook->present_begin(e);
+    r.h.hook->present_end(e);
+    // The swapchain is made again and the count of presents starts at 1.
+    r.h.hook->swapchain_destroying(gpu::SwapchainEvent{});
+    REQUIRE(r.h.make_swapchain());
+    REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
+    e.frame = 1;
+    r.h.hook->present_begin(e);  // nothing tagged
+    r.h.hook->present_end(e);
+    CHECK(r.h.p->dispatch(r.f));
+    e.frame = 2;
+    r.h.hook->present_begin(e);
+    r.h.hook->present_end(e);
+    collect();
+    REQUIRE(ids.size() == 3);
+    REQUIRE(fgfx.presentIds.size() == 4);
+    CHECK(ids[0] == 41);
+    for (std::size_t i = 1; i < ids.size(); ++i) CHECK(ids[i] > ids[i - 1]);
+    for (std::size_t i = 1; i < fgfx.presentIds.size(); ++i) CHECK(fgfx.presentIds[i] > fgfx.presentIds[i - 1]);
+    // The present of a tagged frame carries the id of its tag.
+    CHECK(fgfx.presentIds[0] == ids[0]);
+    CHECK(fgfx.presentIds[1] == ids[1]);
+}
+
+TEST_CASE("xess frame generation: generation the controller asked for is back on after the window's swapchain was made "
+          "again") {
+    if (sizeof(void*) != 8) return;
+    FrameRig r;  // started, configure(true) done: generation is on
+    CHECK(fgfx.enables.size() == 1);
+    CHECK(r.h.p->dispatch(r.f));
+    // The window is made again: a swapchain that starts with generation off, and the controller says "on" only once.
+    r.h.hook->swapchain_destroying(gpu::SwapchainEvent{});
+    REQUIRE(r.h.make_swapchain());
+    REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
+    g_events.clear();
+    CHECK(r.h.p->dispatch(r.f));
+    CHECK(count_of("fg.enable") == 1);
+    CHECK(index_of("fg.enable") < index_of("fg.tagConstants"));
+    CHECK(fgfx.enables.back() == 1);
+    g_events.clear();
+    CHECK(r.h.p->dispatch(r.f));  // once: the next frame does not enable again
+    CHECK(count_of("fg.enable") == 0);
+    // A configure(true) said while there was no swapchain is kept for the one that comes.
+    r.h.hook->swapchain_destroying(gpu::SwapchainEvent{});
+    r.h.p->configure(false);
+    r.h.p->configure(true);
+    REQUIRE(r.h.make_swapchain());
+    REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
+    g_events.clear();
+    CHECK(r.h.p->dispatch(r.f));
+    CHECK(count_of("fg.enable") == 1);
+    // And one that turned it off is kept too.
+    r.h.p->configure(false);
+    CHECK(count_of("fg.disable") == 1);
+    r.h.hook->swapchain_destroying(gpu::SwapchainEvent{});
+    REQUIRE(r.h.make_swapchain());
+    REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
+    g_events.clear();
+    CHECK(r.h.p->dispatch(r.f));
+    CHECK(count_of("fg.enable") == 0);
+}
+
+// Threads: the probe (the editor's thread) and the hook (the render thread) both load libxess_fg. The fake loader runs the probe on a second
+// thread in the middle of the hook's own load, the two sides of the race in a fixed order: the hook's library must still be the one used.
+TEST_CASE("xess frame generation: a probe that loads the library while the hook does leaves one working library") {
+    if (sizeof(void*) != 8) return;
+    Rig rig;
+    Hook h;
+    XDevice dev(gpu::Backend::D3d12, 0x8086);
+    g_adapterVendor = 0x8086;
+    int loads = 0;
+    bool probed = false;
+    rig.loader.onFgLoad = [&] {
+        ++loads;
+        if (probed) return;
+        probed = true;
+        std::thread editor([&] { CHECK(h.p->probe(env_of(dev, GpuVendor::Intel)).reason.empty()); });
+        editor.join();
+    };
+    h.device_created();
+    REQUIRE(h.make_swapchain());  // the hook's load finds the probe's library in place and keeps it
+    CHECK(loads == 2);
+    CHECK(h.p->start(dev, swapchain_of(dev)).empty());
+    h.p->configure(true);
+    CHECK(fgfx.enables.size() == 1);
+    CHECK(h.p->failure().empty());
+    h.hook->device_destroying();
+    CHECK(fgfx.contexts == 0);
+}
+
+TEST_CASE("xess frame generation: a destroy that fails is logged, and the provider goes on") {
+    if (sizeof(void*) != 8) return;
+    Rig rig;
+    Hook h;
+    h.device_created();
+    REQUIRE(h.make_swapchain());
+    fgfx.destroyRc = -4;
+    h.hook->swapchain_destroying(gpu::SwapchainEvent{});
+    REQUIRE(h.make_swapchain());  // the old context is destroyed (and answers a failure), the new one is made
+    CHECK(count_of("fg.destroy") == 1);
+    CHECK(h.p->failure().empty());
+    h.hook->device_destroying();
+    CHECK(count_of("fg.destroy") == 2);
+    CHECK(xlfx.contexts == 0);
 }
 
 TEST_CASE(
