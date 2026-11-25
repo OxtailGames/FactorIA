@@ -548,10 +548,16 @@ TEST_CASE("fsr frame generation: the provider fills the Fsr slot, needs the reve
     const auto autoHooks = render::framegen_device_hooks(FrameGenMode::Auto);
     const auto dlssHooks = render::framegen_device_hooks(FrameGenMode::Dlss);
     const auto xessHooks = render::framegen_device_hooks(FrameGenMode::Xess);
-    CHECK(fsrHooks.size() == 1);
-    CHECK(autoHooks.size() == 1);
-    CHECK(dlssHooks.empty());
-    CHECK(xessHooks.empty());
+    // (The other slots' providers add their own hooks: only FSR's is looked for.)
+    const std::shared_ptr<gpu::DeviceHook> fsrHook = p->device_hook_for(FrameGenMode::Fsr);
+    REQUIRE(fsrHook != nullptr);
+    const auto has_fsr = [&](const std::vector<std::shared_ptr<gpu::DeviceHook>>& hooks) {
+        return std::any_of(hooks.begin(), hooks.end(), [&](const auto& h) { return h.get() == fsrHook.get(); });
+    };
+    CHECK(has_fsr(fsrHooks));
+    CHECK(has_fsr(autoHooks));
+    CHECK_FALSE(has_fsr(dlssHooks));
+    CHECK_FALSE(has_fsr(xessHooks));
 }
 
 TEST_CASE("fsr frame generation: the create flags follow the depth, the jitter and the colour of the frame") {

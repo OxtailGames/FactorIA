@@ -224,7 +224,11 @@ public:
     std::vector<std::string> fgHidden;
     std::filesystem::path find(const render::VendorLibrarySpec& spec, std::string* why) override {
         const std::string file = spec.fileName;
-        CHECK(std::string(spec.setupId) == "xess");
+        // The other slots' providers (DLSS, FSR 3) probe through the same loader: they find nothing here.
+        if (std::string(spec.setupId) != "xess") {
+            if (why) *why = "the fake loader has only the XeSS libraries";
+            return {};
+        }
         CHECK(std::string(spec.dirEnv) == "FA_XESS_DIR");
         const bool installed = file == "libxess_fg.dll" ? fgInstalled : xellInstalled;
         if (!installed) {
