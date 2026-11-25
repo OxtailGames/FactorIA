@@ -1171,8 +1171,6 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         // makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
         const bool appWindow = I.windowed && !config.editorMode && app_native_window().window != nullptr;
         auto start = [&](GpuBackend backend) -> std::string {
-            if (config.gpuStartFault)
-                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) return fault;
             RendererDesc d = rd;
             d.backend = backend;
             GfxEnvironment env = I.windowed ? *gfx : I.gpu->environment();
@@ -1183,7 +1181,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                            " draws into a game window (factoria run) or headless";
                 const bool windowCannot = !app_native_window().busy.empty();
                 auto claim = app_claim_native_window(gpu_backend_name(backend));
-                // A window that cannot take the swapchain at all (an OpenGL one) is said so: the player that hands over
+                // A window that cannot take the swapchain at all (busy: Android's EGL surface, a Linux EGL build) is said so: the player that hands over
                 // passes the reason on, and its warning must not promise a driver brings Vulkan back.
                 if (!claim)
                     return windowCannot ? gpu_window_path_reason(gpu_backend_name(backend), claim.error().to_string())
@@ -1201,6 +1199,15 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 // the platform's swapchain is made now (Windows: the D3D11 presenter).
                 env = app_gfx_environment();
             }
+            // Tests: a forced failure after the claim, so the fallback goes through its release too.
+            if (config.gpuStartFault)
+                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) {
+                    if (I.windowClaimed) {
+                        app_release_native_window();
+                        I.windowClaimed = false;
+                    }
+                    return fault;
+                }
             I.renderer = std::make_unique<Renderer>();
             std::string why;
             if (I.renderer->init(d, env, &why)) return "";

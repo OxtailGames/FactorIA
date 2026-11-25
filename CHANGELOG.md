@@ -18,11 +18,11 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   start: where it cannot, or when the game's choice is `gl`/`gles3`, it hands the game to the OpenGL player with the marker
   `FA_GPU_FALLBACK_FROM=vulkan` and the reason (Linux: `execv` of `<exe>-gl` next to it; Android: it starts `factoria.engine.GlActivity`,
   process `:gl`, with the same two as intent extras, and finishes). The OpenGL player records them as `gpu.fallbackFrom` and
-  `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (today always, as the window of
-  these platforms is an OpenGL one: `EngineConfig::gpuBackendFailed`) reaches the player before the in-process fallback of the game
-  window (M77-P9e1), so the OpenGL player takes over; the in-process fallback is the last resort when it is not there. A hand-over
-  because the window cannot take the swapchain says so (`the window path is not available on this platform yet`), not that a driver
-  update would bring Vulkan back. A windowed game is still drawn with OpenGL in the end. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
+  `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (`EngineConfig::gpuBackendFailed`)
+  reaches the player before the in-process fallback of the game window (M77-P9e1), so the OpenGL player takes over; the in-process
+  fallback is the last resort when it is not there. A hand-over because the window cannot take the swapchain says so (`the window path
+  is not available on this platform yet`), not that a driver update would bring Vulkan back: on Android, whose window keeps its OpenGL
+  ES surface until M77-P9e3b, a windowed game is still drawn with OpenGL ES in the end. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
   and GlActivity); `export.linux.vulkanPlayer` / `export.android.vulkanPlayer: false` ship the OpenGL player only, and so do
   players or prebuilt libraries without the Vulkan one. `factoria setup players` copies the Linux Vulkan player of a release that has
   it. The new command `graphics.backend` reads which backend draws, what was asked and from where, the fallback that started this
@@ -44,11 +44,16 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   takes the window's native handle from the platform (`app_claim_native_window`) and the renderer makes its swapchain on it
   (`RendererDesc::nativeWindow`, `RendererDesc::vsync`); the platform then makes no swapchain of its own, since a window holds one
   (`WindowPresenter`, a state machine tested on every platform). On Windows that is the player itself; on macOS `vulkan` presents
-  through MoltenVK in a build that has it. Linux and Android windows are OpenGL ones and cannot take it yet. A backend that cannot
+  through MoltenVK in a build that has it (Linux: see below; Android windows cannot take it yet). A backend that cannot
   start falls back to `auto` in the same process, in a window and headless alike: one warning keeps its first error, and the startup
   report names it in `gpu.backendFallback`. While D3D12 or Vulkan holds the window, HDR output says it is not available on that
   backend and the vsync is the swapchain's present mode. Also on Windows: the D3D11 presenter's resize reads only a live presenter,
   and a `ResizeBuffers` the driver refuses is warned once per size, not every frame.
+- Vulkan draws the game window on Linux (M77-P9e3a): with `render.backend` on `vulkan` the X11 window's OpenGL context moves to a
+  1x1 pbuffer (or to no drawable where the driver has no pbuffers) and its swap stops, so the Vulkan device makes its swapchain on
+  the window; when the device lets the window go the OpenGL surface comes back on it with its vsync, so a Vulkan start that fails
+  after the claim falls back to OpenGL in the same process. A driver that refuses both keeps OpenGL and the warning
+  says why. `EngineConfig::gpuStartFault` now runs after the window is claimed, so tests cover that release.
 - The Vulkan backend presents to a window (M77-P9d): `create_swapchain` makes a surface on the native window (an HWND, an X11 window
   with its display, an `ANativeWindow`, a `CAMetalLayer` on macOS through MoltenVK) and a swapchain of frames in flight + 1 images (FIFO
   with vsync, else MAILBOX or IMMEDIATE; SDR, scRGB and HDR10 formats where the surface offers them; MSAA resolved into the acquired

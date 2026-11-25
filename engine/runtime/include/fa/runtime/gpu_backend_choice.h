@@ -20,8 +20,9 @@ namespace fa {
 inline constexpr const char* kGpuFallbackFromEnv = "FA_GPU_FALLBACK_FROM";
 inline constexpr const char* kGpuFallbackReasonEnv = "FA_GPU_FALLBACK_REASON";
 
-// The start of a reason that says the WINDOW cannot take a swapchain of that backend at all (the platform's window is an OpenGL
-// one: Linux and Android today, M77-P9e3), not that a driver or GPU is missing. The engine builds it
+// The start of a reason that says the WINDOW cannot take a swapchain of that backend at all (sokol_app keeps its OpenGL surface
+// on it: Android until M77-P9e3b, a Linux build whose sokol_app draws through EGL; app_native_window().busy), not that a driver
+// or GPU is missing. A Linux GLX window hands its surface over (M77-P9e3a), so a claim refused there is a driver's reason. The engine builds it
 // (gpu_window_path_reason); the Vulkan player passes it on in kGpuFallbackReasonEnv, and the warning of the OpenGL player
 // that starts then does not promise that a driver update brings Vulkan back.
 inline constexpr const char* kGpuWindowPathReason = "the window path is not available on this platform yet";
