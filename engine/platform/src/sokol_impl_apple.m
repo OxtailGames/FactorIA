@@ -19,6 +19,8 @@
 
 // ---- window operations sokol_app has no API for (sokol_window.h; see sokol_impl.c) -----------------------------------
 // UNTESTED: written without a Mac at hand. Cocoa works in points, which are the logical pixels.
+#include <stdio.h>
+
 #include "sokol_window.h"
 
 void fa_sapp_window_size(int* w, int* h) {
@@ -313,7 +315,68 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
 #endif
 }
 
-// ---- IME (ime_apple.mm) -------------------------------------------------------------------------------------------------
+// ---- the native window for a GPU device of its own (app_native_window, M77-P9e1) ----------------------------------
+// macOS: the CAMetalLayer sokol_app made for its view (Vulkan on MoltenVK presents into it). sokol_app takes a drawable
+// of it only when sokol_glue asks for the frame's swapchain, which app.cpp does not while a device has the window.
+bool fa_sapp_native_window(void** window, void** display) {
+    *window = NULL;
+    *display = NULL;
+#if !TARGET_OS_IPHONE && defined(SOKOL_METAL)
+    if (!_sapp.valid || _sapp.mtl.layer == nil) return false;
+    *window = (__bridge void*)_sapp.mtl.layer;
+    return true;
+#else
+    return false;
+#endif
+}
+
+// The window's OpenGL surface (sokol_window.h, M77-P9e3): Apple's windows draw with Metal, there is none to release.
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    snprintf(err, errLen, "this platform's window has no OpenGL surface to release");
+    return false;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    return true;
+}
+void fa_sapp_gl_surface_discard(void) {}
+int fa_sapp_gl_surface_state(void) { return 0; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;
+    (void)user;
+}
+
+// A GPU device's swapchain on the CAMetalLayer (MoltenVK) sets the layer's device and pixelFormat for its own images. A
+// claim that ends (a Vulkan start that failed, the end of the renderer) puts back what sokol_app made the layer with,
+// so the Metal swapchain that follows (the in-process fallback) draws with the format sokol_gfx's pipelines were built
+// for.
+#if !TARGET_OS_IPHONE && defined(SOKOL_METAL)
+static id<MTLDevice> fa_layer_device;
+static MTLPixelFormat fa_layer_pixel_format;
+static bool fa_layer_saved;
+
+void fa_sapp_window_claimed(void) {
+    if (fa_layer_saved || !_sapp.valid || _sapp.mtl.layer == nil) return;
+    fa_layer_device = _sapp.mtl.layer.device;
+    fa_layer_pixel_format = _sapp.mtl.layer.pixelFormat;
+    fa_layer_saved = true;
+}
+
+void fa_sapp_window_returned(void) {
+    if (!fa_layer_saved) return;
+    fa_layer_saved = false;
+    if (_sapp.valid && _sapp.mtl.layer != nil) {
+        _sapp.mtl.layer.device = fa_layer_device;
+        _sapp.mtl.layer.pixelFormat = fa_layer_pixel_format;
+    }
+    fa_layer_device = nil;
+}
+#else
+void fa_sapp_window_claimed(void) {}
+void fa_sapp_window_returned(void) {}
+#endif
+
+// ---- IME (ime_apple.mm) --------------------------------------------------------------------------------------------
 void* fa_sapp_macos_view(void) {
 #if !TARGET_OS_IPHONE
     return (__bridge void*)_sapp.macos.view;

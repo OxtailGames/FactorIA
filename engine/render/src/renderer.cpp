@@ -7,6 +7,7 @@
 #include "render_features.h"
 #include "render_scene.h"
 #include "fa/scene/jitter.h"
+#include "gpu/sokol_context.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -115,7 +116,7 @@ void DebugDraw::clear() {
 // The jitter phases of a camera (M76): 0 = the camera is not jittered. Jittered: its stack has TemporalAA on, the renderer draws that effect
 // (post_drawn_mask), the camera is one of the game's frame (`mainFrameCamera`: a CameraView, a render-target camera and a capture draw
 // no post stack, so nothing would resolve their jitter) and the TAA passes can run (shaders compiled, histories fit); or a test / pass
-// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready()` compiles the two
+// forced it (jitterForce). Called from collect_cameras, so also by Renderer::update between two frames: `taa.ready(device)` compiles the two
 // programs the first time (a sokol resource creation, valid outside a pass), but only for a camera whose stack has TemporalAA that the
 // renderer draws, and on the thread that owns the GPU context (update and the frame run on it); a game without the effect never compiles them.
 int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
@@ -123,7 +124,8 @@ int Renderer::Impl::jitter_phases(const CameraInfo& ci, bool mainFrameCamera) {
     if (temporalPhases > 0 && mainFrameCamera) return std::min(temporalPhases, kJitterPhasesMax);
     if (jitterForce > 0) return std::clamp(jitterForce, 1, kJitterPhasesMax);
     const bool on = mainFrameCamera && ci.postStack && ci.postStack->has(PostEffect::TemporalAA) &&
-                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && taa.ready() && !taa.unavailable();
+                    ((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0 && gpu.has_device() &&
+                    taa.ready(gpu.device()) && !taa.unavailable();
     return on ? kJitterPhasesDefault : 0;
 }
 
@@ -249,19 +251,88 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
-// The sokol_gfx setup both open_context() and init() use: one place for the pool sizes.
-sg_desc make_sg_desc(const GfxEnvironment& env) {
-    sg_desc sd{};
-    sd.environment = env.get();
-    sd.logger.func = fa_sokol_log_func;
-    sd.buffer_pool_size = 2048;
-    sd.image_pool_size = 1024;
-    sd.view_pool_size = 4096;
-    sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 384;  // about 15 built-in shaders, up to 12 per custom material
-    sd.pipeline_pool_size = 256;
-    sd.uniform_buffer_size = 16 * 1024 * 1024;
-    return sd;
+namespace {
+
+// The device backend of RendererDesc::backend (Default: the sokol backend this binary was built with).
+gpu::Backend device_backend_of(GpuBackend b) {
+    switch (b) {
+        case GpuBackend::Default: return gpu::built_sokol_backend();
+        case GpuBackend::Gl: return gpu::Backend::Gl;
+        case GpuBackend::Gles3: return gpu::Backend::Gles3;
+        case GpuBackend::WebGl2: return gpu::Backend::WebGl2;
+        case GpuBackend::D3d11: return gpu::Backend::D3d11;
+        case GpuBackend::Metal: return gpu::Backend::Metal;
+        case GpuBackend::D3d12: return gpu::Backend::D3d12;
+        case GpuBackend::Vulkan: return gpu::Backend::Vulkan;
+        case GpuBackend::Recording: return gpu::Backend::Recording;
+    }
+    return gpu::built_sokol_backend();
+}
+
+GpuBackend public_backend_of(gpu::Backend b) {
+    switch (b) {
+        case gpu::Backend::Gl: return GpuBackend::Gl;
+        case gpu::Backend::Gles3: return GpuBackend::Gles3;
+        case gpu::Backend::WebGl2: return GpuBackend::WebGl2;
+        case gpu::Backend::D3d11: return GpuBackend::D3d11;
+        case gpu::Backend::Metal: return GpuBackend::Metal;
+        case gpu::Backend::D3d12: return GpuBackend::D3d12;
+        case gpu::Backend::Vulkan: return GpuBackend::Vulkan;
+        case gpu::Backend::Recording: return GpuBackend::Recording;
+    }
+    return GpuBackend::Default;
+}
+
+// The backends that run on the sokol context (one per binary).
+bool is_sokol_backend(gpu::Backend b) {
+    return b == gpu::Backend::Gl || b == gpu::Backend::Gles3 || b == gpu::Backend::WebGl2 || b == gpu::Backend::D3d11 ||
+           b == gpu::Backend::Metal;
+}
+
+}  // namespace
+
+const char* gpu_backend_name(GpuBackend backend) {
+    switch (backend) {
+        case GpuBackend::Default: return "auto";
+        case GpuBackend::Gl: return "gl";
+        case GpuBackend::Gles3: return "gles3";
+        case GpuBackend::WebGl2: return "webgl2";
+        case GpuBackend::D3d11: return "d3d11";
+        case GpuBackend::Metal: return "metal";
+        case GpuBackend::D3d12: return "d3d12";
+        case GpuBackend::Vulkan: return "vulkan";
+        case GpuBackend::Recording: return "recording";
+    }
+    return "auto";
+}
+
+std::optional<GpuBackend> parse_gpu_backend_name(std::string_view name) {
+    if (name == "auto") return GpuBackend::Default;
+    for (GpuBackend b : {GpuBackend::Gl, GpuBackend::Gles3, GpuBackend::WebGl2, GpuBackend::D3d11, GpuBackend::Metal,
+                         GpuBackend::D3d12, GpuBackend::Vulkan})
+        if (name == gpu_backend_name(b)) return b;
+    return std::nullopt;
+}
+
+std::vector<std::string> gpu_backend_names() {
+    std::vector<std::string> out;
+    for (GpuBackend b : {GpuBackend::Gl, GpuBackend::Gles3, GpuBackend::WebGl2, GpuBackend::D3d11, GpuBackend::Metal,
+                         GpuBackend::D3d12, GpuBackend::Vulkan})
+        out.emplace_back(gpu_backend_name(b));
+    return out;
+}
+
+bool gpu_backend_available(GpuBackend backend) {
+    return backend == GpuBackend::Default || gpu::device_backend_compiled(device_backend_of(backend));
+}
+
+bool gpu_backend_on_context(GpuBackend backend) {
+    return backend == GpuBackend::Default || is_sokol_backend(device_backend_of(backend));
+}
+
+GpuBackend Renderer::device_backend() const {
+    if (!impl_ || !impl_->gpu.has_device()) return GpuBackend::Default;
+    return public_backend_of(impl_->gpu.device().backend());
 }
 
 Renderer::Renderer() : compute_(std::make_unique<Compute>()) {}
@@ -270,45 +341,43 @@ Renderer::~Renderer() { shutdown(); }
 bool Renderer::initialized() const { return impl_ && impl_->initialized; }
 
 bool Renderer::open_context(const GfxEnvironment& env, std::string* error) {
-    if (sg_isvalid()) {
+    if (gpu::context_open()) {
         if (error) *error = "a graphics context is already open";
         return false;
     }
-    sg_desc sd = make_sg_desc(env);
-    sg_setup(&sd);
-    if (!sg_isvalid()) {
+    if (!gpu::open_context(env)) {
         if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
         return false;
     }
     return true;
 }
 
-bool Renderer::context_open() { return sg_isvalid(); }
+bool Renderer::context_open() { return gpu::context_open(); }
 
-void Renderer::close_context() {
-    if (sg_isvalid()) sg_shutdown();
-}
+void Renderer::close_context() { gpu::close_context(); }
+
+bool Renderer::commit_context() { return gpu::commit_context(); }
 
 void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
-    const sg_swapchain& sc = swapchain.get();
-    PassDesc pass = PassDesc::for_swapchain(sc);
+    const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
+    PassDesc pass = PassDesc::for_swapchain(sc, gpu::context_defaults());
     pass.label = "window";
-    pass.colorLoad = SG_LOADACTION_CLEAR;
+    pass.colorLoad = gpu::LoadAction::Clear;
     pass.clearColor = {clear.r, clear.g, clear.b, clear.a};
-    pass.colorStore = SG_STOREACTION_STORE;
-    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
-    pass.stencilLoad = SG_LOADACTION_CLEAR;
-    Gpu::begin_pass(pass);
+    pass.colorStore = gpu::StoreAction::Store;
+    pass.depthLoad = gpu::LoadAction::Clear;  // what sokol did for the pass it was given (a default load action clears)
+    pass.stencilLoad = gpu::LoadAction::Clear;
+    // On the sokol context itself: the window pass runs without a renderer too (present_clear, before any Gpu exists).
+    gpu::begin_context_pass(pass);
 }
 
-void Renderer::end_window_pass() { Gpu::end_pass(); }
+void Renderer::end_window_pass() { gpu::end_context_pass(); }
 
 bool Renderer::present_clear(const GfxSwapchain& swapchain, Color color) {
-    if (!sg_isvalid()) return false;
+    if (!gpu::context_open()) return false;
     begin_window_pass(swapchain, color);
     end_window_pass();
-    sg_commit();
-    return true;
+    return gpu::commit_context();
 }
 
 int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
@@ -317,7 +386,8 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     if (!im.warmBuilt) {
         im.warmBuilt = true;
         Gpu* gpu = &im.gpu;
-        const TargetFormat presentFormat = PassDesc::for_swapchain(swapchain.get()).format;
+        const gpu::Swapchain sc = gpu::swapchain_of(swapchain);
+        const TargetFormat presentFormat = PassDesc::for_swapchain(sc, gpu->device().environment_defaults()).format;
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
         im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
@@ -325,13 +395,13 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // window switches to it, not on the frame it does. D3D11 also falls back to the 10-bit swapchain (HDR10) where the driver
         // refuses scRGB: that copy is made too (without multisampling: a 10-bit swapchain has no multisampled image, so such a
         // window never takes it).
-        const render::FeatureBackend backend = render::feature_env_from_sokol().backend;
+        const gpu::Device& dev = gpu->device();
         if (world.settings().hdrOutput == HdrOutput::Auto &&
-            (backend == render::FeatureBackend::Metal || backend == render::FeatureBackend::D3d11)) {
-            const TargetFormat hdrFormat{SG_PIXELFORMAT_RGBA16F, presentFormat.depth, presentFormat.samples};
+            dev.swapchain_format_supported(gpu::PixelFormat::Rgba16F, nullptr)) {
+            const TargetFormat hdrFormat{gpu::PixelFormat::Rgba16F, presentFormat.depth, presentFormat.samples};
             im.warmGroups.push_back([gpu, hdrFormat] { gpu->blit_pipeline(hdrFormat); });
-            if (backend == render::FeatureBackend::D3d11 && presentFormat.samples <= 1) {
-                const TargetFormat hdr10Format{SG_PIXELFORMAT_RGB10A2, presentFormat.depth, presentFormat.samples};
+            if (presentFormat.samples <= 1 && dev.swapchain_format_supported(gpu::PixelFormat::Rgb10A2, nullptr)) {
+                const TargetFormat hdr10Format{gpu::PixelFormat::Rgb10A2, presentFormat.depth, presentFormat.samples};
                 im.warmGroups.push_back([gpu, hdr10Format] { gpu->blit_pipeline(hdr10Format); });
             }
         }
@@ -348,7 +418,7 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         // The first screenshot (a float scene is read back through blit_keep) must not build its pipeline on the main thread.
         // The format is read when the group runs: the targets may still fall back to RGBA8, which needs no such copy.
         im.warmGroups.push_back([gpu] {
-            if (gpu->scene_format() != SG_PIXELFORMAT_RGBA8) gpu->blit_keep_pipeline();
+            if (gpu->scene_format() != gpu::PixelFormat::Rgba8) gpu->blit_keep_pipeline();
         });
         // The shaders and pipelines of Water2D and DistortionZone2D (a sprite material that calls fa_scene_color() makes them on its first
         // draw): only where the scene has one of them, so a scene without pays no compile.
@@ -417,10 +487,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
         if (quads) {
             im.warmGroups.push_back([gpu] {
                 if (gpu->velocity_ready()) {
-                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), SG_PIXELFORMAT_NONE, 1}, false);
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::velocity_format(), gpu::PixelFormat::None, 1}, false);
                 }
                 if (gpu->reactive_ready()) {
-                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), SG_PIXELFORMAT_NONE, 1}, true);
+                    gpu->quad_motion_pipeline(TargetFormat{Gpu::reactive_format(), gpu::PixelFormat::None, 1}, true);
                 }
             });
         }
@@ -445,9 +515,20 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     return int(im.warmGroups.size() - im.warmNext);
 }
 
+namespace {
+// The device RendererDeviceAccess::set_next_device handed in for the next init() of its backend (tests only).
+std::unique_ptr<gpu::Device>& next_device() {
+    static std::unique_ptr<gpu::Device> d;
+    return d;
+}
+}  // namespace
+
 Json Renderer::startup_report() const {
-    Json j = shader_build_stats().to_json(backend_name());
-    j["cache"] = shader_cache_mode();
+    // The cache of the device the renderer draws with (D3D12 keeps stages of its own), not of the sokol backend.
+    const gpu::Backend backend =
+        impl_ && impl_->gpu.has_device() ? impl_->gpu.device().backend() : gpu::built_sokol_backend();
+    Json j = shader_build_stats().to_json(gpu::backend_name(backend));
+    j["cache"] = shader_cache_mode(backend);
     if (impl_) {
         j["pipelinesWarmed"] = int(impl_->warmPipelines);
         j["pipelines"] = int(impl_->gpu.pipeline_count());
@@ -456,6 +537,9 @@ Json Renderer::startup_report() const {
         j["pipelinesEvicted"] = std::int64_t(impl_->gpu.pipelines_evicted());
         j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
         j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
+        // M77-P10d: whether the frame uses the compute queue and the job threads (RendererDesc allows it and the device can).
+        j["asyncCompute"] = impl_->gpu.has_device() && impl_->gpu.async_compute();
+        j["multiThreadRecording"] = impl_->gpu.has_device() && impl_->gpu.parallel_recording();
     }
     return j;
 }
@@ -473,27 +557,77 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
                                                                : DebugView::None;
-    im.adopted = desc.adoptContext && sg_isvalid();
-    if (!im.adopted) {
-        sg_desc sd = make_sg_desc(env);
-        sg_setup(&sd);
-    }
-    if (!sg_isvalid()) {
-        if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+    // The device's backend (RendererDesc::backend). A sokol one runs on the sokol context; D3D12, Vulkan and Recording
+    // make a device of their own and never touch the context.
+    const gpu::Backend backend = device_backend_of(desc.backend);
+    const bool onContext = is_sokol_backend(backend);
+    if (onContext && backend != gpu::built_sokol_backend()) {
+        if (error)
+            *error =
+                std::string("RendererDesc::backend asks for the ") + gpu::backend_name(backend) +
+                " backend, but this binary was built with " + gpu::backend_name(gpu::built_sokol_backend()) +
+                " (hint: leave it at GpuBackend::Default, the backend this build has; sokol builds one per binary)";
         impl_.reset();
         return false;
     }
-    int samples = std::max(1, desc.sampleCount);
-    if (samples > 1 && !sg_query_pixelformat(SG_PIXELFORMAT_RGBA8).msaa) {
-        FA_WARN("render", "MSAA is not supported by this device; falling back to sampleCount 1");
-        samples = 1;
+    std::unique_ptr<gpu::Device> device;
+    if (onContext) {
+        // A context that was already open is never this renderer's to close, whether the caller said so (adoptContext)
+        // or not (a player, a test or another Renderer opened it): only a context this call opens is closed by shutdown.
+        im.adopted = gpu::context_open();
+        if (!im.adopted && !gpu::open_context(env)) {
+            if (error) *error = "sg_setup failed: the graphics device is not usable (see the 'sg' log lines).";
+            impl_.reset();
+            return false;
+        }
+    } else {
+        im.adopted = true;  // no sokol context of this renderer's: shutdown closes none
+        if (next_device() && next_device()->backend() == backend) {
+            device = std::move(next_device());  // a test's device (RendererDeviceAccess::set_next_device)
+        } else {
+            gpu::DeviceInit init;
+            init.environment.defaults = gpu::environment_defaults_of(env);
+            auto made = gpu::make_device(backend, init);
+            if (!made) {
+                if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
+                impl_.reset();
+                return false;
+            }
+            device = std::move(made.value());
+        }
     }
+    // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's. D3D12 and Vulkan make their
+    // own on RendererDesc::nativeWindow; without one (or on a window that refuses it) they fail here and say why. A
+    // failure destroys what was made, the swapchain first, so the caller can hand the window to another backend.
+    auto fail = [&](const std::string& why) {
+        if (error) *error = why;
+        if (im.gpu.has_device()) im.gpu.device().destroy_swapchain();
+        im.gpu.shutdown();
+        if (!im.adopted) gpu::close_context();
+        impl_.reset();
+        return false;
+    };
+    // Gpu::init falls back to one sample where the device cannot multisample RGBA8.
     std::string gerr;
-    if (!im.gpu.init(samples, &gerr)) {
-        if (error) *error = gerr;
-        if (!im.adopted) sg_shutdown();
-        impl_.reset();
-        return false;
+    if (!im.gpu.init(std::max(1, desc.sampleCount), &gerr, std::move(device))) return fail(gerr);
+    im.gpu.set_queue_options(desc.asyncCompute, desc.multiThreadRecording);
+    if (!desc.headless) {
+        gpu::SwapchainDesc sd;
+        sd.label = "window";
+        sd.nativeWindow = desc.nativeWindow.window;  // read by D3D12 and Vulkan only
+        sd.nativeDisplay = desc.nativeWindow.display;
+        sd.width = std::max(0, desc.nativeWindow.width);
+        sd.height = std::max(0, desc.nativeWindow.height);
+        // The window's MSAA, as the environment says it (the platform's sample count): the present pass is made for it.
+        sd.sampleCount = std::max(1, im.gpu.device().environment_defaults().sampleCount);
+        sd.vsync = desc.vsync;
+        if (auto made = im.gpu.device().create_swapchain(sd); !made)
+            return fail("The renderer cannot draw into the window: " + made.error().to_string());
+        if (sd.nativeWindow && im.gpu.device().has_swapchain() &&
+            (im.gpu.device().backend() == gpu::Backend::D3d12 || im.gpu.device().backend() == gpu::Backend::Vulkan)) {
+            im.windowDesc = sd;  // its label is a literal: it lives as long as the program
+            im.windowManaged = true;
+        }
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     compute_->attach(&im.gpu, im.assets.get());
@@ -521,9 +655,9 @@ void Renderer::shutdown() {
         // submitted: Metal waits for the completion of every frame it began at sg_shutdown, so an uncommitted one would
         // wait forever. Precondition: no pass is open (shutdown is never called between begin_frame and the frame's
         // end): sg_commit inside a pass is invalid in sokol.
-        FA_ASSERT(!Gpu::in_pass(), "Renderer::shutdown while a pass is open");
+        FA_ASSERT(!im.gpu.in_pass(), "Renderer::shutdown while a pass is open");
         if (!im.gpu.committed()) {
-            sg_commit();
+            im.gpu.commit_frame();
             im.gpu.note_commit();
         }
         im.fonts.reset();
@@ -549,18 +683,20 @@ void Renderer::shutdown() {
         im.foliage.destroy();
         im.assets.reset();
         destroy_target(
+            im.gpu.device(),
             im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
-        destroy_target(im.reactiveProbe);
+        destroy_target(im.gpu.device(), im.reactiveProbe);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
-        im.lightAtlas.destroy();  // its images are destroyed with the context still open
+        im.lightAtlas.destroy(im.gpu.device());  // its images are destroyed with the context still open
         im.destroy_decal_atlas();
-        destroy_target(im.shadowTarget);
+        destroy_target(im.gpu.device(), im.shadowTarget);
         im.free_retired_shadow_targets();
+        if (im.gpu.has_device()) im.gpu.device().destroy_swapchain();
         im.gpu.shutdown();
         if (!im.adopted)
-            sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
+            gpu::close_context();  // an adopted context stays open for close_context(): the player may still present
     }
     impl_.reset();
 }
@@ -613,7 +749,7 @@ const render::QualityLimits& Renderer::quality() const { return impl_->quality; 
 ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
 render::QualityResolved Renderer::resolve_graphics_preset(render::GraphicsPreset preset) const {
     render::FeatureEnv env;  // headless (no GPU) until the renderer has one
-    if (initialized()) env = render::feature_env_from_sokol();
+    if (initialized()) env = render::feature_env_from_device(impl_->gpu.device());
     return render::resolve_quality(preset, env);
 }
 render::UpscalerCaps Renderer::upscaler_caps() const { return impl_ ? impl_->upscaler_caps() : render::UpscalerCaps{}; }
@@ -622,16 +758,50 @@ render::UpscalerMode Renderer::effective_upscaler_mode() const {
 }
 float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 const char* Renderer::backend_name() {
-    switch (sg_query_backend()) {
-        case SG_BACKEND_GLCORE: return "glcore";
-        case SG_BACKEND_GLES3: return "gles3";
-        case SG_BACKEND_D3D11: return "d3d11";
-        case SG_BACKEND_METAL_IOS:
-        case SG_BACKEND_METAL_MACOS:
-        case SG_BACKEND_METAL_SIMULATOR: return "metal";
-        case SG_BACKEND_DUMMY: return "dummy";
-        default: return "unknown";  // wgpu / vulkan: the engine never builds those sokol backends
+    // The sokol backend's name (gles3 for WebGL2 too); "dummy" is sokol's dummy backend. With no open context (before
+    // open_context/init, after shutdown) it is the backend this build compiles, the one a context would open: callers that
+    // ask early (the CLI's graphics.detect, a log line) get a real name, never "dummy" for a build that has a GPU backend.
+    if (!gpu::context_open()) {
+#if defined(SOKOL_D3D11)
+        return "d3d11";
+#elif defined(SOKOL_METAL)
+        return "metal";
+#elif defined(SOKOL_GLES3)
+        return "gles3";
+#elif defined(SOKOL_GLCORE)
+        return "glcore";
+#else
+        return "dummy";
+#endif
     }
+    switch (gpu::context_backend()) {
+        case gpu::Backend::Gl: return "glcore";
+        case gpu::Backend::Gles3:
+        case gpu::Backend::WebGl2: return "gles3";
+        case gpu::Backend::D3d11: return "d3d11";
+        case gpu::Backend::Metal: return "metal";
+        case gpu::Backend::Recording: return "dummy";
+        default: return "unknown";  // D3D12 / Vulkan: not sokol backends
+    }
+}
+render::GpuInfo Renderer::gpu_info() {
+    if (!impl_ || !impl_->gpu.has_device()) return {};  // no graphics device: backend "none"
+    render::GpuInfo info = render::query_gpu_info(impl_->gpu.device());
+    // The device's backend: a renderer on D3D12, Vulkan or Recording does not draw on the sokol context.
+    switch (impl_->gpu.device().backend()) {
+        case gpu::Backend::D3d12: info.backend = "d3d12"; break;
+        case gpu::Backend::Vulkan: info.backend = "vulkan"; break;
+        case gpu::Backend::Recording: info.backend = "dummy"; break;
+        default: info.backend = backend_name(); break;
+    }
+    return info;
+}
+
+void RendererDeviceAccess::set_next_device(std::unique_ptr<gpu::Device> device) { next_device() = std::move(device); }
+
+gpu::Device* RendererDeviceAccess::device(Renderer& renderer) {
+    if (!renderer.initialized() || !renderer.impl_->gpu.has_device()) return nullptr;
+    return &renderer.impl_->gpu.device();
 }
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
@@ -684,12 +854,14 @@ RenderStats Renderer::stats(bool passTimes) const {
     if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
     return s;
 }
-std::uint32_t Renderer::game_target_image_id() const { return impl_ ? impl_->display_image().id : 0; }
-std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->display_view().id : 0; }
+render::UiTexture Renderer::game_target_texture() const {
+    if (!impl_) return {};
+    return render::UiTexture{impl_->display_image().id, impl_->display_view().id};
+}
 void Renderer::set_editor_view(bool on) {
     if (!impl_) return;
     impl_->editorView = on;
-    if (!on) destroy_target(impl_->editorTarget);
+    if (!on) destroy_target(impl_->gpu.device(), impl_->editorTarget);
 }
 bool Renderer::hdr_scene() const { return impl_ && impl_->gpu.scene_is_float(); }
 
@@ -703,7 +875,7 @@ void Renderer::set_shader_compiler(ShaderCompiler compiler) {
     if (impl_ && impl_->assets) impl_->assets->set_shader_compiler(shaderCompiler_);
 }
 std::string Renderer::shader_dialect() const {
-    return initialized() ? backend_dialect(sg_query_backend()) : std::string();
+    return initialized() ? backend_dialect(impl_->gpu.device().info()) : std::string();
 }
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
@@ -782,14 +954,14 @@ bool Renderer::supports(std::string_view feature) const {
     if (!initialized()) return false;
     const int index = render::find_feature(feature);
     if (index < 0) return false;
-    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
 Json Renderer::supports_report() const {
     if (!initialized()) return Json::object();
-    render::FeatureEnv env = render::feature_env_from_sokol();
+    render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
     return render::feature_report(env, backend_name());
 }
@@ -898,7 +1070,7 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     if (!initialized()) return;
     Impl& im = *impl_;
     if (!im.backendKnown) {  // the backend never changes once the context is open: asked once, not every frame
-        im.backend = render::feature_env_from_sokol().backend;
+        im.backend = render::feature_env_from_device(im.gpu.device()).backend;
         im.backendKnown = true;
     }
     // Called every frame: the request is kept and changed only where a value differs (a string is compared, never assigned, when it
@@ -920,7 +1092,7 @@ void Renderer::update_output(const SceneSettings& settings, const std::string& b
     const char* note = "";
     if (want) {
         if (!im.float_display())
-            note = im.gpu.scene_format() == SG_PIXELFORMAT_RG11B10F
+            note = im.gpu.scene_format() == gpu::PixelFormat::Rg11B10F
                        ? "the scene is in R11G11B10, which holds the final picture in 8 bits, so it stays within paper "
                          "white"
                        : "this GPU draws the picture in 8 bits, so it stays within paper white";
@@ -1193,8 +1365,8 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
     if (!on) {
-        render::destroy_target(r.impl_->velocityProbe);
-        render::destroy_target(r.impl_->reactiveProbe);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->velocityProbe);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->reactiveProbe);
     }
 }
 void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
@@ -1314,18 +1486,22 @@ int RendererTestAccess::mfx_images(Renderer& r) {
 }
 bool RendererTestAccess::mfx_last_wrote(Renderer& r) { return r.impl_ && r.impl_->mfxLastWrote; }
 bool RendererTestAccess::mfx_read_prep(Renderer& r, int x, int y, float out[3], std::string* error) {
-    if (!r.impl_ || !r.impl_->mfxDepth.valid() || !r.impl_->mfxMotion.valid()) {
+    if (!r.impl_ || !r.impl_->mfxDepth.valid(r.impl_->gpu.device()) ||
+        !r.impl_->mfxMotion.valid(r.impl_->gpu.device())) {
         if (error) *error = "the MetalFX preparation images are not alive";
         return false;
     }
     Renderer::Impl& im = *r.impl_;
     if (!im.gpu.committed()) {  // the frame's work must be submitted before a read-back waits for it
-        sg_commit();
+        im.gpu.commit_frame();
         im.gpu.note_commit();
     }
     std::vector<std::uint8_t> depth, motion;
-    if (!render::readback_storage_image(im.mfxDepth.color, SG_PIXELFORMAT_R32F, x, y, 1, 1, depth, error) ||
-        !render::readback_storage_image(im.mfxMotion.color, SG_PIXELFORMAT_RG16F, x, y, 1, 1, motion, error))
+    gpu::Device& device = im.gpu.device();
+    if (!render::result_ok(device.read_storage_image(im.mfxDepth.color, gpu::PixelFormat::R32F, x, y, 1, 1, depth),
+                           error) ||
+        !render::result_ok(device.read_storage_image(im.mfxMotion.color, gpu::PixelFormat::Rg16F, x, y, 1, 1, motion),
+                           error))
         return false;
     if (depth.size() < 4 || motion.size() < 4) {
         if (error) *error = "the read-back of the MetalFX preparation images came back short";
@@ -1361,10 +1537,10 @@ render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
     render::OutputTargetsInfo o;
     if (!r.impl_) return o;
     const Renderer::Impl& im = *r.impl_;
-    o.out = im.outTarget.valid();
+    o.out = im.outTarget.valid(im.gpu.device());
     o.outDepth = o.out && im.outTarget.depth.id != 0;
-    o.filter = im.outFilterTarget.valid();
-    o.spatial = im.spatialTarget.valid();
+    o.filter = im.outFilterTarget.valid(im.gpu.device());
+    o.spatial = im.spatialTarget.valid(im.gpu.device());
     o.outW = im.outTarget.w;
     o.outH = im.outTarget.h;
     o.outSamples = im.outTarget.samples;
@@ -1372,7 +1548,7 @@ render::OutputTargetsInfo RendererTestAccess::output_targets(Renderer& r) {
 }
 
 int RendererTestAccess::ldr_cut_format(Renderer& r) {
-    return r.impl_ && r.impl_->ldrMid[0].valid() ? int(r.impl_->ldrMid[0].format.color) : 0;
+    return r.impl_ && r.impl_->ldrMid[0].valid(r.impl_->gpu.device()) ? int(r.impl_->ldrMid[0].format.color) : 0;
 }
 
 void Renderer::update(World& world) {
@@ -1529,7 +1705,7 @@ void Renderer::Impl::render(World& world, float dt) {
     const bool oneFullCamera = lastCams.size() == 1 && lastCams.front().fullViewport();
     // The history of the output size is made before the cameras are jittered: a budget or a GPU that refuses it decides this frame (no jitter,
     // the spatial upscaler), not the frame after a jittered picture that nothing resolves.
-    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(targetW, targetH, postSerial)) {
+    if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(gpu.device(), targetW, targetH, postSerial)) {
         wantedPhases = 0;
         mfxFrame = false;
     }
@@ -1703,7 +1879,7 @@ void Renderer::Impl::render(World& world, float dt) {
     update_parallax(world, logic_camera_xy());
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
-    ramps.sync();
+    ramps.sync(gpu.device());
     stats.glyphAtlasSize = fonts->atlas_size();
     stats.glyphAtlasResets = int(fonts->atlas_epoch());
     // The screen-space job of a split frame is dropped when it has nothing to draw (a pass less).
@@ -1938,10 +2114,25 @@ void Renderer::Impl::render(World& world, float dt) {
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
+void Renderer::set_native_window(const void* window) {
+    if (!initialized() || !impl_->windowManaged) return;
+    Impl& im = *impl_;
+    if (!window) {
+        // The window is going: its swapchain goes now, while the window still exists (the device waits for its images).
+        im.gpu.device().destroy_swapchain();
+        im.windowDesc.nativeWindow = nullptr;
+        FA_INFO("render", "Renderer: the window went; its swapchain is destroyed until the next one");
+        return;
+    }
+    if (window != im.windowDesc.nativeWindow) im.gpu.device().destroy_swapchain();  // none on a new window yet
+    im.windowDesc.nativeWindow = window;
+    im.windowRemakeFailed = false;  // present() makes the swapchain on it
+}
+
 void Renderer::end_frame() {
     if (!initialized()) return;
     if (impl_->desc.headless) {
-        sg_commit();
+        impl_->gpu.commit_frame();
         impl_->gpu.note_commit();
     }
     impl_->inFrame = false;
@@ -2023,9 +2214,11 @@ Renderer::BackgroundWork Renderer::background_work(std::string_view pathIn, Back
     BackgroundWork w;
     switch (kind) {
         case BackgroundKind::Texture: {
-            const sg_pixel_format format = impl_ ? render::ktx2_target_format() : SG_PIXELFORMAT_RGBA8;
+            const gpu::PixelFormat format =
+                impl_ ? render::ktx2_target_format(impl_->gpu.device()) : gpu::PixelFormat::Rgba8;
             // The colour space the texture will be made for (asked here, on the calling thread, not in the worker).
-            const bool srgbMips = impl_ && impl_->gpu.texture_format(SG_PIXELFORMAT_RGBA8) != SG_PIXELFORMAT_RGBA8;
+            const bool srgbMips =
+                impl_ && impl_->gpu.texture_format(gpu::PixelFormat::Rgba8) != gpu::PixelFormat::Rgba8;
             w.read = [path]() -> Result<IoFile> {
                 // As Assets::load_texture: an export packed it into an atlas (read the atlas), or made a KTX2 twin.
                 const assets::PackedTexture packed = assets::packed_texture(path);

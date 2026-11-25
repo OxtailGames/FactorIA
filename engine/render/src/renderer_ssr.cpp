@@ -8,7 +8,9 @@
 
 #include "postprocess.h"
 #include "postprocess_resolve.h"
+#include "fullscreen_gpu.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/ssr.glsl.h"
 
 namespace fa::render {
@@ -37,33 +39,30 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // One full-screen triangle with `prog` into the pass `pd`. `tc`, `tp`: the colour and prepass images (the copy binds only the first).
 // `fu`: the program's uniform block (null: none). `part`: the rectangle of the destination the pass covers (null: all of it).
 // False (nothing drawn) when the target of the pass is gone.
-bool draw_fullscreen(Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, sg_view tc, sg_view tp, const void* fu,
-                     std::size_t fuSize, const Rect* part) {
+bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, gpu::View tc,
+                     gpu::View tp, const void* fu, std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return false;
-    Gpu::begin_pass(pd);
+    const gpu::Pipeline pipe = fx.pipeline(prog, pd.format);  // made before the pass opens
+    list.begin_pass(pd);
     if (part) {
-        sg_apply_viewport(part->x, part->y, part->w, part->h, true);
-        sg_apply_scissor_rect(part->x, part->y, part->w, part->h, true);
+        list.set_viewport(part->x, part->y, part->w, part->h, true);
+        list.set_scissor(part->x, part->y, part->w, part->h, true);
     }
-    sg_apply_pipeline(fx.pipeline(prog, pd.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    list.set_pipeline(pipe);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[0] = tc;
     if (prog == Ssr::Prog::Trace) {
         b.views[1] = tp;
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     float flip[4] = {gpu.is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(UB_ssr_ssr_vs_params, &vr);
-    if (fu) {
-        sg_range fr{fu, fuSize};
-        sg_apply_uniforms(UB_ssr_ssr_params, &fr);
-    }
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.set_uniforms(UB_ssr_ssr_vs_params, gpu::Range{flip, sizeof(flip)});
+    if (fu) list.set_uniforms(UB_ssr_ssr_params, gpu::Range{fu, fuSize});
+    list.draw(0, 3, 1);
+    list.end_pass();
     return true;
 }
 
@@ -93,17 +92,18 @@ SsrPlan make_ssr_plan(const CameraInfo& cam, const PostStack& stack) {
     return p;
 }
 
-bool Ssr::ready() {
+bool Ssr::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
-    const sg_backend backend = sg_query_backend();
-    shaders_[int(Prog::Trace)] = make_shader(ssr_trace_shader_desc(backend), "ssr_trace");
-    shaders_[int(Prog::Copy)] = make_shader(ssr_copy_shader_desc(backend), "ssr_copy");
+    device_ = &gpu.device();
+    gpu::Device& dev = *device_;
+    shaders_[int(Prog::Trace)] = make_shader(dev, gpu::generated_shader_desc(dev, ssr_trace_shader_desc), "ssr_trace");
+    shaders_[int(Prog::Copy)] = make_shader(dev, gpu::generated_shader_desc(dev, ssr_copy_shader_desc), "ssr_copy");
     bool ok = true;
-    for (sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    for (gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {
-        for (sg_shader& s : shaders_) {
-            if (s.id) sg_destroy_shader(s);
-            s = {};
+        for (gpu::Shader& sh : shaders_) {
+            if (sh.id) dev.destroy_shader(sh);
+            sh = {};
         }
         state_ = -1;
         FA_ERROR("render", "Screen-space reflections are unavailable: their shaders failed to compile for this "
@@ -117,23 +117,14 @@ bool Ssr::ready() {
     return true;
 }
 
-sg_pipeline Ssr::pipeline(Prog prog, const TargetFormat& format) {
+gpu::Pipeline Ssr::pipeline(Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
-    if (state_ <= 0) return {};
-    sg_pipeline_desc d{};
-    d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
-    d.label = prog == Prog::Trace ? "ssr-trace" : "ssr-copy";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (state_ <= 0 || !device_) return {};
+    const char* label = prog == Prog::Trace ? "ssr-trace" : "ssr-copy";
+    // `pos`, location 0 in every program.
+    const gpu::Pipeline p = make_triangle_pipeline(*device_, shaders_[int(prog)], format, label);
+    if (device_->state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -145,17 +136,19 @@ void Ssr::forget_targets() {
 }
 
 void Ssr::release() {
-    for (PipelineEntry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
-    pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
-        s = {};
+    if (device_) {
+        for (PipelineEntry& e : pipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        for (gpu::Shader& sh : shaders_)
+            if (sh.id) device_->destroy_shader(sh);
     }
+    pipelines_.clear();
+    for (gpu::Shader& sh : shaders_) sh = {};
     state_ = 0;
     failed_.clear();
     probed_.clear();
     warnedTargets_ = false;
+    device_ = nullptr;
 }
 
 // The pass callbacks capture the uniform block by value, which is alignas(16): MSVC warns (C4324, an error under /WX) that each closure is
@@ -165,13 +158,13 @@ void Ssr::release() {
 #pragma warning(disable : 4324)
 #endif
 int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rectIn,
-                    int picW, int picH, ResourceId game, sg_view srcTex, const BloomTarget& dst,
+                    int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                     const PrepassRef& prepass, int* drawCalls, const std::string& job) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
-    if (!ready()) return 0;
-    const sg_pixel_format fmt = gpu.scene_format();
+    if (!ready(gpu)) return 0;
+    const gpu::PixelFormat fmt = gpu.scene_format();
     const int rw = rect.w, rh = rect.h;
     const std::uint64_t shapeKey = (std::uint64_t(rw) << 40) ^ (std::uint64_t(rh) << 16) ^ std::uint64_t(fmt);
 
@@ -180,7 +173,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     TransientDesc sd;
     sd.width = rw;
     sd.height = rh;
-    sd.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
+    sd.format = TargetFormat{fmt, gpu::PixelFormat::None, 1};
     sd.label = job + "/ssr-scratch";
     if (std::find(failed_.begin(), failed_.end(), shapeKey) != failed_.end()) return 0;
     if (std::find(probed_.begin(), probed_.end(), shapeKey) == probed_.end()) {  // once per shape, not every frame
@@ -236,7 +229,7 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
     for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
 
-    const TargetFormat dstFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     auto scratchReady = std::make_shared<bool>(false);  // the copy runs only after a trace that did
 
     add("ssr-trace", {game, pre}, {scratch}, [=](const PassContext& c) {
@@ -244,8 +237,9 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         const Target* st = tt->get(c.handle(scratch));
         if (!pt || !st || !srcTex.id) return;
         PassDesc pd = pass_into(*st, "ssr-trace");
-        pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
-        if (!draw_fullscreen(*self, *g, Prog::Trace, pd, srcTex, pt->texView, &u, sizeof(u), nullptr)) return;
+        pd.colorLoad = gpu::LoadAction::DontCare;  // every texel is drawn
+        if (!draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Trace, pd, srcTex, pt->texView, &u, sizeof(u), nullptr))
+            return;
         *scratchReady = true;
         ++*drawCalls;
     });
@@ -258,9 +252,9 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = rect.whole && dst.samples <= 1 ? SG_LOADACTION_DONTCARE : SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
-        if (draw_fullscreen(*self, *g, Prog::Copy, pd, st->texView, sg_view{}, nullptr, 0,
+        pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
+        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, nullptr, 0,
                             rect.whole ? nullptr : &rect))
             ++*drawCalls;
     });

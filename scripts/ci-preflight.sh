@@ -209,9 +209,30 @@ EOF
 $RULES
 EOF
     # Cross-file checks the table cannot express.
-    if grep -q '\.glsl$' "$NAMES" && ! grep -Eq 'shaders/.*\.glsl\.h$' "$NAMES"; then
+    # Each changed shader that has a program (a template without @program is compiled through its includers) needs its own header
+    # in the diff: engine/render/src/shaders/<name>.glsl.h, or <file>.glsl.h beside a test shader.
+    # A changed template changes every header of the programs that include it: at least one header must be in the diff.
+    local glsl hdr missing="" template=""
+    while IFS= read -r glsl; do
+        [ -f "$glsl" ] || continue
+        if ! grep -q '^@program' "$glsl"; then
+            template="$glsl"
+            continue
+        fi
+        case "$glsl" in
+            engine/render/tests/shaders/*.glsl) hdr="$glsl.h" ;;
+            *.glsl) hdr="engine/render/src/shaders/$(basename "$glsl").h" ;;
+            *) continue ;;
+        esac
+        grep -qxF "$hdr" "$NAMES" || missing="$missing $glsl (needs $hdr)"$'\n'
+    done < <(grep '\.glsl$' "$NAMES")
+    if [ -n "$template" ] && ! grep -qE '^engine/render/(src|tests)/shaders/.*\.glsl\.h$' "$NAMES"; then
+        missing="$missing $template (a template: the headers of the shaders that include it)"$'\n'
+    fi
+    if [ -n "$missing" ]; then
         FINDINGS=$((FINDINGS + 1))
-        printf '\n[shader-headers] a .glsl changed and no engine/render/src/shaders/*.glsl.h did: run tools/shaders/compile_shaders.sh and commit the headers.\n'
+        printf '\n[shader-headers] a .glsl changed and its .glsl.h did not: run tools/shaders/compile_shaders.sh and commit the headers.\n%s' "$(printf '%s' "$missing" | sed 's/^ */    /')"
+        echo
     fi
     local dup; dup="$(git ls-files | awk '{k = tolower($0); if (k in s && s[k] != $0) print s[k] " <-> " $0; s[k] = $0}' | head -n 5)"
     if [ -n "$dup" ]; then

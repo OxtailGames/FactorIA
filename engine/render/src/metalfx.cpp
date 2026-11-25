@@ -36,21 +36,21 @@ struct Scaler::Impl {
     Desc desc;
 };
 
-Support support() {
+Support support(const void*) {
     Support s;
     s.reason = unavailable_reason();
     return s;
 }
-Support support_default_device() { return support(); }
+Support support_default_device() { return support(nullptr); }
 
 Scaler::Scaler() : impl_(std::make_unique<Impl>()) {}
 Scaler::~Scaler() = default;
 
-bool Scaler::configure(const Desc&, std::string* error) {
+bool Scaler::configure(gpu::Device&, const Desc&, std::string* error) {
     if (error) *error = unavailable_reason();
     return false;
 }
-bool Scaler::encode(const Frame&, std::string* error) {
+bool Scaler::encode(gpu::Device&, const Frame&, std::string* error) {
     if (error) *error = unavailable_reason();
     return false;
 }

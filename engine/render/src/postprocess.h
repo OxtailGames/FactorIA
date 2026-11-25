@@ -35,7 +35,7 @@ namespace fa::render {
 
 // The LUT strip the final pass binds (Assets::lut): the view and the layout of its slices.
 struct LutInfo {
-    sg_view view{};
+    gpu::View view{};
     int size = 0, cols = 0, rows = 0;
 };
 
@@ -315,8 +315,8 @@ BloomSettings bloom_from_stack(const PostStack& stack);
 // runs the colour filter, and only a piece with the stage runs what the stage does (the outline reads `aux` in its
 // piece only). The pixelate, which moves the position every effect reads, is in every piece.
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool convert, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, sg_view aux, int w, int h, const OutputTarget& output = {},
-                   const PostRect& rect = {}, const PostSlice& slice = {});
+                   gpu::View src, gpu::View expo, gpu::View white, gpu::View aux, int w, int h,
+                   const OutputTarget& output = {}, const PostRect& rect = {}, const PostSlice& slice = {});
 
 // PostProcess.exposureMode auto. The adapted EV lives in a 1x1 RGBA16F target (two of them, taking turns: a pass cannot read what it
 // writes); `exposure-luma` reduces the finished game image to 32x32 log-luminances and `exposure-adapt` moves the stored EV toward the
@@ -335,11 +335,11 @@ public:
     // measured exposure is taken at once, not approached. `dt` is the engine's frame time.
     // `plan.rect` is the part of the picture that is measured (a camera's), `picW` x `picH` the size of the picture.
     ResourceId add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const PostPlan& plan, ResourceId game,
-                          sg_view srcTex, float dt, std::uint64_t serial, int* drawCalls, const std::string& job,
+                          gpu::View srcTex, float dt, std::uint64_t serial, int* drawCalls, const std::string& job,
                           int picW = 0, int picH = 0);
 
     // The 1x1 image with the EV the last executed `exposure-adapt` wrote (what the final pass samples).
-    sg_view ev_view() const { return ev_[cur_].texView; }
+    gpu::View ev_view() const { return ev_[cur_].texView; }
     // Destroys the targets and forgets the adaptation (the next frame measures again). Call while the graphics context is open.
     void release();
 
@@ -347,7 +347,8 @@ private:
     bool ensure_targets(Gpu& gpu);
     void warn_luma_missing();  // the measuring target could not be made after the first check: a warning, once
     Target ev_[2];
-    int cur_ = 0;  // the index of the target that holds the EV
+    gpu::Device* device_ = nullptr;  // the device ev_ was made on (ensure_targets), to destroy it on
+    int cur_ = 0;                    // the index of the target that holds the EV
     bool fresh_ = true;
     // A failed attempt to make a target: no new one before this frame (`serial` of add_passes), then it tries again.
     static constexpr std::uint64_t kRetryFrames = 300;

@@ -19,8 +19,9 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake",  "xcode",     "appimage",
-                                                 "shaders", "vscode",  "ffmpeg", "webplayer", "launcher"};
+    static const std::vector<std::string> ids = {"android",   "players",  "cmake",        "xcode",
+                                                 "appimage",  "shaders",  "vscode",       "ffmpeg",
+                                                 "webplayer", "launcher", "directstorage"};
     return ids;
 }
 
@@ -160,7 +161,7 @@ Command make_setup_command() {
     Command g;
     g.name = "setup";
     g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, "
-                "AppImage tools, the shader compiler, the app launcher).";
+                "AppImage tools, the shader compiler, the app launcher, the DirectStorage DLLs).";
     g.usage = "";
     g.details =
         "'factoria setup' shows what an export needs and whether this computer has it. 'factoria setup <component>' "
@@ -196,7 +197,11 @@ Command make_setup_command() {
         "           --record-video trailer.mp4' into H.264 + AAC, so it works without installing ffmpeg by hand.\n"
         "  launcher macOS: ~/Applications/FactorIA.app, Linux: a .desktop entry - opens this factoria's editor with "
         "the FactorIA\n"
-        "           icon, for the Dock, Launchpad or the application menu. Nothing is downloaded.";
+        "           icon, for the Dock, Launchpad or the application menu. Nothing is downloaded.\n"
+        "  directstorage the x64 dstorage.dll and dstoragecore.dll of Microsoft's DirectStorage (NuGet package 1.3.0, "
+        "SHA-256 checked):\n"
+        "           a Windows release export with export.pack.directStorage puts them next to the game. Any computer "
+        "can install them.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses",
@@ -273,6 +278,11 @@ Command make_setup_command() {
                          "macOS, Linux: write the app that opens this factoria's editor with the FactorIA icon (Dock, "
                          "Launchpad, application menu).",
                          {{"force", "", "Write it again even when it is up to date."}}, {"factoria setup launcher"}));
+    g.subs.push_back(sub("directstorage",
+                         "Download the DirectStorage DLLs a Windows release export with export.pack.directStorage "
+                         "puts next to the game.",
+                         {{"force", "", "Download them again even when installed."}},
+                         {"factoria setup directstorage"}));
     return g;
 }
 

@@ -12,6 +12,7 @@
 #include "fa/render/graphics_preset.h"
 #include "postprocess_resolve.h"
 #include "quality.h"
+#include "render_internal.h"
 #include "render_features.h"
 #include "renderer_test_access.h"
 
@@ -371,8 +372,9 @@ TEST_CASE("graphics presets on a GPU: custom brings back the game's own picture 
     const Image back = g.draw(w);
     CHECK(differing(own, back) == 0);
     CHECK(differing(own, ultraPic) == 0);
-    const bool anyFeature = feature_supported(feature_env_from_sokol(), find_feature("ssao")) ||
-                            feature_supported(feature_env_from_sokol(), find_feature("cascadedShadows"));
+    const FeatureEnv env = feature_env_from_device(RendererTestAccess::gpu(g.renderer)->device());
+    const bool anyFeature =
+        feature_supported(env, find_feature("ssao")) || feature_supported(env, find_feature("cascadedShadows"));
     if (anyFeature) {
         CHECK(differing(own, lowPic) > 0);
     } else {
@@ -390,7 +392,7 @@ TEST_CASE("graphics presets on a GPU: custom brings back the game's own picture 
 TEST_CASE("gpu benchmark on a GPU: bounded, leaves the preset and the world alone, never run on a software renderer") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const GpuInfo info = query_gpu_info();
+    const GpuInfo info = g.renderer.gpu_info();
     CHECK(info.backend == Renderer::backend_name());
     const QualityLimits low = graphics_preset_table(GraphicsPreset::Low).limits;
     g.renderer.set_quality(low);
@@ -522,7 +524,7 @@ TEST_CASE(
 TEST_CASE("gpu benchmark on a GPU: a game in the Linear colour space keeps its targets and histories") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const GpuInfo info = query_gpu_info();
+    const GpuInfo info = g.renderer.gpu_info();
     World w;
     Entity cam = make(w, "cam", {0, 3, 9});
     auto& c = w.add<Camera>(cam);

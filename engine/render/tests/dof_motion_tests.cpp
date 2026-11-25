@@ -819,9 +819,9 @@ TEST_CASE("per-object motion blur: an object farther than 65504 m (past the rang
 TEST_CASE("the pipeline cache tells the prepass with and without the velocity image apart") {
     // The two differ only in the format of the second colour attachment: a key that ignored it would hand a pass with one attachment the
     // pipeline made for two (a sokol validation error and an abort).
-    render::PipelineKey one{0xC00u, 0u, render::TargetFormat{SG_PIXELFORMAT_RGBA32F, SG_PIXELFORMAT_DEPTH, 1}};
+    render::PipelineKey one{0xC00u, 0u, render::TargetFormat{gpu::PixelFormat::Rgba32F, gpu::PixelFormat::Depth, 1}};
     render::PipelineKey two = one;
-    two.format.color1 = SG_PIXELFORMAT_RG16F;
+    two.format.color1 = gpu::PixelFormat::Rg16F;
     CHECK_FALSE(one == two);
     CHECK((one < two) != (two < one));
     std::map<render::PipelineKey, int> cache;

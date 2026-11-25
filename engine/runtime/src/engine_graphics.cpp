@@ -137,7 +137,7 @@ Json Engine::graphics_detect(std::string* error) {
     (void)error;
     Impl& I = *impl_;
     const bool hasRenderer = I.renderer && I.renderer->initialized();
-    const render::GpuInfo gpu = hasRenderer ? render::query_gpu_info() : render::GpuInfo{};
+    const render::GpuInfo gpu = hasRenderer ? I.renderer->gpu_info() : render::GpuInfo{};
     render::GpuBenchmark bench;
     if (hasRenderer)
         bench = render::run_gpu_benchmark(*I.renderer, gpu);

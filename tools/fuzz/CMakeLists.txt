@@ -6,6 +6,7 @@
 fa_add_fuzz_target(json DEPS fa_core)
 fa_add_fuzz_target(json_schema DEPS fa_core)
 fa_add_fuzz_target(pak DEPS fa_core)
+fa_add_fuzz_target(gdeflate DEPS fa_core)
 fa_add_fuzz_target(scene DEPS fa_scene)
 fa_add_fuzz_target(prefab DEPS fa_scene)
 fa_add_fuzz_target(image DEPS fa_core)

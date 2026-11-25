@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include "sokol_gfx.h"
+#include "gpu/types.h"
 
 namespace fa::render {
 
@@ -38,9 +38,9 @@ int upscale_jitter_phases(int renderW, int renderH, int outW, int outH);
 // colour: the format of the output image is the same, so the copy never converts). `depth` (linear view depth) and `velocity` are
 // null views until the passes that make them exist; an implementation that needs them must work without (camera reprojection).
 struct UpscaleInput {
-    sg_view color{};
-    sg_view depth{};
-    sg_view velocity{};
+    gpu::View color{};
+    gpu::View depth{};
+    gpu::View velocity{};
     float jitter[2] = {0.0f, 0.0f};  // this frame's camera jitter, in render pixels (0 until a temporal mode jitters)
     int renderW = 0, renderH = 0;    // size of `color`
     int outW = 0, outH = 0;          // size of the output image

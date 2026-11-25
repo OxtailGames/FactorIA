@@ -16,13 +16,13 @@ bool Renderer::Impl::ensure_cookie_target() {
     d.label = "light-cookies";
     d.width = kCookieGrid * kCookieCell;
     d.height = kCookieGrid * kCookieCell;
-    d.colorFormat = SG_PIXELFORMAT_RGBA8;
-    cookieTarget = make_target(d);
-    if (!cookieTarget.valid()) {
+    d.colorFormat = gpu::PixelFormat::Rgba8;
+    cookieTarget = make_target(gpu.device(), d);
+    if (!cookieTarget.valid(gpu.device())) {
         FA_ERROR("render",
                  "Cannot create the {}x{} atlas of the 2D light cookies; the lights shine without their cookies",
                  d.width, d.height);
-        destroy_target(cookieTarget);
+        destroy_target(gpu.device(), cookieTarget);
         cookieTargetFailed = true;
         return false;
     }
@@ -82,22 +82,23 @@ void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
         cookieStamp = std::move(stamp);
     }
     PassDesc p = pass_into(cookieTarget, "light-cookies");
-    p.colorLoad = SG_LOADACTION_CLEAR;
+    p.colorLoad = gpu::LoadAction::Clear;
     p.clearColor = {0, 0, 0, 0};  // an empty cell lets no light through
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
+    p.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(p);
+    list.set_pipeline(gpu.blit_keep_pipeline(p.format));
     for (std::size_t i = 0; i < cells.size(); ++i) {
         const TextureAsset* t = cells[i];
         if (!t || !t->gpu_view().id) continue;
         const int cx = int(i) % kCookieGrid, cy = int(i) / kCookieGrid;
-        sg_apply_viewport(cx * kCookieCell, cy * kCookieCell, kCookieCell, kCookieCell, true);
-        sg_apply_scissor_rect(cx * kCookieCell, cy * kCookieCell, kCookieCell, kCookieCell, true);
-        sg_bindings b{};
-        b.vertex_buffers[0] = gpu.fullscreen_triangle();
+        list.set_viewport(cx * kCookieCell, cy * kCookieCell, kCookieCell, kCookieCell, true);
+        list.set_scissor(cx * kCookieCell, cy * kCookieCell, kCookieCell, kCookieCell, true);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
         b.views[VIEW_blit_tex] = t->gpu_view();
         b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::LinearClamp);
-        sg_apply_bindings(&b);
+        list.set_bindings(b);
         blit_blit_vs_params_t u{};
         if (t->atlas) {  // packed into an atlas by an export: only its own part
             const float aw = float(std::max(1, t->atlas->width)), ah = float(std::max(1, t->atlas->height));
@@ -106,15 +107,15 @@ void Renderer::Impl::cookie_pass(const std::vector<TextureAsset*>& cells) {
             u.region[2] = float(t->width) / aw;
             u.region[3] = float(t->height) / ah;
         }
-        apply_uniforms(UB_blit_blit_vs_params, u);
+        list.set_uniforms(UB_blit_blit_vs_params, gpu::Range{&u, sizeof(u)});
         blit_blit_fs_params_t fu{};
         // The atlas holds the file's own values: a texture the GPU decodes from sRGB is encoded back (blit_keep's encode).
         fu.encode[0] = t->tex_fix(false, false) == 2 ? 1.0f : 0.0f;
-        apply_uniforms(UB_blit_blit_fs_params, fu);
-        sg_draw(0, 3, 1);
+        list.set_uniforms(UB_blit_blit_fs_params, gpu::Range{&fu, sizeof(fu)});
+        list.draw(0, 3, 1);
         ++stats.drawCalls;
     }
-    gpu.end_pass();
+    list.end_pass();
     ++stats.drawCalls;
 }
 

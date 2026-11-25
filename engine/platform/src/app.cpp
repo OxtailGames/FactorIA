@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <utility>
 #if defined(__APPLE__)
@@ -34,6 +35,7 @@
 #include "activity_end.h"
 #include "ime_android.h"
 #endif
+#include "d3d11_present.h"
 #include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -42,6 +44,14 @@
 #include "fa/core/log.h"
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
+#endif
+
+// Linux with sokol_app's GLX window (M77-P9e3) and Android's EGL window (M77-P9e3b): the OpenGL surface leaves the
+// window while a Vulkan device presents there (fa_sapp_gl_surface_release in sokol_impl.c). A Linux EGL window
+// (SOKOL_FORCE_EGL, a GLES3 build) keeps it.
+#if (defined(__linux__) && !defined(__ANDROID__) && defined(SOKOL_GLCORE) && !defined(SOKOL_FORCE_EGL)) ||             \
+    defined(__ANDROID__)
+#define FA_GL_WINDOW_HANDOVER 1
 #endif
 
 namespace fa {
@@ -68,6 +78,12 @@ struct AppState {
 #endif
     bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
     bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
+    // Who makes the window's swapchain (window_presenter_step): the platform's, or a GPU device that claimed the
+    // window.
+    WindowPresenter presenter = WindowPresenter::Unclaimed;
+    std::string deviceBackend;            // the backend that claimed the window ("" when none did)
+    bool presenterRefusalLogged = false;  // app_gfx_environment() while a device has the window: said once
+    bool vsyncRefusalLogged = false;      // app_set_vsync() while a device has the window: said once
 };
 AppState g;
 
@@ -243,12 +259,40 @@ void on_frame() {
     if (g.desc.input)
         mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
     if (--g.framesToInsets <= 0) refresh_insets();
+#if defined(FA_D3D11_PRESENTER)
+    // Windows: sokol_app has no graphics API (sokol_impl.c), so the window's swapchain follows the framebuffer size
+    // here and the frame is presented after the game drew it. No presenter yet (the game has not asked for its device,
+    // or draws with D3D12 or Vulkan on its own swapchain): nothing to do. A presenter whose views could not be made
+    // again (a failed resize) is still resized every frame, which makes them again; it presents only with its views
+    // (valid()).
+    if (d3d11::Presenter* live = d3d11::window_presenter_live()) live->resize(sapp_width(), sapp_height());
+#endif
     if (g.desc.frame) g.desc.frame(dt);
+#if defined(FA_D3D11_PRESENTER)
+    // Asked again: the frame may have made it (its first app_gfx_environment()) or released it (a D3D12 or Vulkan
+    // renderer claimed the window).
+    if (d3d11::Presenter* presenter = d3d11::window_presenter()) {
+        const int interval = g.vsync ? std::max(1, sapp_query_desc().swap_interval) : 0;
+        presenter->present(interval, d3d11::in_modal_move_size_loop());
+    }
+#endif
 }
 
 #if !(defined(__ANDROID__) ||                                                                                          \
       (defined(__APPLE__) && TARGET_OS_IPHONE))  // phones never reach run_app() or the macOS exit below
 int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
+#endif
+
+#if defined(FA_GL_WINDOW_HANDOVER)
+// sokol_app's OpenGL surface back on the window after a device let it go (nothing when it never left). "" = it is on
+// the window; else why it is not (also logged).
+std::string restore_gl_surface() {
+    if (fa_sapp_gl_surface_state() == 0) return "";
+    char why[512];
+    if (fa_sapp_gl_surface_restore(why, sizeof why)) return "";
+    FA_ERROR("platform", "The window's OpenGL surface could not come back: {}", why);
+    return why;
+}
 #endif
 
 void on_cleanup() {
@@ -271,6 +315,19 @@ void on_cleanup() {
     ime_android_attach(false);
 #endif
     if (g.desc.cleanup) g.desc.cleanup();
+#if defined(FA_D3D11_PRESENTER)
+    d3d11::window_presenter_release();  // after sg_shutdown(): sokol_gfx used its device
+#endif
+#if defined(FA_GL_WINDOW_HANDOVER)
+    // A device that still had the window (a host that did not call app_release_native_window()) is gone with the app's
+    // cleanup. No window surface is made for sokol_app's shutdown to destroy at once (the window may still be the
+    // device's, and the make would fail): only the stand-in goes (a pbuffer here; on Android sokol_app destroys its
+    // stand-in itself).
+    app_set_native_window_listener({});
+    fa_sapp_gl_surface_discard();
+#endif
+    g.presenter = WindowPresenter::Unclaimed;
+    g.deviceBackend.clear();
     g.active = false;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
     // macOS: sapp_run() does not return; Cocoa ends the process with 0 right after this callback. Use our code instead.
@@ -476,20 +533,187 @@ int run_app(const AppDesc& desc) {
 
 bool gfx_device_active() { return sg_isvalid(); }
 
-GfxEnvironment app_gfx_environment() {
+GfxEnvironment app_gfx_formats() {
     GfxEnvironment out{};
+#if defined(FA_D3D11_PRESENTER)
+    // What the D3D11 presenter's environment() says before it has a device: BGRA8, a depth-stencil buffer when the
+    // window asked for one, its sample count.
+    sg_environment env{};
+    env.defaults.color_format = SG_PIXELFORMAT_BGRA8;
+    const bool depth = !sapp_isvalid() || sapp_depth_format() != SAPP_PIXELFORMAT_NONE;
+    env.defaults.depth_format = depth ? SG_PIXELFORMAT_DEPTH_STENCIL : SG_PIXELFORMAT_NONE;
+    env.defaults.sample_count = sapp_isvalid() ? std::max(1, sapp_sample_count()) : 1;
+#else
     sg_environment env = sglue_environment();
+#endif
+    static_assert(sizeof(env) <= sizeof(out.storage));
     std::memcpy(out.storage, &env, sizeof(env));
     return out;
 }
 
+GfxEnvironment app_gfx_environment() {
+    const WindowPresenterStep step =
+        window_presenter_step(g.presenter, WindowPresenterEvent::PlatformAsked, gfx_device_active(), "");
+    if (!step.error.empty()) {
+        if (!g.presenterRefusalLogged)
+            FA_ERROR("platform", "app_gfx_environment(): the {} renderer has the window: {}", g.deviceBackend,
+                     step.error);
+        g.presenterRefusalLogged = true;
+        return app_gfx_formats();  // no device in it: sg_setup() fails
+    }
+    g.presenter = step.next;
+#if defined(FA_D3D11_PRESENTER)
+    // The window's D3D11 device, made on the first call (d3d11_present_win32.cpp). Without one (no Direct3D 11, the
+    // error was logged) the environment has a null device and sg_setup() fails the way it did when sokol_app could not
+    // make it.
+    if (const d3d11::Presenter* p = d3d11::window_presenter_ensure()) return p->environment();
+    return d3d11::Presenter().environment();
+#else
+    return app_gfx_formats();
+#endif
+}
+
 GfxSwapchain app_gfx_swapchain() {
+    if (g.presenter == WindowPresenter::Device) {
+        // A D3D12 or Vulkan device presents into the window: there are no platform views to hand out (and on macOS
+        // taking sokol_app's next drawable would take one of the layer's from that device).
+        GfxSwapchain out{};
+        sg_swapchain sc{};
+        sc.invalid = true;  // sokol_gfx skips the pass
+        static_assert(sizeof(sc) <= sizeof(out.storage));
+        std::memcpy(out.storage, &sc, sizeof(sc));
+        return out;
+    }
+#if defined(FA_D3D11_PRESENTER)
+    if (const d3d11::Presenter* p = d3d11::window_presenter()) return p->swapchain();
+    return d3d11::Presenter().swapchain();  // invalid: sokol_gfx skips the pass
+#else
     GfxSwapchain out{};
     sg_swapchain sc = sglue_swapchain();
     // HDR10 (hdr_output.cpp): sokol_app knows only its 8-bit and 16-bit float formats, so the 10-bit one is said here.
     if (fa_sapp_swapchain_kind() == 2) sc.color_format = SG_PIXELFORMAT_RGB10A2;
     std::memcpy(out.storage, &sc, sizeof(sc));
     return out;
+#endif
+}
+
+NativeWindow app_native_window() {
+    NativeWindow out;
+#if (defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)) && !defined(FA_GL_WINDOW_HANDOVER)
+    // A Linux EGL window, the web: sokol_app's OpenGL surface stays on the window.
+    out.busy = "sokol_app made an OpenGL context on this window and swaps its buffers after every frame, so a Vulkan "
+               "device cannot make its own swapchain on it (hint: this build draws its window with OpenGL; leave "
+               "render.backend on auto here, or run headless)";
+#endif
+    void* window = nullptr;
+    void* display = nullptr;
+    if (sapp_isvalid() && fa_sapp_native_window(&window, &display)) {
+        out.window = window;
+        out.display = display;
+    } else if (out.busy.empty()) {
+        out.busy = "there is no native window to make a swapchain on (no window yet, or this platform hands none: iOS, "
+                   "the web) (hint: leave render.backend on auto here, or run headless)";
+    }
+    return out;
+}
+
+Result<NativeWindow> app_claim_native_window(const std::string& backend) {
+    NativeWindow handles = app_native_window();
+    const WindowPresenterStep step =
+        window_presenter_step(g.presenter, WindowPresenterEvent::DeviceClaim, gfx_device_active(), handles.busy);
+    if (!step.error.empty())
+        return make_error("the window cannot be handed to the " + backend + " device: " + step.error);
+#if defined(FA_GL_WINDOW_HANDOVER)
+    // sokol_app's GLX or EGL surface is on the window from its start, whatever the presenter state says (None too: the
+    // runner opened no sokol context), so it leaves on every claim. A driver that refuses keeps the window on OpenGL
+    // and the claim fails with its reason (the engine falls back to OpenGL in process and reports it).
+    {
+        char why[512];
+        if (!fa_sapp_gl_surface_release(why, sizeof why))
+            return make_error("the window cannot be handed to the " + backend + " device: " + why);
+        if (fa_sapp_gl_surface_state() == 2)
+            FA_INFO("platform", "The window's OpenGL context waits for the {} device with no drawable (no pbuffer: {})",
+                    backend, why);
+        else
+            FA_INFO("platform", "The window's OpenGL context waits for the {} device on a 1x1 pbuffer", backend);
+    }
+#endif
+    // macOS: remember the CAMetalLayer's device and pixel format, which the device's swapchain changes.
+    fa_sapp_window_claimed();
+    if (step.releasePlatform) {
+#if defined(FA_D3D11_PRESENTER)
+        // One flip-model swapchain per HWND: the D3D11 presenter's goes (ClearState + Flush release it at once) before
+        // the device makes its own. A later app_gfx_environment() makes a new presenter (the fallback to D3D11).
+        d3d11::window_presenter_release();
+#endif
+    }
+    g.presenter = step.next;
+    g.deviceBackend = backend;
+    g.presenterRefusalLogged = false;
+    g.vsyncRefusalLogged = false;
+    return handles;
+}
+
+#if defined(FA_GL_WINDOW_HANDOVER)
+namespace {
+std::function<void(const void*)>& window_listener() {
+    static std::function<void(const void*)> listener;
+    return listener;
+}
+// sokol_impl.c's listener: on sokol_app's loop thread, the frame thread (no lock: nothing else touches it).
+void hear_native_window(void* window, void*) {
+    if (window_listener()) window_listener()(window);
+}
+}  // namespace
+#endif
+
+void app_set_native_window_listener(std::function<void(const void* window)> listener) {
+#if defined(FA_GL_WINDOW_HANDOVER)
+    window_listener() = std::move(listener);
+    fa_sapp_gl_surface_set_window_listener(window_listener() ? hear_native_window : nullptr, nullptr);
+#else
+    (void)listener;  // the window lives as long as the app: nothing to hear
+#endif
+}
+
+bool app_release_native_window(std::string* why) {
+#if defined(FA_GL_WINDOW_HANDOVER)
+    app_set_native_window_listener({});  // the device has no swapchain to remake any more
+#endif
+    const WindowPresenterStep step =
+        window_presenter_step(g.presenter, WindowPresenterEvent::DeviceRelease, gfx_device_active(), "");
+    if (g.presenter == WindowPresenter::Device) {
+        g.deviceBackend.clear();
+        fa_sapp_window_returned();  // macOS: the CAMetalLayer's device and pixel format sokol_app made it with
+    }
+    g.presenter = step.next;
+    g.presenterRefusalLogged = false;
+    g.vsyncRefusalLogged = false;
+#if defined(FA_GL_WINDOW_HANDOVER)
+    // The device's swapchain is gone: sokol_app's OpenGL surface goes back on the window.
+    const std::string failure = restore_gl_surface();
+    if (!failure.empty()) {
+        if (why) *why = failure;
+        return false;
+    }
+#endif
+    (void)why;
+    return true;
+}
+
+WindowPresenter app_window_presenter() { return g.presenter; }
+std::string app_window_device_backend() { return g.presenter == WindowPresenter::Device ? g.deviceBackend : ""; }
+
+bool app_read_window_back_buffer(int width, int height, std::uint8_t* rgba) {
+#if defined(FA_D3D11_PRESENTER)
+    const d3d11::Presenter* p = d3d11::window_presenter();
+    return p && p->read_back_buffer(width, height, rgba);
+#else
+    (void)width;
+    (void)height;
+    (void)rgba;
+    return false;
+#endif
 }
 
 int app_framebuffer_width() { return sapp_isvalid() ? sapp_width() : g.fbW; }
@@ -497,8 +721,9 @@ int app_framebuffer_height() { return sapp_isvalid() ? sapp_height() : g.fbH; }
 float app_dpi_scale() { return sapp_isvalid() ? sapp_dpi_scale() : 1.0f; }
 void app_request_quit() {
 #if defined(__ANDROID__)
-    // sokol_app never reads a quit request on Android: finish the activity instead (once; the call only posts to Android's
-    // main thread). The system destroys it, and the onDestroy wrapper of sokol_impl.c sends AppEvent::Type::Ending.
+    // sokol_app never reads a quit request on Android: finish the activity instead (once; the call only posts to
+    // Android's main thread). The system destroys it, and the onDestroy wrapper of sokol_impl.c sends
+    // AppEvent::Type::Ending.
     if (g.finishing) return;
     g.finishing = true;
     if (const void* activity = sapp_android_get_native_activity())
@@ -642,7 +867,20 @@ bool app_set_window_size(int width, int height) {
 
 bool app_vsync() { return app_is_mobile() || g.vsync; }  // a phone's display always syncs
 bool app_set_vsync(bool on) {
-    if (app_is_mobile() || !fa_sapp_set_vsync(on)) return false;
+    // A D3D12 or Vulkan device presents into the window with its own swapchain's present mode: the platform's vsync
+    // switch does not reach it.
+    if (app_is_mobile()) return false;
+    if (g.presenter == WindowPresenter::Device) {
+        if (!g.vsyncRefusalLogged)
+            FA_WARN(
+                "platform",
+                "app_set_vsync({}) changes nothing: the {} renderer presents into the window with its own swapchain "
+                "(its present mode was chosen when the renderer started)",
+                on, g.deviceBackend);
+        g.vsyncRefusalLogged = true;
+        return false;
+    }
+    if (!fa_sapp_set_vsync(on)) return false;
     g.vsync = on;
     return true;
 }

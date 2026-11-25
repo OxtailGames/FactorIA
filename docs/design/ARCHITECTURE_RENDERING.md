@@ -4,6 +4,13 @@ Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every pag
 
 The renderer's side of the big worlds of M75 (occlusion culling on the CPU and the GPU, the floating origin, terrain, levels of detail) is on the page [rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md).
 
+The engine's GPU interface (`fa::gpu`: Device, CommandList, the sokol backend and RecordingDevice; M77), which the
+renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU interface](ARCHITECTURE_RENDERING_GPU.md); its Vulkan backend is on the page
+[rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md) and its D3D12 backend on
+[rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md). How the renderer uses several queues and threads on
+those two (the shadow views recorded on job threads, the depth pyramid on the async compute queue) is on the page
+[rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md).
+
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
 pixels (a default 2D camera shows exactly the design resolution, origin at the
@@ -12,7 +19,9 @@ meters. Details in `core/math.h` and `scene/components.h`.
 
 ## Rendering
 sokol_gfx backends: D3D11 (Windows), Metal (macOS/iOS), GL 4.3 core (Linux),
-GLES3 (Android). The game always renders into an offscreen target at design
+GLES3 (Android). The renderer draws through the `gpu::Device` that `RendererDesc::backend` names (`GpuBackend::Default`:
+that sokol backend); the engine's own D3D12 and Vulkan devices draw offscreen only for now
+([ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md), "The renderer on its backend"). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
 target, so headless and windowed images match. The bloom of a `PostProcess` is a post-process
 that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
@@ -40,7 +49,7 @@ pixels. `game.screenshot` (whole view, `region` + `zoom` via `Engine::capture_re
 `runtime/src/shot_commands.cpp`; pixel work (crop, contact sheet, line profile) is `fa/core/image_tools.h`, and which files a screenshot
 may leave behind (temporary ones, pruning) is `fa/core/screenshot_files.h`. Pipelines (`Gpu`, `gpu.cpp`) are keyed by what
 they draw (the getter's flags, a custom material program) AND by the `TargetFormat` of the pass they draw into (colour format,
-depth format, sample count; `gpu_types.h`): every getter has an overload taking that format (`quad_pipeline(format, ...)`) and
+depth format, sample count; `gpu/types.h`): every getter has an overload taking that format (`quad_pipeline(format, ...)`) and
 a thin wrapper for the usual target (`scene_target_format()` for quads, meshes and the sky). So the same program in an RGBA8 and
 an RGBA16F target, or with 1 and 4 samples, are two entries of one cache, and nothing is flushed when a format changes (the
 RGBA16F fall-back above, a float render target). The cache is bounded by use: `begin_frame()` counts frames, and once it holds more
@@ -50,7 +59,10 @@ cap keeps everything, and the pipelines the warm-up makes or asks for (`Renderer
 `set_warming(false)`; a fixed set of about 20) are never destroyed at all, so a rarely used one that the warm-up paid for does not hitch (D3D11, Metal) when it comes back;
 the limits count frames, never time. `pipelines`, `pipelineHits`,
 `pipelinesMade` and `pipelinesEvicted` are in the start-up report (`loading.startup.gpu`). Shaders are GLSL annotated for
-`sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
+`sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). The script also asks for `spirv_vk` (M77: the SPIR-V of the
+Vulkan backend): the arrays and the `SG_BACKEND_VULKAN` description sit behind `#if defined(SOKOL_VULKAN)`, so a player without that backend
+links none of it, and `spirv_shader_tests.cpp` defines `SOKOL_VULKAN` for itself to check the module headers and the set and binding numbers.
+Custom materials get the same dialect on request (docs/design/CUSTOM_SHADERS.md, "Dialects per target"). Every mesh program (`mesh`,
 `mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
 the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom material is the same with its own
@@ -59,13 +71,14 @@ snippet, so the engine and the materials share one source of truth (an empty `su
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
 **Passes and targets.** One way to begin a pass and one way to make a target (`render_internal.h`, `gpu_types.h`). Every
-pass of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `Gpu::begin_pass`,
-and `Gpu::end_pass` ends it: `sg_begin_pass` appears nowhere else in `engine/`. The defaults of a `PassDesc` are
+pass of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `CommandList::begin_pass`,
+and `CommandList::end_pass` ends it: the renderer calls no sokol (gpu/sokol_context.h opens the window pass). The defaults of a `PassDesc` are
 DONTCARE, not sokol's (a zero `sg_pass` CLEARS to grey), so each site says what it loads and stores. A pass into the
 window is `PassDesc::for_swapchain`, which resolves sokol's 0 (colour format, depth format, sample count) against the
-environment's defaults, so its `TargetFormat` is the one the pipelines are keyed by. In a Debug build `begin_pass`
-records the pass's format and every pipeline fetched while it runs must match it (an assertion names the mismatch);
-outside a pass, as in the warm-up, any format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a
+environment's defaults, so its `TargetFormat` is the one the pipelines are keyed by. The command list checks the
+format: `begin_pass` checks `PassDesc::format` against the attachments and `set_pipeline` checks the pipeline's format
+against the pass's (a Debug assertion on the sokol device, an entry of `errors()` on RecordingDevice); outside a pass, as
+in the warm-up, a pipeline of any format may be made. A `Target` is made by `make_target(TargetDesc)`: a
 colour image, its resolve image when `samples > 1` (`resolveAsColor` also gives the resolve a colour-attachment view,
 for bloom), an optional depth image, and their views (`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling),
 `pass_into(target, label)` is the matching `PassDesc` and `destroy_target` frees the lot. The game, CameraView and
@@ -76,7 +89,8 @@ a full image pool, and the game target then falls back to RGBA8 like any other t
 that draws its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` /
 `end_window_pass`, and the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor
 `editor_app.cpp` calls sokol for the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU
-client with its own pipelines and keeps using sokol directly.
+client that turns an `ImDrawData` into `UiPainter` draw lists (M77-P5c, ARCHITECTURE_RENDERING_GPU.md, "The 2D
+painter") and calls no sokol function.
 
 **Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
 (normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in

@@ -58,6 +58,16 @@ if(TARGET fa_test_runtime AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
         COMMAND ${CMAKE_COMMAND} -E env FA_WINDOWED_SMOKE=1 ${FA_XVFB_RUN} -a -s "-screen 0 1280x720x24"
                 $<TARGET_FILE:fa_test_runtime> "-tc=windowed fullscreen*"
         WORKING_DIRECTORY ${FA_ROOT})
+    # The game window on the engine's Vulkan device (lavapipe in CI), and the fallback through the claim's release
+    # (tests/windowed_vulkan_tests_linux.cpp). The test step's FA_VULKAN_REQUIRE=1 passes through to them.
+    add_test(NAME runtime_windowed_vulkan
+        COMMAND ${CMAKE_COMMAND} -E env FA_WINDOWED_SMOKE=1 ${FA_XVFB_RUN} -a -s "-screen 0 1280x720x24"
+                $<TARGET_FILE:fa_test_runtime> "-tc=windowed vulkan: *"
+        WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME runtime_windowed_vulkan_fallback
+        COMMAND ${CMAKE_COMMAND} -E env FA_WINDOWED_SMOKE=1 ${FA_XVFB_RUN} -a -s "-screen 0 1280x720x24"
+                $<TARGET_FILE:fa_test_runtime> "-tc=windowed vulkan fallback*"
+        WORKING_DIRECTORY ${FA_ROOT})
 endif()
 
 # The replay hashes of the scripts' math, 2D and 3D physics and nav (tests/det_probe_tests.cpp) run ONLY here, so CI prints them:

@@ -1,6 +1,7 @@
 #include "fa/tooling/export_settings.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -362,6 +363,18 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         }
     }
 
+    // vulkanPlayer (linux, android): whether the export ships the Vulkan variant of the player next to the GL one.
+    void take_vulkan_player(const Json& o, const std::string& base, bool& out) {
+        if (auto it = o.find("vulkanPlayer"); it != o.end() && !it->is_null()) {
+            if (!it->is_boolean())
+                error(base + "/vulkanPlayer", "expected true or false, got " + describe_json_value(*it),
+                      "Write false to ship only the GL player; remove the key for the default, true (the Vulkan "
+                      "player, which falls back to the GL one where Vulkan cannot start).");
+            else
+                out = it->get<bool>();
+        }
+    }
+
     // usesNonExemptEncryption -> ITSAppUsesNonExemptEncryption (iOS and macOS).
     void take_encryption_flag(const Json& o, const std::string& base, bool& out, const char* os) {
         if (auto it = o.find("usesNonExemptEncryption"); it != o.end() && !it->is_null()) {
@@ -512,7 +525,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 if (ok) s.categories = std::move(cats);
             }
         }
-        unknown_keys(o, base, names_of({"icon", "categories"}));
+        take_vulkan_player(o, base, s.vulkanPlayer);
+        unknown_keys(o, base, names_of({"icon", "categories", "vulkanPlayer"}));
     }
 
     void adaptive_icon(const Json& o, const std::string& base, AndroidAdaptiveIconSettings& s) {
@@ -612,9 +626,10 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         if (const Json* sg =
                 object_member(o, base, "signing", "{\"keystore\": \"keys/upload.keystore\", \"alias\": \"upload\"}"))
             signing(*sg, base + "/signing", s.signing);
+        take_vulkan_player(o, base, s.vulkanPlayer);
         unknown_keys(o, base,
                      names_of({"icon", "format", "adaptiveIcon", "versionCode", "minSdk", "targetSdk", "permissions",
-                               "signing"}));
+                               "signing", "vulkanPlayer"}));
     }
 
     void ios(const Json& o, const std::string& base, IosExportSettings& s) {
@@ -861,7 +876,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     }
     if (const Json* o =
             r.object_member(exp, "/export", "pack", "{\"codecs\": {\".json\": \"zstd\"}, \"useLoadOrder\": true}")) {
-        r.unknown_keys(*o, "/export/pack", names_of({"codecs", "useLoadOrder"}));
+        r.unknown_keys(*o, "/export/pack", names_of({"codec", "codecs", "directStorage", "useLoadOrder"}));
         if (auto b = o->find("useLoadOrder"); b != o->end() && !b->is_null()) {
             if (!b->is_boolean())
                 r.error("/export/pack/useLoadOrder", "expected true or false, got " + describe_json_value(*b),
@@ -870,6 +885,29 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                         "the order play sessions first read them).");
             else
                 s.pack.useLoadOrder = b->get<bool>();
+        }
+        if (auto b = o->find("directStorage"); b != o->end() && !b->is_null()) {
+            if (!b->is_boolean())
+                r.error("/export/pack/directStorage", "expected true or false, got " + describe_json_value(*b),
+                        "Write \"directStorage\": true to let a Windows export pack with the codec DirectStorage "
+                        "reads (gdeflate) and ship its DLLs, or remove the key (the default, false).");
+            else
+                s.pack.directStorage = b->get<bool>();
+        }
+        if (auto c = o->find("codec"); c != o->end() && !c->is_null()) {
+            static const std::array<std::string, 4> kChoices{"auto", "lz4", "zstd", "gdeflate"};
+            const std::string hint =
+                "\"auto\" (the default) picks each file type's codec; \"lz4\", \"zstd\" or \"gdeflate\" packs every "
+                "file that would be compressed with that codec (export.pack.codecs still wins per extension).";
+            if (!c->is_string()) {
+                r.error("/export/pack/codec",
+                        "expected \"auto\", \"lz4\", \"zstd\" or \"gdeflate\", got " + describe_json_value(*c), hint);
+            } else if (const std::string v = c->get<std::string>();
+                       std::find(kChoices.begin(), kChoices.end(), v) == kChoices.end()) {
+                r.error("/export/pack/codec", "unknown pack codec \"" + v + "\"", hint + did_you_mean(v, kChoices));
+            } else {
+                s.pack.codec = v;
+            }
         }
         if (const Json* c =
                 r.object_member(*o, "/export/pack", "codecs", "{\".json\": \"zstd\", \".bin\": \"store\"}")) {
@@ -886,8 +924,11 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                 std::string lower = ext;
                 for (char& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
                 if (!e->is_string()) {
-                    r.error(ptr, "expected \"store\", \"lz4\" or \"zstd\", got " + describe_json_value(*e),
-                            "lz4 decodes fastest, zstd packs smallest, store keeps the bytes as they are.");
+                    r.error(ptr,
+                            "expected \"store\", \"lz4\", \"zstd\" or \"gdeflate\", got " + describe_json_value(*e),
+                            "lz4 decodes fastest, zstd packs smallest, gdeflate is for the DirectStorage reader, store "
+                            "keeps the bytes as "
+                            "they are.");
                     continue;
                 }
                 auto codec = parse_codec(e->get<std::string>());
@@ -1512,7 +1553,9 @@ AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& e
     const ExportEnvLookup& env = s.env;
     std::string home = env("HOME");
     if (home.empty()) home = env("USERPROFILE");
-    auto under = [&](const char* rel) { return home.empty() ? std::string() : (stdfs::path(home) / rel).string(); };
+    [[maybe_unused]] auto under = [&](const char* rel) {
+        return home.empty() ? std::string() : (stdfs::path(home) / rel).string();
+    };
     // What `factoria setup android` installs (fa/tooling/setup.h) comes first: the user asked FactorIA to provide it.
     const stdfs::path factoriaHome = factoria_home(env);
     s.jdk.push_back({(factoriaHome / "android" / "jdk").string(), "FactorIA"});

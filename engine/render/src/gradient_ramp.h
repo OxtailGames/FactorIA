@@ -55,7 +55,7 @@ public:
     // The texture the ramp shapes draw with. It has no GPU image until the first acquire() and sync().
     TextureAsset* texture() { return &tex_; }
     // Uploads the rows baked since the last call (the image is made again). Call after the gather, before drawing.
-    void sync();
+    void sync(gpu::Device& device);
     void destroy();
     int rows_in_use() const { return int(byHash_.size()); }
     std::size_t bytes() const { return tex_.image.id ? std::size_t(kRampWidth) * kRampRows * 4 : 0; }
@@ -72,6 +72,7 @@ private:
     std::unordered_map<std::uint64_t, std::vector<int>> byHash_;  // spec hash -> rows holding it
     std::uint64_t tick_ = 1;
     bool dirty_ = false;
+    gpu::Device* device_ = nullptr;  // the device tex_ was made on (set by sync), to destroy it on
 };
 
 }  // namespace fa::render

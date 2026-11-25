@@ -82,15 +82,15 @@ TaaPlan make_upscale_taa_plan(const CameraInfo& cam, const PostStack* stack, boo
 
 // What one resolve pass reads (the temporal upscaler fills the same). A null view is not bound; `dummy` stands in for it (any texture view).
 struct TaaResolveInput {
-    sg_view color{};  // the picture of this frame, jittered
-    sg_view
+    gpu::View color{};  // the picture of this frame, jittered
+    gpu::View
         depth{};  // the prepass of the camera (r = linear depth, a = coverage), the size of `color`; null: the depth is taken as far away
-    sg_view
+    gpu::View
         velocity{};  // PostPlan::velocity (rg = uvPrev - uvCurr, unjittered), the size of `color`; null: the camera's own movement only
-    sg_view reactive{};  // the reactive mask (r, 0..1, the size of `color`); null: no mask
-    sg_view
+    gpu::View reactive{};  // the reactive mask (r, 0..1, the size of `color`); null: no mask
+    gpu::View
         history{};  // the resolved image of the frame before, the size of the output; null (with historyValid false): none
-    sg_view dummy{};         // bound in place of a view that is null
+    gpu::View dummy{};       // bound in place of a view that is null
     int inW = 1, inH = 1;    // the size of `color` in pixels (the camera's rectangle)
     int outW = 1, outH = 1;  // the size of the history and of the image the pass draws
     float rect[4] = {
@@ -115,13 +115,13 @@ public:
     // one to *drawCalls when it runs. Returns the number of passes declared (0: nothing is drawn: the history cannot be made or the shaders
     // failed; logged once, and unavailable() is true from then on, so the cameras are not jittered for a pass that never resolves them).
     int add_passes(FrameGraph& graph, Gpu& gpu, const TaaPlan& plan, const PostRect& rect, int picW, int picH,
-                   ResourceId game, sg_view srcTex, const BloomTarget& dst, const PrepassRef& prepass,
-                   const VelocityRef& velocity, const PrepassRef& reactive, sg_view dummy, int* drawCalls,
+                   ResourceId game, gpu::View srcTex, const BloomTarget& dst, const PrepassRef& prepass,
+                   const VelocityRef& velocity, const PrepassRef& reactive, gpu::View dummy, int* drawCalls,
                    const std::string& job);
 
     // The resolve pass of `in`, drawn into the whole of `into` (the history image of the frame, `outW` x `outH`): the entry the temporal upscaler
     // shares. False (nothing drawn) when the target is gone or the program is not ready.
-    bool resolve(Gpu& gpu, const PassDesc& into, const TaaResolveInput& in);
+    bool resolve(gpu::CommandList& list, Gpu& gpu, const PassDesc& into, const TaaResolveInput& in);
 
     // The temporal upscaler (M76-P4): resolves `in` (the jittered picture at the render resolution, inW x inH; the history is at outW x outH)
     // with the history kept under kUpscaleCamKey and draws the sharpened result into the whole of `out`. The fields of `in` that the plan
@@ -129,7 +129,9 @@ public:
     // frame shows its own picture alone) when it is not the one of the frame before (PostPlan rules: a cut, another scene, a floating-origin
     // shift, no frame in between), when the image size changed, or when `configKey` (the render size and the quality) differs from the last
     // frame's. False (nothing drawn: `out` is untouched) when the shaders or the history are not available; the caller then stretches.
-    bool upscale(Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey, Target& out);
+    // `list` is the list of the pass the caller is in.
+    bool upscale(gpu::CommandList& list, Gpu& gpu, const TaaPlan& plan, TaaResolveInput in, std::uint64_t configKey,
+                 Target& out);
 
     // True from the first failure (shader that did not compile, history of a camera the GPU or the budget refused) to release() or the
     // next forget_targets(): a camera then draws without TAA and without the jitter. ready() compiles the shaders on its first call (the
@@ -138,12 +140,12 @@ public:
     // The same for the temporal upscaler (M76-P4): a history of the output size that was refused stops the upscaler only, not the
     // cameras that antialias themselves (they have their own, smaller, histories and their own flag).
     bool upscale_unavailable() const { return state_ < 0 || upscaleRefused_; }
-    bool ready();
+    bool ready(gpu::Device& device);
 
     // Makes (or keeps) the upscaler's history for an output of outW x outH now, before the frame is jittered for it: false when the budget or
     // the GPU refuse it (logged once, upscale_unavailable() is then true), so the frame is drawn without the jitter and goes through the
     // spatial upscaler instead of being drawn jittered and never resolved. `serial`: the renderer's postSerial before this frame counts. Cheap when the history exists.
-    bool reserve_upscale(int outW, int outH, std::uint64_t serial);
+    bool reserve_upscale(gpu::Device& device, int outW, int outH, std::uint64_t serial);
     // Tests: the bytes the histories of all the cameras and of the upscaler may take together (0: the default, 1 GB; 256 MB on wasm32).
     void set_budget(std::uint64_t bytes) { budgetOverride_ = bytes; }
 
@@ -157,7 +159,7 @@ public:
     int history_image_count() const;
     bool last_used_history(std::uint64_t camKey) const;
     int resets() const { return resets_; }
-    sg_pixel_format history_format() const { return format_; }
+    gpu::PixelFormat history_format() const { return format_; }
     // Tests: use an 8-bit history as a GPU without half-float targets does.
     void force_rgba8(bool force);
 
@@ -169,18 +171,18 @@ public:
     void forget_targets(bool keepUpscale = false);
 
     enum class Prog { Resolve, Out, Count };
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
     struct Slot {
         Target img[2];
         int w = 0, h = 0;
-        sg_pixel_format format = SG_PIXELFORMAT_NONE;
+        gpu::PixelFormat format = gpu::PixelFormat::None;
         int last = -1;              // the image the last resolve wrote (-1: none yet)
         bool wrote = false;         // img[last] holds a finished frame
         std::uint64_t serial = 0;   // the frame it was written in
@@ -190,7 +192,9 @@ private:
         std::uint64_t configKey = 0;  // the temporal upscaler's render size and quality of the frame in img[last]
         bool usedHistory = false;     // the last resolve blended with the history
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    gpu::Device* device_ =
+        nullptr;  // the device of the first ready(): the shaders, pipelines and histories are made and destroyed on it
+    gpu::Shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;                // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool refused_ = false;         // a camera's history was refused (budget or GPU)
@@ -199,13 +203,14 @@ private:
     bool forceRgba8_ = false;
     bool warnedFormat_ = false;
     int resets_ = 0;
-    sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
+    gpu::PixelFormat format_ = gpu::PixelFormat::None;
     std::map<std::uint64_t, std::shared_ptr<Slot>> slots_;
 
-    sg_pixel_format pick_format();
-    std::shared_ptr<Slot> slot_for(std::uint64_t camKey, int w, int h, sg_pixel_format format, const std::string& job);
+    gpu::PixelFormat pick_format();
+    std::shared_ptr<Slot> slot_for(std::uint64_t camKey, int w, int h, gpu::PixelFormat format, const std::string& job);
     void destroy(Slot& s);
-    bool output(Gpu& gpu, const PassDesc& pd, sg_view history, int w, int h, float sharpen, const int* part);
+    bool output(gpu::CommandList& list, Gpu& gpu, const PassDesc& pd, gpu::View history, int w, int h, float sharpen,
+                const int* part);
 };
 
 }  // namespace fa::render

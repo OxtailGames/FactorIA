@@ -91,7 +91,8 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
-        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom) {
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
+        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -113,6 +114,18 @@ Json ProjectSettings::to_json() const {
             render["graphicsPreset"] = std::string(render::graphics_preset_name(graphicsPreset));
         else
             render.erase("graphicsPreset");
+        if (renderBackend != "auto")
+            render["backend"] = renderBackend;
+        else
+            render.erase("backend");
+        if (!renderAsyncCompute)
+            render["asyncCompute"] = false;
+        else
+            render.erase("asyncCompute");
+        if (!renderMultiThreadRecording)
+            render["multiThreadRecording"] = false;
+        else
+            render.erase("multiThreadRecording");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
@@ -120,6 +133,9 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("upscaler");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
+        j["render"].erase("backend");
+        j["render"].erase("asyncCompute");
+        j["render"].erase("multiThreadRecording");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -659,6 +675,8 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     if (auto it = j.find("render"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/render", "an object like {\"interpolation\": true}", *it);
         FA_TRY(read_bool(*it, "interpolation", "/render", s.renderInterpolation));
+        FA_TRY(read_bool(*it, "asyncCompute", "/render", s.renderAsyncCompute));
+        FA_TRY(read_bool(*it, "multiThreadRecording", "/render", s.renderMultiThreadRecording));
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
@@ -686,6 +704,21 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                                                   : "Use \"low\", \"medium\", \"high\", \"ultra\" or \"custom\".");
             }
             s.graphicsPreset = *preset;
+        }
+        if (auto be = it->find("backend"); be != it->end() && !be->is_null()) {
+            std::optional<GpuBackend> asked;  // not `parsed`: that one is the whole file (MSVC C4456)
+            if (be->is_string()) asked = parse_gpu_backend_name(be->get<std::string>());
+            if (!asked) {
+                std::vector<std::string> names = gpu_backend_names();
+                std::string list = "\"auto\"";
+                for (const std::string& n : names) list += ", \"" + n + "\"";
+                names.push_back("auto");
+                std::string hint = be->is_string() ? did_you_mean(be->get<std::string>(), names) : std::string();
+                if (!hint.empty()) hint += " ";
+                return make_error(at("/render/backend") + ": unknown GPU backend " + describe_json_value(*be),
+                                  hint + "Use one of " + list + ".");
+            }
+            s.renderBackend = gpu_backend_name(*asked);
         }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
@@ -1117,6 +1150,22 @@ constexpr const char* kSchemaText =
               "description": "The largest share, where it starts, minScale to 1. Default 1."
             }
           }
+        },
+        "backend": {
+          "type": "string",
+          "enum": ["auto", "d3d11", "d3d12", "vulkan", "metal", "gl", "gles3", "webgl2"],
+          "default": "auto",
+          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. On Linux and Android the exported game runs the Vulkan variant of the player first (factoria_player_vulkan, export.linux.vulkanPlayer / export.android.vulkanPlayer): auto there means Vulkan, and where Vulkan cannot start that player hands over to the GL one, a second process whose startup report names gpu.fallbackFrom and gpu.fallbackReason. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan draw into the game window with a swapchain of their own (Windows; Linux and Android, where the window's OpenGL surface waits off screen; vulkan on macOS through MoltenVK in a build that has it) and headless runs draw offscreen on them; when the one asked for cannot start, the engine warns once with its first error and draws with auto in the same process (gpu.backendFallback), after the Vulkan player of Linux and Android has tried to hand over to the GL player. The player's user setting (the graphics.backend command, stored in the user folder) overrides this key, the FA_GPU_BACKEND environment variable (same names) overrides both, and EngineConfig.gpuBackend overrides everything."
+        },
+        "asyncCompute": {
+          "type": "boolean",
+          "default": true,
+          "description": "On Direct3D 12 and Vulkan with a separate compute queue, run the depth-pyramid (HiZ) reduce of GPU occlusion culling on the compute queue next to the graphics work (M77-P10d, docs/RENDERING.md, \"Async compute and multi-thread recording\"). The image is the same either way; false keeps it on the graphics queue (to compare timings or to rule out a driver problem). Other backends ignore it. The startup report says whether it is in use."
+        },
+        "multiThreadRecording": {
+          "type": "boolean",
+          "default": true,
+          "description": "On Direct3D 12 and Vulkan, record the shadow cascades and spot-light shadows on job threads, up to four command lists submitted in a fixed order (M77-P10d, docs/RENDERING.md, \"Async compute and multi-thread recording\"). The image is the same either way; false records everything on the render thread. Other backends ignore it. The startup report says whether it is in use."
         },
         "graphicsPreset": {
           "type": "string",
@@ -1909,8 +1958,19 @@ constexpr const char* kSchemaText =
           "properties": {
             "codecs": {
               "type": "object",
-              "additionalProperties": {"type": "string", "enum": ["store", "lz4", "zstd"]},
-              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\" or \"zstd\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest; a block that compression shrinks by less than 1/32 is stored as it is."
+              "additionalProperties": {"type": "string", "enum": ["store", "lz4", "zstd", "gdeflate"]},
+              "description": "File extension (lower case, with its dot: \".json\"; a .scene.json counts as .json) -> \"store\", \"lz4\", \"zstd\" or \"gdeflate\", over the engine's default for that type: store for files that are compressed already (.png, .jpg, .webp, .ogg, .mp3, .qoa, .mp4, .ktx2 with supercompression, archives), zstd for fonts and text (.ttf, .otf, .txt, .md, .csv, .xml, .svg, shader sources), lz4 for everything else (JSON, scenes, scripts and their bytecode, meshes). lz4 decodes fastest, zstd packs smallest, gdeflate is the stream DirectStorage decompresses on the GPU; a block that compression shrinks by less than 1/32 is stored as it is."
+            },
+            "codec": {
+              "type": "string",
+              "enum": ["auto", "lz4", "zstd", "gdeflate"],
+              "default": "auto",
+              "description": "The codec of every file that is compressed (not the ones stored by default, like .png and .ogg, and not an extension named in \"codecs\", which keeps its own). \"auto\" (default): each type's own choice (zstd for fonts and text, lz4 for the rest), except a Windows export with \"directStorage\" on, which packs them as gdeflate. \"lz4\", \"zstd\" or \"gdeflate\": that codec for all of them. gdeflate is Deflate64 in 64 KiB tiles of 32 lanes, the stream DirectStorage 1.1 decompresses on the GPU; other readers decode it on the CPU, somewhat slower than zstd and about half as fast as lz4, with about the ratio of zlib. An older FactorIA cannot read a pack with gdeflate files."
+            },
+            "directStorage": {
+              "type": "boolean",
+              "default": false,
+              "description": "true makes a Windows export pack its compressed files as gdeflate (see \"codec\") and, in a release export, copy the DirectStorage DLLs that `factoria setup directstorage` installed next to the game, whose player then reads and decompresses those files through DirectStorage (on its worker threads for now; decompression on the GPU comes with GPU destinations). Without the DLLs the export warns and the game decodes them on the CPU. Default false."
             },
             "useLoadOrder": {
               "type": "boolean",
@@ -2047,6 +2107,11 @@ constexpr const char* kSchemaText =
                 "description": "One freedesktop.org menu category, e.g. \"Game\", \"ActionGame\", \"ArcadeGame\", \"PuzzleGame\"."
               },
               "description": "Menu categories of the game's .desktop file (the Categories= line; FactorIA joins the entries with ';'). Default [\"Game\"]."
+            },
+            "vulkanPlayer": {
+              "type": "boolean",
+              "default": true,
+              "description": "Ship the Vulkan variant of the player: the game's executable is factoria_player_vulkan and <executable>-gl the GL player it starts where Vulkan cannot (no driver, no device). Only when the variant is next to the player the export uses. false = only the GL player, as the game's executable. Default true."
             }
           }
         },
@@ -2111,6 +2176,11 @@ constexpr const char* kSchemaText =
                 "description": "Android permission name, e.g. \"android.permission.VIBRATE\"."
               },
               "description": "Extra <uses-permission> entries of the manifest, for permissions the game's scripts or features need (the engine itself needs none). Default: none."
+            },
+            "vulkanPlayer": {
+              "type": "boolean",
+              "default": true,
+              "description": "Ship the Vulkan variant of the player: the launcher activity loads libfactoria_player_vulkan.so and hands over to the GL player (libfactoria_player.so, its own activity in the process :gl) where Vulkan cannot start. A prebuilt export ships it only when the downloaded players have it for every ABI. false = only the GL player, as the launcher. Default true."
             },
             "signing": {
               "type": "object",

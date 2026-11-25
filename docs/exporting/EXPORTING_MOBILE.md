@@ -50,17 +50,27 @@ my-game-android/
   gradlew  gradlew.bat  gradle/wrapper/{gradle-wrapper.jar,gradle-wrapper.properties}   the Gradle wrapper (Gradle 8.14.3)
   settings.gradle  build.gradle  gradle.properties  local.properties (sdk.dir of this computer: do not commit)
   app/build.gradle                 applicationId, versionName/Code, minSdk/targetSdk, abiFilters, signing (prebuilt: no native build)
-  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions, hasCode
+  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player_vulkan, factoria.engine.GlActivity
+                                   (lib_name factoria_player, process :gl), orientation, icon, permissions, hasCode
+  app/src/main/java/factoria/engine/GlActivity.java   the OpenGL player's activity (a plain NativeActivity)
   app/src/main/res/values/strings.xml   app name
   app/src/main/res/mipmap-*/       launcher icons made from the project's icon (and the adaptive icon)
   app/src/main/assets/             the game + assets_index.txt
-  app/src/main/jniLibs/<abi>/libfactoria_player.so   prebuilt mode only: the engine
+  app/src/main/jniLibs/<abi>/libfactoria_player.so, libfactoria_player_vulkan.so   prebuilt mode only: the engine
   plugins/<name>/                  native plugins: the Gradle module of each plugin's android/ folder
   app/libs/<name>/                 native plugins: the .aar / .jar files of a plugin that has no module
 ```
 
 `assets_index.txt` lists every game file (one project-relative path per line).
 The engine needs it because Android cannot enumerate folders inside an APK.
+
+**Two players.** The launcher activity loads `libfactoria_player_vulkan.so`, the Vulkan player. Where Vulkan cannot start,
+or when the game's choice is `gles3`, it starts `factoria.engine.GlActivity` (the OpenGL player, `libfactoria_player.so`, in the
+process `:gl`) with the reason in the intent extras, and finishes itself; the OpenGL player never hands back
+([Two players on Linux and Android](../RENDERING.md#two-players-on-linux-and-android)). `export.android.vulkanPlayer: false`
+ships only `libfactoria_player.so`, which the launcher activity then loads, and the manifest declares no GlActivity. In source mode Gradle builds
+both targets (`factoria_player`, `factoria_player_vulkan`, `-DFA_PLAYER_VULKAN=ON`); in prebuilt mode libraries without
+`libfactoria_player_vulkan.so` (a release older than the Vulkan player) ship the OpenGL player only, and the report warns.
 
 **Formats** (`--format`, or `export.android.format` in `factoria.json`; the flag wins):
 

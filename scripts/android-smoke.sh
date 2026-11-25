@@ -55,7 +55,13 @@ PKG="${2:?$USAGE}"
 TIMEOUT="${3:-120}"
 OUT="${4:-build/android-smoke}"
 MARKER="player: 60 frames rendered"
-ACTIVITY="$PKG/android.app.NativeActivity"  # the only activity (platforms/android/app/src/main/AndroidManifest.xml)
+ACTIVITY="$PKG/android.app.NativeActivity"  # the launcher activity (platforms/android/app/src/main/AndroidManifest.xml)
+# An export with the Vulkan player launches it in the process $PKG; where Vulkan cannot start it hands the game to the
+# OpenGL player (factoria.engine.GlActivity, process $PKG:gl) and ends. The checks then follow the game's process
+# (PROC), and the launcher's own end (its destroy, its process dying) is part of the handover, not a failure.
+PROC="$PKG"
+HANDED_OVER=0
+LAUNCHER_PID=""
 HERE="$(dirname "$0")"
 
 ADB="${ADB:-adb}"
@@ -72,7 +78,17 @@ setting() { "$ADB" shell settings get "$1" "$2" 2>/dev/null | tr -d '\r'; }   # 
 # No early-exiting reader (grep -q, head) behind a producer in a pipeline: with pipefail the producer's SIGPIPE fails it.
 focus_line() { local w; w="$("$ADB" shell dumpsys window 2>/dev/null | tr -d '\r')"; grep -m 1 'mCurrentFocus' <<<"$w"; }
 focus_has() { [[ "$(focus_line)" == *"$1"* ]]; }
-app_pid() { "$ADB" shell pidof "$PKG" 2>/dev/null | tr -d '\r' | awk '{print $1}'; }
+proc_pid() { "$ADB" shell pidof "$1" 2>/dev/null | tr -d '\r' | awk '{print $1}'; }
+app_pid() { proc_pid "$PROC"; }
+# follow_handover: once the OpenGL player's process ($PKG:gl) runs, the game is there (see PROC above).
+follow_handover() {
+    (( HANDED_OVER )) && return 0
+    local gl
+    gl="$(proc_pid "$PKG:gl")"
+    [ -n "$gl" ] || return 0
+    HANDED_OVER=1; LAUNCHER_PID="$PID"; PROC="$PKG:gl"; PID="$gl"
+    note "handover: the Vulkan player (pid ${LAUNCHER_PID:-gone}) started the OpenGL player in $PROC (pid $PID)"
+}
 snapshot_log() { "$ADB" logcat -d -b all -v threadtime >"$OUT/logcat.txt" 2>/dev/null; }
 log_count() { snapshot_log; grep -cF -- "$1" "$OUT/logcat.txt"; }   # lines containing the text, whole run so far
 
@@ -101,6 +117,7 @@ wait_for_log() {
         snapshot_log
         (( $(grep -cF -- "$needle" "$OUT/logcat.txt") > base )) && return 0
         now="$(app_pid)"
+        [ "$now" = "$PID" ] || { follow_handover; now="$(app_pid)"; }
         [ "$now" = "$PID" ] || fail "the app process $PID is gone before it logged '$needle' (now: '${now:-none}'): it crashed, quit or was restarted"
         (( SECONDS - t0 < limit )) || return 1
         sleep 2
@@ -183,6 +200,9 @@ echo "$START" | tee -a "$SUMMARY"
 STARTED_AT=$SECONDS
 grep -qiE '^Error|Status: (error|timeout)' <<<"$START" && fail "am start did not start $ACTIVITY (output above)"
 PID="$(app_pid)"
+follow_handover
+# The launcher may already be gone and the OpenGL player not up yet: give the handover a few seconds.
+for _ in 1 2 3 4 5; do [ -n "$PID" ] && break; sleep 2; PID="$(app_pid)"; follow_handover; done
 [ -n "$PID" ] || fail "no process for $PKG right after am start"
 note "pid $PID"
 
@@ -268,16 +288,30 @@ snapshot_log
 
 # No crash: Java exceptions, native signals, ANRs, the process dying; no error-level line from the engine.
 if grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|tombstone" "$OUT/logcat-app.txt" >"$OUT/crash.txt" ||
-   grep -E "ANR in $PKG|Process $PKG .*has died|Process: $PKG," "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
+   grep -E "ANR in $PKG|Process $PROC .*has died|Process: $PROC," "$OUT/logcat.txt" >>"$OUT/crash.txt" ||
+   { (( HANDED_OVER )) && [ -n "$LAUNCHER_PID" ] &&
+     "$ADB" logcat -d -b all -v threadtime --pid="$LAUNCHER_PID" >"$OUT/logcat-app-vulkan.txt" 2>/dev/null &&
+     grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|tombstone" "$OUT/logcat-app-vulkan.txt" >>"$OUT/crash.txt"; }; then
     cat "$OUT/crash.txt"
     fail "crash markers in the log"
 fi
-if grep -E ' E factoria *:' "$OUT/logcat-app.txt" >"$OUT/errors.txt"; then
+# The Vulkan launcher that handed over logged with the engine too (its lines are in logcat-app-vulkan.txt, read above).
+: >"$OUT/errors.txt"
+grep -E ' E factoria *:' "$OUT/logcat-app.txt" >>"$OUT/errors.txt" || true
+if (( HANDED_OVER )) && [ -f "$OUT/logcat-app-vulkan.txt" ]; then
+    grep -E ' E factoria *:' "$OUT/logcat-app-vulkan.txt" >>"$OUT/errors.txt" || true
+fi
+if [ -s "$OUT/errors.txt" ]; then
     cat "$OUT/errors.txt"
     fail "the engine logged errors (lines above)"
 fi
 # The activity must never have been destroyed or relaunched (the system restarting it is the failure this guards).
-if grep -E "wm_(destroy|relaunch)[a-z_]*_activity.*$PKG" "$OUT/logcat.txt" >"$OUT/restarts.txt"; then
+grep -E "wm_(destroy|relaunch)[a-z_]*_activity.*$PKG" "$OUT/logcat.txt" >"$OUT/restarts.txt" || true
+if (( HANDED_OVER )); then   # the Vulkan launcher finishes itself after the handover (and on each start from Home)
+    grep -vE "wm_destroy[a-z_]*_activity.*$PKG/android\.app\.NativeActivity" "$OUT/restarts.txt" >"$OUT/restarts-gl.txt" || true
+    mv "$OUT/restarts-gl.txt" "$OUT/restarts.txt"
+fi
+if [ -s "$OUT/restarts.txt" ]; then
     cat "$OUT/restarts.txt"
     fail "the system destroyed or relaunched the activity during the run (lines above)"
 fi
@@ -327,7 +361,7 @@ snapshot_log
 # static destructors did); neither process crashed, the new one logged no engine error.
 if grep -E "FATAL EXCEPTION|Fatal signal|FORTIFY|SIGSEGV|SIGABRT|tombstone|OpenGL ES API with no current context" \
         "$OUT/logcat-app.txt" "$OUT/logcat-app-relaunched.txt" >"$OUT/crash.txt" ||
-   grep -E "ANR in $PKG|Process: $PKG,|am_crash: \[[0-9]+,[0-9]+,$PKG,|Process $OLD_PID exited due to signal" \
+   grep -E "ANR in $PKG|Process: $PROC,|am_crash: \[[0-9]+,[0-9]+,$PROC,|Process $OLD_PID exited due to signal" \
         "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
     cat "$OUT/crash.txt"
     fail "relaunch: crash markers in the log (lines above)"
@@ -417,7 +451,7 @@ if [ -n "${FA_SMOKE_QUIT:-}" ] && [ -n "${FA_SMOKE_BACK:-}" ]; then
     # finished activity (task t-1, flag f) a while after the process ended.
     if [ -n "$NOW_PID" ]; then
         snapshot_log
-        START_REASON="$(grep -oE "am_proc_start: \[[0-9]+,$NOW_PID,[0-9]+,$PKG,[^,]+" "$OUT/logcat.txt" | tail -n 1 |
+        START_REASON="$(grep -oE "am_proc_start: \[[0-9]+,$NOW_PID,[0-9]+,$PROC,[^,]+" "$OUT/logcat.txt" | tail -n 1 |
             awk -F, '{print $NF}')"
         if [[ "$START_REASON" == *activity* ]] ||
            "$ADB" shell dumpsys activity activities 2>/dev/null | tr -d '\r' |
@@ -430,7 +464,7 @@ if [ -n "${FA_SMOKE_QUIT:-}" ] && [ -n "${FA_SMOKE_BACK:-}" ]; then
     "$ADB" logcat -d -b all -v threadtime --pid="$QUIT_PID" >"$OUT/logcat-app-quit.txt" 2>/dev/null
     if grep -E "FATAL EXCEPTION|Fatal signal|FORTIFY|SIGSEGV|SIGABRT|tombstone|OpenGL ES API with no current context" \
             "$OUT/logcat-app-quit.txt" >"$OUT/crash.txt" ||
-       grep -E "ANR in $PKG|am_crash: \[[0-9]+,[0-9]+,$PKG,|Process $QUIT_PID exited due to signal" "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
+       grep -E "ANR in $PKG|am_crash: \[[0-9]+,[0-9]+,$PROC,|Process $QUIT_PID exited due to signal" "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
         cat "$OUT/crash.txt"
         fail "quit: crash markers in the log (lines above)"
     fi

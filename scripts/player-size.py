@@ -156,8 +156,12 @@ def normalize_lib(name):
 
 def owner_of(path):
     """The library a linker map line belongs to: the archive of `x/libfoo.a(bar.o)`, a shared library by its name, and
-    "(objects)" for a plain object file (the player's own sources, the C runtime startup files)."""
+    "(objects)" for a plain object file (the player's own sources, the C runtime startup files). The fa_render sources the
+    Vulkan player compiles again (the object library fa_render_vulkan, engine/render/CMakeLists.txt) count as
+    "fa_render_vulkan"."""
     path = path.strip()
+    if re.search(r"[/\\]fa_render_vulkan\.dir[/\\]", path):
+        return "fa_render_vulkan"
     m = re.search(r"([^/\\()]+)\(([^()]*)\)\s*$", path)
     if m:
         return normalize_lib(m.group(1))
@@ -755,6 +759,9 @@ def self_test():
         "description": "d", "kind": "binary", "preset": "x", "files": [{"path": "a", "strip": "none"}],
         "maxBytes": 200, "baselineBytes": 100, "note": "n"}}}
     check(validate_budget(good) == [], "a valid budget was rejected")
+    check(owner_of("engine/render/CMakeFiles/fa_render_vulkan.dir/src/renderer.cpp.o") == "fa_render_vulkan",
+          "the Vulkan player's fa_render objects are not named")
+    check(owner_of("player/CMakeFiles/factoria_player.dir/main.cpp.o") == "(objects)", "plain objects changed owner")
     bad = json.loads(json.dumps(good))
     bad["platforms"]["p"]["maxBytes"] = 50
     bad["platforms"]["p"]["files"][0]["strip"] = "gnuu"

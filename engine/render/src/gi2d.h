@@ -185,12 +185,12 @@ struct Gi2dJobPlan {
     bool active = false;
     Gi2dField* field = nullptr;
     std::shared_ptr<Gi2dGather> gather;
-    sg_view white{};  // a texture view the draws of a batch without a texture bind
+    gpu::View white{};  // a texture view the draws of a batch without a texture bind
     ResourceId emission, occluder,
         distance;  // imported: the images outlive the frame graph (P3b and the command read them)
     // The result of the cascades (cascadePasses > 0): the irradiance image the lit visuals of the job sample, and where the world is in it.
     ResourceId irradiance;
-    sg_view irradianceView{};    // the image written this frame (null without cascades)
+    gpu::View irradianceView{};  // the image written this frame (null without cascades)
     float xf[4] = {0, 0, 0, 0};  // image uv = world * xf.xy + xf.zw
     float intensity = 0.0f;      // GlobalIllumination2D.intensity
     int cascadePasses = 0;       // the passes of the cascades, the priming chain and the irradiance pass
@@ -228,14 +228,14 @@ public:
     Gi2dSystem& operator=(const Gi2dSystem&) = delete;
 
     // Whether this GPU can draw the field: RGBA16F render targets that blend and filter (the rule of FeatureEnv::halfTargets).
-    static bool float_targets_ok();
+    static bool float_targets_ok(const gpu::Device& device);
 
     // Start of a frame graph: no slot is asked for yet. `keep` (a capture that draws no 2D camera of the game): the slots stay as they were.
     void begin_frame(bool keep);
     // The slot `n` (0 .. kGi2dMaxFields - 1) for `g`: its three images, made (again) when the size changed. Null when the GPU cannot make
     // them (logged once). Marks the slot as used by this frame.
     // Also makes the irradiance images of `cp` (the history of the bounce is dropped when any size changes).
-    Gi2dField* acquire(int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
+    Gi2dField* acquire(gpu::Device& device, int n, const Gi2dGeometry& g, const Gi2dCascadePlan& cp);
     // Before the frame graph runs: frees the slots no job asked for (a frame without GI keeps no image) and counts the ones that were.
     void free_unused();
     // Destroys every image, shader and pipeline (the graphics context is still open).
@@ -258,7 +258,7 @@ public:
                    int* drawCalls);
 
     // The report of `render.gi2d_field`: whether GI is on and supported, and every field of the last frame (no GPU read).
-    Json report(const std::string& backend) const;
+    Json report(const gpu::Device& device, const std::string& backend) const;
     // The settings of the last job planned (`on` false when the scene has no enabled GlobalIllumination2D) and whether a frame asked for
     // fields at all: what the report says about the state of the feature.
     Gi2dSettings lastSettings;
@@ -269,8 +269,8 @@ public:
 
     // The programs and their pipelines for a target format (made on first use; null when it cannot be made). Used by the passes.
     enum class Prog { DrawAdd, DrawReplace, Seed, Jfa, SeedEmit, Cascade, Irradiance, Count };
-    bool ready();
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    bool ready(gpu::Device& device);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
     // Teaching message of a GPU without float targets, logged once; returns the sentence (also for the command).
     static std::string unsupported_message(const std::string& backend);
@@ -308,11 +308,13 @@ private:
     struct PipelineEntry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
     std::array<std::unique_ptr<Gi2dField>, kGi2dMaxFields> slots_;
     std::uint64_t shifts_ = 0;
-    sg_shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
+    gpu::Shader shaders_[6]{};  // draw, seed, jfa, seed_emit, cascade, irradiance
+    gpu::Device* device_ =
+        nullptr;  // the device the images, shaders and pipelines were made on (set by acquire / ready)
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     bool warnedTargets_ = false;
@@ -320,6 +322,6 @@ private:
 
 // Reads a field's image back as floats, texture row 0 first (the smallest world y), 4 floats per texel. False + `error` when the GPU
 // cannot. The work recorded so far must have been committed by the caller.
-bool gi2d_read(const Target& t, bool isGl, std::vector<float>& out, std::string* error);
+bool gi2d_read(gpu::Device& device, const Target& t, bool isGl, std::vector<float>& out, std::string* error);
 
 }  // namespace fa::render

@@ -53,7 +53,8 @@ warning says so). The check is not relaxed to compare engine versions: only the 
 
 ```
 linux/windows:  my-game-linux/
-                  my-game            (my-game.exe on Windows)
+                  my-game            (my-game.exe on Windows; on Linux the Vulkan player)
+                  my-game-gl         (Linux only: the OpenGL player, which takes over where Vulkan cannot start)
                   my-game.png  my-game.desktop      (Linux only: the icon and the application-menu entry)
                   my-game-x86_64.AppImage            (Linux only, with --format appimage: the whole game as one file)
                   FACTORIA_NOTICES.txt
@@ -69,6 +70,13 @@ executable; `Contents/Resources` in the `.app`).
 The executable is named after the game's slug (`Space Dodge` -> `space-dodge`). A game called `Game`, or whose name has no
 letter or digit, has the slug `game`: on Linux its executable is `game-bin`, so it does not sit on the `game/` folder
 (`game.desktop` and `game.png` keep the slug; Windows `game.exe` and macOS `Contents/MacOS/game` cannot collide).
+
+**Linux ships two players.** The executable is the Vulkan player (`factoria_player_vulkan`, found next to the
+`factoria_player` the export takes) and `<exe>-gl` the OpenGL one. The executable starts first; where Vulkan cannot start,
+or when the game's choice is `gl`, it replaces itself with `<exe>-gl` (same arguments, `FA_GPU_FALLBACK_FROM=vulkan` and
+the reason in the environment), which never hands back ([Two players on Linux and Android](../RENDERING.md#two-players-on-linux-and-android)).
+Run `<exe>-gl` yourself to skip Vulkan. `export.linux.vulkanPlayer: false` ships only the OpenGL player as `<exe>`, and
+so does an export whose player has no `factoria_player_vulkan` beside it (a release older than the Vulkan player).
 
 The player starts the game found in `game/` next to the executable (inside the
 `.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:
@@ -405,10 +413,26 @@ A block keeps its compressed form only when that saves at least 1/32 of its byte
 that does not compress costs nothing to decode. Choose another codec for an extension in `factoria.json`:
 
 ```json
-"export": { "pack": { "codecs": { ".json": "zstd", ".bin": "store" }, "useLoadOrder": true } }
+"export": { "pack": { "codecs": { ".json": "zstd", ".bin": "store" }, "codec": "auto", "useLoadOrder": true } }
 ```
 
-`export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4` or `zstd`.
+`export.pack.codecs` maps an extension (with its dot; `a.scene.json` counts as `.json`; any case) to `store`, `lz4`, `zstd`
+or `gdeflate`. `export.pack.codec` (default `"auto"`) sets the codec of every file that the table above would compress
+(never the ones it stores, and an extension named in `codecs` keeps its own): `"lz4"`, `"zstd"` or `"gdeflate"`. `gdeflate` is
+the Deflate64 stream in 64 KiB tiles that DirectStorage 1.1 decompresses on the GPU; the engine decodes it on the CPU too
+(about the ratio of zlib, slower than lz4 and zstd), so a pack with it works everywhere, but a FactorIA older than this
+option cannot read it. With `"auto"`, a Windows export with `export.pack.directStorage: true` packs those files as
+`gdeflate`. `directStorage` (default `false`) also makes a Windows `--release` export copy `dstorage.dll` and
+`dstoragecore.dll`, which `factoria setup directstorage` installs, next to the game's executable; the game then reads the
+blocks of its gdeflate files through Microsoft's DirectStorage (one queue that batches the reads; DirectStorage
+decompresses them on its own CPU threads, since the game's renderer does not run on the engine's D3D12 backend yet, the
+one that has DirectStorage write GPU buffers and textures and decompress on the GPU). Shipping the DLLs with a game
+redistributes Microsoft's files under the DirectStorage license: read `LICENSE.txt` and `NOTICES.txt`, which `factoria
+setup directstorage` keeps next to the DLLs (the export copies only the DLLs). When the
+DLLs are not installed the export still succeeds, with a warning that says to run `factoria setup directstorage`, and the
+game decodes those files on the CPU; the game does the same, and logs why once, when the DLLs are missing, older than
+DirectStorage 1.1 or a read through them fails (`FA_DIRECTSTORAGE=0` turns it off; docs/design/ARCHITECTURE_FILES.md,
+"DirectStorage", repository only, not in the binary). A wrong value is an error with its JSON pointer and a "did you mean".
 `export.pack.useLoadOrder` (default `true`) writes the files in the order the game first read them. Every play session (the
 editor's Play, `factoria run`, `play.auto`) records the files read before its first scene (the group `(start-up)`: what
 the engine and the scripts read after `factoria.json`, which is read by its full path and is not listed) and, per scene,

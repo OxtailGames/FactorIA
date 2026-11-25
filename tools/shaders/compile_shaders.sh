@@ -29,7 +29,7 @@ SHDC_SHA256_osx_arm64=2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fb
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC="$ROOT/engine/render/shaders"
 OUT="$ROOT/engine/render/src/shaders"
-SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl"
+SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk"
 
 host_dir() {
     local os arch
@@ -71,12 +71,15 @@ fi
 
 mkdir -p "$OUT"
 compiled=0
-for input in "$SRC"/*.glsl; do
+# The engine's shaders, then the test shaders of engine/render/tests/shaders (each next to its header; the Vulkan
+# backend's tests draw with them, so they are made for spirv_vk only).
+for input in "$SRC"/*.glsl "$ROOT"/engine/render/tests/shaders/*.glsl; do
     [ -f "$input" ] || continue
     name="$(basename "$input" .glsl)"
     if [ "$#" -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
     grep -q '^@program' "$input" || continue  # a template, compiled through the files that include it
     output="$OUT/$name.glsl.h"
+    case "$input" in "$ROOT"/engine/render/tests/*) output="${input}.h" ;; esac
     echo "shdc: ${input#"$ROOT"/} -> ${output#"$ROOT"/}"
     # A file that needs preprocessor flags from the command line (terrain.glsl: FA_HAS_VERTEX, FA_INST_2, as a custom material's top
     # file gets them) names them in a comment: `// shdc-defines: A:B`.
@@ -87,6 +90,22 @@ for input in "$SRC"/*.glsl; do
     # `// shdc-slang: glsl430:metal_macos`. The others have no code in its header, so the web and Android players do not grow.
     slang="$(sed -n 's|^// shdc-slang: *||p' "$input" | head -n 1 | tr -d '\r')"
     "$SHDC" --input "$input" --output "$output" --slang "${slang:-$SLANG}" --format sokol --ifdef --no-log-cmdline ${extra[@]+"${extra[@]}"}
+    # sokol-shdc keeps each dialect behind its sokol backend's macro. The SPIR-V is also what the engine's own Vulkan
+    # backend (engine/render/src/gpu/vulkan_*) reads while sokol runs another backend, so its guard opens to
+    # FA_SHADERS_SPIRV too: a translation unit that needs the SPIR-V defines it before including the header, and every
+    # other one (every GL, Metal or D3D11 player) carries none of it (docs/design/ARCHITECTURE_RENDERING_VULKAN.md).
+    # Line ends are dropped to LF first (BSD sed has no \r in a regex), so a CRLF output from a Windows shdc is rewritten too.
+    tr -d '\r' <"$output" |
+        sed -e 's|^\( *\)#if defined(SOKOL_VULKAN)$|\1#if defined(SOKOL_VULKAN) \|\| defined(FA_SHADERS_SPIRV)|' \
+            -e 's|^\( *\)#endif /\* SOKOL_VULKAN \*/$|\1#endif /* SOKOL_VULKAN \|\| FA_SHADERS_SPIRV */|' >"$output.tmp"
+    # Every opening and closing guard must have been rewritten: one left over (another spelling from a newer sokol-shdc) would
+    # leave the SPIR-V behind SOKOL_VULKAN only, so the engine's own Vulkan backend would find no twin.
+    if grep -q -e '#if defined(SOKOL_VULKAN)[[:space:]]*$' -e '#endif /\* SOKOL_VULKAN \*/' "$output.tmp"; then
+        rm -f "$output.tmp"
+        echo "error: $output has a SOKOL_VULKAN guard the rewrite did not match (sokol-shdc changed its output?): fix the sed in $0" >&2
+        exit 1
+    fi
+    mv "$output.tmp" "$output"
     compiled=$((compiled + 1))
 done
 [ "$compiled" -gt 0 ] || { echo "no shader matches: $*" >&2; exit 1; }

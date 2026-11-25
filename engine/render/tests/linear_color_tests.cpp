@@ -12,6 +12,7 @@
 #include <string>
 #include <tuple>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "color_space.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -249,7 +250,7 @@ TEST_CASE("color space: a lit 2D scene in linear light (golden) differs from the
     const float amb = render::srgb_to_linear(0.15f), tint = render::srgb_to_linear(0.9f);
     CHECK(star.r == doctest::Approx(render::linear_to_srgb(amb * tint)).epsilon(0.08));
     CHECK(worst_error(a, b) > 0.03);  // not the same picture
-    if (lin.gpu().scene_format() == SG_PIXELFORMAT_RGBA16F || lin.gpu().scene_format() == SG_PIXELFORMAT_SRGB8A8)
+    if (lin.gpu().scene_format() == gpu::PixelFormat::Rgba16F || lin.gpu().scene_format() == gpu::PixelFormat::Srgb8A8)
         expect_golden(b, "2d_lit_shapes_linear");
 }
 
@@ -268,7 +269,7 @@ TEST_CASE("color space: a lit 3D scene in linear light (golden) differs from the
     CHECK_FALSE(gamma.gpu().linear());
     CHECK(worst_error(a, b) > 0.05);
     CHECK(b.pixel(160, 2).b > 0.3f);  // the sky is still a sky
-    if (lin.gpu().scene_format() == SG_PIXELFORMAT_RGBA16F || lin.gpu().scene_format() == SG_PIXELFORMAT_SRGB8A8)
+    if (lin.gpu().scene_format() == gpu::PixelFormat::Rgba16F || lin.gpu().scene_format() == gpu::PixelFormat::Srgb8A8)
         expect_golden(b, "3d_primitives_linear");
 }
 
@@ -316,16 +317,16 @@ TEST_CASE("color space: a gradient on the 8-bit scene target keeps the ramp, and
     auto w8 = build(), wb = build();
     const Image img8 = eight.draw(g, *w8), imgBest = best.draw(g, *wb);
     CHECK_FALSE(eight.r.hdr_scene());
-    const sg_pixel_format f8 = eight.gpu().scene_format();
-    CHECK((f8 == SG_PIXELFORMAT_SRGB8A8 || f8 == SG_PIXELFORMAT_RGBA8));
-    INFO("the 8-bit scene format is " << std::string(render::pixel_format_name(f8)));
+    const gpu::PixelFormat f8 = eight.gpu().scene_format();
+    CHECK((f8 == gpu::PixelFormat::Srgb8A8 || f8 == gpu::PixelFormat::Rgba8));
+    INFO("the 8-bit scene format is " << std::string(gpu::pixel_format_name(f8)));
     double prev = -1;
     for (int i = 0; i < 256; i += 5) {  // never darker than the pixel before it
         const double v = img8.pixel(32 + i, 90).r;
         CHECK(v >= prev - 0.004);
         prev = v;
     }
-    if (f8 == SG_PIXELFORMAT_SRGB8A8) {
+    if (f8 == gpu::PixelFormat::Srgb8A8) {
         // The GPU encodes what is written and decodes what is read: the darks keep their precision and the ramp comes out as it went in.
         for (int i : {3, 8, 16, 32, 64, 100, 128, 200, 250}) {
             CAPTURE(i);
@@ -344,7 +345,7 @@ TEST_CASE(
     "color space: R11G11B10 is the float scene target when RGBA16F is not available, and draws the same picture") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const sg_pixelformat_info packed = sg_query_pixelformat(SG_PIXELFORMAT_RG11B10F);
+    const sg_pixelformat_info packed = sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rg11B10F));
     const bool isGl = sg_query_backend() == SG_BACKEND_GLCORE || sg_query_backend() == SG_BACKEND_GLES3;
     const bool expected = packed.render && packed.filter && (packed.blend || isGl);
     Own gamma(g, "r11g11b10");
@@ -355,7 +356,7 @@ TEST_CASE(
     camera(wg);
     rect(wg, {0, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1});
     gamma.draw(g, wg);
-    CHECK(gamma.gpu().scene_format() != SG_PIXELFORMAT_RG11B10F);
+    CHECK(gamma.gpu().scene_format() != gpu::PixelFormat::Rg11B10F);
     World w;
     camera(w);
     linear(w);
@@ -363,7 +364,7 @@ TEST_CASE(
     rect(w, {0, 0, 0}, Color{1, 1, 1, 0.5f});
     rect(w, {60, 0, 0}, Color{0.9f, 0.6f, 0.3f, 1});
     const Image img = packedRenderer.draw(g, w);
-    CHECK((packedRenderer.gpu().scene_format() == SG_PIXELFORMAT_RG11B10F) == expected);
+    CHECK((packedRenderer.gpu().scene_format() == gpu::PixelFormat::Rg11B10F) == expected);
     if (expected) {
         CHECK(packedRenderer.r.hdr_scene());  // a float target: values above white reach the post pass
         CHECK_FALSE(packedRenderer.gpu().scene_has_alpha());
@@ -439,10 +440,10 @@ TEST_CASE("color space: the picture the final pass writes is held in RGBA8 when 
         World w;
         fill(w, true);
         const Image img = r.draw(g, w);
-        const sg_pixel_format scene = r.gpu().scene_format();
-        const sg_pixel_format display = r.gpu().display_format();
+        const gpu::PixelFormat scene = r.gpu().scene_format();
+        const gpu::PixelFormat display = r.gpu().display_format();
         // The display picture stays in RGBA16F when the scene is; the 8-bit scenes and the packed one hold it in plain RGBA8.
-        CHECK(display == (scene == SG_PIXELFORMAT_RGBA16F ? SG_PIXELFORMAT_RGBA16F : SG_PIXELFORMAT_RGBA8));
+        CHECK(display == (scene == gpu::PixelFormat::Rgba16F ? gpu::PixelFormat::Rgba16F : gpu::PixelFormat::Rgba8));
         CHECK(worst_error(img, reference) < 0.04);
         CHECK(at(img, -30, 0).r == doctest::Approx(0.5f).epsilon(0.02));  // an authored colour is shown as picked
     }
@@ -454,7 +455,7 @@ TEST_CASE("color space: colour textures are made sRGB in a linear scene, with th
     REQUIRE(g.ok);
     save(solid(8, 8, 100), "assets/lin_tex_a.png");
     save(solid(8, 8, 150), "assets/lin_tex_b.png");
-    const sg_pixelformat_info srgb = sg_query_pixelformat(SG_PIXELFORMAT_SRGB8A8);
+    const sg_pixelformat_info srgb = sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Srgb8A8));
     const bool gpuDecodes = srgb.sample && srgb.filter;
     Own r(g);
     REQUIRE_MESSAGE(r.ok, r.error);
@@ -465,10 +466,12 @@ TEST_CASE("color space: colour textures are made sRGB in a linear scene, with th
         return std::string("missing");
     };
     // The format a texture is made in now, for the colour spaces: (gamma, RGBA8) and (linear, SRGB8A8 when the GPU decodes it).
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RGBA8) == SG_PIXELFORMAT_RGBA8);  // a gamma scene
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rgba8) == gpu::PixelFormat::Rgba8);  // a gamma scene
     r.gpu().set_linear(true);
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RGBA8) == (gpuDecodes ? SG_PIXELFORMAT_SRGB8A8 : SG_PIXELFORMAT_RGBA8));
-    CHECK(r.gpu().texture_format(SG_PIXELFORMAT_RG11B10F) == SG_PIXELFORMAT_RG11B10F);  // nothing else is converted
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rgba8) ==
+          (gpuDecodes ? gpu::PixelFormat::Srgb8A8 : gpu::PixelFormat::Rgba8));
+    CHECK(r.gpu().texture_format(gpu::PixelFormat::Rg11B10F) ==
+          gpu::PixelFormat::Rg11B10F);  // nothing else is converted
     r.gpu().set_linear(false);
 
     // A texture first used by a gamma scene is RGBA8 (data and colour alike); one first used by a linear scene is SRGB8A8.
@@ -510,7 +513,7 @@ TEST_CASE("color space: a texture prepared in the background before the scene tu
     for (int i : {0, 3})
         for (int c = 0; c < 3; ++c) checker.rgba[std::size_t(i) * 4 + std::size_t(c)] = 255;
     save(checker, "assets/lin_bg_mips.png");
-    const sg_pixelformat_info srgbInfo = sg_query_pixelformat(SG_PIXELFORMAT_SRGB8A8);
+    const sg_pixelformat_info srgbInfo = sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Srgb8A8));
     const bool gpuDecodes = srgbInfo.sample && srgbInfo.filter;
     Own r(g);
     REQUIRE_MESSAGE(r.ok, r.error);
@@ -588,8 +591,8 @@ TEST_CASE("color space: a gamma scene is drawn exactly as before (no conversion 
     const Image img = g.draw(w);
     render::Gpu& gpu = *render::renderer_gpu(g.renderer);
     CHECK_FALSE(gpu.linear());
-    CHECK((gpu.scene_format() == SG_PIXELFORMAT_RGBA16F || gpu.scene_format() == SG_PIXELFORMAT_RGBA8));
-    CHECK(gpu.texture_format(SG_PIXELFORMAT_RGBA8) == SG_PIXELFORMAT_RGBA8);
+    CHECK((gpu.scene_format() == gpu::PixelFormat::Rgba16F || gpu.scene_format() == gpu::PixelFormat::Rgba8));
+    CHECK(gpu.texture_format(gpu::PixelFormat::Rgba8) == gpu::PixelFormat::Rgba8);
     // 50% of (0.5, 0.25, 0.75) over black, on the sRGB values.
     CHECK(at(img, 0, 0).r == doctest::Approx(0.25f).epsilon(0.03));
     CHECK(at(img, 0, 0).g == doctest::Approx(0.125f).epsilon(0.03));
@@ -604,17 +607,15 @@ TEST_CASE(
     camera(w);
     rect(w, {0, 0, 0}, Color{0.5f, 0.5f, 0.5f, 1},
          {400, 300});  // fills the picture: the middle pixel is the whole picture
-    // The middle pixel (red byte) of the image behind game_target_image_id(), the one ImGui shows. Only an 8-bit image can be read back.
+    // The middle pixel (red byte) of the image behind game_target_texture().image, the one ImGui shows. Only an 8-bit image can be read back.
     auto viewed = [](Own& o) {
-        const std::uint32_t id = o.r.game_target_image_id();
+        const std::uint32_t id = o.r.game_target_texture().image;
         REQUIRE(id != 0);
-        CHECK(o.r.game_target_view_id() != 0);
-        sg_image image{};
-        image.id = id;
+        CHECK(o.r.game_target_texture().view != 0);
         std::vector<std::uint8_t> px;
-        std::string err;
         const int tw = o.r.target_width(), th = o.r.target_height();
-        REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+        const auto read = RendererTestAccess::gpu(o.r)->device().read_image_rgba8(gpu::Image{id}, tw, th, px);
+        REQUIRE_MESSAGE(read.ok(), (read.ok() ? std::string() : read.error().to_string()));
         return int(px[(std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4]);
     };
     auto shot_byte = [](const Image& img) { return int(std::lround(img.pixel(160, 90).r * 255.0f)); };
@@ -637,11 +638,12 @@ TEST_CASE(
         linear(w, false);
         r.draw(g, w);
         const std::int64_t images = live_images();
-        const std::uint32_t gammaId = r.r.game_target_image_id();  // gamma: the game image itself, no copy was made
+        const std::uint32_t gammaId =
+            r.r.game_target_texture().image;  // gamma: the game image itself, no copy was made
 
         linear(w);
         const Image linShot = r.draw(g, w);
-        CHECK(r.r.game_target_image_id() != gammaId);
+        CHECK(r.r.game_target_texture().image != gammaId);
         const int linByte = viewed(r);
         CHECK(std::abs(linByte - shot_byte(linShot)) <= 1);
         CHECK(linByte >= 126);  // the colour as picked
@@ -677,21 +679,21 @@ TEST_CASE(
         linear(w);
         r.draw(g, w);
         const int tw = r.r.target_width(), th = r.r.target_height();
-        const std::uint32_t copyBefore = r.r.game_target_image_id();  // the encoded copy at the old size
+        const std::uint32_t copyBefore = r.r.game_target_texture().image;  // the encoded copy at the old size
         r.r.set_target_size(tw + 64, th + 36);
         // The copy is made at the end of a frame: until then the viewport falls back to the game image itself.
-        CHECK(r.r.game_target_image_id() != 0);
-        CHECK(r.r.game_target_image_id() != copyBefore);
-        CHECK(r.r.game_target_view_id() != 0);
+        CHECK(r.r.game_target_texture().image != 0);
+        CHECK(r.r.game_target_texture().image != copyBefore);
+        CHECK(r.r.game_target_texture().view != 0);
         const Image bigger = r.draw(g, w);
-        CHECK(r.r.game_target_image_id() != 0);
+        CHECK(r.r.game_target_texture().image != 0);
         CHECK(bigger.width == tw + 64);
-        CHECK(r.r.game_target_view_id() != 0);  // never the viewport's "no render target" text while graphics run
+        CHECK(r.r.game_target_texture().view != 0);  // never the viewport's "no render target" text while graphics run
         CHECK(std::abs(viewed(r) - int(std::lround(bigger.pixel(bigger.width / 2, bigger.height / 2).r * 255.0f))) <=
               1);
         r.r.set_target_size(tw, th);
         r.draw(g, w);
-        CHECK(r.r.game_target_view_id() != 0);
+        CHECK(r.r.game_target_texture().view != 0);
         CHECK(viewed(r) >= 126);  // the encoded copy again, at the old size
     }
     if (!wasEnabled) sg_disable_stats();

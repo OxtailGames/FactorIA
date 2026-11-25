@@ -352,13 +352,17 @@ void Editor::at_section_Q(AtScript& at) {
         atQFake_ = fake.make_preferred().string();
         // One file per run of the autotest: a fixed name was shared by two autotests running at once on a machine (two checkouts, a
         // loaded CI runner), and the other's invocations counted as this one's ("the orchestrator ran twice (3)").
-        atQArgv_ = (stdfs::temp_directory_path() /
-                    ("fa_autotest_q_argv_" +
-                     std::to_string(std::chrono::system_clock::now().time_since_epoch().count() / 1000) + "_" +
-                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".txt"))
-                       .string();
+        // A private folder (removed when the autotest ends, also when a check below stops early), never a file left in the temp folder.
+        auto qdir = fs::make_temp_dir_until_exit("fa_autotest_q");
+        if (!qdir.ok()) {
+            atLog_.push_back("SKIP the agent is never silent (no temp folder: " + qdir.error().to_string() + ")");
+            atQFake_.clear();  // the later steps of section Q skip on an empty atQFake_
+            return;
+        }
+        atQArgv_ = (*qdir / "argv.txt").string();
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         {
             std::lock_guard<std::mutex> lock(aiMu_);
             atSavedConfig_ = aiConfig_;
@@ -438,6 +442,7 @@ void Editor::at_section_Q(AtScript& at) {
         }
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         chat_.clear();
         ai_start("Delegate the coin.");
         atWaitCount_ = 0;
@@ -494,6 +499,7 @@ void Editor::at_section_Q(AtScript& at) {
         // (3) Stop while the worker runs.
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         chat_.clear();
         aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
             return std::shared_ptr<ai::ChatProvider>(std::make_shared<SlowWorkerProvider>(20000));
@@ -524,6 +530,7 @@ void Editor::at_section_Q(AtScript& at) {
         at_check(!continued, "...and the transcript does not claim one");
         std::error_code ec;
         stdfs::remove(atQArgv_, ec);
+        stdfs::remove(atQArgv_ + ".mcpconfig", ec);  // the fake CLI keeps a copy of the MCP config it was given
         aiFactory_ = nullptr;
         if (atSavedConfig_) {
             std::lock_guard<std::mutex> lock(aiMu_);

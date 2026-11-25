@@ -27,6 +27,14 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   them, for example on machines without a GPU.
 - Tests run with the repository root as their working directory, so fixture
   paths are relative to the root.
+- **Tests never write into the source tree.** A test that needs a project (to load, build, screenshot or run it) works on
+  a copy in a temp dir, never in `examples/`, `tools/*/tests/fixtures` or anywhere else in the checkout: a run leaves
+  caches, replays and saves in the project's `.factoria` folder. C++ tests make the folder with
+  `fa::fs::make_temp_dir_until_exit(prefix)` (`engine/core/include/fa/core/fs.h`; removed at normal exit, a crash or the
+  display watchdog's `_Exit` leaves it) and copy or scaffold the project there (`create_project`); the CMake script tests
+  (`tools/cli/tests/graphics_same_hash.cmake`, `jobs_same_frames.cmake`) copy the example with `file(COPY ... PATTERN
+  ".factoria" EXCLUDE)` into a temp dir and remove it before they end, also before a failure message (a test that
+  ctest kills at its TIMEOUT leaves it). A single file in the temp folder goes inside such a folder too, never loose.
 - **The example games run on an optimized build.** `example_<name>_test` (their JS tests), `example_<name>_validate` and
   the perf budgets (`example_*_perf`) carry the CTest label `example`. The games' tests run the whole engine for minutes
   (the biggest take ten minutes in Debug under load, about a tenth of that in Release), so the cache variable
@@ -70,6 +78,9 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that
   never returns) is still stopped by a hard cap of 8 times the limit on the wall clock. The messages say which one ran out:
   `(> 60 s of CPU time)` or `(> 480 s on the clock)`.
+- **Tests remove what they create in the temp folder.** A scratch folder is removed when its test ends (a small RAII struct), or
+  at the end of the process when a whole program shares it (`fs::make_temp_dir_until_exit`, and the render tests' one project
+  folder). Run the suite with `TMPDIR` pointing at an empty folder to see what a test leaves behind.
 
 ## Sanitizers
 
@@ -131,7 +142,8 @@ every race of the run and fails the test with its exit code.
 `tools/fuzz/` holds the fuzz targets: each feeds arbitrary bytes to one reader of data other people wrote, and the contract
 is that every input is a result or an error, never a crash, a hang, runaway memory or undefined behaviour. The targets are
 `json` (`parse_json`), `json_schema` (`validate_json` and the schema helpers), `scene` (`load_scene`), `prefab`
-(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
+(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `gdeflate` (`decompress` and
+`decompress_into` of `Codec::GDeflate`, the stream of a pack's gdeflate blocks, and its round trip), `mcp_jsonrpc` (`McpServer::handle_message`
 with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project), `translations`
 (`read_csv`, `read_xliff`) and the decoders of the files a project brings: `image` (`decode_image` and `image_size`:
 PNG, JPG, TGA, BMP, GIF...), `hdr` (`decode_hdr` and a re-encode: Radiance RGBE), `ktx2` (`ktx2_size` and `decode_ktx2`, the CPU transcode of Basis Universal UASTC and ETC1S),

@@ -2,6 +2,8 @@
 #   Desktop : executable `factoria_player [projectDir]` (see main.cpp)
 #   Android : SHARED library libfactoria_player.so loaded by NativeActivity
 #             (android.app.lib_name = factoria_player, see platforms/android)
+#   Linux, Android: also factoria_player_vulkan (FA_PLAYER_VULKAN), the same player drawing with Vulkan; where Vulkan
+#             cannot start it runs the GL player (execv of the sibling on Linux, factoria.engine.GlActivity on Android)
 #   Web     : factoria_player.js + factoria_player.wasm (Emscripten, MODULARIZE, createFactoriaPlayer), run by
 #             platforms/web/shell.html, which writes the game pack to /game.pak first (main.cpp)
 #   iOS     : app bundle; the game is copied to <app>/game when FA_GAME_PROJECT_DIR is set
@@ -148,29 +150,63 @@ else()
     endif()
 endif()
 
-target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)
-# fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code (main.cpp).
-target_include_directories(factoria_player PRIVATE ${CMAKE_BINARY_DIR}/generated)
-add_dependencies(factoria_player fa_build_fingerprint)
+# The Vulkan player of Linux and Android (M77-P9e2, docs/RENDERING.md "Choosing the GPU backend"): the same main.cpp
+# with FA_PLAYER_VULKAN_VARIANT, linked with the renderer on Vulkan (fa_render_vulkan, engine/render/CMakeLists.txt). It
+# starts first, draws with Vulkan, and hands over to factoria_player (exec of the sibling on Linux, the OpenGL activity
+# on Android) when the game asks for OpenGL or when Vulkan cannot start. factoria_player itself is unchanged.
+if(TARGET fa_render_vulkan)
+    if(FA_PLATFORM STREQUAL "android")
+        add_library(factoria_player_vulkan SHARED ${player_srcs})
+        target_link_options(factoria_player_vulkan PRIVATE -u ANativeActivity_onCreate -Wl,-z,max-page-size=16384)
+        target_link_libraries(factoria_player_vulkan PRIVATE android log EGL GLESv3)
+    else()
+        add_executable(factoria_player_vulkan ${player_srcs})
+        if(FA_BUILD_TESTS)
+            add_test(NAME player_vulkan_version COMMAND factoria_player_vulkan --version)
+            set_tests_properties(player_vulkan_version PROPERTIES PASS_REGULAR_EXPRESSION
+                                  "^factoria_player ${FA_ENGINE_VERSION} \\(build [^)]+\\)[\r\n]")
+        endif()
+    endif()
+    target_compile_definitions(factoria_player_vulkan PRIVATE FA_PLAYER_VULKAN_VARIANT=1)
+    # The objects first: they define what libfa_render.a would otherwise bring (see fa_render_vulkan).
+    target_link_libraries(factoria_player_vulkan PRIVATE fa_render_vulkan)
+    # The OpenGL player is the sibling the Vulkan one starts: building one builds both.
+    add_dependencies(factoria_player_vulkan factoria_player)
+endif()
 
-# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing reaches
-# (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and plugin entry
-# points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols. Android (NDK) and
-# MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change which code is
-# inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on every platform.
+foreach(t factoria_player factoria_player_vulkan)
+    if(NOT TARGET ${t})
+        continue()
+    endif()
+    target_link_libraries(${t} PRIVATE fa_runtime fa_warnings)
+    # fa_build_fingerprint.h (engine/core/CMakeLists.txt): the mobile players carry the fingerprint in their own code
+    # (main.cpp).
+    target_include_directories(${t} PRIVATE ${CMAKE_BINARY_DIR}/generated)
+    add_dependencies(${t} fa_build_fingerprint)
+endforeach()
+
+# Every game ships the same player, so it links the whole engine; the linker drops the functions and data nothing
+# reaches (about 1.1 MB, 11% of the macOS player; docs/EXPORTING.md, "Size of the player"). Static initializers and
+# plugin entry points stay: plugins reach the engine through the FaPluginApi table, not through exported symbols.
+# Android (NDK) and MSVC Release already do this by default, Emscripten too. No LTO: it saved 0.1 MB more and can change
+# which code is inlined across modules, which the floating-point rules of the root CMakeLists.txt keep identical on
+# every platform.
 if(APPLE)
     target_link_options(factoria_player PRIVATE -Wl,-dead_strip)
 elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(factoria_player PRIVATE -Wl,--gc-sections)
+    if(TARGET factoria_player_vulkan)
+        target_link_options(factoria_player_vulkan PRIVATE -Wl,--gc-sections)
+    endif()
 endif()
 
-# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that measure the player
-# configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
-#   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read; the web
-#     player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
-#   - the archives the player links, as player/player_libs-<config>.txt, one path per line, relative to the build directory (a build in a container has other
-#     absolute paths than the host that measures it): what the report falls back to
-#     where there is no map (web, iOS) and when a map cannot be read.
+# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that
+# measure the player configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
+#   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read;
+#     the web player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
+#   - the archives the player links, as player/player_libs-<config>.txt, one path per line, relative to the build
+#     directory (a build in a container has other absolute paths than the host that measures it): what the report
+#     falls back to where there is no map (web, iOS) and when a map cannot be read.
 # Only link flags and a generated text file: no compile line changes, so the ccache is as warm as without the option.
 if(FA_PLAYER_LINK_MAP)
     set(FA_PLAYER_MAP_FILE ${CMAKE_CURRENT_BINARY_DIR}/factoria_player.map)
@@ -181,9 +217,18 @@ if(FA_PLAYER_LINK_MAP)
     elseif(FA_PLATFORM STREQUAL "linux" OR FA_PLATFORM STREQUAL "android" OR FA_PLATFORM STREQUAL "windows")
         target_link_options(factoria_player PRIVATE "-Wl,-Map=${FA_PLAYER_MAP_FILE}")
     endif()
+    # The Vulkan player's own map (player/factoria_player_vulkan.map; budget entries linux-x64-vulkan,
+    # android-*-vulkan).
+    if(TARGET factoria_player_vulkan)
+        if(APPLE)
+            target_link_options(factoria_player_vulkan PRIVATE "-Wl,-map,${CMAKE_CURRENT_BINARY_DIR}/factoria_player_vulkan.map")
+        else()
+            target_link_options(factoria_player_vulkan PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/factoria_player_vulkan.map")
+        endif()
+    endif()
 
-    # Every static library the player's link line reaches, found when the whole tree is configured (a library defined after
-    # this directory is still found: the call is deferred to the end of the top-level CMakeLists.txt).
+    # Every static library the player's link line reaches, found when the whole tree is configured (a library defined
+    # after this directory is still found: the call is deferred to the end of the top-level CMakeLists.txt).
     function(fa_player_write_lib_list target)
         set(todo ${target})
         set(seen "")

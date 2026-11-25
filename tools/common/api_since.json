@@ -1417,6 +1417,7 @@
     "game.state": "0.1.0",
     "game.state_hash": "0.19.0",
     "game.step": "0.1.0",
+    "graphics.backend": "0.37.0",
     "graphics.detect": "0.36.0",
     "graphics.preset": "0.36.0",
     "i18n.export": "0.2.0",

@@ -21,6 +21,8 @@
 #include "fa/scene/tilemap.h"
 #include "frame_graph.h"
 #include "gi2d.h"
+#include "gi2d_test_support.h"
+#include "gpu/recording_device.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
 
@@ -53,18 +55,18 @@ struct Own {
         r.end_frame();
         g.gpu.end_frame();
     }
-    // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks them is a bug to see, not a
-    // test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack them, and say so.
+    // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks
+    // them is a bug to see, not a test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may
+    // lack them, and say what is missing.
     bool gi_ready() {
-        const bool floatOk = Gi2dSystem::float_targets_ok();
-        const sg_backend api = sg_query_backend();
-        if (api == SG_BACKEND_GLCORE || api == SG_BACKEND_D3D11 || api == SG_BACKEND_METAL_MACOS ||
-            api == SG_BACKEND_METAL_IOS) {
-            INFO("this backend must have RGBA16F render targets that blend and filter");
-            REQUIRE(floatOk);
-        }
-        if (!floatOk) MESSAGE("no RGBA16F targets on this GPU: the field is not drawn here");
-        return floatOk;
+        REQUIRE(renderer_gpu(r)->has_device());
+        const gpu::Device& dev = renderer_gpu(r)->device();
+        const std::string missing = gi2d_missing_targets(dev);
+        if (missing.empty()) return true;
+        const gpu::Backend api = dev.backend();
+        if (api == gpu::Backend::Gl || api == gpu::Backend::D3d11 || api == gpu::Backend::Metal) FAIL(missing);
+        MESSAGE(missing);
+        return false;
     }
 };
 
@@ -770,4 +772,91 @@ TEST_CASE("gi2d field: a map with more cells than a field draws is cut at the ca
     CHECK(report["fields"][0]["dropped"].get<int>() > 0);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() <= kGi2dMaxQuads);
     CHECK(report["fields"][0]["emitters"]["tiles"].get<int>() > kGi2dMaxQuads / 2);
+}
+
+TEST_CASE("gi2d system: images are destroyed on the device that made them, and release forgets the device") {
+    gpu::RecordingDevice a, b;
+    Gi2dSystem sys;
+    Gi2dGeometry small;
+    small.valid = true;
+    small.width = small.height = 32;
+    Gi2dCascadePlan plan;
+    plan.ok = true;
+    plan.gridW = plan.gridH = 8;
+
+    Gi2dField* f = sys.acquire(a, 0, small, plan);
+    REQUIRE(f != nullptr);
+    const gpu::Image emissionA = f->emission.color;
+    const gpu::Image irradianceA = f->irradiance[1].color;
+    REQUIRE(emissionA.id != 0);
+    CHECK(a.state(emissionA) == gpu::ResourceState::Valid);
+    CHECK(a.state(irradianceA) == gpu::ResourceState::Valid);
+
+    // Another size on another device: the old images go on the device that made them, the new ones live on the new one.
+    Gi2dGeometry big = small;
+    big.width = big.height = 64;
+    sys.begin_frame(false);
+    f = sys.acquire(b, 0, big, plan);
+    REQUIRE(f != nullptr);
+    CHECK(a.state(emissionA) != gpu::ResourceState::Valid);
+    CHECK(a.state(irradianceA) != gpu::ResourceState::Valid);
+    const gpu::Image emissionB = f->emission.color;
+    CHECK(b.state(emissionB) == gpu::ResourceState::Valid);
+    CHECK(b.state(f->distance.color) == gpu::ResourceState::Valid);
+
+    // Releasing frees the images on b, and the system then knows no device: a second release touches nothing.
+    sys.release();
+    CHECK(b.state(emissionB) != gpu::ResourceState::Valid);
+    sys.release();
+    CHECK(a.errors().empty());
+    CHECK(b.errors().empty());
+}
+
+TEST_CASE("gi2d field: the emission and occluder vertices are written before their pass opens, never inside it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);  // the built-in shaders follow the open context's dialect, even on a RecordingDevice
+    // The renderer on a RecordingDevice: the stream shows the order of the calls (write_buffer inside a pass would
+    // break acquire_transient's Metal pacing copy, which cannot run in one).
+    Renderer r;
+    RendererDesc d;
+    d.designWidth = 320;
+    d.designHeight = 180;
+    d.sampleCount = 1;
+    d.headless = true;
+    d.backend = GpuBackend::Recording;
+    std::string error;
+    REQUIRE_MESSAGE(r.init(d, g.gpu.environment(), &error), error);
+    auto* dev = dynamic_cast<gpu::RecordingDevice*>(&renderer_gpu(r)->device());
+    REQUIRE(dev != nullptr);
+    World w;
+    content_world(w);
+    r.begin_frame();
+    r.render_world(w, 0.0f);
+    r.end_frame();
+    const std::vector<gpu::RecordedCommand> stream = dev->commands();
+    int passes = 0;
+    for (std::size_t i = 0; i < stream.size(); ++i) {
+        if (stream[i].kind != gpu::CommandKind::BeginPass) continue;
+        const bool emission = stream[i].text.find("gi2d-emission") != std::string::npos;
+        const bool occluder = stream[i].text.find("gi2d-occluder") != std::string::npos;
+        if (!emission && !occluder) continue;
+        ++passes;
+        // Inside the pass: draws, and no upload.
+        std::size_t end = i + 1;
+        int draws = 0;
+        for (; end < stream.size() && stream[end].kind != gpu::CommandKind::EndPass; ++end) {
+            CHECK_MESSAGE(stream[end].kind != gpu::CommandKind::WriteBuffer, "an upload inside " << stream[i].text);
+            draws += stream[end].kind == gpu::CommandKind::Draw ? 1 : 0;
+        }
+        CHECK_MESSAGE(draws > 0, stream[i].text << " draws nothing: the scene has emitters and occluders");
+        // Before it: the vertices, written after the previous pass closed.
+        bool written = false;
+        for (std::size_t k = i; k-- > 0 && stream[k].kind != gpu::CommandKind::EndPass;)
+            written = written || stream[k].kind == gpu::CommandKind::WriteBuffer;
+        CHECK_MESSAGE(written, "no write_buffer between the previous pass and " << stream[i].text);
+    }
+    CHECK(passes == 2);
+    CHECK(dev->errors().empty());
+    if (!dev->errors().empty()) MESSAGE(dev->errors().front());
+    r.shutdown();
 }

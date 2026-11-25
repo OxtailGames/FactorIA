@@ -567,8 +567,8 @@ TEST_CASE("resolve_post_stack: the same world resolves to the same stack every t
 // ------------------------------------------------------------------------------------------- the feature table
 
 namespace {
-FeatureEnv gpu(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false,
-               bool float32 = true) {
+FeatureEnv gpu_env(FeatureBackend b, bool half = true, bool packed = true, bool depth = true, bool compute = false,
+                   bool float32 = true) {
     FeatureEnv e;
     e.backend = b;
     e.float32 = float32;
@@ -610,33 +610,33 @@ TEST_CASE("features: the capabilities follow what each backend's GPU reports") {
     for (const FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2,
                                    FeatureBackend::D3d11, FeatureBackend::Metal}) {
         CAPTURE(feature_backend_label(b));
-        CHECK(supported(gpu(b), "floatTargets"));
-        CHECK(supported(gpu(b), "r11g11b10"));
-        CHECK(supported(gpu(b), "sampledDepth"));
+        CHECK(supported(gpu_env(b), "floatTargets"));
+        CHECK(supported(gpu_env(b), "r11g11b10"));
+        CHECK(supported(gpu_env(b), "sampledDepth"));
         std::string why;
-        CHECK_FALSE(supported(gpu(b, false), "floatTargets", &why));
+        CHECK_FALSE(supported(gpu_env(b, false), "floatTargets", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
-        CHECK_FALSE(supported(gpu(b, true, false), "r11g11b10"));
-        CHECK_FALSE(supported(gpu(b, true, true, false), "sampledDepth", &why));
+        CHECK_FALSE(supported(gpu_env(b, true, false), "r11g11b10"));
+        CHECK_FALSE(supported(gpu_env(b, true, true, false), "sampledDepth", &why));
         CHECK(why.find("depth") != std::string::npos);
     }
 }
 
 TEST_CASE("features: compute shaders exist on GL, D3D11 and Metal and never on GLES3 or WebGL2") {
-    CHECK(supported(gpu(FeatureBackend::Gl, true, true, true, true), "computeShaders"));
-    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "computeShaders"));
-    CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "computeShaders"));
-    CHECK_FALSE(
-        supported(gpu(FeatureBackend::Gl, true, true, true, false), "computeShaders"));  // an old GL: the GPU says no
+    CHECK(supported(gpu_env(FeatureBackend::Gl, true, true, true, true), "computeShaders"));
+    CHECK(supported(gpu_env(FeatureBackend::D3d11, true, true, true, true), "computeShaders"));
+    CHECK(supported(gpu_env(FeatureBackend::Metal, true, true, true, true), "computeShaders"));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gl, true, true, true, false),
+                          "computeShaders"));  // an old GL: the GPU says no
     std::string why;
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, true), "computeShaders", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, true, true), "computeShaders", &why));
     CHECK(why.find("GLES3") != std::string::npos);
-    CHECK_FALSE(supported(gpu(FeatureBackend::WebGl2, true, true, true, true), "computeShaders", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::WebGl2, true, true, true, true), "computeShaders", &why));
     CHECK(why.find("WebGL2") != std::string::npos);
 }
 
 TEST_CASE("features: what the engine does not draw yet is false and says planned") {
-    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
+    const FeatureEnv full = gpu_env(FeatureBackend::D3d11, true, true, true, true);
     std::string why;
     CHECK(supported(full, "linearColor", &why));  // M71-B1: drawn on every GPU
     // The effects the renderer draws (M71-B4, C1, C2, C3b, D1, D2, D3a, D3b) answer true on a GPU that can; the others are planned.
@@ -651,29 +651,31 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
             // A GPU without float targets draws them too: they need nothing of it (the exposure stays manual there). The outline, the depth of field
             // and the motion blur read the depth prepass, so it needs a GPU that can sample the scene's depth: the answer names that, not the plan.
             if (e == "outline" || e == "motionBlur" || e == "fog") {
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str(), &why));
+                CHECK_FALSE(
+                    supported(gpu_env(FeatureBackend::Gles3, false, false, false), std::string(e).c_str(), &why));
                 CHECK(why.find("depth") != std::string::npos);
                 CHECK(why.find("planned") == std::string::npos);
             } else if (e == "depthOfField" ||
                        e == "sunShafts") {  // their half-size images are RGBA16F: they need float targets too
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, true), std::string(e).c_str(), &why));
+                CHECK_FALSE(
+                    supported(gpu_env(FeatureBackend::Gles3, false, false, true), std::string(e).c_str(), &why));
                 CHECK(why.find("RGBA16F") != std::string::npos);
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), std::string(e).c_str(), &why));
+                CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), std::string(e).c_str(), &why));
                 CHECK(why.find("depth") != std::string::npos);
                 CHECK(why.find("planned") == std::string::npos);
             } else if (e == "ssao") {  // M71-D1: float targets for its images, the prepass for the depth
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, true), "ssao", &why));
+                CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false, false, true), "ssao", &why));
                 CHECK(why.find("RGBA16F") != std::string::npos);
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
+                CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), "ssao", &why));
                 CHECK(why.find("depth") != std::string::npos);
                 CHECK(why.find("planned") == std::string::npos);
             } else if (
                 e ==
                 "ssr") {  // M71-D3a: reads the scene colour and the prepass: it needs float targets and the sampled depth
-                CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false, false, false), "ssr", &why));
+                CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false, false, false), "ssr", &why));
                 CHECK(why.find("planned") == std::string::npos);
             } else {
-                CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));
+                CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false), std::string(e).c_str()));
             }
             continue;
         }
@@ -681,18 +683,18 @@ TEST_CASE("features: what the engine does not draw yet is false and says planned
         CHECK(why == "planned (M71)");
     }
     // hdrOutput can never exist where there is no HDR swapchain; the answer names the backend, not the plan.
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gl), "hdrOutput", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gl), "hdrOutput", &why));
     CHECK(why.find("GL") != std::string::npos);
     CHECK(why.find("planned") == std::string::npos);
     // An effect that reads the depth buffer on a GPU that cannot sample it: the missing capability, not the plan.
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "ssao", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), "ssao", &why));
     CHECK(why.find("depth") != std::string::npos);
 }
 
 // M76-P0: the rows of the shared API are planned until the packages that draw them land (motionVectors landed in P1a,
 // spatialUpscaler in P3b, temporalUpscaler in P4, metalfx in P5b); temporalAA is the effect row of that name and has been drawn since M76-P2.
 TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx only on Metal") {
-    const FeatureEnv full = gpu(FeatureBackend::Metal, true, true, true, true);
+    const FeatureEnv full = gpu_env(FeatureBackend::Metal, true, true, true, true);
     // Dynamic resolution is drawn (M76-P6c): every GPU backend, no longer planned.
     {
         const int i = find_feature("dynamicResolution");
@@ -721,7 +723,7 @@ TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx 
         CHECK_FALSE(supported(without, "metalfx", &why));
         CHECK(why.find("not on this GPU") != std::string::npos);
         // Never on another backend, whatever the flag says.
-        FeatureEnv gl = gpu(FeatureBackend::Gl, true, true, true, true);
+        FeatureEnv gl = gpu_env(FeatureBackend::Gl, true, true, true, true);
         gl.metalfx = true;
         CHECK_FALSE(supported(gl, "metalfx"));
     }
@@ -747,7 +749,7 @@ TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx 
         CHECK(feature_table()[std::size_t(i)].kind == FeatureKind::Engine);
         CHECK(feature_table()[std::size_t(i)].planned == nullptr);
         CHECK(supported(full, "temporalUpscaler"));
-        CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler"));
+        CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false), "temporalUpscaler"));
     }
     const unsigned metalBit = 1u << int(FeatureBackend::Metal);
     CHECK(feature_table()[std::size_t(find_feature("metalfx"))].backends == metalBit);
@@ -758,12 +760,12 @@ TEST_CASE("features: the upscaling rows of M76 are planned until drawn, metalfx 
     CHECK(tu.planned == nullptr);
     CHECK((tu.backends & (1u << int(FeatureBackend::Gl))) != 0);
     CHECK(supported(full, "temporalUpscaler", nullptr));
-    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalUpscaler", nullptr));
+    CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false), "temporalUpscaler", nullptr));
     // The effect row of the temporal antialiasing (M76-P2): drawn on every GPU (an 8-bit history where there are no float targets), and no
     // engine row of the same name.
     std::string why;
     CHECK(supported(full, "temporalAA", &why));
-    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "temporalAA", &why));
+    CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false), "temporalAA", &why));
     CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].kind == FeatureKind::Effect);
     CHECK(feature_table()[std::size_t(find_feature("temporalAA"))].planned == nullptr);
     CHECK(((post_drawn_mask() >> int(PostEffect::TemporalAA)) & 1u) != 0);
@@ -774,9 +776,9 @@ TEST_CASE("features: hlod is drawn on every backend (M75 P1d)") {
     REQUIRE(find_feature("hlod") >= 0);
     CHECK(feature_table()[std::size_t(find_feature("hlod"))].kind == FeatureKind::Engine);
     CHECK(feature_table()[std::size_t(find_feature("hlod"))].planned == nullptr);
-    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "hlod"));
-    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false), "hlod"));
-    CHECK(supported(gpu(FeatureBackend::WebGl2, false, false, false), "hlod"));
+    CHECK(supported(gpu_env(FeatureBackend::D3d11, true, true, true, true), "hlod"));
+    CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false), "hlod"));
+    CHECK(supported(gpu_env(FeatureBackend::WebGl2, false, false, false), "hlod"));
 }
 
 TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they exist (M75.2b)") {
@@ -784,12 +786,12 @@ TEST_CASE("features: occlusionGpu needs compute shaders and is drawn where they 
     const auto& row = feature_table()[std::size_t(find_feature("occlusionGpu"))];
     CHECK(row.planned == nullptr);
     std::string why;
-    CHECK(supported(gpu(FeatureBackend::D3d11, true, true, true, true), "occlusionGpu"));
-    CHECK(supported(gpu(FeatureBackend::Metal, true, true, true, true), "occlusionGpu"));
-    CHECK_FALSE(supported(gpu(FeatureBackend::D3d11, true, true, true, false), "occlusionGpu"));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "occlusionGpu", &why));
+    CHECK(supported(gpu_env(FeatureBackend::D3d11, true, true, true, true), "occlusionGpu"));
+    CHECK(supported(gpu_env(FeatureBackend::Metal, true, true, true, true), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::D3d11, true, true, true, false), "occlusionGpu"));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), "occlusionGpu", &why));
     CHECK_FALSE(why.empty());
-    CHECK_FALSE(supported(gpu(FeatureBackend::WebGl2, true, true, false), "occlusionGpu", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::WebGl2, true, true, false), "occlusionGpu", &why));
 }
 
 TEST_CASE("features: foliage is drawn on every backend, without compute (M75-P6a)") {
@@ -798,7 +800,7 @@ TEST_CASE("features: foliage is drawn on every backend, without compute (M75-P6a
     for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
                              FeatureBackend::Metal}) {
         std::string why;
-        CHECK_MESSAGE(supported(gpu(b, false, false, false), "foliage", &why), why);
+        CHECK_MESSAGE(supported(gpu_env(b, false, false, false), "foliage", &why), why);
     }
 }
 
@@ -808,7 +810,7 @@ TEST_CASE("features: lodCrossFade is drawn on every backend (M75-P1a)") {
     for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
                              FeatureBackend::Metal}) {
         std::string why;
-        CHECK_MESSAGE(supported(gpu(b, false, false, false), "lodCrossFade", &why), why);
+        CHECK_MESSAGE(supported(gpu_env(b, false, false, false), "lodCrossFade", &why), why);
     }
 }
 
@@ -817,7 +819,7 @@ TEST_CASE("features: occlusionCpu is drawn on every backend (it is CPU work: no 
     for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
                              FeatureBackend::Metal}) {
         std::string why;
-        CHECK(supported(gpu(b, false, false, false), "occlusionCpu", &why));
+        CHECK(supported(gpu_env(b, false, false, false), "occlusionCpu", &why));
         CHECK(why.find("planned") == std::string::npos);
     }
 }
@@ -828,21 +830,21 @@ TEST_CASE("features: terrain is drawn on every backend (M75-P5a)") {
     for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
                              FeatureBackend::Metal}) {
         std::string why;
-        CHECK_MESSAGE(supported(gpu(b, false, false, false), "terrain", &why), why);
+        CHECK_MESSAGE(supported(gpu_env(b, false, false, false), "terrain", &why), why);
     }
 }
 
 TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for RGBA16F render targets that blend") {
     REQUIRE(find_feature("realtimeGI") >= 0);
     CHECK(feature_table()[std::size_t(find_feature("realtimeGI"))].kind == FeatureKind::Engine);
-    const FeatureEnv full = gpu(FeatureBackend::D3d11, true, true, true, true);
+    const FeatureEnv full = gpu_env(FeatureBackend::D3d11, true, true, true, true);
     for (FeatureBackend b : {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::WebGl2, FeatureBackend::D3d11,
                              FeatureBackend::Metal}) {
         std::string why;
-        CHECK(supported(gpu(b, true, true, true, true, true), "realtimeGI", &why));
+        CHECK(supported(gpu_env(b, true, true, true, true, true), "realtimeGI", &why));
         CHECK(why.find("planned") == std::string::npos);
         // Without RGBA16F targets the probes capture into an RGBA8 atlas that cannot hold the grid's distances: the answer names it.
-        CHECK_FALSE(supported(gpu(b, false, true, true, true, true), "realtimeGI", &why));
+        CHECK_FALSE(supported(gpu_env(b, false, true, true, true, true), "realtimeGI", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -852,7 +854,7 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
                              FeatureBackend::Metal}) {
         std::string why;
         REQUIRE(find_feature("reflectionProbes") >= 0);
-        CHECK(supported(gpu(b, false, false, false, false), "reflectionProbes", &why));
+        CHECK(supported(gpu_env(b, false, false, false, false), "reflectionProbes", &why));
         CHECK(why.find("planned") == std::string::npos);
     }
     CHECK(feature_table()[std::size_t(find_feature("reflectionProbes"))].kind == FeatureKind::Engine);
@@ -876,7 +878,7 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
     // decals (M73.5b) are drawn in the mesh shader and ask nothing of the GPU: supported everywhere, never "planned".
     CHECK(find_feature("decals") >= 0);
     CHECK(supported(full, "decals"));
-    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "decals"));
+    CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false, false, false), "decals"));
     CHECK(feature_table()[std::size_t(find_feature("decals"))].kind == FeatureKind::Engine);
     // M73.4a: the lightmaps are drawn; the row needs nothing of the GPU.
     REQUIRE(find_feature("lightmaps") >= 0);
@@ -885,7 +887,7 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
     // M73.4d: the light probes are drawn too (the SH is a uniform); the row needs nothing of the GPU.
     REQUIRE(find_feature("lightProbes") >= 0);
     CHECK(supported(full, "lightProbes"));
-    CHECK(supported(gpu(FeatureBackend::Gles3, false, false, false, false, false), "lightProbes"));
+    CHECK(supported(gpu_env(FeatureBackend::Gles3, false, false, false, false, false), "lightProbes"));
     CHECK(feature_table()[std::size_t(find_feature("lightProbes"))].kind == FeatureKind::Engine);
     // The physical sky is drawn (M73-P3d): it needs RGBA16F targets for its tables and says so when they are missing.
     {
@@ -893,7 +895,7 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
         REQUIRE(find_feature("physicalSky") >= 0);
         CHECK(supported(full, "physicalSky", &why));
         CHECK(feature_table()[std::size_t(find_feature("physicalSky"))].kind == FeatureKind::Engine);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "physicalSky", &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false), "physicalSky", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -905,7 +907,7 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
         REQUIRE(find_feature(n) >= 0);
         CHECK(supported(full, n, &why));
         CHECK(feature_table()[std::size_t(find_feature(n))].kind == FeatureKind::Engine);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), n, &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false), n, &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -915,9 +917,9 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
         REQUIRE(find_feature("volumetricFog") >= 0);
         CHECK(supported(full, "volumetricFog", &why));
         CHECK(feature_table()[std::size_t(find_feature("volumetricFog"))].kind == FeatureKind::Engine);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "volumetricFog", &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false), "volumetricFog", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "volumetricFog", &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), "volumetricFog", &why));
         CHECK(why.find("depth") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -928,9 +930,9 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
         REQUIRE(find_feature("subsurface") >= 0);
         CHECK(supported(full, "subsurface", &why));
         CHECK(feature_table()[std::size_t(find_feature("subsurface"))].kind == FeatureKind::Engine);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, false), "subsurface", &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, false), "subsurface", &why));
         CHECK(why.find("RGBA16F") != std::string::npos);
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, false), "subsurface", &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, false), "subsurface", &why));
         CHECK(why.find("depth") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -941,14 +943,14 @@ TEST_CASE("features: realtimeGI is drawn (the meshes read the grid) and asks for
     // float32Targets follows the GPU: a GPU whose R32F cannot be sampled answers with what is missing, not with the plan.
     std::string why;
     CHECK(supported(full, "float32Targets", &why));
-    CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, true, false, false), "float32Targets", &why));
     CHECK(why.find("R32F") != std::string::npos);
     // cascadedShadows (M73.2a), pointShadows and spotShadows (M73.2b) are drawn: they need float32Targets and nothing else, so they
     // say what is missing, never "planned".
     for (const char* n : {"cascadedShadows", "pointShadows", "spotShadows"}) {
         CAPTURE(n);
         CHECK(supported(full, n, &why));
-        CHECK_FALSE(supported(gpu(FeatureBackend::Gles3, true, true, true, false, false), n, &why));
+        CHECK_FALSE(supported(gpu_env(FeatureBackend::Gles3, true, true, true, false, false), n, &why));
         CHECK(why.find("R32F") != std::string::npos);
         CHECK(why.find("planned") == std::string::npos);
     }
@@ -962,7 +964,7 @@ TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {
         for (FeatureBackend b :
              {FeatureBackend::Gl, FeatureBackend::Gles3, FeatureBackend::D3d11, FeatureBackend::Metal}) {
             std::string why;
-            CHECK(supported(gpu(b), n, &why));
+            CHECK(supported(gpu_env(b), n, &why));
         }
     }
 }
@@ -970,11 +972,11 @@ TEST_CASE("features: the material layers of M73.6 are drawn on every backend") {
 TEST_CASE("features: hdrOutput follows the display the window is on and what the renderer writes there") {
     std::string why;
     // A FeatureEnv nobody filled: the display was never asked.
-    CHECK_FALSE(supported(gpu(FeatureBackend::Metal), "hdrOutput", &why));
+    CHECK_FALSE(supported(gpu_env(FeatureBackend::Metal), "hdrOutput", &why));
     CHECK(why.find("not been asked") != std::string::npos);
 
     // Metal on a screen with EDR headroom: yes; on one without: the display's reason.
-    FeatureEnv metal = gpu(FeatureBackend::Metal);
+    FeatureEnv metal = gpu_env(FeatureBackend::Metal);
     set_hdr_env(metal, hdr_display_from_edr(16.0f, 1.0f, "XDR"));
     CHECK(supported(metal, "hdrOutput"));
     set_hdr_env(metal, hdr_display_from_edr(1.0f, 1.0f, "Studio"));
@@ -987,7 +989,7 @@ TEST_CASE("features: hdrOutput follows the display the window is on and what the
     CHECK(why == "there is no window");
 
     // D3D11 on a display Windows composes in HDR: yes (scRGB, HDR10 as the fallback); with HDR off in Settings: the reason.
-    FeatureEnv d3d = gpu(FeatureBackend::D3d11);
+    FeatureEnv d3d = gpu_env(FeatureBackend::D3d11);
     set_hdr_env(d3d, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
     CHECK(supported(d3d, "hdrOutput"));
     set_hdr_env(d3d, hdr_display_from_dxgi(false, 1000.0f, 0.0f, 600.0f, "TV"));
@@ -1000,7 +1002,7 @@ TEST_CASE("features: hdrOutput follows the display the window is on and what the
     CHECK(hdr_encodable(FeatureBackend::Gles3) == 0u);
     CHECK(hdr_encodable(FeatureBackend::WebGl2) == 0u);
     // GL, GLES3 and WebGL2 on an HDR display still say why not (the renderer writes no HDR encoding there).
-    FeatureEnv gl = gpu(FeatureBackend::Gl);
+    FeatureEnv gl = gpu_env(FeatureBackend::Gl);
     set_hdr_env(gl, hdr_display_from_dxgi(true, 1000.0f, 0.0f, 600.0f, "TV"));
     CHECK_FALSE(supported(gl, "hdrOutput", &why));
     CHECK_FALSE(why.empty());
@@ -1031,7 +1033,7 @@ TEST_CASE("Renderer::output_info: without a window the output is the standard ra
 }
 
 TEST_CASE("features: the headless backend has no GPU and says no to everything") {
-    const FeatureEnv none = gpu(FeatureBackend::Headless, true, true, true, true);
+    const FeatureEnv none = gpu_env(FeatureBackend::Headless, true, true, true, true);
     for (const std::string& n : feature_names()) {
         CAPTURE(n);
         std::string why;
@@ -1041,7 +1043,7 @@ TEST_CASE("features: the headless backend has no GPU and says no to everything")
 }
 
 TEST_CASE("features: the report lists every feature with a status and the backends it can run on") {
-    FeatureEnv env = gpu(FeatureBackend::Metal, true, true, true, true);
+    FeatureEnv env = gpu_env(FeatureBackend::Metal, true, true, true, true);
     env.maxTextureSize = 16384;
     env.maxArrayLayers = 2048;
     env.maxArrayTextureSize = 8192;

@@ -4,23 +4,26 @@
 
 #include "fa/core/log.h"
 
+#include "fullscreen_gpu.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/upscale_spatial.glsl.h"
 
 namespace fa::render {
 
-bool SpatialUpscaler::ready() {
+bool SpatialUpscaler::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
-    const sg_backend backend = sg_query_backend();
-    shaders_[int(Prog::Edge)] = make_shader(upscale_spatial_spatial_edge_shader_desc(backend), "upscale_spatial_edge");
-    shaders_[int(Prog::Sharpen)] =
-        make_shader(upscale_spatial_spatial_sharpen_shader_desc(backend), "upscale_spatial_sharpen");
+    device_ = &dev;
+    shaders_[int(Prog::Edge)] = make_shader(
+        dev, gpu::generated_shader_desc(dev, upscale_spatial_spatial_edge_shader_desc), "upscale_spatial_edge");
+    shaders_[int(Prog::Sharpen)] = make_shader(
+        dev, gpu::generated_shader_desc(dev, upscale_spatial_spatial_sharpen_shader_desc), "upscale_spatial_sharpen");
     bool ok = true;
-    for (const sg_shader s : shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    for (const gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
     if (!ok) {
-        for (sg_shader& s : shaders_) {
-            if (s.id) sg_destroy_shader(s);
-            s = {};
+        for (gpu::Shader& sh : shaders_) {
+            if (sh.id) dev.destroy_shader(sh);
+            sh = {};
         }
         state_ = -1;
         FA_ERROR(
@@ -35,36 +38,29 @@ bool SpatialUpscaler::ready() {
     return true;
 }
 
-sg_pipeline SpatialUpscaler::pipeline(Prog prog, const TargetFormat& format) {
+gpu::Pipeline SpatialUpscaler::pipeline(Prog prog, const TargetFormat& format) {
     for (const Entry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
-    if (state_ <= 0) return {};
-    sg_pipeline_desc d{};
-    d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in both programs
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
-    d.label = prog == Prog::Edge ? "upscale-spatial-edge" : "upscale-spatial-sharpen";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    if (state_ <= 0 || !device_) return {};
+    const char* label = prog == Prog::Edge ? "upscale-spatial-edge" : "upscale-spatial-sharpen";
+    // `pos`, location 0 in both programs.
+    const gpu::Pipeline p = make_triangle_pipeline(*device_, shaders_[int(prog)], format, label);
+    if (device_->state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
 
 void SpatialUpscaler::release() {
-    for (Entry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
-    pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
-        s = {};
+    if (device_) {
+        for (Entry& e : pipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        for (gpu::Shader& sh : shaders_)
+            if (sh.id) device_->destroy_shader(sh);
     }
+    pipelines_.clear();
+    for (gpu::Shader& sh : shaders_) sh = {};
     state_ = 0;
+    device_ = nullptr;
 }
 
 float SpatialUpscaler::sharpen_weight(float sharpness) { return std::clamp(sharpness, 0.0f, 1.0f) * 0.18f; }

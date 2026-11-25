@@ -249,7 +249,7 @@ void Editor::draw_viewport() {
     }
     vpFocused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     Renderer* r = engine_->renderer();
-    if (!r || r->game_target_view_id() == 0 || r->target_width() <= 0) {
+    if (!r || !r->game_target_texture().valid() || r->target_width() <= 0) {
         ImGui::TextDisabled("No render target (graphics disabled).");
         vpHovered_ = false;
         ImGui::End();
@@ -265,10 +265,10 @@ void Editor::draw_viewport() {
     ImGui::SetCursorScreenPos(imgMin);
     // The renderer's offscreen target is stored bottom-up on GL backends; flip so the image is upright.
 #if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
-    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz, ImVec2(0, 1),
-                 ImVec2(1, 0));
+    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_texture().view, true))), sz,
+                 ImVec2(0, 1), ImVec2(1, 0));
 #else
-    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz);
+    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_texture().view, true))), sz);
 #endif
     ImGui::SetCursorScreenPos(imgMin);
     ImGui::InvisibleButton("##viewport_hit", sz,

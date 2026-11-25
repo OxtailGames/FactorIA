@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "frame_graph.h"
 #include "render_internal.h"
 #include "renderer_test_access.h"
@@ -395,7 +396,7 @@ TEST_CASE("final pass: the HUD is drawn over the result in display space, and th
 TEST_CASE("final pass: with multisampling the HUD goes over the final picture the same way") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!sg_query_pixelformat(SG_PIXELFORMAT_RGBA8).msaa) return;  // no multisampling on this GPU
+    if (!sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba8)).msaa) return;  // no multisampling on this GPU
     OwnRenderer own(g, 4);
     REQUIRE_MESSAGE(own.ok, own.error);
     FlatScene s(1.0f, true, Color{0, 1, 0, 1});
@@ -416,7 +417,8 @@ TEST_CASE("auto exposure: it follows the picture by 1 - exp(-speed * dt) per fra
     Gfx& g = gfx();
     REQUIRE(g.ok);
     // Without float render targets the exposure stays manual (a warning is logged): nothing to measure here.
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false)
+        return;  // the measure needs float targets
     const float dt = 1.0f / 60.0f, speed = 20.0f, lo = -6.0f, hi = 8.0f;
     FlatScene s(0.1f);
     PostProcess& p = s.post();
@@ -459,7 +461,8 @@ TEST_CASE("auto exposure: it follows the picture by 1 - exp(-speed * dt) per fra
 TEST_CASE("auto exposure: a slow speed at a high frame rate still reaches the target, as the arithmetic says") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;  // the measure needs float targets
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false)
+        return;  // the measure needs float targets
     // The adapted exposure lives in a 1x1 RGBA16F target as two channels (a coarse step and the rest): written as one 16-bit number the
     // step prev + (target - prev) * k would disappear once it is under half a step of the value (0.14 EV short at this speed and rate).
     const float dt = 1.0f / 144.0f, speed = 0.5f, lo = -6.0f, hi = 8.0f;
@@ -501,7 +504,7 @@ TEST_CASE("auto exposure: a slow speed at a high frame rate still reaches the ta
 TEST_CASE("auto exposure: min and max EV bound it, and a gap in the effect measures again at once") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false) return;
     FlatScene s(0.1f);
     PostProcess& p = s.post();
     p.exposureEnabled = true;
@@ -530,7 +533,7 @@ TEST_CASE("auto exposure: min and max EV bound it, and a gap in the effect measu
 TEST_CASE("auto exposure: a capture_world between two frames does not make the exposure jump to the measured value") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false) return;
     const float dt = 1.0f / 60.0f;
     FlatScene s(0.1f);
     PostProcess& p = s.post();
@@ -560,7 +563,7 @@ TEST_CASE("auto exposure: a step of the dynamic resolution keeps the adapted exp
           "measures again (M76 POL-DYNRES)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false) return;
     const float dt = 1.0f / 60.0f;
     FlatScene s(0.1f);
     PostProcess& p = s.post();
@@ -598,7 +601,7 @@ TEST_CASE("final pass: a finite value over 65000 stays white and NaN or Inf in t
           "the wrong colour") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render == false) return;
+    if (sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render == false) return;
     const float inf = std::numeric_limits<float>::infinity(), nan = std::numeric_limits<float>::quiet_NaN();
     auto pixel_of = [&](float v) {
         FlatScene s(v);
@@ -716,7 +719,7 @@ TEST_CASE(
 TEST_CASE("bloom threshold above 1: light brighter than the threshold glows and dimmer light does not (float scene)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    if (!sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F).render) return;
+    if (!sg_query_pixelformat(gpu::to_sg(gpu::PixelFormat::Rgba16F)).render) return;
     auto glow_of = [&](float threshold) {
         GlowScene s(1.0f, 0.0f);                        // a white box ...
         Entity e = make(s.world, "second", {0, 0, 0});  // ... and the same one again on top, additively: 2.0 in all

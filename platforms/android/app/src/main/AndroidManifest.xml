@@ -21,7 +21,9 @@
         android:enableOnBackInvokedCallback="false"
         android:supportsRtl="true">
 
-        <!-- sokol_app implements ANativeActivity_onCreate in libfactoria_player.so.
+        <!-- sokol_app implements ANativeActivity_onCreate in libfactoria_player.so (the GL player) and in
+             libfactoria_player_vulkan.so (the Vulkan player, the launcher of an export with export.android.vulkanPlayer;
+             where Vulkan cannot start it hands over to factoria.engine.GlActivity below, docs/EXPORTING.md, "Android").
              configChanges: every configuration change the player can ignore. Android restarts an activity for any change
              it does not list, and a restarted NativeActivity ends the whole process (sokol_app calls exit(0) in
              onDestroy), so the game would just vanish: mcc|mnc when the SIM loads (the emulator does it a few seconds
@@ -40,11 +42,11 @@
             android:stateNotNeeded="true"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-            <meta-data android:name="android.app.lib_name" android:value="factoria_player" />
+            <meta-data android:name="android.app.lib_name" android:value="{{LAUNCHER_LIB}}" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity>{{GL_ACTIVITY}}
     </application>
 </manifest>

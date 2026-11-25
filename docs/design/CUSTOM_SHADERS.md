@@ -207,7 +207,7 @@ The twin `materials/water.material.json.hlsl5.shader`:
 }
 ```
 
-The runtime builds `sg_shader_desc` from it (`engine/render/src/custom_shader.cpp`). Attribute locations are the
+The runtime builds `gpu::ShaderDesc` from it (`engine/render/src/custom_shader.cpp`). Attribute locations are the
 template's, so `Gpu::mesh_pipeline` and `shadow_pipeline` keep their vertex layout code and only take the shader as a
 new argument. A twin whose `engine` or `template` differs from the running player is refused with a teaching error
 ("re-export the game with this factoria version"); an export always makes players and twins of one version.
@@ -222,6 +222,18 @@ new argument. A twin whose `engine` or `template` differs from the running playe
 | iOS | Metal | `metal_ios`, `metal_sim` (`build_ios.sh --simulator` uses the same export) |
 | Android | GLES3 | `glsl300es` |
 | Web | WebGL2 (sokol GLES3) | `glsl300es` |
+
+**`spirv_vk` (M77, the Vulkan backend).** A seventh dialect, `spirv_vk`, is SPIR-V, which our own Vulkan backend consumes; the D3D12
+backend compiles the `hlsl5` source it already has with `D3DCompile` (DXBC, no DXIL), so it needs no dialect of its own. It is not in
+`shader_dialects()`: `validate` and an export do not compile it, because nothing in the player reads it yet. `shader_dialects_all()` lists
+it, `ShaderCompileOptions::dialects` asks for it, and `shader_dialects_for(platforms, vulkan)` adds it for the platforms that can run
+Vulkan (`shader_platform_has_vulkan`: windows, linux, android), which is what `ExportOptions::vulkan` does: macOS, iOS and the web never
+ship it, and an export without the option ships what it always shipped. The twin of `spirv_vk` has the same keys as the others with
+three differences: `"binary": "base64"` (each `vs`, `fs` or `cs` is the module's bytes in base64, a multiple of four, starting with the
+magic number `0x07230203`), no source text, and the reflection's `spirv_set0_binding_n` (uniform blocks) and `spirv_set1_binding_n`
+(views and samplers) as integers (sokol-shdc writes `0;`, with a semicolon; the tooling removes it). Compute materials and
+meshes with storage buffers have a `spirv_vk` twin too. The material inspector reads `params` and `textures` only, which every dialect
+has the same.
 
 Source, not bytecode: the engine's own shaders already ship as source (`compile_shaders.sh` does not pass `--bytecode`),
 D3D11 compiles HLSL with `d3dcompiler_47.dll` (part of Windows 10+) and Metal compiles MSL with

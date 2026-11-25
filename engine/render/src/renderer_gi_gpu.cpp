@@ -9,51 +9,52 @@
 #include "renderer_env.h"
 #include "renderer_probes.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/probe.glsl.h"
 
 namespace fa::render {
 
 namespace {
 
-bool valid_image(sg_image i) { return i.id && sg_query_image_state(i) == SG_RESOURCESTATE_VALID; }
-bool valid_view(sg_view v) { return v.id && sg_query_view_state(v) == SG_RESOURCESTATE_VALID; }
+bool valid_image(gpu::Device& device, gpu::Image i) { return i.id && device.state(i) == gpu::ResourceState::Valid; }
+bool valid_view(gpu::Device& device, gpu::View v) { return v.id && device.state(v) == gpu::ResourceState::Valid; }
 
 }  // namespace
 
 bool ProbeGpu::gi_ready() {
     if (giState_ != 0) return giState_ > 0;
-    if (!ready()) return false;  // not remembered: ready() said why
-    const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
-    bool ok = format_ == SG_PIXELFORMAT_RGBA16F && half.render && half.blend && half.sample;
+    if (state_ <= 0 || !gpu_) return false;  // ready(gpu) first, and it said why when it failed
+    gpu::Device& device = gpu_->device();
+    const gpu::PixelFormatCaps half = device.pixel_format_caps(gpu::PixelFormat::Rgba16F);
+    bool ok = format_ == gpu::PixelFormat::Rgba16F && half.render && half.blend && half.sample;
     if (ok) {
-        const sg_backend backend = sg_query_backend();
         const struct {
             Prog prog;
-            const sg_shader_desc* desc;
+            gpu::GeneratedShader desc;
             const char* name;
-        } programs[] = {{Prog::FaceGi, probe_face_gi_shader_desc(backend), "probe_face_gi"},
-                        {Prog::GiDist, probe_gi_dist_shader_desc(backend), "probe_gi_dist"},
-                        {Prog::GiDepth, probe_gi_depth_shader_desc(backend), "probe_gi_depth"},
-                        {Prog::GiMeta, probe_gi_meta_shader_desc(backend), "probe_gi_meta"}};
+        } programs[] = {{Prog::FaceGi, probe_face_gi_shader_desc, "probe_face_gi"},
+                        {Prog::GiDist, probe_gi_dist_shader_desc, "probe_gi_dist"},
+                        {Prog::GiDepth, probe_gi_depth_shader_desc, "probe_gi_depth"},
+                        {Prog::GiMeta, probe_gi_meta_shader_desc, "probe_gi_meta"}};
         for (const auto& p : programs) {
-            shaders_[int(p.prog)] = make_shader(p.desc, p.name);
-            ok = ok && sg_query_shader_state(shaders_[int(p.prog)]) == SG_RESOURCESTATE_VALID;
+            shaders_[int(p.prog)] = make_shader(device, gpu::generated_shader_desc(device, p.desc), p.name);
+            ok = ok && device.state(shaders_[int(p.prog)]) == gpu::ResourceState::Valid;
         }
     }
     if (ok) {
-        sg_sampler_desc sd{};
-        sd.min_filter = SG_FILTER_NEAREST;
-        sd.mag_filter = SG_FILTER_NEAREST;
-        sd.mipmap_filter = SG_FILTER_NEAREST;
-        sd.wrap_u = sd.wrap_v = sd.wrap_w = SG_WRAP_CLAMP_TO_EDGE;
+        gpu::SamplerDesc sd{};
+        sd.minFilter = gpu::Filter::Nearest;
+        sd.magFilter = gpu::Filter::Nearest;
+        sd.mipmapFilter = gpu::Filter::Nearest;
+        sd.wrapU = sd.wrapV = sd.wrapW = gpu::Wrap::ClampToEdge;
         sd.label = "probe-nearest";
-        nearest_ = sg_make_sampler(&sd);
-        ok = nearest_.id && sg_query_sampler_state(nearest_) == SG_RESOURCESTATE_VALID;
+        nearest_ = device.make_sampler(sd);
+        ok = nearest_.id && device.state(nearest_) == gpu::ResourceState::Valid;
     }
     if (ok) {
         const struct {
             Prog prog;
-            sg_shader shader;
+            gpu::Shader shader;
             bool blend;
         } pipes[] = {{Prog::FaceGi, shaders_[int(Prog::FaceGi)], false},
                      {Prog::GiDist, shaders_[int(Prog::GiDist)], false},
@@ -61,26 +62,27 @@ bool ProbeGpu::gi_ready() {
                      {Prog::GiMeta, shaders_[int(Prog::GiMeta)], true},
                      {Prog::ShBlend, shaders_[int(Prog::Sh)], true}};
         for (const auto& p : pipes) {
-            sg_pipeline_desc d{};
+            gpu::PipelineDesc d{};
             d.shader = p.shader;
-            d.layout.attrs[ATTR_probe_face_pos].format = SG_VERTEXFORMAT_FLOAT2;
-            d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-            d.depth.write_enabled = false;
-            d.depth.pixel_format = SG_PIXELFORMAT_NONE;
-            d.colors[0].pixel_format = format_;
+            d.layout.attrs[ATTR_probe_face_pos].format = gpu::VertexFormat::Float2;
+            d.depth.compare = gpu::CompareFunc::Always;
+            d.depth.writeEnabled = false;
+            d.depth.pixelFormat = gpu::PixelFormat::None;
+            d.colorCount = 1;
+            d.colors[0].pixelFormat = format_;
             if (p.blend) {
                 // The new value with the weight of the shader's alpha over the old one (the hysteresis); the alpha channel keeps what it was.
                 d.colors[0].blend.enabled = true;
-                d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
-                d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-                d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
-                d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+                d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::SrcAlpha;
+                d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::OneMinusSrcAlpha;
+                d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::Zero;
+                d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::One;
             }
-            d.sample_count = 1;
-            d.face_winding = SG_FACEWINDING_CCW;
+            d.sampleCount = 1;
+            d.faceWinding = gpu::FaceWinding::Ccw;
             d.label = "probe-gi";
-            pipelines_[int(p.prog)] = sg_make_pipeline(&d);
-            ok = ok && sg_query_pipeline_state(pipelines_[int(p.prog)]) == SG_RESOURCESTATE_VALID;
+            pipelines_[int(p.prog)] = device.make_pipeline(d);
+            ok = ok && device.state(pipelines_[int(p.prog)]) == gpu::ResourceState::Valid;
         }
     }
     if (!ok) {
@@ -98,19 +100,22 @@ bool ProbeGpu::gi_ready() {
 }
 
 void ProbeGpu::release_gi() {
-    for (DistImage& d : dist_) {
-        if (d.att.id) sg_destroy_view(d.att);
-        if (d.tex.id) sg_destroy_view(d.tex);
-        if (d.image.id) sg_destroy_image(d.image);
+    gpu::Device* device = gpu_ && gpu_->has_device() ? &gpu_->device() : nullptr;
+    if (device) {
+        for (DistImage& d : dist_) {
+            if (d.att.id) device->destroy_view(d.att);
+            if (d.tex.id) device->destroy_view(d.tex);
+            if (d.image.id) device->destroy_image(d.image);
+        }
+        if (nearest_.id) device->destroy_sampler(nearest_);
     }
     dist_.clear();
-    if (nearest_.id) sg_destroy_sampler(nearest_);
     nearest_ = {};
     // The programs and pipelines of the GI are in the arrays release() empties; a failed gi_ready() leaves the half it made in them.
     for (Prog p : {Prog::FaceGi, Prog::GiDist, Prog::GiDepth, Prog::GiMeta, Prog::ShBlend}) {
-        if (pipelines_[int(p)].id) sg_destroy_pipeline(pipelines_[int(p)]);
+        if (device && pipelines_[int(p)].id) device->destroy_pipeline(pipelines_[int(p)]);
         pipelines_[int(p)] = {};
-        if (p != Prog::ShBlend && shaders_[int(p)].id) sg_destroy_shader(shaders_[int(p)]);
+        if (device && p != Prog::ShBlend && shaders_[int(p)].id) gpu_->destroy_shader(shaders_[int(p)]);
         shaders_[int(p)] = {};
     }
     giState_ = 0;
@@ -118,36 +123,37 @@ void ProbeGpu::release_gi() {
 
 bool ProbeGpu::dist_image(int index, int res) {
     if (index < 0 || index > 4096 || !gi_ready()) return false;
+    gpu::Device& device = gpu_->device();
     if (std::size_t(index) >= dist_.size()) dist_.resize(std::size_t(index) + 1);
     DistImage& d = dist_[std::size_t(index)];
-    if (d.size == res && valid_image(d.image)) return true;
-    if (d.att.id) sg_destroy_view(d.att);
-    if (d.tex.id) sg_destroy_view(d.tex);
-    if (d.image.id) sg_destroy_image(d.image);
+    if (d.size == res && valid_image(device, d.image)) return true;
+    if (d.att.id) device.destroy_view(d.att);
+    if (d.tex.id) device.destroy_view(d.tex);
+    if (d.image.id) device.destroy_image(d.image);
     d = DistImage{};
-    sg_image_desc id{};
-    id.usage.color_attachment = true;
+    gpu::ImageDesc id{};
+    id.usage.colorAttachment = true;
     id.width = id.height = res;
-    id.pixel_format = SG_PIXELFORMAT_RGBA16F;
+    id.pixelFormat = gpu::PixelFormat::Rgba16F;
     id.label = "probe-gi-distance";
-    d.image = make_image(id);
-    if (!valid_image(d.image)) {
-        if (d.image.id) sg_destroy_image(d.image);
+    d.image = device.make_image(id);
+    if (!valid_image(device, d.image)) {
+        if (d.image.id) device.destroy_image(d.image);
         d = DistImage{};
         return false;
     }
-    sg_view_desc vd{};
+    gpu::ViewDesc vd{};
     vd.texture.image = d.image;
     vd.label = "probe-gi-distance";
-    d.tex = sg_make_view(&vd);
-    sg_view_desc ad{};
-    ad.color_attachment.image = d.image;
+    d.tex = device.make_view(vd);
+    gpu::ViewDesc ad{};
+    ad.colorAttachment.image = d.image;
     ad.label = "probe-gi-distance";
-    d.att = sg_make_view(&ad);
-    if (!valid_view(d.tex) || !valid_view(d.att)) {
-        if (d.att.id) sg_destroy_view(d.att);
-        if (d.tex.id) sg_destroy_view(d.tex);
-        sg_destroy_image(d.image);
+    d.att = device.make_view(ad);
+    if (!valid_view(device, d.tex) || !valid_view(device, d.att)) {
+        if (d.att.id) device.destroy_view(d.att);
+        if (d.tex.id) device.destroy_view(d.tex);
+        device.destroy_image(d.image);
         d = DistImage{};
         return false;
     }
@@ -155,57 +161,59 @@ bool ProbeGpu::dist_image(int index, int res) {
     return true;
 }
 
-sg_view ProbeGpu::dist_view(int index) const {
+gpu::View ProbeGpu::dist_view(int index) const {
     if (index < 0 || std::size_t(index) >= dist_.size()) return {};
     return dist_[std::size_t(index)].tex;
 }
 
-void ProbeGpu::gi_dist(Gpu& gpu, int index, sg_view front, sg_view back, float maxDistance, int* drawCalls) {
+void ProbeGpu::gi_dist(Gpu& gpu, int index, gpu::View front, gpu::View back, float maxDistance, int* drawCalls) {
     if (index < 0 || std::size_t(index) >= dist_.size() || !dist_[std::size_t(index)].att.id) return;
     const DistImage& di = dist_[std::size_t(index)];
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = "probe-gi-distance";
     pd.color = di.att;
-    pd.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipelines_[int(Prog::GiDist)]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.format = gpu::TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
+    cmd.set_pipeline(pipelines_[int(Prog::GiDist)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_pre_front] = front;
     b.views[VIEW_probe_probe_pre_back] = back;
     b.samplers[SMP_probe_probe_nsmp] = nearest_;
-    sg_apply_bindings(&b);
+    cmd.set_bindings(b);
     probe_probe_gi_dist_params_t u{};
     u.d[0] = float(di.size);
     u.d[1] = isGl_ ? 1.0f : 0.0f;
     u.d[2] = maxDistance;
-    sg_range r{&u, sizeof(u)};
-    sg_apply_uniforms(UB_probe_probe_gi_dist_params, &r);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    cmd.set_uniforms(UB_probe_probe_gi_dist_params, gpu::Range{&u, sizeof(u)});
+    cmd.draw(0, 3, 1);
+    cmd.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
-void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view dist, float maxDistance, int* drawCalls) {
+void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, gpu::View picture, gpu::View dist, float maxDistance,
+                       int* drawCalls) {
     Scratch& s = scratch_[slot];
     const ProbeFace c = probe_face(face);
-    PassDesc pd;
+    gpu::PassDesc pd;
     pd.label = "probe-gi-face";
     pd.color = s.att[0][face];
-    pd.format = TargetFormat{format_, SG_PIXELFORMAT_NONE, 1};
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipelines_[int(Prog::FaceGi)]);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
+    cmd.set_pipeline(pipelines_[int(Prog::FaceGi)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_probe_probe_gcol] = picture;
     b.views[VIEW_probe_probe_gdist] =
         dist.id ? dist : picture;  // a slot must hold a view: the shader ignores it when g.x = 1
     b.samplers[SMP_probe_probe_nsmp] = nearest_;
-    sg_apply_bindings(&b);
+    cmd.set_bindings(b);
     const EnvFace f = env_face(face, isGl_);
     probe_probe_vs_params_t vu{};
     for (int i = 0; i < 3; ++i) {
@@ -213,8 +221,7 @@ void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view di
         vu.right[i] = f.right[i];
         vu.up[i] = f.up[i];
     }
-    sg_range vr{&vu, sizeof(vu)};
-    sg_apply_uniforms(UB_probe_probe_vs_params, &vr);
+    cmd.set_uniforms(UB_probe_probe_vs_params, gpu::Range{&vu, sizeof(vu)});
     probe_probe_gi_face_params_t fu{};
     fu.gcam_right[0] = c.right.x;
     fu.gcam_right[1] = c.right.y;
@@ -227,10 +234,9 @@ void ProbeGpu::face_gi(Gpu& gpu, int slot, int face, sg_view picture, sg_view di
     fu.gcam_fwd[2] = c.fwd.z;
     fu.g[0] = dist.id ? 0.0f : 1.0f;
     fu.g[2] = maxDistance;
-    sg_range fr{&fu, sizeof(fu)};
-    sg_apply_uniforms(UB_probe_probe_gi_face_params, &fr);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    cmd.set_uniforms(UB_probe_probe_gi_face_params, gpu::Range{&fu, sizeof(fu)});
+    cmd.draw(0, 3, 1);
+    cmd.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 

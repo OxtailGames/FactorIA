@@ -7,7 +7,8 @@
 #include <cmath>
 
 #include "fa/scene/terrain.h"
-#include "render_internal.h"       // sokol_gfx.h
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
+#include "render_internal.h"
 #include "shaders/terrain.glsl.h"  // terrain_terrain_shader_desc: the texture units the fragment stage reads
 
 using namespace fa;

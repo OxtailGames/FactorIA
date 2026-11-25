@@ -24,10 +24,10 @@
 #include "fa/core/asset_manifest.h"
 #include "fa/core/log.h"
 #include "fa/core/profiler.h"
-#include "fa/platform/sokol_logging.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "command_capture.h"
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "portal_graph.h"
@@ -48,6 +48,7 @@
 #include "hdr_encode.h"
 #include "postprocess.h"
 #include "render_features.h"
+#include "gpu/sokol_shaders.h"  // before the generated shader headers
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
@@ -110,7 +111,17 @@ struct Renderer::Impl {
     bool warmBuilt = false;
     std::size_t warmPipelines = 0;
     double warmMs = 0;
-    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
+    bool adopted = false;        // the graphics context was open before init: shutdown() leaves it to whoever opened it
+    bool presentFailed = false;  // present() could not acquire or present the window's image (logged once)
+    // The framebuffer size present() last gave Device::resize_swapchain (0 = none yet): a new size resizes the
+    // swapchain before the next acquire.
+    int swapW = 0, swapH = 0;
+    bool resizeFailed = false;  // resize_swapchain failed (logged once)
+    // What init made the window's swapchain with (D3D12, Vulkan): present() makes it again from this when it is gone
+    // (Renderer::set_native_window; a swapchain the device lost). nativeWindow null: no window to make it on now.
+    gpu::SwapchainDesc windowDesc;
+    bool windowManaged = false;       // init made the device's own swapchain on a native window (D3D12, Vulkan)
+    bool windowRemakeFailed = false;  // create_swapchain on the window's new surface failed (logged once per window)
     std::unique_ptr<Assets> assets;
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
@@ -252,8 +263,8 @@ struct Renderer::Impl {
     const render::metalfx::Support& metalfx_support();
     bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
     bool metalfx_fail(const std::string& why);
-    bool ensure_mfx_target(Target& t, const char* label, sg_pixel_format format, int w, int h);
-    bool ensure_output_target(Target& t, const char* label, sg_pixel_format colorFormat, bool withDepth);
+    bool ensure_mfx_target(Target& t, const char* label, gpu::PixelFormat format, int w, int h);
+    bool ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth);
     // The images the screen-space items need at the output size: outTarget in the format the picture has there (`display`: after a final
     // pass, so display values; else the scene format), with the depth the items are drawn with when `depth`; the render-resolution
     // filterTarget a final pass writes into (display); outFilterTarget when the colour filter runs after the items (`filter`).
@@ -262,9 +273,9 @@ struct Renderer::Impl {
     bool decide_hud_at_output(World& world);  // renderer_draw.cpp
     void free_output_targets();
     void run_upscale(Target& out, const PassContext& c);
-    void stretch_upscale(const render::UpscaleInput& in, Target& out);
-    void spatial_upscale(const render::UpscaleInput& in, Target& out);
-    bool ensure_spatial_target(sg_pixel_format colorFormat);
+    void stretch_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
+    void spatial_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
+    bool ensure_spatial_target(gpu::PixelFormat colorFormat);
     // The depth and normal prepass (renderer_draw.cpp, plan_job and prepass_pass). `debugView` shows it (Renderer::set_debug_view),
     // `forceEffects` pretends the stack has those effects (tests). prevViewProj: the view-projection each camera drew its last frame
     // with, for the effects that reproject (PostPlan::prevViewProj); an entry the camera did not refresh in the frame before is dropped.
@@ -405,7 +416,7 @@ struct Renderer::Impl {
     const HdrOutputInfo& output() const { return outputForced ? forcedOutput : outputInfo; }
     // The images the final pass writes hold values above 1 (RGBA16F; R11G11B10 scenes keep their display picture in RGBA8, see
     // Gpu::display_format): an HDR output can go above paper white.
-    bool float_display() const { return gpu.display_format() == SG_PIXELFORMAT_RGBA16F; }
+    bool float_display() const { return gpu.display_format() == gpu::PixelFormat::Rgba16F; }
     // The fragment uniforms of present(): the encode for the output the window has now (output()), the light let through up to
     // the frame's headroom when its final pass went above white.
     blit_blit_fs_params_t present_params() const;
@@ -491,17 +502,17 @@ struct Renderer::Impl {
     // M75.2b, occlusion culling on the GPU with a hierarchical depth image (renderer_hiz.cpp, hiz.h). One HizCamera per camera that
     // is culled this way: the storage buffer its reduce pass fills, the ring that reads it back, the poses and the pyramid.
     struct HizCamera {
-        struct Flight {  // a copy of the cells that was asked for and has not been taken yet
-            int slot = -1;
+        struct Flight {              // a copy of the cells that was asked for and has not been taken yet
+            gpu::ReadTicket ticket;  // the read of the cells, polled by hiz_submit
             render::HizPose pose;
             int w = 0, h = 0;
             std::uint64_t frame = 0, worldFrame = 0;
         };
         std::uint64_t key = 0;
-        int w = 0, h = 0;  // cells of `cells` (the aspect of the camera's rectangle)
-        sg_buffer cells{};
-        sg_view cellsView{};
-        render::AsyncBufferRead ring;
+        int w = 0, h = 0;               // cells of `cells` (the aspect of the camera's rectangle)
+        gpu::Device* device = nullptr;  // the device the buffer lives on (the renderer's, which outlives the camera)
+        gpu::Buffer cells{};
+        gpu::View cellsView{};
         std::vector<Flight> flights;  // oldest first
         bool reduced = false;         // a reduce pass wrote `cells` and no copy of it was asked for yet
         Flight reducedInfo;           // its pose, size and frame
@@ -516,7 +527,7 @@ struct Renderer::Impl {
         ~HizCamera();
     };
     std::map<std::uint64_t, std::unique_ptr<HizCamera>> hizCams;  // by camera entity bits
-    sg_shader hizShader{};
+    gpu::Shader hizShader{};
     int hizShaderState = 0;  // 0 not tried, 1 made, -1 refused
     int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
     std::string hizWhy;      // why not
@@ -540,7 +551,8 @@ struct Renderer::Impl {
     HizShown hizShown, hizPrev;
     bool warnedHizRead = false;
     bool warnedHizPipeline = false;
-    int hizReduces = 0;  // reduce passes run since the renderer was made (tests)
+    bool warnedShadowRecord = false;  // the parallel shadow recording failed once (logged once)
+    int hizReduces = 0;               // reduce passes run since the renderer was made (tests)
     // The mode of the world's SceneSettings against what this GPU can do; one warning when `gpu` was asked for and cannot be had.
     bool hiz_resolve(World& world);
     // Start of Renderer::begin_frame (before sokol's frame begins): ask for the copy of every reduce of the frame before and take the
@@ -556,8 +568,11 @@ struct Renderer::Impl {
     // Only the cameras that draw the game's picture call it: a view job (capture_camera, a CameraView) has no pyramid, because
     // hiz_submit only runs when a frame begins and a capture's reduce could never come back within it.
     HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
-    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
-    void hiz_reduce_pass(HizCamera& hc, const Target& prepass, const render::HizPose& pose, std::uint64_t worldFrame);
+    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image. With
+    // Gpu::async_compute() it runs on the compute queue (M77-P10d): the graphics queue waits for it before the first pass that
+    // declares `prepassHandle` (the prepass's pool target), or at the frame's end.
+    void hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const Target& prepass, const render::HizPose& pose,
+                         std::uint64_t worldFrame, std::uint64_t prepassHandle = 0);
     void hiz_overlay();
     std::string hizModeName = "cpu";  // SceneSettings.occlusionMode of the last frame's world
     // The "gpu" object of Renderer::occlusion_report: what the depth pyramid did in the last frame; `level` of the pyramid is saved to
@@ -576,8 +591,8 @@ struct Renderer::Impl {
     // (a texture that failed or did not fit is not asked for again until then). A replaced image is kept in decalRetired until the next
     // frame's graph begins (an earlier job of the same frame may still draw with it).
     struct DecalAtlasState {
-        sg_image image{};
-        sg_view view{};
+        gpu::Image image{};
+        gpu::View view{};
         render::DecalAtlasLayout layout;
         std::set<std::string> known;
         std::uint64_t generation = 0;
@@ -586,7 +601,7 @@ struct Renderer::Impl {
         std::uint64_t bytes = 0;
     };
     DecalAtlasState decalAtlas;
-    std::vector<std::pair<sg_image, sg_view>> decalRetired;
+    std::vector<std::pair<gpu::Image, gpu::View>> decalRetired;
     bool warnedDecalAtlas = false, warnedDecalCap = false, warnedDecalClipped = false, warnedDecalPaths = false;
     std::set<std::string> warnedDecalTextures;  // the textures reported as unreadable or left out (once each)
     // Makes sure the atlas holds `paths` (every texture of every Decal of the world); false when decals cannot be drawn with textures.
@@ -599,7 +614,7 @@ struct Renderer::Impl {
     void free_retired_decal_atlases();
     void destroy_decal_atlas();
     // The image a mesh program reads at view 27: the atlas, or the white image while there is none.
-    sg_view decal_view_or(sg_view fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
+    gpu::View decal_view_or(gpu::View fallback) const { return decalAtlas.view.id ? decalAtlas.view : fallback; }
     void collect_decals(DrawContext& ctx);
     bool warnedShadowBudget =
         false;  // one warning when point or spot lights lost their shadow to the atlas or view budget
@@ -639,7 +654,7 @@ struct Renderer::Impl {
     // (cookie_pass copies only when this differs from the frame's cells; empty = the atlas holds nothing).
     std::vector<std::uint64_t> cookieStamp;
     int lightW = 0, lightH = 0;
-    sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
+    gpu::PixelFormat lightImgFormat = gpu::PixelFormat::None;
     bool lightTargetFailed = false;
     // The shadow rows of the lights with castShadows (light2d.cpp) as an image: an image is reused while its rows stay the
     // same, a new one replaces the oldest of the ring.
@@ -658,8 +673,8 @@ struct Renderer::Impl {
     int shadowRowsWindow = 0;                      // frames of the current window
     std::uint64_t shadowRowUploads = 0;            // images made since the renderer was (a test counts them)
     struct ShadowRowsSlot {
-        sg_image img{};
-        sg_view view{};
+        gpu::Image img{};
+        gpu::View view{};
         std::uint64_t key = 0;
         std::uint64_t usedFrame = 0;
     };
@@ -739,12 +754,12 @@ struct Renderer::Impl {
     // multisampled image (a pass that draws over it follows). `rect`: the camera's rectangle of `dst` (whole by default; see
     // run_post_pass); `load`: keep what `dst` holds outside the rectangle (the pass before it drew there) instead of drawing every pixel.
     // `aux`: the image the outline reads (PostPlan::outline_source of the frame), or a null view when there is none.
-    void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src, sg_view expo,
-                   sg_view aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
+    void post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, gpu::View src, gpu::View expo,
+                   gpu::View aux, Target& dst, const char* label, bool keepMsaa, const PostRect& rect = {},
                    bool load = false, const PostSlice& slice = {});
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
-    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
+    bool read_rgba8(gpu::Image image, gpu::View view, int w, int h, std::vector<std::uint8_t>& out, std::string* error,
                     bool premultiplied = false, bool displayValues = false);
     Target readbackTarget;  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
     void free_read_image();
@@ -759,15 +774,15 @@ struct Renderer::Impl {
     }
     int final_w() const { return final_target().w > 0 ? final_target().w : physW; }  // the size of the finished picture
     int final_h() const { return final_target().h > 0 ? final_target().h : physH; }
-    sg_image final_image() const { return final_target().texture_image(); }
-    sg_view final_view() const { return final_target().texView; }
-    // The picture the editor viewport shows (Renderer::game_target_view_id): the finished game image in a gamma scene; in a linear one,
+    gpu::Image final_image() const { return final_target().texture_image(); }
+    gpu::View final_view() const { return final_target().texView; }
+    // The picture the editor viewport shows (Renderer::game_target_texture): the finished game image in a gamma scene; in a linear one,
     // when the editor asked for it (Renderer::set_editor_view), the 8-bit encoded copy update_editor_copy() makes after each frame
     // (an empty handle until the first one exists). The final pass's picture is shown as it is, except when it went above paper white
     // (an HDR output; the editor's window never switches, but a viewport that can show extended values would show them brighter
     // than the SDR present() does): then the 8-bit copy clamps it to [0, 1].
-    sg_image display_image() const;
-    sg_view display_view() const;
+    gpu::Image display_image() const;
+    gpu::View display_view() const;
     bool editorView =
         false;  // set_editor_view(true): make the 8-bit copy of a linear scene (or of a picture above white)
     Target
@@ -784,7 +799,7 @@ struct Renderer::Impl {
     std::vector<TextureAsset*> plan_cookies(Frame& fr);
     void cookie_pass(const std::vector<TextureAsset*>& cells);
     bool ensure_cookie_target();
-    sg_view upload_shadow_rows(const Frame& fr);
+    gpu::View upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();
     // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
     CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false,
@@ -930,7 +945,7 @@ struct Renderer::Impl {
     // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
     struct JobEnv {
         int targetW = 0, targetH = 0, physW = 0, physH = 0;
-        sg_view colorAtt{}, resolveAtt{}, depthAtt{};
+        gpu::View colorAtt{}, resolveAtt{}, depthAtt{};
     };
     JobEnv job_env() const;
     void set_job_env(const JobEnv& env);
@@ -961,13 +976,18 @@ struct Renderer::Impl {
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
                                      bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
-    void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
+    void bind_textures(DrawContext& ctx, gpu::Bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
     void light_plan(DrawContext& ctx);
     // The 2D GI field of a 2D camera job (GlobalIllumination2D, gi2d.h): its slot, size and gather; nothing when the scene has none or the GPU cannot.
     void gi2d_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
+    // The draws of the shadow views [viewFirst, viewEnd) into `cl` (inside the shadow pass). shadow_pass records them on the
+    // frame's list, or, with Gpu::parallel_recording(), captures groups of views and replays each group into a list of its own
+    // on the job threads (M77-P10d). The captures are kept across frames (their memory).
+    void shadow_views(DrawContext& ctx, gpu::CommandList& cl, int viewFirst, int viewEnd);
+    std::vector<std::unique_ptr<render::CommandCapture>> shadowCaptures;
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
@@ -1011,7 +1031,7 @@ struct Renderer::Impl {
         std::vector<std::pair<std::string, int>> byName;
     } orderScratch;
     TransientTargets& transient_targets() {
-        if (!transients) transients = std::make_unique<TransientTargets>();
+        if (!transients) transients = std::make_unique<TransientTargets>(gpu.device());
         return *transients;
     }
 };
@@ -1041,10 +1061,10 @@ inline Viewport compute_viewport(ScaleMode mode, int fbW, int fbH, int tw, int t
     }
 }
 
+// Sets the uniform block `slot` of the pipeline set last on `list` to `u`.
 template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
+void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
+    list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
 }  // namespace fa
