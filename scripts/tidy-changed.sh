@@ -60,6 +60,19 @@ if [ "$(uname -s)" = Darwin ]; then
     extra=(--extra-arg=-isysroot --extra-arg="$sdk" --extra-arg=-isystem"$sdk/usr/include/c++/v1")
 fi
 
+# A file the build has no compile command for (a separate CMake project such as tools/shaders/shader_pack, a host
+# tool that compile_shaders.sh builds on its own) would be checked with guessed flags and fail on its includes: it is
+# left out and named.
+listed=""
+outside=""
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if grep -qF "\"$PWD/$f\"" "$build/compile_commands.json"; then listed="$listed$f"$'\n'; else outside="$outside $f"; fi
+done <<< "$files"
+[ -n "$outside" ] && echo "tidy: left out, no compile command in $build/compile_commands.json:$outside"
+files="$(printf '%s' "$listed" | grep -v '^$' || true)"
+if [ -z "$files" ]; then echo "tidy: no C++ sources of the build changed against $base"; exit 0; fi
+
 count=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
 echo "tidy: $count files against $base"
 jobs="${FA_TIDY_JOBS:-2}"
