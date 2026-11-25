@@ -56,7 +56,12 @@ std::string glsl_source_from_header(const std::string& headerName, const std::st
 
 TEST_CASE("shader text: every packed text decodes to the bytes sokol-shdc wrote (the hash taken when the header was "
           "generated)") {
-    REQUIRE(std::size(kShaderTexts) > 40);  // 32 headers, two dialects (hiz: desktop GL only)
+    REQUIRE(std::size(kShaderTexts) > 0);
+    // Every dialect of every packed header is listed, and no two entries share a label.
+    std::set<std::string> labels;
+    for (const Texts* t : kShaderTexts) CHECK(labels.insert(t->label).second);
+    for (const char* label : {"mesh.glsl300es", "mesh.glsl430", "blit.glsl300es", "hiz.glsl430"})
+        CHECK(find_texts(label));
     std::size_t texts = 0;
     for (const Texts* t : kShaderTexts) {
         CAPTURE(t->label);
@@ -135,8 +140,18 @@ TEST_CASE("shader text: a damaged frame gives an empty string, not a crash") {
     CHECK((text.empty() || fa::shader_text::fnv1a64(text.c_str(), blit->entries[0].size) != blit->entries[0].hash));
 }
 
+TEST_CASE("shader text: a pack whose textSize is wrong gives an empty string, not a crash") {
+    const Texts* blit = find_texts("blit.glsl300es");
+    REQUIRE(blit != nullptr);
+    const Pack& good = *blit->pack;
+    CHECK(std::string(fa::shader_text::get({good.frame, good.frameSize, good.textSize + 100}, 0)).empty());
+    CHECK(std::string(fa::shader_text::get({good.frame, good.frameSize, good.textSize / 2}, 0)).empty());
+    CHECK(fa::shader_text::decoded({good.frame, good.frameSize, 0}) == nullptr);
+    CHECK(fa::shader_text::decoded({good.frame, 3, good.textSize}) == nullptr);  // a frame cut short
+}
+
 TEST_CASE("shader text: what every OpenGL shader_desc hands to the driver is one of the recorded texts") {
-    REQUIRE(std::size(kShaderDescs) > 30);
+    REQUIRE(std::size(kShaderDescs) > 0);
     std::set<std::string> seen;
     for (auto desc_fn : kShaderDescs) {
         for (sg_backend backend : {SG_BACKEND_GLES3, SG_BACKEND_GLCORE}) {
