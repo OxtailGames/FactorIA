@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+### Rendering
+
+- **Smaller web, Android and Linux players:** the GLSL text of the built-in shaders (GLSL ES 3.00 and GLSL 4.30, spirv-cross output) is kept
+  as one zstd frame per header and dialect, made with the engine's own encoder, and decoded the first time a shader is made: 941,595 bytes
+  of GLSL ES text became 158,753 (GLSL 4.30: 889,035 to 157,544). The driver gets the same bytes as before. `compile_shaders.sh` builds the
+  packer (`tools/shaders/shader_pack`) itself. The Vulkan probe of the start-up (`gpu_probe.cpp`) names the Vulkan backend only in a build that has it (`FA_VULKAN_BACKEND`).
+
 ## 0.37.0
 
 Modern GPU backends (M77): the engine has its own D3D12 and Vulkan devices next to the sokol ones. A game picks its backend with `render.backend` (`auto`, `d3d11`, `d3d12`, `vulkan`, `metal`, `gl`, `gles3`), `FA_GPU_BACKEND` or the `graphics.backend` command, and the game window draws on D3D12 (Windows) and Vulkan (Windows, Linux, Android) with a fallback to the platform's backend in the same process when the asked one cannot start; Linux and Android also ship a Vulkan player that hands the game to the OpenGL player when Vulkan is missing. Both backends run graphics, async compute and copy queues, record the shadow views on several threads, keep their pipeline caches on disk and measure GPU time; the shader tool emits SPIR-V for Vulkan, and on Windows DirectStorage reads GDeflate blocks of `game.pak` straight into D3D12 buffers and textures. The entries below list them.

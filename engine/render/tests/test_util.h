@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "glsl_source.h"
 #include "fa/core/engine_version.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -163,22 +164,6 @@ inline std::vector<std::string> unqualified_floats(const std::string& src) {
         }
     }
     return bad;
-}
-
-// The GLSL ES 3.00 source of a sokol-shdc generated header (engine/render/src/shaders/<name>.glsl.h): the array `key` (for example
-// "env_fs_sh_source_glsl300es[") is a list of hex bytes. The header only holds the GLES3 sources when it is built for GLES3, so a test reads
-// its text. Empty when the array is not there.
-inline std::string glsl_source_from_header(const std::string& headerName, const std::string& key) {
-    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/" + headerName, std::ios::binary);
-    const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    const std::size_t at = header.find(key);
-    if (at == std::string::npos) return {};
-    const std::size_t open = header.find('{', at), close = header.find('}', open);
-    if (close == std::string::npos) return {};
-    std::string src;
-    for (std::size_t i = header.find("0x", open); i != std::string::npos && i < close; i = header.find("0x", i + 2))
-        src.push_back(char(std::strtoul(header.substr(i + 2, 2).c_str(), nullptr, 16)));
-    return src;
 }
 
 inline Entity make(World& w, const char* name, Vec3 pos = {}) {
