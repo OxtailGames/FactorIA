@@ -373,7 +373,7 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 
 ## `graphics.backend` (modifies state)
 
-Not released yet (on main after 0.36.0).
+Since 0.37.0.
 
 Reads which GPU backend draws the game, or stores the one the next start draws with ("takes effect at the next start").
 
