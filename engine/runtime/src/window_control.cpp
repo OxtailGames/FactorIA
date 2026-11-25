@@ -3,15 +3,8 @@
 #include <thread>
 
 #include "engine_impl.h"
+#include "fa/core/sleep.h"
 #include "fa/platform/app.h"
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 namespace fa {
 
@@ -30,24 +23,6 @@ const char* platform_label() {
 }
 
 constexpr const char* kAlwaysFullscreen = "phones and tablets always run full screen";
-
-// Sleeps about `d`. A plain sleep overshoots by a whole timer tick (15 ms on Windows by default), which would turn a
-// 144 fps cap into 64 fps, so Windows uses a high-resolution waitable timer (Windows 10 1803 and later).
-void sleep_for(std::chrono::nanoseconds d) {
-#if defined(_WIN32)
-    static HANDLE timer = CreateWaitableTimerExW(
-        nullptr, nullptr, 0x00000002 /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */, TIMER_ALL_ACCESS);
-    if (timer) {
-        LARGE_INTEGER due;
-        due.QuadPart = -(d.count() / 100);  // 100 ns units, negative = relative
-        if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
-            WaitForSingleObject(timer, INFINITE);
-            return;
-        }
-    }
-#endif
-    std::this_thread::sleep_for(d);
-}
 
 }  // namespace
 
@@ -168,7 +143,7 @@ void AppWindowControl::throttle() {
         for (auto now = clock::now(); now < target; now = clock::now()) {
             const auto left = target - now;
             if (left > std::chrono::milliseconds(2))
-                sleep_for(left - std::chrono::milliseconds(1));
+                sleep_precise(left - std::chrono::milliseconds(1));
             else
                 std::this_thread::yield();
         }
