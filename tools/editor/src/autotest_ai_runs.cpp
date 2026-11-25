@@ -356,6 +356,7 @@ void Editor::at_section_Q(AtScript& at) {
         auto qdir = fs::make_temp_dir_until_exit("fa_autotest_q");
         if (!qdir.ok()) {
             atLog_.push_back("SKIP the agent is never silent (no temp folder: " + qdir.error().to_string() + ")");
+            atQFake_.clear();  // the later steps of section Q skip on an empty atQFake_
             return;
         }
         atQArgv_ = (*qdir / "argv.txt").string();

@@ -4,9 +4,9 @@
 # and compares the PNG files byte for byte.
 #   cmake -DFACTORIA=<factoria> -DROOT=<repo> -DOUT=<dir> -DSCENES=example=scene,example=scene -P jobs_same_frames.cmake
 # The runs write caches into the project's .factoria folder: they run on a copy in a temp dir, never inside the checked-in example.
-if(DEFINED ENV{TMPDIR})
+if(NOT "$ENV{TMPDIR}" STREQUAL "")
     set(tmpbase "$ENV{TMPDIR}")
-elseif(DEFINED ENV{TEMP})
+elseif(NOT "$ENV{TEMP}" STREQUAL "")
     set(tmpbase "$ENV{TEMP}")
 else()
     set(tmpbase "/tmp")
