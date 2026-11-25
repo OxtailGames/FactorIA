@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -717,22 +718,22 @@ TEST_CASE("vulkan: copy_buffer_to_image with aligned rows and with rows that nee
     sd.width = 8;
     sd.height = 4;
     sd.usage.copyDst = true;
-    const Image small = dev->make_image(sd);
-    REQUIRE(dev->state(small) == ResourceState::Valid);
+    const Image tiny = dev->make_image(sd);
+    REQUIRE(dev->state(tiny) == ResourceState::Valid);
     const std::uint32_t liveBefore = dev->counters().memory.liveAllocations;
     CommandList& list2 = dev->begin_commands("unaligned");
     BufferImageCopy u;
     u.src = buf;
     u.srcOffset = 2;
     u.bytesPerRow = 30;
-    u.dst.image = small;
+    u.dst.image = tiny;
     u.dst.x = 2;
     u.dst.y = 1;
     u.size.width = 5;
     u.size.height = 3;
     list2.copy_buffer_to_image(u);
     submit_and_finish(*dev, list2);
-    r = dev->read_image_region(small, 0, 0, 2, 1, 5, 3, out);
+    r = dev->read_image_region(tiny, 0, 0, 2, 1, 5, 3, out);
     REQUIRE_MESSAGE(r, r.error().to_string());
     std::vector<std::uint8_t> expected;
     for (int row = 0; row < 3; ++row)
@@ -3733,7 +3734,10 @@ struct TestWindow {
             why = "no X11 display ($DISPLAY is not set)";
             return;
         }
-        lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+        // RTLD_NODELETE: libX11 stays loaded for the process. Unloading it between cases (after the Vulkan loader
+        // dropped lavapipe's WSI, which holds it too) and loading it again made later XOpenDisplay calls fail now and
+        // then in the long render test process on Linux CI.
+        lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
         if (!lib) {
             why = "no libX11.so.6";
             return;
@@ -3745,9 +3749,18 @@ struct TestWindow {
             why = "libX11.so.6 lacks a function the case needs";
             return;
         }
-        dpy = open_display(nullptr);
+        // A few tries: a display server under load (Xvfb on a CI VM running four test processes) can refuse a
+        // connection for a moment.
+        int lastErrno = 0;
+        for (int attempt = 0; attempt < 5 && !dpy; ++attempt) {
+            if (attempt) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            errno = 0;
+            dpy = open_display(nullptr);
+            lastErrno = errno;
+        }
         if (!dpy) {
-            why = std::string("XOpenDisplay(") + env + ") failed";
+            why = std::string("XOpenDisplay(") + env + ") failed 5 times (last errno " + std::to_string(lastErrno) +
+                  ": " + std::strerror(lastErrno) + ")";
             return;
         }
         xid = create_window(dpy, root_window(dpy), 0, 0, unsigned(width), unsigned(height), 0, 0, 0);

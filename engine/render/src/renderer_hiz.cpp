@@ -42,9 +42,9 @@ bool Renderer::Impl::hiz_resolve(World& world) {
     if (mode == OcclusionMode::Cpu) return false;
     if (hizSupport == 0) {
         std::string why;
-        const gpu::Backend backend = gpu.device().backend();
+        const gpu::Backend deviceBackend = gpu.device().backend();
         bool ok = false;
-        if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) {
+        if (deviceBackend == gpu::Backend::D3d12 || deviceBackend == gpu::Backend::Vulkan) {
             // The feature table has no column of their own yet (feature_backend_of): the depth pyramid needs compute
             // shaders and the reads without waiting below, which the device answers itself (M77-P10d: its reduce is the
             // work of the async compute queue).

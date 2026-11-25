@@ -390,10 +390,12 @@ private:
         std::copy(litLens.begin(), litLens.begin() + hlit, all.begin());
         std::copy(distLens.begin(), distLens.begin() + hdist, all.begin() + hlit);
         const unsigned total = hlit + hdist;
-        items_.clear();
+        // At most one item per code length (every item consumes at least one), so a fixed array holds them all: GCC 13
+        // at -O2 reported a false -Wstringop-overflow in the vector growth path here.
+        itemCount_ = 0;
         std::array<std::uint32_t, kNumPrecode> preFreq{};
         auto put = [&](unsigned symbol, unsigned extra) {
-            items_.push_back({static_cast<std::uint8_t>(symbol), static_cast<std::uint8_t>(extra)});
+            items_[itemCount_++] = {static_cast<std::uint8_t>(symbol), static_cast<std::uint8_t>(extra)};
             ++preFreq[symbol];
         };
         for (unsigned i = 0; i < total;) {
@@ -439,7 +441,8 @@ private:
             writer_.advance();
         }
         writer_.reset_lane();
-        for (const Item& it : items_) {
+        for (std::size_t k = 0; k < itemCount_; ++k) {
+            const Item& it = items_[k];
             writer_.add(preCodes[it.symbol], preLens[it.symbol]);
             if (it.symbol == 16)
                 writer_.add(it.extra, 2);
@@ -538,7 +541,8 @@ private:
     std::vector<std::int32_t> head_;
     std::vector<std::int32_t> prev_;
     std::vector<Token> tokens_;
-    std::vector<Item> items_;
+    std::array<Item, kNumLitLen + kNumDist> items_{};
+    std::size_t itemCount_ = 0;
     LaneWriter writer_;
     std::vector<std::uint8_t> dynamic_;
     std::vector<std::uint8_t> stored_;

@@ -5,7 +5,7 @@ namespace fa {
 
 const char* window_presenter_name(WindowPresenter presenter) {
     switch (presenter) {
-        case WindowPresenter::None: return "none";
+        case WindowPresenter::Unclaimed: return "none";
         case WindowPresenter::Platform: return "platform";
         case WindowPresenter::Device: return "device";
     }
@@ -46,7 +46,7 @@ WindowPresenterStep window_presenter_step(WindowPresenter now, WindowPresenterEv
             step.next = WindowPresenter::Device;
             return step;
         case WindowPresenterEvent::DeviceRelease:
-            if (now == WindowPresenter::Device) step.next = WindowPresenter::None;
+            if (now == WindowPresenter::Device) step.next = WindowPresenter::Unclaimed;
             return step;
     }
     return step;
