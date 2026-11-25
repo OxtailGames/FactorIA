@@ -187,8 +187,7 @@ of `loading.startup`). `make_device(Backend::D3d12)`, the renderer's way to the 
 single-sampled with the colour format, the depth sample count equal to the colour one) and that `PassDesc::format` is
 what they are; it sets the targets, clears what `colorLoad` / `depthLoad` / `stencilLoad` say (Clear, or Default),
 and a viewport and scissor over the whole target. `end_pass` resolves an MSAA colour attachment into `resolve`. A pass
-into the window (`PassDesc::swapchain`) is an error that says the backend has no window path yet and to pick the
-sokol backend for a window. `set_pipeline` checks that the pipeline is a render
+into the window (`PassDesc::swapchain`) draws into the back buffer of the frame ("Swapchain" below). `set_pipeline` checks that the pipeline is a render
 one in a render pass and a compute one in a compute pass, and that its formats, colour count and sample count equal
 the pass's. `set_bindings` checks every slot against the shader (an empty slot the shader declares, a slot it does
 not, a view of the wrong kind, a buffer without the usage, a view of a mip and layer the pass draws into) and `set_uniforms` the block's exact size; uniforms are
@@ -198,8 +197,40 @@ block was set and `set_bindings` called since `set_pipeline`. As in sokol, once 
 inside a pass whose `begin_pass` failed is skipped. `draw_ex`'s `baseVertex` is the index offset with an index buffer
 and is added to `base` without one; dispatch counts are 0 to 65535 per dimension.
 
-**Not yet.** The window: `create_swapchain` and the calls after it fail with the default's teaching error (the DXGI
-swapchain is a later package).
+**Swapchain** (d3d12_swapchain_win32.cpp, M77-P9c). `create_swapchain(SwapchainDesc)` makes a flip-model DXGI swapchain
+on the HWND of `nativeWindow` (`CreateSwapChainForHwnd` on the graphics queue, `DXGI_SWAP_EFFECT_FLIP_DISCARD`, one buffer
+more than the frames in flight, at least 2, so the GPU never waits for a buffer still queued for the display;
+Alt+Enter left to the window). It checks the desc before any DXGI work: a
+null or destroyed window, a negative size (0 is the window's client size), a sample count that is not 1, 2, 4 or 8, a
+format it does not take, MSAA of a format that cannot, MSAA of an sRGB format (the back buffers are UNORM and
+`ResolveSubresource` needs one format on both sides), a size over the GPU's largest image. Where DXGI allows tearing
+(`DXGI_FEATURE_PRESENT_ALLOW_TEARING`) the swapchain is made with it and `present()` tears only when `vsync` is off. A
+frame-latency waitable (`SetMaximumFrameLatency` = frames in flight) is waited for in `acquire_swapchain`, at most one
+second (a hidden or occluded window may never signal it; the wait is then counted, `swapchain_wait_timeouts()`, and the
+frame goes on; with no buffers after a failed resize it is not waited for). `ResizeBuffers` and `Present` run on the
+render thread, not the one pumping the window's messages: DXGI may send that window messages and wait for them, so the
+window thread must never block on the render thread while it resizes or presents. The formats (`swapchain_format_supported`, which asks the GPU for DISPLAY and RENDER_TARGET support of
+the buffer format): Default is the device's SDR format (Bgra8); Bgra8, Sbgr8A8, Rgba8, Srgb8A8 make UNORM buffers (the
+sRGB ones get sRGB views); Rgba16F is scRGB (`DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709`) and Rgb10A2 is HDR10
+(`G2084_NONE_P2020`). For those two `create_swapchain` asks `CheckColorSpaceSupport` and sets the space; a display that
+does not present it is an error that says to turn HDR on or ask for Default.
+
+The back buffers join the image pool as images with a colour-attachment view each (a resolve view when the swapchain is
+multisampled, which adds an MSAA image), and a depth image of the device's depth format; their tracked state starts as
+PRESENT. `acquire_swapchain` hands back a `Swapchain` with the size, sample count and formats; a pass made with
+`PassDesc::for_swapchain` over it is rewritten by `begin_pass` into a pass into the frame's back buffer (or the MSAA
+image resolving into it) and the depth view, after checking that the frame was acquired and that the `Swapchain` has
+the current size. `present()` ends the frame: an internal list on the graphics queue moves the back buffer to PRESENT
+behind the frame's lists, then `IDXGISwapChain::Present` (`DXGI_STATUS_OCCLUDED` is a success). `resize_swapchain(w, h)`
+(0 is the client size; the same size with whole buffers does nothing) is refused between acquire and present; it
+destroys the views and images, waits for the GPU to finish with the buffers, calls `ResizeBuffers` with the creation
+flags and makes the views again (a failure makes the old buffers again and returns the error). `destroy_swapchain()`
+(also in the destructor) releases everything the same way. `swapchain_image()` (the back buffer of the frame, for a
+test's read-back), `swapchain_buffer_count()` and `swapchain_tearing()` are D3D12 only.
+
+The renderer resizes the device's swapchain in `Renderer::present` when the framebuffer size changes (an error is
+logged once). `RendererDesc` does not hand the device a window yet, so a non-headless renderer on D3D12 still fails
+`init()`, now with the swapchain's own "nativeWindow is null" error (the window hand-off is a later package).
 
 **Tests.** `engine/render/tests/d3d12_device_tests.cpp` (ctest `render_d3d12_device`): on Windows each case makes a
 WARP device with the debug layer and ends by checking that the layer reported no error. Resources: buffer and image
@@ -220,8 +251,15 @@ bad requests, a read that outlives `destroy_buffer`, stale and released tickets,
 refused, a slot buffer that grows. The pipeline cache file: a second device loads every PSO from it; a damaged
 file, another GPU's, another driver's, a cut one and one that is not a cache are each thrown away with one warning; a
 held file keeps its old bytes. `storage_image_loadable` for RGBA8, R32F and a format it never loads; a view of the
-pass's own attachment. Then the PSO and root-signature caches,
+pass's own attachment. The swapchain: on a hidden 64x48 Win32 window, three frames cleared to three colours, each back
+buffer read back before present, a resize to 96x64 and a frame, the same size again, then destroy; the mistakes
+(present before acquire, a second create, a resize between acquire and present, a pass with a stale size, acquire
+after destroy); a null window, a bad sample count and format, the HDR format query, and an scRGB swapchain that is
+either made or refused with a teaching error. Then the PSO and root-signature caches,
 the root signature of a shader with one block, two views and two samplers, and every error of `make_shader`,
 `make_pipeline` and the command list. A Windows without WARP says so with a MESSAGE and passes. Elsewhere one case
 checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_root_layout()` and
-`read_image_region` exist for these tests.
+`read_image_region` exist for these tests. `make_device(Backend::D3d12)` reads two hooks of the environment:
+`FA_D3D12_WARP=1` makes the device on WARP and `FA_D3D12_DEBUG=1` turns the debug layer on. The renderer case of
+`renderer_backend_tests.cpp` sets both and draws the 2D and 3D scenes on D3D12 against the sokol backend's pictures
+(the Vulkan case's tolerance); it skips with a MESSAGE without WARP, unless `FA_D3D12_REQUIRE=1` (the Windows CI job).

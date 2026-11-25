@@ -17,6 +17,14 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   lacks warns and uses `auto`, which is still the sokol backend of the build), the `FA_GPU_BACKEND` environment variable and
   `EngineConfig::gpuBackend` override it. Headless runs use D3D12 or Vulkan; a window falls back to `auto` with one warning until their
   swapchains land. The startup report names the device's backend and the asked one when it differs (docs/RENDERING.md, "Choosing the GPU backend").
+- The D3D12 backend presents into a window (M77-P9c): `create_swapchain` makes a flip-model DXGI swapchain on the HWND of
+  `SwapchainDesc::nativeWindow` (one buffer more than the frames in flight, a frame-latency wait in `acquire_swapchain`, tearing when vsync is
+  off and the system allows it), passes made with `PassDesc::for_swapchain` draw into the frame's back buffer, `present()` shows it and
+  `resize_swapchain` remakes the buffers once the GPU is done with them. `swapchain_format_supported` answers Default (SDR), Rgba16F
+  (scRGB) and Rgb10A2 (HDR10), whose colour space `create_swapchain` checks with the display. The renderer resizes the device's swapchain
+  when the framebuffer changes size (the renderer does not hand D3D12 its window yet, so it draws offscreen there for now), and D3D12's
+  `make_pipeline` resolves packed vertex offsets with sokol's per-buffer rule. A renderer case draws the 2D and 3D test scenes on D3D12
+  WARP against the sokol backend (`FA_D3D12_WARP=1` and `FA_D3D12_DEBUG=1` pick WARP and the debug layer for `make_device`).
 - The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
   `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
   a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is

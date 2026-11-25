@@ -587,6 +587,7 @@ jobs:
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
+          FA_D3D12_REQUIRE: '1'  # every runner has D3D12 WARP: the renderer's D3D12 case must run, not skip
         # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
         # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
         # timing-sensitive tests failed.
