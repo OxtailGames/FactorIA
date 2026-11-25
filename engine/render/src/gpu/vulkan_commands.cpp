@@ -374,8 +374,16 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     passFormat_ = pass.format;
     const std::string passName = std::string("pass '") + (pass.label && *pass.label ? pass.label : "(no label)") + "'";
     if (pass.swapchain) {
-        fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) comes in M77-P9 (hint: the "
-                                      "Vulkan backend draws into images for now; present with the sokol backend)");
+        // A pass into the window is a pass into the views of the swapchain's images (the acquired one, its depth and
+        // MSAA images), checked below like any other.
+        PassDesc views;
+        const std::string error = device_.swapchain_pass(pass, views);
+        if (!error.empty()) {
+            fail("begin_pass", passName + ": " + error);
+            return;
+        }
+        passState_ = PassState::None;
+        begin_pass(views);
         return;
     }
 
@@ -741,8 +749,13 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
         for (int i = 0; i < kMaxVertexBuffers; ++i) {
             const VulkanDevice::BufferRecord* r = device_.buffers_.get(b.vertexBuffers[i].id);
             const std::string what = "vertex buffer slot " + std::to_string(i);
-            buffer(b.vertexBuffers[i], b.vertexBufferOffsets[i], (st.buffersUsed >> i) & 1u, r && r->usage.vertexBuffer,
-                   what.c_str(), "vertexBuffer", vbs[i]);
+            // BufferUsage: a buffer with none of vertexBuffer, indexBuffer, storageBuffer and the staging bits is a
+            // vertex buffer (make_buffer gives it the vertex usage).
+            const bool vertexUsage =
+                r && (r->usage.vertexBuffer || !(r->usage.indexBuffer || r->usage.storageBuffer ||
+                                                 r->usage.stagingBuffer || r->usage.stagingIndexBuffer));
+            buffer(b.vertexBuffers[i], b.vertexBufferOffsets[i], (st.buffersUsed >> i) & 1u, vertexUsage, what.c_str(),
+                   "vertexBuffer", vbs[i]);
         }
         {
             const VulkanDevice::BufferRecord* r = device_.buffers_.get(b.indexBuffer.id);

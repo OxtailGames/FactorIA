@@ -49,57 +49,19 @@ static int fa_x11_next_event(Display* display, XEvent* event) {
 #define XPending fa_x11_pending
 #define XNextEvent fa_x11_next_event
 #endif
-// Windows: the HDR formats of the swapchain (fa_sapp_set_swapchain_kind, hdr_output.cpp). sokol_app resizes the swapchain
-// buffers with a hard-wired DXGI_FORMAT_B8G8R8A8_UNORM and makes the view of buffer 0 in its own 8-bit or 16-bit float format,
-// so a 16-bit float (scRGB) or 10-bit (HDR10) swapchain would go back to 8 bits at the first resize, and a 10-bit one would
-// get a view of the wrong format. sokol_app calls both through its C helpers (self->lpVtbl->ResizeBuffers(...),
-// self->lpVtbl->CreateRenderTargetView(...)): the two function-like macros below give those calls the format the engine chose
-// (fa_d3d11_kind). The D3D11 headers come first, so their declarations keep their names (in C the vtable members are
-// "(*ResizeBuffers)(...)", never followed by an opening parenthesis, so they would not expand anyway), and the macros end
-// right after sokol_app.h: sokol_gfx.h's own calls are not touched. sokol_app makes no other render target view: the
-// 10-bit kind is refused with MSAA (its MSAA texture would be 8-bit).
+// Windows: sokol_app makes the window and owns no graphics device (SOKOL_NOAPI); sokol_gfx stays SOKOL_D3D11. The engine
+// makes the D3D11 device and the window's DXGI swapchain itself (d3d11_present_win32.cpp), so the D3D12 and Vulkan backends
+// can make their own swapchain on the same window. sokol_app's frame callback then only runs the frame: app.cpp resizes and
+// presents around it. The backend macro is SOKOL_D3D11 again from sokol_gfx.h on (sokol_glue.h is not used for it).
 #if defined(_WIN32) && defined(SOKOL_D3D11)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef D3D11_NO_HELPERS
-#define D3D11_NO_HELPERS
-#endif
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4201 4115)
-#endif
-#include <windows.h>
-#include <d3d11.h>
-#include <dxgi.h>
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-static int fa_d3d11_kind;  // 0 = 8-bit (sokol's own), 1 = R16G16B16A16_FLOAT, 2 = R10G10B10A2_UNORM
-static DXGI_FORMAT fa_d3d11_buffer_format(DXGI_FORMAT asked) {
-    if (fa_d3d11_kind == 1) return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    if (fa_d3d11_kind == 2) return DXGI_FORMAT_R10G10B10A2_UNORM;
-    return asked;
-}
-static D3D11_RENDER_TARGET_VIEW_DESC fa_d3d11_view_desc_copy;
-static const D3D11_RENDER_TARGET_VIEW_DESC* fa_d3d11_view_desc(const D3D11_RENDER_TARGET_VIEW_DESC* desc) {
-    if (fa_d3d11_kind != 2 || desc == NULL) return desc;
-    fa_d3d11_view_desc_copy = *desc;
-    fa_d3d11_view_desc_copy.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-    return &fa_d3d11_view_desc_copy;
-}
-#define ResizeBuffers(self, count, width, height, format, flags)                                                       \
-    ResizeBuffers(self, count, width, height, fa_d3d11_buffer_format(format), flags)
-#define CreateRenderTargetView(self, resource, desc, view)                                                             \
-    CreateRenderTargetView(self, resource, fa_d3d11_view_desc(desc), view)
+#define FA_SOKOL_APP_NOAPI 1
+#undef SOKOL_D3D11
+#define SOKOL_NOAPI
 #endif
 #include "sokol_app.h"
-#if defined(_WIN32) && defined(SOKOL_D3D11)
-#undef ResizeBuffers
-#undef CreateRenderTargetView
+#if defined(FA_SOKOL_APP_NOAPI)
+#undef SOKOL_NOAPI
+#define SOKOL_D3D11
 #endif
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
@@ -586,13 +548,10 @@ bool fa_sapp_set_window_size(int w, int h) {
 #endif
 }
 
+// Windows (FA_SOKOL_APP_NOAPI): the swapchain is the engine's, so are vsync and its kind (d3d11_present_win32.cpp).
+#if !defined(FA_SOKOL_APP_NOAPI)
 bool fa_sapp_set_vsync(bool on) {
-#if defined(SOKOL_D3D11)
-    // _sapp_d3d11_present() reads disable_vsync at every present (Windows 10 and later).
-    if (!_sapp.win32.is_win10_or_greater) return false;
-    _sapp.desc.disable_vsync = !on;
-    return true;
-#elif defined(_SAPP_GLX)
+#if defined(_SAPP_GLX)
     if (!_sapp.glx.EXT_swap_control && !_sapp.glx.MESA_swap_control) return false;  // the driver offers no swap control
     _sapp_glx_swapinterval(on ? 1 : 0);
     _sapp.desc.disable_vsync = !on;
@@ -603,44 +562,14 @@ bool fa_sapp_set_vsync(bool on) {
 #endif
 }
 
-int fa_sapp_swapchain_kind(void) {
-#if defined(SOKOL_D3D11)
-    return fa_d3d11_kind;
-#else
-    return 0;
-#endif
-}
+int fa_sapp_swapchain_kind(void) { return 0; }
 
 int fa_sapp_set_swapchain_kind(int kind, bool linear) {
-    (void)linear;  // Metal only: D3D11's colour space is set by hdr_output_win32.cpp
-#if defined(SOKOL_D3D11)
-    if (kind < 0 || kind > 2) kind = 0;
-    if (kind == fa_d3d11_kind) return kind;
-    if (!_sapp.valid || _sapp.d3d11.swap_chain == NULL || _sapp.d3d11.rtv == NULL) return fa_d3d11_kind;
-    // HDR needs the flip model, which sokol_app uses from Windows 10 on; the 10-bit kind has no MSAA texture (see above).
-    if (kind != 0 && !_sapp.win32.is_win10_or_greater) return fa_d3d11_kind;
-    if (kind == 2 && _sapp.desc.sample_count > 1) return fa_d3d11_kind;
-    // What sokol_app's own resize does (_sapp_d3d11_resize_default_render_target), between two frames: the views of the
-    // buffers go, the buffers change, the views come back. sokol_gfx unbinds the swapchain's view at the end of every pass,
-    // so nothing else holds the buffers. desc.hdr makes sokol_app make its views (and sapp_color_format()) 16-bit float.
-    const int old = fa_d3d11_kind;
-    _sapp_d3d11_destroy_default_render_target();
-    fa_d3d11_kind = kind;
-    _sapp.desc.hdr = kind == 1;
-    const HRESULT hr = _sapp_dxgi_ResizeBuffers(_sapp.d3d11.swap_chain, _sapp.d3d11.swap_chain_desc.BufferCount,
-                                                (UINT)_sapp.framebuffer_width, (UINT)_sapp.framebuffer_height,
-                                                DXGI_FORMAT_B8G8R8A8_UNORM /* the hook above picks the format */, 0);
-    if (FAILED(hr)) {  // the buffers are unchanged: views of the old format again
-        fa_d3d11_kind = old;
-        _sapp.desc.hdr = old == 1;
-    }
-    _sapp_d3d11_create_default_render_target();
-    return fa_d3d11_kind;
-#else
     (void)kind;
+    (void)linear;
     return 0;
-#endif
 }
+#endif
 
 bool fa_sapp_edr(fa_sapp_edr_screen* out) {
     memset(out, 0, sizeof(*out));  // Apple only (sokol_impl_apple.m)

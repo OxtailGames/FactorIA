@@ -111,6 +111,7 @@ Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& i
 #if defined(FA_RENDER_VULKAN)
         VulkanOptions options;
         options.init = init;
+        options.pipelineCacheFile = vulkan_pipeline_cache_file();
         return make_vulkan_device(options);
 #else
         return make_error("gpu: the renderer of this build has no Vulkan backend (FA_RENDER_VULKAN is off: its "
