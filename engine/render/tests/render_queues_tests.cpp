@@ -119,7 +119,7 @@ void draw_frame(Renderer& r, World& world) {
 }
 
 // The last of `frames` frames, read back (the depth pyramid of a frame serves the next one: three frames use it).
-fa::Image draw_frames(Renderer& r, World& world, int frames) {
+[[maybe_unused]] fa::Image draw_frames(Renderer& r, World& world, int frames) {  // unused where neither device exists
     for (int i = 1; i < frames; ++i) draw_frame(r, world);
     draw_frame(r, world);
     fa::Image img;
@@ -537,6 +537,7 @@ TEST_CASE("render queues: on D3D12 (WARP) the picture with async compute and thr
     CHECK(off.report["asyncCompute"] == false);
     CHECK(off.report["multiThreadRecording"] == false);
     CHECK(on.report["asyncCompute"] == on.computeQueue);
+    CHECK(on.report["multiThreadRecording"] == true);
     CHECK(off.reduces >= 1);
     CHECK(on.reduces == off.reduces);
     REQUIRE(on.image.width == off.image.width);
