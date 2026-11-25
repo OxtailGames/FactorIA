@@ -305,7 +305,11 @@ TEST_CASE("device hooks: a hook a live D3D12 or Vulkan device holds is not marke
     // The first device that holds it starts it available; a RecordingDevice (or D3D11, GL, Metal) made meanwhile leaves
     // its state alone.
     HookAttachment first;
-    first.attach({hook});
+    std::vector<std::string> refused;
+    const DeviceHooks took = first.attach({hook, hook, nullptr}, Backend::Vulkan, &refused);  // once each
+    REQUIRE(took.size() == 1);
+    CHECK(took[0].get() == hook.get());
+    CHECK(refused.empty());
     CHECK(hook->in_use());
     CHECK(hook->available());
     auto recording = make_device(Backend::Recording, init);
@@ -313,23 +317,34 @@ TEST_CASE("device hooks: a hook a live D3D12 or Vulkan device holds is not marke
     CHECK(hook->available());
     CHECK(hook->unavailable_reason().empty());
 
-    // A second device holding it does not turn it available again under the first (its failure stays).
+    // A second device cannot take it: it is left out, with a warning that says why, and the first device's state is
+    // not touched (the hook is no more available than it was, no less).
     hook->mark_unavailable("the first device lost it");
     HookAttachment second;
-    second.attach({hook});
+    CHECK(second.attach({hook}, Backend::D3d12, &refused).empty());
+    REQUIRE(refused.size() == 1);
+    CHECK(contains(refused[0], "gpu d3d12: device hook 'shared (test)' is not used by this device"));
+    CHECK(contains(refused[0], "another live D3D12 or Vulkan device holds it"));
     CHECK(!hook->available());
     CHECK(contains(hook->unavailable_reason(), "the first device lost it"));
+    second.release();  // the second never held it: the first still does
+    CHECK(hook->in_use());
 
-    // The last device that held it goes: the next one starts it available again, and a backend without hooks marks it.
-    second.release();
+    // mark_unsupported_if_unused is one step: refused while a device holds it, done when none does.
+    CHECK(!hook->mark_unsupported_if_unused("no hooks here"));
+    CHECK(contains(hook->unavailable_reason(), "the first device lost it"));
+
+    // The last device that held it goes: a backend without hooks marks it, and the next device starts it available again.
     first.release();
     CHECK(!hook->in_use());
     auto after = make_device(Backend::Recording, init);
     REQUIRE(after);
     CHECK(!hook->available());
     CHECK(contains(hook->unavailable_reason(), "the recording backend calls no device hooks"));
+    CHECK(hook->mark_unsupported_if_unused("replaced"));
+    CHECK(hook->unavailable_reason() == "replaced");
     HookAttachment third;
-    third.attach({hook});
+    CHECK(third.attach({hook}, Backend::Vulkan).size() == 1);
     CHECK(hook->available());
     CHECK(hook->unavailable_reason().empty());
 }

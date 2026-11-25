@@ -318,14 +318,20 @@ Result<void> D3d12Device::create_swapchain(const SwapchainDesc& desc) {
     if (hooksTold) hooks_swapchain_created(chain1);
     // The hooks heard swapchain_created: a swapchain dropped by one of the errors below (before the device keeps it)
     // makes them hear swapchain_destroying too, so the two callbacks always pair.
+    // swapchain_destroying and the present events always carry the IDXGISwapChain3* of the swapchain (the one
+    // destroy_swapchain passes), never the IDXGISwapChain1* of d3d12_swapchain_created: a proxy swapchain may hand out
+    // a different pointer per interface, so this one asks for the IDXGISwapChain3 too (chain1's own when it has none).
     struct Pairing {
         D3d12Device& device;
-        const void* chain;
+        Com<IDXGISwapChain1>& chain;
         bool armed;
         ~Pairing() {
-            if (armed) device.hooks_swapchain_destroying(chain);
+            if (!armed) return;
+            Com<IDXGISwapChain3> chain3 = chain.as<IDXGISwapChain3>();
+            device.hooks_swapchain_destroying(chain3 ? static_cast<const void*>(chain3.get())
+                                                     : static_cast<const void*>(chain.get()));
         }
-    } pairing{*this, chain1.get(), hooksTold};
+    } pairing{*this, chain1, hooksTold};
     if (FAILED(hr)) {
         drain_messages();
         return make_error(where + ": IDXGIFactory2::CreateSwapChainForHwnd failed with " + hr_text(hr) +

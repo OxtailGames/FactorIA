@@ -1021,6 +1021,31 @@ TEST_CASE("dlss frame generation: DLSS-G is loaded by Streamline only for the mo
     CHECK(r.runtime.feature_asked(sl::kFeatureDlssG) == loaded);
 }
 
+TEST_CASE("dlss frame generation: a game that started with another SDK is told to name dlss or auto") {
+    {
+        Rig r(gpu::Backend::D3d12, false, features_without_dlssg());
+        CHECK(r.dlssg->device_hook_for(FrameGenMode::Fsr) == nullptr);
+        run_d3d12(r.runtime);
+        REQUIRE_FALSE(r.runtime.feature_asked(sl::kFeatureDlssG));
+        const render::VendorProbe probe = r.dlssg->probe(r.env());
+        CHECK_FALSE(probe.available);
+        CHECK(has(probe.reason, "the game started with render.frameGeneration.mode \"fsr\""));
+        CHECK(has(probe.reason, "\"dlss\" or \"auto\""));
+        CHECK(has(probe.reason, "restart the game"));
+        const std::string failure = r.dlssg->start(r.dev, r.swapchain());
+        CHECK(has(failure, "the game started with render.frameGeneration.mode \"fsr\""));
+    }
+    {
+        // A game that started with the mode off has nothing to name but the setting.
+        Rig r(gpu::Backend::D3d12, false, features_without_dlssg());
+        CHECK(r.dlssg->device_hook_for(FrameGenMode::Off) == nullptr);
+        run_d3d12(r.runtime);
+        const std::string reason = r.dlssg->probe(r.env()).reason;
+        CHECK_FALSE(has(reason, "the game started with"));
+        CHECK(has(reason, "\"dlss\" or \"auto\""));
+    }
+}
+
 TEST_CASE("dlss frame generation: a status read while generation was off is not held against the frame") {
     Rig r(gpu::Backend::D3d12);
     r.start_all();
@@ -1070,6 +1095,25 @@ TEST_CASE("dlss frame generation: a swapchain made again sends the new size") {
     GDevice other(gpu::Backend::D3d12);
     r.dlssg->swapchain_changed(other, sc);
     CHECK(gx.options.size() == 1);
+}
+
+TEST_CASE("dlss frame generation: a window with no swapchain sends no options, its real size is sent when it is back") {
+    Rig r(gpu::Backend::D3d12);
+    r.start_all();
+    r.dlssg->configure(true);
+    FrameGenFrame f = r.frame();
+    REQUIRE(r.dlssg->dispatch(f));
+    gx.options.clear();
+    render::FrameGenSwapchain sc = r.swapchain();
+    sc.width = sc.height = 0;  // minimised, or lost
+    r.dlssg->swapchain_changed(r.dev, sc);
+    CHECK(gx.options.empty());  // no options of 0 x 0
+    sc.width = 640;
+    sc.height = 360;
+    r.dlssg->swapchain_changed(r.dev, sc);
+    REQUIRE(gx.options.size() == 1);
+    CHECK(gx.options[0].colorWidth == 640);
+    CHECK(gx.options[0].colorHeight == 360);
 }
 
 // ---- Vulkan ------------------------------------------------------------------------------------------------------------------------------

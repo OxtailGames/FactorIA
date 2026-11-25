@@ -562,6 +562,57 @@ TEST_CASE("frame generation controller: a game that starts below minBaseFps is p
     CHECK(c2.state() == FrameGenState::Paused);
 }
 
+TEST_CASE("frame generation controller: the paused reason names vsync only when the rate is near the limit") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    const std::string hint = "If vsync or a frame limit holds the rate at the display's";
+    {
+        // 59.5 fps on a 60 Hz display with minBaseFps 60: a hair below the limit, and it never reaches the resume rate.
+        FrameGenController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+        c.set_settings(settings(FrameGenMode::Dlss, 60));
+        Frames f{c, dlss};
+        f.run(FrameGenController::kWindowFrames + 10, 1000.0 / 59.5);
+        REQUIRE(c.state() == FrameGenState::Paused);
+        CHECK(c.reason().find(hint) != std::string::npos);
+        CHECK(c.reason().find("set minBaseFps below it") != std::string::npos);
+    }
+    {
+        // 30 fps is far below the limit: a slow game, not vsync, and the hint would send the user the wrong way.
+        FrameGenController c;
+        c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+        c.set_settings(settings(FrameGenMode::Dlss, 60));
+        Frames f{c, dlss};
+        f.run(FrameGenController::kWindowFrames + 10, 1000.0 / 30.0);
+        REQUIRE(c.state() == FrameGenState::Paused);
+        CHECK(c.reason().find(hint) == std::string::npos);
+        CHECK(c.reason().find("minBaseFps (60)") != std::string::npos);
+    }
+}
+
+TEST_CASE("frame generation controller: no provider is started while the window has no swapchain") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    render::FrameGenSwapchain gone = swapchain_of(dev);
+    gone.width = gone.height = 0;
+    c.set_swapchain(gone);
+    c.set_settings(settings(FrameGenMode::Dlss, 0));  // the game turns it on while the window is gone
+    CHECK(dlss.starts == 0);                          // a provider started on 0 x 0 would be told options of no size
+    CHECK(c.state() == FrameGenState::Refused);
+    CHECK(c.reason().find("no swapchain") != std::string::npos);
+
+    c.set_swapchain(swapchain_of(dev), true);  // the window is back: now it starts, with the real size
+    CHECK(dlss.starts == 1);
+    CHECK(dlss.startedWith.width == 1920);
+    Frames f{c, dlss};
+    f.run(2, 10.0);
+    CHECK(c.state() == FrameGenState::Active);
+}
+
 TEST_CASE("frame generation controller: a new swapchain is told to the provider and resets the next frame") {
     FDevice dev(gpu::Backend::D3d12, 0x10de);
     FakeProvider dlss(FrameGenSlot::Dlss);

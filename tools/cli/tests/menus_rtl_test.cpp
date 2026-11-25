@@ -270,3 +270,98 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
         *img, fa::fs::path_from_utf8(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "golden" / "menus_ar.png",
         fa::test::golden_edge_limits());  // text: glyph edges flip between GPUs
 }
+
+// The same panel on the smallest window the editor and the players are checked on (1024x642, the macOS CI window): the preset and
+// upscaling page with its longest content (the eight upscaler mode buttons, every mode but two unsupported so the note groups the reasons, and a
+// mode drawn as the plain stretch so the stretch note shows) fits in the options panel and the panel in the screen, in each language.
+TEST_CASE("menus fixture at 1024x642: the preset and upscaling page fits in English, Spanish and Arabic") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::Auto;
+    so.width = 1024;
+    so.height = 642;
+    auto session = fa::cli::Session::open(
+        (stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "fixtures" / "menus").string(), so);
+    fa::Engine& engine = session->engine();
+    engine.step(5);
+    const auto eval = [&](const std::string& code) {
+        fa::Json cmd = {{"command", "script.eval"}, {"args", {{"code", code}}}};
+        return fa::cli::run_command_json(session->registry(), cmd);
+    };
+    const auto set_language = [&](const std::string& lang) {
+        fa::Json cmd = {{"command", "i18n.set_language"}, {"args", {{"language", lang}}}};
+        return fa::cli::run_command_json(session->registry(), cmd);
+    };
+    REQUIRE(eval("world.find('main_menu').active = false; world.find('options').active = true; 1")["ok"] == true);
+    engine.step(3);
+    // Two states, the tallest of the page: the sharpness row on (a mode that draws) and the plain-stretch note (a mode that is drawn as stretch).
+    const auto check_page = [&](const char* what, bool sharpness) {
+        for (const char* lang : {"es", "ar", "en"}) {  // a change of language draws the page again
+            INFO(what << ", language " << std::string(lang));
+            REQUIRE(set_language(lang)["ok"] == true);
+            engine.step(5);
+            const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+            REQUIRE(st["ok"] == true);
+            const std::vector<float> qbox = rect_of(st, "quality_section"), qnote = rect_of(st, "quality_note"),
+                                     qnav = rect_of(st, "gfx_page_nav"), qend = rect_of(st, "options_back"),
+                                     qroot = rect_of(st, "options");
+            std::vector<const char*> ids = {
+                "gfx_preset_auto",  "gfx_preset_custom", "gfx_mode_auto",    "gfx_mode_stretch",
+                "gfx_mode_spatial", "gfx_mode_temporal", "gfx_mode_metalfx", "gfx_mode_dlss",
+                "gfx_mode_xess",    "gfx_mode_fsr",      "gfx_uq",           "gfx_render_scale",
+                "gfx_dynamic",      "quality_note",      "gfx_page_back",    "gfx_latency_page"};
+            if (sharpness) ids.push_back("gfx_sharpness");
+            for (const char* id : ids) {
+                CAPTURE(id);
+                const std::vector<float> r = rect_of(st, id);
+                CHECK(r[0] >= qbox[0] - 0.5f);
+                CHECK(r[0] + r[2] <= qbox[0] + qbox[2] + 0.5f);
+                CHECK(r[1] + r[3] <= qbox[1] + qbox[3] + 0.5f);
+            }
+            CHECK(qnote[1] + qnote[3] <= qnav[1] + 0.5f);
+            CHECK(qnav[1] + qnav[3] <= qbox[1] + qbox[3] - 8.0f);  // the margin: room for a longer translation
+            CHECK(qroot[1] >= 0.0f);
+            CHECK(qroot[1] + qroot[3] <= 642.0f);
+            CHECK(qend[1] + qend[3] <= 642.0f);
+        }
+    };
+    REQUIRE(eval("world.find('video_section').active = false; world.find('quality_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports((x) => x === 'spatialUpscaler' || x === 'dynamicResolution'); "
+                 "f.window.upscaler = { mode: 'spatial' }; "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_page("a mode that draws", true);
+    REQUIRE(eval("Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports((x) => x === 'dynamicResolution'); f.window.upscaler = { mode: 'metalfx' }; "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_page("a mode drawn as stretch", false);
+    REQUIRE(eval("Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(null); f.window.upscaler = { mode: 'stretch' }; return 1; })")["ok"] ==
+            true);
+    // Every other page of the panel, with no renderer table of its own: the panel (never taller than the screen) and the Back button are on screen.
+    // (The first page of the Graphics tab, graphics_section, is checked at 1280x720 above: its section is 468 high and its three notes
+    // need it, so it is taller than 642.)
+    for (const char* page : {"video_section", "latency_section", "framegen_section", "audio_section",
+                             "controls_section", "language_section"}) {
+        for (const char* lang : {"es", "ar", "en"}) {
+            INFO(std::string(page) << ", language " << std::string(lang));
+            REQUIRE(set_language(lang)["ok"] == true);
+            REQUIRE(
+                eval(std::string(
+                         "for (const id of ['video_section', 'graphics_section', 'quality_section', 'latency_section', "
+                         "'framegen_section', 'audio_section', 'controls_section', 'language_section']) "
+                         "world.find(id).active = id === '") +
+                     page + "'; 1")["ok"] == true);
+            engine.step(3);
+            const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+            REQUIRE(st["ok"] == true);
+            const std::vector<float> root = rect_of(st, "options"), back = rect_of(st, "options_back");
+            CHECK(root[1] >= 0.0f);
+            CHECK(root[1] + root[3] <= 642.0f);
+            CHECK(back[1] + back[3] <= 642.0f);
+        }
+    }
+    fa::fs::set_project_root(oldRoot);
+}

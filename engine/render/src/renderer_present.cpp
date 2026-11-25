@@ -123,6 +123,8 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     if (!acquired) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", acquired.error().to_string());
         im.presentFailed = true;  // said once
+        // PresentStart was sent: the frame ends here, or the id of this frame (the present counter + 1) would stay open for the next one.
+        im.latency.mark(render::LatencyMarker::PresentEnd);
         im.inFrame = false;
         return;
     }

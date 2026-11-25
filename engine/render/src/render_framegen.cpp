@@ -305,8 +305,15 @@ void FrameGenController::apply() {
             "while the game runs.";
         return;
     }
+    const char* const lostText =
+        "the window has no swapchain (the window was closed or the GPU lost its swapchain): frame generation "
+        "resumes when the window is back.";
     if (running_ != p) {
         stop_provider();
+        if (swapchainLost_) {  // a provider is not started on a 0 x 0 swapchain: it would be asked for options of no size
+            refusal_ = lostText;
+            return;
+        }
         const std::string failure = p->start(*device_, swapchain_);
         if (!failure.empty()) {
             // "Fail once, stay off": the SDK that could not start is not asked again.
@@ -323,9 +330,7 @@ void FrameGenController::apply() {
     }
     // What the frame must have: a swapchain, the stage and a temporal frame. The provider stays started (its swapchain is there either way).
     if (swapchainLost_) {
-        refusal_ =
-            "the window has no swapchain (the window was closed or the GPU lost its swapchain): frame generation "
-            "resumes when the window is back.";
+        refusal_ = lostText;
     } else if (!upscaleStage_) {
         refusal_ = "frame generation needs the upscale stage (the player's render scale below 1) and the temporal "
                    "upscaler: it reads "
