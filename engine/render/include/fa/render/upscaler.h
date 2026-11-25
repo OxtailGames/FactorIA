@@ -24,7 +24,7 @@ namespace fa::render {
 //  spatial:  our own edge-adaptive upscale plus a contrast-adaptive sharpen of the one frame (M76 P3b).
 //  temporal: our own temporal upscaler, the jittered frames accumulated at the output size (M76 P4).
 //  metalfx:  Apple's MetalFX on Metal (M76 P5).
-//  dlss:     NVIDIA DLSS Super Resolution through Streamline (M78): an NVIDIA RTX GPU, D3D12, Vulkan or D3D11, the SDK installed.
+//  dlss:     NVIDIA DLSS Super Resolution through Streamline (M78): an NVIDIA RTX GPU, D3D12 or Vulkan (not D3D11), the SDK installed.
 //  xess:     Intel XeSS (M78): any GPU (best on Intel Arc), D3D12, Vulkan or D3D11, the SDK installed.
 //  fsr:      AMD FidelityFX Super Resolution 3.1 (M78): any GPU, D3D12 or Vulkan, the SDK installed.
 //  auto:     the GPU vendor's own SDK when it is installed and usable (NVIDIA: dlss, Intel: xess, AMD: fsr), else the best of

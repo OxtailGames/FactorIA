@@ -6,6 +6,7 @@
 #include "quality.h"
 #include "render_features.h"
 #include "render_scene.h"
+#include "streamline_runtime.h"
 #include "fa/scene/jitter.h"
 #include "gpu/sokol_context.h"
 
@@ -587,6 +588,9 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         } else {
             gpu::DeviceInit init;
             init.environment.defaults = gpu::environment_defaults_of(env);
+            // NVIDIA Streamline (DLSS) takes part in making a Direct3D 12 or Vulkan device: its hook must be registered before the device
+            // exists. It does nothing where the GPU is not NVIDIA or the library is not installed (Windows only).
+            if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) register_streamline_runtime();
             auto made = gpu::make_device(backend, init);
             if (!made) {
                 if (error) *error = "Failed to create the GPU device: " + made.error().to_string();

@@ -1,5 +1,5 @@
 // The FidelityFX Super Resolution 3.1 provider of M78 (docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", "Vendor providers";
-// docs/UPSCALING.md, "FSR 3.1"): AMD's temporal upscaler behind the `fsr` upscaler mode. Private to fa_render.
+// docs/UPSCALING_VENDORS.md, "AMD FSR 3.1"): AMD's temporal upscaler behind the `fsr` upscaler mode. Private to fa_render.
 //
 // No AMD header or binary is in the engine (decision D2 of M78): this file declares the C ABI of the FidelityFX API (the five-function `ffx`
 // entry points and the structures of its upscale effect) the engine calls, written from AMD's documentation, and every function is taken
