@@ -1,6 +1,7 @@
 // make_device(): the factory of the GPU interface (gpu/device.h), and the defaults of Device's non-pure virtuals.
 #include "gpu/device.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -12,6 +13,11 @@
 #include "gpu/vulkan_device.h"
 
 namespace fa::gpu {
+
+std::uint64_t Device::next_generation() {
+    static std::atomic<std::uint64_t> last{0};
+    return last.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 bool Device::storage_image_loadable(PixelFormat format, std::string* why) const {
     if (why)

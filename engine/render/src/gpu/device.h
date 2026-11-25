@@ -262,6 +262,10 @@ class Device {
 public:
     virtual ~Device() = default;
 
+    // A number no other device of this process has had (from 1, never reused): a provider that keeps an SDK context for "the device that
+    // drew last" compares this and not the address, because a device made after another was destroyed can get the same address.
+    std::uint64_t generation() const { return generation_; }
+
     // ---- who it is, what it can do --------------------------------------------------------------------------------
     virtual Backend backend() const = 0;
     virtual const DeviceInfo& info() const = 0;
@@ -520,6 +524,8 @@ protected:
     SyncToken issue_token(QueueKind queue);
 
 private:
+    static std::uint64_t next_generation();
+    const std::uint64_t generation_ = next_generation();
     std::atomic<std::uint64_t> issued_[kQueueKinds]{};
 };
 

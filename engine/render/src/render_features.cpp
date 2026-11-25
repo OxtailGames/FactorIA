@@ -9,6 +9,7 @@
 
 #include "metalfx.h"
 #include "render_framegen.h"
+#include "render_latency.h"
 
 namespace fa::render {
 
@@ -818,18 +819,21 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         Json backends = Json::object();
         for (int b = 0; b < kFeatureBackendCount; ++b)
             backends[feature_backend_label(FeatureBackend(b))] = (f.backends & bit(FeatureBackend(b))) != 0;
-        // The vendor upscalers also run on D3D12 and Vulkan, which the table has no column for: the provider's own backends say.
+        // D3D12 and Vulkan are no column of the table, and every row says what it does there (a game or an AI reads one shape): the
+        // engine's own rows are offered on neither yet (feature_backend_of answers Headless for them), the SDK rows say it by their
+        // provider's backends.
+        unsigned sdkRuns = 0;
         if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
-            const unsigned runs = vendor_provider(vendor).backends();
-            backends["D3D12"] = (runs & (1u << unsigned(gpu::Backend::D3d12))) != 0;
-            backends["Vulkan"] = (runs & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
+            sdkRuns = vendor_provider(vendor).backends();
+        } else if (const int fg = framegen_row_index(f.name); fg >= 0) {
+            // XeSS frame generation: D3D12 only; whatever provider is registered, the slot's SDK says.
+            sdkRuns = framegen_slot_backends(FrameGenSlot(fg + 1));
+        } else if (const int lat = latency_row_index(f.name); lat >= 0) {
+            const LatencyProvider* provider = latency_provider(LatencyDriver(int(LatencyDriver::Reflex) + lat));
+            sdkRuns = provider ? provider->backends() : 0u;
         }
-        // The frame-generation rows run on D3D12 and Vulkan too (XeSS: D3D12 only), whatever provider is registered: the slot's SDK says.
-        if (const int fg = framegen_row_index(f.name); fg >= 0) {
-            const unsigned runs = framegen_slot_backends(FrameGenSlot(fg + 1));
-            backends["D3D12"] = (runs & (1u << unsigned(gpu::Backend::D3d12))) != 0;
-            backends["Vulkan"] = (runs & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
-        }
+        backends["D3D12"] = (sdkRuns & (1u << unsigned(gpu::Backend::D3d12))) != 0;
+        backends["Vulkan"] = (sdkRuns & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
         row["backends"] = backends;
         list.push_back(row);
     }

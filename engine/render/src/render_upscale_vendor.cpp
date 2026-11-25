@@ -4,10 +4,13 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <mutex>
+#include <set>
 #include <system_error>
 #include <vector>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 
 #include "render_upscale_dlss.h"
 #include "render_upscale_fsr.h"
@@ -150,6 +153,27 @@ private:
     std::string path_;
 };
 
+#if defined(_WIN32)
+// The library's folder joins the process's user DLL directories, once per folder. Windows searches them only for a load made with
+// LOAD_LIBRARY_SEARCH_USER_DIRS or LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: a provider library that loads another DLL of its own later that
+// way (FSR's backend, XeSS's Intel runtime) finds it next to itself; a plain LoadLibrary of a bare name is not helped, and the engine
+// does not call SetDefaultDllDirectories (it would change the search order of the whole process). UPSCALING_VENDORS.md, check item 5.
+void add_dll_directory(const stdfs::path& folder) {
+    static std::mutex mutex;
+    static std::set<stdfs::path> added;
+    if (folder.empty()) return;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!added.insert(folder).second) return;
+    if (!AddDllDirectory(folder.c_str())) {
+        const DWORD error = GetLastError();  // before anything that allocates can change it
+        FA_WARN("render",
+                "could not add {} to the DLL search list (error {}): a library that loads another one of its folder "
+                "later may not find it",
+                fs::path_to_utf8(folder), std::to_string(error));
+    }
+}
+#endif
+
 class DiskLoader final : public VendorLoader {
 public:
     stdfs::path find(const VendorLibrarySpec& spec, std::string* why) override {
@@ -164,12 +188,13 @@ public:
         constexpr DWORD kFlags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
         HMODULE h = LoadLibraryExW(full.c_str(), nullptr, kFlags);
         if (!h) {
+            const DWORD error = GetLastError();  // before anything else can change it (the message below allocates)
             if (why)
-                *why = "Windows could not load " + fs::path_to_utf8(full) + " (error " +
-                       std::to_string(GetLastError()) +
+                *why = "Windows could not load " + fs::path_to_utf8(full) + " (error " + std::to_string(error) +
                        "; an x64 game needs the x64 library and its own dependencies next to it)";
             return nullptr;
         }
+        add_dll_directory(full.parent_path());
         return std::make_unique<DiskLibrary>(h, fs::path_to_utf8(full));
 #else
         (void)path;
@@ -351,7 +376,12 @@ VendorEnv vendor_env_of(const gpu::Device& device) {
     e.backend = device.backend();
     e.vendor = gpu_vendor_of(device);
     e.device = &device;  // borrowed for the probe: the providers read its native objects
-    // M78-P2b: the extension lists the creation hooks enabled go into e.vulkanInstanceExtensions / e.vulkanDeviceExtensions.
+    if (e.backend == gpu::Backend::Vulkan) {
+        // What the creation hooks enabled: the XeSS probe checks its requirements against these lists.
+        XessVulkanGrant grant = xess_vulkan_grant();
+        e.vulkanInstanceExtensions = std::move(grant.instanceExtensions);
+        e.vulkanDeviceExtensions = std::move(grant.deviceExtensions);
+    }
     return e;
 }
 
