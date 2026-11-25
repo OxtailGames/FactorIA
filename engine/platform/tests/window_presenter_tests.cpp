@@ -1,5 +1,5 @@
-// Who makes the window's swapchain (fa/platform/app.h, M77-P9e1): the platform's own (sokol_app's; the D3D11 presenter on
-// Windows) or a D3D12 or Vulkan device that claims the native window. The rule is pure, so every platform checks it.
+// Who makes the window's swapchain (fa/platform/app.h, M77-P9e1): the platform's own (sokol_app's; the D3D11 presenter
+// on Windows) or a D3D12 or Vulkan device that claims the native window. The rule is pure, so every platform checks it.
 #include <doctest.h>
 
 #include <string>
@@ -21,15 +21,13 @@ TEST_CASE("window presenter: names") {
     CHECK(std::string(window_presenter_name(WindowPresenter::Device)) == "device");
 }
 
-TEST_CASE("window presenter: the platform's swapchain is made once, on the first ask") {
+TEST_CASE("window presenter: the platform's swapchain is marked on the first ask") {
     const WindowPresenterStep first = step(WindowPresenter::None, WindowPresenterEvent::PlatformAsked);
     CHECK(first.error.empty());
-    CHECK(first.makePlatform);
     CHECK_FALSE(first.releasePlatform);
     CHECK(first.next == WindowPresenter::Platform);
     const WindowPresenterStep again = step(WindowPresenter::Platform, WindowPresenterEvent::PlatformAsked, true);
     CHECK(again.error.empty());
-    CHECK_FALSE(again.makePlatform);
     CHECK(again.next == WindowPresenter::Platform);
 }
 
@@ -41,7 +39,6 @@ TEST_CASE("window presenter: a device claims an unused window and the platform's
     const WindowPresenterStep fromPlatform = step(WindowPresenter::Platform, WindowPresenterEvent::DeviceClaim, false);
     CHECK(fromPlatform.error.empty());
     CHECK(fromPlatform.releasePlatform);  // one flip-model swapchain per HWND
-    CHECK_FALSE(fromPlatform.makePlatform);
     CHECK(fromPlatform.next == WindowPresenter::Device);
 }
 
@@ -63,7 +60,6 @@ TEST_CASE("window presenter: refused claims change nothing and say why") {
     // The platform's swapchain is not made while a device has the window.
     const WindowPresenterStep asked = step(WindowPresenter::Device, WindowPresenterEvent::PlatformAsked);
     CHECK(asked.next == WindowPresenter::Device);
-    CHECK_FALSE(asked.makePlatform);
     CHECK(asked.error.find("app_release_native_window") != std::string::npos);
 }
 
@@ -79,7 +75,6 @@ TEST_CASE("window presenter: the fallback path, claim, release, then the platfor
     CHECK(now == WindowPresenter::None);
     // The build's sokol backend asks for the window's device: the platform makes its swapchain anew.
     s = step(now, WindowPresenterEvent::PlatformAsked);
-    CHECK(s.makePlatform);
     CHECK(s.next == WindowPresenter::Platform);
     // A release without a device changes nothing.
     CHECK(step(WindowPresenter::Platform, WindowPresenterEvent::DeviceRelease).next == WindowPresenter::Platform);

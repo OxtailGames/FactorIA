@@ -305,6 +305,40 @@ TEST_CASE("egl surface handover: a release ended while the activity has no windo
     CHECK(r.egl.swaps == 1);
 }
 
+TEST_CASE("egl surface handover: after a failed restore a new window with no listener gets a real surface") {
+    Rig r;
+    REQUIRE(r.release());
+    r.egl.createWindowFails = true;
+    REQUIRE_FALSE(r.restore());  // the device let go, the driver refused: the state stays released
+    CHECK(r.h.state == 1);
+    r.egl.createWindowFails = false;
+    // The activity loses its window and gets another: no device hears it, so sokol_app gets its own surface again.
+    CHECK(fa_egl_handover_destroy_surface(&r.h, r.display, r.surface));
+    r.surface = nullptr;
+    const int before = r.egl.windowCreates;
+    void* window2 = reinterpret_cast<void*>(0x5);
+    r.surface = fa_egl_handover_create_window_surface(&r.h, r.display, r.config, window2, nullptr);
+    REQUIRE(r.surface != nullptr);
+    CHECK(r.egl.windowCreates == before + 1);  // the real call, no stand-in
+    CHECK(r.h.state == 0);
+    CHECK(r.h.stand_in == nullptr);
+    CHECK(fa_egl_handover_swap_buffers(&r.h, r.display, r.surface));
+    CHECK(r.egl.swaps == 1);  // a real swap now
+    CHECK(r.egl.live.size() == 1);
+    // The stand-in still held when the new window comes (sokol_app did not destroy it first) is dropped too.
+    Rig q;
+    REQUIRE(q.release());
+    q.egl.createWindowFails = true;
+    REQUIRE_FALSE(q.restore());
+    q.egl.createWindowFails = false;
+    void* held = q.surface;
+    q.surface = fa_egl_handover_create_window_surface(&q.h, q.display, q.config, window2, nullptr);
+    CHECK(q.h.state == 0);
+    CHECK_FALSE(q.egl.alive(held));
+    CHECK(q.egl.alive(q.surface));
+    CHECK(q.egl.live.size() == 1);
+}
+
 TEST_CASE("egl surface handover: a release needs a window surface") {
     Rig r;
     void* none = nullptr;

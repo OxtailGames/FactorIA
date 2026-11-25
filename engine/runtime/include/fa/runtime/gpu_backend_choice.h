@@ -1,7 +1,7 @@
-// Which GPU backend a run asks for (M77-P9a): EngineConfig.gpuBackend, then the FA_GPU_BACKEND environment variable, then
-// the player's stored choice (graphics.backend, M77-P9e2), then factoria.json render.backend, then "auto". Pure functions,
-// so tests and tools can check the decision without an engine; read_gpu_backend_setting and write_gpu_backend_setting are
-// the two that touch a file.
+// Which GPU backend a run asks for (M77-P9a): EngineConfig.gpuBackend, then the FA_GPU_BACKEND environment variable,
+// then the player's stored choice (graphics.backend, M77-P9e2), then factoria.json render.backend, then "auto". Pure
+// functions, so tests and tools can check the decision without an engine; read_gpu_backend_setting and
+// write_gpu_backend_setting are the two that touch a file.
 #pragma once
 
 #include <filesystem>
@@ -15,16 +15,16 @@
 namespace fa {
 
 // The marker of a player that another player started because its backend could not start (M77-P9e2,
-// fa/runtime/gpu_launch.h): the backend that failed ("vulkan") and why. A player that finds it never relaunches again, and
-// names it in its startup report (gpu.fallbackFrom, gpu.fallbackReason) and in graphics.backend.
+// fa/runtime/gpu_launch.h): the backend that failed ("vulkan") and why. A player that finds it never relaunches again,
+// and names it in its startup report (gpu.fallbackFrom, gpu.fallbackReason) and in graphics.backend.
 inline constexpr const char* kGpuFallbackFromEnv = "FA_GPU_FALLBACK_FROM";
 inline constexpr const char* kGpuFallbackReasonEnv = "FA_GPU_FALLBACK_REASON";
 
-// The start of a reason that says the WINDOW cannot take a swapchain of that backend at all (sokol_app keeps its OpenGL surface
-// on it: Linux EGL builds only; app_native_window().busy), not that a driver or GPU is missing. A Linux GLX window
-// (M77-P9e3a) and an Android window (M77-P9e3b) hand their surface over, so a claim refused there is a driver's reason. The engine builds it
-// (gpu_window_path_reason); the Vulkan player passes it on in kGpuFallbackReasonEnv, and the warning of the OpenGL player
-// that starts then does not promise that a driver update brings Vulkan back.
+// The start of a reason that says the WINDOW cannot take a swapchain of that backend at all (sokol_app keeps its OpenGL
+// surface on it: Linux EGL builds only; app_native_window().busy), not that a driver or GPU is missing. A Linux GLX
+// window (M77-P9e3a) and an Android window (M77-P9e3b) hand their surface over, so a claim refused there is a driver's
+// reason. The engine builds it (gpu_window_path_reason); the Vulkan player passes it on in kGpuFallbackReasonEnv, and
+// the warning of the OpenGL player that starts then does not promise that a driver update brings Vulkan back.
 inline constexpr const char* kGpuWindowPathReason = "the window path is not available on this platform yet";
 std::string gpu_window_path_reason(const std::string& backend, const std::string& why);
 bool is_gpu_window_path_reason(const std::string& reason);
@@ -55,17 +55,17 @@ struct GpuBackendInputs {
     const char* fallbackReason = nullptr;  // kGpuFallbackReasonEnv
 };
 
-// The inputs of a run as the engine and the window runner read them, so both ask the same question: EngineConfig's name,
-// FA_GPU_BACKEND, the stored choice (only when `readStored`: not with memoryStorage; a file that cannot be read is told
-// in *storedWarning), the project's render.backend, what auto means in this binary and the fallback marker.
+// The inputs of a run as the engine and the window runner read them, so both ask the same question: EngineConfig's
+// name, FA_GPU_BACKEND, the stored choice (only when `readStored`: not with memoryStorage; a file that cannot be read
+// is told in *storedWarning), the project's render.backend, what auto means in this binary and the fallback marker.
 GpuBackendInputs make_gpu_backend_inputs(const std::string& configValue, bool readStored, GpuBackend autoBackend,
                                          const std::string& projectValue, std::string* storedWarning);
 
 // Resolves the places in the order above. Names are those of gpu_backend_name. An unknown name in EngineConfig or the
 // variable is an error with the valid names and a did-you-mean (the place says where it came from); one in the stored
-// choice is a warning and is skipped (the file belongs to the player's machine, not to the game). A valid name this binary
-// cannot make is a warning and "auto". A fallback marker adds one warning that says which player could not start and why
-// (and replaces the "this binary does not have it" warning of that same backend).
+// choice is a warning and is skipped (the file belongs to the player's machine, not to the game). A valid name this
+// binary cannot make is a warning and "auto". A fallback marker adds one warning that says which player could not start
+// and why (and replaces the "this binary does not have it" warning of that same backend).
 Result<GpuBackendChoice> choose_gpu_backend(const GpuBackendInputs& in);
 // The three-place form of M77-P9a (no stored choice, no marker, auto = the sokol backend).
 Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, const char* envValue,
@@ -103,8 +103,8 @@ using GpuBackendFailed = std::function<void(const std::string& why)>;
 GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart& start, const std::string& defaultName,
                                         bool windowed, const GpuBackendFailed& failed = {});
 
-// The file of the player's stored backend choice: graphics_backend.json in `userDir` (fs::user_dir(): the save folder of
-// the game), {"backend": "<name>"}.
+// The file of the player's stored backend choice: graphics_backend.json in `userDir` (fs::user_dir(): the save folder
+// of the game), {"backend": "<name>"}.
 inline constexpr const char* kGpuBackendSettingFile = "graphics_backend.json";
 // The stored name, "" when there is none. A file that cannot be read or holds no string `backend` is "" and a warning
 // in *warning (the start goes on with the other places).

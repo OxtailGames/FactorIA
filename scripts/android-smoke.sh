@@ -295,7 +295,13 @@ if grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|tombstone" "$OUT/logcat
     cat "$OUT/crash.txt"
     fail "crash markers in the log"
 fi
-if grep -E ' E factoria *:' "$OUT/logcat-app.txt" >"$OUT/errors.txt"; then
+# The Vulkan launcher that handed over logged with the engine too (its lines are in logcat-app-vulkan.txt, read above).
+: >"$OUT/errors.txt"
+grep -E ' E factoria *:' "$OUT/logcat-app.txt" >>"$OUT/errors.txt" || true
+if (( HANDED_OVER )) && [ -f "$OUT/logcat-app-vulkan.txt" ]; then
+    grep -E ' E factoria *:' "$OUT/logcat-app-vulkan.txt" >>"$OUT/errors.txt" || true
+fi
+if [ -s "$OUT/errors.txt" ]; then
     cat "$OUT/errors.txt"
     fail "the engine logged errors (lines above)"
 fi

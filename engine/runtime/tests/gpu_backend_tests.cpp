@@ -1,5 +1,6 @@
-// M77-P9a: a game chooses its GPU backend: factoria.json render.backend, the FA_GPU_BACKEND variable, EngineConfig::gpuBackend,
-// the warning for a backend this binary lacks, the headless selection and the startup report that names the device's backend.
+// M77-P9a: a game chooses its GPU backend: factoria.json render.backend, the FA_GPU_BACKEND variable,
+// EngineConfig::gpuBackend, the warning for a backend this binary lacks, the headless selection and the startup report
+// that names the device's backend.
 #include <doctest.h>
 
 #include <cstdlib>
@@ -20,8 +21,9 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-// Sets (or, with nullptr, removes) an environment variable for the length of a test and restores what was there. Declare it
-// BEFORE any Engine of the test: the engine's threads must be gone when the destructor restores the variable.
+// Sets (or, with nullptr, removes) an environment variable for the length of a test and restores what was there.
+// Declare it BEFORE any Engine of the test: the engine's threads must be gone when the destructor restores the
+// variable.
 struct ScopedEnv {
     std::string name;
     std::string old;
@@ -273,7 +275,8 @@ GpuBackend an_own_backend() {
 }  // namespace
 
 TEST_CASE("gpu backend: start_gpu_backend tells the host about the failure before the in-process fallback") {
-    // The Vulkan player starts the OpenGL player there (EngineConfig::gpuBackendFailed): the fallback must not run first.
+    // The Vulkan player starts the OpenGL player there (EngineConfig::gpuBackendFailed): the fallback must not run
+    // first.
     std::vector<std::string> events;
     const GpuBackendStart start = [&events](GpuBackend b) {
         events.push_back(std::string("start ") + gpu_backend_name(b));
@@ -358,6 +361,64 @@ TEST_CASE("gpu backend: a backend that cannot start falls back in process and th
             both = both || (p.find(std::string("forced ") + gpu_backend_name(own)) != std::string::npos &&
                             p.find("forced auto") != std::string::npos);
         CHECK(both);
+        e.shutdown();
+    }
+}
+
+TEST_CASE("gpu backend: Engine::init tells the host about a failed backend once, in a window only") {
+    TempProject proj("failedhook");
+    ScopedEnv env("FA_GPU_BACKEND", nullptr);
+    const GpuBackend own = an_own_backend();
+    if (own == GpuBackend::Default) {
+        MESSAGE("this build has neither D3D12 nor Vulkan: the host's hook was not checked");
+        return;
+    }
+    // A window: the first start fails (forced), so does the fallback; the host hears about the first one, once.
+    {
+        EngineConfig c = cfg(proj);
+        c.headless = false;
+        c.gpuBackend = gpu_backend_name(own);
+        c.gpuStartFault = [](GpuBackend b) { return std::string("forced ") + gpu_backend_name(b); };
+        std::vector<std::string> heard;
+        c.gpuBackendFailed = [&heard](const std::string& backend, const std::string& why) {
+            heard.push_back(backend + ": " + why);
+        };
+        GfxEnvironment gfx{};  // no device: every start is refused before a renderer is made
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, &gfx, &err), err);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].find(gpu_backend_name(own)) == 0);
+        // Either the window could not be claimed (no native window in a test) or the forced fault said it.
+        CHECK(heard[0].size() > std::string(gpu_backend_name(own)).size() + 2);
+        CHECK(e.renderer() == nullptr);
+        e.shutdown();
+    }
+    // Headless: the host's hook is never called, and a player that was started in place of another one (the marker)
+    // still reports both what it fell back from in process and which player started it.
+    {
+        ScopedEnv from(kGpuFallbackFromEnv, "vulkan");
+        ScopedEnv reason(kGpuFallbackReasonEnv, "the marker's reason");
+        EngineConfig c = cfg(proj);
+        c.gpuBackend = gpu_backend_name(own);
+        int calls = 0;
+        c.gpuBackendFailed = [&calls](const std::string&, const std::string&) { calls++; };
+        c.gpuStartFault = [own](GpuBackend b) {
+            return b == own ? std::string("forced failure of the test") : std::string();
+        };
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+        CHECK(calls == 0);
+        if (e.renderer()) {
+            const Json g = e.startup_report()["gpu"];
+            CHECK(g["backendFallback"] == "forced failure of the test");
+            CHECK(g["requestedBackend"] == gpu_backend_name(own));
+            CHECK(g["fallbackFrom"] == "vulkan");
+            CHECK(g["fallbackReason"] == "the marker's reason");
+        } else {
+            MESSAGE("no GPU here: the report of the fallback was not checked");
+        }
         e.shutdown();
     }
 }

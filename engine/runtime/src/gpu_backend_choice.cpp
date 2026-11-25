@@ -104,8 +104,8 @@ Result<GpuBackendChoice> choose_gpu_backend(const GpuBackendInputs& in) {
         const std::string drawsWith = c.backend == GpuBackend::Default ? std::string(Renderer::backend_name())
                                                                        : std::string(gpu_backend_name(c.backend));
         if (is_gpu_window_path_reason(c.fallbackReason)) {
-            // Not a broken driver: the window of this platform cannot take that backend's swapchain yet. Nothing a driver
-            // update or an install brings back, so the warning does not say so.
+            // Not a broken driver: the window of this platform cannot take that backend's swapchain yet. Nothing a
+            // driver update or an install brings back, so the warning does not say so.
             c.warnings.push_back(
                 "The " + c.fallbackFrom + " player started and handed this window over: " + c.fallbackReason +
                 ". This player started in its place and draws with " + drawsWith + ". graphics.backend says the same.");
@@ -154,8 +154,8 @@ GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart&
         return r;
     }
     r.fallbackReason = first;
-    // Before the in-process fallback: the host may take the process over (the Vulkan player starts the OpenGL player), and
-    // then the fallback below never hides the failure. It returns when the host does nothing or could not.
+    // Before the in-process fallback: the host may take the process over (the Vulkan player starts the OpenGL player),
+    // and then the fallback below never hides the failure. It returns when the host does nothing or could not.
     if (failed) failed(first);
     r.warning = gpu_backend_fallback_warning(asked, first, defaultName, windowed);
     r.used = GpuBackend::Default;

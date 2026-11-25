@@ -3,8 +3,8 @@
 
 #include <stdio.h>
 
-// The stand-in for "no drawable": an address no EGL surface has. sokol_app only compares its surface with EGL_NO_SURFACE
-// and passes it back to EGL, where the wrappers turn it into EGL_NO_SURFACE.
+// The stand-in for "no drawable": an address no EGL surface has. sokol_app only compares its surface with
+// EGL_NO_SURFACE and passes it back to EGL, where the wrappers turn it into EGL_NO_SURFACE.
 static char fa_egl_no_drawable;
 
 static void fa_egl_say(char* err, size_t errLen, const char* text) {
@@ -18,8 +18,8 @@ static bool fa_egl_is_stand_in(const fa_egl_surface_handover* h, void* surface) 
 // What EGL gets for `surface`: EGL_NO_SURFACE for the token, the surface itself otherwise.
 static void* fa_egl_real(void* surface) { return surface == (void*)&fa_egl_no_drawable ? NULL : surface; }
 
-// A stand-in for `config`: a pbuffer (kind 1), else the token (kind 2) where the context may be current with no surface.
-// Null when neither.
+// A stand-in for `config`: a pbuffer (kind 1), else the token (kind 2) where the context may be current with no
+// surface. Null when neither.
 static void* fa_egl_make_stand_in(const fa_egl_surface_handover* h, void* display, void* config, int* kind) {
     const fa_egl_surface_ops* ops = h->ops;
     void* pbuffer = ops->create_pbuffer(ops->user, display, config);
@@ -126,9 +126,17 @@ void* fa_egl_handover_create_window_surface(fa_egl_surface_handover* h, void* di
                                             const int* attribs) {
     const fa_egl_surface_ops* ops = h->ops;
     if (h->state == 0) return ops->create_window_surface(ops->user, display, config, window, attribs);
-    // A new window while the device holds it (the activity came back): a stand-in again, and the device's swapchain goes
-    // on the window. A stand-in of the old window still held (sokol_app destroys it first) is dropped.
+    // A new window while the device holds it (the activity came back): a stand-in again, and the device's swapchain
+    // goes on the window. A stand-in of the old window still held (sokol_app destroys it first) is dropped.
     if (h->stand_in) fa_egl_drop_stand_in(h, display, h->stand_in);
+    if (!h->listener) {
+        // No device hears the window (it let go, and the restore failed so the state stayed): nothing to hand over, the
+        // window gets sokol_app's own surface again.
+        h->state = 0;
+        h->stand_in = NULL;
+        h->window = NULL;
+        return ops->create_window_surface(ops->user, display, config, window, attribs);
+    }
     int kind = 0;
     void* stand_in = fa_egl_make_stand_in(h, display, config, &kind);
     h->stand_in = stand_in;
