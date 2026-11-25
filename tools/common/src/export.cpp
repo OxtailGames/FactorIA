@@ -223,7 +223,8 @@ bool is_java_keyword(const std::string& s) {
 
 // export.pack.vendorSdks of a windows export: which installed vendor SDKs ship (Project::vendorSdks). "list" with an SDK that
 // is not installed fails here, before any asset work; "auto" ships the installed ones the project's render settings can use
-// and remembers the others for an info line.
+// and remembers the others for an info line. An installed SDK is checked against its pinned SHA-256 first (a file that is
+// damaged or was changed fails the export here, naming `factoria setup <id> --force`).
 static Result<void> resolve_vendor_sdks(const ExportOptions& o, const Json& projectJson, Project& p) {
     const PackExportSettings& pack = p.settings.pack;
     if (pack.vendorSdks == "none") return {};
@@ -241,6 +242,7 @@ static Result<void> resolve_vendor_sdks(const ExportOptions& o, const Json& proj
                         "` (it shows the license and asks you to accept it), then export again; or remove '" + id +
                         "' from export.pack.vendorSdks (\"auto\" ships the installed SDKs the project uses, \"none\" "
                         "ships none).");
+            if (auto ok = verify_installed_vendor_sdk(ctx, *sdk); !ok.ok()) return ok.error();
             p.vendorSdks.push_back(id);
         }
         return {};
@@ -250,6 +252,8 @@ static Result<void> resolve_vendor_sdks(const ExportOptions& o, const Json& proj
         const VendorSdk* sdk = find_vendor_sdk(id);
         if (!sdk) continue;
         if (!installed_vendor_sdk_dir(ctx, *sdk).empty()) {
+            // Before any asset work: a damaged install is an error here, not a game that crashes where the DLL loads.
+            if (auto ok = verify_installed_vendor_sdk(ctx, *sdk); !ok.ok()) return ok.error();
             p.vendorSdks.push_back(id);
             continue;
         }
