@@ -91,7 +91,8 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
-        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom) {
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
+        renderBackend != "auto") {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -113,6 +114,10 @@ Json ProjectSettings::to_json() const {
             render["graphicsPreset"] = std::string(render::graphics_preset_name(graphicsPreset));
         else
             render.erase("graphicsPreset");
+        if (renderBackend != "auto")
+            render["backend"] = renderBackend;
+        else
+            render.erase("backend");
         j["render"] = render;
     } else if (j.contains("render") && j["render"].is_object()) {
         j["render"].erase("interpolation");
@@ -120,6 +125,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("upscaler");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
+        j["render"].erase("backend");
         if (j["render"].empty()) j.erase("render");
     }
     if (floatingOrigin != FloatingOriginSettings{}) {
@@ -687,6 +693,21 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             }
             s.graphicsPreset = *preset;
         }
+        if (auto be = it->find("backend"); be != it->end() && !be->is_null()) {
+            std::optional<GpuBackend> asked;  // not `parsed`: that one is the whole file (MSVC C4456)
+            if (be->is_string()) asked = parse_gpu_backend_name(be->get<std::string>());
+            if (!asked) {
+                std::vector<std::string> names = gpu_backend_names();
+                std::string list = "\"auto\"";
+                for (const std::string& n : names) list += ", \"" + n + "\"";
+                names.push_back("auto");
+                std::string hint = be->is_string() ? did_you_mean(be->get<std::string>(), names) : std::string();
+                if (!hint.empty()) hint += " ";
+                return make_error(at("/render/backend") + ": unknown GPU backend " + describe_json_value(*be),
+                                  hint + "Use one of " + list + ".");
+            }
+            s.renderBackend = gpu_backend_name(*asked);
+        }
     }
     if (auto it = j.find("world"); it != j.end() && !it->is_null()) {
         if (!it->is_object())
@@ -1117,6 +1138,12 @@ constexpr const char* kSchemaText =
               "description": "The largest share, where it starts, minScale to 1. Default 1."
             }
           }
+        },
+        "backend": {
+          "type": "string",
+          "enum": ["auto", "d3d11", "d3d12", "vulkan", "metal", "gl", "gles3", "webgl2"],
+          "default": "auto",
+          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan have no window yet: in a window they fall back to auto with a warning, headless runs use them. The FA_GPU_BACKEND environment variable (same names) overrides it, and so does EngineConfig.gpuBackend."
         },
         "graphicsPreset": {
           "type": "string",

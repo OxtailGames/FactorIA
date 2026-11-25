@@ -28,8 +28,8 @@ void VulkanDevice::init_timer() {
     static_assert(kQueriesPerSlot == 2u + 2u * std::uint32_t(kMaxTimedScopes));
     std::lock_guard<std::mutex> lock(timerMutex_);
     timerOk_ = false;
-    if (timestampBits_ == 0) {
-        timerWhy_ = "the queue family " + std::to_string(queueFamily_) + " of " + deviceName_ +
+    if (queues_[0].timestampBits == 0) {
+        timerWhy_ = "the queue family " + std::to_string(queues_[0].family) + " of " + deviceName_ +
                     " has no timestamps (timestampValidBits is 0): GPU time cannot be measured on this device";
         return;
     }
@@ -127,7 +127,7 @@ void VulkanDevice::end_timer_frame_locked() {
     fn_.vkCmdWriteTimestamp(pl.cmd_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.pool, 1);
     pl.empty_ = false;
     VulkanCommandList* list = &pl;
-    const std::uint64_t before = timelineValue_;
+    const std::uint64_t before = queues_[0].value;
     flush_prelude();
     if (list->fence_ <= before) return drop();  // the submission failed (reported): the end timestamp never runs
     slot.fence = list->fence_;
@@ -138,7 +138,8 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
     std::lock_guard<std::mutex> lock(timerMutex_);
     if (!timerOk_ || timerPending_.empty()) return;
     const std::uint64_t completed = completed_value();  // 0 when the device was lost: nothing more arrives
-    const std::uint64_t mask = timestampBits_ >= 64 ? ~0ull : (1ull << timestampBits_) - 1ull;
+    const std::uint32_t bits = queues_[0].timestampBits;
+    const std::uint64_t mask = bits >= 64 ? ~0ull : (1ull << bits) - 1ull;
     const double toMs = double(props_.limits.timestampPeriod) * 1e-6;  // nanoseconds per tick -> milliseconds
     auto ticks_between = [&](const std::uint64_t (&t)[2]) { return double((t[1] - t[0]) & mask) * toMs; };
     while (!timerPending_.empty()) {
