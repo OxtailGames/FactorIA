@@ -211,7 +211,8 @@ struct Engine::Impl {
     struct FrameGenProfileCache {
         bool valid = false;
         render::FrameGenMode mode = render::FrameGenMode::Off;
-        double atS = 0.0;  // World::time() when the status was read
+        double atS = 0.0;           // World::time() when the status was read
+        std::uint64_t atFrame = 0;  // Impl::frame (rendered frames) when it was read
         std::string state, reason;
     } frameGenProfileCache;
     // The frame generation setting (M78, docs/FRAME_GENERATION.md): the project's render.frameGeneration, or what render.frame_generation /
