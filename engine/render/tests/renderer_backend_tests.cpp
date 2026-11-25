@@ -1,10 +1,12 @@
 // The renderer on the device RendererDesc::backend names (gpu/device.h, make_device): a frame drawn offscreen on the
 // engine's Vulkan backend matches the same frame on the platform's sokol backend (MoltenVK on macOS, Mesa's lavapipe on
-// the Linux CI job, the GPU's driver on Windows), a renderer on a RecordingDevice draws without a GPU and lends its
-// device to a UiPainter, and the backends a renderer cannot draw through fail init() with a teaching error.
+// the Linux CI job, the GPU's driver on Windows), so does one on the engine's D3D12 backend (WARP, Windows only), a
+// renderer on a RecordingDevice draws without a GPU and lends its device to a UiPainter, and the backends a renderer
+// cannot draw through fail init() with a teaching error.
 //
 // A machine without a Vulkan loader or device says so (MESSAGE) and passes, unless FA_VULKAN_REQUIRE=1 (the Linux CI
-// job): then a skip fails, as in vulkan_device_tests.cpp.
+// job): then a skip fails, as in vulkan_device_tests.cpp. The same for D3D12 WARP with FA_D3D12_REQUIRE=1 (the Windows
+// CI job).
 #include "test_util.h"
 
 #include <cstdlib>
@@ -20,6 +22,11 @@
 #include "ui_painter_internal.h"
 #if defined(FA_RENDER_VULKAN)
 #include "gpu/vulkan_device.h"
+#endif
+#if defined(_WIN32)
+#include <stdlib.h>  // _putenv_s
+
+#include "gpu/d3d12_device.h"
 #endif
 
 using namespace fa;
@@ -85,6 +92,24 @@ bool cannot_run_vulkan_here(const std::string& e) {
     return has(e, "no Vulkan loader") || has(e, "no Vulkan device") || has(e, "needs 1.2") ||
            has(e, "VK_ERROR_INITIALIZATION_FAILED");
 }
+#endif
+
+#if defined(_WIN32)
+// FA_D3D12_REQUIRE=1 (the Windows CI job): a Windows without a D3D12 WARP device fails the D3D12 case instead of
+// skipping it.
+bool d3d12_required() {
+    const char* v = std::getenv("FA_D3D12_REQUIRE");
+    return v && std::strcmp(v, "1") == 0;
+}
+
+// An environment variable set for the life of the object (make_device's D3D12 hooks), then removed.
+struct ScopedEnv {
+    const char* name;
+    ScopedEnv(const char* n, const char* value) : name(n) { _putenv_s(name, value); }
+    ~ScopedEnv() { _putenv_s(name, ""); }
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+};
 #endif
 
 // A headless renderer of kW x kH on `backend`, on the fixture's window environment (the default formats).
@@ -257,6 +282,66 @@ TEST_CASE("renderer: a frame on the Vulkan backend matches the frame on the plat
 #endif
 }
 
+TEST_CASE("renderer: a frame on the D3D12 backend (WARP) matches the frame on the platform's sokol backend") {
+    Gfx& g = gfx();
+    if (!g.ok) {
+        MESSAGE("no GPU here (" << g.error << "): the backend comparison is skipped");
+        return;
+    }
+#if !defined(_WIN32)
+    MESSAGE("D3D12 runs on Windows only: its teaching error is checked in 'a backend it cannot draw through'");
+#else
+    // WARP with the debug layer (make_device's hooks), so every Windows runner draws the same pictures.
+    const ScopedEnv warp("FA_D3D12_WARP", "1");
+    const ScopedEnv debug("FA_D3D12_DEBUG", "1");
+    BackendRenderer dx(GpuBackend::D3d12);
+    if (!dx.ok) {
+        if (!d3d12_required()) {
+            MESSAGE("d3d12: skipped, " << dx.error);
+            return;
+        }
+        FAIL("the renderer did not start on D3D12 (WARP): " << dx.error);
+        return;
+    }
+    gpu::Device* dev = dx.device();
+    REQUIRE(dev != nullptr);
+    CHECK(dev->backend() == gpu::Backend::D3d12);
+    CHECK(dx.renderer.gpu_info().backend == "d3d12");
+    auto* d3d12 = dynamic_cast<gpu::d3d12::D3d12Device*>(dev);
+    REQUIRE(d3d12 != nullptr);
+    CHECK(d3d12->warp());
+
+    SUBCASE("2D: shapes, an additive blend, the clear colour") {
+        Scene2D s;
+        const fa::Image ref = draw_on_fixture(s.world);
+        const fa::Image got = draw_on(dx.renderer, s.world);
+        REQUIRE(got.width == ref.width);
+        REQUIRE(got.height == ref.height);
+        const ImageDiff d = diff_images(ref, got, 4.0f / 255.0f);
+        const double share = double(d.differingPixels) / double(got.width * got.height);
+        INFO("2D: mean " << d.meanError << ", share " << share << ", max " << d.maxError);
+        CHECK(d.meanError < 0.004);
+        CHECK(share < 0.08);
+    }
+    SUBCASE("3D: a lit floor and a cube") {
+        Scene3D s;
+        const fa::Image ref = draw_on_fixture(s.world);
+        const fa::Image got = draw_on(dx.renderer, s.world);
+        REQUIRE(got.width == ref.width);
+        REQUIRE(got.height == ref.height);
+        const ImageDiff d = diff_images(ref, got, 4.0f / 255.0f);
+        const double share = double(d.differingPixels) / double(got.width * got.height);
+        INFO("3D: mean " << d.meanError << ", share " << share << ", max " << d.maxError);
+        CHECK(d.meanError < 0.004);
+        CHECK(share < 0.08);
+    }
+    std::string errors;
+    for (const std::string& e : d3d12->errors()) errors += e + "\n";
+    INFO(errors);
+    CHECK(d3d12->errors().empty());
+#endif
+}
+
 TEST_CASE("renderer: on a RecordingDevice it draws without a GPU and lends the device to a UiPainter") {
     if (!gfx().ok) {
         MESSAGE("no GPU here (" << gfx().error
@@ -376,6 +461,17 @@ TEST_CASE("renderer: a backend it cannot draw through fails init with a teaching
     REQUIRE(!d3d12.ok);
     CHECK(has(d3d12.error, "Failed to create the GPU device"));
     CHECK(!has(d3d12.error, "M77"));
+#else
+    {
+        // D3D12 has a swapchain, but RendererDesc hands it no window yet: the swapchain's own error.
+        const ScopedEnv warp("FA_D3D12_WARP", "1");
+        BackendRenderer d3d12(GpuBackend::D3d12, false);
+        REQUIRE(!d3d12.ok);
+        if (!has(d3d12.error, "Failed to create the GPU device")) {
+            CHECK(has(d3d12.error, "cannot draw into the window"));
+            CHECK(has(d3d12.error, "SwapchainDesc::nativeWindow is null"));
+        }
+    }
 #endif
     // The fixture still draws.
     Scene2D s;

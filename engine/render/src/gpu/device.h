@@ -407,8 +407,11 @@ public:
     // The sokol devices present into sokol_app's swapchain: the window system made it, resizes it and presents it after
     // the frame callback, so create and resize only record the request, acquire hands back `windowFrame` (the frame's
     // surface as the window system gave it, gpu::swapchain_of(GfxSwapchain)) and present does nothing (commit() ended
-    // the frame). The defaults below are the answer of a backend without a window path (D3D12 and Vulkan for now, and
-    // RecordingDevice): every call fails with a teaching error and nothing changes.
+    // the frame). D3D12 makes its own DXGI flip-model swapchain on SwapchainDesc::nativeWindow (an HWND): acquire waits
+    // for the frame-latency object and hands back the next back buffer, present presents it on the graphics queue,
+    // resize waits for the GPU and resizes the buffers (docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Swapchain").
+    // The defaults below are the answer of a backend without a window path (Vulkan for now, and RecordingDevice):
+    // every call fails with a teaching error and nothing changes.
     virtual Result<void> create_swapchain(const SwapchainDesc& desc);
     virtual Result<void> resize_swapchain(int width, int height);
     // `windowFrame` is read by the sokol devices only (an explicit backend acquires the next image of its own
@@ -440,7 +443,8 @@ private:
 //    (d3d12_pipeline_cache_file()); an error off Windows.
 //  * Vulkan: make_vulkan_device (gpu/vulkan_device.h) with `init` and the other options at their defaults, in a build
 //    whose renderer has Vulkan (FA_RENDER_VULKAN: the SPIR-V of the built-in shaders); an error elsewhere.
-// D3D12 and Vulkan draw offscreen only for now (no window path: create_swapchain fails).
+// D3D12 presents into a native window (create_swapchain with SwapchainDesc::nativeWindow, an HWND); Vulkan draws
+// offscreen only for now (no window path: create_swapchain fails).
 Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init = {});
 
 // Whether make_device(backend) can succeed in this binary: the built sokol backend, Recording, D3d12 on Windows, Vulkan

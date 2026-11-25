@@ -499,6 +499,8 @@ D3d12Device::~D3d12Device() {
     // files close before anything goes.
     if (device_ && queue_ && fence_) shutdown_pack_reads();
     packReads_.reset();
+    // The window's swapchain goes before the queue it presents on (it waits for the GPU first).
+    destroy_swapchain();
     // The PSOs made since the cache file was loaded go to it (a failure was logged as a warning: the old file stays).
     (void)save_pipeline_cache();
     if (device_ && queue_ && fence_) {

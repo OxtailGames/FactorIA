@@ -112,6 +112,10 @@ struct Renderer::Impl {
     double warmMs = 0;
     bool adopted = false;        // the graphics context was open before init: shutdown() leaves it to whoever opened it
     bool presentFailed = false;  // present() could not acquire or present the window's image (logged once)
+    // The framebuffer size present() last gave Device::resize_swapchain (0 = none yet): a new size resizes the
+    // swapchain before the next acquire.
+    int swapW = 0, swapH = 0;
+    bool resizeFailed = false;  // resize_swapchain failed (logged once)
     std::unique_ptr<Assets> assets;
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads
