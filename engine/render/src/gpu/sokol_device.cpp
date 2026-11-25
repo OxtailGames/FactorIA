@@ -1566,6 +1566,13 @@ void SokolDevice::submit(CommandList& list) {
     check_thread("Device::submit");
     FA_ASSERT(&list == &list_, "gpu::SokolDevice::submit: the list is not this device's");
     FA_ASSERT(listOpen_, "gpu::SokolDevice::submit: the list was already submitted (begin_commands() first)");
+    if (list_.native_open()) {
+        // As on D3D12 and Vulkan: the one immediate list is reused every frame, so a section left open would make
+        // every later begin_native fail with "open already".
+        FA_ERROR("render", "gpu: Device::submit with a native section still open: call end_native() before submit "
+                           "(closed now as declared)");
+        (void)list_.end_native();
+    }
     listOpen_ = false;
 }
 
