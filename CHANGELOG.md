@@ -12,6 +12,19 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- The Vulkan backend presents to a window (M77-P9d): `create_swapchain` makes a surface on the native window (an HWND, an X11 window
+  with its display, an `ANativeWindow`, a `CAMetalLayer` on macOS through MoltenVK) and a swapchain of frames in flight + 1 images (FIFO
+  with vsync, else MAILBOX or IMMEDIATE; SDR, scRGB and HDR10 formats where the surface offers them; MSAA resolved into the acquired
+  image), `acquire_swapchain` and `present` run on the graphics queue, and a window that changed (out of date or suboptimal) gets its
+  swapchain made again at the next acquire, as `resize_swapchain` does. The renderer does not draw into a window on it yet: it does
+  not hand the device the window's native handle, so `init()` without `headless` says so. Also on Vulkan: in a layout that mixes a
+  vertex buffer whose offsets are all 0 with one that gives offsets, the first is packed as on the other backends; a buffer with no
+  usage flag binds as a vertex buffer; the renderer's device keeps its pipeline cache in `<cache dir>/shaders/vulkan-pipelines.bin`;
+  GPU timer results are no longer lost on MoltenVK; and the timers' query pools go only once the frames that write them finished.
+- On Windows the window no longer owns a D3D11 device (M77-P9f): sokol_app runs without a graphics API there, and the platform makes the
+  D3D11 device and the window's DXGI flip-model swapchain itself, resizes it and presents it (vsync interval, tearing when vsync is off
+  and the display allows it, the same frame latency as before), so the D3D12 and Vulkan backends can present on the same window. A lost
+  device is logged once with its reason and what to do. HDR output, the editor's frame readback, fullscreen and HiDPI work as before (with `AppDesc::highDpi=false` the process is now DPI-unaware and Windows scales the window, as sokol_app does without D3D11).
 - A game chooses its GPU backend (M77-P9a): `"render": {"backend": "auto" | "d3d11" | "d3d12" | "vulkan" | "metal" | "gl" | "gles3" |
   "webgl2"}` in `factoria.json` (a wrong name fails with `/render/backend`, the valid names and a did-you-mean; one the platform or binary
   lacks warns and uses `auto`, which is still the sokol backend of the build), the `FA_GPU_BACKEND` environment variable and

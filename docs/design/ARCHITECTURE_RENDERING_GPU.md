@@ -405,16 +405,35 @@ same attributes; vertex buffers say `usage.vertexBuffer`, and the lean 2D progra
 (`Renderer::init` when not headless), `acquire_swapchain(windowFrame)` each frame for the `PassDesc::for_swapchain`
 pass of `Renderer::present`, `present()` after the frame's commit, `resize_swapchain(w, h)`, `destroy_swapchain()`
 (`Renderer::shutdown`), and `swapchain_format_supported(format, why)`, the HDR question `warm_step` asks before it
-makes the RGBA16F and RGB10A2 copies. The sokol devices answer it over sokol_app's swapchain (the window system made
-it and presents it: create and resize record, acquire hands the frame back, present does nothing; RGBA16F on Metal
-and D3D11, RGB10A2 on D3D11). D3D12 makes its own flip-model DXGI swapchain on the HWND of
-`SwapchainDesc::nativeWindow` (ARCHITECTURE_RENDERING_D3D12.md, "Swapchain"); `Renderer::present` calls
-`resize_swapchain` when the framebuffer size changes. `RendererDesc` does not pass a window to the device yet, so a
-non-headless renderer on D3D12 still fails `init()` (with the swapchain's "nativeWindow is null" error). The defaults
-in device.cpp are the answer of a backend without a window path (Vulkan and Recording for now): every call fails with
-an error that says to draw offscreen (`RendererDesc::headless`) or pick the sokol backend, so a non-headless renderer on
-them fails `init()`. D3D12's `make_pipeline` also resolves the vertex offsets itself (`resolve_vertex_offsets`), so a
-pipeline made outside `Gpu::find_or_make` reads the same attributes.
+makes the RGBA16F and RGB10A2 copies. The sokol devices answer it over the window's swapchain, which the platform
+made and presents (sokol_app's own, or on Windows the platform's D3D11 presenter below: create and resize record,
+acquire hands the frame back, present does nothing; RGBA16F on Metal and D3D11, RGB10A2 on D3D11). D3D12 makes its own
+flip-model DXGI swapchain on the HWND of `SwapchainDesc::nativeWindow` (ARCHITECTURE_RENDERING_D3D12.md, "Swapchain"),
+and Vulkan a surface and swapchain on the native window (ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain");
+`Renderer::present` calls `resize_swapchain` when the framebuffer size changes. `RendererDesc` does not pass a window
+to the device yet, so a non-headless renderer on D3D12 or Vulkan still fails `init()` with the swapchain's error about
+the missing native window. The defaults in device.cpp are the answer of a backend without a window path (Recording):
+every call fails with an error that says to draw offscreen (`RendererDesc::headless`) or pick the sokol backend, so a
+non-headless renderer on it fails `init()`. D3D12's and Vulkan's `make_pipeline` also resolve the vertex offsets
+themselves (`resolve_vertex_offsets`), so a pipeline made outside `Gpu::find_or_make` reads the same attributes.
+
+**Windows presentation** (engine/platform/src/d3d11_present.h, M77-P9f): on Win32 sokol_app is compiled with
+`SOKOL_NOAPI` (sokol_impl.c; sokol_gfx stays `SOKOL_D3D11`, sokol_glue is not used there), so the window owns no
+graphics device and a D3D12 or Vulkan swapchain can be made on its HWND. The first `app_gfx_environment()` makes the
+platform's `d3d11::Presenter`: the D3D11 device (sokol_app's flags, the debug layer in a Debug build, retried without
+it when Graphics Tools is missing; `IDXGIDevice1::SetMaximumFrameLatency(1)`), a two-buffer `FLIP_DISCARD` swapchain
+(Windows 10 on; the old `DISCARD` model with one buffer before it, which has no HDR and always syncs), the view of
+buffer 0, the `D32_FLOAT_S8X24_UINT` depth-stencil and, above one sample, the MSAA target the swapchain pass resolves
+into buffer 0. `app_gfx_swapchain()` hands its views to the frame; app.cpp's frame callback calls `resize()` with
+sapp's framebuffer size before the game's frame (views go, `ResizeBuffers`, views back: sokol_gfx unbinds them at
+the end of every pass) and `present()` after it, with the vsync interval (`app_set_vsync`), `DXGI_PRESENT_ALLOW_TEARING`
+when vsync is off and the display supports it, and no wait while Windows' modal move or resize loop draws from its
+timer. A lost device (`DXGI_ERROR_DEVICE_REMOVED` / `_RESET`) is logged once with its reason and what to do, and the
+window stops presenting. The HDR kinds (`fa_sapp_set_swapchain_kind`, hdr_output_win32.cpp) are the presenter's
+buffer formats, and the editor's frame readback is `app_read_window_back_buffer`. `AppDesc::highDpi` false (a test's
+window; games and the editor keep it on) now makes the process DPI-unaware, sokol_app's rule without D3D11: Windows
+scales the window, where DXGI stretched a smaller swapchain before; the framebuffer size is the same. engine/platform/tests/d3d11_present_tests_win32.cpp draws on a
+hidden window (the hardware device, else WARP), with and without MSAA.
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every

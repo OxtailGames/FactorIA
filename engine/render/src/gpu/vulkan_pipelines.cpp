@@ -780,14 +780,13 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
     const Features& features = dev.features();
     const EnvironmentDefaults env = dev.environment_defaults();
 
-    // The vertex input (sokol's rules: offsets are packed in order when every one is 0, a stride of 0 is the packed
-    // size, the attributes end at the first Invalid format). The attribute's index is its location.
-    bool autoOffset = true;
-    for (const VertexAttr& a : desc.layout.attrs)
-        if (a.offset != 0) autoOffset = false;
-    std::uint32_t packed[kMaxVertexBuffers]{};
+    // The vertex input (resolve_vertex_offsets: in each buffer whose attributes all have offset 0 they are packed in
+    // order, a stride of 0 is the packed size, the attributes end at the first Invalid format). The attribute's index
+    // is its location.
+    VertexLayout layout = desc.layout;
+    resolve_vertex_offsets(layout);
     for (int i = 0; i < kMaxVertexAttributes; ++i) {
-        const VertexAttr& a = desc.layout.attrs[i];
+        const VertexAttr& a = layout.attrs[i];
         if (a.format == VertexFormat::Invalid) break;
         const std::string what = "vertex attribute " + std::to_string(i);
         if (a.bufferIndex < 0 || a.bufferIndex >= kMaxVertexBuffers)
@@ -800,7 +799,7 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
                           "Features::vertexFormatInt10N2 says where Int10N2 exists)";
         if (a.offset < 0) return what + " has the negative offset " + std::to_string(a.offset);
         const auto b = std::size_t(a.bufferIndex);
-        const std::uint32_t offset = autoOffset ? packed[b] : std::uint32_t(a.offset);
+        const auto offset = std::uint32_t(a.offset);
         if (offset > lim.maxVertexInputAttributeOffset)
             return what + " is at offset " + std::to_string(offset) + ", past this GPU's " +
                    std::to_string(lim.maxVertexInputAttributeOffset) + " (maxVertexInputAttributeOffset)";
@@ -809,20 +808,19 @@ std::string graphics_desc(const PipelineDesc& desc, const VulkanDevice& dev, con
         e.binding = std::uint32_t(b);
         e.format = vf.format;
         e.offset = offset;
-        packed[b] += vf.bytes;
         st.buffersUsed |= 1u << b;
         out.attributes.push_back(e);
     }
     for (std::size_t b = 0; b < std::size_t(kMaxVertexBuffers); ++b) {
         if (!(st.buffersUsed & (1u << b))) continue;
-        const VertexBufferLayout& bl = desc.layout.buffers[b];
+        const VertexBufferLayout& bl = layout.buffers[b];
         const int stride = bl.stride;
         const std::string slot = "vertex buffer slot " + std::to_string(b);
         if (stride < 0 || std::uint64_t(stride) > lim.maxVertexInputBindingStride)
             return slot + " has stride " + std::to_string(stride) +
                    " (hint: 0 = the packed size of its attributes, at most " +
                    std::to_string(lim.maxVertexInputBindingStride) + " bytes on this GPU)";
-        const std::uint32_t s = stride > 0 ? std::uint32_t(stride) : packed[b];
+        const auto s = std::uint32_t(stride);
         if (portability && s % 4 != 0)
             return slot + " has stride " + std::to_string(s) +
                    ", and this GPU (VK_KHR_portability_subset: MoltenVK) reads vertices at strides that are multiples "

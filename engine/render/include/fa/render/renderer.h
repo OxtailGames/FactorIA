@@ -137,8 +137,8 @@ struct RendererDesc {
     bool adoptContext = false;
     // The GPU backend (GpuBackend). A sokol one (Default, or the one this binary was built with) runs on the sokol
     // context as above; any other sokol backend is an init() error. D3d12, Vulkan and Recording make a device of their
-    // own and never open, adopt or close the sokol context; without `headless` init() fails (the renderer gives their
-    // swapchain no native window yet).
+    // own and never open, adopt or close the sokol context; without `headless` init() fails (D3D12 and Vulkan make
+    // their swapchain on a native window, which this desc does not carry yet).
     GpuBackend backend = GpuBackend::Default;
     // M77-P10d (factoria.json render.asyncCompute / render.multiThreadRecording; docs/RENDERING.md): what the frame may use
     // where the device has it (D3D12, and Vulkan with a compute queue of its own; the sokol backends have neither and

@@ -99,8 +99,14 @@ int run_app(const AppDesc& desc);
 // can exist per process: starting a second one aborts inside sokol, so code that would start one asks first.
 bool gfx_device_active();
 
+// The window's device for sg_setup(). On Windows the first call makes the D3D11 device and the window's swapchain (sokol_app
+// owns none there); a window that draws with D3D12 or Vulkan never calls it.
 GfxEnvironment app_gfx_environment();
+// This frame's window views for the swapchain pass (Windows: invalid until app_gfx_environment() made the device).
 GfxSwapchain app_gfx_swapchain();
+// Windows D3D11: copies what the window pass drew this frame (before it is presented) into `rgba`, width x height RGBA8,
+// row 0 = top. False elsewhere, on another size, or with an HDR buffer: the caller reads the frame its own way.
+bool app_read_window_back_buffer(int width, int height, std::uint8_t* rgba);
 int app_framebuffer_width();
 int app_framebuffer_height();
 float app_dpi_scale();
