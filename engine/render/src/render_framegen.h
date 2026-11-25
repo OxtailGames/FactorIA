@@ -15,8 +15,9 @@
 // items (it is told the picture has them: `hudDrawn`). Generation therefore needs the upscale stage with a temporal frame (the jitter, the
 // depth and the motion exist only there): without it the controller refuses, and says what to switch on.
 //
-// This package has no vendor provider: every slot is empty and says which package fills it (register_framegen_provider, the one call a
-// provider makes). The tests put fakes in with set_framegen_provider_for_test.
+// The providers: NVIDIA DLSS frame generation (render_framegen_dlss.h) is in its slot from the start; the FSR 3 and XeSS slots are empty
+// until their packages fill them (register_framegen_provider, the one call a provider makes) and say so when asked. The tests put fakes in
+// with set_framegen_provider_for_test.
 #pragma once
 
 #include <array>
@@ -122,6 +123,9 @@ public:
     virtual std::string start(gpu::Device& device, const FrameGenSwapchain& swapchain) = 0;
     // Whether the depth image is to be the reversed infinite one (near / d) instead of d / (d + 1) (FrameGenFrame::depthReversed).
     virtual bool wants_reversed_depth() const { return false; }
+    // Whether the SDK cannot generate without NVIDIA Reflex running (DLSS frame generation reads Reflex's markers of every frame). The
+    // renderer then turns Reflex on while this provider runs, whatever the player's latency mode (LatencyController::require_reflex).
+    virtual bool requires_reflex() const { return false; }
     // The window's swapchain was made again, resized or lost (width and height 0): what start() was told is out of date. Called on the render
     // thread, between two frames; the next frame carries `reset`. The default does nothing.
     virtual void swapchain_changed(gpu::Device& /*device*/, const FrameGenSwapchain& /*swapchain*/) {}
@@ -138,7 +142,7 @@ public:
     virtual void stop(gpu::Device& device) = 0;
 };
 
-// The provider of `slot` (Dlss, Fsr, Xess), or null when none is there: every slot until its package lands.
+// The provider of `slot` (Dlss, Fsr, Xess), or null when none is there: the slots of the packages that have not landed.
 FrameGenProvider* framegen_provider(FrameGenSlot slot);
 void set_framegen_provider_for_test(FrameGenSlot slot, FrameGenProvider* fake);  // null puts the registered one back
 // Fills the slot of provider->slot() (the DLSS-G, FSR 3 and XeSS packages call this once each, and nothing else changes).
@@ -245,6 +249,8 @@ public:
     bool wants_dispatch() const { return running_ && generating_ && refusal_.empty(); }
     // Whether the started provider asks for the reversed infinite depth (FrameGenProvider::wants_reversed_depth).
     bool wants_reversed_depth() const { return running_ && running_->wants_reversed_depth(); }
+    // Whether the started provider needs NVIDIA Reflex on (FrameGenProvider::requires_reflex): false while none runs.
+    bool requires_reflex() const { return running_ && running_->requires_reflex(); }
     // Hands the frame to the provider (when wants_dispatch()); false when the provider refused it (its reason is then the report's).
     bool dispatch(FrameGenFrame& frame);
     // A frame the renderer could not hand over (the depth and motion images could not be made): the report says why, the next frame resets.

@@ -20,6 +20,14 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   (approximations: the renderer has no ray-traced signals yet, M79 adds them) and the camera's matrices. A machine or frame that
   cannot draw it falls back to Super Resolution with the reason; `render.supports` has the new row `dlssRayReconstruction`.
   docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction". Not tested on hardware.
+- **DLSS frame generation (M78):** `render.frameGeneration` modes `dlss` and `auto` (on an NVIDIA GPU) now run NVIDIA DLSS frame generation
+  through Streamline on D3D12 and Vulkan (RTX 40 series or newer, Windows, hardware-accelerated GPU scheduling on, `factoria setup
+  streamline`). The engine tags the depth, the motion vectors and, only when screen-space items are drawn, the picture before them, sets the
+  camera constants of each frame and generates one frame between two rendered ones; `generatedFrames` and `presentedFps` come from Streamline's
+  own counter. DLSS-G needs Reflex's markers, so Reflex runs while it does, whatever `render.latency` says (the player's mode is not changed).
+  A machine that cannot run it says why in `render.supports` and `render.frame_generation` (a GPU or driver Streamline refuses, no plugin, a
+  game started with frame generation `off`); an orthographic camera is refused. Verified with a fake Streamline only; needs a check on an
+  RTX 40 series machine. FRAME_GENERATION.md, LATENCY.md.
 - **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
   an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
   flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.
