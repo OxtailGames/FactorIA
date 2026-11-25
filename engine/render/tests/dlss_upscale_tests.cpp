@@ -25,6 +25,7 @@
 #include "gpu/recording_device.h"
 #include "render_features.h"
 #include "render_upscale_dlss.h"
+#include "render_upscale_rr.h"
 #include "render_upscale_vendor.h"
 #include "streamline_runtime.h"
 
@@ -80,6 +81,12 @@ struct Sx {
     std::uint32_t evalViewport = 99;
     sl::DlssOptions options{};
     int setOptionsCalls = 0, optimalCalls = 0;
+    // Ray Reconstruction (M78-P4c): its own functions, and the evaluate of its feature alone can be refused.
+    sl::DlssdOptions rrOptions{};
+    sl::DlssdOptimalSettings rrSettings{};
+    int rrSetOptionsCalls = 0, rrOptimalCalls = 0;
+    SlR rrSetOptionsRc = 0, rrFunctionRc = 0, rrEvaluateRc = 0;
+    std::vector<std::uint32_t> evalFeatures;
     std::uint32_t optimalOverrideW = 0, optimalOverrideH = 0;
     void reset() { *this = Sx{}; }
 };
@@ -161,6 +168,8 @@ SlR f_free(std::uint32_t, const sl::ViewportHandle*) {
 SlR f_evaluate(std::uint32_t feature, void* frame, const sl::Base* const* inputs, std::uint32_t, void* list) {
     sx.events.push_back("evaluate");
     sx.evalFeature = feature;
+    sx.evalFeatures.push_back(feature);
+    if (feature == sl::kFeatureDlssRr && sx.rrEvaluateRc != 0) return sx.rrEvaluateRc;
     sx.evalToken = frame;
     sx.evalList = list;
     sx.evalViewport = reinterpret_cast<const sl::ViewportHandle*>(inputs[0])->value;
@@ -191,9 +200,36 @@ SlR f_optimal(const sl::DlssOptions* o, sl::DlssOptimalSettings* s) {
         sx.optimalOverrideH ? sx.optimalOverrideH : std::uint32_t(float(o->outputHeight) / ratio + 0.5f);
     return 0;
 }
-SlR f_function(std::uint32_t, const char* name, void** fn) {
+SlR f_rr_set_options(const sl::ViewportHandle*, const sl::DlssdOptions* o) {
+    sx.events.push_back("rrSetOptions");
+    ++sx.rrSetOptionsCalls;
+    sx.rrOptions = *o;
+    return sx.rrSetOptionsRc;
+}
+SlR f_rr_optimal(const sl::DlssdOptions* o, sl::DlssdOptimalSettings* s) {
+    sx.events.push_back("rrOptimal");
+    ++sx.rrOptimalCalls;
+    const float ratio = render::dlss_mode_ratio(o->mode);
+    s->optimalRenderWidth = std::uint32_t(float(o->outputWidth) / ratio + 0.5f);
+    s->optimalRenderHeight = std::uint32_t(float(o->outputHeight) / ratio + 0.5f);
+    sx.rrSettings = *s;
+    return 0;
+}
+SlR f_function(std::uint32_t feature, const char* name, void** fn) {
     if (sx.functionRc != 0) return sx.functionRc;
     const std::string n = name;
+    if (feature == sl::kFeatureDlssRr) {
+        if (sx.rrFunctionRc != 0) return sx.rrFunctionRc;
+        if (n == "slDLSSDSetOptions") {
+            *fn = reinterpret_cast<void*>(&f_rr_set_options);
+            return 0;
+        }
+        if (n == "slDLSSDGetOptimalSettings") {
+            *fn = reinterpret_cast<void*>(&f_rr_optimal);
+            return 0;
+        }
+        return sl::kErrorFeatureMissing;
+    }
     if (n == "slDLSSSetOptions")
         *fn = reinterpret_cast<void*>(&f_set_options);
     else if (n == "slDLSSGetOptimalSettings")
@@ -463,7 +499,7 @@ struct Rig {
     FakeLoader loader;
     LoaderGuard guard{&loader};
     AdapterFx adapter;
-    render::StreamlineRuntime runtime{{sl::kFeatureDlss}, make_host(adapter)};
+    render::StreamlineRuntime runtime{{sl::kFeatureDlss, sl::kFeatureDlssRr}, make_host(adapter)};
     XDevice dev;
     XList list;
     std::unique_ptr<render::VendorUpscaler> dlss = render::make_dlss_provider();
@@ -1314,4 +1350,389 @@ TEST_CASE("dlss: release turns the options off, frees DLSS's resources after the
     sx.events.clear();
     rig.dlss->release(rig.dev);  // already released
     CHECK(sx.events.empty());
+}
+
+// ---- DLSS Ray Reconstruction (M78-P4c) ----------------------------------------------------------------------------------------------
+
+namespace {
+
+Mat4 mat_from(const sl::Float4x4& f) {
+    Mat4 m;
+    static_assert(sizeof(f) == sizeof(m.m));
+    std::memcpy(m.m, &f, sizeof(m.m));
+    return m;
+}
+bool near_identity(const Mat4& m, float eps = 1e-3f) {
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r)
+            if (std::fabs(m.at(c, r) - (c == r ? 1.0f : 0.0f)) > eps) return false;
+    return true;
+}
+
+// A frame with the guides and a camera: the images, their views and a real view and projection (with a camera of the frame before).
+struct RrFx {
+    Rig& rig;
+    gpu::Image normalRoughness, diffuse, specular, hwDepth;
+    Mat4 view = Mat4::translate({-1.0f, -2.0f, -3.0f});
+    Mat4 proj = Mat4::perspective(1.0f, 16.0f / 9.0f, 0.1f, 100.0f, true);
+    Mat4 prevFromView = proj * Mat4::translate({0.1f, 0.0f, 0.0f});
+    explicit RrFx(Rig& r) : rig(r) {
+        normalRoughness = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba16F);
+        diffuse = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba8);
+        specular = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::Rgba8);
+        hwDepth = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::R32F);
+        rig.frame.rrDepth = hwDepth;
+        rig.in.rrDepth = rig.dev.view(hwDepth);
+        rig.frame.normalRoughness = normalRoughness;
+        rig.frame.diffuseAlbedo = diffuse;
+        rig.frame.specularAlbedo = specular;
+        rig.in.normalRoughness = rig.dev.view(normalRoughness);
+        rig.in.diffuseAlbedo = rig.dev.view(diffuse);
+        rig.in.specularAlbedo = rig.dev.view(specular);
+        rig.in.rayReconstruction = true;
+        rig.in.linear = true;
+        rig.in.cameraFovY = 1.0f;
+        render::UpscaleCamera& c = rig.in.camera;
+        c.valid = true;
+        std::memcpy(c.view, view.m, sizeof(c.view));
+        std::memcpy(c.proj, proj.m, sizeof(c.proj));
+        std::memcpy(c.prevFromView, prevFromView.m, sizeof(c.prevFromView));
+        c.prevValid = true;
+        c.position[0] = 1.0f;
+        c.position[1] = 2.0f;
+        c.position[2] = 3.0f;
+        c.nearPlane = 0.1f;
+        c.farPlane = 100.0f;
+    }
+    ~RrFx() {
+        for (const gpu::Image i : {normalRoughness, diffuse, specular, hwDepth}) rig.dev.destroy_image(i);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("dlss ray reconstruction: the probe is DLSS's plus the plugin, and the supports row takes it") {
+    sx.reset();
+    FakeLoader loader;
+    LoaderGuard guard(&loader);
+    AdapterFx adapter;
+    render::StreamlineRuntime rt({sl::kFeatureDlss},
+                                 make_host(adapter));  // the plugin of Ray Reconstruction is not asked
+    render::set_streamline_runtime_for_test(&rt);
+    std::unique_ptr<render::VendorUpscaler> dlss = render::make_dlss_provider();
+    render::VendorEnv env;
+    env.backend = gpu::Backend::D3d12;
+    env.vendor = GpuVendor::Amd;
+    env.windows = true;
+    // Not an NVIDIA RTX GPU: DLSS's own reason, said for Ray Reconstruction.
+    render::VendorProbe p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    CHECK(p.reason.find("NVIDIA RTX GPU") != std::string::npos);
+    // No Streamline setup.
+    env.vendor = GpuVendor::Nvidia;
+    loader.installed = false;
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("factoria setup streamline") != std::string::npos);
+    loader.installed = true;
+    // Another backend than the one Streamline was started for.
+    gpu::D3d12DeviceCreated c;
+    run_d3d12(rt, c);
+    CHECK(dlss->probe(env).available);
+    p = dlss->probe_ray_reconstruction(
+        env);  // Super Resolution is there, the plugin of Ray Reconstruction was not asked
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    env.backend = gpu::Backend::Vulkan;
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("D3D12") != std::string::npos);
+    rt.device_destroying();
+    // The plugin is there: available.
+    render::StreamlineRuntime both({sl::kFeatureDlss, sl::kFeatureDlssRr}, make_host(adapter));
+    render::set_streamline_runtime_for_test(&both);
+    gpu::D3d12DeviceCreated c2;
+    run_d3d12(both, c2);
+    env.backend = gpu::Backend::D3d12;
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK(p.available);
+    CHECK(p.reason.empty());
+    // The plugin refused by Streamline (the GPU or the driver): its reason, for Ray Reconstruction only.
+    both.device_destroying();
+    sx.supportedRc = sl::kErrorDriverOutOfDate;
+    gpu::D3d12DeviceCreated c3;
+    run_d3d12(both, c3);
+    p = dlss->probe_ray_reconstruction(env);
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    render::set_streamline_runtime_for_test(nullptr);
+
+    // The supports row: the providers' answer, named dlssRayReconstruction, and the machine's reason is the row's.
+    render::FeatureEnv fenv;
+    fenv.backend = render::FeatureBackend::D3d11;
+    std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
+    answers[0] = render::VendorProbe{true, ""};
+    render::VendorProbe rr;
+    rr.reason = "DLSS Ray Reconstruction is not available on this machine: the plugin is missing.";
+    render::set_vendor_upscalers_env(fenv, answers, rr);
+    const int row = render::find_feature("dlssRayReconstruction");
+    REQUIRE(row >= 0);
+    std::string why;
+    CHECK_FALSE(render::feature_supported(fenv, row, &why));
+    CHECK(why == rr.reason);
+    CHECK(render::feature_supported(fenv, render::find_feature("dlss"), &why));  // Super Resolution is not affected
+    rr = render::VendorProbe{true, ""};
+    render::set_vendor_upscalers_env(fenv, answers, rr);
+    CHECK(render::feature_supported(fenv, row, &why));
+}
+
+TEST_CASE(
+    "dlss ray reconstruction D3D12: the feature switches to Ray Reconstruction, which is tagged with its seven buffers "
+    "and told the camera") {
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    REQUIRE(rig.draw());
+    CHECK(rig.frame.error.empty());
+    CHECK(rig.frame.usedRayReconstruction);
+    CHECK(rig.frame.rayReconstructionFallback.empty());
+    CHECK(in_order(sx.events, {"rrOptimal", "rrSetOptions", "token", "constants", "begin", "tag", "evaluate", "end"}));
+    // The feature of the evaluate is Ray Reconstruction, and Super Resolution's options were never touched.
+    CHECK(sx.evalFeature == sl::kFeatureDlssRr);
+    REQUIRE(sx.evalFeatures.size() == 1);
+    CHECK(sx.setOptionsCalls == 0);
+    CHECK(sx.optimalCalls == 0);
+    // The tags: the colour, depth, motion and output, then the three guides.
+    REQUIRE(sx.tags.size() == 7);
+    CHECK(sx.tags[0].type == sl::kBufferScalingInputColor);
+    CHECK(sx.tags[1].type == sl::kBufferDepth);
+    CHECK(sx.tags[2].type == sl::kBufferMotionVectors);
+    CHECK(sx.tags[3].type == sl::kBufferScalingOutputColor);
+    CHECK(sx.tags[4].type == sl::kBufferAlbedo);
+    CHECK(sx.tags[5].type == sl::kBufferSpecularAlbedo);
+    CHECK(sx.tags[6].type == sl::kBufferNormalRoughness);
+    // The depth tagged is the one made from the projection the constants carry, not the d / (d + 1) of Super Resolution.
+    CHECK(sx.resources[1].native == reinterpret_cast<void*>(std::uintptr_t(fx.hwDepth.id) * 16));
+    CHECK(sx.resources[1].native != reinterpret_cast<void*>(std::uintptr_t(rig.depth.id) * 16));
+    CHECK(sx.constants.depthInverted == sl::kFalse);
+    CHECK(sx.resources[4].native == reinterpret_cast<void*>(std::uintptr_t(fx.diffuse.id) * 16));
+    CHECK(sx.resources[5].native == reinterpret_cast<void*>(std::uintptr_t(fx.specular.id) * 16));
+    CHECK(sx.resources[6].native == reinterpret_cast<void*>(std::uintptr_t(fx.normalRoughness.id) * 16));
+    for (int i = 4; i < 7; ++i) {
+        CHECK(sx.resources[i].state == 0xC0);  // read by DLSS
+        CHECK(sx.tags[i].extent.width == 160);
+        CHECK(sx.tags[i].extent.height == 90);
+        CHECK(sx.tags[i].lifecycle == sl::kOnlyValidNow);
+    }
+    REQUIRE(rig.list.declared.size() == 7);
+    CHECK(rig.list.declared[6].image == fx.normalRoughness);
+    CHECK(rig.list.declared[6].state == gpu::NativeState::ShaderRead);
+    CHECK(rig.list.declared[3].state == gpu::NativeState::UnorderedAccess);
+    // The options: the mode of the ratio, packed normals and roughness, HDR, the output size, the camera's view and its inverse.
+    CHECK(sx.rrOptions.mode == sl::kDlssMaxPerformance);
+    CHECK(sx.rrOptions.outputWidth == 320);
+    CHECK(sx.rrOptions.outputHeight == 180);
+    CHECK(sx.rrOptions.normalRoughnessMode == sl::kDlssdNormalRoughnessPacked);
+    CHECK(sx.rrOptions.colorBuffersHdr == sl::kTrue);
+    CHECK(sx.rrOptions.sharpness == 0.0f);
+    CHECK(std::memcmp(&sx.rrOptions.worldToCameraView, fx.view.m, sizeof(fx.view.m)) == 0);
+    CHECK(near_identity(mat_from(sx.rrOptions.cameraViewToWorld) * mat_from(sx.rrOptions.worldToCameraView)));
+    // The constants: the camera's real matrices and frame, and the motion reprojected with the frame before.
+    CHECK(std::memcmp(&sx.constants.cameraViewToClip, fx.proj.m, sizeof(fx.proj.m)) == 0);
+    CHECK(near_identity(mat_from(sx.constants.clipToCameraView) * mat_from(sx.constants.cameraViewToClip)));
+    const Mat4 clipToPrev = mat_from(sx.constants.clipToPrevClip);
+    CHECK(near_identity(clipToPrev * fx.proj * fx.prevFromView.inverse()));
+    CHECK(near_identity(mat_from(sx.constants.prevClipToClip) * clipToPrev));
+    CHECK(sx.constants.cameraPos.x == doctest::Approx(1.0f));
+    CHECK(sx.constants.cameraPos.z == doctest::Approx(3.0f));
+    CHECK(sx.constants.cameraNear == doctest::Approx(0.1f));
+    CHECK(sx.constants.cameraFar == doctest::Approx(100.0f));
+    CHECK(sx.constants.cameraFov == doctest::Approx(1.0f));
+    CHECK(sx.constants.orthographicProjection == sl::kFalse);
+    CHECK(sx.constants.reset == sl::kTrue);  // the first frame starts the history
+    // A second frame: the options go again (the matrices move with the camera) and the history goes on.
+    REQUIRE(rig.draw());
+    CHECK(sx.rrSetOptionsCalls == 2);
+    CHECK(sx.rrOptimalCalls == 1);
+    CHECK(sx.constants.reset == sl::kFalse);
+    // A cut (no camera of the frame before): the history starts again.
+    rig.in.camera.prevValid = false;
+    REQUIRE(rig.draw());
+    CHECK(sx.constants.reset == sl::kTrue);
+}
+
+TEST_CASE("dlss ray reconstruction: a frame it cannot draw falls to Super Resolution and says why") {
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    SUBCASE("Streamline refuses the evaluate of the feature") {
+        sx.rrEvaluateRc = sl::kErrorDriverOutOfDate;
+        REQUIRE(rig.draw());
+        CHECK_FALSE(rig.frame.usedRayReconstruction);
+        CHECK(rig.frame.rayReconstructionFallback.find("Ray Reconstruction") != std::string::npos);
+        CHECK(rig.frame.rayReconstructionFallback.find("slEvaluateFeature") != std::string::npos);
+        REQUIRE(sx.evalFeatures.size() == 2);
+        CHECK(sx.evalFeatures[0] == sl::kFeatureDlssRr);
+        CHECK(sx.evalFeatures[1] == sl::kFeatureDlss);
+        CHECK(sx.tags.size() == 4);  // the Super Resolution frame is tagged with its four buffers
+        CHECK(sx.constants.reset == sl::kTrue);
+        CHECK(rig.list.ends == 2);  // both native sections were closed
+        // The next frame, asked for Super Resolution by the renderer, goes on from the Super Resolution frame.
+        rig.in.rayReconstruction = false;
+        REQUIRE(rig.draw());
+        CHECK(rig.frame.rayReconstructionFallback.empty());
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+        CHECK(sx.constants.reset == sl::kFalse);
+    }
+    SUBCASE("the plugin's functions are missing") {
+        sx.rrFunctionRc = sl::kErrorFeatureMissing;
+        REQUIRE(rig.draw());
+        CHECK_FALSE(rig.frame.usedRayReconstruction);
+        CHECK(rig.frame.rayReconstructionFallback.find("slDLSSDSetOptions") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+        CHECK(sx.rrSetOptionsCalls == 0);
+    }
+    SUBCASE("the options are refused") {
+        sx.rrSetOptionsRc = sl::kErrorInvalidState;
+        REQUIRE(rig.draw());
+        CHECK_FALSE(rig.frame.usedRayReconstruction);
+        CHECK(rig.frame.rayReconstructionFallback.find("slDLSSDSetOptions") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+    }
+    SUBCASE("the frame has no guides") {
+        rig.frame.normalRoughness = {};
+        REQUIRE(rig.draw());
+        CHECK_FALSE(rig.frame.usedRayReconstruction);
+        CHECK(rig.frame.rayReconstructionFallback.find("guide") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+        CHECK(sx.rrSetOptionsCalls == 0);
+    }
+    SUBCASE("the frame has no camera") {
+        rig.in.camera.valid = false;
+        REQUIRE(rig.draw());
+        CHECK(rig.frame.rayReconstructionFallback.find("camera") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+    }
+    SUBCASE("the colour is not linear HDR") {
+        rig.in.linear = false;
+        REQUIRE(rig.draw());
+        CHECK(rig.frame.rayReconstructionFallback.find("linear HDR") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+    }
+    SUBCASE("a dynamic resolution") {
+        rig.in.dynamicResolution = true;
+        REQUIRE(rig.draw());
+        CHECK(rig.frame.rayReconstructionFallback.find("dynamic resolution") != std::string::npos);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+    }
+    SUBCASE("a render size outside the range of the mode") {
+        // Ray Reconstruction answers the sizes of its mode: a frame drawn at another one is refused, and Super Resolution says its own.
+        rig.resize(100, 90, 320, 180);
+        RrFx other(rig);
+        REQUIRE_FALSE(rig.draw());  // neither accepts the size
+        CHECK(rig.frame.error.find("Choose another") != std::string::npos);
+        CHECK(rig.frame.rayReconstructionFallback.find("DLSS Ray Reconstruction's") != std::string::npos);
+    }
+    SUBCASE("the Super Resolution frames never touch Ray Reconstruction") {
+        rig.in.rayReconstruction = false;
+        REQUIRE(rig.draw());
+        CHECK(sx.rrSetOptionsCalls == 0);
+        CHECK(sx.rrOptimalCalls == 0);
+        CHECK(sx.tags.size() == 4);
+        CHECK(sx.evalFeature == sl::kFeatureDlss);
+    }
+}
+
+TEST_CASE("dlss ray reconstruction: switching between it and Super Resolution starts the history again, and a lost "
+          "device starts everything again") {
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    REQUIRE(rig.draw());
+    REQUIRE(rig.draw());
+    CHECK(sx.constants.reset == sl::kFalse);
+    rig.in.rayReconstruction = false;  // a frame the renderer cannot give the guides to
+    REQUIRE(rig.draw());
+    CHECK(sx.evalFeature == sl::kFeatureDlss);
+    CHECK(sx.constants.reset == sl::kTrue);
+    REQUIRE(rig.draw());
+    CHECK(sx.constants.reset == sl::kFalse);
+    rig.in.rayReconstruction = true;
+    REQUIRE(rig.draw());
+    CHECK(sx.evalFeature == sl::kFeatureDlssRr);
+    CHECK(sx.constants.reset == sl::kTrue);
+
+    // The device is lost: nothing draws until Streamline starts again, and then the options are asked again from the start.
+    rig.runtime.device_destroying();
+    CHECK_FALSE(rig.draw());
+    CHECK(rig.frame.error.find("Streamline") != std::string::npos);
+    const int optimalBefore = sx.rrOptimalCalls;
+    gpu::D3d12DeviceCreated c;
+    run_d3d12(rig.runtime, c);
+    REQUIRE(rig.runtime.status().ready);
+    REQUIRE(rig.draw());
+    CHECK(rig.frame.usedRayReconstruction);
+    CHECK(sx.rrOptimalCalls == optimalBefore + 1);
+    CHECK(sx.constants.reset == sl::kTrue);
+}
+
+TEST_CASE("dlss ray reconstruction: release turns its options off and frees both features") {
+    Rig rig(gpu::Backend::D3d12);
+    {
+        RrFx fx(rig);
+        REQUIRE(rig.draw());
+        sx.events.clear();
+        sx.frees = 0;
+        rig.dlss->release(rig.dev);
+        CHECK(in_order(sx.events, {"idle", "rrSetOptions", "free"}));
+        CHECK(sx.rrOptions.mode == sl::kDlssOff);
+        CHECK(sx.frees == 2);
+    }
+}
+
+TEST_CASE("dlss ray reconstruction D3D12: a provider without the feature (the others) says it has none") {
+    // The default of VendorUpscaler::probe_ray_reconstruction: only DLSS has a ray reconstruction.
+    class Plain final : public render::VendorUpscaler {
+    public:
+        std::string_view name() const override { return "Plain"; }
+        std::string_view mode() const override { return "xess"; }
+        std::string_view setup_id() const override { return "xess"; }
+        unsigned backends() const override { return 0; }
+        render::VendorProbe probe(const render::VendorEnv&) override { return {true, ""}; }
+        bool upscale(const render::UpscaleInput&, render::VendorFrame&) override { return false; }
+    } plain;
+    const render::VendorProbe p = plain.probe_ray_reconstruction(render::VendorEnv{});
+    CHECK_FALSE(p.available);
+    CHECK(p.reason.find("Plain") != std::string::npos);
+}
+
+TEST_CASE("dlss ray reconstruction: the depth guide is the hardware depth of the projection the constants carry") {
+    // The guides shader writes clip z / clip w from the projection's depth terms (shaders/upscale_rr.glsl): a known view distance must land
+    // where the projection puts it, because Streamline rebuilds the view position from this depth and the matrices it is told.
+    const Mat4 proj = Mat4::perspective(60.0f, 16.0f / 9.0f, 0.1f, 100.0f, true);
+    float terms[4];
+    render::rr_depth_terms(proj, terms);
+    for (const float d : {0.1f, 0.5f, 1.0f, 7.5f, 42.0f, 100.0f}) {
+        const float viaMatrix = [&] {
+            const float z = -d;  // a point d in front of the camera, on its axis
+            const float clipZ = proj.at(2, 2) * z + proj.at(3, 2);
+            const float clipW = proj.at(2, 3) * z + proj.at(3, 3);
+            return clipZ / clipW;
+        }();
+        CHECK(render::rr_hardware_depth(terms, d, true) == doctest::Approx(viaMatrix).epsilon(1e-5));
+    }
+    CHECK(std::fabs(render::rr_hardware_depth(terms, 0.1f, true)) < 1e-4f);                        // the near plane
+    CHECK(render::rr_hardware_depth(terms, 100.0f, true) == doctest::Approx(1.0f).epsilon(1e-4));  // the far plane
+    CHECK(render::rr_hardware_depth(terms, 5.0f, false) == 1.0f);                                  // the sky
+    // Streamline's own inverse: clipToCameraView of the constants maps (x, y, depth) back to the view distance it came from.
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    fx.proj = proj;
+    std::memcpy(rig.in.camera.proj, proj.m, sizeof(rig.in.camera.proj));
+    REQUIRE(rig.draw());
+    REQUIRE(rig.frame.usedRayReconstruction);
+    const Mat4 clipToView = mat_from(sx.constants.clipToCameraView);
+    const float d = 12.0f;
+    const float ndcDepth = render::rr_hardware_depth(terms, d, true);
+    const Vec4 clip{0.0f, 0.0f, ndcDepth, 1.0f};  // a point on the view axis, with w = 1 before the divide
+    const Vec4 v = clipToView * clip;
+    CHECK(-v.z / v.w == doctest::Approx(d).epsilon(1e-3));
 }

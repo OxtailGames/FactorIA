@@ -112,8 +112,16 @@ struct VendorFrame {
     gpu::Device* device = nullptr;
     gpu::CommandList* list = nullptr;
     gpu::Image color{}, depth{}, velocity{}, reactive{}, output{};
+    // DLSS Ray Reconstruction's guides (UpscaleInput::normalRoughness, diffuseAlbedo, specularAlbedo), null when the frame has none.
+    gpu::Image normalRoughness{}, diffuseAlbedo{}, specularAlbedo{};
+    gpu::Image
+        rrDepth{};  // the hardware depth of the camera's projection that Ray Reconstruction reads in place of `depth`
     gpu::PixelFormat colorFormat = gpu::PixelFormat::None, outputFormat = gpu::PixelFormat::None;
     std::string error;
+    // Set by upscale(): whether the frame was drawn with Ray Reconstruction; and, when UpscaleInput::rayReconstruction asked for it and the
+    // provider drew with Super Resolution instead, the sentence that says why (the renderer logs it once and stops asking).
+    bool usedRayReconstruction = false;
+    std::string rayReconstructionFallback;
 };
 
 // One vendor SDK.
@@ -127,6 +135,14 @@ public:
     // Whether this provider can draw on `env` (the backend, the GPU's maker, the library installed and usable). Cheap enough to ask once per
     // renderer, never per frame; the renderer keeps the answer.
     virtual VendorProbe probe(const VendorEnv& env) = 0;
+    // Whether it can draw with its denoiser-upscaler too (DLSS Ray Reconstruction, M78-P4c): what probe() asks plus that denoiser's own
+    // requirements. The others have none.
+    virtual VendorProbe probe_ray_reconstruction(const VendorEnv& env) {
+        (void)env;
+        VendorProbe p;
+        p.reason = std::string(name()) + " has no ray reconstruction.";
+        return p;
+    }
     // Draws `in` into frame.output; false (and frame.error) when it cannot, and the renderer draws the temporal upscaler instead.
     virtual bool upscale(const UpscaleInput& in, VendorFrame& frame) = 0;
     // Whether the output image of a frame it draws needs storage usage (an SDK that writes it from a compute shader). Asked when the

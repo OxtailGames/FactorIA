@@ -176,6 +176,34 @@ Super Resolution and Reflex today, DLSS frame generation in a later package).
   section and reset the history, release, the `auto` choice and the `render.supports` row. The real library and a real RTX GPU
   are not covered by any test.
 
+## DLSS Ray Reconstruction (M78-P4c)
+
+`render_upscale_dlss.cpp` (the provider), `render_upscale_rr.{h,cpp}` and `shaders/upscale_rr.glsl` (the guides), `renderer_upscale.cpp`
+(the decision). Opt-in with `render.upscaler.rayReconstruction`; user text in docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction".
+
+- **ABI.** `sl_abi` declares, from Streamline v2.14.16 (`sl_dlss_d.h`, `sl_consts.h`), `kFeatureDlssRr` (1001), `DlssdOptions`
+  (224 bytes), `DlssdOptimalSettings` (64 bytes), the buffer types Albedo (7), SpecularAlbedo (8), NormalRoughness (14) and
+  `DlssdNormalRoughnessMode`, each size with a `static_assert`. The process's runtime asks for `{DLSS, DLSS-RR, Reflex, PCL}`; a
+  plugin the machine lacks is only that feature's reason (`feature_reason`).
+- **Probe.** `VendorUpscaler::probe_ray_reconstruction(env)`: DLSS's `probe` plus Ray Reconstruction's own `feature_reason`; the
+  others answer "no ray reconstruction". The renderer asks once (`Renderer::Impl::rr_probe`) and `set_vendor_env` builds the
+  `dlssRayReconstruction` row of `render.supports` from it (also not linear, DLSS off, failed earlier).
+- **Decision per frame** (`Renderer::Impl::vendor_upscale`, index 0 only): the setting, a usable machine, `in.linear`,
+  no dynamic resolution, a perspective camera, then the guides pass (`run_rr_guides`: world normal and roughness to colour 0, the
+  hardware depth of `camera.proj` to colour 1 (R32F; `rr_depth_terms` and `rr_hardware_depth` are the formula the shader repeats), and a
+  clear pass for each albedo). `UpscaleInput` carries the guide views and an `UpscaleCamera`
+  (view, projection and previous-frame matrices, the camera axes and planes, from the TAA plan).
+- **Provider.** `draw(in, frame, api, runtime, rr)` shares the frame token, constants and native section with Super Resolution. With `rr`
+  it sets the options every frame (`slDLSSDSetOptions`: the camera's view matrices change), tags seven buffers in the order colour in,
+  depth (that hardware depth, `VendorFrame::rrDepth`: the constants carry the projection, so the prepass's d / (d + 1) would not agree), motion, colour out, albedo, specular albedo, normal-roughness, and evaluates `kFeatureDlssRr`. Matrices: `fa::Mat4` is column
+  major with column vectors, the same memory as Streamline's row-major `Float4x4` with row vectors, so they are copied as they are.
+  A switch between the two features, a lost device or a failed frame resets the history. When Ray Reconstruction cannot draw, `upscale`
+  draws the same frame with Super Resolution and sets `VendorFrame::rayReconstructionFallback`; the renderer logs it once and, for a
+  frame Streamline refused, latches `rrFailed`.
+- **Tests.** `dlss_upscale_tests.cpp` ("dlss ray reconstruction ..."): the probe and its reasons, the feature switch, the tags (the depth tag is the hardware-depth image, whose values `rr_hardware_depth` gives for a known distance), the options
+  and matrices, every fall back, the switch back and device loss, release; `upscaler_tests.cpp` and `upscaler_commands_tests.cpp`: the
+  setting.
+
 ## Low latency (M78)
 
 `engine/render/include/fa/render/latency.h` holds the public part (`LatencySettings`, the mode and driver enums, `parse_latency_settings`);
