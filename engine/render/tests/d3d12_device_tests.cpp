@@ -1,7 +1,8 @@
 // The engine's own D3D12 backend (src/gpu/d3d12_*: resources M77-P7a, shaders, pipelines and drawing M77-P7c1, GPU
-// timers and asynchronous reads M77-P7c2). On Windows every case makes a WARP device with the debug layer and checks
-// that the layer reported no error; the drawing cases read their targets back and check them per texel; a Windows
-// without WARP or D3D12 says so (MESSAGE) and passes.
+// timers and asynchronous reads M77-P7c2, the swapchain on a window M77-P9c). On Windows every case makes a WARP device
+// with the debug layer and checks that the layer reported no error; the drawing cases read their targets back and
+// check them per texel; the swapchain cases present into a hidden Win32 window; a Windows without WARP or D3D12 says
+// so (MESSAGE) and passes.
 // Elsewhere one case checks the factory's teaching error.
 #include <doctest.h>
 
@@ -1395,15 +1396,14 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     list.end_pass();
     CHECK(contains(last_error(*dev), "end_pass in list 'mistakes': no pass is open"));
 
-    step = "a pass into the window";
+    step = "a pass into the window without a swapchain";
     const Swapchain sc{};
     PassDesc window = PassDesc::for_swapchain(sc, dev->environment_defaults());
     window.label = "window";
     list.begin_pass(window);
-    CHECK(contains(last_error(*dev),
-                   "pass 'window': a pass into the window (PassDesc::swapchain) on the D3D12 backend, "
-                   "which has no window path yet"));
-    CHECK(contains(last_error(*dev), "GpuBackend::Default"));
+    CHECK(
+        contains(last_error(*dev), "pass 'window': a pass into the window (PassDesc::swapchain) without a swapchain"));
+    CHECK(contains(last_error(*dev), "create_swapchain()"));
     CHECK(!contains(last_error(*dev), "M77"));
     std::size_t before = dev->errors().size();
     list.set_pipeline(rgba8);  // inside a failed pass: skipped without another error
@@ -2583,6 +2583,201 @@ TEST_CASE("d3d12: a timed scope on a copy list is ignored; graphics and compute 
         CHECK(std::find(names.begin(), names.end(), "compute-scope") != names.end());
     CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 3u));
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+// ---- the swapchain (M77-P9c) -----------------------------------------------------------------------------------------
+
+namespace {
+
+// A hidden top-level Win32 window of `width` x `height` client pixels (never shown: no taskbar entry, no focus),
+// destroyed with the object. hwnd is null when Windows could not make it.
+struct HiddenWindow {
+    HWND hwnd = nullptr;
+    HiddenWindow(int width, int height) {
+        static const wchar_t* const kClass = L"FactoriaD3d12SwapchainTest";
+        static const bool registered = [] {
+            WNDCLASSEXW wc{};
+            wc.cbSize = sizeof wc;
+            wc.lpfnWndProc = DefWindowProcW;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = kClass;
+            return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+        }();
+        if (!registered) return;
+        RECT r{0, 0, width, height};
+        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+        hwnd =
+            CreateWindowExW(0, kClass, L"fa d3d12 swapchain test", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                            r.right - r.left, r.bottom - r.top, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    }
+    ~HiddenWindow() {
+        if (hwnd) DestroyWindow(hwnd);
+    }
+    HiddenWindow(const HiddenWindow&) = delete;
+    HiddenWindow& operator=(const HiddenWindow&) = delete;
+};
+
+// One frame into the window: acquire, a pass that clears colour and depth to `clear`, submit, commit; `px` gets the
+// back buffer read back before present (RGBA order). Returns the acquired Swapchain.
+Swapchain swapchain_frame(D3d12Device& dev, Color clear, std::vector<std::uint8_t>& px) {
+    auto sc = dev.acquire_swapchain(Swapchain{});
+    REQUIRE_MESSAGE(sc, sc.error().to_string());
+    PassDesc p = PassDesc::for_swapchain(sc.value(), dev.environment_defaults());
+    p.label = "window";
+    p.colorLoad = LoadAction::Clear;
+    p.clearColor = clear;
+    p.depthLoad = LoadAction::Clear;
+    p.stencilLoad = LoadAction::Clear;
+    CommandList& list = dev.begin_commands("frame");
+    list.begin_pass(p);
+    list.end_pass();
+    dev.submit(list);
+    dev.commit();
+    const Image back = dev.swapchain_image();
+    REQUIRE(back.id != 0);
+    px.clear();
+    auto r = dev.read_image_rgba8(back, sc.value().width, sc.value().height, px);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    auto shown = dev.present();
+    REQUIRE_MESSAGE(shown, shown.error().to_string());
+    CHECK(dev.swapchain_image().id == 0);  // present ends the frame
+    return sc.value();
+}
+
+}  // namespace
+
+TEST_CASE("d3d12: a swapchain on a hidden window clears, presents, resizes and is destroyed") {
+    auto dev = make_warp();
+    if (!dev) return;
+    HiddenWindow win(64, 48);
+    if (!win.hwnd) {
+        MESSAGE("d3d12: skipped, Windows made no window (error " << GetLastError() << ")");
+        return;
+    }
+    CHECK(!dev->has_swapchain());
+    SwapchainDesc d;
+    d.nativeWindow = win.hwnd;
+    d.vsync = false;  // a hidden window is never shown: no reason to wait for a refresh
+    d.label = "test-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, made.error().to_string());
+    CHECK(dev->has_swapchain());
+    CHECK(dev->swapchain_buffer_count() >= 2);
+    INFO("buffers " << dev->swapchain_buffer_count() << ", tearing " << dev->swapchain_tearing());
+
+    SUBCASE("three frames, a resize, a frame") {
+        std::vector<std::uint8_t> px;
+        const Color colors[3] = {{1.0f, 0.25f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.5f, 1.0f}, {0.0f, 0.0f, 1.0f, 1.0f}};
+        const std::array<int, 4> want[3] = {{255, 64, 0, 255}, {0, 255, 128, 255}, {0, 0, 255, 255}};
+        for (int f = 0; f < 3; ++f) {
+            INFO("frame " << f);
+            const Swapchain sc = swapchain_frame(*dev, colors[f], px);
+            CHECK(sc.width == 64);  // 0 x 0 in the desc: the window's client size
+            CHECK(sc.height == 48);
+            CHECK(sc.colorFormat == PixelFormat::Bgra8);
+            const std::string bad = first_mismatch(px, sc.width, sc.height, 1, [&](int, int) { return want[f]; });
+            CHECK_MESSAGE(bad.empty(), bad);
+        }
+        auto resized = dev->resize_swapchain(96, 64);
+        REQUIRE_MESSAGE(resized, resized.error().to_string());
+        const Swapchain sc = swapchain_frame(*dev, colors[1], px);
+        CHECK(sc.width == 96);
+        CHECK(sc.height == 64);
+        const std::string bad = first_mismatch(px, 96, 64, 1, [&](int, int) { return want[1]; });
+        CHECK_MESSAGE(bad.empty(), bad);
+        auto same = dev->resize_swapchain(96, 64);  // the same size: nothing to do
+        CHECK_MESSAGE(same, same.error().to_string());
+    }
+    SUBCASE("mistakes are teaching errors") {
+        auto early = dev->present();
+        REQUIRE(!early);
+        CHECK(contains(early.error().message, "without this frame's acquire_swapchain()"));
+        auto twice = dev->create_swapchain(d);
+        REQUIRE(!twice);
+        CHECK(contains(twice.error().message, "has a swapchain already"));
+        auto sc = dev->acquire_swapchain(Swapchain{});
+        REQUIRE_MESSAGE(sc, sc.error().to_string());
+        auto mid = dev->resize_swapchain(32, 32);
+        REQUIRE(!mid);
+        CHECK(contains(mid.error().message, "between acquire_swapchain() and present()"));
+        Swapchain stale = sc.value();
+        stale.width = 10;
+        PassDesc p = PassDesc::for_swapchain(stale, dev->environment_defaults());
+        p.label = "stale";
+        p.colorLoad = LoadAction::Clear;
+        CommandList& list = dev->begin_commands("stale");
+        list.begin_pass(p);
+        CHECK(contains(last_error(*dev), "pass 'stale': PassDesc::swapchain is 10x48"));
+        list.end_pass();
+        dev->submit(list);
+        dev->commit();
+        auto shown = dev->present();
+        CHECK_MESSAGE(shown, shown.error().to_string());
+    }
+
+    dev->destroy_swapchain();
+    CHECK(!dev->has_swapchain());
+    CHECK(dev->swapchain_buffer_count() == 0);
+    auto after = dev->acquire_swapchain(Swapchain{});
+    REQUIRE(!after);
+    CHECK(contains(after.error().message, "without a swapchain"));
+    auto r = dev->wait_idle();
+    CHECK_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+TEST_CASE("d3d12: create_swapchain checks its desc before any DXGI work; the format query answers HDR formats") {
+    auto dev = make_warp();
+    if (!dev) return;
+    SwapchainDesc d;
+    auto none = dev->create_swapchain(d);
+    REQUIRE(!none);
+    CHECK(contains(none.error().message, "SwapchainDesc::nativeWindow is null"));
+    CHECK(contains(none.error().hint, "HWND"));
+    CHECK(!dev->has_swapchain());
+
+    std::string why;
+    CHECK(dev->swapchain_format_supported(PixelFormat::Default, &why));
+    CHECK(dev->swapchain_format_supported(PixelFormat::Bgra8, &why));
+    for (const PixelFormat hdr : {PixelFormat::Rgba16F, PixelFormat::Rgb10A2}) {
+        why.clear();
+        const bool ok = dev->swapchain_format_supported(hdr, &why);
+        INFO(pixel_format_name(hdr) << ": " << (ok ? "supported" : why));
+        if (!ok) CHECK(!why.empty());
+    }
+    why.clear();
+    CHECK(!dev->swapchain_format_supported(PixelFormat::R8, &why));
+    CHECK(contains(why, "not R8"));
+
+    HiddenWindow win(32, 32);
+    if (!win.hwnd) return;
+    d.nativeWindow = win.hwnd;
+    d.sampleCount = 3;
+    auto odd = dev->create_swapchain(d);
+    REQUIRE(!odd);
+    CHECK(contains(odd.error().message, "sampleCount 3"));
+    d.sampleCount = 1;
+    d.colorFormat = PixelFormat::R8;
+    auto r8 = dev->create_swapchain(d);
+    REQUIRE(!r8);
+    CHECK(contains(r8.error().hint, "PixelFormat::Default"));
+    CHECK(!dev->has_swapchain());
+
+    // scRGB: a display without HDR (a CI VM) refuses the colour space (CheckColorSpaceSupport) with a teaching error;
+    // either answer is fine.
+    if (dev->swapchain_format_supported(PixelFormat::Rgba16F, nullptr)) {
+        d.colorFormat = PixelFormat::Rgba16F;
+        auto hdr = dev->create_swapchain(d);
+        if (hdr) {
+            CHECK(dev->has_swapchain());
+            dev->destroy_swapchain();
+        } else {
+            MESSAGE("d3d12: scRGB swapchain refused: " << hdr.error().to_string());
+            CHECK(!hdr.error().hint.empty());
+            CHECK(!dev->has_swapchain());
+        }
+    }
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
 #endif

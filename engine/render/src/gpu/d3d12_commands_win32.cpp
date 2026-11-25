@@ -220,9 +220,15 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
         return;
     }
     if (pass.swapchain) {
-        fail("begin_pass", passName + ": a pass into the window (PassDesc::swapchain) on the D3D12 backend, which has "
-                                      "no window path yet (hint: draw into images here, RendererDesc::headless; pick "
-                                      "the sokol backend, GpuBackend::Default, to draw into a window)");
+        // A pass into the window is a pass into the views of the acquired back buffer (and of the swapchain's MSAA and
+        // depth images): the checks below then see its formats and size like any other pass's.
+        PassDesc into;
+        if (const std::string why = device_.swapchain_pass(pass, into); !why.empty()) {
+            fail("begin_pass", passName + ": " + why);
+            return;
+        }
+        passState_ = PassState::None;
+        begin_pass(into);
         return;
     }
 

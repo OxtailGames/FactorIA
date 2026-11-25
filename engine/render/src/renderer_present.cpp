@@ -72,8 +72,19 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     if (!initialized()) return;
     Impl& im = *impl_;
     gpu::Device& device = im.gpu.device();
-    // The image of the window to draw into (gpu/device.h, "the window: swapchain and present"): on the sokol devices the
-    // frame's surface as sokol_app gave it.
+    // A new framebuffer size resizes the swapchain before the next acquire (gpu/device.h, "the window: swapchain and
+    // present"): D3D12 resizes its own buffers, the sokol devices only record it (sokol_app resized the window's).
+    if (device.has_swapchain() && fbW > 0 && fbH > 0 && (fbW != im.swapW || fbH != im.swapH)) {
+        if (auto resized = device.resize_swapchain(fbW, fbH); !resized) {
+            if (!im.resizeFailed) FA_ERROR("render", "Renderer::present: {}", resized.error().to_string());
+            im.resizeFailed = true;  // said once
+        } else {
+            im.resizeFailed = false;
+        }
+        im.swapW = fbW;
+        im.swapH = fbH;
+    }
+    // The image of the window to draw into: on the sokol devices the frame's surface as sokol_app gave it.
     auto acquired = device.acquire_swapchain(gpu::swapchain_of(swapchain));
     if (!acquired) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", acquired.error().to_string());

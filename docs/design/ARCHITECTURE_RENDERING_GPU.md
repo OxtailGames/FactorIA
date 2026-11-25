@@ -405,9 +405,14 @@ pass of `Renderer::present`, `present()` after the frame's commit, `resize_swapc
 (`Renderer::shutdown`), and `swapchain_format_supported(format, why)`, the HDR question `warm_step` asks before it
 makes the RGBA16F and RGB10A2 copies. The sokol devices answer it over sokol_app's swapchain (the window system made
 it and presents it: create and resize record, acquire hands the frame back, present does nothing; RGBA16F on Metal
-and D3D11, RGB10A2 on D3D11). The defaults in device.cpp are the answer of a backend without a window path (D3D12,
-Vulkan and Recording for now): every call fails with an error that says to draw offscreen (`RendererDesc::headless`)
-or pick the sokol backend, so a non-headless renderer on them fails `init()`.
+and D3D11, RGB10A2 on D3D11). D3D12 makes its own flip-model DXGI swapchain on the HWND of
+`SwapchainDesc::nativeWindow` (ARCHITECTURE_RENDERING_D3D12.md, "Swapchain"); `Renderer::present` calls
+`resize_swapchain` when the framebuffer size changes. `RendererDesc` does not pass a window to the device yet, so a
+non-headless renderer on D3D12 still fails `init()` (with the swapchain's "nativeWindow is null" error). The defaults
+in device.cpp are the answer of a backend without a window path (Vulkan and Recording for now): every call fails with
+an error that says to draw offscreen (`RendererDesc::headless`) or pick the sokol backend, so a non-headless renderer on
+them fails `init()`. D3D12's `make_pipeline` also resolves the vertex offsets itself (`resolve_vertex_offsets`), so a
+pipeline made outside `Gpu::find_or_make` reads the same attributes.
 
 **Vulkan in a build** (`FA_RENDER_VULKAN`, engine/render/CMakeLists.txt): defines `FA_SHADERS_SPIRV` for `fa_render`,
 which opens the SPIR-V of every generated header (about 3.4 MB). `AUTO` (the default, worked out again at every
