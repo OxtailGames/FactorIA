@@ -280,6 +280,12 @@ struct Renderer::Impl {
     bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
     bool metalfx_fail(const std::string& why);
     bool ensure_mfx_target(Target& t, const char* label, gpu::PixelFormat format, int w, int h);
+    // The preparation pass and the history rule MetalFX and the vendor SDKs share (renderer_metalfx.cpp): run_upscale_prep draws mfxDepth and
+    // mfxMotion; scaler_history_valid says whether the history of the frame before still holds (and gives the key scaler_history_note stores).
+    bool run_upscale_prep(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
+                          const Target* velocity, bool histValid);
+    bool scaler_history_valid(const render::UpscaleInput& in, std::uint64_t& config) const;
+    void scaler_history_note(std::uint64_t config);
     bool ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth);
     // The images the screen-space items need at the output size: outTarget in the format the picture has there (`display`: after a final
     // pass, so display values; else the scene format), with the depth the items are drawn with when `depth`; the render-resolution

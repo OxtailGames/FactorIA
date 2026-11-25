@@ -302,7 +302,8 @@ checks the factory's error. `D3d12Device::counters()`, `view_heap()`, `shader_ro
 ## Native access for vendor SDKs (M78)
 
 The upscalers and latency SDKs of M78 (Streamline, XeSS, FSR 3.1) record their own D3D12 commands into the engine's
-command list. The interface is the same as on Vulkan ([ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md),
+command list (XeSS does, `render_upscale_xess.cpp`: `Device::wait_idle()` before it initialises or destroys its context, `begin_native` with
+the colour, depth, velocity and mask in `ShaderRead` and the output in `UnorderedAccess`). The interface is the same as on Vulkan ([ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md),
 "Native access for vendor SDKs", which lists the checks of each entry); here is what D3D12 does with it.
 
 - **Which GPU.** `DeviceInfo::gpu` comes from the adapter's `DXGI_ADAPTER_DESC1`: `vendorId`, `deviceId`, the LUID

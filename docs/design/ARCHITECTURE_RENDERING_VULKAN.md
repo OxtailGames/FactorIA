@@ -442,7 +442,8 @@ still works). `vulkan_swapchain.cpp` does the rest, on the render thread:
 ## Native access for vendor SDKs (M78)
 
 The upscalers and latency SDKs of M78 (Streamline, XeSS, FSR 3.1) record their own Vulkan commands into the engine's
-command buffer. `gpu/types.h` and `gpu/device.h` give them what they need, with the same names on D3D12
+command buffer (XeSS does: `xessVKExecute` gets image views from `native_view` and a storage view of the output; the extensions it asks
+for are checked at probe, until M78-P2b enables them). `gpu/types.h` and `gpu/device.h` give them what they need, with the same names on D3D12
 ([ARCHITECTURE_RENDERING_D3D12.md](ARCHITECTURE_RENDERING_D3D12.md), "Native access for vendor SDKs").
 
 - **Which GPU.** `DeviceInfo::gpu` (`GpuIdentity`): `vendorId` and `deviceId` from `VkPhysicalDeviceProperties`,

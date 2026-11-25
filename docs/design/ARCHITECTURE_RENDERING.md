@@ -511,6 +511,15 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   `velocity`, `reactive`, `exposure`; the prepass and velocity are read by the `upscale` pass as for MetalFX); a provider that returns
   false is off for the run (`vendor_fail`, "fail once, stay off") and the frame draws as `Temporal`. `render.supports` rows `dlss`, `xess`, `fsr`
   are answered from the probes (`set_vendor_upscalers_env`), before the backend check, because that table has no D3D12 or Vulkan
-  column. The GPU maker is `gpu_vendor_of(device)`: Apple on Metal, none on the recording device and, until M78-P2a fills it from the
-  device's PCI id, Other. The output image is not asked to be a storage image (a device without them would fail it); the SDK packages
-  ask for that where their SDK needs it.
+  column. The GPU maker is `gpu_vendor_of(device)`: Apple on Metal, none on the recording device, else `DeviceInfo::gpu` through
+  `gpu_vendor_from_identity` (Other for an id that is not NVIDIA, AMD, Intel or Apple). `needs_output_storage()` makes the renderer ask
+  for a storage output image (XeSS; `outStorage`), `release(Device&)` is called from `Renderer::shutdown` before the device goes.
+  The depth and motion SDKs read come from the preparation pass of MetalFX, which `run_upscale_prep` (renderer_metalfx.cpp) runs on every
+  non-GL backend, with the same history rule (`scaler_history_valid`).
+- **XeSS (M78-P4a, `src/render_upscale_xess.*`).** The engine's own declarations of XeSS's C ABI (`xess_abi`, sizes checked by
+  `static_assert`) and `XessApi`, the function table `xess_load_api` takes from `VendorLibrary::symbol`. `probe` checks backend, system,
+  D3D11 on Intel, library, exports, `xessGetVersion` >= 3.0 and, on Vulkan, the extensions of `xess_vulkan_requirements` against
+  `VendorEnv::vulkan*Extensions`. `upscale` keeps one context per device (`ensure_context`: create once, `Init` again after
+  `Device::wait_idle` when size, quality (`xess_quality_for_ratio`) or flags change), runs `Execute` inside `begin_native` /
+  `end_native` with colour, depth, velocity and mask `ShaderRead` and the output `UnorderedAccess`, and a failed call is `frame.error`
+  with `needReset` for the next frame. `xess_upscale_tests.cpp` drives it with a fake library and a RecordingDevice.

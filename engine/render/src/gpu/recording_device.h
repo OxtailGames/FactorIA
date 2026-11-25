@@ -71,7 +71,7 @@ struct RecordedCommand {
 class RecordingDevice;
 
 // A command list of a RecordingDevice: checks and records each call; nothing runs.
-class RecordingCommandList final : public CommandList {
+class RecordingCommandList : public CommandList {
 public:
     explicit RecordingCommandList(RecordingDevice& device) : device_(device) {}
     void begin_pass(const PassDesc& pass) override;
@@ -146,7 +146,7 @@ private:
 };
 
 // The Device without a GPU (see the header comment).
-class RecordingDevice final : public Device {
+class RecordingDevice : public Device {
 public:
     // `init`: the environment's default formats, the pool sizes, and the features and limits to report.
     explicit RecordingDevice(const DeviceInit& init = {});

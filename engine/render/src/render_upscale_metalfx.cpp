@@ -9,8 +9,6 @@
 
 namespace fa::render {
 
-#if defined(SOKOL_METAL)
-
 bool MetalFxPrep::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
@@ -19,9 +17,10 @@ bool MetalFxPrep::ready(gpu::Device& dev) {
         if (shader_.id) dev.destroy_shader(shader_);
         shader_ = {};
         state_ = -1;
-        FA_ERROR("render", "The MetalFX input preparation shader failed to compile (see the sokol log lines above); "
-                           "MetalFX is not used, the "
-                           "temporal TAA upscaler draws instead. Hint: set render.upscaler mode to \"temporal\".");
+        FA_ERROR("render",
+                 "The temporal upscalers' input preparation shader failed to compile (see the sokol log lines above); "
+                 "MetalFX and the vendor SDKs are not used, the "
+                 "temporal TAA upscaler draws instead. Hint: set render.upscaler mode to \"temporal\".");
         return false;
     }
     state_ = 1;
@@ -51,13 +50,5 @@ void MetalFxPrep::release() {
     state_ = 0;
     device_ = nullptr;
 }
-
-#else
-
-bool MetalFxPrep::ready(gpu::Device&) { return false; }
-gpu::Pipeline MetalFxPrep::pipeline(const TargetFormat&) { return {}; }
-void MetalFxPrep::release() {}
-
-#endif
 
 }  // namespace fa::render
