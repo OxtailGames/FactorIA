@@ -26,11 +26,16 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   takes the window's native handle from the platform (`app_claim_native_window`) and the renderer makes its swapchain on it
   (`RendererDesc::nativeWindow`, `RendererDesc::vsync`); the platform then makes no swapchain of its own, since a window holds one
   (`WindowPresenter`, a state machine tested on every platform). On Windows that is the player itself; on macOS `vulkan` presents
-  through MoltenVK in a build that has it. Linux and Android windows are OpenGL ones and cannot take it yet. A backend that cannot
+  through MoltenVK in a build that has it (Linux: see below; Android windows cannot take it yet). A backend that cannot
   start falls back to `auto` in the same process, in a window and headless alike: one warning keeps its first error, and the startup
   report names it in `gpu.backendFallback`. While D3D12 or Vulkan holds the window, HDR output says it is not available on that
   backend and the vsync is the swapchain's present mode. Also on Windows: the D3D11 presenter's resize reads only a live presenter,
   and a `ResizeBuffers` the driver refuses is warned once per size, not every frame.
+- Vulkan draws the game window on Linux (M77-P9e3a): with `render.backend` on `vulkan` the X11 window's OpenGL context moves to a
+  1x1 pbuffer (or to no drawable where the driver has no pbuffers) and its swap stops, so the Vulkan device makes its swapchain on
+  the window; when the device lets the window go the OpenGL surface comes back on it with its vsync, so a Vulkan start that fails
+  after the claim falls back to OpenGL in the same process. A driver that refuses both keeps OpenGL and the warning
+  says why. `EngineConfig::gpuStartFault` now runs after the window is claimed, so tests cover that release.
 - The Vulkan backend presents to a window (M77-P9d): `create_swapchain` makes a surface on the native window (an HWND, an X11 window
   with its display, an `ANativeWindow`, a `CAMetalLayer` on macOS through MoltenVK) and a swapchain of frames in flight + 1 images (FIFO
   with vsync, else MAILBOX or IMMEDIATE; SDR, scRGB and HDR10 formats where the surface offers them; MSAA resolved into the acquired

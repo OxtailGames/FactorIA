@@ -86,8 +86,9 @@ struct EngineConfig {
     // once with the first error and draws with "auto" in the same process. Engine::startup_report names the one that
     // runs, the one asked for and why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
     std::string gpuBackend;
-    // Tests: called before each start of the renderer on a backend; a non-empty answer makes that start fail with it
-    // (before any device is made), so the fallback can be checked on a machine where every backend works. Empty = none.
+    // Tests: called before each start of the renderer on a backend (in a window, after D3D12 or Vulkan claimed it); a
+    // non-empty answer makes that start fail with it (before any device is made; a claimed window is released), so the
+    // fallback can be checked on a machine where every backend works. Empty = none.
     std::function<std::string(GpuBackend backend)> gpuStartFault;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with

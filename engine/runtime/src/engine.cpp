@@ -1163,8 +1163,6 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         // makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
         const bool appWindow = I.windowed && !config.editorMode && app_native_window().window != nullptr;
         auto start = [&](GpuBackend backend) -> std::string {
-            if (config.gpuStartFault)
-                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) return fault;
             RendererDesc d = rd;
             d.backend = backend;
             GfxEnvironment env = I.windowed ? *gfx : I.gpu->environment();
@@ -1188,6 +1186,15 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 // the platform's swapchain is made now (Windows: the D3D11 presenter).
                 env = app_gfx_environment();
             }
+            // Tests: a forced failure after the claim, so the fallback goes through its release too.
+            if (config.gpuStartFault)
+                if (std::string fault = config.gpuStartFault(backend); !fault.empty()) {
+                    if (I.windowClaimed) {
+                        app_release_native_window();
+                        I.windowClaimed = false;
+                    }
+                    return fault;
+                }
             I.renderer = std::make_unique<Renderer>();
             std::string why;
             if (I.renderer->init(d, env, &why)) return "";
