@@ -50,6 +50,7 @@ void Renderer::Impl::free_mfx_images() {
     if (mfxDepth.color.id) destroy_target(gpu.device(), mfxDepth);
     if (mfxMotion.color.id) destroy_target(gpu.device(), mfxMotion);
     mfxLastWrote = false;
+    prepSerial = ~std::uint64_t(0);
 }
 
 // An image of the MetalFX preparation pass: `format` at w x h, a colour attachment that is also sampled.
@@ -128,6 +129,9 @@ bool Renderer::Impl::run_upscale_prep(const UpscaleInput& in, const PassContext&
     list.draw(0, 3, 1);
     list.end_pass();
     ++stats.drawCalls;
+    prepSerial =
+        upscaleTaa.serial;  // the frame generation of this frame reads these two images and need not make them again
+    prepReversed = reversedNear > 0.0f;
     return true;
 }
 

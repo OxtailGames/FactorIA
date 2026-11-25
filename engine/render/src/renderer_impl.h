@@ -64,6 +64,7 @@
 #include "render_upscale.h"
 #include "render_upscale_metalfx.h"
 #include "render_upscale_spatial.h"
+#include "render_framegen.h"
 #include "render_latency.h"
 #include "render_upscale_vendor.h"
 #include "metalfx.h"
@@ -279,6 +280,31 @@ struct Renderer::Impl {
     // at init and detached before the device goes.
     render::LatencyController latency;
     void set_latency_env(render::FeatureEnv& env);  // render.supports: the three low-latency providers' answers
+    // M78, frame generation (render_framegen.h; renderer_framegen.cpp): the setting, the provider that runs it and the readout. Attached to the
+    // device at init (with `frameGenHooked`: RendererDesc::frameGeneration) and detached before the device goes. hudlessTarget: the output
+    // picture before the screen-space items (a copy, made only on a frame the provider is given, when the items are drawn into outTarget);
+    // prepSerial: the game frame whose depth and motion images mfxDepth / mfxMotion hold.
+    render::FrameGenController framegen;
+    Target hudlessTarget;
+    int hudlessIdleFrames = 0;  // frames in a row the copy was not needed: it is freed at kOutputIdleFrames
+    std::uint64_t prepSerial = ~std::uint64_t(0);
+    bool prepReversed =
+        false;  // ... and whether they were made with the reversed infinite depth (the provider that wants it, run_upscale_prep)
+    // The camera of the frame the temporal upscaler is made for, as frame generation tells it to its provider.
+    struct FrameGenCamera {
+        bool perspective = true;
+        float nearPlane = 0.1f, farPlane = 1000.0f;
+        Vec3 position{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+        Mat4 view;
+    };
+    FrameGenCamera fgCamera;
+    std::vector<const char*>
+        outputPassLog;  // the output passes run by the last frame, in order (tests: RendererTestAccess::output_passes)
+    void set_framegen_env(render::FeatureEnv& env);  // render.supports: the three frame-generation providers' answers
+    // outTarget into hudlessTarget: a copy, or (`grade` set) drawn through the colour filter, as the picture shown is.
+    void framegen_hudless_copy(const PassContext& c, const PostPlan* grade);
+    // The provider's dispatch; `filtered`: the picture shown is outFilterTarget (the colour filter ran), else outTarget.
+    void framegen_pass(const render::FrameGenPassPlan& plan, bool filtered, const PassContext& c);
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();
