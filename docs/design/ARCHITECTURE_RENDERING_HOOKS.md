@@ -269,9 +269,16 @@ the rest is private to `fa_render`:
   (`ffxCreateContext`, `ffxDestroyContext`, `ffxConfigure`, `ffxQuery`, `ffxDispatch`) from the library `fsr_library_spec` names through
   `VendorLibrary::symbol` (the loader of the FSR upscaler), so a test's fake table runs on every platform. State lives in a `Core` shared by the
   provider and its `FsrHook`. **The hook** (armed by `device_hook_for(Fsr | Auto)`; `Auto` takes part on an AMD GPU only, read from the PCI
-  vendor on Vulkan and `IDXGIAdapter::GetDesc` on D3D12): on Vulkan it asks the device for three queues (compute, transfer, any), then
-  `vulkan_create_swapchain` has FidelityFX make the swapchain (it destroys the swapchain in `oldSwapchain` itself, and the engine's own destroy
-  of that handle, which still comes, is skipped by the hook's `retired` flag), asks for the replacement functions and hands them to the engine
+  vendor on Vulkan and `IDXGIAdapter::GetDesc` on D3D12): on Vulkan it asks the device for three queues: compute (the interpolation), a
+  family that can present (graphics + compute when the graphics family has queues to spare, as on NVIDIA; else the compute bit, which AMD's
+  GPUs present from; never transfer-only, which NVIDIA's cannot) and any (the image acquire). Then `vulkan_create_swapchain` first asks
+  `vkGetPhysicalDeviceSurfaceSupportKHR` whether the present queue's family presents to the window's surface (a hook error that says so
+  otherwise: the SDK refuses such a queue), and has FidelityFX make the swapchain. The handle it is given is the game's native swapchain, which
+  FidelityFX uses as the driver's `oldSwapchain` and destroys with the driver (FidelityFX SDK 2.4, `fsr3/vk/FrameInterpolationSwapchainVK.cpp`
+  :469-487, `ffx_provider_framegenerationswapchain_vk.cpp`:232-234), so the hook gives it none: a resize ends the old proxy through
+  FidelityFX's own destroy function (after its two contexts) and makes the new swapchain from no handle; the engine's own destroy of the old
+  handle, which still comes, is skipped by the hook's `retired` flag (also when the creation fails, or when the new proxy got the old one's
+  address). The hook asks for the replacement functions and hands them to the engine
   (`destroySwapchain` through a trampoline that drops FidelityFX's context argument); on D3D12 `d3d12_create_swapchain` has it make the proxy
   swapchain from the engine's description. A swapchain it cannot make is `error`: the engine then makes its own and `start()` refuses with the
   reason. **The frame generation context** is made lazily by the first `dispatch` (it needs the display size, the maximum render size and the

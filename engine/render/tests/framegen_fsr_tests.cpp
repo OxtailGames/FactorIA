@@ -33,11 +33,13 @@ namespace {
 // ---- the fake library ---------------------------------------------------------------------------------------------------------------
 
 struct Fk {
-    abi::ReturnCode createSwapRc = 0, createFgRc = 0, configureRc = 0, queryVersionsRc = 0, querySwapFnsRc = 0, dispatchRc = 0, destroyRc = 0;
+    abi::ReturnCode createSwapRc = 0, createFgRc = 0, configureRc = 0, queryVersionsRc = 0, querySwapFnsRc = 0,
+                    dispatchRc = 0, destroyRc = 0;
     std::uint64_t versionCount = 1;
-    bool noSwapFn = false;       // the swapchain functions query leaves the present function null
-    bool noProxy = false;        // the DX12 create says ok and gives no swapchain
-    std::vector<std::string> events;  // "create swapchain", "create fg", "configure on|off|hudless", "prepare", "wait", "destroy fg", "destroy swapchain", "vk destroy", "idle"
+    bool noSwapFn = false;  // the swapchain functions query leaves the present function null
+    bool noProxy = false;   // the DX12 create says ok and gives no swapchain
+    std::vector<std::string>
+        events;  // "create swapchain", "create fg", "configure on|off|hudless", "prepare", "wait", "destroy fg", "destroy swapchain", "vk destroy", "idle"
     // what the creates saw
     abi::SwapchainForHwndDx12Desc dx12Swap{};
     abi::SwapchainVkDesc vkSwap{};
@@ -54,6 +56,9 @@ struct Fk {
     std::uint64_t vkHandle = 0x7000;  // the VkSwapchainKHR the fake makes (grows with each create)
     int dxToken = 0, swapToken = 0, fgToken = 0, vkDestroyCalls = 0;
     void* lastVkDestroy = nullptr;
+    std::vector<void*> vkDestroyed;  // each swapchain FidelityFX's destroy function was given, in order
+    bool sameHandle =
+        false;  // the next Vulkan swapchain gets the handle of the last one (the SDK's heap reuses an address)
     int destroysOfFg = 0, destroysOfSwap = 0, creates = 0;
     void reset() { *this = Fk{}; }
 };
@@ -65,6 +70,7 @@ abi::Context fg_ctx() { return reinterpret_cast<abi::Context>(&fk.fgToken); }
 void fake_vk_destroy(void*, void* swapchain, const void*, void* context) {
     ++fk.vkDestroyCalls;
     fk.lastVkDestroy = swapchain;
+    fk.vkDestroyed.push_back(swapchain);
     CHECK(context == nullptr);  // the SDK's replacement takes a context it does not use: the hook passes none
     fk.events.push_back("vk destroy");
 }
@@ -91,7 +97,7 @@ abi::ReturnCode fake_create(abi::Context* context, abi::Header* desc, const void
             fk.swapVersion = reinterpret_cast<const abi::CreateVersionDesc*>(desc->next)->version;
         if (fk.createSwapRc != 0) return fk.createSwapRc;
         *context = swap_ctx();
-        fk.vkHandle += 0x10;
+        if (!fk.sameHandle) fk.vkHandle += 0x10;
         *d->swapchain = fk.vkHandle;
         return 0;
     }
@@ -107,8 +113,9 @@ abi::ReturnCode fake_create(abi::Context* context, abi::Header* desc, const void
                 fk.fgVersion = reinterpret_cast<const abi::CreateVersionDesc*>(h)->version;
             else {
                 fk.fgBackend = h->type;
-                fk.fgDevice = h->type == abi::kCreateBackendDx12 ? reinterpret_cast<const abi::CreateBackendDx12Desc*>(h)->device
-                                                                 : reinterpret_cast<const abi::CreateBackendVkDesc*>(h)->deviceContext.device;
+                fk.fgDevice = h->type == abi::kCreateBackendDx12
+                                  ? reinterpret_cast<const abi::CreateBackendDx12Desc*>(h)->device
+                                  : reinterpret_cast<const abi::CreateBackendVkDesc*>(h)->deviceContext.device;
             }
             h = h->next;
         }
@@ -133,7 +140,9 @@ abi::ReturnCode fake_configure(abi::Context* context, const abi::Header* desc) {
     CHECK(*context == fg_ctx());
     fk.configure = *reinterpret_cast<const abi::ConfigureFrameGenerationDesc*>(desc);
     const abi::ConfigureFrameGenerationDesc& c = fk.configure;
-    fk.events.push_back(c.frameGenerationEnabled ? "configure on" : c.hudlessColor.resource ? "configure hudless" : "configure off");
+    fk.events.push_back(c.frameGenerationEnabled  ? "configure on"
+                        : c.hudlessColor.resource ? "configure hudless"
+                                                  : "configure off");
     return fk.configureRc;
 }
 abi::ReturnCode fake_query(abi::Context* context, abi::Header* desc) {
@@ -221,6 +230,51 @@ struct LoaderGuard {
     LoaderGuard& operator=(const LoaderGuard&) = delete;
 };
 
+// ---- the fake Vulkan instance: the queue families and which of them present ----------------------------------------------------------
+
+struct FakeFamily {
+    std::uint32_t flags, count;
+};
+struct FakeVkInstance {
+    // AMD's layout: one graphics queue, a compute family, a copy family.
+    std::vector<FakeFamily> families{{0x7, 1}, {0x6, 4}, {0x4, 2}};
+    std::map<std::uint32_t, bool> presents;  // family -> can present to the surface (absent = yes)
+    bool noSurfaceFn = false;
+    std::int32_t surfaceRc = 0;
+    int surfaceChecks = 0;
+    std::uint32_t lastFamily = ~0u;
+    std::uint64_t lastSurface = 0;
+};
+FakeVkInstance fvk;
+
+void fake_queue_families(const void*, std::uint32_t* count, void* out) {
+    if (!out) {
+        *count = std::uint32_t(fvk.families.size());
+        return;
+    }
+    struct Props {
+        std::uint32_t flags, count, timestamp, granularity[3];
+    };
+    auto* props = static_cast<Props*>(out);
+    for (std::uint32_t i = 0; i < *count && i < fvk.families.size(); ++i)
+        props[i] = {fvk.families[i].flags, fvk.families[i].count, 64, {1, 1, 1}};
+}
+std::int32_t fake_surface_support(const void*, std::uint32_t family, std::uint64_t surface, std::uint32_t* supported) {
+    ++fvk.surfaceChecks;
+    fvk.lastFamily = family;
+    fvk.lastSurface = surface;
+    const auto it = fvk.presents.find(family);
+    *supported = it == fvk.presents.end() || it->second ? 1u : 0u;
+    return fvk.surfaceRc;
+}
+void (*fake_instance_proc(const void*, const char* name))() {
+    const std::string n = name;
+    if (n == "vkGetPhysicalDeviceQueueFamilyProperties") return reinterpret_cast<void (*)()>(&fake_queue_families);
+    if (n == "vkGetPhysicalDeviceSurfaceSupportKHR" && !fvk.noSurfaceFn)
+        return reinterpret_cast<void (*)()>(&fake_surface_support);
+    return nullptr;
+}
+
 // ---- the fake device and command list -----------------------------------------------------------------------------------------------
 
 void fake_proc_addr() {}
@@ -241,6 +295,7 @@ public:
         n.instance = reinterpret_cast<const void*>(std::uintptr_t(0x2000));
         n.physicalDevice = reinterpret_cast<const void*>(std::uintptr_t(0x3000));
         n.getDeviceProcAddr = &fake_proc_addr;
+        n.getInstanceProcAddr = reinterpret_cast<gpu::NativeDevice::ProcAddr>(&fake_instance_proc);
         return n;
     }
     gpu::NativeImage native_image(gpu::Image img) const override {
@@ -305,8 +360,8 @@ struct VkInfo {
     const void* pNext = nullptr;
     std::uint32_t flags = 0, pad1 = 0;
     std::uint64_t surface = 0x55;
-    std::uint32_t minImageCount = 3, imageFormat = 44, imageColorSpace = 0, width = 320, height = 180, imageArrayLayers = 1, imageUsage = 0x10,
-                  imageSharingMode = 0, queueFamilyIndexCount = 0, pad2 = 0;
+    std::uint32_t minImageCount = 3, imageFormat = 44, imageColorSpace = 0, width = 320, height = 180,
+                  imageArrayLayers = 1, imageUsage = 0x10, imageSharingMode = 0, queueFamilyIndexCount = 0, pad2 = 0;
     const void* queueFamilyIndices = nullptr;
     std::uint32_t preTransform = 1, compositeAlpha = 1, presentMode = 2, clipped = 1;
     std::uint64_t oldSwapchain = 0;
@@ -336,6 +391,7 @@ struct Rig {
 
     explicit Rig(gpu::Backend backend, std::uint32_t pciVendor = 0x1002) : dev(backend, pciVendor), list(dev, backend) {
         fk.reset();
+        fvk = FakeVkInstance{};
         setup_images();
     }
     ~Rig() {
@@ -410,6 +466,9 @@ struct Rig {
     gpu::VulkanDeviceRequest vk_device(std::uint32_t pciVendor = 0x1002) {
         gpu::VulkanPhysicalDevice pd;
         pd.vendorId = pciVendor;
+        pd.instance = dev.native().instance;
+        pd.physicalDevice = dev.native().physicalDevice;
+        pd.getInstanceProcAddr = dev.native().getInstanceProcAddr;
         gpu::VulkanDeviceRequest req;
         hook->vulkan_device_request(pd, req);
         gpu::VulkanDeviceCreated made;
@@ -473,7 +532,8 @@ void make_ready_vk(Rig& r, FrameGenMode mode = FrameGenMode::Fsr) {
 
 // ---- the identity, the table and the pure parts ---------------------------------------------------------------------------------------
 
-TEST_CASE("fsr frame generation: the provider fills the Fsr slot, needs the reversed depth and the hook is for the modes fsr and auto") {
+TEST_CASE("fsr frame generation: the provider fills the Fsr slot, needs the reversed depth and the hook is for the "
+          "modes fsr and auto") {
     render::FrameGenProvider* p = render::framegen_provider(FrameGenSlot::Fsr);
     REQUIRE(p != nullptr);
     CHECK(p->slot() == FrameGenSlot::Fsr);
@@ -551,7 +611,8 @@ TEST_CASE("fsr frame generation probe: D3D12 and Vulkan with the library, nothin
     CHECK_MESSAGE(p.available, p.reason);
     CHECK(p.reason.empty());
     CHECK(d12.loader.askedFiles.back() == "amd_fidelityfx_loader_dx12.dll");
-    CHECK(fk.queryCreateType == abi::kCreateFrameGeneration);  // the frame generation versions are asked for, not the upscaler's
+    CHECK(fk.queryCreateType ==
+          abi::kCreateFrameGeneration);  // the frame generation versions are asked for, not the upscaler's
     // Any maker's GPU: FSR 3 frame generation runs on all of them.
     CHECK(d12.fsr->probe(d12.env(GpuVendor::Nvidia)).available);
 
@@ -560,8 +621,8 @@ TEST_CASE("fsr frame generation probe: D3D12 and Vulkan with the library, nothin
     CHECK_MESSAGE(p.available, p.reason);
     CHECK(vk.loader.askedFiles.back() == "amd_fidelityfx_loader_vk.dll");
 
-    for (const gpu::Backend b : {gpu::Backend::D3d11, gpu::Backend::Gl, gpu::Backend::Gles3, gpu::Backend::Metal, gpu::Backend::WebGl2,
-                                 gpu::Backend::Recording}) {
+    for (const gpu::Backend b : {gpu::Backend::D3d11, gpu::Backend::Gl, gpu::Backend::Gles3, gpu::Backend::Metal,
+                                 gpu::Backend::WebGl2, gpu::Backend::Recording}) {
         Rig other(b);
         const render::VendorProbe refused = other.fsr->probe(other.env());
         CAPTURE(int(b));
@@ -579,7 +640,8 @@ TEST_CASE("fsr frame generation probe: D3D12 and Vulkan with the library, nothin
     CHECK(notWindows.loader.askedFiles.empty());
 }
 
-TEST_CASE("fsr frame generation probe: a missing library, a library that does not load or lacks an export, a driver with no provider") {
+TEST_CASE("fsr frame generation probe: a missing library, a library that does not load or lacks an export, a driver "
+          "with no provider") {
     Rig r(gpu::Backend::D3d12);
     r.loader.installed = false;
     render::VendorProbe p = r.fsr->probe(r.env());
@@ -642,7 +704,8 @@ TEST_CASE("fsr frame generation hook, D3D12: the swapchain is FidelityFX's proxy
     CHECK(r.count("create fg") == 0);
 }
 
-TEST_CASE("fsr frame generation hook, D3D12: a hook not armed, or armed for another mode, leaves the swapchain to the engine") {
+TEST_CASE("fsr frame generation hook, D3D12: a hook not armed, or armed for another mode, leaves the swapchain to the "
+          "engine") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.fsr->probe(r.env()).available);
     CHECK(r.fsr->device_hook_for(FrameGenMode::Dlss) == nullptr);
@@ -693,14 +756,17 @@ TEST_CASE("fsr frame generation hook, D3D12: a missing library is the hook's err
 
 // ---- the hook: Vulkan -------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr frame generation hook, Vulkan: the device asks for the three queues, the swapchain is FidelityFX's with its functions") {
+TEST_CASE("fsr frame generation hook, Vulkan: the device asks for the three queues, the swapchain is FidelityFX's with "
+          "its functions") {
     Rig r(gpu::Backend::Vulkan);
     REQUIRE(r.fsr->probe(r.env()).available);
     REQUIRE(r.arm(FrameGenMode::Fsr));
     const gpu::VulkanDeviceRequest req = r.vk_device();
-    REQUIRE(req.queues.size() == 3);  // compute (async interpolation), transfer-only (present), any (image acquire)
-    CHECK((req.queues[0].flags & 0x2) != 0);
-    CHECK((req.queues[1].flags & 0x4) != 0);
+    REQUIRE(req.queues.size() ==
+            3);  // compute (async interpolation), a family that can present (present), any (image acquire)
+    CHECK(req.queues[0].flags == 0x2);
+    CHECK(req.queues[1].flags == 0x2);  // AMD's layout: the graphics family has one queue, the compute family presents
+    CHECK(req.queues[2].flags == 0);
 
     r.vkInfo.imageFormat = 44;  // VK_FORMAT_B8G8R8A8_UNORM
     REQUIRE(r.vk_swapchain());
@@ -726,6 +792,70 @@ TEST_CASE("fsr frame generation hook, Vulkan: the device asks for the three queu
     CHECK(r.vkSc.functions.destroySwapchain != nullptr);
     CHECK(r.vkSc.functions.setHdrMetadata != nullptr);
     CHECK(r.fsr->start(r.dev, r.swapchain()).empty());
+    // The present queue's family was asked whether it presents to the window's surface.
+    CHECK(fvk.surfaceChecks == 1);
+    CHECK(fvk.lastFamily == 2);
+    CHECK(fvk.lastSurface == r.vkInfo.surface);
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: the present queue comes from a family that can present, never a "
+          "transfer-only one") {
+    SUBCASE("a graphics family with queues to spare (NVIDIA's layout) gives the graphics and compute family") {
+        Rig r(gpu::Backend::Vulkan, 0x10de);
+        fvk.families = {{0x7, 16}, {0x4, 2}, {0x6, 8}};
+        REQUIRE(r.arm(FrameGenMode::Fsr));
+        const gpu::VulkanDeviceRequest req = r.vk_device(0x10de);
+        REQUIRE(req.queues.size() == 3);
+        CHECK(req.queues[0].flags == 0x2);
+        CHECK(req.queues[1].flags == 0x3);  // graphics + compute: the family that presents on every GPU
+        CHECK((req.queues[1].flags & 0x4) == 0);
+    }
+    SUBCASE("a graphics family with few queues (AMD's) asks for the compute bit") {
+        Rig r(gpu::Backend::Vulkan);
+        fvk.families = {
+            {0x7, 4}, {0x6, 4}, {0x4, 2}};  // four is not enough for the engine's three, the async queue and this one
+        REQUIRE(r.arm(FrameGenMode::Fsr));
+        CHECK(r.vk_device().queues[1].flags == 0x2);
+    }
+    SUBCASE("a loader that gives no family list falls back to the compute bit") {
+        Rig r(gpu::Backend::Vulkan);
+        REQUIRE(r.arm(FrameGenMode::Fsr));
+        gpu::VulkanPhysicalDevice pd;  // no instance, no proc address
+        gpu::VulkanDeviceRequest req;
+        r.hook->vulkan_device_request(pd, req);
+        REQUIRE(req.queues.size() == 3);
+        CHECK(req.queues[1].flags == 0x2);
+    }
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: a present queue that cannot present to the window is a hook error that "
+          "says so, and nothing is made") {
+    Rig r(gpu::Backend::Vulkan);
+    REQUIRE(r.fsr->probe(r.env()).available);
+    REQUIRE(r.arm(FrameGenMode::Fsr));
+    r.vk_device();
+
+    fvk.presents[2] = false;  // the family the device gave the present queue
+    CHECK_FALSE(r.vk_swapchain());
+    CHECK(has(r.vkSc.error, "no queue that can present"));
+    CHECK(has(r.vkSc.error, "family 2"));
+    CHECK(fk.creates == 0);
+    CHECK(has(r.fsr->start(r.dev, r.swapchain()), "no queue that can present"));
+
+    fvk.presents[2] = true;
+    fvk.surfaceRc = -4;  // VK_ERROR_DEVICE_LOST
+    CHECK_FALSE(r.vk_swapchain());
+    CHECK(has(r.vkSc.error, "answered -4"));
+    CHECK(fk.creates == 0);
+    fvk.surfaceRc = 0;
+
+    fvk.noSurfaceFn = true;
+    CHECK_FALSE(r.vk_swapchain());
+    CHECK(has(r.vkSc.error, "vkGetPhysicalDeviceSurfaceSupportKHR"));
+    CHECK(fk.creates == 0);
+    fvk.noSurfaceFn = false;
+
+    CHECK(r.vk_swapchain());  // the hook is not marked by the engine in this fake: the same device presents now
 }
 
 TEST_CASE("fsr frame generation hook, Vulkan: Auto asks for queues on an AMD GPU only") {
@@ -750,33 +880,57 @@ TEST_CASE("fsr frame generation hook, Vulkan: Auto asks for queues on an AMD GPU
     CHECK(named.vk_swapchain());
 }
 
-TEST_CASE("fsr frame generation hook, Vulkan: a resize drops the old context first, FidelityFX destroys the old swapchain and the engine's destroy of it is skipped") {
+namespace {
+using VkDestroyFn = void (*)(const void*, void*, const void*);
+// What the engine does after a hook made a swapchain over `old` (vulkan_swapchain.cpp): tells the hooks the old one goes, then calls the destroy
+// function the old swapchain was made with.
+void engine_retires(Rig& r, std::uint64_t old, gpu::VulkanSwapchainFunctions oldFns) {
+    gpu::SwapchainEvent e;
+    e.backend = gpu::Backend::Vulkan;
+    e.vkSwapchain = old;
+    r.hook->swapchain_destroying(e);
+    reinterpret_cast<VkDestroyFn>(oldFns.destroySwapchain)(r.vkSc.device, reinterpret_cast<void*>(std::uintptr_t(old)),
+                                                           nullptr);
+}
+std::size_t destroyed_count(std::uint64_t handle) {
+    return std::size_t(
+        std::count(fk.vkDestroyed.begin(), fk.vkDestroyed.end(), reinterpret_cast<void*>(std::uintptr_t(handle))));
+}
+}  // namespace
+
+TEST_CASE("fsr frame generation hook, Vulkan: a resize ends the old proxy through FidelityFX, makes the new one from "
+          "no handle, and the engine's destroy of the old is skipped") {
     Rig r(gpu::Backend::Vulkan);
     make_ready_vk(r);
     const std::uint64_t first = fk.vkHandle;
+    const gpu::VulkanSwapchainFunctions firstFns = r.vkSc.functions;
     REQUIRE(r.draw());  // the frame generation context exists
     fk.events.clear();
 
     CHECK(r.vk_swapchain(first));
     const std::uint64_t second = fk.vkHandle;
     CHECK(second != first);
-    CHECK(fk.vkSwapIn == first);  // FidelityFX is given the swapchain it replaces
+    // FidelityFX's create destroys, with the driver, the swapchain it is given as the game's: the proxy of the old context is not one the
+    // driver made, so it gets none, and the create info has no old swapchain either.
+    CHECK(fk.vkSwapIn == 0);
+    VkInfo given;
+    std::memcpy(&given, fk.vkSwap.createInfo, sizeof(given));
+    CHECK(given.oldSwapchain == 0);
     CHECK(r.vkSc.swapchain == second);
-    // The order: the generation context, the presents in flight, the swapchain's context, then the new one.
+    // The order: the presents in flight, the generation context, the swapchain's context, the old proxy by FidelityFX's destroy (no context),
+    // then the new swapchain.
     REQUIRE(r.count("destroy fg") == 1);
-    CHECK(r.index("wait") < r.index("destroy fg"));  // the presents in flight finish before the context goes
+    CHECK(r.index("wait") < r.index("destroy fg"));
     CHECK(r.index("destroy fg") < r.index("destroy swapchain"));
-    CHECK(r.index("destroy swapchain") < r.index("create swapchain"));
+    CHECK(r.index("destroy swapchain") < r.index("vk destroy"));
+    CHECK(r.index("vk destroy") < r.index("create swapchain"));
+    CHECK(destroyed_count(first) == 1);
 
-    // The engine then tells the hook the old one is going and calls the destroy function of the old swapchain: nothing happens to it.
-    gpu::SwapchainEvent e;
-    e.backend = gpu::Backend::Vulkan;
-    e.vkSwapchain = first;
-    r.hook->swapchain_destroying(e);
+    // The engine then tells the hook the old one is going and calls the destroy function of the old swapchain: nothing happens to it again.
+    engine_retires(r, first, firstFns);
     CHECK(r.count("destroy swapchain") == 1);
-    using DestroyFn = void (*)(const void*, void*, const void*);
-    reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain)(r.vkSc.device, reinterpret_cast<void*>(std::uintptr_t(first)), nullptr);
-    CHECK(fk.vkDestroyCalls == 0);
+    CHECK(destroyed_count(first) == 1);
+    CHECK(fk.vkDestroyCalls == 1);
 
     // The next frame makes the context again, with a reset.
     REQUIRE(r.fsr->start(r.dev, r.swapchain()).empty());
@@ -784,9 +938,79 @@ TEST_CASE("fsr frame generation hook, Vulkan: a resize drops the old context fir
     REQUIRE(r.draw());
     CHECK(r.count("create fg") == 1);
     CHECK(fk.prepare.reset);
+
+    // The window closes: the new swapchain is destroyed once, by FidelityFX; every handle reached FidelityFX's destroy exactly once.
+    engine_retires(r, second, r.vkSc.functions);
+    CHECK(destroyed_count(second) == 1);
+    CHECK(destroyed_count(first) == 1);
+    CHECK(fk.vkDestroyed.size() == 2);
 }
 
-TEST_CASE("fsr frame generation hook, Vulkan: destroying the swapchain takes the contexts down in order and calls FidelityFX's destroy without a context") {
+TEST_CASE("fsr frame generation hook, Vulkan: a resize whose new swapchain gets the address of the old one is not "
+          "destroyed with it") {
+    Rig r(gpu::Backend::Vulkan);
+    make_ready_vk(r);
+    const std::uint64_t first = fk.vkHandle;
+    const gpu::VulkanSwapchainFunctions firstFns = r.vkSc.functions;
+    REQUIRE(r.draw());
+    fk.sameHandle = true;  // the SDK freed the old proxy and its allocator handed the new one the same address
+
+    REQUIRE(r.vk_swapchain(first));
+    CHECK(r.vkSc.swapchain == first);
+    CHECK(destroyed_count(first) == 1);  // the old object, by the hook
+    engine_retires(r, first, firstFns);  // the engine's destroy of "the old" swapchain is the old object's: skipped
+    CHECK(destroyed_count(first) == 1);
+    CHECK(r.count("destroy swapchain") == 1);
+
+    // The new object is alive: a frame still works, and its own destruction reaches FidelityFX.
+    REQUIRE(r.fsr->start(r.dev, r.swapchain()).empty());
+    REQUIRE(r.draw());
+    engine_retires(r, first, r.vkSc.functions);
+    CHECK(destroyed_count(first) == 2);
+    CHECK(r.count("destroy swapchain") == 2);
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: a resize whose creation fails leaves no handle destroyed twice and no "
+          "context behind") {
+    Rig r(gpu::Backend::Vulkan);
+    make_ready_vk(r);
+    const std::uint64_t first = fk.vkHandle;
+    const gpu::VulkanSwapchainFunctions firstFns = r.vkSc.functions;
+    REQUIRE(r.draw());
+
+    fk.createSwapRc = abi::kRuntimeError;
+    CHECK_FALSE(r.vk_swapchain(first));
+    CHECK(has(r.vkSc.error, "Vulkan swapchain"));
+    CHECK(destroyed_count(first) == 1);  // the old proxy ended by FidelityFX's destroy before the new one was tried
+    // The engine retires the old swapchain (then makes its own): the hook does not touch it again.
+    engine_retires(r, first, firstFns);
+    CHECK(destroyed_count(first) == 1);
+    CHECK(fk.vkDestroyed.size() == 1);
+    CHECK(r.count("destroy fg") == 1);
+    CHECK(r.count("destroy swapchain") == 1);
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: a resize refused before anything is touched leaves the old swapchain to "
+          "the engine's destroy, once") {
+    Rig r(gpu::Backend::Vulkan);
+    make_ready_vk(r);
+    const std::uint64_t first = fk.vkHandle;
+    const gpu::VulkanSwapchainFunctions firstFns = r.vkSc.functions;
+    REQUIRE(r.draw());
+    fk.events.clear();
+
+    fvk.presents[2] = false;
+    CHECK_FALSE(r.vk_swapchain(first));
+    CHECK(fk.vkDestroyed.empty());
+    CHECK(fk.destroysOfSwap == 0);  // the old contexts are still there until the engine retires the old swapchain
+    engine_retires(r, first, firstFns);
+    CHECK(destroyed_count(first) == 1);
+    CHECK(r.count("destroy fg") == 1);
+    CHECK(r.count("destroy swapchain") == 1);
+}
+
+TEST_CASE("fsr frame generation hook, Vulkan: destroying the swapchain takes the contexts down in order and calls "
+          "FidelityFX's destroy without a context") {
     Rig r(gpu::Backend::Vulkan);
     make_ready_vk(r);
     REQUIRE(r.draw());
@@ -800,17 +1024,20 @@ TEST_CASE("fsr frame generation hook, Vulkan: destroying the swapchain takes the
     REQUIRE(r.count("destroy fg") == 1);
     CHECK(r.index("destroy fg") < r.index("destroy swapchain"));
     using DestroyFn = void (*)(const void*, void*, const void*);
-    reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain)(r.vkSc.device, reinterpret_cast<void*>(std::uintptr_t(handle)), nullptr);
+    reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain)(
+        r.vkSc.device, reinterpret_cast<void*>(std::uintptr_t(handle)), nullptr);
     CHECK(fk.vkDestroyCalls == 1);
     CHECK(fk.lastVkDestroy == reinterpret_cast<void*>(std::uintptr_t(handle)));
     CHECK(r.index("destroy swapchain") < r.index("vk destroy"));
 }
 
-TEST_CASE("fsr frame generation hook, Vulkan: a swapchain that is not FidelityFX's is replaced by the engine, a hook that cannot is an error") {
+TEST_CASE("fsr frame generation hook, Vulkan: a swapchain that is not FidelityFX's is replaced by the engine, a hook "
+          "that cannot is an error") {
     Rig r(gpu::Backend::Vulkan);
     REQUIRE(r.arm(FrameGenMode::Fsr));
     r.vk_device();
-    CHECK_FALSE(r.vk_swapchain(0x1234));  // the engine's own old swapchain: the engine makes the new one, FidelityFX is not asked
+    CHECK_FALSE(r.vk_swapchain(
+        0x1234));  // the engine's own old swapchain: the engine makes the new one, FidelityFX is not asked
     CHECK(fk.creates == 0);
     CHECK(r.vkSc.error.empty());
 
@@ -829,11 +1056,16 @@ TEST_CASE("fsr frame generation hook, Vulkan: a swapchain that is not FidelityFX
     fk.noSwapFn = true;
     CHECK_FALSE(r.vk_swapchain());
     CHECK(has(r.vkSc.error, "vkQueuePresentKHR"));
+    // The swapchain FidelityFX made is ended before its context, so the window's surface is free for the engine's own swapchain.
+    REQUIRE(fk.vkDestroyed.size() == 1);
+    CHECK(fk.vkDestroyed[0] == reinterpret_cast<void*>(std::uintptr_t(fk.vkHandle)));
+    CHECK(fk.destroysOfSwap == 2);
     fk.noSwapFn = false;
     CHECK(r.vk_swapchain());
 }
 
-TEST_CASE("fsr frame generation hook, Vulkan: a device that gave fewer than three queues cannot serve FidelityFX's swapchain") {
+TEST_CASE("fsr frame generation hook, Vulkan: a device that gave fewer than three queues cannot serve FidelityFX's "
+          "swapchain") {
     Rig r(gpu::Backend::Vulkan);
     REQUIRE(r.arm(FrameGenMode::Fsr));
     gpu::VulkanPhysicalDevice pd;
@@ -851,7 +1083,8 @@ TEST_CASE("fsr frame generation hook, Vulkan: a device that gave fewer than thre
 
 // ---- the frames ---------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr frame generation: a frame makes the context once, configures it and prepares it inside a native section") {
+TEST_CASE(
+    "fsr frame generation: a frame makes the context once, configures it and prepares it inside a native section") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     r.fsr->configure(true);
@@ -928,7 +1161,8 @@ TEST_CASE("fsr frame generation: the frame's constants reach FidelityFX as the S
     for (const gpu::NativeUse& u : r.list.declared) CHECK(u.state == gpu::NativeState::ShaderRead);
 }
 
-TEST_CASE("fsr frame generation: a finite depth gives the planes of the camera, a pixel-unit motion scale multiplies the render size") {
+TEST_CASE("fsr frame generation: a finite depth gives the planes of the camera, a pixel-unit motion scale multiplies "
+          "the render size") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     r.frame.depthReversed = false;
@@ -972,7 +1206,8 @@ TEST_CASE("fsr frame generation: nonsense numbers in a frame become defaults, ne
     CHECK(d.cameraPosition[1] == doctest::Approx(1e30f));
 }
 
-TEST_CASE("fsr frame generation: the picture before the screen-space items goes to the swapchain only when the items were drawn") {
+TEST_CASE("fsr frame generation: the picture before the screen-space items goes to the swapchain only when the items "
+          "were drawn") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     r.fsr->configure(true);
@@ -1001,8 +1236,8 @@ TEST_CASE("fsr frame generation: the picture before the screen-space items goes 
     using Callback = abi::ReturnCode (*)(void*, void*);
     abi::Header dispatchDesc{};
     // The fake has no frame generation dispatch type: it answers "unknown desc type", which the callback returns as an error and does not count.
-    CHECK(reinterpret_cast<Callback>(fk.configure.frameGenerationCallback)(&dispatchDesc, fk.configure.frameGenerationCallbackUserContext) ==
-          abi::kUnknownDescType);
+    CHECK(reinterpret_cast<Callback>(fk.configure.frameGenerationCallback)(
+              &dispatchDesc, fk.configure.frameGenerationCallbackUserContext) == abi::kUnknownDescType);
     CHECK(r.fsr->generated_frames() == 0);
 }
 
@@ -1027,7 +1262,8 @@ TEST_CASE("fsr frame generation: the generated frames are the callback's success
     CHECK(r.fsr->generated_frames() == 0);
 }
 
-TEST_CASE("fsr frame generation: a reset is asked after the first frame, a camera cut, a failed frame and a change of the swapchain") {
+TEST_CASE("fsr frame generation: a reset is asked after the first frame, a camera cut, a failed frame and a change of "
+          "the swapchain") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     REQUIRE(r.draw());
@@ -1059,7 +1295,8 @@ TEST_CASE("fsr frame generation: a reset is asked after the first frame, a camer
     CHECK(fk.prepare.reset);
 }
 
-TEST_CASE("fsr frame generation: a new output size or new flags make the context again, after the old one is taken down in order") {
+TEST_CASE("fsr frame generation: a new output size or new flags make the context again, after the old one is taken "
+          "down in order") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     REQUIRE(r.draw());
@@ -1086,7 +1323,8 @@ TEST_CASE("fsr frame generation: a new output size or new flags make the context
 
 // ---- stop ---------------------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr frame generation: stop turns generation off, waits, and destroys the context but leaves the swapchain presenting") {
+TEST_CASE("fsr frame generation: stop turns generation off, waits, and destroys the context but leaves the swapchain "
+          "presenting") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     r.fsr->configure(true);
@@ -1109,7 +1347,8 @@ TEST_CASE("fsr frame generation: stop turns generation off, waits, and destroys 
     CHECK(r.count("create fg") == 1);
 }
 
-TEST_CASE("fsr frame generation: the swapchain going away takes the contexts down, and the device after it has nothing left") {
+TEST_CASE("fsr frame generation: the swapchain going away takes the contexts down, and the device after it has nothing "
+          "left") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     REQUIRE(r.draw());
@@ -1165,7 +1404,8 @@ TEST_CASE("fsr frame generation: start refuses without a swapchain of its own, n
     CHECK(has(f.fsr->start(f.dev, f.swapchain()), "format"));
 }
 
-TEST_CASE("fsr frame generation: each FidelityFX call that fails is a refusal with the library's words, never a crash") {
+TEST_CASE(
+    "fsr frame generation: each FidelityFX call that fails is a refusal with the library's words, never a crash") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     r.fsr->configure(true);
@@ -1218,7 +1458,8 @@ TEST_CASE("fsr frame generation: each FidelityFX call that fails is a refusal wi
     CHECK(r.draw());
 }
 
-TEST_CASE("fsr frame generation: a frame that lacks what FidelityFX needs, or a device of another backend, is refused with the reason") {
+TEST_CASE("fsr frame generation: a frame that lacks what FidelityFX needs, or a device of another backend, is refused "
+          "with the reason") {
     Rig r(gpu::Backend::D3d12);
     make_ready_dx12(r);
     gpu::Image keep = r.frame.depth;

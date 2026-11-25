@@ -33,7 +33,8 @@ struct Rect2D {  // FfxApiRect2D
 
 // The descriptor types (FFX_API_MAKE_EFFECT_SUB_ID / FFX_API_MAKE_BACKEND_EFFECT_SUB_ID of the SDK's headers).
 inline constexpr std::uint64_t kCreateFrameGeneration = 0x00020001, kConfigureFrameGeneration = 0x00020002,
-                               kCreateFrameGenerationHudless = 0x00020009, kDispatchFrameGenerationPrepareV2 = 0x0002000c,
+                               kCreateFrameGenerationHudless = 0x00020009,
+                               kDispatchFrameGenerationPrepareV2 = 0x0002000c,
                                kCreateFrameGenerationVersion = 0x0002000e;
 inline constexpr std::uint64_t kCreateSwapchainForHwndDx12 = 0x00030006, kCreateSwapchainVersionDx12 = 0x0003000b,
                                kDispatchSwapchainWaitDx12 = 0x00030007;
@@ -43,7 +44,8 @@ inline constexpr std::uint64_t kCreateSwapchainVk = 0x00040001, kCreateSwapchain
 inline constexpr std::uint32_t kFrameGenerationVersion = (4u << 22) | 2u, kSwapchainVersion = 4u << 22;
 
 // FfxApiCreateContextFramegenerationFlags.
-inline constexpr std::uint32_t kFgJitterCancellation = 1u << 2, kFgDepthInverted = 1u << 3, kFgDepthInfinite = 1u << 4, kFgHdr = 1u << 5;
+inline constexpr std::uint32_t kFgJitterCancellation = 1u << 2, kFgDepthInverted = 1u << 3, kFgDepthInfinite = 1u << 4,
+                               kFgHdr = 1u << 5;
 
 struct CreateFrameGenerationDesc {  // ffxCreateContextDescFrameGeneration
     Header header;
@@ -61,7 +63,8 @@ struct CreateVersionDesc {  // ffxCreateContextDescFrameGeneration[SwapChain]Ver
     std::uint32_t version;
 };
 // The callbacks the swapchain calls: only a pointer to the descriptor is read, whose first member is the header.
-using PresentCallback = ReturnCode (*)(void* params, void* userContext);   // FfxApiPresentCallbackFunc (the engine passes none)
+using PresentCallback = ReturnCode (*)(void* params,
+                                       void* userContext);  // FfxApiPresentCallbackFunc (the engine passes none)
 using DispatchCallback = ReturnCode (*)(void* params, void* userContext);  // FfxApiFrameGenerationDispatchFunc
 struct ConfigureFrameGenerationDesc {                                      // ffxConfigureDescFrameGeneration
     Header header;
