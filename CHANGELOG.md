@@ -11,6 +11,12 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   even when `render.latency` is off (one shared context; a missing `libxell.dll` is refused with the fix), `render.supports` has real reasons
   in `xessFrameGen`, and an SDK failure while it runs is logged once and keeps it off for the run. Not tested on Intel hardware.
   docs/FRAME_GENERATION.md, "XeSS Frame Generation".
+- **Frame generation in the editor and the menu kit (M78):** the editor's Graphics window has a Frame generation group (mode combo with
+  the unsupported modes greyed out and their reason, minimum base fps slider, the latency advice, the profiler's state) and
+  `project.graphics` takes `frameGeneration {mode, minBaseFps}`; the menu kit's options page has a fourth Graphics page with the same
+  rows, saved as `settings.graphics.frameGeneration` and applied at each start. The Graphics window reads `render.supports` again only
+  when it opens, on Revert and every 10 seconds (it was every 3). The low-latency page has room for longer translations and its
+  layout test also runs with every mode unsupported. FRAME_GENERATION.md, MENUS.md.
 - **Frame generation seam (M78):** `render.frameGeneration` (project key `render.frameGeneration {mode, minBaseFps}` and the command
   `render.frame_generation`): `mode` off, auto (the GPU maker's SDK), dlss, fsr or xess, and the base frame rate below which generation
   switches off (default 60, back on at 10% above). This package is the seam and no vendor SDK yet: a provider interface with one empty slot
