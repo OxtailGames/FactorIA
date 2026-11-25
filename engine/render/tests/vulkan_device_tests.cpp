@@ -4246,6 +4246,33 @@ TEST_CASE(
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
+TEST_CASE("vulkan: a window whose swapchain was lost keeps its surface, and create_swapchain does not leak it") {
+    TestWindow win(32, 32);
+    auto dev = make_vk();
+    if (!dev) return;
+    if (!window_path(*dev, win)) return;
+    SwapchainDesc d;
+    d.nativeWindow = win.window;
+    d.nativeDisplay = win.display;
+    d.width = 32;
+    d.height = 32;
+    d.label = "lost-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, made.error().to_string());
+    window_frame(*dev, Color{1.0f, 0.0f, 0.0f, 1.0f});
+    // What a swapchain that failed to be made again at an acquire leaves: no swapchain, the surface still there.
+    dev->lose_swapchain_keep_surface_for_tests();
+    CHECK_FALSE(dev->has_swapchain());
+    // The renderer's present() makes the window's swapchain again with create_swapchain: the old surface goes first
+    // (a second surface on an Android window fails, and the first would leak: the layer reports it).
+    auto again = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(again, again.error().to_string());
+    CHECK(dev->has_swapchain());
+    window_frame(*dev, Color{0.0f, 1.0f, 0.0f, 1.0f});
+    dev->destroy_swapchain();
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
 TEST_CASE("vulkan: swapchain_format_supported is safe from another thread while the swapchain is made again") {
     TestWindow win(32, 32);
     auto dev = make_vk();
