@@ -406,7 +406,7 @@ jobs:
         id: size-vulkan
         if: runner.os == 'Linux'
         continue-on-error: true
-        run: ./scripts/player-size.sh measure --platform linux-x64-vulkan --build-dir build/${{ matrix.preset }} --out-dir player-size-vulkan
+        run: ./scripts/player-size.sh measure --platform linux-x64-vulkan --build-dir build/${{ matrix.preset }} --config Release --out-dir player-size-vulkan
 
       - name: Upload the Vulkan player size report
         if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}

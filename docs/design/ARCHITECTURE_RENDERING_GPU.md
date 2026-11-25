@@ -474,7 +474,7 @@ turns into the fallback. `app_release_native_window` and app.cpp's cleanup (a ru
 window) call `fa_sapp_gl_surface_restore`: a new GLXWindow on the same X11 window, the context current on it, the swap
 and the swap interval back, the pbuffer destroyed. sokol_app reads the X11 window size every frame either way, so a
 resize reaches `app_framebuffer_width` and the device's `resize_swapchain`. A build whose sokol_app uses EGL on Linux
-(`SOKOL_FORCE_EGL`, GLES3) keeps its window busy and the release refuses with that reason. Tests, Linux only under xvfb: `platform_windowed_gl_handover` (gl_surface_handover_tests_linux.cpp: claim,
+(`SOKOL_FORCE_EGL`, GLES3) keeps its window busy and the claim's busy check refuses first, with that reason. Tests, Linux only under xvfb: `platform_windowed_gl_handover` (gl_surface_handover_tests_linux.cpp: claim,
 resize, release, GL draws red again, a claim refused while sokol_gfx draws, quit while claimed),
 `runtime_windowed_vulkan` and `runtime_windowed_vulkan_fallback` (windowed_vulkan_tests_linux.cpp: the game on
 lavapipe, presented into the window, a resize, vsync refused, a red corner read back from the X server; and a
@@ -495,7 +495,10 @@ on the next window. While released, the destruction of the stand-in first calls 
 (`app_set_native_window_listener`, set by `Engine::init` after the renderer started on a claimed window), so
 `Renderer::set_native_window(nullptr)` destroys the Vulkan swapchain and surface while the window still exists; the
 next window gets a new stand-in instead of an EGL window surface and the listener hears it, and `Renderer::present`
-makes the swapchain on it at that frame's size (with no window, `present` ends the frame unshown). The restore makes
+makes the swapchain on it at that frame's size (with no window, `present` ends the frame unshown). With no listener (the
+release gave the window back, or a restore failed) the next window gets a real surface: the wrapper drops the stand-in,
+sets the state to 0 and makes the call. app.cpp's cleanup removes the listener and drops the stand-in without making a
+window surface. The restore makes
 an EGL window surface on the window the device had (with sokol_app's sRGB attributes), or nothing when the activity has
 no window then. Every call is on sokol_app's loop thread, which is the frame thread: no locks. A Vulkan
 `VK_ERROR_SURFACE_LOST_KHR` at an acquire or a present destroys the swapchain too, and the next `present` makes it

@@ -1,6 +1,7 @@
 // The window presenter of Windows (src/d3d11_present.h): sokol_app owns no graphics device there, the engine makes the
-// D3D11 device and the window's DXGI swapchain. Windows only (the _win32 suffix): a hidden window of our own, sokol_gfx on
-// the presenter's device, frames cleared to a colour, read back from the swapchain's buffer before they are presented.
+// D3D11 device and the window's DXGI swapchain. Windows only (the _win32 suffix): a hidden window of our own, sokol_gfx
+// on the presenter's device, frames cleared to a colour, read back from the swapchain's buffer before they are
+// presented.
 #include <doctest.h>
 
 #if defined(_WIN32) && defined(SOKOL_D3D11)
@@ -159,9 +160,10 @@ TEST_CASE("D3D11 window presenter: clear, read back, present, resize, destroy") 
 TEST_CASE("D3D11 window presenter with MSAA resolves into the swapchain's buffer") { run_presenter(4); }
 
 TEST_CASE("D3D11 window presenter: destroyed, the same window takes a new flip-model swapchain") {
-    // The in-process fallback (M77-P9e1): a D3D12 or Vulkan device claimed the window, so the presenter was destroyed (one
-    // flip-model swapchain per HWND, released at once by ClearState + Flush), then failed; the presenter is made again on the
-    // same HWND. Two rounds: the second one is the one a released swapchain would have refused (E_ACCESSDENIED).
+    // The in-process fallback (M77-P9e1): a D3D12 or Vulkan device claimed the window, so the presenter was destroyed
+    // (one flip-model swapchain per HWND, released at once by ClearState + Flush), then failed; the presenter is made
+    // again on the same HWND. Two rounds: the second one is the one a released swapchain would have refused
+    // (E_ACCESSDENIED).
     HiddenWindow window(64, 48);
     REQUIRE(window.hwnd);
     for (int round = 0; round < 2; ++round) {

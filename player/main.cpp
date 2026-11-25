@@ -29,6 +29,7 @@
 #include "fa/core/log.h"
 #include "fa/core/pack.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/gpu_backend_choice.h"
 #include "fa/runtime/project.h"
 #if defined(FA_PLAYER_VULKAN_VARIANT)
 // The Vulkan player of Linux and Android (player/CMakeLists.txt, docs/RENDERING.md "Two players on Linux and Android").
@@ -36,7 +37,6 @@
 #include <vector>
 
 #include "fa/render/gpu_probe.h"
-#include "fa/runtime/gpu_backend_choice.h"
 #include "fa/runtime/gpu_launch.h"
 #endif
 
@@ -52,10 +52,10 @@ namespace stdfs = std::filesystem;
 #if defined(FA_PLAYER_VULKAN_VARIANT)
 namespace {
 
-// What the Vulkan player does at start: draw the game itself (Vulkan, or its own sokol backend when the OpenGL player is
-// not there), or hand over to the OpenGL player because the game asks for OpenGL or Vulkan cannot start. The same order
-// of choices as the engine's (fa/runtime/gpu_backend_choice.h); `glPlayerPresent` says whether the OpenGL player is there.
-// A Vulkan device is tried (and dropped) only when this process would draw with Vulkan and could hand over.
+// What the Vulkan player does at start: draw the game itself (Vulkan, or its own sokol backend when the OpenGL player
+// is not there), or hand over to the OpenGL player because the game asks for OpenGL or Vulkan cannot start. The same
+// order of choices as the engine's (fa/runtime/gpu_backend_choice.h); `glPlayerPresent` says whether the OpenGL player
+// is there. A Vulkan device is tried (and dropped) only when this process would draw with Vulkan and could hand over.
 fa::GpuLaunchDecision vulkan_player_decision(const fa::EngineConfig& cfg, const fa::ProjectSettings& project,
                                              bool glPlayerPresent, bool checkRun, std::string* vulkanFailure) {
     fa::GpuBackendInputs in = fa::make_gpu_backend_inputs(cfg.gpuBackend, !cfg.memoryStorage,
@@ -164,6 +164,7 @@ int main() {
 // ------------------------------------------------------------------------------------------------
 // Desktop
 // ------------------------------------------------------------------------------------------------
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -172,8 +173,12 @@ int main() {
 
 #if defined(_WIN32)
 #include <windows.h>
-#elif defined(__APPLE__)
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#if defined(__APPLE__)
 #include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace {
@@ -217,21 +222,47 @@ stdfs::path desktop_user_dir(const std::string& gameId) {
 }
 
 // Every log line also goes to <save folder>/log.txt, rewritten on each start: a double-clicked game has no console, and
-// this is the file a player can send with a bug report.
+// this is the file a player can send with a bug report. A player that another player started in its place (the Vulkan
+// player handing the game to the OpenGL one, FA_GPU_FALLBACK_FROM) appends instead, so the lines of the player that
+// failed stay in the file above its own. Every line is written to the file at once (nothing is buffered, so nothing is
+// lost when the process is replaced by exec), and the file is not inherited by the player that replaces this one.
 void log_to_file(const stdfs::path& dir) {
-    static std::ofstream file;
     static std::mutex mutex;
     std::error_code ec;
     stdfs::create_directories(dir, ec);
-    file.open(dir / "log.txt", std::ios::binary | std::ios::trunc);
+    const char* from = std::getenv(fa::kGpuFallbackFromEnv);
+    const bool append = from && *from;
+#if defined(_WIN32)
+    static std::ofstream file;
+    file.open(dir / "log.txt", std::ios::binary | (append ? std::ios::app : std::ios::trunc));
     if (!file) return;
     fa::add_log_sink([](const fa::LogEntry& e) {
         std::lock_guard<std::mutex> lock(mutex);
         file << fa::format_log_line(e) << '\n' << std::flush;
     });
+#else
+    static int fd = -1;
+    const stdfs::path path = dir / "log.txt";
+    fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC | (append ? O_APPEND : O_TRUNC), 0644);
+    if (fd < 0) return;
+    fa::add_log_sink([](const fa::LogEntry& e) {
+        const std::string line = fa::format_log_line(e) + '\n';
+        std::lock_guard<std::mutex> lock(mutex);
+        const char* data = line.data();
+        std::size_t left = line.size();
+        while (left > 0) {
+            const ssize_t n = ::write(fd, data, left);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;
+            data += n;
+            left -= static_cast<std::size_t>(n);
+        }
+    });
+#endif
 }
 
-// A crash leaves <save folder>/crashes/crash-<time>.txt (and .dmp on Windows) next to log.txt. The next start says so once.
+// A crash leaves <save folder>/crashes/crash-<time>.txt (and .dmp on Windows) next to log.txt. The next start says so
+// once.
 void report_crashes_to_file(const stdfs::path& saveDir, const fa::ProjectSettings& project) {
     fa::CrashReporterOptions crash;
     crash.dir = saveDir / "crashes";
@@ -472,8 +503,10 @@ int main(int argc, char** argv) {
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
+        // First, so the Vulkan player's own lines are in the file and the OpenGL player that it starts in its place
+        // appends to this run's log.txt (log_to_file) instead of to the one of an earlier run.
+        log_to_file(fa::fs::user_dir());
 #if defined(FA_PLAYER_VULKAN_VARIANT)
-        // Before log.txt is started: the OpenGL player that takes over starts it again (its warning names the reason).
         cfg.memoryStorage = checkRun && !persistStorage;
         // A check run (--input, --dump-state, --screenshot) in "auto" draws like `factoria run --headless`, with the
         // OpenGL backend, so its state and pixels match that run byte for byte; FA_GPU_BACKEND=vulkan (or the game's
@@ -484,14 +517,17 @@ int main(int argc, char** argv) {
         std::string vulkanFailure;
         const fa::GpuLaunchDecision launch =
             vulkan_player_decision(cfg, *proj, !glPlayer.empty(), checkRun, &vulkanFailure);
+        bool execFailed = false;
         if (launch.action != fa::GpuLaunchAction::Stay) {
             const bool fallback = launch.action == fa::GpuLaunchAction::FallBackToGl;
             auto r = fa::exec_gl_player(glPlayer, args, fallback ? "vulkan" : "", vulkanFailure);
             // Only back here when the exec failed: this player draws with its own sokol backend.
             std::fprintf(stderr, "warning: %s (%s)\n", r.error().message.c_str(), launch.reason.c_str());
+            execFailed = true;
         }
-        // A window that cannot draw with Vulkan (its surface or swapchain): the OpenGL player takes over, once.
-        if (!glPlayer.empty() && !std::getenv(fa::kGpuFallbackFromEnv)) {
+        // A window that cannot draw with Vulkan (its surface or swapchain): the OpenGL player takes over, once. Not
+        // when that exec has just failed: it would fail again the same way.
+        if (!execFailed && !glPlayer.empty() && !std::getenv(fa::kGpuFallbackFromEnv)) {
             cfg.gpuBackendFailed = [glPlayer, args](const std::string& backend, const std::string& why) {
                 if (backend != "vulkan") return;
                 auto r = fa::exec_gl_player(glPlayer, args, backend, why);
@@ -499,7 +535,6 @@ int main(int argc, char** argv) {
             };
         }
 #endif
-        log_to_file(fa::fs::user_dir());
         report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
@@ -637,7 +672,8 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     fa::fs::set_android_asset_manager(activity->assetManager);
     if (activity->internalDataPath) {
         fa::fs::set_user_dir(activity->internalDataPath);
-        // The app's cache folder is the sibling of its files folder (/data/data/<package>/cache): the system may clear it.
+        // The app's cache folder is the sibling of its files folder (/data/data/<package>/cache): the system may clear
+        // it.
         fa::fs::set_cache_dir((stdfs::path(activity->internalDataPath).parent_path() / "cache").generic_string());
     }
     cfg.projectDir = "";  // the APK assets root

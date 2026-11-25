@@ -167,8 +167,8 @@ struct Presenter::Impl {
         release_last(depth, clean);
     }
 
-    // ResizeBuffers needs every view of the buffers gone and none bound (sokol_gfx clears the context's state at the end of
-    // every pass); the flush lets the runtime drop what it still holds of them.
+    // ResizeBuffers needs every view of the buffers gone and none bound (sokol_gfx clears the context's state at the
+    // end of every pass); the flush lets the runtime drop what it still holds of them.
     HRESULT resize_buffers(int w, int h, int k) {
         bool clean = true;
         drop_views(clean);
@@ -242,7 +242,8 @@ bool Presenter::create(const PresenterDesc& desc, std::string* error) {
                                 "Experience feature",
                                 desc.warp ? "WARP software" : "hardware", hex(hr)));
 
-    // What sokol_app did: at most one frame queued ahead (input latency), no Alt+Enter or Print Screen handling by DXGI.
+    // What sokol_app did: at most one frame queued ahead (input latency), no Alt+Enter or Print Screen handling by
+    // DXGI.
     IDXGIDevice1* dxgiDevice = nullptr;
     IDXGIAdapter* adapter = nullptr;
     IDXGIFactory* factory = nullptr;
@@ -437,8 +438,8 @@ PresentResult Presenter::present(int interval, bool modalLoop) {
     UINT sync = UINT(std::clamp(interval, 0, 4));
     UINT flags = 0;
     if (m.flip) {
-        // sokol_app: vsync off, or the modal move and resize loop, presents at once and drops the frame when the queue is
-        // full; tearing (when the display allows it) shows a vsync-off frame at once instead of at the next vblank.
+        // sokol_app: vsync off, or the modal move and resize loop, presents at once and drops the frame when the queue
+        // is full; tearing (when the display allows it) shows a vsync-off frame at once instead of at the next vblank.
         if (modalLoop) {
             sync = 0;
             flags = DXGI_PRESENT_DO_NOT_WAIT;
@@ -508,8 +509,8 @@ void* Presenter::context() const { return impl_ ? impl_->context : nullptr; }
 bool Presenter::read_back_buffer(int w, int h, std::uint8_t* rgba) const {
     if (!valid() || !rgba || w <= 0 || h <= 0) return false;
     const Impl& m = *impl_;
-    // Buffer 0 is the current back buffer: the window pass has drawn (and resolved MSAA) into it, and the flip model only
-    // changes buffers inside Present().
+    // Buffer 0 is the current back buffer: the window pass has drawn (and resolved MSAA) into it, and the flip model
+    // only changes buffers inside Present().
     ID3D11Texture2D* back = nullptr;
     if (FAILED(m.swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) return false;
     D3D11_TEXTURE2D_DESC desc{};
@@ -551,10 +552,11 @@ bool Presenter::read_back_buffer(int w, int h, std::uint8_t* rgba) const {
     return true;
 }
 
-// ---- the window's presenter ----------------------------------------------------------------------------------------------
+// ---- the window's presenter ----------------------------------------------------------------------------------------
 
 namespace {
-// Made with new and deleted only by window_presenter_release: a presenter sokol_gfx still uses at exit is left to the OS.
+// Made with new and deleted only by window_presenter_release: a presenter sokol_gfx still uses at exit is left to the
+// OS.
 Presenter* g_window = nullptr;
 bool g_windowFailed = false;  // the error was logged once: no new attempt every frame
 }  // namespace
@@ -603,7 +605,7 @@ bool in_modal_move_size_loop() {
 
 }  // namespace fa::d3d11
 
-// ---- sokol_window.h on Windows: the swapchain is the presenter's, not sokol_app's -----------------------------------------
+// ---- sokol_window.h on Windows: the swapchain is the presenter's, not sokol_app's -----------------------------------
 
 extern "C" bool fa_sapp_set_vsync(bool on) {
     // app.cpp keeps the wish and passes the interval to every present(). The blit model of Windows before 10 always
