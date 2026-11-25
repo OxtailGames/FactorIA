@@ -33,6 +33,12 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   A machine that cannot run it says why in `render.supports` and `render.frame_generation` (a GPU or driver Streamline refuses, no plugin, a
   game started with frame generation `off`); an orthographic camera is refused. Verified with a fake Streamline only; needs a check on an
   RTX 40 series machine. FRAME_GENERATION.md, LATENCY.md.
+- **FSR 3 frame generation (M78):** `render.frameGeneration` mode `fsr` (also `auto` on an AMD GPU) now generates frames through AMD
+  FidelityFX on D3D12 and Vulkan (Windows, any GPU, after `factoria setup fidelityfx`). FidelityFX makes the window's swapchain when the game
+  starts with the setting on (`RendererDesc::frameGenerationMode` tells each provider's hook whether to take part); the engine hands it the
+  picture before the screen-space items and the depth, motion, camera and jitter of the temporal upscaler, and the swapchain interpolates when
+  it presents. Every FidelityFX failure is a refusal with its result code and what to do; the `render.supports` row `fsrFrameGen` is true
+  where it can run. FRAME_GENERATION.md, "AMD FSR 3 frame generation".
 - **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
   an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
   flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.

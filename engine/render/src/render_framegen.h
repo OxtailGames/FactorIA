@@ -15,8 +15,8 @@
 // items (it is told the picture has them: `hudDrawn`). Generation therefore needs the upscale stage with a temporal frame (the jitter, the
 // depth and the motion exist only there): without it the controller refuses, and says what to switch on.
 //
-// Each slot is filled by its package (register_framegen_provider, the one call a provider makes; the Dlss and Xess slots by
-// render_framegen_dlss.h and render_framegen_xess.h); an empty slot says which package fills it. The tests put fakes in with
+// Each slot's provider (render_framegen_dlss.h, render_framegen_fsr.h, render_framegen_xess.h) is made with the table;
+// register_framegen_provider replaces one, and an empty slot says why. The tests put fakes in with
 // set_framegen_provider_for_test.
 #pragma once
 
@@ -119,6 +119,10 @@ public:
     // process, so a renderer that did not ask is not seen by it. The same object serves each such device; it passes everything through once
     // stop() ran. The controller never calls it.
     virtual std::shared_ptr<gpu::DeviceHook> device_hook() { return nullptr; }
+    // The same, for the mode the renderer was made with (RendererDesc::frameGenerationMode: Auto, or the one slot the game named): a provider
+    // whose swapchain would be wrong for that mode (FSR's under `dlss`) answers null, and one that serves Auto only on its GPU maker's devices
+    // keeps the mode to decide when its hook runs. The default is device_hook().
+    virtual std::shared_ptr<gpu::DeviceHook> device_hook_for(FrameGenMode /*mode*/) { return device_hook(); }
     // Makes the SDK's context on `device`'s swapchain; "" or the SDK's reason (the controller then stays off this provider, "fail once").
     virtual std::string start(gpu::Device& device, const FrameGenSwapchain& swapchain) = 0;
     // Whether the depth image is to be the reversed infinite one (near / d) instead of d / (d + 1) (FrameGenFrame::depthReversed).
@@ -167,7 +171,8 @@ std::string framegen_environment_problem(const FrameGenProvider& provider, const
 // The device hook of every provider that has one, each once (Renderer::init puts them in DeviceInit::hooks of the device it is about to make,
 // when frame generation is on and the device has a window of D3D12 or Vulkan). Nothing is registered process-wide: a device made without
 // them, by this or another renderer, calls none of them.
-std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks();
+// `mode` is the mode the game asked for: each provider's device_hook_for(mode) decides whether it takes part.
+std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks(FrameGenMode mode = FrameGenMode::Auto);
 
 // ---- the passes of the output ------------------------------------------------------------------------------------------------------
 

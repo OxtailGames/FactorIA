@@ -1193,6 +1193,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.multiThreadRecording = I.project.renderMultiThreadRecording;
         // Frame generation owns the swapchain (a provider hooks its creation), so the renderer is told at its start; only a game window has one.
         rd.frameGeneration = I.windowed && !config.editorMode && I.frameGeneration.mode != render::FrameGenMode::Off;
+        rd.frameGenerationMode = I.frameGeneration.mode;
         std::string gerr;
         bool ok = false;
         // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native

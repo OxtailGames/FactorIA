@@ -11,6 +11,7 @@
 #include "fa/core/log.h"
 
 #include "render_framegen_dlss.h"
+#include "render_framegen_fsr.h"
 
 namespace fa::render {
 
@@ -28,12 +29,12 @@ int slot_index(FrameGenSlot s) {
 
 struct ProviderTable {
     std::mutex mutex;
-    // Each slot is empty until its package registers a provider (the Dlss and Xess slots' are made here: render_framegen_dlss.h,
-    // render_framegen_xess.h).
+    // Each slot's provider is made here (render_framegen_dlss.h, render_framegen_fsr.h, render_framegen_xess.h).
     std::shared_ptr<FrameGenProvider> registered[3];
     FrameGenProvider* fake[3] = {};
     ProviderTable() {
         registered[0] = make_dlss_framegen_provider();
+        registered[1] = make_fsr_framegen_provider();
         registered[2] = make_xess_framegen_provider();
     }
 };
@@ -85,9 +86,7 @@ void clear_registered_framegen_provider_for_test(FrameGenSlot slot) {
 const char* framegen_absent_reason(FrameGenSlot slot) {
     switch (slot) {
         case FrameGenSlot::Dlss: return "DLSS frame generation has no provider in this build.";
-        case FrameGenSlot::Fsr:
-            return "FSR 3 frame generation arrives with the FidelityFX frame generation provider; this build has no "
-                   "provider for it yet.";
+        case FrameGenSlot::Fsr: return "FSR 3 frame generation has no provider in this build.";
         case FrameGenSlot::Xess: return "XeSS frame generation has no provider in this build.";
         case FrameGenSlot::None: break;
     }
@@ -118,14 +117,14 @@ std::string framegen_environment_problem(const FrameGenProvider& provider, const
     return vendor_environment_problem(provider.name(), provider.backends(), env);
 }
 
-std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks() {
+std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks(FrameGenMode mode) {
     ProviderTable& t = table();
     std::vector<std::shared_ptr<gpu::DeviceHook>> hooks;
     std::lock_guard<std::mutex> lock(t.mutex);
     for (int i = 0; i < 3; ++i) {
         FrameGenProvider* p = t.fake[i] ? t.fake[i] : t.registered[i].get();
         if (!p) continue;
-        std::shared_ptr<gpu::DeviceHook> hook = p->device_hook();
+        std::shared_ptr<gpu::DeviceHook> hook = p->device_hook_for(mode);
         if (!hook) continue;
         const bool twice =
             std::any_of(hooks.begin(), hooks.end(), [&](const auto& h) { return h.get() == hook.get(); });

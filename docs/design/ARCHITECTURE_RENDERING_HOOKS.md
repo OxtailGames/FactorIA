@@ -239,12 +239,14 @@ the rest is private to `fa_render`:
 `engine/render/include/fa/render/framegen.h` holds the public part (`FrameGenSettings`, the mode and slot enums, `parse_frame_gen_settings`,
 `effective_frame_generation`); the rest is private to `fa_render`. User text: docs/FRAME_GENERATION.md.
 
-- **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `start`, `swapchain_changed`, `wants_reversed_depth`,
-  `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS; the DLSS one holds the provider of `render_framegen_dlss.cpp` from the
-  start (the table's constructor makes it), the other two are empty until their packages `register_framegen_provider()`, and an empty slot
-  answers with the package that fills it (`framegen_absent_reason`). A provider can ask for Reflex (`requires_reflex()`, see "DLSS frame
-  generation" below). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
-  swapchain returns its `DeviceHook` from `device_hook()`; `Renderer::init` puts `framegen_device_hooks()` in `DeviceInit::hooks` of the device it
+- **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `device_hook_for`, `start`, `swapchain_changed`, `wants_reversed_depth`,
+  `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS, each filled when the table is made
+  (`make_dlss_framegen_provider()`, `make_fsr_framegen_provider()`, `make_xess_framegen_provider()`, below); `register_framegen_provider()`
+  replaces a slot's provider and an empty slot answers with why (`framegen_absent_reason`). A provider can ask for Reflex
+  (`requires_reflex()`, see "DLSS frame generation" below). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
+  swapchain returns its `DeviceHook` from `device_hook()`, or from `device_hook_for(mode)` when it must know the mode the game asked for (the
+  default calls `device_hook()`; `RendererDesc::frameGenerationMode` carries it and `framegen_device_hooks(mode)` asks each provider);
+  `Renderer::init` puts `framegen_device_hooks(desc.frameGenerationMode)` in `DeviceInit::hooks` of the device it
   is about to make when `RendererDesc::frameGeneration` is on (a window of D3D12 or Vulkan the renderer claims), and tells the controller the
   device was "hooked". **The hooks are never registered process-wide** (unlike the latency ones): a second renderer in the process that did
   not ask for frame generation makes a device none of them sees (tested with a fake hook: the device given the hooks marks it, the other leaves
@@ -316,7 +318,37 @@ the rest is private to `fa_render`:
 - **The engine** (`Engine::set_frame_generation`, the command `render.frame_generation`, `profile_frame_generation`): the setting is applied
   to a windowed, non-editor renderer only (like latency); `rd.frameGeneration` is on when the project's mode is not `off` at the start.
   `ProfileSummary::set_frame_generation` stores the readout as `profile.frameGeneration`.
-- **Tests.** `engine/render/tests/framegen_tests.cpp` (ctest `render`): key parsing and errors, the provider choice per GPU maker, each
+- **`render_framegen_fsr.{h,cpp}`: the FSR 3 provider (M78-P5c).** Slot Fsr, D3D12 and Vulkan, `wants_reversed_depth()` true. The engine
+  declares the C ABI of the parts of FidelityFX's `ffx_api` it calls (`ffx_abi`, with `static_assert`s on sizes and offsets, written from the
+  public SDK 2.4 headers: the frame generation effect, its Hudless and Version descriptors, `PrepareV2`, the DX12 `ForHwnd` swapchain, the
+  Vulkan swapchain with its `VkSwapchainCreateInfoKHR` and queue infos, the replacement functions) and takes the five functions
+  (`ffxCreateContext`, `ffxDestroyContext`, `ffxConfigure`, `ffxQuery`, `ffxDispatch`) from the library `fsr_library_spec` names through
+  `VendorLibrary::symbol` (the loader of the FSR upscaler), so a test's fake table runs on every platform. State lives in a `Core` shared by the
+  provider and its `FsrHook`. **The hook** (armed by `device_hook_for(Fsr | Auto)`; `Auto` takes part on an AMD GPU only, read from the PCI
+  vendor on Vulkan and `IDXGIAdapter::GetDesc` on D3D12): on Vulkan it asks the device for three queues: compute (the interpolation), a
+  family that can present (graphics + compute when the graphics family has queues to spare, as on NVIDIA; else the compute bit, which AMD's
+  GPUs present from; never transfer-only, which NVIDIA's cannot) and any (the image acquire). Then `vulkan_create_swapchain` first asks
+  `vkGetPhysicalDeviceSurfaceSupportKHR` whether the present queue's family presents to the window's surface (a hook error that says so
+  otherwise: the SDK refuses such a queue), and has FidelityFX make the swapchain. The handle it is given is the game's native swapchain, which
+  FidelityFX uses as the driver's `oldSwapchain` and destroys with the driver (FidelityFX SDK 2.4, `fsr3/vk/FrameInterpolationSwapchainVK.cpp`
+  :469-487, `ffx_provider_framegenerationswapchain_vk.cpp`:232-234), so the hook gives it none: a resize ends the old proxy through
+  FidelityFX's own destroy function (after its two contexts) and makes the new swapchain from no handle; the engine's own destroy of the old
+  handle, which still comes, is skipped by the hook's `retired` flag (also when the creation fails, or when the new proxy got the old one's
+  address). The hook asks for the replacement functions and hands them to the engine
+  (`destroySwapchain` through a trampoline that drops FidelityFX's context argument); on D3D12 `d3d12_create_swapchain` has it make the proxy
+  swapchain from the engine's description. A swapchain it cannot make is `error`: the engine then makes its own and `start()` refuses with the
+  reason. **The frame generation context** is made lazily by the first `dispatch` (it needs the display size, the maximum render size and the
+  hudless format), and again when those or the flags (inverted and infinite depth, jitter cancellation, HDR) change; a failure is kept per key
+  so the same picture is not tried every frame. Per frame: `ffxConfigure` (enabled, the hudless picture only when the items were drawn over the
+  final one, the frame id, the callback) then `ffxDispatch` of `PrepareV2` inside `begin_native` / `end_native`, with every float checked for
+  NaN. The callback FidelityFX calls at present time counts `generated_frames()`. **Shutdown order**: configure with no callbacks,
+  `WaitForPresents`, `Device::wait_idle`, destroy the generation context, destroy the swapchain context (on Vulkan then the replacement
+  destroy with no context, after `swapchain_destroying`); `stop()` does the first four and leaves the swapchain presenting the rendered frames.
+  Not verified without an AMD machine: the real library's behaviour (the interpolated picture, extra device features its Vulkan swapchain may
+  want, the state of the hudless image at present time).
+- **Tests.** `engine/render/tests/framegen_fsr_tests.cpp` (ctest `render`): a fake library table and a fake hook driver: probe refusals, both
+  hooks, the order of start, configure, prepare and stop, the prepare descriptor's fields, resets, and each ffx call failing into a reason.
+  `engine/render/tests/framegen_tests.cpp` (ctest `render`): key parsing and errors, the provider choice per GPU maker, each
   refusal's sentence, the hysteresis on a fed clock, start and stop across mode changes and a detach, the order of the output passes, and a
   real headless renderer with a fake provider (the frame it gets, the passes it runs, off stops it; `RendererTestAccess::framegen_assume_hooked`
   stands for the swapchain hook a headless run has no window for). No vendor SDK, and no D3D12 or Vulkan swapchain, is exercised.
