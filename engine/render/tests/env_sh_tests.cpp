@@ -409,14 +409,14 @@ TEST_CASE("sky SH on the GPU: a black sky reads back zero (within 1e-5) on an RG
 TEST_CASE("sky SH on the GPU: the shaders hold the nine coefficients in highp on GLES3 and WebGL2") {
     // The environment's own fragment shader: every declaration is highp (a mobile GPU's mediump is fp16, and the sum of a thousand
     // taps of a sky of 60000 overflows it).
-    const std::string env = glsl_source_from_header("env.glsl.h", "env_fs_sh_source_glsl300es[");
+    const std::string env = glsl_source_from_header("env.glsl.h", "env_fs_sh_source_glsl300es");
     REQUIRE(!env.empty());
     CHECK(env.find("highp") != std::string::npos);
     const std::vector<std::string> bad = unqualified_floats(env);
     for (const std::string& l : bad) MESSAGE("not highp: " << l);
     CHECK(bad.empty());
     // The mesh fragment shader's three functions of the ambient: the coefficients read back, the sum and the evaluation.
-    const std::string mesh = glsl_source_from_header("mesh.glsl.h", "mesh_fs_source_glsl300es[");
+    const std::string mesh = glsl_source_from_header("mesh.glsl.h", "mesh_fs_source_glsl300es");
     REQUIRE(!mesh.empty());
     for (const char* fn : {"fa_sh_eval(", "fa_probe_sh_coef(", "fa_ambient_light("}) {
         CAPTURE(fn);

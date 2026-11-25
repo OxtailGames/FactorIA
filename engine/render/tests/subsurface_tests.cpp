@@ -156,7 +156,7 @@ TEST_CASE("subsurface: every float of the GLES3 and WebGL2 sources of the blur a
     // sources are only in it when it is built for GLES3) and scans the fragment shader of each program.
     for (const char* name : {"blur_h", "blur_v", "add"}) {
         const std::string src =
-            glsl_source_from_header("subsurface.glsl.h", std::string("subsurface_fs_") + name + "_source_glsl300es[");
+            glsl_source_from_header("subsurface.glsl.h", std::string("subsurface_fs_") + name + "_source_glsl300es");
         CAPTURE(std::string(name));
         REQUIRE(!src.empty());
         CHECK(src.find("highp") != std::string::npos);
