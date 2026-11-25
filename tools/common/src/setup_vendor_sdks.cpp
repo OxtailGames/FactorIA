@@ -12,9 +12,13 @@
 // at the pinned tag and checked against a pinned SHA-256) for the user to read. A Streamline or XeSS release is one .zip
 // checked against the pinned SHA-256 of the archive; AMD publishes no archive, so each of its files is downloaded alone and
 // checked against its own pinned hash. Only the files of the table are kept (never the Streamline profiler, the development
-// builds or the denoiser). Any host can install them (a Windows export made on a Mac copies them); off Windows the component
-// is "unsupported" in the status, installed only when asked for by name. Folders of older versions are removed once the new
-// one is in place; the DLLs are never loaded by FactorIA, so no running editor keeps one open.
+// builds or the denoiser). Of an archive only the listed entries are unpacked (the whole Streamline zip is 500 MB in 500 files,
+// some nested deep enough to pass Windows' MAX_PATH once placed under a long user folder), and every file is checked against
+// its own pinned SHA-256 after unpacking and again, by verify_installed_vendor_sdk, before an export copies it. Any host can
+// install them (a Windows export made on a Mac copies them); off Windows the component is "unsupported" in the status,
+// installed only when asked for by name. The folders of OLDER pinned versions (a folder named like a version, lower than this
+// one) are removed once the new one is in place; anything else under tools/<id>/ (a newer version a newer factoria installed
+// side by side, a folder somebody made) stays. The DLLs are never loaded by FactorIA, so no running editor keeps one open.
 #include <algorithm>
 #include <filesystem>
 
@@ -58,6 +62,32 @@ std::string installed_vendor_sdk_dir(const SetupContext& context, const VendorSd
     for (int i = 0; i < sdk.fileCount; ++i)
         if (!setup_detail::is_file(dir / fs::path_from_utf8(vendor_sdk_file_name(sdk.files[i])))) return {};
     return fs::path_to_utf8(dir);
+}
+
+Result<void> verify_installed_vendor_sdk(const SetupContext& context, const VendorSdk& sdk) {
+    if (!context.verifyVendorSdkFiles) return {};
+    const std::filesystem::path dir = fs::path_from_utf8(vendor_sdk_install_dir(context, sdk));
+    const std::string fix =
+        "Run `factoria setup " + std::string(sdk.id) +
+        " --force` to install it again (it shows the license and asks you to accept it again: add "
+        "--accept-licenses once you have read it), then export again; or set export.pack.vendorSdks "
+        "to \"none\" to ship the game without it.";
+    for (int i = 0; i < sdk.fileCount; ++i) {
+        const std::string name = vendor_sdk_file_name(sdk.files[i]);
+        if (!*sdk.files[i].sha256) continue;
+        const std::filesystem::path file = dir / fs::path_from_utf8(name);
+        auto actual = sha256_file_hex(fs::os_path(file));
+        if (!actual.ok())
+            return make_error("The installed " + std::string(sdk.id) + " file " + fs::path_to_utf8(file) +
+                                  " cannot be read: " + actual.error().message,
+                              fix);
+        if (to_lower(*actual) != to_lower(sdk.files[i].sha256))
+            return make_error("The installed " + std::string(sdk.id) + " file " + fs::path_to_utf8(file) +
+                                  " is not the one FactorIA pinned (SHA-256 " + *actual + ", expected " +
+                                  sdk.files[i].sha256 + "): it is damaged or was changed after the install.",
+                              fix);
+    }
+    return {};
 }
 
 // ---- which SDKs a project can use -----------------------------------------------------------------------------------------
@@ -183,12 +213,59 @@ std::string license_required_message(const VendorSdk& sdk) {
            " means agreeing to it: " + sdk.obligations;
 }
 
-std::string license_required_hint(const VendorSdk& sdk) {
-    return std::string("Show the license text to the user (setup.status lists it under components[].licenses; it is "
-                       "also at ") +
+std::string license_required_hint(const VendorSdk& sdk, bool force) {
+    // --force installs again, which is an install like the first: the license is asked for again.
+    return std::string(force ? "--force installs it again, so it needs the license accepted again, also when it was "
+                               "accepted for the files that are there now. "
+                             : "") +
+           "Show the license text to the user (setup.status lists it under components[].licenses; it is also at " +
            sdk.licenseUrl + ") and, once they have read it and agree, run `factoria setup " + sdk.id +
-           " --accept-licenses` (setup.install {\"component\":\"" + sdk.id +
-           "\",\"acceptLicenses\":true}). An AI must ask the user first.";
+           (force ? " --force" : "") + " --accept-licenses` (setup.install {\"component\":\"" + sdk.id + "\"" +
+           (force ? ",\"force\":true" : "") + ",\"acceptLicenses\":true}). An AI must ask the user first.";
+}
+
+// "2.14.16" -> {2, 14, 16}; empty when the name is not dotted numbers (a folder somebody else made, "2.14.16.old-1-2").
+std::vector<long> version_numbers(const std::string& name) {
+    std::vector<long> out;
+    std::size_t digits = 0;
+    long value = 0;
+    for (const char c : name) {
+        if (c >= '0' && c <= '9') {
+            if (++digits > 9) return {};
+            value = value * 10 + (c - '0');
+        } else if (c == '.' && digits > 0) {
+            out.push_back(value);
+            value = 0;
+            digits = 0;
+        } else {
+            return {};
+        }
+    }
+    if (digits == 0) return {};
+    out.push_back(value);
+    return out;
+}
+
+// Is the folder `name` of tools/<id>/ an older pinned version than `current`, which an install may remove?
+bool is_older_version_folder(const std::string& name, const std::string& current) {
+    std::vector<long> a = version_numbers(name);
+    std::vector<long> b = version_numbers(current);
+    if (a.empty() || b.empty()) return false;
+    const std::size_t n = std::max(a.size(), b.size());
+    a.resize(n, 0);
+    b.resize(n, 0);
+    return a < b;
+}
+
+// What a failed download, unpack or copy adds to its hint: how much free disk space the install needs.
+Fail with_disk_hint(Fail f, const SetupContext& ctx, const VendorSdk& sdk) {
+    if ((f.code == "failed" || f.code == "network") && sdk.diskMb > 0) {
+        if (!f.error.hint.empty()) f.error.hint += " ";
+        f.error.hint += "The install needs about " + std::to_string(sdk.diskMb) + " MB of free disk space in " +
+                        fs::path_to_utf8(fs::path_from_utf8(ctx.home_dir()) / "staging") +
+                        " (the download, the files it keeps and a copy of them).";
+    }
+    return f;
 }
 
 }  // namespace
@@ -219,10 +296,14 @@ SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, 
         return c;
     }
     c.installSizeMb = sdk.sizeMb;
-    c.details = std::string("The install shows the ") + sdk.licenseTitle + ", which you must accept, then downloads " +
-                short_name(sdk) + " " + sdk.version +
-                " (SHA-256 checked) and keeps its x64 DLLs and license texts in " + vendor_sdk_install_dir(ctx, sdk) +
-                ".";
+    c.details =
+        std::string("The install shows the ") + sdk.licenseTitle + ", which you must accept, then downloads " +
+        short_name(sdk) + " " + sdk.version + " (SHA-256 checked) and keeps its x64 DLLs and license texts in " +
+        vendor_sdk_install_dir(ctx, sdk) + "." +
+        (sdk.diskMb > 0
+             ? " It needs about " + std::to_string(sdk.diskMb) +
+                   " MB of free disk space while it installs (the download is " + std::to_string(sdk.sizeMb) + " MB)."
+             : std::string());
     add_license();
     if (ctx.host_os() != "windows") {
         // Not needed here: nothing on this computer runs them. `factoria setup <id>` still installs them, for a Windows
@@ -259,7 +340,8 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     }
     // The license first: nothing is downloaded before the user has agreed.
     if (!opt.acceptLicenses)
-        return in.fail("license_required", make_error(license_required_message(sdk), license_required_hint(sdk)));
+        return in.fail("license_required",
+                       make_error(license_required_message(sdk), license_required_hint(sdk, opt.force)));
     for (int i = 0; i < sdk.fileCount; ++i)
         if (file_is_forbidden(sdk.files[i].src))
             return in.fail("failed",
@@ -275,23 +357,40 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     if (*sdk.archiveUrl) {
         const stdfs::path file = in.staging() / (std::string(sdk.id) + ".zip");
         if (auto f = download_file(ctx, sdk.archiveUrl, file, what, std::uint64_t(sdk.sizeMb) << 20, &bytes))
-            return in.fail(*f);
+            return in.fail(with_disk_hint(*f, ctx, sdk));
         if (auto f = verify_checksum(file, "sha256", sdk.archiveSha256, what)) return in.fail(*f);
         const stdfs::path unpacked = in.make_staging_subdir("unpacked");
-        if (auto f = extract_archive(ctx, file, unpacked)) return in.fail(*f);
+        // Only what the table keeps: the release holds hundreds of other files, some nested deeper than Windows' MAX_PATH.
+        std::vector<std::string> wanted;
+        for (int i = 0; i < sdk.fileCount; ++i) wanted.emplace_back(sdk.files[i].src);
+        if (auto f = extract_archive(ctx, file, unpacked, wanted)) return in.fail(with_disk_hint(*f, ctx, sdk));
         for (int i = 0; i < sdk.fileCount; ++i) {
             const VendorSdkFile& entry = sdk.files[i];
             const std::string name = vendor_sdk_file_name(entry);
             const stdfs::path from = unpacked / fs::path_from_utf8(entry.src);
-            if (!is_file(from))
+            if (!is_file(fs::os_path(from)))
                 return in.fail("failed",
                                make_error(what + " has no " + entry.src + " (the release's layout changed)",
                                           "This is a bug in FactorIA's pin of the release; please report it."));
-            stdfs::copy_file(from, ready / fs::path_from_utf8(name), stdfs::copy_options::overwrite_existing, ec);
+            const stdfs::path to = ready / fs::path_from_utf8(name);
+            stdfs::copy_file(fs::os_path(from), fs::os_path(to), stdfs::copy_options::overwrite_existing, ec);
             if (ec)
-                return in.fail("failed", make_error("Cannot copy " + name + " into " + fs::path_to_utf8(ready) + ": " +
-                                                        ec.message(),
-                                                    writable));
+                return in.fail(with_disk_hint(
+                    Fail{"failed",
+                         make_error("Cannot copy " + name + " into " + fs::path_to_utf8(ready) + ": " + ec.message(),
+                                    writable)},
+                    ctx, sdk));
+            // The archive matched its pin, so a file that does not is a wrong pin of FactorIA's: nothing is installed.
+            if (*entry.sha256) {
+                auto actual = sha256_file_hex(fs::os_path(to));
+                if (!actual.ok()) return in.fail("failed", actual.error());
+                if (to_lower(*actual) != to_lower(entry.sha256))
+                    return in.fail("checksum_mismatch",
+                                   make_error(what + " holds " + entry.src + " with SHA-256 " + *actual +
+                                                  ", but FactorIA pinned " + entry.sha256,
+                                              "Nothing was installed. This is a bug in FactorIA's pin of the release; "
+                                              "please report it."));
+            }
         }
     } else {
         // No archive: every file alone, each against its own pinned hash.
@@ -302,12 +401,12 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
             std::uint64_t one = 0;
             const std::string fileWhat = what + " " + name;
             if (auto f = download_file(ctx, std::string(sdk.baseUrl) + "/" + entry.src, to, fileWhat, 0, &one))
-                return in.fail(*f);
+                return in.fail(with_disk_hint(*f, ctx, sdk));
             bytes += one;
             if (auto f = verify_checksum(to, "sha256", entry.sha256, fileWhat)) return in.fail(*f);
         }
     }
-    if (auto f = replace_dir(ready, dir)) return in.fail(*f);
+    if (auto f = replace_dir(ready, dir)) return in.fail(with_disk_hint(*f, ctx, sdk));
     in.report.changed = true;
     s.outcome = "installed";
     s.detail = std::to_string(sdk.fileCount) +
@@ -317,10 +416,11 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     s.downloadedBytes = bytes;
     s.seconds = timer.seconds();
     in.add_step(s);
-    // The folders of older pinned versions are no longer used (best effort: a failure leaves the old folder).
-    const stdfs::path keep = fs::path_from_utf8(sdk.version);
+    // The folders of older pinned versions are no longer used (best effort: a failure leaves the old folder). Only folders
+    // named like a version and lower than this one: a newer one belongs to a newer factoria that shares this home, and
+    // whatever else is there was not made by this setup.
     for (stdfs::directory_iterator it(dir.parent_path(), ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_directory() && it->path().filename() != keep) {
+        if (it->is_directory() && is_older_version_folder(fs::path_to_utf8(it->path().filename()), sdk.version)) {
             std::error_code rm;
             fs::remove_tree(it->path(), rm);
         }

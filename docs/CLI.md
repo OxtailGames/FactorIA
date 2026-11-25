@@ -137,7 +137,7 @@ game, which then reads its gdeflate files through DirectStorage (any computer ca
 SDK (FSR; about 160 MB), each pinned by SHA-256, and keep their x64 DLLs and license texts in `~/.factoria/tools/<id>/<version>/`
 (older versions are removed). Each shows its vendor's license first and asks `[y/N]`; without a terminal it refuses with
 `license_required` until `--accept-licenses` says you have read and accepted it (NVIDIA's asks you to notify NVIDIA before a
-commercial release). A Windows export copies them next to the game as `export.pack.vendorSdks` says (default `"auto"`: the
+commercial release); `--force` installs again and asks for the license again, so it needs `--force --accept-licenses` without a terminal. A Windows export copies them next to the game as `export.pack.vendorSdks` says (default `"auto"`: the
 installed ones the project's render settings can use), with the license texts in `licenses/<id>/`
 ([EXPORTING_SETUP.md](exporting/EXPORTING_SETUP.md#vendor-sdk-licences)). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
