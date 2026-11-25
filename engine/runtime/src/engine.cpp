@@ -1181,8 +1181,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                            " draws into a game window (factoria run) or headless";
                 const bool windowCannot = !app_native_window().busy.empty();
                 auto claim = app_claim_native_window(gpu_backend_name(backend));
-                // A window that cannot take the swapchain at all (busy: Android's EGL surface, a Linux EGL build) is said so: the player that hands over
-                // passes the reason on, and its warning must not promise a driver brings Vulkan back.
+                // A window that cannot take the swapchain at all (busy: a Linux EGL build) is said so: the player that
+                // hands over passes the reason on, and its warning must not promise a driver brings Vulkan back.
                 if (!claim)
                     return windowCannot ? gpu_window_path_reason(gpu_backend_name(backend), claim.error().to_string())
                                         : claim.error().to_string();
@@ -1210,7 +1210,16 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 }
             I.renderer = std::make_unique<Renderer>();
             std::string why;
-            if (I.renderer->init(d, env, &why)) return "";
+            if (I.renderer->init(d, env, &why)) {
+                // Android: the window goes when the app is in the background and a new one comes back; the renderer
+                // destroys its swapchain and makes it again on the new one (app.h, app_set_native_window_listener).
+                // Cleared before the renderer goes (shutdown, app_release_native_window).
+                if (I.windowClaimed) {
+                    Renderer* renderer = I.renderer.get();
+                    app_set_native_window_listener([renderer](const void* w) { renderer->set_native_window(w); });
+                }
+                return "";
+            }
             I.renderer->shutdown();
             I.renderer.reset();
             if (I.windowClaimed) {
@@ -1448,6 +1457,7 @@ void Engine::shutdown() {
     I.audio.shutdown();
     I.physics.shutdown();
     I.world.clear();
+    if (I.windowClaimed) app_set_native_window_listener({});  // nothing to tell a renderer that is going
     if (I.renderer) I.renderer->shutdown();
     I.renderer.reset();
     if (I.windowClaimed) app_release_native_window();  // its swapchain is gone with the renderer

@@ -117,6 +117,11 @@ struct Renderer::Impl {
     // swapchain before the next acquire.
     int swapW = 0, swapH = 0;
     bool resizeFailed = false;  // resize_swapchain failed (logged once)
+    // What init made the window's swapchain with (D3D12, Vulkan): present() makes it again from this when it is gone
+    // (Renderer::set_native_window; a swapchain the device lost). nativeWindow null: no window to make it on now.
+    gpu::SwapchainDesc windowDesc;
+    bool windowManaged = false;       // init made the device's own swapchain on a native window (D3D12, Vulkan)
+    bool windowRemakeFailed = false;  // create_swapchain on the window's new surface failed (logged once per window)
     std::unique_ptr<Assets> assets;
     Compute* compute =
         nullptr;  // the renderer's Compute (set at init): the buffers a mesh material with "buffers" reads

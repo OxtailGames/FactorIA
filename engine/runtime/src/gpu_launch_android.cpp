@@ -97,6 +97,67 @@ Result<void> android_start_gl_activity(void* nativeActivity, const std::string& 
     return {};
 }
 
+bool android_gl_activity_in_task(void* nativeActivity) {
+    auto* activity = static_cast<ANativeActivity*>(nativeActivity);
+    JNIEnv* env = activity ? activity->env : nullptr;
+    if (!env || !activity->clazz) return false;
+    if (env->PushLocalFrame(32) != 0) {
+        clear(env);
+        return false;
+    }
+    auto done = [&](bool found) {
+        clear(env);
+        env->PopLocalFrame(nullptr);
+        return found;
+    };
+    jclass activityClass = env->GetObjectClass(activity->clazz);
+    jclass managerClass = env->FindClass("android/app/ActivityManager");
+    jclass appTaskClass = managerClass ? env->FindClass("android/app/ActivityManager$AppTask") : nullptr;
+    jclass infoClass = appTaskClass ? env->FindClass("android/app/ActivityManager$RecentTaskInfo") : nullptr;
+    jclass listClass = infoClass ? env->FindClass("java/util/List") : nullptr;
+    jclass componentClass = listClass ? env->FindClass("android/content/ComponentName") : nullptr;
+    if (clear(env) || !activityClass || !componentClass) return done(false);
+    jmethodID getSystemService =
+        env->GetMethodID(activityClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+    jmethodID getTaskId = env->GetMethodID(activityClass, "getTaskId", "()I");
+    jmethodID getAppTasks = env->GetMethodID(managerClass, "getAppTasks", "()Ljava/util/List;");
+    jmethodID getTaskInfo =
+        env->GetMethodID(appTaskClass, "getTaskInfo", "()Landroid/app/ActivityManager$RecentTaskInfo;");
+    jmethodID size = env->GetMethodID(listClass, "size", "()I");
+    jmethodID get = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+    jmethodID getClassName = env->GetMethodID(componentClass, "getClassName", "()Ljava/lang/String;");
+    // persistentId: the task's id on every API level (taskId only from API 29). baseActivity from API 23; from API 29 a
+    // field of the superclass TaskInfo, which GetFieldID finds too.
+    jfieldID persistentId = env->GetFieldID(infoClass, "persistentId", "I");
+    jfieldID baseActivity = env->GetFieldID(infoClass, "baseActivity", "Landroid/content/ComponentName;");
+    if (clear(env) || !getSystemService || !getTaskId || !getAppTasks || !getTaskInfo || !size || !get ||
+        !getClassName || !persistentId || !baseActivity)
+        return done(false);
+    const jint ownTask = env->CallIntMethod(activity->clazz, getTaskId);
+    if (clear(env)) return done(false);
+    jobject manager = env->CallObjectMethod(activity->clazz, getSystemService, env->NewStringUTF("activity"));
+    if (clear(env) || !manager) return done(false);
+    jobject tasks = env->CallObjectMethod(manager, getAppTasks);
+    if (clear(env) || !tasks) return done(false);
+    const jint count = env->CallIntMethod(tasks, size);
+    if (clear(env)) return done(false);
+    for (jint i = 0; i < count; ++i) {
+        jobject task = env->CallObjectMethod(tasks, get, i);
+        if (clear(env) || !task) continue;
+        jobject info = env->CallObjectMethod(task, getTaskInfo);
+        env->DeleteLocalRef(task);
+        if (clear(env) || !info) continue;  // a task that ended meanwhile throws: not this one
+        const bool own = env->GetIntField(info, persistentId) == ownTask;
+        jobject base = own ? env->GetObjectField(info, baseActivity) : nullptr;
+        env->DeleteLocalRef(info);
+        if (!own) continue;
+        if (!base) return done(false);
+        const std::string name = take_string(env, static_cast<jstring>(env->CallObjectMethod(base, getClassName)));
+        return done(!clear(env) && name == kGlActivityClass);
+    }
+    return done(false);
+}
+
 void android_take_gpu_fallback_extras(void* nativeActivity) {
     auto* activity = static_cast<ANativeActivity*>(nativeActivity);
     JNIEnv* env = activity ? activity->env : nullptr;

@@ -19,6 +19,114 @@
 #if defined(__ANDROID__)
 #define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
 #endif
+// Android: sokol_app's EGL window surface leaves the ANativeWindow while a GPU device presents there (M77-P9e3b,
+// egl_surface_handover.h). sokol_app's EGL calls get wrappers: outside a release they are the real calls; while released
+// its window surface is a stand-in (a 1x1 pbuffer or "no drawable"), a new ANativeWindow gets a stand-in and is told to
+// the device, the window's loss is told to the device before the stand-in goes. EGL's headers come first, so their own
+// declarations keep their names. Every call runs on sokol_app's loop thread (its frame thread too).
+#if defined(__ANDROID__)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <android/native_window.h>
+#include <string.h>
+
+#include "egl_surface_handover.h"
+_Static_assert(EGL_WIDTH == FA_EGL_WIDTH && EGL_HEIGHT == FA_EGL_HEIGHT, "egl_surface_handover.h's EGL names");
+
+static void* fa_egl_op_create_pbuffer(void* user, void* display, void* config) {
+    (void)user;
+    EGLint types = 0;
+    if (!eglGetConfigAttrib((EGLDisplay)display, (EGLConfig)config, EGL_SURFACE_TYPE, &types)) return NULL;
+    if (!(types & EGL_PBUFFER_BIT)) return NULL;
+    const EGLint attribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    const EGLSurface pbuffer = eglCreatePbufferSurface((EGLDisplay)display, (EGLConfig)config, attribs);
+    return pbuffer == EGL_NO_SURFACE ? NULL : (void*)pbuffer;
+}
+static bool fa_egl_op_surfaceless(void* user, void* display) {
+    (void)user;
+    const char* extensions = eglQueryString((EGLDisplay)display, EGL_EXTENSIONS);
+    return extensions && strstr(extensions, "EGL_KHR_surfaceless_context") != NULL;
+}
+static void* fa_egl_op_create_window_surface(void* user, void* display, void* config, void* window,
+                                             const int* attribs) {
+    (void)user;
+    const EGLSurface s = eglCreateWindowSurface((EGLDisplay)display, (EGLConfig)config, (EGLNativeWindowType)window,
+                                                (const EGLint*)attribs);
+    return s == EGL_NO_SURFACE ? NULL : (void*)s;
+}
+static bool fa_egl_op_destroy_surface(void* user, void* display, void* surface) {
+    (void)user;
+    return eglDestroySurface((EGLDisplay)display, (EGLSurface)surface) == EGL_TRUE;
+}
+static bool fa_egl_op_make_current(void* user, void* display, void* draw, void* read, void* context) {
+    (void)user;
+    return eglMakeCurrent((EGLDisplay)display, (EGLSurface)draw, (EGLSurface)read, (EGLContext)context) == EGL_TRUE;
+}
+static bool fa_egl_op_swap_buffers(void* user, void* display, void* surface) {
+    (void)user;
+    return eglSwapBuffers((EGLDisplay)display, (EGLSurface)surface) == EGL_TRUE;
+}
+static bool fa_egl_op_query_surface(void* user, void* display, void* surface, int attribute, int* value) {
+    (void)user;
+    EGLint v = 0;
+    const bool ok = eglQuerySurface((EGLDisplay)display, (EGLSurface)surface, attribute, &v) == EGL_TRUE;
+    if (ok) *value = v;
+    return ok;
+}
+static void fa_egl_op_window_size(void* user, void* window, int* width, int* height) {
+    (void)user;
+    *width = ANativeWindow_getWidth((ANativeWindow*)window);
+    *height = ANativeWindow_getHeight((ANativeWindow*)window);
+    if (*width < 0) *width = 0;  // a negative value is an error code
+    if (*height < 0) *height = 0;
+}
+static void fa_egl_op_finish(void* user) {
+    (void)user;
+    glFinish();
+}
+static const fa_egl_surface_ops fa_egl_ops = {
+    NULL,
+    fa_egl_op_create_pbuffer,
+    fa_egl_op_surfaceless,
+    fa_egl_op_create_window_surface,
+    fa_egl_op_destroy_surface,
+    fa_egl_op_make_current,
+    fa_egl_op_swap_buffers,
+    fa_egl_op_query_surface,
+    fa_egl_op_window_size,
+    fa_egl_op_finish,
+};
+static fa_egl_surface_handover fa_egl = {&fa_egl_ops, 0, NULL, NULL, NULL, NULL};
+
+static EGLSurface fa_egl_create_window_surface(EGLDisplay display, EGLConfig config, EGLNativeWindowType window,
+                                               const EGLint* attribs) {
+    void* s = fa_egl_handover_create_window_surface(&fa_egl, (void*)display, (void*)config, (void*)window,
+                                                    (const int*)attribs);
+    return s ? (EGLSurface)s : EGL_NO_SURFACE;
+}
+static EGLBoolean fa_egl_destroy_surface(EGLDisplay display, EGLSurface surface) {
+    return fa_egl_handover_destroy_surface(&fa_egl, (void*)display, (void*)surface) ? EGL_TRUE : EGL_FALSE;
+}
+static EGLBoolean fa_egl_make_current(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
+    return fa_egl_handover_make_current(&fa_egl, (void*)display, (void*)draw, (void*)read, (void*)context) ? EGL_TRUE
+                                                                                                           : EGL_FALSE;
+}
+static EGLBoolean fa_egl_swap_buffers(EGLDisplay display, EGLSurface surface) {
+    return fa_egl_handover_swap_buffers(&fa_egl, (void*)display, (void*)surface) ? EGL_TRUE : EGL_FALSE;
+}
+static EGLBoolean fa_egl_query_surface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
+    int v = 0;
+    if (!fa_egl_handover_query_surface(&fa_egl, (void*)display, (void*)surface, (int)attribute, &v)) return EGL_FALSE;
+    *value = (EGLint)v;
+    return EGL_TRUE;
+}
+#define eglCreateWindowSurface fa_egl_create_window_surface
+#define eglDestroySurface fa_egl_destroy_surface
+#define eglMakeCurrent fa_egl_make_current
+#define eglSwapBuffers fa_egl_swap_buffers
+#define eglQuerySurface fa_egl_query_surface
+#endif
 // Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue with
 // XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then the
 // backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
@@ -65,6 +173,11 @@ static int fa_x11_next_event(Display* display, XEvent* event) {
 #endif
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
+#undef eglCreateWindowSurface
+#undef eglDestroySurface
+#undef eglMakeCurrent
+#undef eglSwapBuffers
+#undef eglQuerySurface
 #endif
 #if defined(__linux__) && !defined(__ANDROID__)
 #undef XPending
@@ -721,6 +834,41 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
 }
 
 int fa_sapp_gl_surface_state(void) { return fa_gl_surface.state; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;  // the X11 window outlives the release: nothing to hear
+    (void)user;
+}
+#elif defined(_SAPP_ANDROID)
+// sokol_app's EGL surface attributes, as _sapp_android_init_egl_surface passes them.
+static const EGLint* fa_egl_window_attribs(void) {
+    static const EGLint srgb[] = {EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_SRGB, EGL_NONE};
+    return _sapp.desc.srgb ? srgb : NULL;
+}
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    void* surface = (void*)_sapp.android.surface;
+    const bool ok = fa_egl_handover_release(&fa_egl, (void*)_sapp.android.display, (void*)_sapp.android.config,
+                                            (void*)_sapp.android.context, (void*)_sapp.android.current.window, &surface,
+                                            err, errLen);
+    _sapp.android.surface = (EGLSurface)surface;
+    return ok;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    void* surface = (void*)_sapp.android.surface;
+    const bool was_released = fa_egl.state != 0;
+    const bool ok = fa_egl_handover_restore(&fa_egl, (void*)_sapp.android.display, (void*)_sapp.android.config,
+                                            (void*)_sapp.android.context, (const int*)fa_egl_window_attribs(), &surface,
+                                            err, errLen);
+    _sapp.android.surface = (EGLSurface)surface;
+    // sokol_app's state as _sapp_android_init_egl_surface leaves it, when there is a window surface again.
+    if (ok && was_released && _sapp.android.surface != EGL_NO_SURFACE) {
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&_sapp.gl.framebuffer);
+    }
+    return ok;
+}
+int fa_sapp_gl_surface_state(void) { return fa_egl.state; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    fa_egl_handover_set_listener(&fa_egl, listener, user);
+}
 #else
 bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
 #if defined(_SAPP_LINUX) && defined(_SAPP_EGL)
@@ -728,10 +876,6 @@ bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
              "this build's sokol_app draws its window through EGL (SOKOL_FORCE_EGL or -DFA_GFX_BACKEND=GLES3), whose "
              "window surface the engine does not hand over, so a Vulkan swapchain cannot be made there (hint: build "
              "with the default GLX window, leave render.backend on auto, or run headless)");
-#elif defined(_SAPP_ANDROID)
-    snprintf(err, errLen,
-             "the Android window keeps sokol_app's EGL surface: handing it to a Vulkan device comes in M77-P9e3b "
-             "(hint: leave render.backend on auto on Android)");
 #else
     snprintf(err, errLen, "this platform's window has no OpenGL surface to release");
 #endif
@@ -742,6 +886,10 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
     return true;
 }
 int fa_sapp_gl_surface_state(void) { return 0; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;
+    (void)user;
+}
 #endif
 
 // Windows (FA_SOKOL_APP_NOAPI): the swapchain is the engine's, so are vsync and its kind (d3d11_present_win32.cpp).

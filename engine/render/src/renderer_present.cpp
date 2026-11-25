@@ -72,6 +72,33 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     if (!initialized()) return;
     Impl& im = *impl_;
     gpu::Device& device = im.gpu.device();
+    // A window that came back (Renderer::set_native_window), or a swapchain the device lost: made again on the window,
+    // at this frame's size. Without one there is no image to draw into: the frame ends here, not shown.
+    if (im.windowManaged && !device.has_swapchain()) {
+        if (im.windowDesc.nativeWindow && !im.windowRemakeFailed) {
+            gpu::SwapchainDesc sd = im.windowDesc;
+            sd.width = std::max(0, fbW);
+            sd.height = std::max(0, fbH);
+            if (auto made = device.create_swapchain(sd); !made) {
+                FA_ERROR("render", "Renderer::present: the window's swapchain could not be made again: {}",
+                         made.error().to_string());
+                im.windowRemakeFailed = true;  // said once; the next window tries again
+            } else {
+                im.swapW = sd.width;
+                im.swapH = sd.height;
+                im.resizeFailed = false;
+                im.presentFailed = false;
+                FA_INFO("render", "Renderer::present: the window's swapchain was made again ({}x{})", sd.width,
+                        sd.height);
+            }
+        }
+        if (!device.has_swapchain()) {
+            im.gpu.commit_frame();
+            im.gpu.note_commit();
+            im.inFrame = false;
+            return;
+        }
+    }
     // A new framebuffer size resizes the swapchain before the next acquire (gpu/device.h, "the window: swapchain and
     // present"): D3D12 resizes its own buffers, the sokol devices only record it (sokol_app resized the window's).
     if (device.has_swapchain() && fbW > 0 && fbH > 0 && (fbW != im.swapW || fbH != im.swapH)) {
