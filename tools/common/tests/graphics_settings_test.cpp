@@ -440,3 +440,149 @@ TEST_CASE("project.graphics reads and writes the latency key, and only when it i
     REQUIRE(r.ok);
     CHECK(d.read().find("latency") == std::string::npos);  // at the default: the key goes
 }
+
+TEST_CASE("graphics settings: render.frameGeneration is saved as its own key, read back and read by the project loader") {
+    Dir d;
+    d.write(kBare);
+    auto s = read_graphics_settings(d.str());
+    REQUIRE(s.ok());
+    CHECK(s->frameGenMode == "off");
+    CHECK(s->frameGenMinBaseFps == 60);
+    CHECK(frame_gen_modes() == std::vector<std::string>{"off", "auto", "dlss", "fsr", "xess"});
+    s->frameGenMode = "fsr";
+    s->frameGenMinBaseFps = 45;
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    const std::string text = d.read();
+    CHECK(text.find("\"frameGeneration\"") != std::string::npos);
+    CHECK(text.find("\"physics\": { \"fixedHz\": 60 }") != std::string::npos);
+    CHECK(text.find("upscaler") == std::string::npos);
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == *s);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->frameGeneration.mode == render::FrameGenMode::Fsr);
+    CHECK(project->frameGeneration.minBaseFps == 45);
+    // A mode off with a changed minimum keeps both keys (the file says what it was told); the defaults remove the key and the empty render.
+    s->frameGenMode = "off";
+    REQUIRE(write_graphics_settings(d.str(), *s).ok());
+    CHECK(d.read().find("\"minBaseFps\": 45") != std::string::npos);
+    REQUIRE(write_graphics_settings(d.str(), GraphicsSettings{}).ok());
+    CHECK(d.read() == kBare);
+}
+
+TEST_CASE("graphics settings: a wrong frame generation value is named by pointer, and nothing is written") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.frameGenMode = "dlls";
+    g.frameGenMinBaseFps = 5000;
+    const auto problems = check_graphics_settings(g);
+    REQUIRE(problems.size() == 2);
+    CHECK(problems[0].pointer == "/render/frameGeneration/mode");
+    CHECK(problems[0].message.find("dlss") != std::string::npos);
+    CHECK(problems[1].pointer == "/render/frameGeneration/minBaseFps");
+    CHECK_FALSE(write_graphics_settings(d.str(), g).ok());
+    CHECK(d.read() == kBare);
+    d.write(R"({"format":"factoria.project/1","name":"G","render":{"frameGeneration":{"mode":"xes"}}})");
+    auto bad = read_graphics_settings(d.str());
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("/render/frameGeneration/mode") != std::string::npos);
+}
+
+TEST_CASE("project.graphics reads and writes the frameGeneration key, and only when it is given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call("project.graphics", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["frameGeneration"]["mode"] == "off");
+    CHECK(r.result["frameGeneration"]["minBaseFps"] == 60);
+    CHECK(r.result["written"] == false);
+    r = registry.call("project.graphics", Json::parse(R"({"frameGeneration":{"mode":"auto"}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["written"] == true);
+    CHECK(r.result["frameGeneration"]["mode"] == "auto");
+    r = registry.call("project.graphics", Json::parse(R"({"frameGeneration":{"minBaseFps":30}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["frameGeneration"]["mode"] == "auto");  // the key not given stays
+    CHECK(r.result["frameGeneration"]["minBaseFps"] == 30);
+    r = registry.call("project.graphics", Json::parse(R"({"latency":{"mode":"auto"}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["frameGeneration"]["minBaseFps"] == 30);  // another key leaves it alone
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->frameGeneration.mode == render::FrameGenMode::Auto);
+    CHECK(project->frameGeneration.minBaseFps == 30);
+    const std::string before = d.read();
+    r = registry.call("project.graphics", Json::parse(R"({"frameGeneration":{"mode":"dlls"}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(d.read() == before);
+    r = registry.call("project.graphics", Json::parse(R"({"frameGeneration":{"minBaseFps":1.5}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(d.read() == before);
+    r = registry.call("project.graphics", Json::parse(R"({"frameGeneration":{"mode":"off","minBaseFps":60}})"));
+    REQUIRE(r.ok);
+    CHECK(d.read().find("frameGeneration") == std::string::npos);  // at the default: the key goes
+}
+
+TEST_CASE("frame generation modes: what render.supports says of each one, and the lines the window shows") {
+    const Json report = Json::parse(R"({"features":[
+        {"name":"dlssFrameGen","supported":false,"status":"needs an NVIDIA RTX GPU"},
+        {"name":"fsrFrameGen","supported":true,"status":"supported"},
+        {"name":"xessFrameGen","supported":false,"status":"needs an Intel Arc GPU"}]})");
+    CHECK(frame_gen_mode_support(report, "off").usable);
+    CHECK(frame_gen_mode_support(report, "auto").usable);
+    CHECK(frame_gen_mode_support(report, "fsr").usable);
+    const FrameGenModeSupport dlss = frame_gen_mode_support(report, "dlss");
+    CHECK_FALSE(dlss.usable);
+    CHECK(dlss.why == "needs an NVIDIA RTX GPU");
+    CHECK(frame_gen_mode_support(report, "xess").why == "needs an Intel Arc GPU");
+    // No report: the SDK modes are not usable, with a reason; a report without the row (an older engine) leaves them usable.
+    const FrameGenModeSupport none = frame_gen_mode_support(Json::object(), "fsr");
+    CHECK_FALSE(none.usable);
+    CHECK_FALSE(none.why.empty());
+    CHECK(frame_gen_mode_support(Json::parse(R"({"features":[]})"), "fsr").usable);
+
+    GraphicsSettings g;
+    CHECK(frame_gen_describe(g, report).find("Off:") == 0);
+    g.frameGenMode = "auto";
+    const std::string autoLine = frame_gen_describe(g, report);
+    CHECK(autoLine.find("usable on this machine: fsr)") != std::string::npos);
+    CHECK(autoLine.find("fewer than 60 frames per second") != std::string::npos);
+    CHECK(autoLine.find("above 66") != std::string::npos);
+    g.frameGenMinBaseFps = 0;
+    CHECK(frame_gen_describe(g, report).find("never switches off") != std::string::npos);
+    CHECK(frame_gen_describe(g, Json::object()).find("no SDK can run") != std::string::npos);
+    g.frameGenMode = "dlss";
+    const std::string no = frame_gen_describe(g, report);
+    CHECK(no.find("Not usable on this machine: needs an NVIDIA RTX GPU") == 0);
+    g.frameGenMode = "fsr";
+    CHECK(frame_gen_describe(g, report).find("Usable on this machine") == 0);
+
+    // The advice: only with frame generation on and no low-latency mode; DLSS-G forces Reflex, and says so.
+    g = GraphicsSettings{};
+    CHECK(frame_gen_latency_hint(g).empty());
+    g.frameGenMode = "fsr";
+    CHECK(frame_gen_latency_hint(g).find("low-latency mode") != std::string::npos);
+    CHECK(frame_gen_latency_hint(g).find("Reflex") == std::string::npos);
+    g.frameGenMode = "dlss";
+    CHECK(frame_gen_latency_hint(g).find("turns NVIDIA Reflex on by itself") != std::string::npos);
+    g.latencyMode = "auto";
+    CHECK(frame_gen_latency_hint(g).empty());
+
+    // The profiler's readout as one line.
+    CHECK(frame_gen_state_line(Json::object(), 60).find("Off") == 0);
+    const Json active = Json::parse(
+        R"({"provider":"fsr","state":"active","baseFps":62.04,"presentedFps":124.0,"generatedFrames":3021,"reason":""})");
+    CHECK(frame_gen_state_line(active, 60) == "Active (fsr): base 62.0 fps, presented 124.0 fps, 3021 generated.");
+    const Json paused = Json::parse(
+        R"({"provider":"fsr","state":"paused","baseFps":41.5,"presentedFps":41.5,"generatedFrames":10,"reason":"x"})");
+    const std::string pausedLine = frame_gen_state_line(paused, 60);
+    CHECK(pausedLine.find("below the minimum of 60 fps") != std::string::npos);
+    CHECK(pausedLine.find("above 66 fps") != std::string::npos);
+    const Json refused = Json::parse(R"({"provider":"none","state":"refused","reason":"restart the game to turn it on"})");
+    CHECK(frame_gen_state_line(refused, 60) == "Refused: restart the game to turn it on");
+    CHECK(frame_gen_state_line(Json::parse(R"({"state":"measuring","provider":"dlss"})"), 60).find("Measuring") == 0);
+}

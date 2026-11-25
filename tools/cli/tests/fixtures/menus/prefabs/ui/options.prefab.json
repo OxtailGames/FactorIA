@@ -742,7 +742,7 @@
         "active": false,
         "components": {
           "Panel": {
-            "size": [712, 300],
+            "size": [712, 340],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -869,12 +869,190 @@
             }
           },
           {
-            "id": "gfx_latency_back",
+            "id": "gfx_latency_nav",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_latency_back",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Preset and upscaling",
+                    "key": "options.gfx.page",
+                    "size": [280, 40],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              },
+              {
+                "id": "gfx_fg_page",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Frame generation",
+                    "key": "options.gfx.fgPage",
+                    "size": [280, 40],
+                    "layer": 303,
+                    "fontSize": 20
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "framegen_section",
+        "active": false,
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "direction": "auto",
+            "align": "start",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "gfx_fg_label",
+            "components": {
+              "Text": {
+                "text": "Frame generation",
+                "fontSize": 20,
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_fg_modes",
+            "components": {
+              "Panel": {
+                "layer": 302,
+                "color": [0, 0, 0, 0],
+                "layout": "row",
+                "direction": "auto",
+                "spacing": 6,
+                "padding": [0, 0, 0, 0],
+                "fit": true,
+                "fallbackLayout": "column"
+              }
+            },
+            "children": [
+              {
+                "id": "gfx_fg_off",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Off",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_fg_auto",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "Auto",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_fg_dlss",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "DLSS",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_fg_fsr",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "FSR 3",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_fg_xess",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "XeSS",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "gfx_fg_minfps",
+            "components": {
+              "Slider": {
+                "autoSize": false,
+                "label": "Minimum base fps",
+                "min": 0,
+                "max": 240,
+                "step": 5,
+                "size": [560, 36],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "framegen_note",
+            "components": {
+              "Text": {
+                "text": "",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "align": "start",
+                "maxWidth": 660,
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "gfx_fg_back",
             "components": {
               "Button": {
                 "autoSize": true,
-                "text": "Preset and upscaling",
-                "key": "options.gfx.page",
+                "text": "Low latency",
+                "key": "options.gfx.latPage",
                 "size": [560, 40],
                 "layer": 302,
                 "fontSize": 20
