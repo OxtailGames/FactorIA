@@ -434,6 +434,19 @@ std::vector<FeatureDef> build_table() {
          "render.supports and in the "
          "log (M78).",
          nullptr},
+        {"dlssRayReconstruction", "",
+         "NVIDIA DLSS Ray Reconstruction through Streamline (render.upscaler rayReconstruction, with mode \"dlss\"): "
+         "the "
+         "denoiser-upscaler of DLSS 3.5 in place of Super Resolution, fed by the guides the renderer makes (normal, "
+         "roughness, albedo) "
+         "next to the jittered picture, the depth and the motion. The same machine as \"dlss\" plus the Ray "
+         "Reconstruction plugin of the "
+         "Streamline SDK (`factoria setup streamline` installs it). Today it is an opt-in preview: the renderer has no "
+         "ray-traced signals "
+         "to denoise yet (M79) and its guides are approximations. Where it is missing or refused the mode draws as "
+         "Super Resolution; the "
+         "reason is in render.supports and in the log (M78).",
+         nullptr},
         {"xess", "",
          "Intel XeSS Super Resolution (render.upscaler mode \"xess\", also picked by \"auto\" on an Intel GPU): the "
          "jittered picture, "
@@ -497,11 +510,12 @@ std::vector<FeatureDef> build_table() {
         // metalfx: Metal only. xess: D3D11 is the one backend of this table it runs on (its D3D12 and Vulkan runs are not a column of it
         // yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); dlss, fsr and the latency SDKs (reflex, antilag2, xell) run on
         // D3D12 and Vulkan only, so no column is set. The row's answer always comes from the provider's probe, whatever this column says.
-        const unsigned backends =
-            row == "metalfx" ? bit(FeatureBackend::Metal)
-            : row == "xess"  ? bit(FeatureBackend::D3d11)
-            : row == "dlss" || row == "fsr" || row == "reflex" || row == "antilag2" || row == "xell" ? 0u
-                                                                                                     : kEveryGpu;
+        const unsigned backends = row == "metalfx" ? bit(FeatureBackend::Metal)
+                                  : row == "xess"  ? bit(FeatureBackend::D3d11)
+                                  : row == "dlss" || row == "dlssRayReconstruction" || row == "fsr" ||
+                                          row == "reflex" || row == "antilag2" || row == "xell"
+                                      ? 0u
+                                      : kEveryGpu;
         t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)
@@ -511,7 +525,9 @@ std::vector<FeatureDef> build_table() {
 }
 
 // 0 dlss, 1 xess, 2 fsr: the vendor rows; -1 any other.
-int vendor_row_index(std::string_view name) { return name == "dlss" ? 0 : name == "xess" ? 1 : name == "fsr" ? 2 : -1; }
+int vendor_row_index(std::string_view name) {
+    return name == "dlss" || name == "dlssRayReconstruction" ? 0 : name == "xess" ? 1 : name == "fsr" ? 2 : -1;
+}
 
 // 0 reflex, 1 antilag2, 2 xell: the low-latency rows; -1 any other.
 int latency_row_index(std::string_view name) {
@@ -590,7 +606,9 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
                        "here";
             return false;
         }
-        const VendorProbe& p = env.vendorUpscalers[std::size_t(vendor)];
+        const VendorProbe& p = f.name == std::string_view("dlssRayReconstruction")
+                                   ? env.dlssRayReconstruction
+                                   : env.vendorUpscalers[std::size_t(vendor)];
         if (!p.available && why)
             *why = p.reason.empty() ? std::string("this upscaler is not available here") : p.reason;
         return p.available;
@@ -709,8 +727,10 @@ void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers)
     env.latencyAsked = true;
 }
 
-void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers) {
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers,
+                              const VendorProbe& rayReconstruction) {
     env.vendorUpscalers = answers;
+    env.dlssRayReconstruction = rayReconstruction;
     env.vendorAsked = true;
 }
 

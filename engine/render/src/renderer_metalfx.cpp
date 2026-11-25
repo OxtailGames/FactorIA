@@ -49,6 +49,7 @@ bool Renderer::Impl::metalfx_fail(const std::string& why) {
 void Renderer::Impl::free_mfx_images() {
     if (mfxDepth.color.id) destroy_target(gpu.device(), mfxDepth);
     if (mfxMotion.color.id) destroy_target(gpu.device(), mfxMotion);
+    free_rr_images();
     mfxLastWrote = false;
 }
 

@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+- **DLSS Ray Reconstruction, opt-in (M78):** `render.upscaler` has a new `rayReconstruction` flag (project, `render.upscaler`,
+  `window.upscaler`; default off). With mode `dlss` on an NVIDIA RTX GPU where Streamline's Ray Reconstruction plugin is installed, the
+  renderer draws with DLSS Ray Reconstruction in place of Super Resolution, giving it world-space normals, roughness and albedo guides
+  (approximations: the renderer has no ray-traced signals yet, M79 adds them) and the camera's matrices. A machine or frame that
+  cannot draw it falls back to Super Resolution with the reason; `render.supports` has the new row `dlssRayReconstruction`.
+  docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction". Not tested on hardware.
 - **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
   an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
   flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.

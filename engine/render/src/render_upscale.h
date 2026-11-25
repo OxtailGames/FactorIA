@@ -52,6 +52,22 @@ int upscale_jitter_phases(int renderW, int renderH, int outW, int outH);
 // What an upscaler reads. `color` is the picture at the render resolution (display values after a final pass, else the scene's
 // colour: the format of the output image is the same, so the copy never converts). `depth` (linear view depth) and `velocity` are
 // null views until the passes that make them exist; an implementation that needs them must work without (camera reprojection).
+// The camera the frame was drawn with, for the upscalers that are told its matrices (DLSS Ray Reconstruction, M78-P4c). The matrices are in
+// the order of fa::Mat4 (column-major, a column vector on the right: the memory of a row-major matrix with a row vector on the left, which is
+// how Streamline reads them) and unjittered, with the depth range of the backend (0..1 on D3D12, Vulkan and Metal).
+struct UpscaleCamera {
+    bool valid = false;  // false: a test or a frame without a camera; the provider then sends identity matrices
+    bool perspective = true;
+    float view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};  // world -> camera view
+    float proj[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};  // camera view -> clip
+    // A view-space position of this frame -> the clip position it had on the frame before; valid only with prevValid.
+    float prevFromView[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    bool prevValid = false;
+    float position[3] = {0, 0, 0}, right[3] = {1, 0, 0}, up[3] = {0, 1, 0},
+          forward[3] = {0, 0, -1};  // the camera's frame in the world
+    float nearPlane = 0.1f, farPlane = 1000.0f;
+};
+
 struct UpscaleInput {
     gpu::View color{};
     gpu::View depth{};
@@ -81,6 +97,14 @@ struct UpscaleInput {
     float cameraNear =
         0.1f;  // the near plane the prepared depth was made for (render_upscale_vendor.h, reversed depth)
     float cameraFovY = 1.0f;  // the camera's vertical field of view in radians (2 * atan(1 / P11))
+    UpscaleCamera camera;     // the frame's camera (valid when the renderer filled it in)
+    // DLSS Ray Reconstruction (M78-P4c): the setting asks for it and the renderer made the guides below at the picture's size. Only the DLSS
+    // provider reads them; it draws with Super Resolution when it cannot use them (VendorFrame::rayReconstructionFallback says why).
+    bool rayReconstruction = false;
+    gpu::View normalRoughness{};  // RGBA16F: the world-space normal (xyz, unit length) and the roughness (w, 0..1)
+    gpu::View
+        diffuseAlbedo{};  // RGBA8: the diffuse reflectance (a constant today: the renderer has no material G-buffer)
+    gpu::View specularAlbedo{};  // RGBA8: the specular reflectance (a constant today)
 };
 
 }  // namespace fa::render

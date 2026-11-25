@@ -78,6 +78,56 @@ build registers one device hook, and every Direct3D 12 or Vulkan device the proc
   (<https://developer.nvidia.com/sw-notification>); credit NVIDIA and show its marks (in the credits, and on a splash screen or an
   about box for DLSS); DLSS is for systems with NVIDIA GPUs only. docs/exporting/EXPORTING_SETUP.md, "Vendor SDK licences".
 
+## DLSS Ray Reconstruction
+
+An opt-in preview of the `dlss` mode: `render.upscaler` `rayReconstruction: true` (project `render.upscaler.rayReconstruction`,
+`window.upscaler.rayReconstruction`; default `false`). DLSS Ray Reconstruction (Streamline's `DLSS-D`, feature id 1001, DLSS 3.5) is a
+denoiser and upscaler in one network: instead of upscaling a clean picture (Super Resolution) it takes a picture with noisy lighting plus
+**guide buffers** that say what each pixel is, and gives back the denoised, upscaled picture. It needs the same machine as Super Resolution
+(an NVIDIA RTX GPU, D3D12 or Vulkan, Streamline installed) plus its own plugin (`sl.dlss_d.dll` and `nvngx_dlssd.dll`, which
+`factoria setup streamline` installs with the rest).
+
+- **What it does without ray tracing, today.** The renderer is a forward renderer: it has no ray-traced signals, so the picture it hands
+  Ray Reconstruction has little noise to remove. Ray Reconstruction still upscales it, and it still reads the guides, but with
+  approximations (below), so the result can differ from Super Resolution's, for better or for worse. Treat it as a preview and compare
+  the two on your content. It exists now so that the guide plumbing, the camera constants and the fall backs are in place and tested
+  before M79 (ray-traced reflections and global illumination, M79.4) feeds it real noisy signals.
+- **What M79 adds.** The ray-traced passes give it a noisy specular and diffuse light, the specular hit distance and real material
+  guides; M79.4 replaces the approximations below with the renderer's own values and reads the hit distance.
+- **The guides.** With Ray Reconstruction on, a pass (`shaders/upscale_rr.glsl`, "upscale-rr-guides") makes three images at the render
+  size from the depth and normal prepass; they are made only on the frames that use Ray Reconstruction, never for Super Resolution.
+  They are tagged next to the four buffers Super Resolution takes (colour in, depth, motion vectors, colour out):
+
+  | Buffer | What the engine gives | Approximation |
+  |---|---|---|
+  | normals and roughness (`NormalRoughness`, packed: roughness in `w`) | the prepass normal turned into **world space** with the camera's axes (a pixel with no mesh, the sky, gets a normal facing the camera) | roughness is the constant 0.5 |
+  | diffuse albedo (`Albedo`) | none in a forward renderer | the constant 0.5 grey |
+  | specular albedo (`SpecularAlbedo`) | none | the constant 0.04, the reflectance of a dielectric at normal incidence |
+  | depth, motion vectors | the same images as Super Resolution | none |
+
+  The specular motion vectors and the hit distance are not given (Ray Reconstruction takes them as optional). The normal space the
+  network expects (world or view, and the sign of the axes) is not verified on hardware: the engine sends world-space normals and the
+  camera's world-to-view and view-to-world matrices, as NVIDIA's integration guide describes; if the picture shows lighting that
+  follows the camera, the space is the thing to check first.
+- **The options and the constants.** The options set each frame (the camera moves them): the mode of the quality (the same ratios as Super
+  Resolution), the output size, packed normals and roughness, HDR colour, and the camera's `worldToCameraView` and `cameraViewToWorld`.
+  The constants (frame token as for Super Resolution) now carry the camera's real matrices: the projection, its inverse, the
+  clip-to-previous-clip and previous-clip-to-clip matrices (from the camera of the frame before; a cut resets the history), the camera
+  position and axes, the near and far planes and the vertical field of view. The sharpness and the auto exposure of the settings are
+  ignored by Ray Reconstruction.
+- **When it draws as Super Resolution.** Ray Reconstruction does not support a dynamic resolution, needs linear HDR colour and a
+  perspective camera. A frame where one of those fails draws with Super Resolution (the history starts again when the feature changes),
+  and the reason is logged once. A machine that cannot do it (not an NVIDIA RTX GPU, no Streamline setup, the plugin missing, another
+  backend, a driver that refuses it) draws as Super Resolution for the whole run. A frame that Streamline refuses (the options, the tags
+  or the evaluation) draws as Super Resolution too, and Ray Reconstruction stays off for the rest of the run (fail once, stay off).
+  `render.supports` with `{"feature":"dlssRayReconstruction"}` says the reason (`render.upscaler` always reports the setting you
+  chose, not what drew).
+- **The cost.** Ray Reconstruction is a larger network than Super Resolution (NVIDIA publishes no figure for a given GPU): expect a
+  higher cost per frame than Super Resolution at the same size, and three more render-size images (one RGBA16F, two RGBA8) with the
+  guides pass. Measure it with `perf.measure` on your GPU.
+- **Not tested.** The tests use a fake Streamline (feature switch, the seven tags and their order, the options and matrices sent, the
+  fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen.
+
 ## Intel XeSS
 
 The `xess` mode. Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11 (Intel

@@ -1187,9 +1187,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.",
          "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, dlss, "
          "xess, fsr, auto), "
-         "`quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no "
-         "argument it returns the setting; with any of the three it changes those and keeps the rest. Returns "
-         "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
+         "`quality` (native, quality, balanced, performance, ultraPerformance), `sharpness` (0 to 1) and "
+         "`rayReconstruction` (true draws mode \"dlss\" with DLSS Ray Reconstruction where this machine can, an opt-in "
+         "preview: render.supports \"dlssRayReconstruction\" says why not and the frame draws with Super Resolution "
+         "then). With no "
+         "argument it returns the setting; with any of the four it changes those and keeps the rest. Returns "
+         "{mode, quality, sharpness, rayReconstruction, effectiveMode, scale, changed}: effectiveMode is the mode the "
+         "renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
          "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen), "
@@ -1217,10 +1221,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          parse_schema(R"({"type":"object","properties":{
                "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","dlss","xess","fsr","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), dlss (NVIDIA DLSS, an RTX GPU, Windows, `factoria setup streamline`), xess (Intel XeSS, Windows, `factoria setup xess`), fsr (AMD FSR 3.1, Windows, `factoria setup fidelityfx`), auto (the GPU maker's own SDK when installed, else the best this GPU can draw)."},
                "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"],"description":"How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height."},
-               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."}}})"),
+               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."},
+               "rayReconstruction":{"type":"boolean","description":"With mode dlss: draw with NVIDIA DLSS Ray Reconstruction instead of Super Resolution where this machine can (render.supports dlssRayReconstruction says why not; the frame then draws with Super Resolution). An opt-in preview. Default false."}}})"),
          false, "game"},
         [&I](const Json& a) {
-            check_args_known(a, {"mode", "quality", "sharpness"}, "render.upscaler");
+            check_args_known(a, {"mode", "quality", "sharpness", "rayReconstruction"}, "render.upscaler");
             const render::UpscalerSettings before = I.self->upscaler();
             bool changed = false;
             if (a.is_object() && !a.empty()) {

@@ -139,10 +139,41 @@ TEST_CASE("upscaler: a partial object changes only its keys; to_json is complete
     CHECK(j["mode"] == "spatial");
     CHECK(j["quality"] == "performance");
     CHECK(j["sharpness"].get<double>() == doctest::Approx(0.333));
-    CHECK(j.size() == 3);
+    CHECK(j.size() == 4);
+    CHECK(j["rayReconstruction"] == false);
     auto empty = parse_upscaler_settings(Json::object(), "x", base);
     REQUIRE(empty.ok());
     CHECK(*empty == base);
+}
+
+TEST_CASE("upscaler: rayReconstruction is an opt-in boolean, off by default, that a partial object keeps or changes") {
+    CHECK_FALSE(UpscalerSettings{}.rayReconstruction);
+    UpscalerSettings base;
+    base.mode = UpscalerMode::Dlss;
+    auto on = parse_upscaler_settings(Json::object({{"rayReconstruction", true}}), "render.upscaler", base);
+    REQUIRE(on.ok());
+    CHECK(on->rayReconstruction);
+    CHECK(on->mode == UpscalerMode::Dlss);
+    CHECK_FALSE(*on == base);  // it takes part in the comparison: the renderer sees the change
+    CHECK(upscaler_to_json(*on)["rayReconstruction"] == true);
+    auto kept = parse_upscaler_settings(Json::object({{"quality", "balanced"}}), "render.upscaler", *on);
+    REQUIRE(kept.ok());
+    CHECK(kept->rayReconstruction);
+    auto off = parse_upscaler_settings(Json::object({{"rayReconstruction", false}}), "render.upscaler", *on);
+    REQUIRE(off.ok());
+    CHECK_FALSE(off->rayReconstruction);
+    // A wrong type names its place and says what is valid.
+    for (const Json& v : {Json("yes"), Json(1), Json()}) {
+        auto bad =
+            parse_upscaler_settings(Json::object({{"rayReconstruction", v}}), "factoria.json#/render/upscaler", base);
+        REQUIRE_FALSE(bad.ok());
+        CHECK(bad.error().message.find("factoria.json#/render/upscaler/rayReconstruction") != std::string::npos);
+        CHECK(bad.error().message.find("expected true or false") != std::string::npos);
+    }
+    // A near miss of the key is a "did you mean".
+    auto typo = parse_upscaler_settings(Json::object({{"rayReconstruciton", true}}), "w", base);
+    REQUIRE_FALSE(typo.ok());
+    CHECK(typo.error().hint.find("rayReconstruction") != std::string::npos);
 }
 
 TEST_CASE("upscaler: every wrong input names its place, says what is valid and suggests the closest") {

@@ -60,6 +60,8 @@ inline constexpr Result kWarnOutOfVram = 39;
 
 // sl::Feature
 inline constexpr std::uint32_t kFeatureDlss = 0, kFeatureReflex = 3, kFeaturePcl = 4, kFeatureDlssG = 1000;
+// sl::kFeatureDLSS_RR (sl_core_types.h, Streamline 2.14.16): DLSS Ray Reconstruction, the plugin sl.dlss_d.dll
+inline constexpr std::uint32_t kFeatureDlssRr = 1001;
 // sl::RenderAPI
 inline constexpr std::uint32_t kRenderApiD3d11 = 0, kRenderApiD3d12 = 1, kRenderApiVulkan = 2;
 // sl::PreferenceFlags (64-bit)
@@ -68,6 +70,11 @@ inline constexpr std::uint64_t kPrefDisableClStateTracking = 1u << 0, kPrefDisab
 // sl::BufferType
 inline constexpr std::uint32_t kBufferDepth = 0, kBufferMotionVectors = 1, kBufferScalingInputColor = 3,
                                kBufferScalingOutputColor = 4, kBufferExposure = 13;
+// The guides DLSS Ray Reconstruction reads besides those (sl_core_types.h: kBufferTypeNormals 5, kBufferTypeRoughness 6, kBufferTypeAlbedo 7,
+// kBufferTypeSpecularAlbedo 8, kBufferTypeSpecularMotionVectors 10, kBufferTypeNormalRoughness 14, kBufferTypeSpecularHitDistance 42).
+inline constexpr std::uint32_t kBufferNormals = 5, kBufferRoughness = 6, kBufferAlbedo = 7, kBufferSpecularAlbedo = 8,
+                               kBufferSpecularMotionVectors = 10, kBufferNormalRoughness = 14,
+                               kBufferSpecularHitDistance = 42, kBufferLinearDepth = 49;
 // sl::ResourceLifecycle
 inline constexpr std::uint32_t kOnlyValidNow = 0;
 // sl::ResourceType (a char)
@@ -202,6 +209,30 @@ struct DlssOptimalSettings {
     float optimalSharpness;
     std::uint32_t renderWidthMin, renderHeightMin, renderWidthMax, renderHeightMax;
 };
+// sl::DLSSDOptions (sl_dlss_d.h, Streamline 2.14.16): the options of DLSS Ray Reconstruction. The two matrices are row-major (a Float4x4 of
+// rows), world to the camera's view space and back, of the camera's real, unjittered view.
+struct DlssdOptions {
+    Base base;
+    std::uint32_t mode;  // sl::DLSSMode
+    std::uint32_t outputWidth, outputHeight;
+    float sharpness, preExposure, exposureScale;
+    char colorBuffersHdr, indicatorInvertAxisX, indicatorInvertAxisY;
+    std::uint32_t
+        normalRoughnessMode;  // sl::DLSSDNormalRoughnessMode: 0 unpacked (Normals + Roughness), 1 packed (roughness in w)
+    Float4x4 worldToCameraView, cameraViewToWorld;
+    char alphaUpscalingEnabled;
+    std::uint32_t dlaaPreset, qualityPreset, balancedPreset, performancePreset, ultraPerformancePreset,
+        ultraQualityPreset;
+};
+// sl::DLSSDOptimalSettings (sl_dlss_d.h): the same members as DLSSOptimalSettings.
+struct DlssdOptimalSettings {
+    Base base;
+    std::uint32_t optimalRenderWidth, optimalRenderHeight;
+    float optimalSharpness;
+    std::uint32_t renderWidthMin, renderHeightMin, renderWidthMax, renderHeightMax;
+};
+// sl::DLSSDNormalRoughnessMode
+inline constexpr std::uint32_t kDlssdNormalRoughnessUnpacked = 0, kDlssdNormalRoughnessPacked = 1;
 // sl::VulkanInfo (sl_helpers_vk.h)
 struct VulkanInfo {
     Base base;
@@ -268,6 +299,8 @@ static_assert(sizeof(ResourceTag) == 64, "sl::ResourceTag");
 static_assert(sizeof(Constants) == 456, "sl::Constants");
 static_assert(sizeof(DlssOptions) == 88, "sl::DLSSOptions");
 static_assert(sizeof(DlssOptimalSettings) == 64, "sl::DLSSOptimalSettings");
+static_assert(sizeof(DlssdOptions) == 224, "sl::DLSSDOptions");
+static_assert(sizeof(DlssdOptimalSettings) == 64, "sl::DLSSDOptimalSettings");
 static_assert(sizeof(VulkanInfo) == 96, "sl::VulkanInfo");
 static_assert(sizeof(ReflexOptions) == 48, "sl::ReflexOptions");
 static_assert(sizeof(ReflexReport) == 152, "sl::ReflexReport");
@@ -285,6 +318,8 @@ void init_resource_tag(ResourceTag& t);
 void init_constants(Constants& c);  // also the "not set" values of the headers (INVALID_FLOAT, eInvalid)
 void init_dlss_options(DlssOptions& o);
 void init_dlss_optimal_settings(DlssOptimalSettings& s);
+void init_dlssd_options(DlssdOptions& o);  // the world/view matrices are identity until the caller sets the camera's
+void init_dlssd_optimal_settings(DlssdOptimalSettings& s);
 void init_vulkan_info(VulkanInfo& v);
 void init_reflex_options(ReflexOptions& o);  // mode off, no limit
 void init_reflex_state(ReflexState& s);      // zeroed, with the base of the state and of each report
@@ -310,6 +345,9 @@ using VkGetProcAddrFn = void* (*)(void* instanceOrDevice, const char* name);
 // The DLSS functions slGetFeatureFunction gives (sl_dlss.h).
 using DlssGetOptimalSettingsFn = Result (*)(const DlssOptions*, DlssOptimalSettings*);
 using DlssSetOptionsFn = Result (*)(const ViewportHandle*, const DlssOptions*);
+// The DLSS Ray Reconstruction functions (sl_dlss_d.h): slDLSSDGetOptimalSettings and slDLSSDSetOptions.
+using DlssdGetOptimalSettingsFn = Result (*)(const DlssdOptions*, DlssdOptimalSettings*);
+using DlssdSetOptionsFn = Result (*)(const ViewportHandle*, const DlssdOptions*);
 // The Reflex and PCL functions slGetFeatureFunction gives (sl_reflex.h, sl_pcl.h): slReflexSetOptions, slReflexGetState, slReflexSleep and
 // slPCLSetMarker, with the C++ references of the headers as pointers. slReflexGetState and slReflexSetOptions are not thread safe.
 using ReflexSetOptionsFn = Result (*)(const ReflexOptions*);

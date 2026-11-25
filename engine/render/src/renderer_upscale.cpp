@@ -12,6 +12,7 @@
 
 #include "render_features.h"
 #include "render_upscale_vendor.h"
+#include "shaders/upscale_rr.glsl.h"
 #include "shaders/upscale_spatial.glsl.h"
 
 namespace fa::render {
@@ -181,6 +182,7 @@ void Renderer::Impl::free_output_targets() {
     }
     free_mfx_images();
     mfxScaler.release();
+    rrPrep.release();
     outHasStorage = false;
     outActive = false;
     outFilterActive = false;
@@ -331,6 +333,15 @@ const render::VendorProbe& Renderer::Impl::vendor_probe(int index) {
     return vendorProbe[index];
 }
 
+// What DLSS answered for Ray Reconstruction on this GPU (Streamline's Ray Reconstruction plugin included), asked once. Needs a device.
+const render::VendorProbe& Renderer::Impl::rr_probe() {
+    if (!rrProbed) {
+        rrProbe = render::vendor_provider(0).probe_ray_reconstruction(render::vendor_env_of(gpu.device()));
+        rrProbed = true;
+    }
+    return rrProbe;
+}
+
 // The providers' answers for render.supports: a provider that refused a frame is off, with that reason.
 void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
     std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
@@ -343,7 +354,25 @@ void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
                                              "); the temporal upscaler draws instead.";
         }
     }
-    render::set_vendor_upscalers_env(env, answers);
+    // Ray Reconstruction: the machine's answer; off after a frame DLSS refused with it, or when DLSS itself is off. The linear frame it needs
+    // is a property of the renderer's pipeline (gpu.linear()), not of the machine: it is said here too.
+    render::VendorProbe rr = rr_probe();
+    if (rr.available && !gpu.linear()) {
+        rr.available = false;
+        rr.reason = "DLSS Ray Reconstruction needs the picture in linear HDR light, and this renderer works in display "
+                    "values (the sRGB "
+                    "framebuffer is not available on this device).";
+    }
+    if (rr.available && rrFailed) {
+        rr.available = false;
+        rr.reason =
+            "DLSS Ray Reconstruction failed earlier in this run (" + rrFailedWhy + "); Super Resolution draws instead.";
+    }
+    if (rr.available && !answers[0].available) {
+        rr.available = false;
+        rr.reason = answers[0].reason;
+    }
+    render::set_vendor_upscalers_env(env, answers, rr);
 }
 
 // A vendor SDK failed on this machine (a frame its provider refused): from now on every frame is drawn without it, with one warning that
@@ -359,6 +388,69 @@ bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
                 render::vendor_provider(index).name(), why.empty() ? std::string("the provider gave no reason.") : why);
     }
     return false;
+}
+
+// The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): the world normal with a roughness and a diffuse albedo from the
+// depth prepass, and a cleared specular albedo. The renderer is a forward renderer with no material G-buffer, so the roughness and the two
+// albedos are constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null `prepass` means every pixel is sky. False when the
+// three images cannot be made. The caller made sure rrPrep is ready.
+bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass) {
+    if (!ensure_mfx_target(rrNormal, "rr-normal-roughness", gpu::PixelFormat::Rgba16F, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrDiffuse, "rr-diffuse-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH))
+        return false;
+    constexpr float kRoughness = 0.5f, kDiffuseAlbedo = 0.5f, kSpecularAlbedo = 0.04f;
+    gpu::CommandList& list = pass_list(c, gpu);
+    {
+        PassDesc p = pass_into(rrNormal, "upscale-rr-guides");
+        p.color1 = rrDiffuse.colorAtt;
+        p.format.color1 = rrDiffuse.format.color;
+        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
+        p.colorStore = gpu::StoreAction::Store;
+        const gpu::Pipeline pipeline = rrPrep.pipeline(p.format);  // before the pass: nothing is made inside one
+        list.begin_pass(p);
+        list.set_pipeline(pipeline);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
+        b.views[VIEW_upscale_rr_tex_p] = prepass ? prepass->texView : assets->white()->view;
+        b.samplers[SMP_upscale_rr_smp_pt] = gpu.sampler(SamplerKind::Nearest);
+        list.set_bindings(b);
+        upscale_rr_rr_params_t u{};
+        const Vec3 back = upscaleTaa.forward * -1.0f;
+        u.right[0] = upscaleTaa.right.x;
+        u.right[1] = upscaleTaa.right.y;
+        u.right[2] = upscaleTaa.right.z;
+        u.right[3] = kRoughness;
+        u.up[0] = upscaleTaa.up.x;
+        u.up[1] = upscaleTaa.up.y;
+        u.up[2] = upscaleTaa.up.z;
+        u.back[0] = back.x;
+        u.back[1] = back.y;
+        u.back[2] = back.z;
+        u.back[3] = prepass ? 1.0f : 0.0f;
+        u.albedo[0] = u.albedo[1] = u.albedo[2] = kDiffuseAlbedo;
+        list.set_uniforms(UB_upscale_rr_rr_params, gpu::Range{&u, sizeof(u)});
+        list.draw(0, 3, 1);
+        list.end_pass();
+        ++stats.drawCalls;
+    }
+    {
+        PassDesc p = pass_into(rrSpecular, "upscale-rr-specular");
+        p.colorLoad = gpu::LoadAction::Clear;
+        p.clearColor = gpu::Color{kSpecularAlbedo, kSpecularAlbedo, kSpecularAlbedo, 1.0f};
+        p.colorStore = gpu::StoreAction::Store;
+        list.begin_pass(p);
+        list.end_pass();
+        ++stats.drawCalls;
+    }
+    return true;
+}
+
+void Renderer::Impl::free_rr_images() {
+    if (!gpu.has_device()) return;
+    destroy_target(gpu.device(), rrNormal);
+    destroy_target(gpu.device(), rrDiffuse);
+    destroy_target(gpu.device(), rrSpecular);
 }
 
 // The vendor implementation into `out` (M78): the provider of `impl` is given the frame's images and the pass's command list. False
@@ -386,12 +478,12 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     const bool histValid = scaler_history_valid(in, config);
     render::VendorUpscaler& provider = render::vendor_provider(index);
     in.cameraNear = 0.1f;  // any near plane serves: the provider is told the one the reversed depth is made with
+    in.dynamicResolution = renderScale != renderBaseScale;
     if (!run_upscale_prep(in, c, prepass, velocity, histValid, provider.wants_reversed_depth() ? in.cameraNear : 0.0f))
         return vendor_fail(index, "the depth and motion images of the render size could not be made.");
     scaler_history_note(config);
     // What an SDK asks besides the images: the sizes it was made for, the quality, the engine clock, the camera's lens.
     in.quality = upscaler.quality;
-    in.dynamicResolution = renderScale != renderBaseScale;
     in.maxRenderW = std::max(in.renderW, int(std::lround(double(in.outW) * double(renderBaseScale))));
     in.maxRenderH = std::max(in.renderH, int(std::lround(double(in.outH) * double(renderBaseScale))));
     in.frameTimeMs = frameDt * 1000.0f;
@@ -403,6 +495,69 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     in.reactive = reactive ? reactive->texView : gpu::View{};
     in.exposure = 1.0f;  // the scene is exposed before the stage
     in.resetHistory = !histValid;
+    // The camera the frame was drawn with (DLSS Ray Reconstruction is told its matrices).
+    render::UpscaleCamera& cam = in.camera;
+    cam.valid = true;
+    cam.perspective = upscaleTaa.perspective;
+    std::copy(upscaleTaa.view.m, upscaleTaa.view.m + 16, cam.view);
+    std::copy(upscaleTaa.projection.m, upscaleTaa.projection.m + 16, cam.proj);
+    std::copy(upscaleTaa.prevFromView.m, upscaleTaa.prevFromView.m + 16, cam.prevFromView);
+    cam.prevValid = histValid;
+    const Vec3 axes[4] = {upscaleTaa.position, upscaleTaa.right, upscaleTaa.up, upscaleTaa.forward};
+    float* const dest[4] = {cam.position, cam.right, cam.up, cam.forward};
+    for (int i = 0; i < 4; ++i) {
+        dest[i][0] = axes[i].x;
+        dest[i][1] = axes[i].y;
+        dest[i][2] = axes[i].z;
+    }
+    cam.nearPlane = upscaleTaa.nearPlane;
+    cam.farPlane = upscaleTaa.farPlane;
+    // DLSS Ray Reconstruction (M78-P4c): when the setting asks for it, this frame can use it and the guides are made. Else the frame is
+    // drawn with Super Resolution, the reason said once; a machine that refuses it, or a frame it refused, stays off.
+    in.rayReconstruction = false;
+    if (index == 0 && upscaler.rayReconstruction) {
+        std::string why;
+        bool permanent =
+            false;  // the reason belongs to the machine or to a refused frame: the setting stays unusable for this run
+        if (rrFailed) {
+            why = rrFailedWhy;
+        } else if (!rr_probe().available) {
+            why = rr_probe().reason;
+            permanent = true;
+        } else if (!in.linear) {
+            why = "the frame is not in linear HDR light (the picture is display values: a final pass or a "
+                  "display-referred pipeline), "
+                  "and Ray Reconstruction reads linear colour";
+        } else if (in.dynamicResolution) {
+            why = "the dynamic resolution is changing the render size, which Ray Reconstruction does not support";
+        } else if (!upscaleTaa.perspective) {
+            why = "the camera is orthographic, and Ray Reconstruction needs a perspective one";
+        } else if (!rrPrep.ready(gpu.device())) {
+            why = "the guides shader did not compile";
+            rrFailed = true;
+            rrFailedWhy = why;
+        } else if (!run_rr_guides(in, c, prepass)) {
+            why = "the guide images of the render size could not be made";
+            rrFailed = true;
+            rrFailedWhy = why;
+        } else {
+            in.rayReconstruction = true;
+        }
+        if (!in.rayReconstruction) {
+            bool& warned = permanent ? rrWarnedUnavailable : rrWarnedFrame;
+            if (!warned) {
+                warned = true;
+                FA_WARN(
+                    "render",
+                    "DLSS Ray Reconstruction is not used: {}. Super Resolution draws instead. Hint: render.supports "
+                    "\"dlssRayReconstruction\" says what this machine can do; set render.upscaler rayReconstruction to "
+                    "false to silence "
+                    "this.",
+                    why);
+            }
+        }
+    }
+    if (!in.rayReconstruction) free_rr_images();
     render::VendorFrame f;
     f.device = &gpu.device();
     f.list = &pass_list(c, gpu);
@@ -413,9 +568,31 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     f.output = out.color;
     f.colorFormat = src.format.color;
     f.outputFormat = out.format.color;
+    if (in.rayReconstruction) {
+        f.normalRoughness = rrNormal.color;
+        f.diffuseAlbedo = rrDiffuse.color;
+        f.specularAlbedo = rrSpecular.color;
+        in.normalRoughness = rrNormal.texView;
+        in.diffuseAlbedo = rrDiffuse.texView;
+        in.specularAlbedo = rrSpecular.texView;
+    }
     mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
     if (!provider.upscale(in, f)) return vendor_fail(index, f.error);
     mfxLastWrote = true;
+    if (index == 0) rrLastUsed = f.usedRayReconstruction;
+    if (in.rayReconstruction && !f.usedRayReconstruction) {
+        // DLSS drew the frame with Super Resolution: Ray Reconstruction is off for the rest of the run (fail once, stay off).
+        rrFailed = true;
+        rrFailedWhy =
+            f.rayReconstructionFallback.empty() ? std::string("DLSS gave no reason") : f.rayReconstructionFallback;
+        rrWarnedFrame = true;
+        FA_WARN("render",
+                "DLSS Ray Reconstruction is not used: {} Super Resolution draws instead for the rest of this run. "
+                "Hint: set "
+                "render.upscaler rayReconstruction to false to silence this.",
+                rrFailedWhy);
+        free_rr_images();
+    }
     ++stats.drawCalls;  // the provider's own pass
     return true;
 }
