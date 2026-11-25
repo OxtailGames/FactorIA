@@ -664,7 +664,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         // Hooked: the providers' hooks were registered before this device was made (a window of D3D12 or Vulkan of this renderer's own).
         im.framegen.attach(&im.gpu.device(), render::vendor_env_of(im.gpu.device()), fs,
                            desc.frameGeneration && im.windowManaged);
-        im.sync_reflex_for_framegen();
+        im.sync_framegen_latency();
     }
     im.initialized = true;
     return true;
@@ -1804,8 +1804,7 @@ void Renderer::Impl::render(World& world, float dt) {
     // (a test's fake) is the one the rate is measured with; mode off is one branch.
     framegen.set_inputs(upscale_active(), temporalFrame);
     framegen.begin_frame(render::latency_clock().now_ms());
-    sync_reflex_for_framegen();  // a provider that started or stopped this frame changes what Reflex has to do
-    sync_framegen_latency();
+    sync_framegen_latency();  // a provider that started or stopped this frame changes which low-latency SDK has to run
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)

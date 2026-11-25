@@ -91,16 +91,15 @@ Json Renderer::latency_status() {
                     std::string("Nothing paces the loop: the engine's own pacing needs a window that is presented to "
                                 "(not a headless run, not the editor).");
         }
-        if (lc.reflex_forced())
+        // A driver a feature needs (DLSS frame generation: Reflex, XeSS frame generation: XeLL) runs whatever render.latency says.
+        if (lc.forced()) {
+            const bool reflex = lc.required_driver() == render::LatencyDriver::Reflex;
             reason += (reason.empty() ? "" : " ") +
-                      std::string("NVIDIA Reflex is on because DLSS frame generation needs it.");
+                      std::string(reflex ? "NVIDIA Reflex is on because DLSS frame generation needs it"
+                                         : "XeLL runs because XeSS frame generation needs it") +
+                      " (render.latency is \"" + std::string(render::latency_mode_name(s.mode)) + "\").";
+        }
     }
-    // XeSS frame generation cannot run without XeLL: it runs whatever render.latency says (the controller's require_driver).
-    if (initialized() && impl_->latency.required_driver() == render::LatencyDriver::Xell &&
-        driver == render::LatencyDriver::Xell && s.mode != render::LatencyMode::Xell)
-        reason += (reason.empty() ? "" : " ") +
-                  std::string("XeLL runs because XeSS frame generation needs it (render.latency is \"") +
-                  std::string(render::latency_mode_name(s.mode)) + "\").";
     j["reason"] = reason;
     j["modes"] = std::move(modes);
     return j;

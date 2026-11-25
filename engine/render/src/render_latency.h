@@ -108,19 +108,19 @@ public:
     // sleep mode. A provider whose start() failed is not tried again (the engine's pacing runs).
     void set_settings(const LatencySettings& s);
     const LatencySettings& settings() const { return settings_; }
-    // A feature that cannot run without NVIDIA Reflex (DLSS frame generation: it needs the markers of every frame) asks for it here. While
-    // required, Reflex runs whatever the player's mode (the modes off, anti-lag 2 and xell become reflex; reflex and auto keep their own boost
-    // choice); the player's setting itself is not changed and comes back when the requirement ends. It lasts across attach and detach.
-    void require_reflex(bool required);
-    bool reflex_required() const { return reflexRequired_; }
-    // Whether Reflex is on only because of require_reflex (the player's mode would not have started it).
-    bool reflex_forced() const;
-    LatencyDriver driver() const { return driver_; }
-    // A driver another part of the renderer needs (Intel XeSS frame generation needs XeLL: it runs while that is set, whatever the setting
-    // says, even `off`); None = no requirement. (The requirer checks the driver is usable first: a required one that cannot start falls to
-    // the engine's own pacing like any other.)
+    // A feature that cannot run without one low-latency SDK asks for it here: DLSS frame generation needs NVIDIA Reflex (it reads the markers of
+    // every frame), XeSS frame generation needs Intel XeLL. While `d` (Reflex or Xell) is required, that driver runs whatever the player's mode
+    // says, even `off`: a mode that would not start it is replaced by the mode of `d` (Reflex without boost). A mode that already starts it
+    // (the one that names it, or `auto` on that GPU maker) is kept with its own boost. The player's setting itself is not changed and comes back
+    // when the requirement ends. None (or a driver with no provider slot) = no requirement; it lasts across attach and detach. (The requirer
+    // checks the driver is usable first: a required one that cannot start falls to the engine's own pacing like any other, and forced() says
+    // so.)
     void require_driver(LatencyDriver d);
     LatencyDriver required_driver() const { return required_; }
+    // Whether the required driver is on only because of require_driver: it is the one that runs (driver()) and the player's mode would not
+    // have started it. False while nothing is required, while the required driver failed to start, and while the player's own mode runs it.
+    bool forced() const;
+    LatencyDriver driver() const { return driver_; }
     // What the machine can run, asking each provider once; `reasons[i]` (0 reflex, 1 antilag2, 2 xell) says why one cannot ("" when usable).
     LatencyCaps caps();
     std::string provider_reason(LatencyDriver d);  // "" when `d`'s provider is usable here, else why not
@@ -153,13 +153,13 @@ private:
     Slot& slot(LatencyDriver d);
     void stop_provider();
     void apply();
-    LatencySettings effective_settings() const;  // settings_ with the requirement of require_reflex applied
+    LatencySettings effective_settings() const;  // settings_ with the requirement of require_driver applied
+    bool mode_starts(LatencyMode mode, LatencyDriver d) const;  // would `mode` (on env_'s GPU maker) run provider `d`
 
     gpu::Device* device_ = nullptr;
     VendorEnv env_{};
     bool pacingAllowed_ = false;
     LatencySettings settings_{};
-    bool reflexRequired_ = false;
     LatencyDriver driver_ = LatencyDriver::None;
     LatencyDriver required_ = LatencyDriver::None;
     LatencyProvider* running_ = nullptr;  // the provider started on device_

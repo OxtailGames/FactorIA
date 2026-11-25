@@ -1026,7 +1026,7 @@ TEST_CASE("dlss frame generation through the controller: Reflex is required whil
     CHECK(c.provider() == FrameGenSlot::Dlss);
     CHECK(c.requires_reflex());
     CHECK(c.wants_reversed_depth());
-    r.reflex.start(r.dev);  // what Renderer::Impl::sync_reflex_for_framegen makes of requires_reflex
+    r.reflex.start(r.dev);  // what Renderer::Impl::sync_framegen_latency makes of requires_reflex
     double t = 1000.0;
     for (int i = 0; i < 3; ++i) {
         t += 10.0;
@@ -1051,26 +1051,26 @@ TEST_CASE("latency controller: a feature that needs Reflex turns it on whatever 
     c.set_settings(render::LatencySettings{});  // off
     CHECK(c.driver() == LatencyDriver::None);
     CHECK_FALSE(render::reflex_running());
-    c.require_reflex(true);
+    c.require_driver(LatencyDriver::Reflex);
     CHECK(c.driver() == LatencyDriver::Reflex);
-    CHECK(c.reflex_forced());
+    CHECK(c.forced());
     CHECK(render::reflex_running());
     REQUIRE_FALSE(gx.reflexOptions.empty());
     CHECK(gx.reflexOptions.back().mode == sl::kReflexLowLatency);
     CHECK(c.settings().mode == LatencyMode::Off);  // the player's setting itself is not changed
-    c.require_reflex(false);
+    c.require_driver(LatencyDriver::None);
     CHECK(c.driver() == LatencyDriver::None);
-    CHECK_FALSE(c.reflex_forced());
+    CHECK_FALSE(c.forced());
     CHECK_FALSE(render::reflex_running());
     // a player who chose Reflex keeps their own boost, and nothing is "forced"
     render::LatencySettings boost;
     boost.mode = LatencyMode::Reflex;
     boost.boost = true;
     c.set_settings(boost);
-    c.require_reflex(true);
-    CHECK_FALSE(c.reflex_forced());
+    c.require_driver(LatencyDriver::Reflex);
+    CHECK_FALSE(c.forced());
     CHECK(gx.reflexOptions.back().mode == sl::kReflexLowLatencyBoost);
-    c.require_reflex(false);
+    c.require_driver(LatencyDriver::None);
     CHECK(c.driver() == LatencyDriver::Reflex);
     c.detach();
 }

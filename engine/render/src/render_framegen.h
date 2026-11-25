@@ -128,7 +128,7 @@ public:
     // Whether the depth image is to be the reversed infinite one (near / d) instead of d / (d + 1) (FrameGenFrame::depthReversed).
     virtual bool wants_reversed_depth() const { return false; }
     // Whether the SDK cannot generate without NVIDIA Reflex running (DLSS frame generation reads Reflex's markers of every frame). The
-    // renderer then turns Reflex on while this provider runs, whatever the player's latency mode (LatencyController::require_reflex).
+    // renderer then turns Reflex on while this provider runs, whatever the player's latency mode (LatencyController::require_driver(Reflex)).
     virtual bool requires_reflex() const { return false; }
     // The window's swapchain was made again, resized or lost (width and height 0): what start() was told is out of date. Called on the render
     // thread, between two frames; the next frame carries `reset`. The default does nothing.
