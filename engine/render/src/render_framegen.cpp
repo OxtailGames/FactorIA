@@ -9,6 +9,8 @@
 
 #include "fa/core/log.h"
 
+#include "render_framegen_dlss.h"
+
 namespace fa::render {
 
 namespace {
@@ -25,8 +27,10 @@ int slot_index(FrameGenSlot s) {
 
 struct ProviderTable {
     std::mutex mutex;
-    std::shared_ptr<FrameGenProvider> registered[3];  // every slot is empty until its package registers a provider
+    std::shared_ptr<FrameGenProvider>
+        registered[3];  // dlss, fsr, xess: a slot is empty until its package registers a provider
     FrameGenProvider* fake[3] = {};
+    ProviderTable() { registered[0] = make_dlss_framegen_provider(); }
 };
 
 // Never destroyed (the reason the vendor table gives, render_upscale_vendor.cpp): a renderer shut down during the static destruction of the
@@ -75,9 +79,7 @@ void clear_registered_framegen_provider_for_test(FrameGenSlot slot) {
 
 const char* framegen_absent_reason(FrameGenSlot slot) {
     switch (slot) {
-        case FrameGenSlot::Dlss:
-            return "DLSS frame generation arrives with the Streamline DLSS-G provider; this build has no provider for "
-                   "it yet.";
+        case FrameGenSlot::Dlss: return "DLSS frame generation has no provider in this build.";
         case FrameGenSlot::Fsr:
             return "FSR 3 frame generation arrives with the FidelityFX frame generation provider; this build has no "
                    "provider for it yet.";

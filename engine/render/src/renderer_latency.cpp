@@ -91,6 +91,9 @@ Json Renderer::latency_status() {
                     std::string("Nothing paces the loop: the engine's own pacing needs a window that is presented to "
                                 "(not a headless run, not the editor).");
         }
+        if (lc.reflex_forced())
+            reason += (reason.empty() ? "" : " ") +
+                      std::string("NVIDIA Reflex is on because DLSS frame generation needs it.");
     }
     j["reason"] = reason;
     j["modes"] = std::move(modes);

@@ -2,6 +2,7 @@
 #include "render_latency_reflex.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <initializer_list>
 #include <memory>
@@ -14,6 +15,9 @@ namespace fa::render {
 namespace {
 
 namespace abi = sl_abi;
+
+// Whether the Reflex provider has Reflex on (Low Latency or Boost) and sends the markers: DLSS frame generation reads it (reflex_running).
+std::atomic<bool> g_reflexRunning{false};
 
 constexpr unsigned bit(gpu::Backend b) { return 1u << unsigned(b); }
 
@@ -64,8 +68,9 @@ VendorProbe ReflexProvider::probe(const VendorEnv& env) {
                    ". Choose \"auto\", which uses the SDK of the GPU's maker, or another mode.";
     if (!p.reason.empty()) {
         if (env.backend == gpu::Backend::D3d11)
-            p.reason += " FactorIA starts Streamline on Direct3D 12 and Vulkan devices only: run the game on one of them, or "
-                        "choose another latency mode.";
+            p.reason +=
+                " FactorIA starts Streamline on Direct3D 12 and Vulkan devices only: run the game on one of them, or "
+                "choose another latency mode.";
         return p;
     }
 
@@ -73,7 +78,8 @@ VendorProbe ReflexProvider::probe(const VendorEnv& env) {
     const StreamlineStatus status = runtime.status();
     if (!status.ready) {
         if (status.tried) {
-            p.reason = status.reason.empty() ? "NVIDIA Streamline did not start with the graphics device." : status.reason;
+            p.reason =
+                status.reason.empty() ? "NVIDIA Streamline did not start with the graphics device." : status.reason;
             return p;
         }
         // Streamline never saw this device: say whether the library is there, which is what the user can do something about.
@@ -82,13 +88,14 @@ VendorProbe ReflexProvider::probe(const VendorEnv& env) {
         if (vendor_loader().find(spec, &why).empty())
             p.reason = std::string("NVIDIA Streamline (Reflex) is not installed: ") + kSetupHint + " (" + why + ").";
         else
-            p.reason = "NVIDIA Streamline is installed, but it was not started when the graphics device was made (the renderer starts it "
+            p.reason = "NVIDIA Streamline is installed, but it was not started when the graphics device was made (the "
+                       "renderer starts it "
                        "before it makes a Direct3D 12 or Vulkan device): restart the game.";
         return p;
     }
     if (status.backend != env.backend) {
-        p.reason = std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) + " and this device is " +
-                   vendor_backend_label(env.backend) + ".";
+        p.reason = std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) +
+                   " and this device is " + vendor_backend_label(env.backend) + ".";
         return p;
     }
     if (const std::string why = runtime.feature_reason(abi::kFeatureReflex); !why.empty()) {
@@ -113,7 +120,8 @@ VendorProbe ReflexProvider::probe(const VendorEnv& env) {
         return p;
     }
     if (!state->lowLatencyAvailable) {
-        p.reason = "the NVIDIA driver says Reflex Low Latency is not available on this GPU (it needs a GeForce GTX 900 series or newer and "
+        p.reason = "the NVIDIA driver says Reflex Low Latency is not available on this GPU (it needs a GeForce GTX 900 "
+                   "series or newer and "
                    "driver 456.38 or newer). Update the NVIDIA graphics driver, or choose another latency mode.";
         return p;
     }
@@ -127,12 +135,16 @@ std::string ReflexProvider::start(gpu::Device& device) {
     const std::uint64_t generation = runtime.ready_generation();
     const StreamlineStatus status = runtime.status();
     if (generation == 0)
-        return status.reason.empty() ? std::string("NVIDIA Streamline is not running on this device (") + kSetupHint + ")" : status.reason;
+        return status.reason.empty()
+                   ? std::string("NVIDIA Streamline is not running on this device (") + kSetupHint + ")"
+                   : status.reason;
     if (device.backend() != gpu::Backend::D3d12 && device.backend() != gpu::Backend::Vulkan)
         return "NVIDIA Reflex runs on Direct3D 12 and Vulkan";
     if (status.backend != device.backend())
-        return std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) + ", not for this device";
-    if (const std::string why = runtime.feature_reason(abi::kFeatureReflex); !why.empty()) return "NVIDIA Reflex is not available: " + why;
+        return std::string("NVIDIA Streamline was started for ") + vendor_backend_label(status.backend) +
+               ", not for this device";
+    if (const std::string why = runtime.feature_reason(abi::kFeatureReflex); !why.empty())
+        return "NVIDIA Reflex is not available: " + why;
     const StreamlineApi* sl = runtime.api();
     if (!sl) return "NVIDIA Streamline is not running on this device";
     ReflexApi api;
@@ -142,9 +154,11 @@ std::string ReflexProvider::start(gpu::Device& device) {
 
     auto state = std::make_unique<abi::ReflexState>();
     abi::init_reflex_state(*state);
-    if (const abi::Result r = api.getState(state.get()); r != abi::kOk) return streamline_refusal("slReflexGetState", r);
+    if (const abi::Result r = api.getState(state.get()); r != abi::kOk)
+        return streamline_refusal("slReflexGetState", r);
     if (!state->lowLatencyAvailable)
-        return "the NVIDIA driver says Reflex Low Latency is not available on this GPU (update the NVIDIA graphics driver)";
+        return "the NVIDIA driver says Reflex Low Latency is not available on this GPU (update the NVIDIA graphics "
+               "driver)";
 
     api_ = api;
     state_ = std::move(state);
@@ -171,11 +185,14 @@ void ReflexProvider::send_options(std::uint32_t mode, std::uint32_t frameLimitUs
     haveOptions_ = true;
     mode_ = mode;
     frameLimitUs_ = frameLimitUs;
+    g_reflexRunning.store(mode != abi::kReflexOff);
 }
 
 void ReflexProvider::configure(bool enabled, bool boost, std::uint32_t minIntervalUs) {
     if (!live(streamline_runtime())) return;
-    const std::uint32_t mode = !enabled ? abi::kReflexOff : boost ? abi::kReflexLowLatencyBoost : abi::kReflexLowLatency;
+    const std::uint32_t mode = !enabled ? abi::kReflexOff
+                               : boost  ? abi::kReflexLowLatencyBoost
+                                        : abi::kReflexLowLatency;
     send_options(mode, enabled ? minIntervalUs : 0);
 }
 
@@ -253,6 +270,7 @@ Json ReflexProvider::vendor_report() {
 }
 
 void ReflexProvider::forget() {
+    g_reflexRunning.store(false);
     device_ = nullptr;
     generation_ = 0;
     api_ = ReflexApi{};
@@ -274,8 +292,12 @@ void ReflexProvider::stop(gpu::Device& device) {
 
 }  // namespace
 
+bool reflex_running() { return g_reflexRunning.load(); }
+
 std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& api) {
-    if (!sl.getFeatureFunction) return "NVIDIA Streamline has no slGetFeatureFunction (it is not Streamline 2.x): " + std::string(kSetupHint) + ".";
+    if (!sl.getFeatureFunction)
+        return "NVIDIA Streamline has no slGetFeatureFunction (it is not Streamline 2.x): " + std::string(kSetupHint) +
+               ".";
     ReflexApi a;
     const auto get = [&](std::uint32_t feature, const char* name, auto& fn) -> std::string {
         void* address = nullptr;
@@ -286,9 +308,9 @@ std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& ap
         fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(address);  // NOLINT: the function's address
         return {};
     };
-    for (const std::string& why : {get(abi::kFeatureReflex, "slReflexSetOptions", a.setOptions),
-                                   get(abi::kFeatureReflex, "slReflexGetState", a.getState),
-                                   get(abi::kFeatureReflex, "slReflexSleep", a.sleep)})
+    for (const std::string& why :
+         {get(abi::kFeatureReflex, "slReflexSetOptions", a.setOptions),
+          get(abi::kFeatureReflex, "slReflexGetState", a.getState), get(abi::kFeatureReflex, "slReflexSleep", a.sleep)})
         if (!why.empty()) return why;
     // Without the PCL plugin Reflex still sleeps; the markers are then not sent.
     if (withPcl && !get(abi::kFeaturePcl, "slPCLSetMarker", a.setMarker).empty()) a.setMarker = nullptr;
