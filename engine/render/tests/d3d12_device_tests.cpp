@@ -2604,11 +2604,10 @@ struct HiddenWindow {
             return RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
         }();
         if (!registered) return;
-        RECT r{0, 0, width, height};
-        AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-        hwnd =
-            CreateWindowExW(0, kClass, L"fa d3d12 swapchain test", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                            r.right - r.left, r.bottom - r.top, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        // WS_POPUP: no frame, so Windows does not raise the size to the minimum track size of a framed window
+        // (~136 px wide), and the client area is exactly width x height.
+        hwnd = CreateWindowExW(0, kClass, L"fa d3d12 swapchain test", WS_POPUP, 0, 0, width, height, nullptr, nullptr,
+                               GetModuleHandleW(nullptr), nullptr);
     }
     ~HiddenWindow() {
         if (hwnd) DestroyWindow(hwnd);

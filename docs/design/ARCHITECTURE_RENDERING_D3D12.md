@@ -198,14 +198,18 @@ inside a pass whose `begin_pass` failed is skipped. `draw_ex`'s `baseVertex` is 
 and is added to `base` without one; dispatch counts are 0 to 65535 per dimension.
 
 **Swapchain** (d3d12_swapchain_win32.cpp, M77-P9c). `create_swapchain(SwapchainDesc)` makes a flip-model DXGI swapchain
-on the HWND of `nativeWindow` (`CreateSwapChainForHwnd` on the graphics queue, `DXGI_SWAP_EFFECT_FLIP_DISCARD`, as many
-buffers as frames in flight and at least 2, Alt+Enter left to the window). It checks the desc before any DXGI work: a
+on the HWND of `nativeWindow` (`CreateSwapChainForHwnd` on the graphics queue, `DXGI_SWAP_EFFECT_FLIP_DISCARD`, one buffer
+more than the frames in flight, at least 2, so the GPU never waits for a buffer still queued for the display;
+Alt+Enter left to the window). It checks the desc before any DXGI work: a
 null or destroyed window, a negative size (0 is the window's client size), a sample count that is not 1, 2, 4 or 8, a
-format it does not take, MSAA of a format that cannot, a size over the GPU's largest image. Where DXGI allows tearing
+format it does not take, MSAA of a format that cannot, MSAA of an sRGB format (the back buffers are UNORM and
+`ResolveSubresource` needs one format on both sides), a size over the GPU's largest image. Where DXGI allows tearing
 (`DXGI_FEATURE_PRESENT_ALLOW_TEARING`) the swapchain is made with it and `present()` tears only when `vsync` is off. A
 frame-latency waitable (`SetMaximumFrameLatency` = frames in flight) is waited for in `acquire_swapchain`, at most one
 second (a hidden or occluded window may never signal it; the wait is then counted, `swapchain_wait_timeouts()`, and the
-frame goes on). The formats (`swapchain_format_supported`, which asks the GPU for DISPLAY and RENDER_TARGET support of
+frame goes on; with no buffers after a failed resize it is not waited for). `ResizeBuffers` and `Present` run on the
+render thread, not the one pumping the window's messages: DXGI may send that window messages and wait for them, so the
+window thread must never block on the render thread while it resizes or presents. The formats (`swapchain_format_supported`, which asks the GPU for DISPLAY and RENDER_TARGET support of
 the buffer format): Default is the device's SDR format (Bgra8); Bgra8, Sbgr8A8, Rgba8, Srgb8A8 make UNORM buffers (the
 sRGB ones get sRGB views); Rgba16F is scRGB (`DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709`) and Rgb10A2 is HDR10
 (`G2084_NONE_P2020`). For those two `create_swapchain` asks `CheckColorSpaceSupport` and sets the space; a display that
