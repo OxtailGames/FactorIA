@@ -49,7 +49,7 @@ struct D3d11ExecuteParams {
 struct VkImageViewInfo {
     std::uint64_t imageView, image;
     std::uint32_t aspectMask, baseMipLevel, levelCount, baseArrayLayer, layerCount;  // VkImageSubresourceRange
-    std::uint32_t format;                                                              // VkFormat
+    std::uint32_t format;                                                            // VkFormat
     std::uint32_t width, height;
 };
 struct VkExecuteParams {
@@ -83,8 +83,9 @@ struct VkInitParams {
 #pragma pack(pop)
 
 // xess_quality_settings_t
-inline constexpr std::int32_t kQualityUltraPerformance = 100, kQualityPerformance = 101, kQualityBalanced = 102, kQualityQuality = 103,
-                              kQualityUltraQuality = 104, kQualityUltraQualityPlus = 105, kQualityAa = 106;
+inline constexpr std::int32_t kQualityUltraPerformance = 100, kQualityPerformance = 101, kQualityBalanced = 102,
+                              kQualityQuality = 103, kQualityUltraQuality = 104, kQualityUltraQualityPlus = 105,
+                              kQualityAa = 106;
 // xess_init_flags_t
 inline constexpr std::uint32_t kInitResponsivePixelMask = 1u << 3, kInitLdrInputColor = 1u << 6;
 // xess_result_t: success is 0, a warning is positive, an error negative.
@@ -102,8 +103,10 @@ using D3d12ExecuteFn = std::int32_t (*)(Context, void* commandList, const D3d12E
 using D3d11CreateContextFn = std::int32_t (*)(void* device, Context*);
 using D3d11InitFn = std::int32_t (*)(Context, const D3d11InitParams*);
 using D3d11ExecuteFn = std::int32_t (*)(Context, const D3d11ExecuteParams*);
-using VkGetRequiredInstanceExtensionsFn = std::int32_t (*)(std::uint32_t* count, const char* const** names, std::uint32_t* minApiVersion);
-using VkGetRequiredDeviceExtensionsFn = std::int32_t (*)(void* instance, void* physicalDevice, std::uint32_t* count, const char* const** names);
+using VkGetRequiredInstanceExtensionsFn = std::int32_t (*)(std::uint32_t* count, const char* const** names,
+                                                           std::uint32_t* minApiVersion);
+using VkGetRequiredDeviceExtensionsFn = std::int32_t (*)(void* instance, void* physicalDevice, std::uint32_t* count,
+                                                         const char* const** names);
 using VkCreateContextFn = std::int32_t (*)(void* instance, void* physicalDevice, void* device, Context*);
 using VkInitFn = std::int32_t (*)(Context, const VkInitParams*);
 using VkExecuteFn = std::int32_t (*)(Context, void* commandBuffer, const VkExecuteParams*);
