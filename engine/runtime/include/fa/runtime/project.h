@@ -38,6 +38,7 @@
 #include "fa/render/renderer.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/dynamic_resolution.h"
+#include "fa/render/framegen.h"
 #include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 
@@ -132,6 +133,10 @@ struct ProjectSettings {
     // "render": {"latency": {"mode", "boost"}} (M78, docs/LATENCY.md): the low-latency path a run starts with (off, auto, reflex, antilag2, xell);
     // the command render.latency changes it at run time. Off (the default) is the loop of every earlier version.
     render::LatencySettings latency;
+    // "render": {"frameGeneration": {"mode", "minBaseFps"}} (M78, docs/FRAME_GENERATION.md): the frame generation a run starts with (off, auto, dlss,
+    // fsr, xess); the command render.frame_generation changes it at run time (a provider needs the start of the run: the swapchain is made then).
+    // Off (the default) is the swapchain of every earlier version.
+    render::FrameGenSettings frameGeneration;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.
     render::DynamicResolutionSettings dynamicResolution;

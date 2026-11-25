@@ -196,6 +196,11 @@ struct Engine::Impl {
     // set. The renderer holds the same value once it exists; the engine passes the display's refresh rate to it every frame.
     render::LatencySettings latency;
     std::optional<render::LatencySettings> appliedProjectLatency;  // the project's render.latency last applied
+    // The frame generation setting (M78, docs/FRAME_GENERATION.md): the project's render.frameGeneration, or what render.frame_generation /
+    // Engine::set_frame_generation last set. The renderer holds the same value once it exists.
+    render::FrameGenSettings frameGeneration;
+    std::optional<render::FrameGenSettings>
+        appliedProjectFrameGen;  // the project's render.frameGeneration last applied
     // The refresh rate the engine's own pacing aligns to: the display's while vsync paces a windowed game, else 0 (no pacing).
     double latency_pacing_hz() const;
     float dynamic_factor() const;

@@ -446,6 +446,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.dynamic_resolution`](commands/game.md#renderdynamic_resolution-modifies-state): Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target. _Since 0.36.0._
+- [`render.frame_generation`](commands/game.md#renderframe_generation-modifies-state): Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered ones. _Not released yet._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Since 0.34.0._
 - [`render.gi_grid`](commands/game.md#rendergi_grid): The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry. _Since 0.33.0._

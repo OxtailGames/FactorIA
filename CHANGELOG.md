@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
 
 ## Unreleased
 
+- **Frame generation seam (M78):** `render.frameGeneration` (project key `render.frameGeneration {mode, minBaseFps}` and the command
+  `render.frame_generation`): `mode` off, auto (the GPU maker's SDK), dlss, fsr or xess, and the base frame rate below which generation
+  switches off (default 60, back on at 10% above). This package is the seam and no vendor SDK yet: a provider interface with one empty slot
+  per SDK (each says which package fills it), the controller (provider choice, refusals that say what to fix, the `minBaseFps` hysteresis),
+  and the output stage's hand-off: the picture before the screen-space items is copied, the items are drawn, then the provider is given the
+  frame with the depth, motion, camera and jitter of the temporal upscaler. `render.supports` has the rows `dlssFrameGen`, `fsrFrameGen`
+  and `xessFrameGen`; the profiler (`perf.profile`, editor Profiler) reports base fps, presented fps, generated frames and the provider or
+  the reason (`profile.frameGeneration`). FRAME_GENERATION.md.
 - **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
   an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
   flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.

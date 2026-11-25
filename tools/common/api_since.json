@@ -1592,6 +1592,7 @@
     "render.gi2d_field": "0.34.0",
     "render.gi_grid": "0.33.0",
     "render.inspect": "0.4.0",
+    "render.frame_generation": "unreleased",
     "render.latency": "unreleased",
     "render.light_probes": "0.33.0",
     "render.material_cost": "0.33.0",

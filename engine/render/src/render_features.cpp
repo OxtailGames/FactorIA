@@ -8,6 +8,7 @@
 #include "fa/scene/postprocess.h"
 
 #include "metalfx.h"
+#include "render_framegen.h"
 
 namespace fa::render {
 
@@ -102,6 +103,11 @@ std::uint32_t post_drawn_mask() {
 }
 
 namespace {
+
+// 0 dlssFrameGen, 1 fsrFrameGen, 2 xessFrameGen: the frame-generation rows (slot = index + 1); -1 any other.
+int framegen_row_index(std::string_view name) {
+    return name == "dlssFrameGen" ? 0 : name == "fsrFrameGen" ? 1 : name == "xessFrameGen" ? 2 : -1;
+}
 
 std::vector<FeatureDef> build_table() {
     std::vector<FeatureDef> t;
@@ -477,6 +483,35 @@ std::vector<FeatureDef> build_table() {
          "is missing the mode "
          "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
          nullptr},
+        // The frame-generation providers of M78 (docs/FRAME_GENERATION.md; render.frameGeneration): the answer is the provider's (render_framegen.h).
+        // Every slot is empty until its package lands, so the rows are false and say so.
+        {"dlssFrameGen", "",
+         "NVIDIA DLSS frame generation (render.frameGeneration mode \"dlss\", also picked by \"auto\" on an NVIDIA "
+         "GPU): a generated "
+         "frame between two rendered ones, made from the picture before the HUD, the depth and the motion of the "
+         "temporal upscaler. "
+         "Windows on D3D12 or Vulkan with an RTX GPU, through Streamline (`factoria setup streamline`); its provider "
+         "arrives with the "
+         "Streamline DLSS-G package, so the row is false until then (render.supports gives the reason).",
+         nullptr},
+        {"fsrFrameGen", "",
+         "AMD FSR 3 frame generation (render.frameGeneration mode \"fsr\", also picked by \"auto\" on an AMD GPU): a "
+         "generated frame "
+         "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
+         "upscaler, on any GPU. "
+         "Windows on D3D12 or Vulkan with the FidelityFX SDK installed (`factoria setup fidelityfx`); its provider "
+         "arrives with the "
+         "FidelityFX frame generation package, so the row is false until then (render.supports gives the reason).",
+         nullptr},
+        {"xessFrameGen", "",
+         "Intel XeSS frame generation (render.frameGeneration mode \"xess\", also picked by \"auto\" on an Intel GPU): "
+         "a generated frame "
+         "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
+         "upscaler. Windows on "
+         "D3D12 with an Intel Arc GPU and the XeSS SDK installed (`factoria setup xess`); its provider arrives with "
+         "the XeSS frame "
+         "generation package, so the row is false until then (render.supports gives the reason).",
+         nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
          "window.dynamicResolution): "
@@ -497,11 +532,12 @@ std::vector<FeatureDef> build_table() {
         // metalfx: Metal only. xess: D3D11 is the one backend of this table it runs on (its D3D12 and Vulkan runs are not a column of it
         // yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); dlss, fsr and the latency SDKs (reflex, antilag2, xell) run on
         // D3D12 and Vulkan only, so no column is set. The row's answer always comes from the provider's probe, whatever this column says.
-        const unsigned backends =
-            row == "metalfx" ? bit(FeatureBackend::Metal)
-            : row == "xess"  ? bit(FeatureBackend::D3d11)
-            : row == "dlss" || row == "fsr" || row == "reflex" || row == "antilag2" || row == "xell" ? 0u
-                                                                                                     : kEveryGpu;
+        const unsigned backends = row == "metalfx" ? bit(FeatureBackend::Metal)
+                                  : row == "xess"  ? bit(FeatureBackend::D3d11)
+                                  : row == "dlss" || row == "fsr" || row == "reflex" || row == "antilag2" ||
+                                          row == "xell" || framegen_row_index(row) >= 0
+                                      ? 0u
+                                      : kEveryGpu;
         t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)
@@ -593,6 +629,19 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
         const VendorProbe& p = env.vendorUpscalers[std::size_t(vendor)];
         if (!p.available && why)
             *why = p.reason.empty() ? std::string("this upscaler is not available here") : p.reason;
+        return p.available;
+    }
+    if (const int fg = framegen_row_index(f.name); fg >= 0) {
+        if (!env.framegenAsked) {
+            if (why)
+                *why = "the frame generation providers are asked of the open GPU (Renderer::supports), and no GPU has "
+                       "been "
+                       "asked here";
+            return false;
+        }
+        const VendorProbe& p = env.framegen[std::size_t(fg)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this frame generation provider is not available here") : p.reason;
         return p.available;
     }
     if (const int lat = latency_row_index(f.name); lat >= 0) {
@@ -709,6 +758,11 @@ void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers)
     env.latencyAsked = true;
 }
 
+void set_framegen_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers) {
+    env.framegen = answers;
+    env.framegenAsked = true;
+}
+
 void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers) {
     env.vendorUpscalers = answers;
     env.vendorAsked = true;
@@ -744,6 +798,12 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         // The vendor upscalers also run on D3D12 and Vulkan, which the table has no column for: the provider's own backends say.
         if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
             const unsigned runs = vendor_provider(vendor).backends();
+            backends["D3D12"] = (runs & (1u << unsigned(gpu::Backend::D3d12))) != 0;
+            backends["Vulkan"] = (runs & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
+        }
+        // The frame-generation rows run on D3D12 and Vulkan too (XeSS: D3D12 only), whatever provider is registered: the slot's SDK says.
+        if (const int fg = framegen_row_index(f.name); fg >= 0) {
+            const unsigned runs = framegen_slot_backends(FrameGenSlot(fg + 1));
             backends["D3D12"] = (runs & (1u << unsigned(gpu::Backend::D3d12))) != 0;
             backends["Vulkan"] = (runs & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
         }

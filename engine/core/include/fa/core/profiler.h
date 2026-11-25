@@ -215,6 +215,9 @@ public:
     // The latency block (M78): the driver that measured ("none", "pacing", "reflex", "antilag2", "xell") and, when no frame was
     // measured, why. The times come from the frames' latencyMs.
     void set_latency_status(const std::string& driver, const std::string& reason);
+    // The frame generation block (M78, docs/FRAME_GENERATION.md): the engine's readout of the run as a JSON object (provider, state, baseFps,
+    // presentedFps, renderedFrames, generatedFrames, reason). Copied into the summary as "frameGeneration"; a run that never set it reports state "off".
+    void set_frame_generation(const Json& readout);
     void add_memory(const ProfMemory& m);  // first call = start, last = end, max over calls = peak
     int frames() const { return frames_; }
     Json to_json() const;  // see docs/PERFORMANCE.md
@@ -262,6 +265,7 @@ private:
     Acc latency_;
     std::string latencyDriver_ = "none";
     std::string latencyReason_ = "the input-to-present time was not measured";
+    Json frameGeneration_;  // object, or null when never set
     bool gpuSupported_ = false;
     std::string gpuReason_ = "the GPU time was not measured";
     bool haveMemory_ = false;

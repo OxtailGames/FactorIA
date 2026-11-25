@@ -791,6 +791,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             engine.profile_latency(&driver, &why);
             profile.set_latency_status(driver, why);
         }
+        profile.set_frame_generation(engine.profile_frame_generation());
         profile.add_memory(engine.profile_memory());
         report["profile"] = profile.to_json();
     }

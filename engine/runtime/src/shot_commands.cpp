@@ -1279,6 +1279,48 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.frame_generation",
+         "Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered "
+         "ones.",
+         "The frame generation seam of M78 (docs/FRAME_GENERATION.md): `mode` (off, auto, dlss, fsr, xess) and "
+         "`minBaseFps` (a whole number of 0 to 1000: below this rendered frame rate generation switches off, and it "
+         "switches on again at 10% above it; 0 never switches off). With no argument it returns the setting; with any "
+         "key it changes those and keeps the rest. Returns {mode, minBaseFps, provider, state, reason, modes, changed, "
+         "report}: `provider` is what runs (none, dlss, fsr, xess), `state` is off, refused, measuring, paused or "
+         "active, `reason` says why it is not the one the mode names, `modes` says per provider whether it is usable "
+         "here and why not, `report` the base and presented frame rates and the generated frames of the last frames. "
+         "Example: render.frame_generation {\"mode\":\"auto\"}" FA_COMMAND_DETAILS
+         "`auto` picks the SDK of the GPU's maker (NVIDIA dlss, AMD fsr, Intel xess). A provider needs a game window "
+         "on D3D12 or Vulkan (not the editor, not a headless run), the temporal upscaler (render.upscaler with a "
+         "render "
+         "scale below 1) and its SDK files (`factoria setup`); a provider owns the swapchain, so a game that starts "
+         "with mode off must be restarted to turn one on (`reason` says so), while a run that started with a provider "
+         "can switch it off and on. This build has the seam and no vendor provider yet: `modes` names the package "
+         "that adds each. A wrong name fails with `invalid_argument` and a \"did you mean\" and changes nothing. The "
+         "start value is factoria.json \"render\": {\"frameGeneration\": {...}}. Works with graphics=false too (the "
+         "value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"],"description":"off (nothing runs), auto (the GPU maker's SDK), dlss (NVIDIA DLSS frame generation, Windows, D3D12 or Vulkan, RTX), fsr (AMD FSR 3 frame generation, Windows, D3D12 or Vulkan), xess (Intel XeSS frame generation, Windows, D3D12, Arc)."},
+               "minBaseFps":{"type":"integer","minimum":0,"maximum":1000,"description":"The rendered frame rate below which generation switches off (it resumes at 10% above). 0 never switches off. Default 60."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "minBaseFps"}, "render.frame_generation");
+            const render::FrameGenSettings before = I.self->frame_generation();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_frame_generation(a, "render.frame_generation");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.frame_generation with no argument to read the setting.");
+                changed = I.self->frame_generation() != before;
+            }
+            Json out = I.self->frame_generation_status();
+            out["changed"] = changed;
+            out["report"] = I.self->frame_generation_report();
+            return out;
+        });
+
+    I.commands.add(
         {"render.dynamic_resolution",
          "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
@@ -1609,6 +1651,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.upscaler", capability_sets::changes_state()},
                                                  {"render.latency", capability_sets::changes_state()},
+                                                 {"render.frame_generation", capability_sets::changes_state()},
                                                  {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},
