@@ -29,7 +29,106 @@ namespace {
 
 bool contains(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
+// A cache file of `payload` bytes made on `id`.
+std::vector<std::uint8_t> cache_bytes(const PipelineCacheIdentity& id, const std::vector<std::uint8_t>& payload) {
+    std::vector<std::uint8_t> bytes(PipelineCacheFile::kHeaderBytes);
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
+    write_pipeline_cache_header(bytes, id);
+    return bytes;
+}
+
 }  // namespace
+
+// ---- the pipeline cache's header, size limits and file name (pure logic: every platform) ------------------------------
+
+TEST_CASE("d3d12 pipeline cache: the header keys on the adapter's ids and driver, never on its per-boot LUID") {
+    PipelineCacheIdentity self;
+    self.vendor = 0x10de;
+    self.device = 0x2684;
+    self.subsys = 0x16f31043;
+    self.revision = 0xa1;
+    self.driverVersion = (std::uint64_t(31) << 48) | (std::uint64_t(101) << 16) | 5186u;
+    self.luidLow = 0x1234;
+    self.luidHigh = 0;
+    const std::vector<std::uint8_t> payload(300, 0x5a);
+    const std::vector<std::uint8_t> good = cache_bytes(self, payload);
+    REQUIRE(good.size() == PipelineCacheFile::kHeaderBytes + payload.size());
+    CHECK(pipeline_cache_mismatch(good, self, "Test GPU").empty());
+
+    // The next boot gives the same adapter another LUID: the file is still this adapter's.
+    PipelineCacheIdentity rebooted = self;
+    rebooted.luidLow = 0x9876;
+    rebooted.luidHigh = 7;
+    CHECK(pipeline_cache_mismatch(good, rebooted, "Test GPU").empty());
+    CHECK(pipeline_cache_mismatch(cache_bytes(rebooted, payload), self, "Test GPU").empty());
+
+    struct Case {
+        const char* name;
+        PipelineCacheIdentity id;
+        const char* why;
+    };
+    std::vector<Case> cases;
+    cases.push_back({"vendor", self, "made on another GPU"});
+    cases.back().id.vendor = 0x1002;
+    cases.push_back({"device", self, "made on another GPU"});
+    cases.back().id.device = 0x744c;
+    cases.push_back({"subsystem", self, "made on another GPU"});
+    cases.back().id.subsys = 0x1;
+    cases.push_back({"revision", self, "made on another GPU"});
+    cases.back().id.revision = 0xa2;
+    cases.push_back({"driver", self, "made by driver 31.0.101.5186 and this one is 31.0.101.5187"});
+    cases.back().id.driverVersion = self.driverVersion + 1;
+    for (const Case& c : cases) {
+        INFO("another " << c.name);
+        const std::string why = pipeline_cache_mismatch(good, c.id, "Test GPU");
+        CHECK_MESSAGE(contains(why, c.why), why);
+        if (contains(c.why, "another GPU")) CHECK_MESSAGE(contains(why, "this one is Test GPU"), why);
+    }
+
+    std::vector<std::uint8_t> flipped = good;
+    flipped.back() = std::uint8_t(flipped.back() ^ 1u);
+    CHECK(contains(pipeline_cache_mismatch(flipped, self, "Test GPU"), "checksum does not match"));
+    std::vector<std::uint8_t> cut = good;
+    cut.pop_back();
+    CHECK(contains(pipeline_cache_mismatch(cut, self, "Test GPU"),
+                   "its header says 300 bytes of pipelines, it holds 299"));
+    CHECK(contains(pipeline_cache_mismatch(std::vector<std::uint8_t>(good.begin(), good.begin() + 40), self, "x"),
+                   "fewer than its header"));
+    std::vector<std::uint8_t> foreign = good;
+    foreign[0] = 'X';
+    CHECK(contains(pipeline_cache_mismatch(foreign, self, "x"), "not a FactorIA pipeline cache"));
+    std::vector<std::uint8_t> newer = good;
+    newer[PipelineCacheFile::kVersionAt] = std::uint8_t(PipelineCacheFile::kVersion + 1);
+    CHECK(contains(pipeline_cache_mismatch(newer, self, "x"), "format version 2"));
+    // An empty library (a run that made no PSO) is a valid file.
+    CHECK(pipeline_cache_mismatch(cache_bytes(self, {}), self, "x").empty());
+}
+
+TEST_CASE("d3d12 pipeline cache: each program has its own file; the trim size is far under the largest file") {
+    CHECK(d3d12_pipeline_cache_name("factoria_editor") == "d3d12-pipelines-factoria_editor.bin");
+    CHECK(d3d12_pipeline_cache_name("factoria_player") == "d3d12-pipelines-factoria_player.bin");
+    CHECK(d3d12_pipeline_cache_name("factoria") == "d3d12-pipelines-factoria.bin");
+    // Windows paths ignore case, so the name is lower case; anything but a-z, 0-9, '-' and '_' is '_' (UTF-8 bytes too).
+    CHECK(d3d12_pipeline_cache_name("My Game") == "d3d12-pipelines-my_game.bin");
+    CHECK(d3d12_pipeline_cache_name(reinterpret_cast<const char*>(u8"Jóc-2")) == "d3d12-pipelines-j__c-2.bin");
+    CHECK(d3d12_pipeline_cache_name("") == "d3d12-pipelines.bin");
+    CHECK(d3d12_pipeline_cache_name(std::string(80, 'a')) == "d3d12-pipelines-" + std::string(48, 'a') + ".bin");
+
+    const std::filesystem::path file = d3d12_pipeline_cache_file();
+    if (!file.empty()) {
+        CHECK(fa::fs::path_to_utf8(file.filename()) == d3d12_pipeline_cache_name(d3d12_program_name()));
+        CHECK(fa::fs::path_to_utf8(file.parent_path().filename()) == "shaders");
+    }
+#if defined(_WIN32)
+    CHECK(d3d12_program_name() == "fa_test_render");
+#else
+    CHECK(d3d12_program_name().empty());  // no D3D12 here
+#endif
+
+    const D3d12Options defaults;
+    CHECK(defaults.pipelineCacheTrimBytes == (std::uint64_t(64) << 20));
+    CHECK(defaults.pipelineCacheTrimBytes * 10 < PipelineCacheFile::kMaxBytes);
+}
 
 #if !defined(_WIN32)
 
@@ -1763,8 +1862,6 @@ TEST_CASE("d3d12: async read tickets are generation-checked, and every slot can 
 
 namespace {
 
-using fa::gpu::d3d12::PipelineCacheFile;
-
 // A folder of its own for a case's cache file, removed at the end. The accent: the path never goes through the ANSI
 // code page.
 struct CacheDir {
@@ -1786,9 +1883,11 @@ struct CacheDir {
 };
 
 // A WARP device that caches its PSOs in `file`, or null (with a MESSAGE) when it has no pipeline library.
-std::unique_ptr<D3d12Device> make_cached_warp(const std::filesystem::path& file) {
+std::unique_ptr<D3d12Device> make_cached_warp(const std::filesystem::path& file,
+                                              std::uint64_t trimBytes = D3d12Options{}.pipelineCacheTrimBytes) {
     D3d12Options o;
     o.pipelineCacheFile = file;
+    o.pipelineCacheTrimBytes = trimBytes;
     auto dev = make_warp(o);
     if (dev && !dev->counters().pipelineLibrary) {
         MESSAGE("d3d12: skipped, this device has no pipeline library: " << all_errors(*dev));
@@ -1961,20 +2060,108 @@ TEST_CASE(
     const Shader fill = dev->make_shader(fill_shader_desc());
     const Pipeline extra = dev->make_pipeline(render_desc(fill, PixelFormat::R32F));  // something new to store
     REQUIRE_MESSAGE(dev->state(extra) == ResourceState::Valid, all_errors(*dev));
+    const fa::gpu::D3d12PipelineCacheTotals beforeHeld = fa::gpu::d3d12_pipeline_cache_totals();
     {
         fa::fs::ReadStream reader(dir.file(), std::ios::binary);
         REQUIRE(reader.is_open());
+        // The save does not go through fs::replace_file's wait of about a second for readers: a few 1 ms tries only.
+        const std::uint64_t retries = fa::fs::sharing_retries();
         auto saved = dev->save_pipeline_cache();
+        CHECK(fa::fs::sharing_retries() == retries);
         CHECK_FALSE(saved);
-        if (!saved) CHECK(contains(saved.error().message, "the old file was kept"));
+        if (!saved) {
+            CHECK(contains(saved.error().message, "the old file was kept"));
+            CHECK(contains(saved.error().message, fa::fs::path_to_utf8(dir.file())));
+            CHECK(contains(saved.error().hint, "another process holds the file open"));
+        }
         const std::vector<std::string> warned = cache_warnings(*dev);
         REQUIRE(warned.size() == 1);
         CHECK(contains(warned[0], "the old file was kept"));
     }
+    CHECK(fa::gpu::d3d12_pipeline_cache_totals().storeFailed == beforeHeld.storeFailed + 1);
     CHECK(file_bytes(dir.file()) == old);
+    // No temporary file is left next to the cache.
+    int files = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(dir.path)) {
+        (void)entry;
+        ++files;
+    }
+    CHECK(files == 1);
     auto saved = dev->save_pipeline_cache();  // the reader is gone: the PSO is still to store
     REQUIRE_MESSAGE(saved, saved.error().to_string());
     CHECK(file_bytes(dir.file()) != old);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a cache file from the same GPU and driver with another LUID (the next boot) is loaded") {
+    const CacheDir dir("luid");
+    {
+        auto dev = make_cached_warp(dir.file());
+        if (!dev) return;
+        make_cache_pipelines(*dev);
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+    }
+    std::vector<std::uint8_t> bytes = file_bytes(dir.file());
+    REQUIRE(bytes.size() > PipelineCacheFile::kHeaderBytes);
+    for (std::size_t i = 0; i < 8; ++i)  // the LUID's eight bytes: what a reboot changes
+        bytes[PipelineCacheFile::kLuidAt + i] = std::uint8_t(bytes[PipelineCacheFile::kLuidAt + i] ^ 0xa5u);
+    put_file(dir.file(), bytes);
+    auto dev = make_cached_warp(dir.file());
+    REQUIRE(dev);
+    const Pipeline pip = make_cache_pipelines(*dev);
+    CHECK(dev->counters().pipelineCacheDiscarded == 0);
+    CHECK(dev->counters().psoLibraryHits == 3);
+    CHECK(cache_warnings(*dev).empty());
+    check_fill_draws(*dev, pip);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: a cache library over the trim size is rebuilt at save with only the pipelines this run used") {
+    const CacheDir dir("trim");
+    std::uintmax_t full = 0;
+    {
+        auto dev = make_cached_warp(dir.file());
+        if (!dev) return;
+        make_cache_pipelines(*dev);  // three PSOs
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        full = std::filesystem::file_size(dir.file());
+    }
+    const fa::gpu::D3d12PipelineCacheTotals before = fa::gpu::d3d12_pipeline_cache_totals();
+    {
+        // A run that uses one of the three, with a trim size every library is over.
+        auto dev = make_cached_warp(dir.file(), 1);
+        REQUIRE(dev);
+        const Shader fill = dev->make_shader(fill_shader_desc());
+        const Pipeline rgba8 = dev->make_pipeline(render_desc(fill, PixelFormat::Rgba8));
+        REQUIRE_MESSAGE(dev->state(rgba8) == ResourceState::Valid, all_errors(*dev));
+        CHECK(dev->counters().psoLibraryHits == 1);
+        CHECK(dev->counters().psoLibraryMisses == 0);  // nothing new: only the trim makes this save write
+        auto saved = dev->save_pipeline_cache();
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheTrimmed == 1);
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        CHECK(std::filesystem::file_size(dir.file()) < full);
+        saved = dev->save_pipeline_cache();  // trimmed once: it holds only used PSOs, nothing is written again
+        REQUIRE_MESSAGE(saved, saved.error().to_string());
+        CHECK(dev->counters().pipelineCacheTrimmed == 1);
+        CHECK(dev->counters().pipelineCacheStored == 1);
+        check_fill_draws(*dev, rgba8);  // a PSO loaded from the replaced library still draws
+        CHECK(cache_warnings(*dev).empty());
+        CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+    }
+    const fa::gpu::D3d12PipelineCacheTotals after = fa::gpu::d3d12_pipeline_cache_totals();
+    CHECK(after.filesTrimmed == before.filesTrimmed + 1);
+    // The next run finds the one it kept; the two the trim left out are compiled again.
+    auto dev = make_cached_warp(dir.file());
+    REQUIRE(dev);
+    make_cache_pipelines(*dev);
+    const d3d12::D3d12Counters c = dev->counters();
+    CHECK(c.pipelineCacheDiscarded == 0);
+    CHECK(c.psoLibraryHits == 1);
+    CHECK(c.psoLibraryMisses == 2);
+    CHECK(c.pipelineCacheTrimmed == 0);  // the default trim size: three PSOs are far under it
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
@@ -2333,6 +2520,20 @@ TEST_CASE("d3d12: a buffer goes from graphics to compute and back with handoffs;
     REQUIRE_MESSAGE(r, r.error().to_string());
     CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 15u));  // it did not run
 
+    step = "the error names a buffer without a label 'an unnamed buffer', not by a placeholder label";
+    dev->clear_messages();
+    const Words unnamed = make_words(*dev, nullptr);
+    REQUIRE_MESSAGE(dev->state(unnamed.view) == ResourceState::Valid, all_errors(*dev));
+    CommandList& anon = dev->begin_commands("no-handoff-unnamed", QueueKind::Compute);
+    twice(anon, pip, unnamed);
+    dev->submit(anon);
+    const std::string ue = last_error(*dev);
+    CHECK_MESSAGE(contains(ue, "uses an unnamed buffer, which the graphics queue owns"), ue);
+    CHECK_MESSAGE(!contains(ue, "(no label)"), ue);
+    dev->commit();
+    r = dev->wait_idle();
+    REQUIRE_MESSAGE(r, r.error().to_string());
+
     step = "a handoff the consumer did not wait for is waited for, and reported";
     dev->clear_messages();
     CommandList& g2 = dev->begin_commands("hand-again");
@@ -2564,11 +2765,19 @@ TEST_CASE("d3d12: a timed scope on a copy list is ignored; graphics and compute 
     const std::array<QueueHandoff, 1> toCompute{hand_buffer(w.buffer, QueueKind::Compute)};
     const SyncToken t1 = dev->submit_token(copy, toCompute);
     CommandList& c = dev->begin_commands("compute", QueueKind::Compute);
+    const QueueKind computeRunsOn = c.queue();  // valid until submit
     dev->wait_list(c, t1);
     c.begin_timed_scope("compute-scope");
     twice(c, pip, w);  // 3
     c.end_timed_scope();
     dev->submit(c);
+    // Submitted after the compute list, listed before its scope: the scopes are ordered per queue, graphics first.
+    CommandList& g2 = dev->begin_commands("graphics-late");
+    g2.begin_timed_scope("graphics-late-scope");
+    g2.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{0.0f, 0.0f, 0.0f, 1.0f}));
+    g2.end_pass();
+    g2.end_timed_scope();
+    dev->submit(g2);
     dev->timer_end_frame();
     dev->commit();
     auto r = dev->wait_idle();
@@ -2578,9 +2787,17 @@ TEST_CASE("d3d12: a timed scope on a copy list is ignored; graphics and compute 
     std::vector<std::string> names;
     for (const Device::ScopeTime& s : dev->timer_last_scopes()) names.push_back(s.name);
     CHECK(std::find(names.begin(), names.end(), "copy-scope") == names.end());
-    CHECK(std::find(names.begin(), names.end(), "graphics-scope") != names.end());
-    if (dev->compute_timestamp_frequency() > 0)
-        CHECK(std::find(names.begin(), names.end(), "compute-scope") != names.end());
+    // Per queue, each in the order its scopes started: the graphics queue's, then the compute queue's (without a
+    // compute queue of its own the compute list runs on the graphics one, between the two graphics lists).
+    std::vector<std::string> expected{"graphics-scope", "graphics-late-scope"};
+    if (computeRunsOn == QueueKind::Graphics)
+        expected.insert(expected.begin() + 1, "compute-scope");
+    else if (dev->compute_timestamp_frequency() > 0)
+        expected.push_back("compute-scope");
+    std::string listed;
+    for (const std::string& n : names) listed += n + " ";
+    INFO("scopes: " << listed);
+    CHECK(names == expected);
     CHECK(read_words(*dev, w.buffer) == std::vector<std::uint32_t>(64, 3u));
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }

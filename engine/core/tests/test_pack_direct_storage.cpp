@@ -312,6 +312,8 @@ TEST_CASE("directstorage: with every status slot retired a read fails with an er
     CHECK(slots.retired() == 3);
     const Error e = direct_slots_exhausted_error(32);
     CHECK(e.message.find("all 32 status slots") != std::string::npos);
+    CHECK(e.message.find("are retired") != std::string::npos);
+    CHECK(e.message.find("game.pak") == std::string::npos);  // any pack, whatever its name (pack.cpp names it)
     CHECK(e.hint.find("FA_DIRECTSTORAGE=0") != std::string::npos);
     CHECK(e.hint.find("read on the CPU") != std::string::npos);
 }

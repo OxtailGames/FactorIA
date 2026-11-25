@@ -170,18 +170,36 @@ limit. `storage_image_loadable` asks the
 format's `UAV_TYPED_LOAD` support (and `TypedUAVLoadAdditionalFormats` for all but R32F) and says which one is missing.
 
 **Pipeline cache on disk (M77-P7b).** With `D3d12Options::pipelineCacheFile` set (the engine's file is
-`d3d12_pipeline_cache_file()`: `<cache dir>/shaders/d3d12-pipelines.bin`, next to the shader cache) the device keeps an
-`ID3D12PipelineLibrary`: `pso()` loads a PSO from it by the SHA-256 of its key before compiling, and stores what it
-compiles. The file is a 120-byte header (`PipelineCacheFile`: magic `FAPSOLIB`, version, the adapter's vendor, device,
-subsystem and revision ids, the driver version, the payload's size and SHA-256) and the library's bytes. A file that
-fails a check, or that `CreatePipelineLibrary` refuses (`E_INVALIDARG`, `D3D12_ERROR_ADAPTER_NOT_FOUND`,
-`D3D12_ERROR_DRIVER_VERSION_MISMATCH`), is thrown away with one warning (`warnings()` and the log) that says why: the
-PSOs are compiled again and the file written anew. `save_pipeline_cache()` writes the file when the library holds PSOs
-it does not (also when the device is destroyed), atomically through `fs::write_bytes`; a failure (another process holds
-the file, a full disk) keeps the old file and warns. Deleting the file clears the cache. `counters()` has
-`pipelineLibrary`, `psoLibraryHits`, `psoLibraryMisses`, `pipelineCacheStored` and `pipelineCacheDiscarded`; the
-process totals are the `pipelineCache` object of the shader cache report (`ShaderBuildStats::to_json`, the `gpu` part
-of `loading.startup`). `make_device(Backend::D3d12)`, the renderer's way to the device, sets it.
+`d3d12_pipeline_cache_file()`: `<cache dir>/shaders/d3d12-pipelines-<program>.bin`, next to the shader cache) the device
+keeps an `ID3D12PipelineLibrary`: `pso()` loads a PSO from it by the SHA-256 of its key before compiling, and stores
+what it compiles. Each program has its own file (`d3d12_pipeline_cache_name(d3d12_program_name())`: the executable's
+name without its extension, lower case, every character but `a-z`, `0-9`, `-` and `_` made `_`): the editor, the CLI
+and each game's player share no file, so one never overwrites the PSOs another stored (a library cannot be merged: its
+PSOs can be loaded only with their descs). The file is a 120-byte header (`PipelineCacheFile`: magic `FAPSOLIB`,
+version, the adapter's vendor, device, subsystem and revision ids, the driver version, the adapter's LUID, the
+payload's size and SHA-256) and the library's bytes. `pipeline_cache_mismatch` (d3d12_device.cpp, tested on every
+platform) checks it; the LUID is recorded but not compared, since Windows gives an adapter a new one at every boot. A
+file that fails a check, that is over `PipelineCacheFile::kMaxBytes` (1 GiB), or that `CreatePipelineLibrary` refuses
+(`E_INVALIDARG`, `D3D12_ERROR_ADAPTER_NOT_FOUND`, `D3D12_ERROR_DRIVER_VERSION_MISMATCH`), is thrown away with one
+warning (`warnings()` and the log) that says why: the PSOs are compiled again and the file written anew. Reading it is
+one read of the whole file, before the first present, so it counts once in the startup report's
+`diskReadsAtFirstPresent`.
+
+`save_pipeline_cache()` (also called when the device is destroyed) writes the file when the library holds PSOs it does
+not. A library over `D3d12Options::pipelineCacheTrimBytes` (default 64 MiB; 0 = never) is first rebuilt with only the
+PSOs this device made or loaded, once per device, and replaces the old one when it is smaller: PSOs no run asks for
+leave the file instead of piling up (the old library stays alive with the PSOs loaded from it). A run that made no PSO
+keeps the file as it is. The write goes to a temporary file next to the cache, then `MoveFileExW` with
+`MOVEFILE_REPLACE_EXISTING`: a reader never sees half a file. A reader that holds the old file open (Windows replaces
+no open file) is waited for three 1 ms tries (up to about 50 ms with Windows' timer steps), not the second of
+`fs::replace_file`, since a cache is only a speed-up. Every failure (serializing the library, a library over 1 GiB, a
+reader, a full disk) keeps the old file, counts in `storeFailed`, leaves the library to the next save, and is a warning
+that names the file and what to do; a write is logged (info) with its size, and a trimmed one with what it dropped.
+Deleting the file clears the cache. `counters()` has `pipelineLibrary`, `psoLibraryHits`, `psoLibraryMisses`,
+`pipelineCacheStored`, `pipelineCacheDiscarded` and `pipelineCacheTrimmed`; the process totals are the `pipelineCache`
+object of the shader cache report (`ShaderBuildStats::to_json`, the `gpu` part of `loading.startup`: `hits`, `misses`,
+`filesLoaded`, `stored`, `discarded`, `storeFailed`, `trimmed`). `make_device(Backend::D3d12)`, the renderer's way to
+the device, sets it.
 
 **Passes and draws.** `begin_pass` checks its attachments (live views of the right kind, one size, the resolve
 single-sampled with the colour format, the depth sample count equal to the colour one) and that `PassDesc::format` is

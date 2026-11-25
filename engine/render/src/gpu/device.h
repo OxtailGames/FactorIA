@@ -359,7 +359,10 @@ public:
         std::string name;
         double ms = 0.0;
     };
-    // The scopes of the newest frame timer_poll() resolved, in the order they ran.
+    // The scopes of the newest frame timer_poll() resolved. Within one queue in the order they started on the GPU; a
+    // device whose compute lists run on a queue of their own (D3D12) lists the graphics queue's scopes first, then the
+    // compute queue's, since each queue counts in its own clock and two queues' times are never compared (and leaves
+    // out the scopes of copy lists, which D3D12 does not time).
     virtual std::vector<ScopeTime> timer_last_scopes() const = 0;
     // Drops the results so far and those still in flight (the profiler was switched off).
     virtual void timer_forget() = 0;

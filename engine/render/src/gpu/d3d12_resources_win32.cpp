@@ -175,7 +175,8 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
             t->resource = std::move(r);
             t->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
             t->buffer = true;
-            t->label = "buffer '" + label + "'";
+            // Unnamed: empty, so the ownership errors say "an unnamed buffer" (TrackedResource::display_name).
+            t->label = desc.label && *desc.label ? "buffer '" + label + "'" : std::string();
             rec.tracked = std::move(t);
         }
     } else {
@@ -341,7 +342,8 @@ Image D3d12Device::make_image(const ImageDesc& desc) {
             t->layers = is3d ? 1u : std::uint32_t(rec.slices);
             t->planes = fi.planes;
             t->states.assign(t->subresource_count(), StateBits(D3D12_RESOURCE_STATE_COMMON));
-            t->label = "image '" + label + "'";
+            t->label =
+                desc.label && *desc.label ? "image '" + label + "'" : std::string();  // empty: "an unnamed image"
             rec.tracked = std::move(t);
         }
     }
