@@ -333,16 +333,15 @@ void LatencyController::mark(LatencyMarker m) {
                 ringCount_ = std::min(ringCount_ + 1, kWindow);
                 maxMs_ = std::max(maxMs_, lastFrameMs_);
                 ++samples_;
-                haveInput_ = false;
             }
             haveInput_ = false;
             submitted_ = false;
             frameStarted_ = false;
             ++presented_;
             break;
+        case LatencyMarker::RenderSubmitEnd: submitted_ = true; break;
         case LatencyMarker::SimulationStart:
         case LatencyMarker::SimulationEnd:
-        case LatencyMarker::RenderSubmitEnd: submitted_ = true; break;
         case LatencyMarker::RenderSubmitStart: break;
     }
 }

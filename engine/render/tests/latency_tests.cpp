@@ -517,6 +517,8 @@ TEST_CASE("latency controller: a frame that never reached RenderSubmitEnd closes
     // The acquire failed (a minimized window): PresentStart, then PresentEnd with no submit between them.
     c.frame_begin(0.0);
     c.mark(LatencyMarker::InputSample);
+    c.mark(LatencyMarker::SimulationStart);
+    c.mark(LatencyMarker::SimulationEnd);  // the engine marks the simulation of every frame before it draws
     clock.t += 1.0;
     c.mark(LatencyMarker::PresentStart);
     c.mark(LatencyMarker::PresentEnd);
