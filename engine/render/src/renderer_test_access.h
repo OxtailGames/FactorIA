@@ -120,6 +120,8 @@ struct RendererTestAccess {
     static int upscale_phases(Renderer& r);
     static int upscale_impl(Renderer& r);
     static bool upscale_used_history(Renderer& r);
+    // M78-P1: the vendor upscalers: vendor_failed: provider `index` (0 dlss, 1 xess, 2 fsr) refused a frame and is off for the run.
+    static bool vendor_failed(Renderer& r, int index);
     // M76-P5b: MetalFX. mfx_failed: the renderer gave it up (creation or a frame failed); mfx_encoded: frames the scaler encoded since it was
     // made; mfx_generation: scalers made; mfx_reset: the last MetalFX temporal frame reset the scaler's history. Hooks: the next scaler
     // creation fails, and the sign of the jitter and of the motion handed to MetalFX (-1 flips it, to show the sign matters).

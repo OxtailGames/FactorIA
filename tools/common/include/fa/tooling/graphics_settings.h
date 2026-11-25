@@ -22,7 +22,7 @@ namespace fa {
 // What the window edits. The defaults are what factoria.json means when the keys are missing.
 struct GraphicsSettings {
     std::string preset = "custom";   // low, medium, high, ultra or custom
-    std::string mode = "stretch";    // stretch, spatial, temporal, metalfx or auto
+    std::string mode = "stretch";    // stretch, spatial, temporal, metalfx, dlss, xess, fsr or auto
     std::string quality = "native";  // native, quality, balanced, performance or ultraPerformance
     double sharpness = 0.5;          // 0..1: the sharpen of the spatial and temporal modes
     // render.dynamicResolution: off, no target (0 = one refresh of the display), the range 0.5..1.

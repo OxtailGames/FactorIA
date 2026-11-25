@@ -420,6 +420,37 @@ std::vector<FeatureDef> build_table() {
          "draws as "
          "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
          nullptr},
+        // The vendor upscalers of M78 (docs/UPSCALING.md): the answer is the provider's (render_upscale_vendor.h), asked of the device and the
+        // installed library; the table's backend columns have no D3D12 and Vulkan yet (feature_backend_of), so only the D3D11 column is set.
+        {"dlss", "",
+         "NVIDIA DLSS Super Resolution through Streamline (render.upscaler mode \"dlss\", also picked by \"auto\" on "
+         "an NVIDIA GPU): "
+         "the jittered picture, the depth and the motion of the prepass, upscaled by NVIDIA's network. Windows with an "
+         "NVIDIA RTX GPU on "
+         "D3D12, Vulkan or D3D11, and the Streamline SDK installed (`factoria setup streamline`; the game developer "
+         "accepts NVIDIA's "
+         "terms there). Where it is missing the mode draws as \"temporal\" or \"spatial\"; the reason is in "
+         "render.supports and in the "
+         "log (M78).",
+         nullptr},
+        {"xess", "",
+         "Intel XeSS Super Resolution (render.upscaler mode \"xess\", also picked by \"auto\" on an Intel GPU): the "
+         "jittered picture, "
+         "the depth and the motion of the prepass, upscaled by Intel's network (XMX on Intel Arc, a DP4a fallback on "
+         "other GPUs). Windows "
+         "on D3D12, Vulkan or D3D11, and the XeSS SDK installed (`factoria setup xess`). Where it is missing the mode "
+         "draws as "
+         "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"fsr", "",
+         "AMD FidelityFX Super Resolution 3.1 (render.upscaler mode \"fsr\", also picked by \"auto\" on an AMD GPU): "
+         "the jittered "
+         "picture, the depth and the motion of the prepass, upscaled by AMD's temporal upscaler on any GPU. Windows on "
+         "D3D12 or Vulkan "
+         "(which have no column in this table yet), and the FidelityFX SDK installed (`factoria setup fidelityfx`). "
+         "Where it is missing "
+         "the mode draws as \"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
+         nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
          "window.dynamicResolution): "
@@ -436,15 +467,23 @@ std::vector<FeatureDef> build_table() {
          "GPU backend (M76-P6c).",
          nullptr}};
     for (const Planned& p : kLighting) {
-        const bool appleOnly = std::string_view(p.name) == "metalfx";
-        t.push_back({p.name, FeatureKind::Engine, appleOnly ? bit(FeatureBackend::Metal) : kEveryGpu, p.needs,
-                     p.planned, p.doc});
+        const std::string_view row = p.name;
+        // metalfx: Metal only. dlss and xess: D3D11 is the one backend of this table they run on (their D3D12 and Vulkan runs are not a
+        // column of it yet); fsr runs on D3D12 and Vulkan only, so no column is set.
+        const unsigned backends = row == "metalfx"                 ? bit(FeatureBackend::Metal)
+                                  : row == "dlss" || row == "xess" ? bit(FeatureBackend::D3d11)
+                                  : row == "fsr"                   ? 0u
+                                                                   : kEveryGpu;
+        t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : effect_planned_in(PostEffect(i)), kEffectRows[i].doc});
     return t;
 }
+
+// 0 dlss, 1 xess, 2 fsr: the vendor rows; -1 any other.
+int vendor_row_index(std::string_view name) { return name == "dlss" ? 0 : name == "xess" ? 1 : name == "fsr" ? 2 : -1; }
 
 bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
     auto need = [&](const char* word, bool have, const char* what) {
@@ -510,6 +549,19 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
         return false;
     }
     const FeatureDef& f = t[std::size_t(index)];
+    // The vendor upscalers are the providers' answer (their backends, GPU maker and installed library), not the table's columns.
+    if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
+        if (!env.vendorAsked) {
+            if (why)
+                *why = "the vendor upscalers are asked of the open GPU (Renderer::supports), and no GPU has been asked "
+                       "here";
+            return false;
+        }
+        const VendorProbe& p = env.vendorUpscalers[std::size_t(vendor)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this upscaler is not available here") : p.reason;
+        return p.available;
+    }
     if (env.backend == FeatureBackend::Headless) {
         if (why) *why = "there is no GPU (the headless backend draws nothing)";
         return false;
@@ -605,6 +657,11 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
         env.metalfxWhy = s.reason;
     }
     return env;
+}
+
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers) {
+    env.vendorUpscalers = answers;
+    env.vendorAsked = true;
 }
 
 FeatureEnv feature_env_from_device(const gpu::Device& device) {

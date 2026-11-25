@@ -11,15 +11,20 @@
 #include "fullscreen_gpu.h"
 
 #include "render_features.h"
+#include "render_upscale_vendor.h"
 #include "shaders/upscale_spatial.glsl.h"
 
 namespace fa::render {
 
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known) {
-    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal" || mode == "metalfx";
+    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal" || mode == "metalfx" ||
+                            mode == "dlss" || mode == "xess" || mode == "fsr";
     if (known) *known = understood;
     if (mode == "temporal") return UpscaleImpl::Temporal;
     if (mode == "metalfx") return UpscaleImpl::MetalFx;
+    if (mode == "dlss") return UpscaleImpl::Dlss;
+    if (mode == "xess") return UpscaleImpl::Xess;
+    if (mode == "fsr") return UpscaleImpl::Fsr;
     return mode == "spatial" ? UpscaleImpl::Spatial : UpscaleImpl::Stretch;
 }
 
@@ -35,6 +40,9 @@ const char* upscale_impl_name(UpscaleImpl impl) {
         case UpscaleImpl::Stretch: return "stretch";
         case UpscaleImpl::Temporal: return "temporal";
         case UpscaleImpl::MetalFx: return "metalfx";
+        case UpscaleImpl::Dlss: return "dlss";
+        case UpscaleImpl::Xess: return "xess";
+        case UpscaleImpl::Fsr: return "fsr";
         case UpscaleImpl::Spatial: return "spatial";
     }
     return "stretch";
@@ -51,7 +59,8 @@ using render::UpscaleInput;
 // art (ScaleMode::PixelPerfect) keeps its hard edges. The temporal upscaler (M76-P4) is the TAA resolve: it needs the TAA shaders (compiled
 // here the first time a temporal, metalfx or auto setting asks, as the cameras do) and histories that fit, and it works on a frame of one
 // full-viewport camera (`multiCamera`, what the last frame had). MetalFX (M76-P5b) is the Metal backend on an OS and a GPU that have its
-// scalers (metalfx.h, asked once), until one of its frames fails here.
+// scalers (metalfx.h, asked once), until one of its frames fails here. The vendor SDKs (M78, render_upscale_vendor.h) are asked when the
+// setting wants one (that mode, or "auto" on a GPU of that maker), once, and are off for the rest of the run after a failed frame.
 render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     // Asked once, with a device: without one the answer (no) is not kept, so a renderer that gets its device later asks again.
     if (spatialSupported < 0 && gpu.has_device()) {
@@ -64,7 +73,7 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     caps.spatial = spatialSupported > 0;
     if (gpu.has_device() &&
         (upscaler.mode == render::UpscalerMode::Temporal || upscaler.mode == render::UpscalerMode::Auto ||
-         upscaler.mode == render::UpscalerMode::MetalFx))
+         upscaler.mode == render::UpscalerMode::MetalFx || render::vendor_upscaler_index(upscaler.mode) >= 0))
         caps.temporal = taa.ready(gpu.device()) && !taa.upscale_unavailable();
     caps.multiCamera = temporalBlocked;
     if (gpu.has_device() && render::metalfx::on_metal(gpu.device()) && !mfxFailed) {
@@ -74,6 +83,30 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     } else {
         caps.metalfx = false;
         caps.metalfxTemporal = false;  // no MetalFX at all, so no temporal one either (the default says true)
+    }
+    if (gpu.has_device()) {
+        caps.gpuVendor = render::gpu_vendor_of(gpu.device());
+        const int own = caps.gpuVendor == render::GpuVendor::Nvidia  ? 0
+                        : caps.gpuVendor == render::GpuVendor::Intel ? 1
+                        : caps.gpuVendor == render::GpuVendor::Amd   ? 2
+                                                                     : -1;
+        for (int i = 0; i < render::kVendorUpscalerCount; ++i) {
+            const bool wanted = render::vendor_upscaler_index(upscaler.mode) == i ||
+                                (upscaler.mode == render::UpscalerMode::Auto && own == i);
+            if (!wanted) continue;
+            const bool usable = vendor_probe(i).available && !vendorFailed[i];
+            (i == 0 ? caps.dlss : i == 1 ? caps.xess : caps.fsr) = usable;
+            // An explicit vendor mode its SDK cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
+            if (!usable && !vendorFailed[i] && !vendorWarnedUnavailable[i] &&
+                upscaler.mode == render::vendor_upscaler_mode(i)) {
+                vendorWarnedUnavailable[i] = true;
+                FA_WARN(
+                    "render",
+                    "render.upscaler mode \"{}\" is not available: {} The temporal upscaler is used instead, then the "
+                    "spatial one.",
+                    render::vendor_provider(i).mode(), vendorProbe[i].reason);
+            }
+        }
     }
     // An explicit "metalfx" the GPU cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
     if (upscaler.mode == render::UpscalerMode::MetalFx && !caps.metalfx && !mfxWarnedUnavailable && !mfxFailed &&
@@ -289,6 +322,81 @@ void Renderer::Impl::spatial_upscale(const UpscaleInput& in, Target& out, const 
             resize ? in.outW : in.renderW, resize ? in.outH : in.renderH, out);
 }
 
+// What provider `index` answered for this GPU, asked once. Needs a device.
+const render::VendorProbe& Renderer::Impl::vendor_probe(int index) {
+    if (!vendorProbed[index]) {
+        vendorProbe[index] = render::vendor_provider(index).probe(render::vendor_env_of(gpu.device()));
+        vendorProbed[index] = true;
+    }
+    return vendorProbe[index];
+}
+
+// The providers' answers for render.supports: a provider that refused a frame is off, with that reason.
+void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
+    std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
+    for (int i = 0; i < render::kVendorUpscalerCount; ++i) {
+        answers[std::size_t(i)] = vendor_probe(i);
+        if (vendorFailed[i]) {
+            answers[std::size_t(i)].available = false;
+            answers[std::size_t(i)].reason = std::string(render::vendor_provider(i).name()) +
+                                             " failed a frame earlier in this run (" + vendorFailedWhy[i] +
+                                             "); the temporal upscaler draws instead.";
+        }
+    }
+    render::set_vendor_upscalers_env(env, answers);
+}
+
+// A vendor SDK failed on this machine (a frame its provider refused): from now on every frame is drawn without it, with one warning that
+// says what happened. The rule of MetalFX (metalfx_fail): fail once, stay off. Returns false so the caller can `return vendor_fail(...)`.
+bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
+    if (index >= 0 && index < render::kVendorUpscalerCount && !vendorFailed[index]) {
+        vendorFailed[index] = true;
+        vendorFailedWhy[index] = why;
+        FA_WARN("render",
+                "{} failed: {} The upscaler continues with the temporal TAA upscaler (the spatial one on a frame that "
+                "cannot use it) for "
+                "the rest of this run. Hint: set render.upscaler mode to \"temporal\" to silence this.",
+                render::vendor_provider(index).name(), why.empty() ? std::string("the provider gave no reason.") : why);
+    }
+    return false;
+}
+
+// The vendor implementation into `out` (M78): the provider of `impl` is given the frame's images and the pass's command list. False
+// (nothing drawn, `out` untouched) when the provider is off or this frame has nothing for it, and a provider that refuses a frame is off for
+// good (vendor_fail). Fills the depth, velocity and reactive views of `in` (what the frame has, at the picture's size).
+bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Target& src, Target& out,
+                                    const PassContext& c) {
+    const int index = render::vendor_impl_index(impl);
+    if (index < 0 || vendorFailed[index] || !gpu.has_device() || !out.valid(gpu.device()) || !src.valid(gpu.device()))
+        return false;
+    const Target* prepass = upscalePrepass.target(c);
+    const Target* velocity = upscaleVelocity.target(c);
+    const Target* reactive = upscaleReactive.target(c);
+    // Only what is the picture's size (and, for the reactive mask, the format the temporal passes write) goes to the SDK.
+    if (prepass && (prepass->w != in.renderW || prepass->h != in.renderH)) prepass = nullptr;
+    if (velocity && (velocity->w != in.renderW || velocity->h != in.renderH)) velocity = nullptr;
+    if (reactive &&
+        (reactive->w != in.renderW || reactive->h != in.renderH || reactive->format.color != Gpu::reactive_format()))
+        reactive = nullptr;
+    in.depth = prepass ? prepass->texView : gpu::View{};
+    in.velocity = velocity ? velocity->texView : gpu::View{};
+    in.reactive = reactive ? reactive->texView : gpu::View{};
+    in.exposure = 1.0f;  // the scene is exposed before the stage
+    render::VendorFrame f;
+    f.device = &gpu.device();
+    f.list = &pass_list(c, gpu);
+    f.color = src.texture_image();
+    f.depth = prepass ? prepass->texture_image() : gpu::Image{};
+    f.velocity = velocity ? velocity->texture_image() : gpu::Image{};
+    f.reactive = reactive ? reactive->texture_image() : gpu::Image{};
+    f.output = out.color;
+    f.colorFormat = src.format.color;
+    f.outputFormat = out.format.color;
+    if (!render::vendor_provider(index).upscale(in, f)) return vendor_fail(index, f.error);
+    ++stats.drawCalls;  // the provider's own pass
+    return true;
+}
+
 // The upscale pass: the picture of the render resolution (scene_target()) into `out`. The implementation follows the effective upscaler mode and the frame (Temporal only on a frame the renderer jittered).
 void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     const Target& src = scene_target();
@@ -306,8 +414,11 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // frame render() jittered for it (temporalFrame); a temporal mode on a frame that was not (the stage came up between the two) and a
     // temporal picture that cannot be made fall to the spatial upscaler, as the effective mode does.
     const render::UpscalerMode mode = effective_upscaler_mode();
+    const int vendorIndex = render::vendor_impl_index(vendorFrameImpl);
     if (temporalFrame)
-        upscaleImpl = mfxFrame && !mfxFailed ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal;
+        upscaleImpl = vendorIndex >= 0 && !vendorFailed[vendorIndex] ? vendorFrameImpl
+                      : mfxFrame && !mfxFailed                       ? UpscaleImpl::MetalFx
+                                                                     : UpscaleImpl::Temporal;
     else if (mode == render::UpscalerMode::Stretch)
         upscaleImpl = UpscaleImpl::Stretch;
     else
@@ -320,6 +431,10 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // upscaler when the frame is jittered, then to the spatial one, as the effective mode lists them.
     if (upscaleImpl == UpscaleImpl::MetalFx && !metalfx_upscale(in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
+    // A vendor SDK (M78) draws the jittered frame through its provider; a frame it cannot draw (and its failure for good) falls to the
+    // temporal upscaler, which the jittered frame suits, then to the spatial one.
+    if (render::vendor_impl_index(upscaleImpl) >= 0 && !vendor_upscale(upscaleImpl, in, src, out, c))
+        upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
     if (mode != render::UpscalerMode::MetalFx)
         free_mfx_images();  // another mode: the two images of its preparation pass are not kept
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
@@ -328,7 +443,10 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
         case UpscaleImpl::Stretch: stretch_upscale(in, out, c); break;
         case UpscaleImpl::Spatial: spatial_upscale(in, out, c); break;
         case UpscaleImpl::Temporal:
-        case UpscaleImpl::MetalFx: break;  // drawn above
+        case UpscaleImpl::MetalFx:
+        case UpscaleImpl::Dlss:
+        case UpscaleImpl::Xess:
+        case UpscaleImpl::Fsr: break;  // drawn above
     }
     outActive = true;
 }

@@ -375,14 +375,17 @@ export default class Options extends Behaviour {
       world.find("gfx_mode_label").get("Text").text = t("options.gfx.modeLabel", {
         mode: up.effectiveMode === up.mode ? mode : t("options.gfx.modeDrawn", { mode, drawn: t(`options.gfx.um.${up.effectiveMode}`) }),
       });
-      const unsupported = [];
+      const reasons = new Map(); // reason -> the modes that share it ("DLSS, XeSS, FSR: ..."), so the note stays short
       for (const name of settings.UPSCALER_MODES) {
         const ok = settings.upscalerModeSupported(name);
         const widget = world.find(`gfx_mode_${name}`).get("Button");
         widget.interactable = ok;
         mark(`gfx_mode_${name}`, name === up.mode);
-        if (!ok) unsupported.push(`${t(`options.gfx.um.${name}`)}: ${t(`options.gfx.unsup.${name}`)}`);
+        if (ok) continue;
+        const reason = t(`options.gfx.unsup.${name}`);
+        reasons.set(reason, [...(reasons.get(reason) ?? []), t(`options.gfx.um.${name}`)]);
       }
+      const unsupported = [...reasons].map(([reason, names]) => `${names.join(", ")}: ${reason}`);
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
       world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");
       world.find("gfx_dynamic").get("Button").text = t("options.gfx.dynLabel", { choice: t(`options.gfx.dyn.${settings.dynamicChoice(this.s)}`) });
