@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -857,7 +858,27 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
                                                                      __uuidof(ID3D12PipelineState), made.put_void())
                                     : library_->LoadComputePipeline(name.c_str(), compute,
                                                                     __uuidof(ID3D12PipelineState), made.put_void());
-            if (SUCCEEDED(lhr) && made) {
+            bool loaded = SUCCEEDED(lhr) && made;
+            if (!loaded) {
+                made.reset();
+                // After a trim the new library holds only the PSOs this run used: the libraries it replaced still
+                // hold the ones loaded from the file and not asked for yet.
+                for (const Com<ID3D12PipelineLibrary>& retired : retiredLibraries_) {
+                    const HRESULT rhr =
+                        graphics ? retired->LoadGraphicsPipeline(name.c_str(), graphics, __uuidof(ID3D12PipelineState),
+                                                                 made.put_void())
+                                 : retired->LoadComputePipeline(name.c_str(), compute, __uuidof(ID3D12PipelineState),
+                                                                made.put_void());
+                    if (SUCCEEDED(rhr) && made) {
+                        // The next file keeps it: the current library gets it too.
+                        if (SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) libraryDirty_ = true;
+                        loaded = true;
+                        break;
+                    }
+                    made.reset();
+                }
+            }
+            if (loaded) {
                 ++libraryHits_;
                 D3d12PipelineCacheTotals add;
                 add.libraryHits = 1;
@@ -865,7 +886,6 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
                 made->SetName(L"fa-d3d12-pso");
                 return keep(made);
             }
-            made.reset();
         }
     }
     // Made without the lock: making a PSO compiles the shaders for the GPU and may take milliseconds.
@@ -901,31 +921,43 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
 
 namespace {
 
-// Tries again after the first MoveFileExW when a reader holds the old file: 1 ms each (Windows sleeps up to one timer
-// step, ~15.6 ms). A cache is only a speed-up: a reader that stays is not waited for (the old file is kept), since a
-// long wait would stretch the shutdown of every run that meets one.
-constexpr int kReplaceRetries = 3;
+// What replace_cache_file did: empty `why` = written, else what went wrong and why (the hint follows from `kind`).
+struct CacheWrite {
+    std::string why;
+    CacheWriteFailure kind = CacheWriteFailure::Other;
+};
 
-// Windows says the file is held open somewhere else (a reader without FILE_SHARE_DELETE, a scanner, a mapped view).
-bool held_open(DWORD e) {
-    return e == ERROR_SHARING_VIOLATION || e == ERROR_ACCESS_DENIED || e == ERROR_LOCK_VIOLATION ||
-           e == ERROR_USER_MAPPED_FILE;
+// Another process holds `osFile` open without sharing deletes (a reader, a scanner, an indexer): opening it for DELETE
+// fails with a sharing or lock violation. A file that is missing or whose permissions refuse the open is not held.
+bool held_by_other(const std::filesystem::path& osFile) {
+    HANDLE h = CreateFileW(osFile.c_str(), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        CloseHandle(h);
+        return false;
+    }
+    const DWORD e = GetLastError();
+    return e == ERROR_SHARING_VIOLATION || e == ERROR_LOCK_VIOLATION;
 }
 
 // Writes `bytes` to `target` atomically: a temporary file next to it, then MoveFileExW(MOVEFILE_REPLACE_EXISTING) over
-// it, so a reader never sees half a file and a failure leaves the old one. Empty when written, else what went wrong;
-// `heldOpen` says whether a reader held the old file.
-std::string replace_cache_file(const std::filesystem::path& target, const std::vector<std::uint8_t>& bytes,
-                               bool& heldOpen) {
+// it, so a reader never sees half a file and a failure leaves the old one. When the move fails,
+// d3d12_classify_cache_write_error says why and d3d12_cache_replace_policy how long to try again: a cache is only a
+// speed-up, so a reader that holds the OLD file is waited for 3 x 1 ms (Windows sleeps up to one timer step, ~15.6 ms)
+// and the old file is kept, since a long wait would stretch the shutdown of every run that meets one; a scanner that
+// holds the TEMPORARY file lets go within a moment, so that one is waited for up to 8 x 20 ms.
+CacheWrite replace_cache_file(const std::filesystem::path& target, const std::vector<std::uint8_t>& bytes) {
     static std::atomic<unsigned> counter{0};
-    heldOpen = false;
     std::filesystem::path tmp = target;
     tmp += L".fa-tmp" + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(counter.fetch_add(1));
     const std::filesystem::path osTmp = fs::os_path(tmp), osTarget = fs::os_path(target);
     HANDLE h = CreateFileW(osTmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
-        return "the temporary file " + fs::path_to_utf8(tmp) + " could not be made (" +
-               hr_text(HRESULT_FROM_WIN32(GetLastError())) + ")";
+    if (h == INVALID_HANDLE_VALUE) {
+        const DWORD e = GetLastError();
+        return {"the temporary file " + fs::path_to_utf8(tmp) + " could not be made (" +
+                    hr_text(HRESULT_FROM_WIN32(e)) + ")",
+                e == ERROR_ACCESS_DENIED ? CacheWriteFailure::FolderDenied : CacheWriteFailure::Other};
+    }
     DWORD err = 0;
     for (std::size_t at = 0; at < bytes.size() && err == 0;) {
         const DWORD chunk = DWORD(std::min<std::size_t>(bytes.size() - at, std::size_t(1) << 30));
@@ -939,18 +971,55 @@ std::string replace_cache_file(const std::filesystem::path& target, const std::v
     if (!CloseHandle(h) && err == 0) err = GetLastError();
     if (err != 0) {
         DeleteFileW(osTmp.c_str());
-        return "writing the temporary file " + fs::path_to_utf8(tmp) + " failed (" + hr_text(HRESULT_FROM_WIN32(err)) +
-               ")";
+        return {"writing the temporary file " + fs::path_to_utf8(tmp) + " failed (" + hr_text(HRESULT_FROM_WIN32(err)) +
+                    ")",
+                CacheWriteFailure::Other};
     }
+    CacheWriteFailure kind = CacheWriteFailure::Other;
     for (int attempt = 0;; ++attempt) {
         if (MoveFileExW(osTmp.c_str(), osTarget.c_str(), MOVEFILE_REPLACE_EXISTING)) return {};
         err = GetLastError();
-        if (!held_open(err) || attempt >= kReplaceRetries) break;
-        Sleep(1);
+        const DWORD attributes = GetFileAttributesW(osTarget.c_str());
+        const bool readOnly = attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY) != 0;
+        kind = d3d12_classify_cache_write_error(err, held_by_other(osTmp), held_by_other(osTarget), readOnly);
+        const CacheReplacePolicy policy = d3d12_cache_replace_policy(kind);
+        if (attempt >= policy.retries) break;
+        Sleep(DWORD(policy.sleepMs));
     }
     DeleteFileW(osTmp.c_str());
-    heldOpen = held_open(err);
-    return "the old file could not be replaced (" + hr_text(HRESULT_FROM_WIN32(err)) + ")";
+    return {"the old file could not be replaced (" + hr_text(HRESULT_FROM_WIN32(err)) + ")", kind};
+}
+
+// Deletes the temporary files of this cache file that a crashed save left in its folder (d3d12_orphan_cache_temps picks
+// them: older than a minute). One a process still holds open (a save running now that is slow) fails to delete and
+// stays. At most kMaxScanned entries of the folder are looked at, however large it is.
+void remove_orphan_cache_temps(const std::filesystem::path& cacheFile) {
+    constexpr int kMaxScanned = 20000;
+    const std::filesystem::path folder =
+        cacheFile.parent_path().empty() ? std::filesystem::path(".") : cacheFile.parent_path();
+    std::error_code ec;
+    std::filesystem::directory_iterator it(fs::os_path(folder), ec), end;
+    if (ec) return;
+    const std::int64_t nowNs =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    std::vector<CacheFolderEntry> entries;
+    int scanned = 0;
+    for (; it != end && scanned < kMaxScanned; it.increment(ec), ++scanned) {
+        if (ec) break;
+        const std::string name = fs::path_to_utf8(it->path().filename());
+        if (name.find(".fa-tmp") == std::string::npos) continue;  // only these are looked at (no stat of the others)
+        const std::int64_t modified = fs::host_modified_time(it->path());
+        CacheFolderEntry entry;
+        entry.name = name;
+        entry.ageSeconds = modified < 0 ? 0 : (nowNs - modified) / 1000000000;
+        entries.push_back(std::move(entry));
+    }
+    const std::string cacheName = fs::path_to_utf8(cacheFile.filename());
+    for (const std::string& name : d3d12_orphan_cache_temps(entries, cacheName)) {
+        const std::filesystem::path orphan = folder / fs::path_from_utf8(name);
+        if (DeleteFileW(fs::os_path(orphan).c_str())) FA_INFO("render", "gpu d3d12: removed the leftover {}", name);
+    }
 }
 
 std::string mib_text(std::uint64_t bytes) {
@@ -963,6 +1032,7 @@ std::string mib_text(std::uint64_t bytes) {
 
 void D3d12Device::init_pipeline_library() {
     if (pipelineCacheFile_.empty()) return;
+    remove_orphan_cache_temps(pipelineCacheFile_);
     Com<ID3D12Device1> device1 = device_.as<ID3D12Device1>();
     if (!device1) {
         FA_INFO("render", "gpu d3d12: {} has no ID3D12Device1 (pipeline libraries): PSOs are cached in memory only",
@@ -1117,7 +1187,7 @@ Result<void> D3d12Device::save_pipeline_cache() {
                 library_ = std::move(trimmed);
                 library_->SetName(L"fa-d3d12-pipeline-library");
                 libraryDirty_ = true;
-                ++cacheTrimmed_;
+                trimUnwritten_ = true;  // counted when a file holds it (a failed write keeps it for the next save)
                 didTrim = true;
             }
         }
@@ -1154,26 +1224,34 @@ Result<void> D3d12Device::save_pipeline_cache() {
 
     std::error_code ec;
     std::filesystem::create_directories(fs::os_path(pipelineCacheFile_.parent_path()), ec);  // a failure shows below
-    bool heldOpen = false;
-    const std::string why = replace_cache_file(pipelineCacheFile_, bytes, heldOpen);
-    if (!why.empty())
-        return fail("gpu d3d12: the pipeline cache could not be written to " + file + ": " + why +
+    const CacheWrite written = replace_cache_file(pipelineCacheFile_, bytes);
+    if (!written.why.empty())
+        return fail("gpu d3d12: the pipeline cache could not be written to " + file + ": " + written.why +
                         "; the old file was kept",
-                    heldOpen ? "another process holds the file open (Windows replaces no open file): it is written "
-                               "again at the next save, when the device is destroyed at the latest"
-                             : "check that the folder is writable and the disk has room; the next save tries again");
+                    d3d12_cache_write_hint(written.kind, file));
+    bool wroteTrim = false;  // a trimmed library counts once, when a file holds it
+    {
+        std::lock_guard<std::mutex> lock(libraryMutex_);
+        wroteTrim = trimUnwritten_;
+        trimUnwritten_ = false;
+        if (wroteTrim) ++cacheTrimmed_;
+        ++cacheStored_;
+    }
     add.filesStored = 1;
-    if (didTrim) add.filesTrimmed = 1;
+    if (wroteTrim) add.filesTrimmed = 1;
     d3d12_pipeline_cache_count(add);
     if (didTrim)
         FA_INFO("render",
                 "gpu d3d12: wrote the pipeline cache {} ({}): its library had {}, more than pipelineCacheTrimBytes "
                 "({}), and was rebuilt with only the {} pipelines this run used",
                 file, mib_text(bytes.size()), mib_text(before), mib_text(trimBytes_), kept);
+    else if (wroteTrim)
+        FA_INFO("render",
+                "gpu d3d12: wrote the pipeline cache {} ({}): the library rebuilt with only the pipelines this run "
+                "used by an earlier save, which could not write it",
+                file, mib_text(bytes.size()));
     else
         FA_INFO("render", "gpu d3d12: wrote the pipeline cache {} ({})", file, mib_text(bytes.size()));
-    std::lock_guard<std::mutex> lock(libraryMutex_);
-    ++cacheStored_;
     return {};
 }
 

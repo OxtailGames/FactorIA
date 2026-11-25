@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -104,15 +105,38 @@ TEST_CASE("d3d12 pipeline cache: the header keys on the adapter's ids and driver
     CHECK(pipeline_cache_mismatch(cache_bytes(self, {}), self, "x").empty());
 }
 
+namespace {
+// "d3d12-pipelines-<what>-<8 hex digits>.bin": the hash of the whole program name follows the cleaned-up one.
+bool is_cache_name(const std::string& name, const std::string& what) {
+    const std::string head = "d3d12-pipelines-" + what + "-";
+    if (name.size() != head.size() + 8 + 4 || name.compare(0, head.size(), head) != 0) return false;
+    if (name.compare(name.size() - 4, 4, ".bin") != 0) return false;
+    for (std::size_t i = head.size(); i < head.size() + 8; ++i)
+        if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f'))) return false;
+    return true;
+}
+}  // namespace
+
 TEST_CASE("d3d12 pipeline cache: each program has its own file; the trim size is far under the largest file") {
-    CHECK(d3d12_pipeline_cache_name("factoria_editor") == "d3d12-pipelines-factoria_editor.bin");
-    CHECK(d3d12_pipeline_cache_name("factoria_player") == "d3d12-pipelines-factoria_player.bin");
-    CHECK(d3d12_pipeline_cache_name("factoria") == "d3d12-pipelines-factoria.bin");
-    // Windows paths ignore case, so the name is lower case; anything but a-z, 0-9, '-' and '_' is '_' (UTF-8 bytes too).
-    CHECK(d3d12_pipeline_cache_name("My Game") == "d3d12-pipelines-my_game.bin");
-    CHECK(d3d12_pipeline_cache_name(reinterpret_cast<const char*>(u8"Jóc-2")) == "d3d12-pipelines-j__c-2.bin");
+    CHECK(is_cache_name(d3d12_pipeline_cache_name("factoria_editor"), "factoria_editor"));
+    CHECK(is_cache_name(d3d12_pipeline_cache_name("factoria_player"), "factoria_player"));
+    CHECK(is_cache_name(d3d12_pipeline_cache_name("factoria"), "factoria"));
+    // Windows paths ignore case, so the name is lower case (and Game.exe, game.exe share one file); anything but a-z,
+    // 0-9, '-' and '_' is '_' (UTF-8 bytes too).
+    CHECK(is_cache_name(d3d12_pipeline_cache_name("My Game"), "my_game"));
+    CHECK(d3d12_pipeline_cache_name("My Game") == d3d12_pipeline_cache_name("my game"));
+    CHECK(is_cache_name(d3d12_pipeline_cache_name(reinterpret_cast<const char*>(u8"Jóc-2")), "j__c-2"));
     CHECK(d3d12_pipeline_cache_name("") == "d3d12-pipelines.bin");
-    CHECK(d3d12_pipeline_cache_name(std::string(80, 'a')) == "d3d12-pipelines-" + std::string(48, 'a') + ".bin");
+    CHECK(is_cache_name(d3d12_pipeline_cache_name(std::string(80, 'a')), std::string(48, 'a')));
+    // Stable: the same name is the same file in every run (no rand, no address).
+    CHECK(d3d12_pipeline_cache_name("factoria_player") == d3d12_pipeline_cache_name("factoria_player"));
+    // Names that read alike once cleaned up or cut never share a file.
+    const std::string e = reinterpret_cast<const char*>(u8"é"), g = reinterpret_cast<const char*>(u8"è");
+    CHECK(d3d12_pipeline_cache_name("jeu" + e) != d3d12_pipeline_cache_name("jeu" + g));
+    CHECK(d3d12_pipeline_cache_name("jeu" + e) != d3d12_pipeline_cache_name("jeu__"));
+    CHECK(d3d12_pipeline_cache_name(std::string(80, 'a') + "b") !=
+          d3d12_pipeline_cache_name(std::string(80, 'a') + "c"));
+    CHECK(d3d12_pipeline_cache_name(std::string(48, 'a')) != d3d12_pipeline_cache_name(std::string(49, 'a')));
 
     const std::filesystem::path file = d3d12_pipeline_cache_file();
     if (!file.empty()) {
@@ -128,6 +152,72 @@ TEST_CASE("d3d12 pipeline cache: each program has its own file; the trim size is
     const D3d12Options defaults;
     CHECK(defaults.pipelineCacheTrimBytes == (std::uint64_t(64) << 20));
     CHECK(defaults.pipelineCacheTrimBytes * 10 < PipelineCacheFile::kMaxBytes);
+}
+
+TEST_CASE("d3d12 pipeline cache: a failed write is classified, retried for as long as it can pass, and hinted") {
+    constexpr unsigned kDenied = 5, kSharing = 32, kLock = 33, kMapped = 1224, kDiskFull = 112;
+    using K = CacheWriteFailure;
+    // d3d12_classify_cache_write_error(error, tempHeld, targetHeld, targetReadOnly)
+    CHECK(d3d12_classify_cache_write_error(kSharing, false, true, false) == K::TargetHeld);
+    CHECK(d3d12_classify_cache_write_error(kLock, false, false, false) == K::TargetHeld);
+    CHECK(d3d12_classify_cache_write_error(kMapped, false, false, false) == K::TargetHeld);
+    // Windows says access denied when the old file is open elsewhere, too.
+    CHECK(d3d12_classify_cache_write_error(kDenied, false, true, false) == K::TargetHeld);
+    CHECK(d3d12_classify_cache_write_error(kDenied, false, false, true) == K::ReadOnlyFile);
+    CHECK(d3d12_classify_cache_write_error(kDenied, false, false, false) == K::FolderDenied);
+    // The temporary file held (antivirus, indexer) is told apart from the old file held, and wins.
+    CHECK(d3d12_classify_cache_write_error(kSharing, true, false, false) == K::TempHeld);
+    CHECK(d3d12_classify_cache_write_error(kSharing, true, true, false) == K::TempHeld);
+    CHECK(d3d12_classify_cache_write_error(kDenied, true, false, true) == K::TempHeld);
+    CHECK(d3d12_classify_cache_write_error(kDiskFull, true, true, true) == K::Other);
+    // A read-only attribute only explains access denied.
+    CHECK(d3d12_classify_cache_write_error(kSharing, false, false, true) == K::TargetHeld);
+
+    // The temporary file's holder is waited for longer than the old file's, still bounded (100 to 200 ms in all).
+    const CacheReplacePolicy tempHeld = d3d12_cache_replace_policy(K::TempHeld);
+    const CacheReplacePolicy targetHeld = d3d12_cache_replace_policy(K::TargetHeld);
+    CHECK(tempHeld.retries * tempHeld.sleepMs >= 100);
+    CHECK(tempHeld.retries * tempHeld.sleepMs <= 200);
+    CHECK(targetHeld.retries == 3);
+    CHECK(targetHeld.sleepMs == 1);
+    CHECK(d3d12_cache_replace_policy(K::ReadOnlyFile).retries == 0);  // nothing changes by waiting
+    CHECK(d3d12_cache_replace_policy(K::Other).retries == 0);
+
+    const std::string file = "C:\\cache\\d3d12-pipelines-game-0123abcd.bin";
+    for (K kind : {K::TargetHeld, K::TempHeld, K::ReadOnlyFile, K::FolderDenied, K::Other}) {
+        const std::string hint = d3d12_cache_write_hint(kind, file);
+        INFO(hint);
+        CHECK(contains(hint, file));
+        CHECK(contains(hint, "next save or the next run"));  // when the next try is
+    }
+    CHECK(contains(d3d12_cache_write_hint(K::ReadOnlyFile, file), "attrib -r"));
+    CHECK(contains(d3d12_cache_write_hint(K::ReadOnlyFile, file), "read-only attribute"));
+    CHECK(contains(d3d12_cache_write_hint(K::FolderDenied, file), "permissions"));
+    CHECK(contains(d3d12_cache_write_hint(K::TargetHeld, file), "another process holds " + file));
+    CHECK(contains(d3d12_cache_write_hint(K::TempHeld, file), "antivirus"));
+}
+
+TEST_CASE("d3d12 pipeline cache: the leftovers of a crashed save are the old temporary files of this cache file") {
+    const std::string cache = "d3d12-pipelines-game-0123abcd.bin";
+    const std::int64_t old = kOrphanTempAgeSeconds * 10, young = kOrphanTempAgeSeconds - 1;
+    std::vector<CacheFolderEntry> entries;
+    entries.push_back({cache, old});                                              // the cache file itself
+    entries.push_back({cache + ".fa-tmp1234_0", old});                            // an orphan
+    entries.push_back({cache + ".fa-tmp77_12", kOrphanTempAgeSeconds});           // exactly a minute old: an orphan
+    entries.push_back({cache + ".fa-tmp1234_1", young});                          // a save may be running now
+    entries.push_back({cache + ".fa-tmp1234_2", 0});                              // unknown age
+    entries.push_back({cache + ".fa-tmp1234_3", -5});                             // a clock that went back
+    entries.push_back({"D3D12-pipelines-GAME-0123ABCD.bin.fa-tmp9_9", old});      // paths ignore case on Windows
+    entries.push_back({"d3d12-pipelines-other-89abcdef.bin.fa-tmp1234_0", old});  // another program's
+    entries.push_back({"d3d12-pipelines-game-0123abcd.bin.old.fa-tmp1_1", old});  // not this file's pattern
+    entries.push_back({cache + ".fa-tmp", old});                                  // no pid
+    entries.push_back({cache + ".fa-tmp12x", old});                               // not a pid and counter
+    entries.push_back({cache + ".fa-tmp1_1.txt", old});
+    const std::vector<std::string> orphans = d3d12_orphan_cache_temps(entries, cache);
+    CHECK(orphans == std::vector<std::string>{cache + ".fa-tmp1234_0", cache + ".fa-tmp77_12",
+                                              "D3D12-pipelines-GAME-0123ABCD.bin.fa-tmp9_9"});
+    CHECK(d3d12_orphan_cache_temps(entries, "").empty());
+    CHECK(d3d12_orphan_cache_temps({}, cache).empty());
 }
 
 #if !defined(_WIN32)
@@ -2072,7 +2162,8 @@ TEST_CASE(
         if (!saved) {
             CHECK(contains(saved.error().message, "the old file was kept"));
             CHECK(contains(saved.error().message, fa::fs::path_to_utf8(dir.file())));
-            CHECK(contains(saved.error().hint, "another process holds the file open"));
+            CHECK(contains(saved.error().hint, "another process holds " + fa::fs::path_to_utf8(dir.file())));
+            CHECK(contains(saved.error().hint, "at the next save or the next run"));
         }
         const std::vector<std::string> warned = cache_warnings(*dev);
         REQUIRE(warned.size() == 1);
@@ -2104,7 +2195,9 @@ TEST_CASE("d3d12: a cache file from the same GPU and driver with another LUID (t
     }
     std::vector<std::uint8_t> bytes = file_bytes(dir.file());
     REQUIRE(bytes.size() > PipelineCacheFile::kHeaderBytes);
-    for (std::size_t i = 0; i < 8; ++i)  // the LUID's eight bytes: what a reboot changes
+    // The header check compares the adapter's vendor, device, subsystem and revision ids and the driver version, not the
+    // LUID (a new one at every boot): the file's LUID bytes are what a reboot changes, and nothing the check reads.
+    for (std::size_t i = 0; i < 8; ++i)
         bytes[PipelineCacheFile::kLuidAt + i] = std::uint8_t(bytes[PipelineCacheFile::kLuidAt + i] ^ 0xa5u);
     put_file(dir.file(), bytes);
     auto dev = make_cached_warp(dir.file());
@@ -2114,6 +2207,54 @@ TEST_CASE("d3d12: a cache file from the same GPU and driver with another LUID (t
     CHECK(dev->counters().psoLibraryHits == 3);
     CHECK(cache_warnings(*dev).empty());
     check_fill_draws(*dev, pip);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+TEST_CASE("d3d12: the temporary files a crashed save left are removed at load; a young one and another's stay") {
+    const CacheDir dir("orphans");
+    const std::vector<std::uint8_t> junk(16, 1);
+    const std::filesystem::path oldTmp = dir.path / "d3d12-pipelines.bin.fa-tmp1234_0";
+    const std::filesystem::path youngTmp = dir.path / "d3d12-pipelines.bin.fa-tmp1234_1";
+    const std::filesystem::path otherTmp = dir.path / "other.bin.fa-tmp1234_0";
+    for (const auto& f : {oldTmp, youngTmp, otherTmp}) put_file(f, junk);
+    std::error_code ec;
+    const auto anHourAgo = std::filesystem::file_time_type::clock::now() - std::chrono::hours(1);
+    std::filesystem::last_write_time(oldTmp, anHourAgo, ec);
+    REQUIRE_FALSE(ec);
+    std::filesystem::last_write_time(otherTmp, anHourAgo, ec);
+    REQUIRE_FALSE(ec);
+    auto dev = make_cached_warp(dir.file());
+    if (!dev) return;
+    CHECK_FALSE(std::filesystem::exists(oldTmp));
+    CHECK(std::filesystem::exists(youngTmp));
+    CHECK(std::filesystem::exists(otherTmp));
+}
+
+TEST_CASE("d3d12: a read-only cache file is kept with a permissions hint, and written once it is cleared") {
+    const CacheDir dir("readonly");
+    auto dev = make_cached_warp(dir.file());
+    if (!dev) return;
+    make_cache_pipelines(*dev);
+    auto saved = dev->save_pipeline_cache();
+    REQUIRE_MESSAGE(saved, saved.error().to_string());
+    const std::vector<std::uint8_t> old = file_bytes(dir.file());
+    const std::filesystem::path osFile = fa::fs::os_path(dir.file());
+    REQUIRE(SetFileAttributesW(osFile.c_str(), FILE_ATTRIBUTE_READONLY));
+    const Shader fill = dev->make_shader(fill_shader_desc());
+    const Pipeline extra = dev->make_pipeline(render_desc(fill, PixelFormat::R32F));  // something new to store
+    REQUIRE_MESSAGE(dev->state(extra) == ResourceState::Valid, all_errors(*dev));
+    saved = dev->save_pipeline_cache();
+    CHECK_FALSE(saved);
+    if (!saved) {
+        CHECK(contains(saved.error().hint, "read-only attribute"));
+        CHECK(contains(saved.error().hint, "attrib -r"));
+        CHECK(contains(saved.error().hint, fa::fs::path_to_utf8(dir.file())));
+    }
+    CHECK(file_bytes(dir.file()) == old);
+    SetFileAttributesW(osFile.c_str(), FILE_ATTRIBUTE_NORMAL);  // the folder is removed at the end of the case
+    saved = dev->save_pipeline_cache();
+    REQUIRE_MESSAGE(saved, saved.error().to_string());
+    CHECK(file_bytes(dir.file()) != old);
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
