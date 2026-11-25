@@ -718,22 +718,22 @@ TEST_CASE("vulkan: copy_buffer_to_image with aligned rows and with rows that nee
     sd.width = 8;
     sd.height = 4;
     sd.usage.copyDst = true;
-    const Image small = dev->make_image(sd);
-    REQUIRE(dev->state(small) == ResourceState::Valid);
+    const Image tiny = dev->make_image(sd);
+    REQUIRE(dev->state(tiny) == ResourceState::Valid);
     const std::uint32_t liveBefore = dev->counters().memory.liveAllocations;
     CommandList& list2 = dev->begin_commands("unaligned");
     BufferImageCopy u;
     u.src = buf;
     u.srcOffset = 2;
     u.bytesPerRow = 30;
-    u.dst.image = small;
+    u.dst.image = tiny;
     u.dst.x = 2;
     u.dst.y = 1;
     u.size.width = 5;
     u.size.height = 3;
     list2.copy_buffer_to_image(u);
     submit_and_finish(*dev, list2);
-    r = dev->read_image_region(small, 0, 0, 2, 1, 5, 3, out);
+    r = dev->read_image_region(tiny, 0, 0, 2, 1, 5, 3, out);
     REQUIRE_MESSAGE(r, r.error().to_string());
     std::vector<std::uint8_t> expected;
     for (int row = 0; row < 3; ++row)
