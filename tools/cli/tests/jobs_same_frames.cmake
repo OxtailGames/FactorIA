@@ -3,25 +3,42 @@
 # FA_JOB_THREADS=inline (every pass one chunk on the main thread) and with 8 workers (the big passes split into chunks)
 # and compares the PNG files byte for byte.
 #   cmake -DFACTORIA=<factoria> -DROOT=<repo> -DOUT=<dir> -DSCENES=example=scene,example=scene -P jobs_same_frames.cmake
+# The runs write caches into the project's .factoria folder: they run on a copy in a temp dir, never inside the checked-in example.
+if(DEFINED ENV{TMPDIR})
+    set(tmpbase "$ENV{TMPDIR}")
+elseif(DEFINED ENV{TEMP})
+    set(tmpbase "$ENV{TEMP}")
+else()
+    set(tmpbase "/tmp")
+endif()
+string(RANDOM LENGTH 10 ALPHABET "abcdefghijklmnopqrstuvwxyz0123456789" suffix)
+set(workdir "${tmpbase}/fa_jobs_same_frames_${suffix}")
+file(MAKE_DIRECTORY "${workdir}")
 string(REPLACE "," ";" scenes "${SCENES}")
 foreach(entry ${scenes})
     string(REPLACE "=" ";" parts "${entry}")
     list(GET parts 0 ex)
     list(GET parts 1 scene)
+    if(NOT EXISTS ${workdir}/${ex})
+        file(COPY ${ROOT}/examples/${ex} DESTINATION ${workdir} PATTERN ".factoria" EXCLUDE)
+    endif()
     string(MAKE_C_IDENTIFIER "${ex}_${scene}" tag)
     foreach(threads inline 8)
         set(ENV{FA_JOB_THREADS} ${threads})
-        execute_process(COMMAND ${FACTORIA} screenshot ${ROOT}/examples/${ex} --scene ${scene} --frames 90
+        execute_process(COMMAND ${FACTORIA} screenshot ${workdir}/${ex} --scene ${scene} --frames 90
                                 --out ${OUT}/${tag}_${threads}.png
                         RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
         if(NOT rc EQUAL 0)
+            file(REMOVE_RECURSE "${workdir}")
             message(FATAL_ERROR "factoria screenshot ${ex} ${scene} with FA_JOB_THREADS=${threads} failed (${rc}):\n${out}\n${err}")
         endif()
     endforeach()
     execute_process(COMMAND ${CMAKE_COMMAND} -E compare_files ${OUT}/${tag}_inline.png ${OUT}/${tag}_8.png RESULT_VARIABLE same)
     if(NOT same EQUAL 0)
+        file(REMOVE_RECURSE "${workdir}")
         message(FATAL_ERROR "${ex} ${scene}: the frame drawn with 8 job threads differs from the one drawn inline "
                             "(${OUT}/${tag}_inline.png, ${OUT}/${tag}_8.png): a render or animation job depends on the threads")
     endif()
     message(STATUS "${ex} ${scene}: the same frame inline and with 8 job threads")
 endforeach()
+file(REMOVE_RECURSE "${workdir}")
