@@ -24,6 +24,7 @@
 #include "fa/platform/websocket.h"
 #include "fa/render/text_measure.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/gpu_backend_choice.h"
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/rich_text.h"
@@ -113,6 +114,8 @@ struct Engine::Impl {
         false;  // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
     std::string
         jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
+    GpuBackendChoice
+        gpuChoice;  // the GPU backend this run asked for (EngineConfig, FA_GPU_BACKEND, factoria.json, auto)
     jobs::Owner jobOwner{
         "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)

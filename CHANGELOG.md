@@ -16,6 +16,11 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   D3D11 device and the window's DXGI flip-model swapchain itself, resizes it and presents it (vsync interval, tearing when vsync is off
   and the display allows it, the same frame latency as before), so the D3D12 and Vulkan backends can present on the same window. A lost
   device is logged once with its reason and what to do. HDR output, the editor's frame readback, fullscreen and HiDPI work as before.
+- A game chooses its GPU backend (M77-P9a): `"render": {"backend": "auto" | "d3d11" | "d3d12" | "vulkan" | "metal" | "gl" | "gles3" |
+  "webgl2"}` in `factoria.json` (a wrong name fails with `/render/backend`, the valid names and a did-you-mean; one the platform or binary
+  lacks warns and uses `auto`, which is still the sokol backend of the build), the `FA_GPU_BACKEND` environment variable and
+  `EngineConfig::gpuBackend` override it. Headless runs use D3D12 or Vulkan; a window falls back to `auto` with one warning until their
+  swapchains land. The startup report names the device's backend and the asked one when it differs (docs/RENDERING.md, "Choosing the GPU backend").
 - The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
   `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
   a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is
@@ -77,6 +82,14 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   `gl_PointSize`, a storage buffer view stops at `maxStorageBufferRange`, BGRA8 is never a loadable storage image, the Windows
   loader takes an absolute `loaderPath` written with '/', and the notices carry the Vulkan headers' Apache-2.0 and MIT texts
   in full (M77-P8b2).
+- The Vulkan backend runs lists on three queues (M77-P10c): graphics, async compute (a compute-only family, else a second
+  graphics-family queue) and transfer, each with its own timeline semaphore and command pools, through
+  `begin_commands(label, queue)`, `submit_token`, `wait_list` and `wait_queue`; a GPU without them runs every list on the
+  graphics queue. A resource handed to a queue of another family moves by a queue family ownership transfer (images stay
+  `EXCLUSIVE`, which keeps their compression), and using a resource of another queue, or one whose handoff token the list did
+  not wait for, is reported. Lists record on several threads (`multiThreadRecording`), every texture view gets a bindless slot
+  (`bindless_index`), timed scopes off the graphics queue are ignored, and a pipeline destroyed while an open list binds it is
+  no longer freed by `wait_idle` before that list is submitted.
 - Custom materials: a twin can have a `spirv_vk` dialect, `<material>.json.spirv_vk.shader`: each stage (`vs`/`fs`, or `cs`) is the SPIR-V in
   base64 (`"binary": "base64"`), and the reflection keeps the descriptor set and binding numbers of sokol-shdc as integers
   (`spirv_set0_binding_n` for uniform blocks, `spirv_set1_binding_n` for views and samplers). It is not compiled by default;
