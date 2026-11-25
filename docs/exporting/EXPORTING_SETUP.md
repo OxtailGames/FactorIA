@@ -41,8 +41,8 @@ factoria setup streamline --accept-licenses        # you have read the license a
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](EXPORTING_DESKTOP.md#linux-appimage)) |
 | `launcher` | nothing is downloaded: an app that opens this factoria's editor with the FactorIA icon. macOS: `~/Applications/FactorIA.app` (for the Dock, Launchpad and Spotlight; the editor's output goes to `~/Library/Logs/FactorIA/editor.log`), registered with Launch Services so the Dock shows the new icon. Linux: `factoria.desktop` and its 256 px icon under `~/.local/share` (or `$XDG_DATA_HOME`). `partial` when it opens another factoria, was not written by FactorIA, or carries an older version or icon; the editor rewrites, at start, one that opens it but is out of date (after an update or a reinstall). `unsupported` on Windows, where the installer adds the Start menu entry | - | none: it is how a person opens the editor |
 | `directstorage` | the NuGet package Microsoft.Direct3D.DirectStorage 1.3.0 (a zip), checked against a SHA-256 compiled into FactorIA; only its x64 `dstorage.dll` and `dstoragecore.dll` (redistributable) and its `LICENSE.txt` are kept, in `$FACTORIA_HOME/tools/directstorage/1.3.0/`. Any computer can install it: the DLLs are copied, never run here | about 3 MB | `--release --platform windows` with `export.pack.directStorage` ([Compression and pack order](EXPORTING_DESKTOP.md#compression-and-pack-order)); without it that export warns and the game decodes on the CPU |
-| `streamline` | NVIDIA Streamline 2.14.16 (DLSS super resolution, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), from the release zip of `github.com/NVIDIA-RTX/Streamline`, checked against a SHA-256 compiled into FactorIA: only the signed x64 `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.dlss_d.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, the `nvngx_dlss*.dll` runtimes and NVIDIA's license texts are kept, in `$FACTORIA_HOME/tools/streamline/2.14.16/` (the profiling DLLs `sl.nvperf` and `sl_nvperf`, the development builds, headers and libraries never are). Shows NVIDIA's license first; it must be accepted ([Vendor SDK licences](#vendor-sdk-licences)). Any computer can install it: the DLLs are copied, never run here | about 276 MB | `--platform windows` of a game whose `render.upscaler`, `render.frameGeneration` or `render.latency` can use DLSS or Reflex (`export.pack.vendorSdks`) |
-| `xess` | Intel XeSS 3.0.2 (super resolution, frame generation, XeLL low latency) from the release zip of `github.com/intel/xess`, checked against a SHA-256 compiled into FactorIA: the x64 `libxess.dll`, `libxess_dx11.dll`, `libxess_fg.dll`, `libxell.dll`, `LICENSE.txt` and `third-party-programs.txt`, in `$FACTORIA_HOME/tools/xess/3.0.2/`. Shows Intel's license first; it must be accepted | about 77 MB | `--platform windows` of a game that can use XeSS or XeLL |
+| `streamline` | NVIDIA Streamline 2.14.16 (DLSS super resolution, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), from the release zip of `github.com/NVIDIA-RTX/Streamline`, checked against a SHA-256 compiled into FactorIA (the zip, and each file that is kept): only the signed x64 `sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`, `sl.dlss_d.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`, `sl.pcl.dll`, the `nvngx_dlss*.dll` runtimes (`nvngx_dlssg.dll` is Frame Generation's), `NvLowLatencyVk.dll` (Reflex on Vulkan) and NVIDIA's license texts are kept, in `$FACTORIA_HOME/tools/streamline/2.14.16/` (the profiling DLLs `sl.nvperf` and `sl_nvperf`, the development builds, headers and libraries never are). Shows NVIDIA's license first; it must be accepted ([Vendor SDK licences](#vendor-sdk-licences)). Any computer can install it: the DLLs are copied, never run here | about 276 MB | `--platform windows` of a game whose `render.upscaler`, `render.frameGeneration` or `render.latency` can use DLSS or Reflex (`export.pack.vendorSdks`) |
+| `xess` | Intel XeSS 3.0.2 (super resolution, frame generation, XeLL low latency) from the release zip of `github.com/intel/xess`, checked against a SHA-256 compiled into FactorIA (the zip, and each file that is kept): the x64 `libxess.dll`, `libxess_dx11.dll`, `libxess_fg.dll`, `libxell.dll`, `LICENSE.txt` and `third-party-programs.txt`, in `$FACTORIA_HOME/tools/xess/3.0.2/`. Shows Intel's license first; it must be accepted | about 77 MB | `--platform windows` of a game that can use XeSS or XeLL |
 | `fidelityfx` | AMD FidelityFX SDK 2.4.0: the signed x64 `amd_fidelityfx_loader`, `upscaler` and `framegeneration` DLLs for DirectX 12 and Vulkan (FSR upscaling and frame generation; not the denoiser or the radiance cache) and `docs/license.md` and `3rdpartynotice.md` at the release's tag, each file checked against its own SHA-256 compiled into FactorIA, in `$FACTORIA_HOME/tools/fidelityfx/2.4.0/`. Shows AMD's license first; it must be accepted. AMD Anti-Lag 2 needs nothing installed | about 160 MB | `--platform windows` of a game that can use FSR |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
@@ -260,7 +260,20 @@ publishes checksums). Each comes with a license between you and the vendor. The 
 `setup.status` lists under `components[].licenses`), in a terminal asks `[y/N]` (the editor's Set Up This Computer window opens
 a dialog with an "I accept" checkbox), and refuses with the code `license_required` until you pass `--accept-licenses`
 (`setup.install` `acceptLicenses: true`) after reading it. An AI must ask you before it does. Nothing is downloaded before
-you accept.
+you accept. `--force` installs again, so it asks again too: `factoria setup streamline --force` in a terminal shows the license
+and asks `[y/N]`, and without a terminal it refuses with `license_required` until you pass `--force --accept-licenses`
+(`setup.install` `{"force": true, "acceptLicenses": true}`), also when you accepted before; the install that is there stays
+until the new one is complete.
+
+What an install does with the disk: it unpacks only the files of the table from the vendor's archive (the Streamline zip holds
+500 files and 500 MB, some nested deep enough to pass Windows' 260-character path limit under a long user folder), checks each one
+against its own pinned SHA-256, and keeps them in `<home>/tools/<id>/<version>/`. It needs free space in `<home>/staging` while it
+runs: about 550 MB for Streamline (a 276 MB download, 116 MB unpacked, and the copy it keeps), 300 MB for XeSS and 200 MB for
+FidelityFX; `setup.status` says so, and a failed download, unpack or copy repeats it. The folders of older pinned versions (a
+folder named like a version, lower than the current one) are removed once the new one is in place; a newer version's folder (a
+newer factoria that shares the home) and any other folder under `tools/<id>/` are left alone. An export checks the installed files
+against the pinned SHA-256 before it does anything else (about 120 MB are read for Streamline): a file that is missing, cut
+short or changed fails the export naming the file, and `factoria setup <id> --force` installs it again.
 
 - **NVIDIA Streamline (DLSS, Frame Generation, Reflex)**: the NVIDIA RTX SDKs license lets a game redistribute the DLLs only
   as part of the game. Before the game's commercial release you must notify NVIDIA
@@ -274,7 +287,8 @@ you accept.
 
 `export.pack.vendorSdks` (default `"auto"`) decides what a Windows export ships; the DLLs go next to the game's executable,
 the license texts under `licenses/<id>/` (ship that folder with the game). Whether a game can use an SDK is read from
-`factoria.json` (`render.upscaler.mode`, `render.frameGeneration.mode`, `render.latency.mode`; a missing key means no); when the
+`factoria.json` (`render.upscaler.mode`, `render.frameGeneration.mode`, `render.latency.mode`; a missing key means no; the
+frame generation settings are the frame generation package's: until it is in, the key is read but nothing sets it); when the
 project can use one that is not installed, the export says so in its next steps and the game runs with what it has.
 
 ### Machine settings: `~/.factoria/export.json`

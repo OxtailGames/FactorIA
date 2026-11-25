@@ -137,6 +137,20 @@ TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, wit
     CHECK(json.out.find("\"ok\": false") != std::string::npos);
 }
 
+TEST_CASE("setup: --force of a vendor SDK needs the license accepted again, and the error says so") {
+    // --json never prompts and refuses before it downloads or writes anything.
+    auto r = run({"setup", "xess", "--force", "--json"});
+    CHECK(r.code == 1);
+    CHECK(r.out.find("license_required") != std::string::npos);
+    CHECK(r.out.find("--force installs it again") != std::string::npos);
+    CHECK(r.out.find("accepted again") != std::string::npos);
+    CHECK(r.out.find("factoria setup xess --force --accept-licenses") != std::string::npos);
+    auto first = run({"setup", "xess", "--json"});
+    CHECK(first.code == 1);
+    CHECK(first.out.find("license_required") != std::string::npos);
+    CHECK(first.out.find("--force") == std::string::npos);
+}
+
 TEST_CASE("setup: the commands exist without a project") {
     auto c = run({"commands"});
     CHECK(c.code == 0);

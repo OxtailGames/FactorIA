@@ -9,6 +9,7 @@
 // so that no FUSE is needed). Elsewhere the component is "unsupported" and the export says to export on Linux or in WSL.
 #include <algorithm>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "setup_internal.h"
 
@@ -35,7 +36,7 @@ std::vector<Download> downloads() {
              kSetupAppImageRuntimeSha256, 1}};
 }
 
-stdfs::path tools_dir(const SetupContext& ctx) { return stdfs::path(ctx.home_dir()) / "tools" / "appimage"; }
+stdfs::path tools_dir(const SetupContext& ctx) { return fs::path_from_utf8(ctx.home_dir()) / "tools" / "appimage"; }
 
 bool supported_host(const SetupContext& ctx) { return ctx.host_os() == "linux" && ctx.host_architecture() == "x64"; }
 

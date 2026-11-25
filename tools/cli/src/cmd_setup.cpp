@@ -153,10 +153,17 @@ int run_install(Context& ctx, const std::string& component) {
         for (const SetupStep& s : r.report.steps)
             ctx.err << "  " << s.outcome << "  " << s.title << (s.detail.empty() ? "" : ": " + s.detail) << "\n";
         std::string hint = r.error.hint;
-        if (r.code == "license_required")
-            hint = "Run it in a terminal to read and accept the license, or pass --accept-licenses after reading it "
-                   "('factoria call setup.status \"{\\\"component\\\":\\\"" +
-                   component + "\\\"}\"' prints the text).";
+        if (r.code == "license_required") {
+            // A vendor SDK's --force installs again, which is an install like the first: the license is asked again.
+            const bool again = o.force && find_vendor_sdk(component) != nullptr;
+            hint = std::string(again ? "--force installs it again, so it needs the license accepted again, also "
+                                       "when it was accepted before. "
+                                     : "") +
+                   "Run it in a terminal to read and accept the license, or pass --accept-licenses" +
+                   (again ? " (together with --force)" : "") +
+                   " after reading it ('factoria call setup.status \"{\\\"component\\\":\\\"" + component +
+                   "\\\"}\"' prints the text).";
+        }
         return report_failure(ctx, r.error.message, hint);
     }
     if (json) {
@@ -298,21 +305,24 @@ Command make_setup_command() {
     const char* sdkAccept =
         "You have read the license of this SDK and accept it (without it a terminal asks, anything else "
         "refuses).";
+    const char* sdkForce =
+        "Download it again even when installed (the license is asked for again: --force --accept-licenses after "
+        "reading it).";
     g.subs.push_back(
         sub("streamline",
             "Windows x64: download NVIDIA Streamline (DLSS, DLSS Frame Generation, Reflex) a Windows export "
             "ships next to the game; shows NVIDIA's license first.",
-            {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+            {{"accept-licenses", "", sdkAccept}, {"force", "", sdkForce}},
             {"factoria setup streamline", "factoria setup streamline --accept-licenses"}));
     g.subs.push_back(sub("xess",
                          "Windows x64: download Intel XeSS (upscaling, frame generation, XeLL) a Windows export ships "
                          "next to the game; shows Intel's license first.",
-                         {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+                         {{"accept-licenses", "", sdkAccept}, {"force", "", sdkForce}},
                          {"factoria setup xess", "factoria setup xess --accept-licenses"}));
     g.subs.push_back(sub("fidelityfx",
                          "Windows x64: download the AMD FidelityFX SDK (FSR upscaling and frame generation) a Windows "
                          "export ships next to the game; shows AMD's license first.",
-                         {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+                         {{"accept-licenses", "", sdkAccept}, {"force", "", sdkForce}},
                          {"factoria setup fidelityfx", "factoria setup fidelityfx --accept-licenses"}));
     return g;
 }
