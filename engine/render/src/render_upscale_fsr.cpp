@@ -91,7 +91,8 @@ std::string take_message() {
 
 // What the library said to a call that went wrong, as the sentence of an error.
 std::string call_failed(const char* function, std::uint32_t code) {
-    std::string text = std::string(function) + " answered \"" + fsr_result_text(code) + "\" (" + std::to_string(code) + ")";
+    std::string text =
+        std::string(function) + " answered \"" + fsr_result_text(code) + "\" (" + std::to_string(code) + ")";
     if (code == abi::kNoProvider)
         text += ": the library has no FSR provider for this GPU or driver";
     else if (code == abi::kParameterError)
@@ -105,9 +106,9 @@ std::string call_failed(const char* function, std::uint32_t code) {
 
 // The newest version GET_VERSIONS names, from the library for `device`.
 struct VersionAnswer {
-    std::string error;       // the sentence when the query itself failed
+    std::string error;        // the sentence when the query itself failed
     std::uint64_t count = 0;  // how many providers the library has for this GPU
-    bool known = false;      // at least one name had a number
+    bool known = false;       // at least one name had a number
     int major = 0, minor = 0;
     std::string newest;  // the name of the newest provider
 };
@@ -156,7 +157,7 @@ public:
         // The renderer calls release() before its device goes; a context still here belongs to a device nobody released.
         if (ctx_.handle && api_.destroyContext) api_.destroyContext(&ctx_.handle, nullptr);
     }
-    std::string_view name() const override { return "FSR 3.1"; }
+    std::string_view name() const override { return "FSR 3.1+"; }
     std::string_view mode() const override { return "fsr"; }
     std::string_view setup_id() const override { return "fidelityfx"; }
     unsigned backends() const override { return bit(gpu::Backend::D3d12) | bit(gpu::Backend::Vulkan); }
@@ -172,7 +173,8 @@ public:
 private:
     // What a context was made for, and the device it belongs to.
     struct Context {
-        const gpu::Device* device = nullptr;
+        std::uint64_t deviceGeneration =
+            0;  // gpu::Device::generation(): a device made later can have the address of a destroyed one
         abi::Context handle = nullptr;
         bool needReset = true;  // the next frame starts the history again (a new context, or a dispatch that failed)
         int maxRenderW = 0, maxRenderH = 0, outW = 0, outH = 0;
@@ -241,7 +243,8 @@ VendorProbe FsrProvider::probe(const VendorEnv& env) {
         }
     }
     // The version: ask the library which FSR providers it has for this GPU (a null context: the query is made before any).
-    abi::VkDeviceContext vkContext{const_cast<void*>(nd.device), const_cast<void*>(nd.physicalDevice), nd.getDeviceProcAddr};
+    abi::VkDeviceContext vkContext{const_cast<void*>(nd.device), const_cast<void*>(nd.physicalDevice),
+                                   nd.getDeviceProcAddr};
     void* const queryDevice =
         env.backend == gpu::Backend::Vulkan ? static_cast<void*>(&vkContext) : const_cast<void*>(nd.device);
     const VersionAnswer versions = query_versions(api, queryDevice);
@@ -251,17 +254,21 @@ VendorProbe FsrProvider::probe(const VendorEnv& env) {
         return p;
     }
     if (versions.count == 0) {
-        p.reason = "FidelityFX's library " + lib->path() +
-                   " has no FSR provider for this GPU on " + vendor_backend_label(env.backend) +
-                   " (its upscaler DLL is missing next to it, or the driver is too old): run `factoria setup fidelityfx` "
-                   "to install the whole SDK, or update the GPU driver.";
+        p.reason =
+            "FidelityFX's library " + lib->path() + " has no FSR provider for this GPU on " +
+            vendor_backend_label(env.backend) +
+            " (its upscaler DLL is missing next to it, or the driver is too old): run `factoria setup fidelityfx` "
+            "to install the whole SDK, or update the GPU driver.";
         return p;
     }
     if (versions.known && (versions.major < kMinMajor || (versions.major == kMinMajor && versions.minor < kMinMinor))) {
         p.reason = "FidelityFX's newest FSR in " + lib->path() + " is " + versions.newest +
-                   ", too old: FactorIA needs FSR 3.1 or newer (the API of the SDK 2.x loader). Run `factoria setup fidelityfx`.";
+                   ", too old: FactorIA needs FSR 3.1 or newer (the API of the SDK 2.x loader). Run `factoria setup "
+                   "fidelityfx`.";
         return p;
     }
+    FA_DEBUG("render", "FSR: FidelityFX offers FSR {} on {} ({} version(s) listed)", versions.newest,
+             vendor_backend_label(env.backend), versions.count);
     // The library is kept for the frames; one that a live context uses stays (its functions are the ones the context was made with).
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -286,7 +293,7 @@ void FsrProvider::destroy_context() {
 // Makes (or keeps) the context of `device` for this frame's sizes, quality and flags. "" or the sentence of what failed.
 std::string FsrProvider::ensure_context(gpu::Device& device, const UpscaleInput& in, std::int32_t quality,
                                         std::uint32_t flags) {
-    if (ctx_.handle && ctx_.device != &device) {
+    if (ctx_.handle && ctx_.deviceGeneration != device.generation()) {
         // A context of another device: that device was destroyed without release(), and the context with it.
         destroy_context();
     }
@@ -342,16 +349,17 @@ std::string FsrProvider::ensure_context(gpu::Device& device, const UpscaleInput&
             break;
         }
         default:
-            return "FSR runs on D3D12 and Vulkan; this device is " + std::string(vendor_backend_label(device.backend())) + ".";
+            return "FSR runs on D3D12 and Vulkan; this device is " +
+                   std::string(vendor_backend_label(device.backend())) + ".";
     }
     if (rc != abi::kOk || !handle) {
         if (handle && api_.destroyContext) api_.destroyContext(&handle, nullptr);
-        return "FSR could not make its context for " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) + " -> " +
-               std::to_string(in.outW) + "x" + std::to_string(in.outH) + ": " + call_failed(fn, rc) + ".";
+        return "FSR could not make its context for " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
+               " -> " + std::to_string(in.outW) + "x" + std::to_string(in.outH) + ": " + call_failed(fn, rc) + ".";
     }
     ctx_ = Context{};
     ctx_.handle = handle;
-    ctx_.device = &device;
+    ctx_.deviceGeneration = device.generation();
     ctx_.needReset = true;
     ctx_.maxRenderW = maxW;
     ctx_.maxRenderH = maxH;
@@ -389,12 +397,13 @@ bool FsrProvider::upscale(const UpscaleInput& in, VendorFrame& frame) {
         return false;
     }
     if (in.renderW <= 0 || in.renderH <= 0 || in.outW <= 0 || in.outH <= 0) {
-        frame.error = "FSR was given an empty picture (" + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
-                      " -> " + std::to_string(in.outW) + "x" + std::to_string(in.outH) + ").";
+        frame.error = "FSR was given an empty picture (" + std::to_string(in.renderW) + "x" +
+                      std::to_string(in.renderH) + " -> " + std::to_string(in.outW) + "x" + std::to_string(in.outH) +
+                      ").";
         return false;
     }
     const std::int32_t quality = fsr_quality_mode(in.quality);
-    const std::uint32_t flags = fsr_create_flags(in.linear, in.dynamicResolution);
+    const std::uint32_t flags = fsr_create_flags(in.linear, in.dynamicResolutionEnabled);
     if (std::string e = ensure_context(device, in, quality, flags); !e.empty()) {
         frame.error = std::move(e);
         return false;
@@ -430,7 +439,8 @@ bool FsrProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFra
             if (missing.empty()) missing = what;
             return r;
         }
-        if (format == abi::kFormatUnknown && missing.empty()) missing = std::string(what) + " (its pixel format has no FSR name)";
+        if (format == abi::kFormatUnknown && missing.empty())
+            missing = std::string(what) + " (its pixel format has no FSR name)";
         r.resource = handle;
         r.description.type = abi::kResourceTexture2d;
         r.description.format = format;
@@ -472,12 +482,14 @@ bool FsrProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFra
     d.viewSpaceToMetersFactor = 1.0f;
     d.flags = fsr_dispatch_flags(in.linear);
 
-    const Result<gpu::NativeCommands> native = frame.list->begin_native(std::span<const gpu::NativeUse>(uses, useCount));
+    const Result<gpu::NativeCommands> native =
+        frame.list->begin_native(std::span<const gpu::NativeUse>(uses, useCount));
     if (!native) {
         frame.error = "FSR could not open a native command section: " + native.error().message;
         return false;
     }
     d.commandList = const_cast<void*>(native->list);
+    (void)take_message();  // what the library said before this call is not the reason of a failure of this one
     const abi::ReturnCode rc = api_.dispatch(&ctx_.handle, &d.header);
     // The section is closed whatever FSR answered: the images are left in the states they were declared in.
     const Result<void> closed = frame.list->end_native();
@@ -497,7 +509,7 @@ bool FsrProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFra
 
 void FsrProvider::release(gpu::Device& device) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (ctx_.device != &device) return;  // it never drew on this device
+    if (ctx_.deviceGeneration != device.generation()) return;  // it never drew on this device
     if (ctx_.handle) {
         // The GPU may still be running the last frame with the context: wait, then destroy.
         if (const Result<void> idle = device.wait_idle(); !idle) FA_WARN("render", "FSR: {}", idle.error().message);

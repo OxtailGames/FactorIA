@@ -36,10 +36,13 @@ namespace {
 struct Fk {
     std::vector<std::string> versions = {"3.1.4"};  // what GET_VERSIONS names
     abi::ReturnCode queryRc = 0, createRc = 0, createVkNewRc = 0, dispatchRc = 0, destroyRc = 0;
-    const wchar_t* createMessage = nullptr;  // sent through the message callback by a create that fails
+    const wchar_t* createMessage = nullptr;    // sent through the message callback by a create that fails
+    const wchar_t* createWarning = nullptr;    // sent by every create, whatever it answers
+    const wchar_t* dispatchMessage = nullptr;  // sent by every dispatch
+    void (*messageFn)(std::uint32_t, const wchar_t*) = nullptr;  // the callback of the last create
     int creates = 0, destroys = 0, dispatches = 0, queries = 0;
     abi::CreateUpscaleDesc create{};
-    std::uint64_t backendType = 0;  // the type of the backend descriptor chained to the create desc
+    std::uint64_t backendType = 0;            // the type of the backend descriptor chained to the create desc
     std::vector<std::uint64_t> backendTypes;  // one per create call
     void* backendDevice = nullptr;
     abi::VkDeviceContext backendVk{};
@@ -69,7 +72,10 @@ abi::ReturnCode fake_create(abi::Context* context, abi::Header* desc, const void
             fk.backendVk = reinterpret_cast<const abi::CreateBackendVkDesc*>(desc->next)->deviceContext;
     }
     abi::ReturnCode rc = fk.createRc;
-    if (rc == 0 && desc->next && desc->next->type == abi::kCreateBackendVk && fk.createVkNewRc != 0) rc = fk.createVkNewRc;
+    if (rc == 0 && desc->next && desc->next->type == abi::kCreateBackendVk && fk.createVkNewRc != 0)
+        rc = fk.createVkNewRc;
+    fk.messageFn = up->message;
+    if (fk.createWarning && up->message) up->message(0, fk.createWarning);
     if (rc != 0 && fk.createMessage && up->message) up->message(0, fk.createMessage);
     if (rc == 0) *context = fake_token();
     return rc;
@@ -110,6 +116,7 @@ abi::ReturnCode fake_dispatch(abi::Context*, const abi::Header* desc) {
     ++fk.dispatches;
     fk.events.push_back("dispatch");
     fk.dispatch = *reinterpret_cast<const abi::DispatchUpscaleDesc*>(desc);
+    if (fk.dispatchMessage && fk.messageFn) fk.messageFn(0, fk.dispatchMessage);
     return fk.dispatchRc;
 }
 void fake_proc_addr() {}
@@ -331,7 +338,8 @@ bool has(const std::string& text, const char* part) { return text.find(part) != 
 
 // ---- the pure parts ---------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr: M76's five qualities are FSR's five modes, the flags and formats follow the frame, and the texts say what they are") {
+TEST_CASE("fsr: M76's five qualities are FSR's five modes, the flags and formats follow the frame, and the texts say "
+          "what they are") {
     using render::UpscalerQuality;
     CHECK(render::fsr_quality_mode(UpscalerQuality::Native) == 0);
     CHECK(render::fsr_quality_mode(UpscalerQuality::Quality) == 1);
@@ -396,10 +404,11 @@ TEST_CASE("fsr: M76's five qualities are FSR's five modes, the flags and formats
     CHECK(req.minApiVersion == ((1u << 22) | (1u << 12)));
 }
 
-TEST_CASE("fsr: the provider is index 2, draws on D3D12 and Vulkan only, writes the output from a compute shader and reads the reversed depth") {
+TEST_CASE("fsr: the provider is index 2, draws on D3D12 and Vulkan only, writes the output from a compute shader and "
+          "reads the reversed depth") {
     render::VendorUpscaler& p = render::vendor_provider(2);
     CHECK(p.mode() == "fsr");
-    CHECK(p.name() == "FSR 3.1");
+    CHECK(p.name() == "FSR 3.1+");
     CHECK(p.setup_id() == "fidelityfx");
     CHECK(p.backends() == ((1u << unsigned(gpu::Backend::D3d12)) | (1u << unsigned(gpu::Backend::Vulkan))));
     CHECK(p.needs_output_storage());
@@ -497,7 +506,7 @@ TEST_CASE("fsr probe: Vulkan needs a device of Vulkan 1.1 or newer, and the exte
     Rig r(gpu::Backend::Vulkan);
     render::VendorEnv e = r.env();
     CHECK(r.fsr->probe(e).available);  // no extension list is needed: the engine's lists may be empty
-    r.dev.apiVersion = (1u << 22);  // Vulkan 1.0
+    r.dev.apiVersion = (1u << 22);     // Vulkan 1.0
     const render::VendorProbe old = r.fsr->probe(e);
     CHECK_FALSE(old.available);
     CHECK(has(old.reason, "Vulkan 1.1"));
@@ -509,7 +518,8 @@ TEST_CASE("fsr probe: Vulkan needs a device of Vulkan 1.1 or newer, and the exte
 
 // ---- the context ---------------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr D3D12: one context for many frames, made again only when the sizes, quality or flags change, destroyed on release") {
+TEST_CASE("fsr D3D12: one context for many frames, made again only when the sizes, quality or flags change, destroyed "
+          "on release") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.fsr->probe(r.env()).available);
     REQUIRE_MESSAGE(r.draw(), r.frame.error);
@@ -563,6 +573,7 @@ TEST_CASE("fsr D3D12: one context for many frames, made again only when the size
     CHECK(fk.dispatch.flags == 0);
     // Dynamic resolution: its flag, and only then the render size may move under the maximum.
     r.in.dynamicResolution = true;
+    r.in.dynamicResolutionEnabled = true;
     r.in.maxRenderW = 160;
     r.in.maxRenderH = 90;
     REQUIRE(r.draw());
@@ -572,6 +583,7 @@ TEST_CASE("fsr D3D12: one context for many frames, made again only when the size
     r.resize(120, 68, 320, 180);  // the dynamic resolution stepped down: same maximum, same output
     r.in.linear = true;
     r.in.dynamicResolution = true;
+    r.in.dynamicResolutionEnabled = true;
     r.in.quality = render::UpscalerQuality::Performance;
     r.in.maxRenderW = 160;
     r.in.maxRenderH = 90;
@@ -584,6 +596,7 @@ TEST_CASE("fsr D3D12: one context for many frames, made again only when the size
     r.resize(200, 100, 400, 200);
     r.in.linear = true;
     r.in.dynamicResolution = true;
+    r.in.dynamicResolutionEnabled = true;
     r.in.quality = render::UpscalerQuality::Performance;
     r.in.maxRenderW = 200;
     r.in.maxRenderH = 100;
@@ -605,7 +618,8 @@ TEST_CASE("fsr D3D12: one context for many frames, made again only when the size
     CHECK(r.dev.errors().empty());
 }
 
-TEST_CASE("fsr: a context is destroyed with the provider even when no release came, and a release of another device does nothing") {
+TEST_CASE("fsr: a context is destroyed with the provider even when no release came, and a release of another device "
+          "does nothing") {
     {
         Rig r(gpu::Backend::D3d12);
         REQUIRE(r.fsr->probe(r.env()).available);
@@ -644,7 +658,8 @@ TEST_CASE("fsr: a context made for another device is replaced when a new device 
 
 // ---- the frame ---------------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr D3D12: a frame passes the jitter, motion scale, exposure, times, flags and the right resources inside a native section with every "
+TEST_CASE("fsr D3D12: a frame passes the jitter, motion scale, exposure, times, flags and the right resources inside a "
+          "native section with every "
           "state declared") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.fsr->probe(r.env()).available);
@@ -657,7 +672,8 @@ TEST_CASE("fsr D3D12: a frame passes the jitter, motion scale, exposure, times, 
     CHECK(d.commandList == static_cast<const void*>(&r.list.token));
     CHECK(d.jitterOffset.x == doctest::Approx(0.25f));
     CHECK(d.jitterOffset.y == doctest::Approx(-0.125f));
-    CHECK(d.motionVectorScale.x == doctest::Approx(160.0f));  // the motion is in UV units: FSR reads pixels of the render size
+    CHECK(d.motionVectorScale.x ==
+          doctest::Approx(160.0f));  // the motion is in UV units: FSR reads pixels of the render size
     CHECK(d.motionVectorScale.y == doctest::Approx(90.0f));
     CHECK(d.renderSize.width == 160);
     CHECK(d.renderSize.height == 90);
@@ -690,7 +706,8 @@ TEST_CASE("fsr D3D12: a frame passes the jitter, motion scale, exposure, times, 
     CHECK(d.output.description.width == 320);
     CHECK(d.output.description.height == 180);
     CHECK(d.output.description.usage == abi::kUsageUav);
-    for (const abi::Resource* in : {&d.color, &d.depth, &d.motionVectors}) CHECK(in->state == abi::kStatePixelComputeRead);
+    for (const abi::Resource* in : {&d.color, &d.depth, &d.motionVectors})
+        CHECK(in->state == abi::kStatePixelComputeRead);
     CHECK(d.output.state == abi::kStateUnorderedAccess);
 
     // The native section declared every image in the state the SDK reads or writes it in.
@@ -727,7 +744,8 @@ TEST_CASE("fsr D3D12: a frame passes the jitter, motion scale, exposure, times, 
     CHECK(fk.dispatch.flags == 0);  // linear light has no colour space flag
 }
 
-TEST_CASE("fsr Vulkan: the images go as VkImage handles, the device context names the Vulkan device, and an older loader gets the older descriptor") {
+TEST_CASE("fsr Vulkan: the images go as VkImage handles, the device context names the Vulkan device, and an older "
+          "loader gets the older descriptor") {
     Rig r(gpu::Backend::Vulkan);
     REQUIRE(r.fsr->probe(r.env()).available);
     REQUIRE_MESSAGE(r.draw(), r.frame.error);
@@ -755,7 +773,8 @@ TEST_CASE("fsr Vulkan: the images go as VkImage handles, the device context name
 
 // ---- failures ------------------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("fsr: a context that cannot be made, a dispatch the library refuses and a native section that does not open all say why and return false") {
+TEST_CASE("fsr: a context that cannot be made, a dispatch the library refuses and a native section that does not open "
+          "all say why and return false") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.fsr->probe(r.env()).available);
 
@@ -805,7 +824,8 @@ TEST_CASE("fsr: a context that cannot be made, a dispatch the library refuses an
     REQUIRE(r.draw());
 }
 
-TEST_CASE("fsr: a frame without what FSR reads, a probe that did not run or the wrong backend is refused before any call") {
+TEST_CASE(
+    "fsr: a frame without what FSR reads, a probe that did not run or the wrong backend is refused before any call") {
     Rig r(gpu::Backend::D3d12);
     CHECK_FALSE(r.draw());  // no probe: no library
     CHECK(has(r.frame.error, "probe"));
@@ -858,7 +878,8 @@ TEST_CASE("fsr: auto picks it on an AMD GPU, an explicit fsr runs on any GPU, an
     CHECK(render::vendor_env_of(amd).vendor == GpuVendor::Amd);
 }
 
-TEST_CASE("fsr: the feature row of render.supports takes the provider's answer with its reason, and its backends column names D3D12 and Vulkan") {
+TEST_CASE("fsr: the feature row of render.supports takes the provider's answer with its reason, and its backends "
+          "column names D3D12 and Vulkan") {
     render::FeatureEnv env;
     env.backend = render::FeatureBackend::D3d11;
     std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
@@ -885,4 +906,66 @@ TEST_CASE("fsr: the feature row of render.supports takes the provider's answer w
             CHECK(f["backends"]["Metal"] == false);
         }
     CHECK(found);
+}
+
+TEST_CASE("fsr: the dynamic resolution flag follows the setting being on, not the size of this frame") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.fsr->probe(r.env()).available);
+    // The setting is off: the render size moving once (a scale step of the renderer) does not change the context.
+    r.in.dynamicResolution = true;
+    REQUIRE(r.draw());
+    CHECK((fk.create.flags & abi::kEnableDynamicResolution) == 0);
+    CHECK(fk.creates == 1);
+    r.in.dynamicResolution = false;
+    REQUIRE(r.draw());
+    CHECK(fk.creates == 1);
+    // The setting is on: the flag is in the context from its first frame, whatever size that frame has, and it stays through the steps.
+    r.in.dynamicResolutionEnabled = true;
+    r.in.dynamicResolution = false;
+    REQUIRE(r.draw());
+    CHECK(fk.creates == 2);
+    CHECK((fk.create.flags & abi::kEnableDynamicResolution) != 0);
+    r.in.dynamicResolution = true;
+    r.resize(120, 68, 320, 180);
+    r.in.dynamicResolutionEnabled = true;
+    r.in.dynamicResolution = true;
+    r.in.maxRenderW = 160;
+    r.in.maxRenderH = 90;
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fk.creates == 2);
+    CHECK(fk.dispatch.renderSize.width == 120);
+    r.in.dynamicResolution = false;
+    REQUIRE(r.draw());
+    CHECK(fk.creates == 2);
+}
+
+TEST_CASE("fsr: what the library said before a dispatch is not blamed on it, and what it says during one is") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.fsr->probe(r.env()).available);
+    fk.createWarning = L"a warning from the context's creation";
+    REQUIRE(r.draw());
+    fk.dispatchRc = abi::kRuntimeError;
+    CHECK_FALSE(r.draw());
+    CHECK(has(r.frame.error, "ffxDispatch"));
+    CHECK_FALSE(has(r.frame.error, "a warning from the context's creation"));
+    fk.dispatchMessage = L"the depth image is empty";
+    CHECK_FALSE(r.draw());
+    CHECK(has(r.frame.error, "the depth image is empty"));
+}
+
+TEST_CASE("fsr: a context made on one device is made again on another, even at the address of a destroyed one") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.fsr->probe(r.env()).available);
+    REQUIRE(r.draw());
+    CHECK(fk.creates == 1);
+    FDevice other(gpu::Backend::D3d12);
+    CHECK(other.generation() != r.dev.generation());
+    FList otherList(other, gpu::Backend::D3d12);
+    r.frame.device = &other;
+    r.frame.list = &otherList;
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fk.destroys == 1);
+    CHECK(fk.creates == 2);
+    r.fsr->release(other);
+    CHECK(fk.destroys == 2);
 }

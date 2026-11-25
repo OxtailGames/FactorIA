@@ -11,6 +11,12 @@
 #include <filesystem>
 #include <limits>
 #include <array>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <future>
+#include <mutex>
+#include <thread>
 #include <map>
 #include <memory>
 #include <span>
@@ -18,6 +24,7 @@
 #include <vector>
 
 #include "fa/core/json.h"
+#include "gpu/device_hooks.h"
 #include "gpu/recording_device.h"
 #include "render_features.h"
 #include "render_upscale_vendor.h"
@@ -49,6 +56,18 @@ struct Fx {
     std::vector<std::string> instanceExtensions, deviceExtensions;
     std::uint32_t minApiVersion = 0;
     int tokenStorage = 0;
+    // xessGetOptimalInputResolution: answers a range of +-10% around out / ratio(quality), or `rangeOverride` when it is set.
+    int rangeCalls = 0;
+    std::int32_t rangeRc = 0, lastRangeQuality = 0;
+    abi::Size2d lastRangeOutput{0, 0};
+    bool rangeOverride = false;
+    abi::Size2d overrideMin{0, 0}, overrideMax{0, 0};
+    // xessVKGetRequiredDeviceFeatures: the chain the fake builds from these struct types (a type the engine knows: 49, 51, 53, 1000059000).
+    std::vector<std::int32_t> featureTypes;
+    std::int32_t featuresRc = 0;
+    int featureCalls = 0;
+    // Called inside xessD3D12Init (a test blocks the init here).
+    std::function<void()> onInit;
     void reset() { *this = Fx{}; }
 };
 Fx fx;
@@ -81,6 +100,7 @@ std::int32_t fake_init12(abi::Context, const abi::D3d12InitParams* p) {
     ++fx.inits;
     fx.events.push_back("init");
     fx.init12 = *p;
+    if (fx.onInit) fx.onInit();
     return fx.initRc;
 }
 std::int32_t fake_init11(abi::Context, const abi::D3d11InitParams* p) {
@@ -133,6 +153,48 @@ std::int32_t fake_vk_device_extensions(void*, void*, std::uint32_t* count, const
     return 0;
 }
 
+std::int32_t fake_optimal_input(abi::Context, const abi::Size2d* output, std::int32_t quality, abi::Size2d* optimal,
+                                abi::Size2d* lo, abi::Size2d* hi) {
+    ++fx.rangeCalls;
+    fx.lastRangeQuality = quality;
+    fx.lastRangeOutput = *output;
+    if (fx.rangeRc < 0) return fx.rangeRc;
+    const float ratio = std::max(render::xess_quality_ratio(quality), 1.0f);
+    const auto at = [&](std::uint32_t out, float f) { return std::uint32_t(std::lround(float(out) / ratio * f)); };
+    *optimal = {at(output->x, 1.0f), at(output->y, 1.0f)};
+    *lo = {at(output->x, 0.9f), at(output->y, 0.9f)};
+    *hi = {at(output->x, 1.1f), at(output->y, 1.1f)};
+    if (fx.rangeOverride) {
+        *lo = fx.overrideMin;
+        *hi = fx.overrideMax;
+    }
+    return 0;
+}
+// The feature chain: one struct per entry of fx.featureTypes, each as long as the engine's table says, linked through pNext (a pointer at offset 8).
+std::vector<std::vector<std::uint8_t>> g_featureStructs;
+std::int32_t fake_vk_device_features(void*, void*, void** chain) {
+    ++fx.featureCalls;
+    *chain = nullptr;
+    if (fx.featuresRc < 0) return fx.featuresRc;
+    g_featureStructs.assign(fx.featureTypes.size(), {});
+    for (std::size_t i = 0; i < fx.featureTypes.size(); ++i) {
+        const std::int32_t type = fx.featureTypes[i];
+        const std::size_t bytes = type == 49   ? 16 + 12 * 4
+                                  : type == 51 ? 16 + 47 * 4
+                                  : type == 53 ? 16 + 15 * 4
+                                               : 16 + 55 * 4;
+        g_featureStructs[i].assign(bytes, 0);
+        std::memcpy(g_featureStructs[i].data(), &type, sizeof type);
+        g_featureStructs[i][16 + 4 * 2] = 1;  // the third VkBool32 member is on
+    }
+    for (std::size_t i = 0; i + 1 < g_featureStructs.size(); ++i) {
+        const void* next = g_featureStructs[i + 1].data();
+        std::memcpy(g_featureStructs[i].data() + 8, &next, sizeof next);
+    }
+    if (!g_featureStructs.empty()) *chain = g_featureStructs.front().data();
+    return 0;
+}
+
 class FakeLibrary final : public render::VendorLibrary {
 public:
     explicit FakeLibrary(std::vector<std::string> hidden) : hidden_(std::move(hidden)) {
@@ -145,6 +207,8 @@ public:
         table_["xessD3D11CreateContext"] = reinterpret_cast<void*>(&fake_create);
         table_["xessD3D11Init"] = reinterpret_cast<void*>(&fake_init11);
         table_["xessD3D11Execute"] = reinterpret_cast<void*>(&fake_execute11);
+        table_["xessGetOptimalInputResolution"] = reinterpret_cast<void*>(&fake_optimal_input);
+        table_["xessVKGetRequiredDeviceFeatures"] = reinterpret_cast<void*>(&fake_vk_device_features);
         table_["xessVKGetRequiredInstanceExtensions"] = reinterpret_cast<void*>(&fake_vk_instance_extensions);
         table_["xessVKGetRequiredDeviceExtensions"] = reinterpret_cast<void*>(&fake_vk_device_extensions);
         table_["xessVKCreateContext"] = reinterpret_cast<void*>(&fake_vk_create);
@@ -845,4 +909,256 @@ TEST_CASE("xess: the feature row of render.supports takes the provider's answer,
             CHECK(f["backends"]["D3D11"] == true);
         }
     CHECK(found);
+}
+
+// ---- M78 polish: the range XeSS accepts, the probe during an init, the Vulkan device hook, the device generation -----------------------
+
+TEST_CASE("xess D3D12: a render size that moves inside the range XeSS accepts does not initialise the context again") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.inits == 1);
+    CHECK(fx.rangeCalls == 1);  // asked once per init, for the output and the quality the context was made with
+    CHECK(fx.lastRangeQuality == abi::kQualityBalanced);
+    CHECK(fx.lastRangeOutput.x == 320);
+    CHECK(fx.lastRangeOutput.y == 180);
+    // The fake accepts 144x81 to 176x99 at this output and quality. A step down and one up, past the first size (the empty mask grows).
+    const int sizes[][2] = {{150, 84}, {144, 81}, {176, 99}, {160, 90}};
+    for (const auto& s : sizes) {
+        r.resize(s[0], s[1], 320, 180);
+        REQUIRE_MESSAGE(r.draw(), r.frame.error);
+        CHECK(fx.inits == 1);
+        CHECK(fx.creates == 1);
+        CHECK(fx.velocityScaleX == doctest::Approx(float(s[0])));
+        CHECK(fx.velocityScaleY == doctest::Approx(float(s[1])));
+        CHECK(fx.exec12.inputWidth == std::uint32_t(s[0]));
+        CHECK(fx.exec12.resetHistory == 0);  // the history is kept across the steps
+        CHECK(r.dev.idles == 0);             // and the GPU is not waited for
+    }
+    CHECK(fx.rangeCalls == 1);
+    // Out of the range (a ratio of 3.2): the nearest setting, an init, and a new range for it.
+    r.resize(100, 56, 320, 180);
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.inits == 2);
+    CHECK(fx.init12.quality == abi::kQualityUltraPerformance);
+    CHECK(fx.rangeCalls == 2);
+    CHECK(fx.lastRangeQuality == abi::kQualityUltraPerformance);
+    CHECK(r.dev.idles == 1);
+    CHECK(fx.exec12.resetHistory == 1);
+    // A new output size: an init at the new size.
+    r.resize(200, 112, 400, 224);
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.inits == 3);
+    CHECK(fx.lastRangeOutput.x == 400);
+}
+
+TEST_CASE("xess D3D12: a library without a range, or one that refuses the question, initialises again for every new "
+          "render size") {
+    for (const bool refuses : {false, true}) {
+        Rig r(gpu::Backend::D3d12);
+        if (refuses)
+            fx.rangeRc = -4;
+        else
+            r.loader.hidden = {"xessGetOptimalInputResolution"};
+        REQUIRE(r.xess->probe(r.env(GpuVendor::Nvidia)).available);
+        REQUIRE_MESSAGE(r.draw(), r.frame.error);
+        CHECK(fx.inits == 1);
+        REQUIRE(r.draw());  // the same size: nothing is made again
+        CHECK(fx.inits == 1);
+        r.resize(150, 84, 320, 180);
+        REQUIRE_MESSAGE(r.draw(), r.frame.error);
+        CHECK(fx.inits == 2);  // only the size of the init is known to work
+        CHECK(fx.velocityScaleX == doctest::Approx(150.0f));
+        CHECK(fx.rangeCalls == (refuses ? 2 : 0));
+    }
+}
+
+TEST_CASE("xess: every quality asks the range of its own setting, and a size inside it keeps the setting whatever the "
+          "ratio says") {
+    const std::int32_t qualities[] = {abi::kQualityUltraPerformance, abi::kQualityPerformance,
+                                      abi::kQualityBalanced,         abi::kQualityQuality,
+                                      abi::kQualityUltraQuality,     abi::kQualityUltraQualityPlus};
+    for (const std::int32_t q : qualities) {
+        const float ratio = render::xess_quality_ratio(q);
+        REQUIRE(ratio > 1.0f);
+        const int outW = 960, outH = 540;
+        const int rw = int(std::lround(float(outW) / ratio)), rh = int(std::lround(float(outH) / ratio));
+        Rig r(gpu::Backend::D3d12);
+        r.resize(rw, rh, outW, outH);
+        REQUIRE(r.xess->probe(r.env(GpuVendor::Amd)).available);
+        REQUIRE_MESSAGE(r.draw(), r.frame.error);
+        INFO("quality " << q << " at " << rw << "x" << rh);
+        CHECK(fx.init12.quality == q);
+        CHECK(fx.lastRangeQuality == q);
+        CHECK(fx.lastRangeOutput.x == std::uint32_t(outW));
+        // 5% smaller: inside the +-10% of the fake, the same setting and no init.
+        r.resize(int(std::lround(float(rw) * 0.95f)), int(std::lround(float(rh) * 0.95f)), outW, outH);
+        REQUIRE(r.draw());
+        CHECK(fx.inits == 1);
+        // 30% smaller: outside, so the setting of the new ratio and a new init.
+        r.resize(int(std::lround(float(rw) * 0.7f)), int(std::lround(float(rh) * 0.7f)), outW, outH);
+        REQUIRE(r.draw());
+        if (q == abi::kQualityUltraPerformance) {
+            // The coarsest setting: a smaller size has no coarser one to move to, and initialising again at the same one would not help.
+            CHECK(fx.inits == 1);
+            CHECK(fx.init12.quality == q);
+        } else {
+            CHECK(fx.inits == 2);
+            CHECK(fx.init12.quality != q);
+        }
+    }
+}
+
+TEST_CASE("xess: a probe is not held up by a frame that is initialising the context") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
+    std::mutex m;
+    std::condition_variable cv;
+    bool inInit = false, release = false;
+    fx.onInit = [&] {
+        std::unique_lock<std::mutex> lock(m);
+        inInit = true;
+        cv.notify_all();
+        cv.wait_for(lock, std::chrono::seconds(30), [&] { return release; });
+    };
+    bool drew = false;
+    std::thread frameThread([&] { drew = r.draw(); });
+    bool reached = false;
+    {
+        std::unique_lock<std::mutex> lock(m);
+        reached = cv.wait_for(lock, std::chrono::seconds(30), [&] { return inInit; });
+    }
+    CHECK(reached);  // not REQUIRE: the frame thread must be released and joined on every path
+    // The frame sits inside xessD3D12Init now, holding the context. The probe (render.supports from the editor) answers anyway.
+    std::future<fa::render::VendorProbe> probed;
+    bool answered = false;
+    if (reached) {
+        probed = std::async(std::launch::async, [&] { return r.xess->probe(r.env(GpuVendor::Intel)); });
+        answered = probed.wait_for(std::chrono::seconds(10)) == std::future_status::ready;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m);
+        release = true;
+    }
+    cv.notify_all();
+    frameThread.join();
+    fx.onInit = nullptr;
+    CHECK(answered);
+    if (answered) CHECK(probed.get().available);
+    CHECK(drew);
+    CHECK(fx.executes == 1);
+}
+
+TEST_CASE(
+    "xess: a context made on one device is made again on another, even when it has the address of a destroyed one") {
+    Rig r(gpu::Backend::D3d12);
+    REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
+    REQUIRE(r.draw());
+    CHECK(fx.creates == 1);
+    XDevice other(gpu::Backend::D3d12);
+    CHECK(other.generation() != r.dev.generation());
+    XList otherList(other, gpu::Backend::D3d12);
+    r.frame.device = &other;
+    r.frame.list = &otherList;
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.destroys == 1);  // the first device's context goes
+    CHECK(fx.creates == 2);
+    CHECK(fx.inits == 2);
+    r.xess->release(other);
+    CHECK(fx.destroys == 2);
+}
+
+TEST_CASE("xess Vulkan device hook: the extensions and feature structs XeSS asks for reach the device request, and a "
+          "struct the engine "
+          "cannot enable leaves the hook off with the reason") {
+    fx.reset();
+    FakeLoader loader;
+    LoaderGuard guard(&loader);
+    fx.instanceExtensions = {"VK_KHR_get_physical_device_properties2"};
+    fx.deviceExtensions = {"VK_KHR_driver_properties", "VK_EXT_memory_budget"};
+    fx.featureTypes = {51, 53};
+    gpu::VulkanPhysicalDevice pd;
+    pd.instance = reinterpret_cast<const void*>(std::uintptr_t(0x2000));
+    pd.physicalDevice = reinterpret_cast<const void*>(std::uintptr_t(0x3000));
+    pd.name = "Fake GPU";
+
+    SUBCASE("everything is asked and granted") {
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        hook->vulkan_instance_request(instance);
+        CHECK(instance.extensions == fx.instanceExtensions);
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_device_request(pd, device);
+        CHECK(device.extensions == fx.deviceExtensions);
+        REQUIRE(device.features.size() == 2);
+        std::int32_t type = 0;
+        std::memcpy(&type, device.features[0].data(), sizeof type);
+        CHECK(type == 51);
+        CHECK(device.features[0].size() == 16 + 47 * 4);
+        CHECK(device.features[0][16 + 4 * 2] == 1);  // the member XeSS switched on is carried over
+        std::memcpy(&type, device.features[1].data(), sizeof type);
+        CHECK(type == 53);
+        CHECK(device.features[1].size() == 16 + 15 * 4);
+        CHECK(hook->available());
+        CHECK(hook->grant().instanceExtensions.empty());  // not before the device is made
+        hook->vulkan_device_created(gpu::VulkanDeviceCreated{});
+        const render::XessVulkanGrant grant = hook->grant();
+        CHECK(grant.instanceExtensions == fx.instanceExtensions);
+        CHECK(grant.deviceExtensions == fx.deviceExtensions);
+        CHECK(grant.unavailableReason.empty());
+        hook->device_destroying();
+        CHECK(hook->grant().deviceExtensions.empty());
+    }
+    SUBCASE("a library that is not installed asks for nothing and does not turn the hook off") {
+        loader.installed = false;
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        hook->vulkan_instance_request(instance);
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_device_request(pd, device);
+        CHECK(instance.extensions.empty());
+        CHECK(device.extensions.empty());
+        CHECK(device.features.empty());
+        CHECK(hook->available());
+        CHECK(fx.featureCalls == 0);
+    }
+    SUBCASE("a feature struct the engine does not know turns the hook off and says which") {
+        fx.featureTypes = {51, 1000099};
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        hook->vulkan_instance_request(instance);
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_device_request(pd, device);
+        CHECK_FALSE(hook->available());
+        CHECK(device.extensions.empty());
+        CHECK(device.features.empty());  // never half of what XeSS asked for
+        const std::string why = hook->unavailable_reason();
+        CHECK(why.find("1000099") != std::string::npos);
+        CHECK(why.find("Fake GPU") != std::string::npos);
+        const render::XessVulkanGrant grant = hook->grant();
+        CHECK(grant.instanceExtensions.empty());
+        CHECK(grant.unavailableReason == why);
+    }
+    SUBCASE("a library that fails the question turns the hook off") {
+        fx.featuresRc = -6;
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        hook->vulkan_instance_request(instance);
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_device_request(pd, device);
+        CHECK_FALSE(hook->available());
+        CHECK(hook->unavailable_reason().find("xessVKGetRequiredDeviceFeatures") != std::string::npos);
+        CHECK(device.features.empty());
+    }
+    SUBCASE("a library without the features export asks for no feature") {
+        loader.hidden = {"xessVKGetRequiredDeviceFeatures"};
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        hook->vulkan_instance_request(instance);
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_device_request(pd, device);
+        CHECK(hook->available());
+        CHECK(device.extensions == fx.deviceExtensions);
+        CHECK(device.features.empty());
+    }
 }

@@ -7,6 +7,7 @@
 #include "render_features.h"
 #include "render_latency_antilag2.h"
 #include "render_scene.h"
+#include "render_upscale_xess.h"
 #include "streamline_runtime.h"
 #include "fa/scene/jitter.h"
 #include "gpu/sokol_context.h"
@@ -592,6 +593,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
             // NVIDIA Streamline (DLSS) takes part in making a Direct3D 12 or Vulkan device: its hook must be registered before the device
             // exists. It does nothing where the GPU is not NVIDIA or the library is not installed (Windows only).
             if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) register_streamline_runtime();
+            // XeSS asks a Vulkan device for the extensions and features it runs on (nothing where it is not installed).
+            if (backend == gpu::Backend::Vulkan) render::register_xess_device_hook();
             // Anti-Lag 2 asks a Vulkan device for its extension (Windows; render_latency_antilag2.h).
             render::register_latency_device_hooks();
             // Frame generation makes (or wraps) the window's swapchain: its providers' hooks go to THIS device only (M78; not registered for the
