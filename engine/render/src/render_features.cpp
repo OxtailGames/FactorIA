@@ -442,7 +442,8 @@ std::vector<FeatureDef> build_table() {
          "log (M78).",
          nullptr},
         {"dlssRayReconstruction", "",
-         "NVIDIA DLSS Ray Reconstruction through Streamline (render.upscaler rayReconstruction, with mode \"dlss\"): "
+         "NVIDIA DLSS Ray Reconstruction through Streamline (render.upscaler rayReconstruction, with mode \"dlss\" or "
+         "\"auto\" where it picks DLSS): "
          "the "
          "denoiser-upscaler of DLSS 3.5 in place of Super Resolution, fed by the guides the renderer makes (normal, "
          "roughness, albedo) "
