@@ -75,10 +75,14 @@ public:
     std::string startFails;  // non-empty: start() answers this
     bool dispatchOk = true;
     int probes = 0, starts = 0, stops = 0, dispatches = 0;
-    std::uint64_t generated = 0;  // what generated_frames() answers
+    std::uint64_t generated = 0;     // what generated_frames() answers
     std::vector<std::string> calls;  // "start", "configure on", "configure off", "dispatch", "stop"
-    render::FrameGenFrame last;      // a copy of the last frame handed over (the pointers are only valid during the call)
+    render::FrameGenFrame last;  // a copy of the last frame handed over (the pointers are only valid during the call)
     bool lastReset = false;
+    bool reversedDepth = false;
+    int swapchainChanges = 0;
+    render::FrameGenSwapchain startedWith, lastSwapchain;
+    std::shared_ptr<gpu::DeviceHook> hook;  // what device_hook() answers
 
     std::string_view name() const override { return "Fake frame generation"; }
     FrameGenSlot slot() const override { return slot_; }
@@ -91,8 +95,15 @@ public:
         if (!available) p.reason = probeReason;
         return p;
     }
-    std::string start(gpu::Device&, const render::FrameGenSwapchain&) override {
+    bool wants_reversed_depth() const override { return reversedDepth; }
+    std::shared_ptr<gpu::DeviceHook> device_hook() override { return hook; }
+    void swapchain_changed(gpu::Device&, const render::FrameGenSwapchain& sc) override {
+        ++swapchainChanges;
+        lastSwapchain = sc;
+    }
+    std::string start(gpu::Device&, const render::FrameGenSwapchain& sc) override {
         ++starts;
+        startedWith = sc;
         calls.push_back("start");
         generated = 0;  // a new SDK context counts from 0
         return startFails;
@@ -117,7 +128,9 @@ private:
 };
 
 struct ProviderGuard {
-    ProviderGuard(FrameGenSlot s, render::FrameGenProvider* p) : slot_(s) { render::set_framegen_provider_for_test(s, p); }
+    ProviderGuard(FrameGenSlot s, render::FrameGenProvider* p) : slot_(s) {
+        render::set_framegen_provider_for_test(s, p);
+    }
     ~ProviderGuard() { render::set_framegen_provider_for_test(slot_, nullptr); }
     ProviderGuard(const ProviderGuard&) = delete;
     ProviderGuard& operator=(const ProviderGuard&) = delete;
@@ -140,7 +153,7 @@ struct Frames {
     void run(int n, double intervalMs) {
         for (int i = 0; i < n; ++i) {
             t += intervalMs;
-            c.begin_frame(t, false);
+            c.begin_frame(t);
             if (c.wants_dispatch()) ++p.generated;
         }
     }
@@ -167,7 +180,8 @@ TEST_CASE("frame generation settings: names, defaults, parse, errors that teach"
     CHECK(render::parse_frame_gen_settings(Json::parse(R"({"minBaseFps":0})"), "t", base).value().minBaseFps == 0);
     CHECK(render::parse_frame_gen_settings(Json::parse(R"({"minBaseFps":1000})"), "t", base).ok());
 
-    auto badMode = render::parse_frame_gen_settings(Json::parse(R"({"mode":"dlls"})"), "factoria.json#/render/frameGeneration", base);
+    auto badMode = render::parse_frame_gen_settings(Json::parse(R"({"mode":"dlls"})"),
+                                                    "factoria.json#/render/frameGeneration", base);
     REQUIRE_FALSE(badMode.ok());
     const std::string text = badMode.error().to_string();
     CHECK(text.find("factoria.json#/render/frameGeneration/mode") != std::string::npos);
@@ -178,13 +192,15 @@ TEST_CASE("frame generation settings: names, defaults, parse, errors that teach"
     CHECK(badKey.error().to_string().find("minBaseFps") != std::string::npos);
 
     // minBaseFps: a whole number in range; a number that does not fit an int is an error, never a wrapped value.
-    for (const char* bad : {R"({"minBaseFps":-1})", R"({"minBaseFps":1001})", R"({"minBaseFps":59.5})", R"({"minBaseFps":"60"})",
-                            R"({"minBaseFps":99999999999999})", R"({"minBaseFps":1e30})", R"({"mode":3})", R"("auto")"}) {
+    for (const char* bad :
+         {R"({"minBaseFps":-1})", R"({"minBaseFps":1001})", R"({"minBaseFps":59.5})", R"({"minBaseFps":"60"})",
+          R"({"minBaseFps":99999999999999})", R"({"minBaseFps":1e30})", R"({"mode":3})", R"("auto")"}) {
         CAPTURE(bad);
         auto r = render::parse_frame_gen_settings(Json::parse(bad), "t", base);
         CHECK_FALSE(r.ok());
     }
-    auto range = render::parse_frame_gen_settings(Json::parse(R"({"minBaseFps":5000})"), "factoria.json#/render/frameGeneration", base);
+    auto range = render::parse_frame_gen_settings(Json::parse(R"({"minBaseFps":5000})"),
+                                                  "factoria.json#/render/frameGeneration", base);
     REQUIRE_FALSE(range.ok());
     CHECK(range.error().to_string().find("factoria.json#/render/frameGeneration/minBaseFps") != std::string::npos);
 }
@@ -233,7 +249,8 @@ TEST_CASE("frame generation providers: every slot is empty and says which packag
     CHECK(render::framegen_slot_backends(FrameGenSlot::Xess) == d3d12);
 }
 
-TEST_CASE("frame generation providers: a registered provider fills a slot with one call, and a test fake wins over it") {
+TEST_CASE(
+    "frame generation providers: a registered provider fills a slot with one call, and a test fake wins over it") {
     CHECK(render::framegen_provider(FrameGenSlot::Fsr) == nullptr);
     auto registered = std::make_shared<FakeProvider>(FrameGenSlot::Fsr);
     render::register_framegen_provider(registered);
@@ -418,7 +435,8 @@ TEST_CASE("frame generation controller: below minBaseFps generation is off, and 
     CHECK(switches <= 4);
 }
 
-TEST_CASE("frame generation controller: minBaseFps 0 never switches off, and the report counts rendered and generated frames") {
+TEST_CASE("frame generation controller: minBaseFps 0 never switches off, and the report counts rendered and generated "
+          "frames") {
     FDevice dev(gpu::Backend::Vulkan, 0x1002);
     FakeProvider fsr(FrameGenSlot::Fsr);
     ProviderGuard guard(FrameGenSlot::Fsr, &fsr);
@@ -471,10 +489,106 @@ TEST_CASE("frame generation controller: a frame the provider refuses is reported
     CHECK(c.reason().find("depth image") != std::string::npos);
     CHECK(dispatch());
     CHECK(dlss.lastReset);
-    // A camera cut resets too.
-    c.begin_frame(f.t + 10.0, true);
-    CHECK(dispatch());
+    // A camera cut is the frame's own (FrameGenFrame::reset, the temporal upscaler's history); a change of the output size resets too.
+    const auto sized = [&c](int w, int h, bool cut = false) {
+        render::FrameGenFrame frame;
+        frame.outW = w;
+        frame.outH = h;
+        frame.reset = cut;
+        return c.dispatch(frame);
+    };
+    CHECK(sized(1280, 720));
+    CHECK(dlss.lastReset);  // the first size the provider is given
+    CHECK(sized(1280, 720));
+    CHECK_FALSE(dlss.lastReset);
+    CHECK(sized(1920, 1080));
     CHECK(dlss.lastReset);
+    CHECK(sized(1920, 1080));
+    CHECK_FALSE(dlss.lastReset);
+    CHECK(sized(1920, 1080, true));
+    CHECK(dlss.lastReset);
+}
+
+TEST_CASE("frame generation controller: a game that starts below minBaseFps is paused, not measuring for ever") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    c.set_settings(settings(FrameGenMode::Dlss, 60));
+    Frames f{c, dlss};
+    f.run(FrameGenController::kWindowFrames - 5, 25.0);  // 40 fps, the window is not full yet
+    CHECK(c.state() == FrameGenState::Measuring);
+    f.run(10, 25.0);
+    CHECK(c.state() == FrameGenState::Paused);
+    CHECK_FALSE(c.wants_dispatch());
+    CHECK(c.reason().find("minBaseFps (60)") != std::string::npos);
+    CHECK(c.reason().find("66 fps") != std::string::npos);  // with the margin, as after a pause
+    // 62 fps is above the limit and below the margin: still paused; 70 fps resumes.
+    f.run(FrameGenController::kWindowFrames + FrameGenController::kMinDwellFrames, 1000.0 / 62.0);
+    CHECK(c.state() == FrameGenState::Paused);
+    f.run(FrameGenController::kWindowFrames + 2, 1000.0 / 70.0);
+    CHECK(c.state() == FrameGenState::Active);
+
+    // The same after a refusal: a rate that was never measured under the limit while nothing could run.
+    FrameGenController c2;
+    c2.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    c2.set_settings(settings(FrameGenMode::Dlss, 60));
+    c2.set_inputs(false, false);  // the upscale stage went off: refused
+    Frames f2{c2, dlss};
+    f2.run(FrameGenController::kWindowFrames + 5, 25.0);
+    CHECK(c2.state() == FrameGenState::Refused);
+    c2.set_inputs(true, true);
+    f2.run(2, 25.0);
+    CHECK(c2.state() == FrameGenState::Paused);
+}
+
+TEST_CASE("frame generation controller: a new swapchain is told to the provider and resets the next frame") {
+    FDevice dev(gpu::Backend::D3d12, 0x10de);
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    ProviderGuard guard(FrameGenSlot::Dlss, &dlss);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Nvidia), swapchain_of(dev), true);
+    c.set_swapchain(swapchain_of(dev));  // nothing runs, the same size: nothing is told
+    c.set_settings(settings(FrameGenMode::Dlss, 0));
+    CHECK(dlss.swapchainChanges == 0);
+    CHECK(dlss.startedWith.width == 1920);
+    Frames f{c, dlss};
+    f.run(2, 10.0);
+    render::FrameGenFrame frame;
+    CHECK(c.dispatch(frame));
+    frame = render::FrameGenFrame{};
+    CHECK(c.dispatch(frame));
+    CHECK_FALSE(dlss.lastReset);
+
+    render::FrameGenSwapchain sc = swapchain_of(dev);
+    c.set_swapchain(sc);  // the same: nothing
+    CHECK(dlss.swapchainChanges == 0);
+    sc.width = 2560;
+    sc.height = 1440;
+    c.set_swapchain(sc);
+    CHECK(dlss.swapchainChanges == 1);
+    CHECK(dlss.lastSwapchain.width == 2560);
+    frame = render::FrameGenFrame{};
+    CHECK(c.dispatch(frame));
+    CHECK(dlss.lastReset);
+    sc.width = sc.height = 0;  // the window went
+    c.set_swapchain(sc);
+    CHECK(dlss.swapchainChanges == 2);
+    CHECK(dlss.lastSwapchain.width == 0);
+}
+
+TEST_CASE("frame generation controller: the depth the provider asks for") {
+    FDevice dev(gpu::Backend::Vulkan, 0x1002);
+    FakeProvider fsr(FrameGenSlot::Fsr);
+    ProviderGuard guard(FrameGenSlot::Fsr, &fsr);
+    FrameGenController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Amd), swapchain_of(dev), true);
+    CHECK_FALSE(c.wants_reversed_depth());  // nothing runs
+    c.set_settings(settings(FrameGenMode::Fsr, 0));
+    CHECK_FALSE(c.wants_reversed_depth());
+    fsr.reversedDepth = true;
+    CHECK(c.wants_reversed_depth());
 }
 
 // ---- the controller: start and stop ------------------------------------------------------------------------------------------------
@@ -513,7 +627,7 @@ TEST_CASE("frame generation controller: the provider starts and stops with the m
     CHECK(fsr.stops == 2);
     CHECK_FALSE(c.attached());
     CHECK(c.state() == FrameGenState::Off);
-    c.begin_frame(1.0, false);  // harmless
+    c.begin_frame(1.0);  // harmless
     c.set_settings(settings(FrameGenMode::Fsr, 30));
     CHECK(fsr.starts == 2);  // no device: nothing starts
 
@@ -528,16 +642,7 @@ TEST_CASE("frame generation controller: the provider starts and stops with the m
 
 // ---- the output passes -------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("frame generation: the hudless copy is made before the screen-space items and the dispatch after them") {
-    using V = std::vector<std::string_view>;
-    CHECK(render::framegen_output_pass_order(true, true, true) ==
-          V{"upscale", "framegen-hudless", "hud-over-upscale", "framegen", "output-color-filter"});
-    CHECK(render::framegen_output_pass_order(true, true, false) ==
-          V{"upscale", "framegen-hudless", "hud-over-upscale", "framegen"});
-    CHECK(render::framegen_output_pass_order(false, true, false) == V{"upscale", "framegen"});  // no items: no copy
-    CHECK(render::framegen_output_pass_order(true, false, true) == V{"upscale", "hud-over-upscale", "output-color-filter"});
-    CHECK(render::framegen_output_pass_order(false, false, false) == V{"upscale"});
-
+TEST_CASE("frame generation: the plan of the output passes (the order a frame runs is checked on the renderer)") {
     const render::FrameGenPassPlan hud = render::plan_framegen_passes(true, true);
     CHECK(hud.dispatch);
     CHECK(hud.copyHudless);
@@ -626,7 +731,7 @@ struct Own {
     }
 };
 
-void box_scene(World& w, bool hud) {
+Entity box_scene(World& w, bool hud, Color boxColor = Color::white()) {
     const Entity cam = make(w, "cam", {0, 0, 10});
     auto& c = w.add<Camera>(cam);
     c.projection = Projection::Perspective;
@@ -637,7 +742,7 @@ void box_scene(World& w, bool hud) {
     w.get<Transform>(box)->scale = {3.0f, 3.0f, 3.0f};
     auto& m = w.add<MeshRenderer>(box);
     m.mesh = "cube";
-    m.color = Color::white();
+    m.color = boxColor;
     m.unlit = true;
     if (hud) {
         Entity e = make(w, "hud", {10, 10, 0});
@@ -647,11 +752,13 @@ void box_scene(World& w, bool hud) {
         t.space = RenderSpace::Screen;
         t.pivot = {0, 1};
     }
+    return cam;
 }
 
 }  // namespace
 
-TEST_CASE("frame generation renderer: a temporal frame with a HUD reaches the provider with the picture before the HUD") {
+TEST_CASE(
+    "frame generation renderer: a temporal frame with a HUD reaches the provider with the picture before the HUD") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     FakeProvider fsr(FrameGenSlot::Fsr);
@@ -732,7 +839,8 @@ TEST_CASE("frame generation renderer: without a HUD the picture is its own hudle
     CHECK(own.r.frame_generation_status()["state"] == "active");
 }
 
-TEST_CASE("frame generation renderer: a mode with no provider in this build is refused with the reason, and the frames draw") {
+TEST_CASE("frame generation renderer: a mode with no provider in this build is refused with the reason, and the frames "
+          "draw") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own own(g);
@@ -753,4 +861,97 @@ TEST_CASE("frame generation renderer: a mode with no provider in this build is r
     REQUIRE_MESSAGE(own.r.capture(img, &err), err);
     CHECK(img.width == kOutW);
     CHECK(own.r.supports("fsrFrameGen") == false);
+}
+
+TEST_CASE(
+    "frame generation renderer: with a colour filter both images the provider gets are graded like the picture shown") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    FakeProvider fsr(FrameGenSlot::Fsr);
+    ProviderGuard guard(FrameGenSlot::Fsr, &fsr);
+    Own own(g);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    RendererTestAccess::framegen_assume_hooked(own.r);
+    World w;
+    const Entity cam = box_scene(w, true, Color{1, 0, 0, 1});  // a red box: a greyscale filter shows in every channel
+    set_color_filter(w, cam, ColorFilter::Greyscale);
+    own.temporal();
+    own.r.set_frame_generation(settings(FrameGenMode::Fsr, 0));
+    own.frame(w, 6);
+
+    REQUIRE(fsr.dispatches >= 3);
+    // The real order of the frame: the copy before the items, the filter after them, the dispatch after the filter.
+    CHECK(RendererTestAccess::output_passes(own.r) == std::vector<std::string>{"upscale", "framegen-hudless",
+                                                                               "hud-over-upscale",
+                                                                               "output-color-filter", "framegen"});
+    const render::FrameGenFrame& f = fsr.last;
+    CHECK(f.hudDrawn);
+    // `presented` is exactly the image the swapchain shows (the filter's output), `hudless` the graded copy.
+    CHECK(f.presented == RendererTestAccess::filtered_output_image(own.r));
+    CHECK(f.hudless == RendererTestAccess::hudless_image(own.r));
+    CHECK(f.hudless.valid());
+    CHECK(f.hudless != f.presented);
+
+    // What those images hold: no red left in the copy (it is grey), and the same grey as the picture shown.
+    std::vector<std::uint8_t> copy;
+    int cw = 0, ch = 0;
+    REQUIRE(RendererTestAccess::read_hudless(own.r, copy, cw, ch));
+    REQUIRE(cw == kOutW);
+    REQUIRE(ch == kOutH);
+    Image shown;
+    std::string err;
+    REQUIRE_MESSAGE(own.r.capture(shown, &err), err);
+    const std::size_t at = (std::size_t(kOutH / 2) * kOutW + kOutW / 2) * 4;
+    const int r = copy[at], gr = copy[at + 1], b = copy[at + 2];
+    CHECK(r > 20);  // the box is there
+    CHECK(std::abs(r - gr) <= 4);
+    CHECK(std::abs(gr - b) <= 4);
+    const Color px = shown.pixel(kOutW / 2, kOutH / 2);
+    CHECK(std::abs(px.r * 255.0f - float(r)) <= 6.0f);
+    CHECK(std::abs(px.g * 255.0f - float(gr)) <= 6.0f);
+    CHECK(std::abs(px.b * 255.0f - float(b)) <= 6.0f);
+
+    // No filter: the old order, and the picture shown is the output image itself.
+    set_color_filter(w, cam, ColorFilter::None);
+    own.frame(w, 4);
+    CHECK(RendererTestAccess::output_passes(own.r) ==
+          std::vector<std::string>{"upscale", "framegen-hudless", "hud-over-upscale", "framegen"});
+    CHECK(fsr.last.presented != fsr.last.hudless);
+    CHECK(fsr.last.presented != RendererTestAccess::filtered_output_image(own.r));
+}
+
+// ---- the device hook ------------------------------------------------------------------------------------------------------------------
+
+namespace {
+struct FakeSwapchainHook : gpu::DeviceHook {
+    std::string_view name() const override { return "fake frame generation hook"; }
+};
+}  // namespace
+
+TEST_CASE("frame generation: a provider's device hook goes to the devices of renderers that asked, and to no other") {
+    auto hook = std::make_shared<FakeSwapchainHook>();
+    FakeProvider dlss(FrameGenSlot::Dlss);
+    dlss.hook = hook;
+    FakeProvider noHook(FrameGenSlot::Fsr);  // a provider with no hook adds none
+    ProviderGuard g1(FrameGenSlot::Dlss, &dlss), g2(FrameGenSlot::Fsr, &noHook);
+
+    const auto hooks = render::framegen_device_hooks();
+    REQUIRE(hooks.size() == 1);
+    CHECK(hooks[0] == hook);
+    CHECK(render::framegen_device_hooks().size() == 1);  // asked again: the same one, never added up
+
+    // Never registered for the process: a device made without them (a second renderer with frame generation off) does not see it.
+    for (const auto& registered : gpu::registered_device_hooks()) CHECK(registered != hook);
+    for (const auto& h : gpu::with_registered_hooks({})) CHECK(h != hook);
+    auto other = gpu::make_device(gpu::Backend::Recording, gpu::DeviceInit{});
+    REQUIRE(other);
+    CHECK(hook->available());
+    CHECK(hook->unavailable_reason().empty());
+
+    // The device that is given it sees it (the recording backend calls no hook and says so).
+    gpu::DeviceInit init;
+    init.hooks = hooks;
+    auto own = gpu::make_device(gpu::Backend::Recording, init);
+    REQUIRE(own);
+    CHECK_FALSE(hook->available());
 }

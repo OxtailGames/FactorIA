@@ -88,6 +88,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
                 im.swapH = sd.height;
                 im.resizeFailed = false;
                 im.presentFailed = false;
+                im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), sd.width, sd.height, sd.vsync});
                 FA_INFO("render", "Renderer::present: the window's swapchain was made again ({}x{})", sd.width,
                         sd.height);
             }
@@ -109,6 +110,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
             im.resizeFailed = false;
             im.swapW = fbW;
             im.swapH = fbH;
+            im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), fbW, fbH, im.windowDesc.vsync});
         }
     }
     // The image of the window to draw into: on the sokol devices the frame's surface as sokol_app gave it.

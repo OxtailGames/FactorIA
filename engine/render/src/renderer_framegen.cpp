@@ -93,10 +93,16 @@ Json Renderer::frame_generation_report() {
 }
 
 // A copy of the output picture before the screen-space items are drawn over it (the "hudless" image the provider generates from): the items go
-// into the same image, so this pass runs between the upscale and "hud-over-upscale".
-void Renderer::Impl::framegen_hudless_copy(const PassContext& c) {
+// into the same image, so this pass runs between the upscale and "hud-over-upscale". With the colour filter on (`grade`) the copy is drawn
+// through the same filter pass the picture shown goes through, so both images the provider gets are graded alike.
+void Renderer::Impl::framegen_hudless_copy(const PassContext& c, const PostPlan* grade) {
     outputPassLog.push_back(render::kPassFrameGenHudless);
     if (!hudlessTarget.valid(gpu.device()) || !outTarget.valid(gpu.device())) return;
+    if (grade) {
+        post_pass(*grade, false, grade->colorFilter, false, outTarget.texView, assets->white()->view, gpu::View{},
+                  hudlessTarget, "framegen-hudless", false);
+        return;
+    }
     PassDesc p = pass_into(hudlessTarget, "framegen-hudless");
     p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
     p.colorStore = gpu::StoreAction::Store;
@@ -120,16 +126,20 @@ void Renderer::Impl::framegen_hudless_copy(const PassContext& c) {
 
 // The provider's frame: the pictures of the output stage, the depth and the motion of the temporal upscaler (made by its preparation pass when the
 // upscaler did not make them this frame: the engine's own temporal upscaler does not need them), the camera and the jitter.
-void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, const PassContext& c) {
+void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, bool filtered, const PassContext& c) {
     outputPassLog.push_back(render::kPassFrameGen);
     if (!plan.dispatch || !framegen.wants_dispatch() || !gpu.has_device()) return;
     const Target& src = scene_target();
-    if (!outTarget.valid(gpu.device()) || !src.valid(gpu.device())) return;
+    const Target& shown = filtered ? outFilterTarget : outTarget;  // the image the swapchain shows
+    if (!shown.valid(gpu.device()) || !src.valid(gpu.device())) return;
     if (plan.copyHudless && !hudlessTarget.valid(gpu.device())) {
         framegen.note_skipped("the picture before the screen-space items could not be copied.");
         return;
     }
-    if (prepSerial != upscaleTaa.serial) {
+    // The depth the provider reads: the reversed infinite one when it asks for it (the upscaler's own pass may have made the other kind).
+    const bool reversed = framegen.wants_reversed_depth();
+    const float reversedNear = reversed ? fgCamera.nearPlane : 0.0f;
+    if (prepSerial != upscaleTaa.serial || prepReversed != reversed) {
         if (!assets || !assets->white() || !mfxPrep.ready(gpu.device())) {
             framegen.note_skipped("the depth and motion preparation shader did not compile.");
             return;
@@ -137,7 +147,8 @@ void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, const P
         render::UpscaleInput in;
         in.renderW = src.w;
         in.renderH = src.h;
-        if (!run_upscale_prep(in, c, upscalePrepass.target(c), upscaleVelocity.target(c), upscaleTaa.prevValid, 0.0f)) {
+        if (!run_upscale_prep(in, c, upscalePrepass.target(c), upscaleVelocity.target(c), upscaleTaa.prevValid,
+                              reversedNear)) {
             framegen.note_skipped("the depth and motion images of the render size could not be made.");
             return;
         }
@@ -145,22 +156,37 @@ void Renderer::Impl::framegen_pass(const render::FrameGenPassPlan& plan, const P
     render::FrameGenFrame f;
     f.device = &gpu.device();
     f.list = &pass_list(c, gpu);
-    f.hudless = plan.copyHudless ? hudlessTarget.texture_image() : outTarget.texture_image();
-    f.presented = outTarget.texture_image();
+    f.hudless = plan.copyHudless ? hudlessTarget.texture_image() : shown.texture_image();
+    f.presented = shown.texture_image();
     f.hudDrawn = plan.copyHudless;
     f.depth = mfxDepth.color;
     f.motion = mfxMotion.color;
-    f.colorFormat = outTarget.format.color;
+    f.colorFormat = shown.format.color;
     f.renderW = src.w;
     f.renderH = src.h;
-    f.outW = outTarget.w;
-    f.outH = outTarget.h;
+    f.outW = shown.w;
+    f.outH = shown.h;
     for (int i = 0; i < 8; ++i) f.proj[i] = upscaleTaa.proj[i];
     f.prevFromView = upscaleTaa.prevFromView;
     f.jitterX = upscaleTaa.jitterPx.x;
     f.jitterY = upscaleTaa.jitterPx.y;
     const float p11 = upscaleTaa.proj[1];
-    f.cameraFovY = p11 > 1e-4f ? 2.0f * std::atan(1.0f / p11) : 1.0f;  // an orthographic lens has no field of view: a nominal one
+    f.cameraPerspective = fgCamera.perspective;
+    f.cameraFovY = fgCamera.perspective && p11 > 1e-4f ? 2.0f * std::atan(1.0f / p11)
+                                                       : 1.0f;  // an orthographic lens: a nominal one
+    f.cameraNear = fgCamera.perspective ? fgCamera.nearPlane : -1000.0f;
+    f.cameraFar = fgCamera.perspective ? fgCamera.farPlane : 1000.0f;
+    f.cameraPosition = fgCamera.position;
+    f.cameraRight = fgCamera.right;
+    f.cameraUp = fgCamera.up;
+    f.cameraForward = fgCamera.forward;
+    f.viewFromWorld = fgCamera.view;
+    f.depthReversed = reversed;
+    f.depthInfinite = reversed;
+    f.exposure = 1.0f;
+    f.outputEncode = frameOutput.encode;
+    f.hdrHeadroom = frameOutput.headroom;
+    f.paperWhiteNits = frameOutput.paperWhiteNits;
     f.frameTimeMs = frameDt * 1000.0f;
     f.frameId = upscaleTaa.serial;
     f.reset = !upscaleTaa.prevValid;

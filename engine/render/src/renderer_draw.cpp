@@ -827,7 +827,24 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             upscaleTaa = make_upscale_taa_plan(fr.cam, fr.cam.postStack.get(), framePost, !taa.upscale_unavailable(),
                                                upscaler.sharpness, postSerial, scene, originShifts, pp.prevViewProj,
                                                pp.prevValid);
-            if (upscaleTaa.on) pp.taa = TaaPlan{};
+            if (upscaleTaa.on) {
+                pp.taa = TaaPlan{};
+                // What frame generation tells its provider about the camera (renderer_framegen.cpp, framegen_pass).
+                fgCamera = FrameGenCamera{};
+                fgCamera.perspective = fr.cam.perspective;
+                if (fr.cam.perspective) {
+                    const Camera* cc = fr.cam.entity != kNullEntity ? world.get<Camera>(fr.cam.entity) : nullptr;
+                    const float n =
+                        cc ? std::max(1e-3f, cc->nearPlane) : 0.1f;  // as camera_geometry.cpp builds the projection
+                    fgCamera.nearPlane = n;
+                    fgCamera.farPlane = cc ? std::max(cc->farPlane, cc->nearPlane + 0.01f) : 1000.0f;
+                }
+                fgCamera.position = fr.cam.position;
+                fgCamera.right = fr.cam.right;
+                fgCamera.up = fr.cam.up;
+                fgCamera.forward = fr.cam.forward;
+                fgCamera.view = fr.cam.view;
+            }
         }
         // The custom post passes (renderer_custom_post.h): the materials of PostProcess.customPasses that built. One
         // that did not is left out here, named in stats.materialFallbacks and logged once.
@@ -5243,8 +5260,14 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             outputPassLog.push_back(render::kPassUpscale);
             run_upscale(outTarget, c);
         });
+        // The colour filter (a screen-space item needs it too: it runs after them). Decided here because frame generation must see what it shows.
+        const bool filterOn = ctx.hudOut && filterPlan && filterPlan->colorFilter != 0 &&
+                              ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false);
         // Frame generation (M78, render_framegen.h): the provider is handed the picture BEFORE the screen-space items, which are drawn into the
         // same image, so it is copied first; the dispatch comes after them. Only a temporal frame has the jitter, the depth and the motion.
+        // With the colour filter on, the swapchain shows the filtered picture, so the copy is made through the same filter (it is graded exactly
+        // as the picture is: a generated frame between two graded ones is graded too) and the dispatch comes after the filter, with the
+        // filtered image as the picture shown.
         const render::FrameGenPassPlan fgPlan = render::plan_framegen_passes(
             framegen.wants_dispatch() && temporalFrame && upscaleTaa.on && !postCams.empty(), ctx.hudOut);
         ResourceId hudlessRes;
@@ -5252,26 +5275,29 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             destroy_target(gpu.device(), hudlessTarget);  // the copy has not been needed for a while
         if (fgPlan.copyHudless) {
             hudlessIdleFrames = 0;
-            if (ensure_output_target(hudlessTarget, "output-hudless", outTarget.format.color, false)) {
+            if (ensure_output_target(hudlessTarget, "output-hudless",
+                                     filterOn ? gpu.display_format() : outTarget.format.color, false)) {
                 hudlessRes = graph.import_target("output-hudless", hudlessTarget.colorAtt.id,
                                                  import_desc(targetW, targetH, hudlessTarget.format, "output-hudless"));
                 add(render::kPassFrameGenHudless, {outRes}, {hudlessRes},
-                    [this](const PassContext& c) { framegen_hudless_copy(c); });
+                    [this, grade = filterOn ? *filterPlan : PostPlan{}, filterOn](const PassContext& c) {
+                        framegen_hudless_copy(c, filterOn ? &grade : nullptr);
+                    });
             }
         }
         // A frame without the copy it needs is not handed over (the hudless image is not the picture with the items).
         const bool dispatchFrame = fgPlan.dispatch && (!fgPlan.copyHudless || hudlessRes.valid());
-        auto add_framegen = [&] {
+        auto add_framegen = [&](ResourceId shownRes) {
             if (!dispatchFrame) return;
-            std::vector<ResourceId> reads{outRes};
+            std::vector<ResourceId> reads{shownRes};
             if (hudlessRes.valid()) reads.push_back(hudlessRes);
             if (upscalePrepass.valid()) reads.push_back(upscalePrepass.res);
             if (upscaleVelocity.valid()) reads.push_back(upscaleVelocity.res);
-            add(render::kPassFrameGen, std::move(reads), {outRes},
-                [this, fgPlan](const PassContext& c) { framegen_pass(fgPlan, c); });
+            add(render::kPassFrameGen, std::move(reads), {shownRes},
+                [this, fgPlan, filterOn](const PassContext& c) { framegen_pass(fgPlan, filterOn, c); });
         };
         if (!ctx.hudOut) {
-            add_framegen();
+            add_framegen(outRes);
             return;
         }
         std::vector<ResourceId> reads{outRes};
@@ -5280,17 +5306,19 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             outputPassLog.push_back(render::kPassHudOverUpscale);
             hud_pass(ctx, outTarget, "output-hud");
         });
-        add_framegen();
-        if (filterPlan && filterPlan->colorFilter != 0 &&
-            ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false)) {
+        if (filterOn) {
             const ResourceId filtered =
                 graph.import_target("output-filtered", outFilterTarget.color.id,
                                     import_desc(targetW, targetH, outFilterTarget.format, "output-filtered"));
-            add("output-color-filter", {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
+            add(render::kPassOutputColorFilter, {outRes}, {filtered}, [this, pp = *filterPlan](const PassContext&) {
+                outputPassLog.push_back(render::kPassOutputColorFilter);
                 post_pass(pp, false, pp.colorFilter, false, outTarget.texView, assets->white()->view, gpu::View{},
                           outFilterTarget, "color-filter", false);
                 outFilterActive = true;
             });
+            add_framegen(filtered);
+        } else {
+            add_framegen(outRes);
         }
     };
     for (auto it = autoExposures.begin(); it != autoExposures.end();) {

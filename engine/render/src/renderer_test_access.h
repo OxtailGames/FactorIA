@@ -12,6 +12,7 @@
 #include "fa/platform/hdr_output.h"
 #include "fa/render/probe.h"
 #include "fa/render/renderer.h"
+#include "gpu/types.h"
 
 namespace fa {
 namespace render {
@@ -126,6 +127,11 @@ struct RendererTestAccess {
     // hud-over-upscale, framegen); hudless_target_alive: the picture-before-the-items copy exists.
     static std::vector<std::string> output_passes(Renderer& r);
     static bool hudless_target_alive(Renderer& r);
+    // The images the provider is handed with the colour filter on: the filtered picture the swapchain shows (the output of "output-color-filter") and
+    // the copy before the items; read_hudless reads the copy back as RGBA8 display values (false when there is none).
+    static gpu::Image filtered_output_image(Renderer& r);
+    static gpu::Image hudless_image(Renderer& r);
+    static bool read_hudless(Renderer& r, std::vector<std::uint8_t>& rgba, int& w, int& h);
     // A headless test renderer has no window swapchain for a provider's hook: this tells the controller the device was made with the hooks (what a
     // windowed renderer with RendererDesc::frameGeneration is told), so a fake provider can start. Call it before set_frame_generation.
     static void framegen_assume_hooked(Renderer& r);

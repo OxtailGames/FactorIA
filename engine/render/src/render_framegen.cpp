@@ -27,7 +27,6 @@ struct ProviderTable {
     std::mutex mutex;
     std::shared_ptr<FrameGenProvider> registered[3];  // every slot is empty until its package registers a provider
     FrameGenProvider* fake[3] = {};
-    std::vector<const gpu::DeviceHook*> hooked;  // the hooks already handed to gpu::register_device_hook
 };
 
 // Never destroyed (the reason the vendor table gives, render_upscale_vendor.cpp): a renderer shut down during the static destruction of the
@@ -77,7 +76,8 @@ void clear_registered_framegen_provider_for_test(FrameGenSlot slot) {
 const char* framegen_absent_reason(FrameGenSlot slot) {
     switch (slot) {
         case FrameGenSlot::Dlss:
-            return "DLSS frame generation arrives with the Streamline DLSS-G provider; this build has no provider for it yet.";
+            return "DLSS frame generation arrives with the Streamline DLSS-G provider; this build has no provider for "
+                   "it yet.";
         case FrameGenSlot::Fsr:
             return "FSR 3 frame generation arrives with the FidelityFX frame generation provider; this build has no "
                    "provider for it yet.";
@@ -113,21 +113,20 @@ std::string framegen_environment_problem(const FrameGenProvider& provider, const
     return vendor_environment_problem(provider.name(), provider.backends(), env);
 }
 
-void register_framegen_device_hooks() {
+std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks() {
     ProviderTable& t = table();
-    std::vector<std::shared_ptr<gpu::DeviceHook>> fresh;
-    {
-        std::lock_guard<std::mutex> lock(t.mutex);
-        for (int i = 0; i < 3; ++i) {
-            FrameGenProvider* p = t.fake[i] ? t.fake[i] : t.registered[i].get();
-            if (!p) continue;
-            std::shared_ptr<gpu::DeviceHook> hook = p->device_hook();
-            if (!hook || std::find(t.hooked.begin(), t.hooked.end(), hook.get()) != t.hooked.end()) continue;
-            t.hooked.push_back(hook.get());
-            fresh.push_back(std::move(hook));
-        }
+    std::vector<std::shared_ptr<gpu::DeviceHook>> hooks;
+    std::lock_guard<std::mutex> lock(t.mutex);
+    for (int i = 0; i < 3; ++i) {
+        FrameGenProvider* p = t.fake[i] ? t.fake[i] : t.registered[i].get();
+        if (!p) continue;
+        std::shared_ptr<gpu::DeviceHook> hook = p->device_hook();
+        if (!hook) continue;
+        const bool twice =
+            std::any_of(hooks.begin(), hooks.end(), [&](const auto& h) { return h.get() == hook.get(); });
+        if (!twice) hooks.push_back(std::move(hook));
     }
-    for (auto& hook : fresh) gpu::register_device_hook(std::move(hook));  // outside the lock: the registry has its own
+    return hooks;
 }
 
 // ---- the passes of the output -----------------------------------------------------------------------------------------------------
@@ -137,16 +136,6 @@ FrameGenPassPlan plan_framegen_passes(bool dispatchWanted, bool hudOverUpscale) 
     p.dispatch = dispatchWanted;
     p.copyHudless = dispatchWanted && hudOverUpscale;
     return p;
-}
-
-std::vector<std::string_view> framegen_output_pass_order(bool hudOverUpscale, bool dispatchWanted, bool colorFilter) {
-    const FrameGenPassPlan plan = plan_framegen_passes(dispatchWanted, hudOverUpscale);
-    std::vector<std::string_view> order{kPassUpscale};
-    if (plan.copyHudless) order.push_back(kPassFrameGenHudless);
-    if (hudOverUpscale) order.push_back(kPassHudOverUpscale);
-    if (plan.dispatch) order.push_back(kPassFrameGen);
-    if (hudOverUpscale && colorFilter) order.push_back(kPassOutputColorFilter);
-    return order;
 }
 
 std::string_view frame_gen_state_name(FrameGenState s) {
@@ -216,7 +205,8 @@ std::string FrameGenController::provider_reason(FrameGenSlot s) {
     if (slot_index(s) < 0) return {};
     Slot& sl = slot(s);
     if (sl.failed) return sl.failure;
-    return sl.probe.available ? std::string() : (sl.probe.reason.empty() ? std::string("unavailable") : sl.probe.reason);
+    return sl.probe.available ? std::string()
+                              : (sl.probe.reason.empty() ? std::string("unavailable") : sl.probe.reason);
 }
 
 FrameGenCaps FrameGenController::caps() {
@@ -265,9 +255,10 @@ void FrameGenController::apply() {
                                                                     : frame_gen_slot_of_mode(settings_.mode);
     if (named == FrameGenSlot::None) {
         stop_provider();
-        refusal_ = "this GPU's maker (" + std::string(gpu_vendor_name(env_.vendor)) +
-                   ") has no frame generation SDK in FactorIA. Name a mode that suits the GPU (dlss on NVIDIA, fsr on AMD, "
-                   "xess on Intel) or set render.frameGeneration.mode to \"off\".";
+        refusal_ =
+            "this GPU's maker (" + std::string(gpu_vendor_name(env_.vendor)) +
+            ") has no frame generation SDK in FactorIA. Name a mode that suits the GPU (dlss on NVIDIA, fsr on AMD, "
+            "xess on Intel) or set render.frameGeneration.mode to \"off\".";
         return;
     }
     const std::string why = provider_reason(named);
@@ -291,10 +282,11 @@ void FrameGenController::apply() {
     }
     if (!hooked_) {
         stop_provider();
-        refusal_ = std::string(p->name()) +
-                   " makes the window's swapchain, which is made when the game starts: set render.frameGeneration.mode in "
-                   "factoria.json (or turn it on in the settings) and restart the game; it cannot be switched on from \"off\" "
-                   "while the game runs.";
+        refusal_ =
+            std::string(p->name()) +
+            " makes the window's swapchain, which is made when the game starts: set render.frameGeneration.mode in "
+            "factoria.json (or turn it on in the settings) and restart the game; it cannot be switched on from \"off\" "
+            "while the game runs.";
         return;
     }
     if (running_ != p) {
@@ -315,24 +307,34 @@ void FrameGenController::apply() {
     }
     // What the frame must have: the stage and a temporal frame. The provider stays started (its swapchain is there either way).
     if (!upscaleStage_) {
-        refusal_ =
-            "frame generation needs the upscale stage (the player's render scale below 1) and the temporal upscaler: it reads "
-            "the depth and the motion of the jittered frame. Set render.upscaler.mode to \"temporal\" (or a vendor upscaler) "
-            "and the render scale below 1.";
+        refusal_ = "frame generation needs the upscale stage (the player's render scale below 1) and the temporal "
+                   "upscaler: it reads "
+                   "the depth and the motion of the jittered frame. Set render.upscaler.mode to \"temporal\" (or a "
+                   "vendor upscaler) "
+                   "and the render scale below 1.";
     } else if (!temporal_) {
-        refusal_ =
-            "frame generation needs the temporal upscaler's frame (one full-viewport camera, jittered, with a depth and a "
-            "motion image); this frame is drawn without. Set render.upscaler.mode to \"temporal\" (or a vendor upscaler), and "
-            "draw with one camera.";
+        refusal_ = "frame generation needs the temporal upscaler's frame (one full-viewport camera, jittered, with a "
+                   "depth and a "
+                   "motion image); this frame is drawn without. Set render.upscaler.mode to \"temporal\" (or a vendor "
+                   "upscaler), and "
+                   "draw with one camera.";
     }
     if (!refusal_.empty()) set_generating(false);
 }
 
-void FrameGenController::begin_frame(double nowMs, bool reset) {
+void FrameGenController::set_swapchain(const FrameGenSwapchain& swapchain) {
+    if (swapchain.width == swapchain_.width && swapchain.height == swapchain_.height &&
+        swapchain.vsync == swapchain_.vsync && swapchain.backend == swapchain_.backend)
+        return;
+    swapchain_ = swapchain;  // a provider started later is told the size as it is now
+    resetNext_ = true;
+    if (running_ && device_) running_->swapchain_changed(*device_, swapchain_);
+}
+
+void FrameGenController::begin_frame(double nowMs) {
     if (!device_ || settings_.mode == FrameGenMode::Off) return;
     constexpr int kStamps = kWindowFrames + 1;
     ++rendered_;
-    if (reset) resetNext_ = true;
     if (running_) {  // the SDK's own counter restarts at 0 with each start(): the controller adds up what it grew by
         const std::uint64_t seen = running_->generated_frames();
         generatedNow_ += seen >= lastProviderCount_ ? seen - lastProviderCount_ : seen;
@@ -362,6 +364,9 @@ void FrameGenController::begin_frame(double nowMs, bool reset) {
         return;
     }
     if (count_ < kStamps) return;  // measuring
+    // A game that starts (or comes back from a refusal) below the limit is paused at once, not "measuring" for ever: the window is full and
+    // its answer is known. The dwell does not apply (generation never ran).
+    if (!generating_ && baseFps_ < double(minFps)) pausedByRate_ = true;
     if (sinceSwitch_ < kMinDwellFrames) return;
     if (!generating_) {
         const double need = pausedByRate_ ? double(minFps) * kResumeMargin : double(minFps);
@@ -379,6 +384,10 @@ void FrameGenController::begin_frame(double nowMs, bool reset) {
 
 bool FrameGenController::dispatch(FrameGenFrame& frame) {
     if (!wants_dispatch()) return false;
+    if (frame.outW != lastOutW_ || frame.outH != lastOutH_)
+        resetNext_ = true;  // a resized output: the provider's history is of another size
+    lastOutW_ = frame.outW;
+    lastOutH_ = frame.outH;
     frame.reset = frame.reset || resetNext_;
     if (running_->dispatch(frame)) {
         resetNext_ = false;
@@ -409,8 +418,8 @@ std::string FrameGenController::reason() const {
         case FrameGenState::Measuring:
             return "measuring the base frame rate over " + std::to_string(kWindowFrames) + " frames.";
         case FrameGenState::Paused:
-            return "the game renders at " + std::to_string(int(std::lround(baseFps_))) +
-                   " fps, below minBaseFps (" + std::to_string(settings_.minBaseFps) + "): generation resumes at " +
+            return "the game renders at " + std::to_string(int(std::lround(baseFps_))) + " fps, below minBaseFps (" +
+                   std::to_string(settings_.minBaseFps) + "): generation resumes at " +
                    std::to_string(int(std::ceil(double(settings_.minBaseFps) * kResumeMargin - 1e-6))) + " fps.";
         case FrameGenState::Active: return dispatchError_;  // "" unless the provider refused the last frame
     }

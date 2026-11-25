@@ -53,11 +53,11 @@ Json frame_gen_to_json(const FrameGenSettings& s) {
 
 Result<FrameGenSettings> parse_frame_gen_settings(const Json& j, std::string_view where, const FrameGenSettings& base) {
     if (!j.is_object())
-        return make_error(std::string(where) +
-                              ": expected an object like {\"mode\": \"auto\", \"minBaseFps\": 60}, got " +
-                              describe_json_value(j),
-                          "Every key is optional: mode (off, auto, dlss, fsr, xess), minBaseFps (a whole number of 0 to " +
-                              std::to_string(kFrameGenMaxMinBaseFps) + ").");
+        return make_error(
+            std::string(where) + ": expected an object like {\"mode\": \"auto\", \"minBaseFps\": 60}, got " +
+                describe_json_value(j),
+            "Every key is optional: mode (off, auto, dlss, fsr, xess), minBaseFps (a whole number of 0 to " +
+                std::to_string(kFrameGenMaxMinBaseFps) + ").");
     static const std::vector<std::string> keys = {"mode", "minBaseFps"};
     for (auto e = j.begin(); e != j.end(); ++e)
         if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
@@ -82,9 +82,10 @@ Result<FrameGenSettings> parse_frame_gen_settings(const Json& j, std::string_vie
     }
     if (auto it = j.find("minBaseFps"); it != j.end()) {
         const std::string ptr = std::string(where) + "/minBaseFps";
-        const std::string hint = "minBaseFps is the frame rate the game renders at (generated frames not counted) below which "
-                                 "generation is switched off: a whole number of 0 (never switch off) to " +
-                                 std::to_string(kFrameGenMaxMinBaseFps) + ", usually 30 to 60.";
+        const std::string hint =
+            "minBaseFps is the frame rate the game renders at (generated frames not counted) below which "
+            "generation is switched off: a whole number of 0 (never switch off) to " +
+            std::to_string(kFrameGenMaxMinBaseFps) + ", usually 30 to 60.";
         if (!it->is_number_integer())
             return make_error(ptr + ": expected a whole number, got " + describe_json_value(*it), hint);
         // Clamped before it is narrowed: a number past the int range is an error, never a wrapped value.
