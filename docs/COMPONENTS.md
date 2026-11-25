@@ -8318,6 +8318,23 @@ Returns {enabled, targetMs, minScale, maxScale, effectiveTargetMs, scale, frameM
 | `minScale` | number | no | The smallest share of the render size's width and height, 0.25..1 (default 0.5). |
 | `maxScale` | number | no | The largest share and where it starts, minScale..1 (default 1). |
 
+### `render.frame_generation` (modifies state)
+
+Not released yet (on main after 0.37.0).
+
+Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered ones.
+
+Capabilities: read, state
+
+The frame generation seam of M78 (docs/FRAME_GENERATION.md): `mode` (off, auto, dlss, fsr, xess) and `minBaseFps` (a whole number of 0 to 1000: below this rendered frame rate generation switches off, and it switches on again at 10% above it; 0 never switches off). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns {mode, minBaseFps, provider, state, reason, modes, changed, report}: `provider` is what runs (none, dlss, fsr, xess), `state` is off, refused, measuring, paused or active, `reason` says why it is not the one the mode names, `modes` says per provider whether it is usable here and why not, `report` the base and presented frame rates and the generated frames of the last frames. Example: render.frame_generation {"mode":"auto"}
+
+`auto` picks the SDK of the GPU's maker (NVIDIA dlss, AMD fsr, Intel xess). A provider needs a game window on D3D12 or Vulkan (not the editor, not a headless run), the temporal upscaler (render.upscaler with a render scale below 1) and its SDK files (`factoria setup`); a provider owns the swapchain, so a game that starts with mode off must be restarted to turn one on (`reason` says so), while a run that started with a provider can switch it off and on. This build has the seam and no vendor provider yet: `modes` names the package that adds each. A wrong name fails with `invalid_argument` and a "did you mean" and changes nothing. The start value is factoria.json "render": {"frameGeneration": {...}}. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `mode` | string ["off","auto","dlss","fsr","xess"] | no | off (nothing runs), auto (the GPU maker's SDK), dlss (NVIDIA DLSS frame generation, Windows, D3D12 or Vulkan, RTX), fsr (AMD FSR 3 frame generation, Windows, D3D12 or Vulkan), xess (Intel XeSS frame generation, Windows, D3D12, Arc). |
+| `minBaseFps` | integer | no | The rendered frame rate below which generation switches off (it resumes at 10% above). 0 never switches off. Default 60. |
+
 ### `render.frame_graph`
 
 Since 0.28.0.

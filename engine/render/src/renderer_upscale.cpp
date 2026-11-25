@@ -178,6 +178,7 @@ void Renderer::Impl::free_output_targets() {
         destroy_target(gpu.device(), spatialTarget);
         destroy_target(gpu.device(), outTarget);
         destroy_target(gpu.device(), outFilterTarget);
+        destroy_target(gpu.device(), hudlessTarget);
     }
     free_mfx_images();
     mfxScaler.release();
@@ -458,7 +459,8 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // temporal upscaler, which the jittered frame suits, then to the spatial one.
     if (render::vendor_impl_index(upscaleImpl) >= 0 && !vendor_upscale(upscaleImpl, in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
-    if (mode != render::UpscalerMode::MetalFx && render::vendor_impl_index(vendorFrameImpl) < 0)
+    if (mode != render::UpscalerMode::MetalFx && render::vendor_impl_index(vendorFrameImpl) < 0 &&
+        !framegen.wants_dispatch())  // frame generation reads the two images after this pass: it keeps them
         free_mfx_images();  // another mode: the two images of its preparation pass are not kept (the vendor SDKs use them too)
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
         upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially

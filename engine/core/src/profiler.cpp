@@ -222,6 +222,8 @@ void ProfileSummary::set_latency_status(const std::string& driver, const std::st
     latencyReason_ = reason;
 }
 
+void ProfileSummary::set_frame_generation(const Json& readout) { frameGeneration_ = readout; }
+
 void ProfileSummary::set_gpu_status(bool supported, const std::string& reason) {
     gpuSupported_ = supported;
     gpuReason_ = reason;
@@ -364,6 +366,21 @@ Json ProfileSummary::to_json() const {
         latency["reason"] = latencyReason_;
     }
     out["latency"] = latency;
+    // Frame generation (M78, docs/FRAME_GENERATION.md): what the provider did while this was measured.
+    if (frameGeneration_.is_object()) {
+        out["frameGeneration"] = frameGeneration_;
+    } else {
+        Json fg = Json::object();
+        fg["provider"] = "none";
+        fg["state"] = "off";
+        fg["generating"] = false;
+        fg["baseFps"] = 0.0;
+        fg["presentedFps"] = 0.0;
+        fg["renderedFrames"] = 0;
+        fg["generatedFrames"] = 0;
+        fg["reason"] = "the frame generation was not measured";
+        out["frameGeneration"] = fg;
+    }
     Json mem = Json::object();
     if (haveMemory_) {
         mem["start"] = mem_json(memStart_);

@@ -193,6 +193,47 @@ the rest is private to `fa_render`:
   `frame` of the next `PresentEvent`. The engine calls `latency_frame_begin` before the platform reads the input,
   `latency_mark(InputSample)` after, and `latency_mark(SimulationEnd)` before the render; the renderer marks the submit and the present.
 
+## Frame generation (M78)
+
+`engine/render/include/fa/render/framegen.h` holds the public part (`FrameGenSettings`, the mode and slot enums, `parse_frame_gen_settings`,
+`effective_frame_generation`); the rest is private to `fa_render`. User text: docs/FRAME_GENERATION.md.
+
+- **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `start`, `configure`, `dispatch`,
+  `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS, **all empty** in this package; `register_framegen_provider()`
+  fills one (the three provider packages call it once each) and an empty slot answers with the package that fills it
+  (`framegen_absent_reason`). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
+  swapchain returns its `DeviceHook` from `device_hook()`; `Renderer::init` calls `register_framegen_device_hooks()` before the device is made
+  when `RendererDesc::frameGeneration` is on (a window of D3D12 or Vulkan the renderer claims), and tells the controller the device was
+  "hooked". Without that the controller refuses with "restart the game": a swapchain cannot be taken over afterwards.
+- **`FrameGenController`** (one per renderer; attached to the device after `LatencyController`, detached before it). `apply()` decides in this
+  order: the slot the mode names (auto: the GPU maker's; a maker with no SDK is a refusal naming it), the slot's probe (asked once per
+  attach), `effective_frame_generation`, the hook, the provider's `start` (a failure is kept and not retried: "fail once, stay off"), then the
+  frame's inputs (`set_inputs(upscaleStage, temporalFrame)`, from `render_world`). A refusal keeps a started provider started; only
+  `configure(false)` puts it to sleep. `begin_frame(nowMs)` keeps 31 time stamps (30 intervals), adds the SDK's counter growth
+  (`generated_frames()` restarts at 0 with each `start`) and applies the `minBaseFps` rule: off below it, on at it, back on at
+  `kResumeMargin` (1.1) above it after a pause, `kMinDwellFrames` (90) between two switches, `minBaseFps` 0 never off. The clock is
+  `latency_clock()`, which a test replaces.
+- **The output passes** (`renderer_draw.cpp`, `finish_output`; `renderer_framegen.cpp`). The screen-space items are drawn into the output
+  image itself, so the hudless picture is a **copy**: `plan_framegen_passes(dispatchWanted, hudOver)` says whether the pass `framegen-hudless`
+  (a `blit_keep_pipeline` copy of `outTarget` into `hudlessTarget`) runs, and the order is `upscale`, `framegen-hudless`,
+  `hud-over-upscale`, `framegen`, `output-color-filter` (`framegen_output_pass_order` is the same list for the tests; the renderer logs the
+  passes that ran in `outputPassLog`, read by `RendererTestAccess::output_passes`). The frame graph keeps the order by the declared reads
+  and writes (the copy reads `output` and writes `output-hudless`; `framegen` reads both, the depth and the motion, and writes `output`).
+  The depth and the motion are `mfxDepth` and `mfxMotion`, made by `run_upscale_prep`; when the upscaler (the engine's own temporal one) did
+  not make them this frame the `framegen` pass runs the preparation itself (`prepSerial` compares with `upscaleTaa.serial`), and the images
+  are kept while generation is on. `hudlessTarget` is freed after `kOutputIdleFrames` without a copy. A frame that needs the copy and cannot
+  make it is not handed over (`note_skipped`: the next dispatch carries `reset`).
+- **`renderer_framegen.cpp`.** The renderer's API (`set_frame_generation`, `frame_generation`, `effective_frame_generation`,
+  `frame_generation_status`, `frame_generation_report`) and the `render.supports` answers (`set_framegen_env`: the rows `dlssFrameGen`,
+  `fsrFrameGen`, `xessFrameGen`; `framegen_slot_backends` adds their D3D12 and Vulkan keys).
+- **The engine** (`Engine::set_frame_generation`, the command `render.frame_generation`, `profile_frame_generation`): the setting is applied
+  to a windowed, non-editor renderer only (like latency); `rd.frameGeneration` is on when the project's mode is not `off` at the start.
+  `ProfileSummary::set_frame_generation` stores the readout as `profile.frameGeneration`.
+- **Tests.** `engine/render/tests/framegen_tests.cpp` (ctest `render`): key parsing and errors, the provider choice per GPU maker, each
+  refusal's sentence, the hysteresis on a fed clock, start and stop across mode changes and a detach, the order of the output passes, and a
+  real headless renderer with a fake provider (the frame it gets, the passes it runs, off stops it; `RendererTestAccess::framegen_assume_hooked`
+  stands for the swapchain hook a headless run has no window for). No vendor SDK, and no D3D12 or Vulkan swapchain, is exercised.
+
 ## Tests
 
 - **`engine/render/tests/latency_tests.cpp`.** Fakes everywhere (a recording device with a backend and a PCI vendor, a clock, providers,

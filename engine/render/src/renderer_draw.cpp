@@ -5214,6 +5214,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // must reach them, runs after. Nothing is declared (and no image made) unless Renderer::set_upscale_stage is on and the game
     // is drawn below the output size.
     auto finish_output = [&](ResourceId srcRes, const Target* srcTarget, const PostPlan* filterPlan) {
+        outputPassLog.clear();
         if (!upscale_active() || plan.view) return;
         // With the items for it (hudOut) the image was made, with its depth, by plan_job for the format the picture has here; else it is made now.
         // When it cannot be made the picture stays at the render resolution and the items stay in it, where plan_job (hudOut false) left them.
@@ -5238,12 +5239,48 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             if (upscaleVelocity.valid()) upReads.push_back(upscaleVelocity.res);
             if (upscaleReactive.valid()) upReads.push_back(upscaleReactive.res);
         }
-        add("upscale", std::move(upReads), {outRes}, [this](const PassContext& c) { run_upscale(outTarget, c); });
-        if (!ctx.hudOut) return;
+        add(render::kPassUpscale, std::move(upReads), {outRes}, [this](const PassContext& c) {
+            outputPassLog.push_back(render::kPassUpscale);
+            run_upscale(outTarget, c);
+        });
+        // Frame generation (M78, render_framegen.h): the provider is handed the picture BEFORE the screen-space items, which are drawn into the
+        // same image, so it is copied first; the dispatch comes after them. Only a temporal frame has the jitter, the depth and the motion.
+        const render::FrameGenPassPlan fgPlan = render::plan_framegen_passes(
+            framegen.wants_dispatch() && temporalFrame && upscaleTaa.on && !postCams.empty(), ctx.hudOut);
+        ResourceId hudlessRes;
+        if (!fgPlan.copyHudless && hudlessTarget.color.id && ++hudlessIdleFrames >= kOutputIdleFrames)
+            destroy_target(gpu.device(), hudlessTarget);  // the copy has not been needed for a while
+        if (fgPlan.copyHudless) {
+            hudlessIdleFrames = 0;
+            if (ensure_output_target(hudlessTarget, "output-hudless", outTarget.format.color, false)) {
+                hudlessRes = graph.import_target("output-hudless", hudlessTarget.colorAtt.id,
+                                                 import_desc(targetW, targetH, hudlessTarget.format, "output-hudless"));
+                add(render::kPassFrameGenHudless, {outRes}, {hudlessRes},
+                    [this](const PassContext& c) { framegen_hudless_copy(c); });
+            }
+        }
+        // A frame without the copy it needs is not handed over (the hudless image is not the picture with the items).
+        const bool dispatchFrame = fgPlan.dispatch && (!fgPlan.copyHudless || hudlessRes.valid());
+        auto add_framegen = [&] {
+            if (!dispatchFrame) return;
+            std::vector<ResourceId> reads{outRes};
+            if (hudlessRes.valid()) reads.push_back(hudlessRes);
+            if (upscalePrepass.valid()) reads.push_back(upscalePrepass.res);
+            if (upscaleVelocity.valid()) reads.push_back(upscaleVelocity.res);
+            add(render::kPassFrameGen, std::move(reads), {outRes},
+                [this, fgPlan](const PassContext& c) { framegen_pass(fgPlan, c); });
+        };
+        if (!ctx.hudOut) {
+            add_framegen();
+            return;
+        }
         std::vector<ResourceId> reads{outRes};
         reads.insert(reads.end(), shown.begin(), shown.end());
-        add("hud-over-upscale", std::move(reads), {outRes},
-            [this, &ctx](const PassContext&) { hud_pass(ctx, outTarget, "output-hud"); });
+        add(render::kPassHudOverUpscale, std::move(reads), {outRes}, [this, &ctx](const PassContext&) {
+            outputPassLog.push_back(render::kPassHudOverUpscale);
+            hud_pass(ctx, outTarget, "output-hud");
+        });
+        add_framegen();
         if (filterPlan && filterPlan->colorFilter != 0 &&
             ensure_output_target(outFilterTarget, "output-filtered", gpu.display_format(), false)) {
             const ResourceId filtered =

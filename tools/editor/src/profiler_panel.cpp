@@ -5,6 +5,7 @@
 // holds them and is unit-tested without a window.
 #include <algorithm>
 #include <cfloat>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -128,6 +129,8 @@ void Editor::profile_tick(std::uint64_t frameBefore) {
     run_.profile.set_gpu_status(supported, why);
     engine_->profile_latency(&profView_.latencyDriver, &profView_.latencyReason);
     run_.profile.set_latency_status(profView_.latencyDriver, profView_.latencyReason);
+    profView_.frameGeneration = engine_->profile_frame_generation();
+    run_.profile.set_frame_generation(profView_.frameGeneration);
     for (double ms : gpu) {
         profView_.add_gpu_ms(ms);
         if (run_.active) run_.profile.add_gpu_ms(ms);
@@ -194,6 +197,22 @@ void Editor::draw_profiler_panel() {
                               "Set render.latency in factoria.json (docs/LATENCY.md).");
     } else {
         ImGui::TextDisabled("Input to present: n/a (%s)", v.latencyReason.c_str());
+    }
+    {
+        // Frame generation (M78, docs/FRAME_GENERATION.md): the engine's own readout; the editor's loop never generates, so it says why.
+        const Json& fg = v.frameGeneration;
+        const std::string state = fg.is_object() ? fg.value("state", std::string("off")) : std::string("off");
+        const std::string provider = fg.is_object() ? fg.value("provider", std::string("none")) : std::string("none");
+        const std::string why = fg.is_object() ? fg.value("reason", std::string()) : std::string();
+        if (state == "active" || state == "paused" || state == "measuring") {
+            ImGui::Text("Frame generation (%s): base %.1f fps, presented %.1f fps, %llu generated", provider.c_str(),
+                        fg.value("baseFps", 0.0), fg.value("presentedFps", 0.0),
+                        static_cast<unsigned long long>(fg.value("generatedFrames", std::uint64_t(0))));
+            if (!why.empty()) ImGui::SetItemTooltip("%s", why.c_str());
+        } else {
+            const std::string line = "Frame generation: " + state + (why.empty() ? std::string() : " (" + why + ")");
+            ImGui::TextDisabled("%s", line.c_str());
+        }
     }
     if (v.haveMemory) {
         auto mb = [](std::uint64_t b) { return double(b) / (1024.0 * 1024.0); };

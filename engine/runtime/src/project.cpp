@@ -91,9 +91,9 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
-        latency != render::LatencySettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
-        graphicsPreset != render::GraphicsPreset::Custom || renderBackend != "auto" || !renderAsyncCompute ||
-        !renderMultiThreadRecording) {
+        latency != render::LatencySettings{} || frameGeneration != render::FrameGenSettings{} ||
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
+        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -111,6 +111,10 @@ Json ProjectSettings::to_json() const {
             render["latency"] = render::latency_to_json(latency);
         else
             render.erase("latency");
+        if (frameGeneration != render::FrameGenSettings{})
+            render["frameGeneration"] = render::frame_gen_to_json(frameGeneration);
+        else
+            render.erase("frameGeneration");
         if (dynamicResolution != render::DynamicResolutionSettings{})
             render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
         else
@@ -137,6 +141,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("interpolationSnapDistance");
         j["render"].erase("upscaler");
         j["render"].erase("latency");
+        j["render"].erase("frameGeneration");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
@@ -698,6 +703,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!latencySet.ok()) return latencySet.error();
             s.latency = latencySet.value();
         }
+        if (auto fg = it->find("frameGeneration"); fg != it->end() && !fg->is_null()) {
+            Result<render::FrameGenSettings> frameGenSet =
+                render::parse_frame_gen_settings(*fg, at("/render/frameGeneration"), render::FrameGenSettings{});
+            if (!frameGenSet.ok()) return frameGenSet.error();
+            s.frameGeneration = frameGenSet.value();
+        }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
             Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
                 *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
@@ -1149,7 +1160,28 @@ constexpr const char* kSchemaText =
             }
           }
         },
-        "dynamicResolution": {
+        "frameGeneration": {
+          "type": "object",
+          "description": "Frame generation (M78, docs/FRAME_GENERATION.md): a vendor SDK puts a generated frame between two rendered ones, so the display shows more frames than the game renders. A game-wide setting that the command render.frame_generation reads and changes at run time. Off by default (the swapchain of every earlier version). It needs a game window on D3D12 or Vulkan, the temporal upscaler (render.upscaler, a render scale below 1) and the provider's SDK (`factoria setup`); render.frame_generation says why a mode does not run. The profiler reports the base and presented frame rates and the generated frames (profile.frameGeneration).",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "auto", "dlss", "fsr", "xess"],
+              "default": "off",
+              "description": "off = no frame generation; auto = the SDK of the GPU's maker (NVIDIA: dlss, AMD: fsr, Intel: xess); dlss = NVIDIA DLSS frame generation (Windows, D3D12 or Vulkan, an RTX GPU, through Streamline); fsr = AMD FSR 3 frame generation (Windows, D3D12 or Vulkan, any GPU, FidelityFX); xess = Intel XeSS frame generation (Windows, D3D12, an Arc GPU). A mode whose SDK cannot run draws the rendered frames only, and render.frame_generation says why. Turning a provider on needs the start of the run (it owns the swapchain). Default off."
+            },
+            "minBaseFps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 60,
+              "description": "The frame rate the game renders at (generated frames not counted) below which generation is switched off: a generated frame between two slow ones adds delay and shows artefacts. It turns on again at 10% above it. 0 = never switch off. Default 60."
+            }
+          }
+        },
+)JSON"
+    R"JSON(        "dynamicResolution": {
           "type": "object",
           "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",
           "additionalProperties": false,
