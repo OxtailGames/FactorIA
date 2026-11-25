@@ -131,6 +131,46 @@ const char* queue_name(QueueKind queue) {
     return "?";
 }
 
+GpuVendor gpu_vendor_from_pci(std::uint32_t vendorId) {
+    switch (vendorId) {
+        case 0: return GpuVendor::Unknown;
+        case kPciVendorNvidia: return GpuVendor::Nvidia;
+        case kPciVendorAmd: return GpuVendor::Amd;
+        case kPciVendorIntel: return GpuVendor::Intel;
+        case kPciVendorApple: return GpuVendor::Apple;
+        case kPciVendorMicrosoft: return GpuVendor::Microsoft;
+        default: return GpuVendor::Other;
+    }
+}
+
+const char* gpu_vendor_name(GpuVendor vendor) {
+    switch (vendor) {
+        case GpuVendor::Unknown: return "unknown";
+        case GpuVendor::Nvidia: return "nvidia";
+        case GpuVendor::Amd: return "amd";
+        case GpuVendor::Intel: return "intel";
+        case GpuVendor::Apple: return "apple";
+        case GpuVendor::Microsoft: return "microsoft";
+        case GpuVendor::Other: return "other";
+    }
+    return "unknown";
+}
+
+const char* native_state_name(NativeState state) {
+    switch (state) {
+        case NativeState::Common: return "Common";
+        case NativeState::ShaderRead: return "ShaderRead";
+        case NativeState::UnorderedAccess: return "UnorderedAccess";
+        case NativeState::RenderTarget: return "RenderTarget";
+        case NativeState::DepthWrite: return "DepthWrite";
+        case NativeState::DepthRead: return "DepthRead";
+        case NativeState::CopySource: return "CopySource";
+        case NativeState::CopyDest: return "CopyDest";
+        case NativeState::Count: break;
+    }
+    return "?";
+}
+
 const char* pixel_format_name(PixelFormat f) {
     return std::size_t(f) < std::size_t(PixelFormat::Count) ? kFormats[std::size_t(f)].name : "?";
 }

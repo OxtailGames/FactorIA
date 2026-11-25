@@ -447,7 +447,9 @@ struct TrackedResource {
     VkImage image = VK_NULL_HANDLE;
     bool external = false;
     Allocation memory{};
-    VkImageAspectFlags aspects = 0;  // images: what a barrier names
+    VkImageAspectFlags aspects = 0;         // images: what a barrier names
+    VkImageUsageFlags usage = 0;            // images: what it was made for (NativeImage::vkUsage, begin_native)
+    VkFormat format = VK_FORMAT_UNDEFINED;  // images: its format (NativeImage::nativeFormat)
     std::vector<SubState> states;
     std::uint32_t mips = 1;
     std::uint32_t layers = 1;  // array layers or cube faces (1 for buffers and 3D images)
@@ -805,10 +807,15 @@ public:
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
     QueueKind queue() const override { return queue_; }
+    Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
+    Result<void> end_native(std::span<const NativeUse> leftIn) override;
+    using CommandList::end_native;
 
     // ---- the backend's side ------------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
     static constexpr std::uint32_t kAllSubresources = 0xFFFFFFFFu;
+    // The SubState a NativeState maps to (stages ALL_COMMANDS; a buffer's layout is UNDEFINED).
+    static SubState native_state(NativeState state, bool image);
     void require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, const SubState& state);
     // The same for mips [mip, mip + mipCount) of layers [layer, layer + layerCount).
     void require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount,
@@ -857,6 +864,18 @@ private:
     void record_draw(const char* what, int base, int count, int instances, int baseVertex, int baseInstance);
     void apply_viewport(const char* what, float x, float y, float width, float height, bool originTopLeft);
     void transition(Use& u, std::uint32_t sub, const SubState& state);
+    // A range a native section declares (begin_native) or leaves in another state (end_native).
+    struct NativeDecl {
+        std::shared_ptr<TrackedResource> res;
+        NativeRange range{};
+        NativeState state = NativeState::Common;
+    };
+    // Finds and checks the resources of `uses` ("uses" or "leftIn" in the errors): "" with one NativeDecl each, or the
+    // error.
+    std::string resolve_native(std::span<const NativeUse> uses, const char* name, std::vector<NativeDecl>& out);
+    // The tracking after a native section: `d`'s subresources are in its state's layout, written by the native commands
+    // in any stage (the next use waits for them).
+    void assume_native(const NativeDecl& d);
     // Writes the end timestamp of the open timed scope.
     void close_scope();
     // Copies texels from CPU memory into an image through the upload ring: a width x height region at (x, y) of mip
@@ -905,6 +924,9 @@ private:
     // The timed frame whose start (pool reset and first timestamp) this list records (the prelude); -1 = none.
     int timerSlot_ = -1;
     std::uint64_t timerSerial_ = 0;
+    // The open native section (begin_native .. end_native) and what it declared.
+    bool nativeOpen_ = false;
+    std::vector<NativeDecl> nativeDecls_;
 
     // The pass
     struct Need {
@@ -1026,6 +1048,7 @@ public:
     NativeDevice native() const override;
     NativeImage native_image(Image image) const override;
     NativeBuffer native_buffer(Buffer buffer) const override;
+    NativeView native_view(View view) const override;
     MetalNative* native_metal() override { return nullptr; }
 
     Buffer make_buffer(const BufferDesc& desc) override;

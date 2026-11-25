@@ -87,6 +87,11 @@ if(TARGET fa_test_render)
     add_test(NAME render_vulkan_device
         COMMAND fa_test_render --fa-files=vulkan_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # Native access for vendor SDKs (M78): the neutral checks and the sokol device, then raw commands recorded between
+    # begin_native and end_native on Vulkan and on D3D12 (WARP), under the same skip rules as the two backends' cases.
+    add_test(NAME render_gpu_native
+        COMMAND fa_test_render --fa-files=gpu_native_tests.cpp,vulkan_native_tests.cpp,d3d12_native_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
 endif()
 # The Vulkan backend (src/gpu/vulkan_*.cpp): built on Linux, Windows and Android, and on macOS for its tests only (through
 # MoltenVK; never a macOS product backend); not on the web or iOS. No Vulkan library is linked: the sources compile with

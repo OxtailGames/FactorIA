@@ -4,7 +4,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <string>
+#include <string_view>
 
+#include "gpu/sokol_native.h"
 #include "render_internal.h"
 
 #if defined(SOKOL_D3D11)
@@ -185,3 +188,86 @@ GpuInfo query_gpu_info(gpu::Device& device) {
 }
 
 }  // namespace fa::render
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The identity of the sokol context's GPU (gpu/sokol_native.h; DeviceInfo::gpu of a SokolDevice)
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace fa::gpu {
+
+#if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3) || defined(SOKOL_METAL)
+namespace {
+// The PCI vendor id of a classify_gpu vendor name (0: none of the five vendors the engine names).
+std::uint32_t pci_vendor_of(const std::string& vendor) {
+    if (vendor == "nvidia") return kPciVendorNvidia;
+    if (vendor == "amd") return kPciVendorAmd;
+    if (vendor == "intel") return kPciVendorIntel;
+    if (vendor == "apple") return kPciVendorApple;
+    if (vendor == "microsoft") return kPciVendorMicrosoft;
+    return 0;
+}
+
+// GL and Metal name the GPU, not its PCI ids: the vendor from the name, deviceId 0.
+GpuIdentity identity_from_names(render::GpuInfo& info, std::string_view vendorString) {
+    render::classify_gpu(info, vendorString);
+    GpuIdentity id;
+    id.vendorId = pci_vendor_of(info.vendor);
+    id.vendor = id.vendorId           ? gpu_vendor_from_pci(id.vendorId)
+                : info.vendor.empty() ? GpuVendor::Unknown
+                                      : GpuVendor::Other;
+    id.software = info.software;
+    return id;
+}
+}  // namespace
+#endif
+
+GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, const void** adapter) {
+    if (adapter) *adapter = nullptr;
+    GpuIdentity id;
+#if defined(SOKOL_D3D11)
+    if (backend != Backend::D3d11) return id;
+    if (ID3D11Device* dev = static_cast<ID3D11Device*>(const_cast<void*>(native.device))) {
+        IDXGIDevice* dxgiDevice = nullptr;
+        if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice))) &&
+            dxgiDevice) {
+            IDXGIAdapter* found = nullptr;
+            if (SUCCEEDED(dxgiDevice->GetAdapter(&found)) && found) {
+                DXGI_ADAPTER_DESC desc{};
+                if (SUCCEEDED(found->GetDesc(&desc))) {
+                    id.vendorId = desc.VendorId;
+                    id.deviceId = desc.DeviceId;
+                    id.luidValid = true;
+                    id.luidLow = desc.AdapterLuid.LowPart;
+                    id.luidHigh = desc.AdapterLuid.HighPart;
+                    // WARP, the Microsoft Basic Render Driver: vendor 0x1414, device 0x8C.
+                    id.software = desc.VendorId == kPciVendorMicrosoft && desc.DeviceId == 0x8C;
+                }
+                if (adapter) *adapter = found;
+                found->Release();  // the D3D11 device keeps its adapter alive: the pointer stays valid with it
+            }
+            dxgiDevice->Release();
+        }
+    }
+    id.vendor = gpu_vendor_from_pci(id.vendorId);
+#elif defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+    (void)native;
+    if (backend != Backend::Gl && backend != Backend::Gles3 && backend != Backend::WebGl2) return id;
+    const auto str = [](GLenum e) {
+        const GLubyte* s = glGetString(e);
+        return s ? std::string(reinterpret_cast<const char*>(s)) : std::string();
+    };
+    render::GpuInfo info;
+    info.name = str(GL_RENDERER);
+    id = identity_from_names(info, str(GL_VENDOR));
+#elif defined(SOKOL_METAL)
+    if (backend != Backend::Metal) return id;
+    render::GpuInfo info;
+    if (render::gpu_info_metal(native.device, info)) id = identity_from_names(info, {});
+#else
+    (void)backend;
+    (void)native;
+#endif
+    return id;
+}
+
+}  // namespace fa::gpu

@@ -381,6 +381,13 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.backend = Backend::D3d12;
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::D3d12);
+    info_.gpu.vendorId = identity_.vendor;  // the adapter's DXGI_ADAPTER_DESC1 (init_adapter)
+    info_.gpu.deviceId = identity_.device;
+    info_.gpu.vendor = gpu_vendor_from_pci(identity_.vendor);
+    info_.gpu.luidValid = true;
+    info_.gpu.luidLow = identity_.luidLow;
+    info_.gpu.luidHigh = identity_.luidHigh;
+    info_.gpu.software = warp_;
     init_caps();
     // Lists record on any thread (each its own allocator; the shared state is under locks), compute lists run on the
     // compute queue, and every live Texture view has a slot in the bindless table when there is one.
@@ -544,7 +551,10 @@ PixelFormatCaps D3d12Device::pixel_format_caps(PixelFormat format) const {
 NativeDevice D3d12Device::native() const {
     NativeDevice n;
     n.device = device_.get();
-    n.context = queue_.get();  // the ID3D12CommandQueue
+    n.context = queue_.get();  // the direct ID3D12CommandQueue
+    n.computeQueue =
+        side_[0].queue.get();    // the compute ID3D12CommandQueue (null: compute lists run on the direct one)
+    n.adapter = adapter_.get();  // IDXGIAdapter1*
     return n;
 }
 
@@ -979,6 +989,11 @@ bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
     if (list.passState_ != PassState::None) {
         report(at + " is still inside a pass (hint: end_pass() before submit(); it was ended here)");
         list.end_pass();
+    }
+    if (list.nativeOpen_) {
+        report(at + " still has a native section open (hint: end_native() before submit(); it was closed here with "
+                    "every resource in its declared state)");
+        (void)list.end_native();
     }
     if (list.openFrame_ != frame_) {
         // Its uniforms and descriptors are in the ring room and the descriptor segment of the frame it was opened in,

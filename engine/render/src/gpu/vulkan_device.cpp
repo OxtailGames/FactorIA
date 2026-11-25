@@ -843,6 +843,24 @@ Result<void> VulkanDevice::init(const VulkanOptions& options) {
     info_.backend = Backend::Vulkan;
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::Vulkan);
+    // Which GPU (M78): the PCI ids, and the adapter LUID that Windows drivers give (VkPhysicalDeviceIDProperties).
+    info_.gpu.vendorId = props_.vendorID;
+    info_.gpu.deviceId = props_.deviceID;
+    info_.gpu.vendor = gpu_vendor_from_pci(props_.vendorID);
+    info_.gpu.software = cpuDevice_;
+    if (fn_.vkGetPhysicalDeviceProperties2) {
+        VkPhysicalDeviceIDProperties ids{};
+        ids.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+        VkPhysicalDeviceProperties2 p2{};
+        p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        p2.pNext = &ids;
+        fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
+        if (ids.deviceLUIDValid) {
+            std::memcpy(&info_.gpu.luidLow, ids.deviceLUID, 4);
+            std::memcpy(&info_.gpu.luidHigh, ids.deviceLUID + 4, 4);
+            info_.gpu.luidValid = true;
+        }
+    }
     init_caps();
     FA_INFO("render", "gpu vulkan: {} ({}, Vulkan {}{}{}{}), {} frames in flight, loader {}", deviceName_,
             device_type_name(props_.deviceType), version_text(apiVersion_), validation_ ? ", validation layer" : "",
@@ -1039,6 +1057,18 @@ NativeDevice VulkanDevice::native() const {
     NativeDevice n;
     n.device = device_;
     n.context = queues_[0].queue;  // the graphics VkQueue
+    const QueueRecord& compute = queues_[int(resolve_queue(QueueKind::Compute))];
+    if (resolve_queue(QueueKind::Compute) == QueueKind::Compute) n.computeQueue = compute.queue;
+    n.instance = instance_;
+    n.physicalDevice = physical_;
+    // Casts to void (*)(), the type every function pointer converts to and back from.
+    n.getInstanceProcAddr = reinterpret_cast<NativeDevice::ProcAddr>(library_.getInstanceProcAddr);
+    n.getDeviceProcAddr = reinterpret_cast<NativeDevice::ProcAddr>(fn_.vkGetDeviceProcAddr);
+    n.apiVersion = apiVersion_;
+    n.graphicsFamily = queues_[0].family;
+    n.graphicsQueueIndex = queues_[0].index;
+    n.computeFamily = compute.family;
+    n.computeQueueIndex = compute.index;
     return n;
 }
 
@@ -1305,6 +1335,12 @@ bool VulkanDevice::submittable(VulkanCommandList& list, const char* call) {
         report(std::string("gpu vulkan: ") + call + ": list '" + list.label_ +
                "' is still inside a pass (hint: end_pass() before " + call + "(); it was ended here)");
         list.end_pass();
+    }
+    if (list.nativeOpen_) {
+        report(std::string("gpu vulkan: ") + call + ": list '" + list.label_ +
+               "' still has a native section open (hint: end_native() before " + call +
+               "(); it was closed here with every resource in its declared state)");
+        (void)list.end_native();
     }
     if (list.debugDepth_ != 0) {
         report(std::string("gpu vulkan: ") + call + ": list '" + list.label_ + "' still has " +

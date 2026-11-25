@@ -265,11 +265,12 @@ std::shared_ptr<TrackedResource> VulkanDevice::buffer_tracked(Buffer b, std::siz
 
 NativeBuffer VulkanDevice::native_buffer(Buffer buffer) const {
     NativeBuffer n;
+    if (auto t = buffer_tracked(buffer, nullptr, nullptr)) {
+        n.vkBuffer = handle_bits(t->buffer);
 #if VK_USE_64_BIT_PTR_DEFINES == 1
-    if (auto t = buffer_tracked(buffer, nullptr, nullptr)) n.buffer = t->buffer;  // VkBuffer
-#else
-    (void)buffer;  // a 32-bit target's handles are 64-bit numbers, not pointers: vk_device()-level access only
+        n.buffer = t->buffer;  // VkBuffer (a 32-bit target's handles are numbers, not pointers: vkBuffer only)
 #endif
+    }
     return n;
 }
 
@@ -416,6 +417,8 @@ Image VulkanDevice::make_image(const ImageDesc& desc) {
                            " (hint: the device was lost or is out of memory)");
                 } else {
                     t->aspects = fi.aspects;
+                    t->usage = ci.usage;
+                    t->format = ci.format;
                     t->mips = std::uint32_t(rec.mips);
                     t->layers = is3d ? 1u : std::uint32_t(rec.slices);
                     t->states.assign(t->subresource_count(), SubState{});
@@ -519,13 +522,33 @@ bool VulkanDevice::image_info(Image image, ImageRecord& out) const {
 
 NativeImage VulkanDevice::native_image(Image image) const {
     NativeImage n;
-#if VK_USE_64_BIT_PTR_DEFINES == 1
     std::lock_guard<std::mutex> lock(resMutex_);
     const ImageRecord* r = images_.get(image.id);
-    if (r && r->tracked) n.texture = r->tracked->image;  // VkImage
-#else
-    (void)image;  // a 32-bit target's handles are 64-bit numbers, not pointers
+    if (!r || !r->tracked) return n;
+    const TrackedResource& t = *r->tracked;
+#if VK_USE_64_BIT_PTR_DEFINES == 1
+    n.texture = t.image;  // a 32-bit target's handles are 64-bit numbers, not pointers: vkImage only
 #endif
+    n.vkImage = handle_bits(t.image);
+    n.nativeFormat = std::uint32_t(t.format);
+    n.vkUsage = t.usage;
+    n.vkAspects = t.aspects;
+    return n;
+}
+
+NativeView VulkanDevice::native_view(View view) const {
+    NativeView n;
+    std::lock_guard<std::mutex> lock(resMutex_);
+    const ViewRecord* v = views_.get(view.id);
+    if (!v || !v->tracked) return n;
+    n.vkImageView = handle_bits(v->view);
+    n.image = v->image;
+    n.mip = v->mip;
+    n.mipCount = v->mipCount;
+    n.slice = v->slice;
+    n.sliceCount = v->sliceCount;
+    if (const ImageRecord* im = v->image.id ? images_.get(v->image.id) : nullptr)
+        n.nativeFormat = vk_format(im->format);
     return n;
 }
 
