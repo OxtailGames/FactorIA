@@ -246,8 +246,10 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         // frame 1 presents nothing. A window that cannot take a device's swapchain (an OpenGL one) opens the context as
         // usual and the engine falls back with the reason.
         if (st->cfg.graphics && !st->cfg.editorMode) {
+            // The same question the engine asks (the stored choice, the Vulkan player's auto, the fallback marker).
             auto chosen =
-                choose_gpu_backend(st->cfg.gpuBackend, std::getenv("FA_GPU_BACKEND"), st->project.renderBackend);
+                choose_gpu_backend(make_gpu_backend_inputs(st->cfg.gpuBackend, !st->cfg.memoryStorage,
+                                                           st->cfg.gpuBackendAuto, st->project.renderBackend, nullptr));
             st->deviceWindow = chosen && !gpu_backend_on_context(chosen->backend) && app_native_window().busy.empty();
         }
         std::string err;

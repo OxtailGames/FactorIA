@@ -78,14 +78,26 @@ struct EngineConfig {
     // init fail. Threads never change what the game computes.
     std::string jobThreads;
     // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan" (render::
-    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else factoria.json render.backend, else "auto" (the
-    // sokol backend this binary was built with). An unknown name makes init fail with the valid names; one this platform or
-    // build does not have is a warning and "auto". D3D12 and Vulkan draw into the window with a swapchain of their own (the
-    // engine claims the native window from the platform) or headless offscreen; when the one asked for cannot start (no
-    // driver, no such GPU, a window that cannot take its swapchain: an OpenGL window, the editor's view) the engine warns
-    // once with the first error and draws with "auto" in the same process. Engine::startup_report names the one that
-    // runs, the one asked for and why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
+    // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else the choice graphics.backend stored in the
+    // game's user settings (graphics_backend.json in fs::user_dir(); not read with memoryStorage), else factoria.json
+    // render.backend, else "auto" (gpuBackendAuto where this binary has it, else the sokol backend it was built with). An
+    // unknown name makes init fail with the valid names; one this platform or build does not have is a warning and "auto".
+    // D3D12 and Vulkan draw into the window with a swapchain of their own (the engine claims the native window from the
+    // platform) or headless offscreen; when the one asked for cannot start (no driver, no such GPU, a window that cannot
+    // take its swapchain: an OpenGL window, the editor's view) the engine first calls gpuBackendFailed (windowed runs
+    // only), and when that does not take the process over it warns once with the first error and draws with the sokol
+    // backend of this build in the same process. Engine::startup_report names the one that runs, the one asked for and
+    // why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
     std::string gpuBackend;
+    // What "auto" draws with in this binary when it has it (M77-P9e2): the Vulkan player of Linux and Android sets Vulkan;
+    // Default = the sokol backend. Not used when FA_GPU_FALLBACK_FROM names it (that backend already failed).
+    GpuBackend gpuBackendAuto = GpuBackend::Default;
+    // Called once, in a window, when the backend asked for (Vulkan, D3D12) cannot start, BEFORE the in-process fallback to
+    // the sokol backend (backend name, why). The Vulkan player of Linux and Android starts the OpenGL player here (it does
+    // not return when that works, fa/runtime/gpu_launch.h): the in-process fallback runs only when this is empty or
+    // returns, so a Vulkan failure is never hidden by it. `why` starts with kGpuWindowPathReason when the window cannot
+    // take the swapchain at all (fa/runtime/gpu_backend_choice.h).
+    std::function<void(const std::string& backend, const std::string& why)> gpuBackendFailed;
     // Tests: called before each start of the renderer on a backend; a non-empty answer makes that start fail with it
     // (before any device is made), so the fallback can be checked on a machine where every backend works. Empty = none.
     std::function<std::string(GpuBackend backend)> gpuStartFault;
