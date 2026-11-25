@@ -9,6 +9,7 @@
 // renderer cannot do.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -18,6 +19,7 @@
 #include "fa/core/json.h"
 #include "fa/platform/hdr_output.h"
 #include "gpu/device.h"
+#include "render_upscale_vendor.h"
 
 namespace fa::render {
 
@@ -50,7 +52,14 @@ struct FeatureEnv {
     // feature_env_from_device on Metal only; a FeatureEnv made by hand says no.
     bool metalfx = false;
     std::string metalfxWhy;
+    // The vendor upscalers dlss, xess and fsr (M78): what each provider answered for this GPU (render_upscale_vendor.h), and whether it was
+    // asked at all. Renderer::supports asks (feature_env_from_device does not: it would read the disk for the libraries each time); an
+    // env made by hand says "not asked".
+    std::array<VendorProbe, kVendorUpscalerCount> vendorUpscalers;
+    bool vendorAsked = false;
 };
+// Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) into `env`.
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers);
 
 // The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
 // linear sRGB), scRGB and HDR10 on D3D11. Every other backend: none (GL, GLES3 and WebGL2 have no HDR swapchain in sokol).

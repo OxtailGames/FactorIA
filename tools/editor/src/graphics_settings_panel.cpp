@@ -128,8 +128,10 @@ void Editor::draw_graphics_settings_panel() {
     ImGui::SeparatorText("Upscaler");
     gfx_combo("Mode", g.mode, upscaler_modes(),
               "render.upscaler.mode. stretch is the plain blit (the default); spatial is our edge-adaptive upscale "
-              "plus sharpen; temporal accumulates jittered frames; metalfx is Apple's MetalFX (Metal only); auto "
-              "takes the best this GPU draws. A mode the GPU cannot draw draws as the next best one; read "
+              "plus sharpen; temporal accumulates jittered frames; metalfx is Apple's MetalFX (Metal only); dlss, "
+              "xess and fsr are NVIDIA DLSS, Intel XeSS and AMD FSR 3.1 (Windows, each needs its SDK: `factoria setup "
+              "streamline`, `xess` or `fidelityfx`); auto takes the GPU maker's own SDK when it is installed, else "
+              "the best this GPU draws. A mode the GPU cannot draw draws as the next best one; read "
               "window.upscaler.effectiveMode in a script for what draws.",
               "gfx:mode", track);
     show_problem("/render/upscaler/mode");

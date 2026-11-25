@@ -20,10 +20,23 @@ namespace fa::render {
 // and the contrast-adaptive sharpen. Temporal (M76-P4): the camera is jittered at the render resolution and the TAA resolve accumulates the
 // frames into a history of the OUTPUT resolution (renderer_taa.h, TaaFx::upscale); where it cannot run, spatial draws. MetalFx (M76-P5b):
 // Apple's temporal scaler (the same jittered frame, the depth and motion of the prepass) or its spatial scaler (renderer_metalfx.cpp); where
-// it cannot run for a frame, Temporal draws, and Spatial where that cannot either.
-enum class UpscaleImpl : std::uint8_t { Stretch, Spatial, Temporal, MetalFx };
+// it cannot run for a frame, Temporal draws, and Spatial where that cannot either. Dlss, Xess and Fsr (M78): a vendor SDK's temporal
+// upscaler through its provider (render_upscale_vendor.h) on the same jittered frame, depth and motion; a provider that cannot draw a frame
+// (and is then off for the rest of the run) makes the Temporal upscaler draw it.
+enum class UpscaleImpl : std::uint8_t { Stretch, Spatial, Temporal, MetalFx, Dlss, Xess, Fsr };
 
-// The implementation a mode name selects ("stretch", "spatial", "temporal", "metalfx"). A name this build does not know (a
+// Whether `impl` is one of the vendor SDK implementations, and which (0 dlss, 1 xess, 2 fsr; -1 none): the index of vendor_provider().
+constexpr int vendor_impl_index(UpscaleImpl impl) {
+    return impl == UpscaleImpl::Dlss ? 0 : impl == UpscaleImpl::Xess ? 1 : impl == UpscaleImpl::Fsr ? 2 : -1;
+}
+constexpr UpscaleImpl vendor_impl(int index) {
+    return index == 0   ? UpscaleImpl::Dlss
+           : index == 1 ? UpscaleImpl::Xess
+           : index == 2 ? UpscaleImpl::Fsr
+                        : UpscaleImpl::Stretch;
+}
+
+// The implementation a mode name selects ("stretch", "spatial", "temporal", "metalfx", "dlss", "xess", "fsr"). A name this build does not know (a
 // typo, a mode of a later version, an implementation the GPU cannot run) selects Stretch: the game is never left without a picture.
 // `known`, when given, says whether the name was understood. ("auto" is not an implementation: effective_upscaler_mode picks one.)
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known = nullptr);
@@ -41,6 +54,13 @@ struct UpscaleInput {
     gpu::View color{};
     gpu::View depth{};
     gpu::View velocity{};
+    // The reactive mask of the frame (R8, the picture's size: 1 where particles and other items blend over the scene and the history must not
+    // be trusted); null when no item asked for one. The temporal upscaler and MetalFX read it from the frame graph's transient; the vendor
+    // SDKs get it here.
+    gpu::View reactive{};
+    // The factor the scene's colour was multiplied by before the stage (the exposure of the camera): 1 today, because the scene is exposed
+    // (and tone mapped) before the upscale pass, as MetalFX is told too (pre-exposure 1). The vendor SDKs take it as their pre-exposure.
+    float exposure = 1.0f;
     float jitter[2] = {0.0f, 0.0f};  // this frame's camera jitter, in render pixels (0 until a temporal mode jitters)
     int renderW = 0, renderH = 0;    // size of `color`
     int outW = 0, outH = 0;          // size of the output image

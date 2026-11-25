@@ -18,6 +18,8 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
     // (caps.multiCamera), and so does the temporal scaler of MetalFX (one history); the spatial scaler of MetalFX needs none.
     const bool temporal_ok = caps.temporal && !caps.multiCamera;
     const bool metalfx_ok = caps.metalfx && (!caps.multiCamera || !caps.metalfxTemporal);
+    // A vendor SDK (M78) reads the jittered frame, the depth and the motion of the temporal upscaler, so it is drawable where that frame is.
+    const auto vendor_ok = [&](int index) { return caps.vendor(index) && temporal_ok; };
     const auto best_from_metalfx = [&]() {
         if (metalfx_ok) return UpscalerMode::MetalFx;
         if (temporal_ok) return UpscalerMode::Temporal;
@@ -29,8 +31,19 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
         case UpscalerMode::Temporal:
             if (temporal_ok) return UpscalerMode::Temporal;
             return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
-        case UpscalerMode::MetalFx:
-        case UpscalerMode::Auto: return best_from_metalfx();
+        case UpscalerMode::Dlss:
+        case UpscalerMode::Xess:
+        case UpscalerMode::Fsr: return vendor_ok(vendor_upscaler_index(s.mode)) ? s.mode : best_from_metalfx();
+        case UpscalerMode::MetalFx: return best_from_metalfx();
+        case UpscalerMode::Auto: {
+            // The SDK of the maker of this GPU, when it is usable; every other GPU, and a maker without an SDK here, take the M76 chain.
+            const int own = caps.gpuVendor == GpuVendor::Nvidia  ? 0
+                            : caps.gpuVendor == GpuVendor::Intel ? 1
+                            : caps.gpuVendor == GpuVendor::Amd   ? 2
+                                                                 : -1;
+            if (own >= 0 && vendor_ok(own)) return vendor_upscaler_mode(own);
+            return best_from_metalfx();
+        }
     }
     return UpscalerMode::Stretch;
 }

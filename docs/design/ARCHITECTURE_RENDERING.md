@@ -483,3 +483,20 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   pipelines for the output formats are created the first time the stage draws, so the first frame after turning it on can hitch once.
   If the output image cannot be created the stage is skipped for that frame (error logged): the picture is shown at the render
   resolution and the HUD stays in it, drawn as it is without the stage.
+- **Vendor providers (M78-P1, `UpscaleImpl::Dlss`, `Xess`, `Fsr`).** `src/render_upscale_vendor.h` is what DLSS (Streamline), XeSS and
+  FSR 3.1 plug into; no vendor header or binary is in the repository. `VendorUpscaler` has `probe(VendorEnv)` (backend, GPU maker,
+  system, then the library: `vendor_environment_problem` is the shared part, and the reason says the setup command) and
+  `upscale(UpscaleInput, VendorFrame)` (the frame's images and the pass's command list; false and `error` when it cannot). The libraries
+  come from `VendorLoader` (`find_vendor_library`: `$FA_*_DIR`, then the executable's folder, then the newest
+  `<factoria home>/tools/<id>/<version>/`; `LoadLibraryExW` on Windows, "Windows only" elsewhere), and each SDK package reads its function
+  table from `VendorLibrary::symbol`. A test puts a fake in with `set_vendor_loader_for_test` / `set_vendor_provider_for_test`.
+  `Impl::upscaler_caps()` asks a provider only when the setting wants it (that mode, or `auto` on that maker's GPU), once per renderer
+  (`vendor_probe`), and `caps.dlss/xess/fsr` and `caps.gpuVendor` feed `effective_upscaler_mode`, which keeps one rule: a vendor mode
+  needs `caps.temporal` and one camera, else the chain is `metalfx`, `temporal`, `spatial`. `render()` jitters the frame for the vendor
+  mode like for the temporal one (`vendorFrameImpl`), and `run_upscale` calls `vendor_upscale` (it fills `UpscaleInput::depth`,
+  `velocity`, `reactive`, `exposure`; the prepass and velocity are read by the `upscale` pass as for MetalFX); a provider that returns
+  false is off for the run (`vendor_fail`, "fail once, stay off") and the frame draws as `Temporal`. `render.supports` rows `dlss`, `xess`, `fsr`
+  are answered from the probes (`set_vendor_upscalers_env`), before the backend check, because that table has no D3D12 or Vulkan
+  column. The GPU maker is `gpu_vendor_of(device)`: Apple on Metal, none on the recording device and, until M78-P2a fills it from the
+  device's PCI id, Other. The output image is not asked to be a storage image (a device without them would fail it); the SDK packages
+  ask for that where their SDK needs it.

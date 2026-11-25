@@ -95,14 +95,20 @@
         "stretch": "Stretch",
         "spatial": "Spatial",
         "temporal": "Temporal",
-        "metalfx": "MetalFX"
+        "metalfx": "MetalFX",
+        "dlss": "DLSS",
+        "xess": "XeSS",
+        "fsr": "FSR"
       },
       "modeLabel": "Upscaling: {mode}",
       "modeDrawn": "{mode}, drawn as {drawn}",
       "unsup": {
         "spatial": "needs a window with a GPU",
         "temporal": "not available on this GPU or version",
-        "metalfx": "Apple GPUs only"
+        "metalfx": "Apple GPUs only",
+        "dlss": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)",
+        "xess": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)",
+        "fsr": "needs the vendor runtime on Windows (DLSS: an NVIDIA RTX GPU)"
       },
       "uq": {
         "native": "Native",

@@ -5222,12 +5222,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             return;
         const ResourceId outRes = graph.import_target("output", outTarget.colorAtt.id,
                                                       import_desc(targetW, targetH, outTarget.format, "output"));
-        // The temporal upscalers (the TAA resolve and MetalFX) also read the camera's prepass (depth) and the velocity, when they exist.
+        // The temporal upscalers (the TAA resolve, MetalFX and the vendor SDKs) also read the camera's prepass (depth) and the velocity, when they exist.
         std::vector<ResourceId> upReads{srcRes};
         upscalePrepass = PrepassRef{};
         upscaleVelocity = VelocityRef{};
         upscaleReactive = PrepassRef{};
-        if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx) &&
+        if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx ||
+             render::vendor_impl_index(upscaleImpl) >= 0) &&
             upscaleTaa.on && !postCams.empty()) {
             const PostPlan& cam0 = postCams.front()->postPlan;
             upscalePrepass = cam0.prepass;

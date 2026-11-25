@@ -100,11 +100,11 @@ What the command does, file by file; do it by hand when you want to see each fil
    changes a Graphics setting again (or the game calls `settings.applyScene()` after it). `tests/graphics.test.js` checks it.
    **Second page: preset and upscaling.** The "Preset and upscaling" button of the tab (`gfx_page`) swaps its content for a second page
    (`quality_section`, with a Back button, `gfx_page_back`; the tab always opens on the first page): a **Preset** row (`gfx_preset_*`:
-   Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (`gfx_mode_*`: Auto, Stretch, Spatial, Temporal, MetalFX), a button
+   Auto, Low, Medium, High, Ultra, Custom), an **Upscaling** row (`gfx_mode_*`: Auto, Stretch, Spatial, Temporal, MetalFX, DLSS, XeSS, FSR), a button
    that cycles the upscaling quality (`gfx_uq`: native, quality, balanced, performance, ultra performance), a render scale slider
    (`gfx_render_scale`, 0.33 to 1, two decimals) and a sharpness slider (`gfx_sharpness`, active only while the mode that draws is not
    plain stretch). The selected button of each row is highlighted. A mode this GPU does not draw (`render.supports`:
-   `spatialUpscaler`, `temporalUpscaler`, `metalfx`) is greyed out and the one note under the rows lists every such mode with its reason (not one note per button: "Spatial: needs a window with a GPU"), in the player's language. The sharpness slider shows hundredths.
+   `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dlss`, `xess`, `fsr`) is greyed out and the one note under the rows lists every such mode with its reason (not one note per button: "Spatial: needs a window with a GPU"), in the player's language. The sharpness slider shows hundredths.
    **Auto** (the preset) runs `game.graphics.detect()` once, applies its pick, saves it as `detected` and shows it on the button;
    it does not detect again until the save is cleared. **How it relates to the "quality" row:** the preset drives it. Choosing Low,
    Medium, High or Ultra sets the screen-effects quality to low, medium, high and high and clears the effect switches the player

@@ -188,9 +188,9 @@
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "enum": ["stretch", "spatial", "temporal", "metalfx", "dlss", "xess", "fsr", "auto"],
               "default": "stretch",
-              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
+              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); dlss = NVIDIA DLSS (an RTX GPU, Windows, `factoria setup streamline`); xess = Intel XeSS (Windows, `factoria setup xess`); fsr = AMD FSR 3.1 (Windows, D3D12 or Vulkan, `factoria setup fidelityfx`); auto = the GPU maker's own SDK when it is installed, else the best this GPU can draw. A mode that cannot run draws as the next best (effectiveMode says which). Default stretch."
             },
             "quality": {
               "type": "string",
