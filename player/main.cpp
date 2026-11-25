@@ -652,7 +652,8 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     cfg.gpuBackendAuto = fa::GpuBackend::Vulkan;
     if (auto proj = fa::load_project(""); proj.ok()) {
         std::string vulkanFailure;
-        const fa::GpuLaunchDecision launch = vulkan_player_decision(cfg, *proj, true, &vulkanFailure);
+        const fa::GpuLaunchDecision launch =
+            vulkan_player_decision(cfg, *proj, true, /*checkRun=*/false, &vulkanFailure);
         if (launch.action != fa::GpuLaunchAction::Stay) {
             const bool fallback = launch.action == fa::GpuLaunchAction::FallBackToGl;
             FA_INFO("player", "{}", launch.reason);
