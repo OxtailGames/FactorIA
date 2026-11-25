@@ -673,6 +673,8 @@ void Renderer::shutdown() {
         im.taa.release();
         im.spatial.release();
         im.mfxPrep.release();
+        if (im.gpu.has_device())  // the vendor SDKs' contexts go before the device does (the GPU is idle first, inside)
+            for (int i = 0; i < render::kVendorUpscalerCount; ++i) render::vendor_provider(i).release(im.gpu.device());
         im.gi2d.release();
         im.fogFx.release();
         im.volFx.release();
@@ -1699,10 +1701,13 @@ void Renderer::Impl::render(World& world, float dt) {
         mfxFrame = oneCameraMode == render::UpscalerMode::MetalFx && oneCamera.metalfxTemporal && oneCamera.temporal;
         outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
         // A vendor SDK (M78) takes the same jittered frame; effective_upscaler_mode only names it on a frame that can be jittered
-        // (caps.temporal), so a provider that fails for a frame has the temporal upscaler to fall to. The output image is not made with
-        // storage usage here: the SDK packages ask for it when their provider needs it.
-        if (const int vendor = render::vendor_upscaler_index(oneCameraMode); vendor >= 0)
+        // (caps.temporal), so a provider that fails for a frame has the temporal upscaler to fall to. The output image is made with
+        // storage usage when the provider writes it from a compute shader.
+        if (const int vendor = render::vendor_upscaler_index(oneCameraMode); vendor >= 0) {
             vendorFrameImpl = render::vendor_impl(vendor);
+            // An SDK that writes the output image from a compute shader (XeSS) needs it made with storage usage.
+            if (render::vendor_provider(vendor).needs_output_storage()) outStorage = true;
+        }
         if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame ||
             vendorFrameImpl != render::UpscaleImpl::Stretch)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);

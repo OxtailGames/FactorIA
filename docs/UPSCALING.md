@@ -207,7 +207,7 @@ draws `spatial`; pixel art stays `stretch`.
 
 - **No SDK is in the engine.** The engine ships no vendor header and no vendor binary. Each SDK is reached through the engine's own
   declaration of its C interface and a function table read at run time from its library (the way DirectStorage is loaded), so a game
-  built without them runs everywhere. The libraries are `sl.interposer.dll` (Streamline), `libxess.dll` (XeSS) and
+  built without them runs everywhere. The libraries are `sl.interposer.dll` (Streamline), `libxess.dll` (XeSS; `libxess_dx11.dll` on D3D11) and
   `amd_fidelityfx_dx12.dll` (FidelityFX).
 - **Where the library is looked for**, in this order: the folder `$FA_STREAMLINE_DIR`, `$FA_XESS_DIR` or `$FA_FIDELITYFX_DIR` names (an
   explicit choice: if the library is not there the search stops, the other places are not tried); the folder of the executable (an
@@ -227,10 +227,23 @@ draws `spatial`; pixel art stays `stretch`.
   and the one that draws instead. A frame the SDK refuses (a size it does not take, a lost device) is the same: from then on every
   frame draws without it, with one warning ("fail once, stay off", as MetalFX does) and the temporal upscaler draws that frame, so
   the player never sees a missing picture.
-- **What the seam does today.** M78's first package is the seam: the modes, the choice, the reasons, the loader and the providers that find
-  their library, and `render.supports`, the menu and the editor. With a library found, a provider answers "DLSS support lands later in
-  M78": nothing of an SDK is called, so these modes draw as the next best everywhere until the package of each SDK lands. Tests
-  put fake providers and a fake loader in the same place the real ones go (`vendor_upscale_tests`).
+- **What is real today.** The seam (the modes, the choice, the reasons, the loader, `render.supports`, the menu and the editor) and the
+  XeSS provider below. With a library found, DLSS and FSR still answer "support lands later in M78": nothing of their SDK is called, so
+  those modes draw as the next best until their package lands. Tests put fake providers and a fake loader in the same place the real
+  ones go (`vendor_upscale_tests`, `xess_upscale_tests`).
+- **XeSS (`xess`).** Needs XeSS 3.0 or newer: `libxess.dll` for D3D12 and Vulkan on any GPU, `libxess_dx11.dll` for Direct3D 11 (Intel
+  Arc only: on another GPU the reason says to run the game on D3D12 or Vulkan). On Vulkan XeSS asks for instance and device extensions;
+  if the engine's device did not enable them the reason lists them (M78's device-creation package enables them). The library is probed
+  once (it must load, export every function of the backend and answer a version of 3.0 or newer). One XeSS context is made per
+  device and initialised again only when the render size, the output size, the quality or the input format changes (the GPU is waited
+  for first), never per frame; the quality is the nearest XeSS setting to the upscale ratio (1.3, 1.5, 1.7, 2.0, 2.3, 3.0; the five
+  names of `quality` land exactly) and a dynamic resolution that wobbles near a boundary keeps the setting it has. The engine passes
+  its own render size, the jitter, the exposure and the reset flag (a cut, a resize or a frame after a failure), the responsive mask
+  (an empty one when no item asked for a reactive mask) and an output image made with storage usage. The depth and the motion XeSS
+  reads are made by the same preparation pass as MetalFX's (depth 0..1, motion in UV units, with the velocity scale set to the render
+  size). The context is destroyed, after the GPU is idle, when the renderer shuts down. A failing call is reported with XeSS's own
+  words ("unsupported device", "unsupported driver", ...) and the mode is off for the run. Not checked by the tests (they use a fake
+  library): that the real library's picture is right, which a D3D12 or Vulkan run on a GPU shows.
 - **The menu kit and the editor** list the three modes (DLSS, XeSS, FSR) greyed out with the reason where `render.supports` says no.
 
 ## Temporal antialiasing

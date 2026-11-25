@@ -15,6 +15,11 @@ Older versions, one file per minor version with its patch releases: [0.36](chang
   `licenses/<id>/`, as the new `export.pack.vendorSdks` says (`"auto"` by default, `"none"`, or a list of ids; a listed SDK that is
   not installed fails the export naming `factoria setup <id>`). The export's next steps repeat NVIDIA's obligations (notify NVIDIA before
   a commercial release, credits). EXPORTING_SETUP.md, "Vendor SDK licences".
+- **Intel XeSS Super Resolution (M78):** `render.upscaler` mode `xess` now draws with XeSS 3.x when `libxess.dll` is installed
+  (`factoria setup xess`): D3D12 and Vulkan on any GPU, Direct3D 11 on Intel Arc, and `auto` picks it on an Intel GPU. One context is made
+  per device and initialised again only when the size, quality or input format changes; a call that fails turns the mode off for the
+  run, with XeSS's own reason, and the temporal upscaler draws. The depth and motion XeSS reads come from the preparation pass MetalFX
+  uses, now on every GPU backend but OpenGL. UPSCALING.md, "Vendor upscalers".
 
 ## 0.37.0
 

@@ -378,21 +378,33 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     if (reactive &&
         (reactive->w != in.renderW || reactive->h != in.renderH || reactive->format.color != Gpu::reactive_format()))
         reactive = nullptr;
-    in.depth = prepass ? prepass->texView : gpu::View{};
-    in.velocity = velocity ? velocity->texView : gpu::View{};
+    // The SDKs read a 0..1 depth and a motion image in UV units, not the prepass's world-unit depth and the velocity's "none" sentinel: the
+    // preparation pass MetalFX uses makes them (a frame without a prepass is all sky, without a velocity every motion is the camera's).
+    if (!upscaleTaa.on || !assets || !assets->white()) return false;
+    if (!mfxPrep.ready(gpu.device())) return vendor_fail(index, "the input preparation shader did not compile.");
+    std::uint64_t config = 0;
+    const bool histValid = scaler_history_valid(in, config);
+    if (!run_upscale_prep(in, c, prepass, velocity, histValid))
+        return vendor_fail(index, "the depth and motion images of the render size could not be made.");
+    scaler_history_note(config);
+    in.depth = mfxDepth.texView;
+    in.velocity = mfxMotion.texView;
     in.reactive = reactive ? reactive->texView : gpu::View{};
     in.exposure = 1.0f;  // the scene is exposed before the stage
+    in.resetHistory = !histValid;
     render::VendorFrame f;
     f.device = &gpu.device();
     f.list = &pass_list(c, gpu);
     f.color = src.texture_image();
-    f.depth = prepass ? prepass->texture_image() : gpu::Image{};
-    f.velocity = velocity ? velocity->texture_image() : gpu::Image{};
+    f.depth = mfxDepth.color;
+    f.velocity = mfxMotion.color;
     f.reactive = reactive ? reactive->texture_image() : gpu::Image{};
     f.output = out.color;
     f.colorFormat = src.format.color;
     f.outputFormat = out.format.color;
+    mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
     if (!render::vendor_provider(index).upscale(in, f)) return vendor_fail(index, f.error);
+    mfxLastWrote = true;
     ++stats.drawCalls;  // the provider's own pass
     return true;
 }
@@ -435,8 +447,8 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // temporal upscaler, which the jittered frame suits, then to the spatial one.
     if (render::vendor_impl_index(upscaleImpl) >= 0 && !vendor_upscale(upscaleImpl, in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
-    if (mode != render::UpscalerMode::MetalFx)
-        free_mfx_images();  // another mode: the two images of its preparation pass are not kept
+    if (mode != render::UpscalerMode::MetalFx && render::vendor_impl_index(vendorFrameImpl) < 0)
+        free_mfx_images();  // another mode: the two images of its preparation pass are not kept (the vendor SDKs use them too)
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
         upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
     switch (upscaleImpl) {
