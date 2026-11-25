@@ -11,7 +11,12 @@ Result<void> probe_gpu_backend(GpuBackend backend) {
         return make_error(std::string("this build has no ") + gpu_backend_name(backend) + " backend",
                           "Use the player built with it (on Linux and Android: factoria_player_vulkan for Vulkan).");
     if (backend != GpuBackend::Vulkan) return {};
-#if defined(FA_VULKAN_BACKEND)
+    // FA_RENDER_VULKAN, not FA_VULKAN_BACKEND: the OpenGL player of Android and Linux has the backend's sources in fa_render
+    // but not the renderer on Vulkan, and this file must not name make_vulkan_device there (the linker would take the whole
+    // Vulkan backend into that player). Only the Vulkan player recompiles it with FA_RENDER_VULKAN (fa_render_vulkan in
+    // engine/render/CMakeLists.txt takes every source that tests it). Where it is off, gpu_backend_available() is false
+    // for Vulkan and the check above has answered already.
+#if defined(FA_RENDER_VULKAN)
     gpu::VulkanOptions options;
     options.uploadRingBytes = 64u * 1024u;  // the smallest pools the factory takes: nothing is uploaded
     options.memoryBlockBytes = 1024u * 1024u;
@@ -24,10 +29,9 @@ Result<void> probe_gpu_backend(GpuBackend backend) {
     if (!device) return device.error();
     return {};
 #else
-    // Without the backend nothing here may name make_vulkan_device: a player built for OpenGL must not link the Vulkan code.
-    return make_error("this build has no Vulkan backend (FA_VULKAN_BACKEND is off)",
+    return make_error("this build has no Vulkan backend (FA_RENDER_VULKAN is off)",
                       "Use the player built with it (on Linux and Android: factoria_player_vulkan), or configure with "
-                      "-DFA_VULKAN_BACKEND=ON on a platform with Vulkan.");
+                      "-DFA_RENDER_VULKAN=ON on a platform with Vulkan.");
 #endif
 }
 
