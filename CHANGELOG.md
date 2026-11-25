@@ -12,6 +12,24 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- **Two players on Linux and Android (M77-P9e2):** next to the OpenGL player, `factoria_player_vulkan`
+  (`libfactoria_player_vulkan.so` on Android, CMake option `FA_PLAYER_VULKAN`, on by default there) carries the engine's Vulkan
+  backend and the built-in shaders' SPIR-V, and its `auto` is Vulkan. It starts first and, before the window, checks that Vulkan can
+  start: where it cannot, or when the game's choice is `gl`/`gles3`, it hands the game to the OpenGL player with the marker
+  `FA_GPU_FALLBACK_FROM=vulkan` and the reason (Linux: `execv` of `<exe>-gl` next to it; Android: it starts `factoria.engine.GlActivity`,
+  process `:gl`, with the same two as intent extras, and finishes). The OpenGL player records them as `gpu.fallbackFrom` and
+  `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (`EngineConfig::gpuBackendFailed`)
+  reaches the player before the in-process fallback of the game window (M77-P9e1), so the OpenGL player takes over; the in-process
+  fallback is the last resort when it is not there. A hand-over because the window cannot take the swapchain says so (`the window path
+  is not available on this platform yet`), not that a driver update would bring Vulkan back: on Android, whose window keeps its OpenGL
+  ES surface until M77-P9e3b, a windowed game is still drawn with OpenGL ES in the end. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
+  and GlActivity); `export.linux.vulkanPlayer` / `export.android.vulkanPlayer: false` ship the OpenGL player only, and so do
+  players or prebuilt libraries without the Vulkan one. `factoria setup players` copies the Linux Vulkan player of a release that has
+  it. The new command `graphics.backend` reads which backend draws, what was asked and from where, the fallback that started this
+  player and the stored choice, and with `{"name"}` stores the backend for the next start in the game's save folder
+  (`graphics_backend.json`), which the start reads after `FA_GPU_BACKEND` and before `factoria.json`. CI and the release measure
+  both players (`linux-x64-vulkan`, `android-<abi>-vulkan`, no budget yet) and the Android emulator smoke follows the game into the
+  `:gl` process when the handover happens. docs/RENDERING.md, "Two players on Linux and Android".
 - Vulkan backend leftovers (M77 polish): a window surface that lacks the device's default 8-bit colour order (Android offers only RGBA)
   gives the swapchain the other one and the device's default colour format follows it, or fails with a hint naming
   `DeviceInit::environment.defaults.colorFormat` when pipelines made with the old default exist; `acquire_swapchain` waits 100 ms and the
@@ -69,8 +87,6 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   thread) and `bindless` (every live texture view has a slot of the bindless table, `bindless_index`). Compute lists' timed scopes are
   measured, copy lists' are ignored, and a list kept open no longer lets the timer ring reuse its slot. On binding tier 1 a writable view
   that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
-- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines-<program>.bin`
-  (one file per program, the editor's, the CLI's and each player's, so none overwrites another's PSOs), loaded
 - The renderer uses the queues and threads of D3D12 and Vulkan (M77-P10d): the shadow views (sun cascades, spot and point light tiles)
   are recorded on job threads into up to four command lists submitted in a fixed order (`render.shadow_record`), and the depth-pyramid
   reduce of GPU occlusion runs on the compute queue, handing the prepass and its cells buffer over and back, with the graphics queue
@@ -80,13 +96,17 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   startup report says whether each is in use (docs/RENDERING.md, "Async compute and multi-thread recording"). GPU occlusion culling
   (the depth pyramid) now runs on D3D12 and Vulkan devices with compute shaders, and the light data upload names its rectangle
   (RecordingDevice reported an empty one).
-- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
+- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines-<program>-<hash>.bin`
+  (one file per program: the editor's, the CLI's, each exported game's, and the one the SDK's `factoria_player` shares between the
+  projects it runs; the hash of the whole program name keeps names that look alike once cleaned up apart), loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache); the adapter's LUID, new at every boot, is not compared. A
   library over `D3d12Options::pipelineCacheTrimBytes` (64 MiB) is rebuilt at save with only the PSOs that run used, so the file does not
   grow without bound. A save that fails (serializing, a library over 1 GiB, a reader that holds the file, a full disk) is a warning that
-  names the file and keeps the old one, and waits for a reader at most three 1 ms tries instead of about a second; a write is logged with
-  its size. The shader cache report has a `pipelineCache` object (`trimmed` counts the rebuilds). The
+  names the file and keeps the old one, and waits for a reader at most three 1 ms tries instead of about a second (a scanner that holds
+  the temporary file is waited for up to 160 ms); a read-only cache file gets a hint that names the attribute to clear, and a failed
+  write is tried again at the next save or the next run; temporary files a crashed save left in the folder are removed at load; a write
+  is logged with its size. After a trim, PSOs the file holds that this run had not asked for yet are still loaded from it. The shader cache report has a `pipelineCache` object (`trimmed` counts the rebuilds). The
   backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
   `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
   the device was lost. A renderer on D3D12 (`RendererDesc::backend`, M77-P9b) uses the file.

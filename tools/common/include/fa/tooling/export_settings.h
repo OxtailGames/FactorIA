@@ -64,6 +64,9 @@ struct MacosExportSettings {
 struct LinuxExportSettings {
     std::string icon;
     std::vector<std::string> categories = {"Game"};  // Categories= of the .desktop file
+    // Ship the Vulkan variant of the player too (<exe> = factoria_player_vulkan, <exe>-gl = factoria_player), when one is
+    // next to the player; false = only the GL player (docs/EXPORTING.md, "Desktop").
+    bool vulkanPlayer = true;
     bool operator==(const LinuxExportSettings&) const = default;
 };
 
@@ -89,6 +92,9 @@ struct AndroidExportSettings {
     int targetSdk = 36;                    // >= 26 (Google Play asks for the latest API level)
     std::vector<std::string> permissions;  // extra <uses-permission> names, "android.permission.VIBRATE"
     AndroidSigningSettings signing;
+    // Ship the Vulkan variant (libfactoria_player_vulkan.so, the launcher activity) with the GL player as its fallback;
+    // false = only the GL player (docs/EXPORTING.md, "Android").
+    bool vulkanPlayer = true;
     bool operator==(const AndroidExportSettings&) const = default;
 };
 

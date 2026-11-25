@@ -26,11 +26,10 @@ namespace {
 
 constexpr std::uint32_t kQueriesPerSlot = 2u + 2u * 64u;  // frame start and end, then two per scope
 
-// How many polls wait for a frame whose timeline value passed but whose timestamps are not available yet (MoltenVK
-// signals the timeline from a command buffer's completion handler, a moment before the queries are visible) before the
-// frame is dropped. A count of polls (one per frame in the renderer), never a time: the result does not depend on the
-// CPU's speed.
-constexpr std::uint32_t kTimerMaxNotReady = 120;
+// (kTimerMaxNotReady, in vulkan_device.h: how many polls wait for a frame whose timeline value passed but whose
+// timestamps are not available yet (MoltenVK signals the timeline from a command buffer's completion handler, a moment
+// before the queries are visible) before the frame is dropped. A count of polls (one per frame in the renderer), never
+// a time: the result does not depend on the CPU's speed.)
 
 // Two consecutive timestamp queries of a pool with their availability: false when either is not available yet (the
 // values of an available one are still written) or the read failed (`failed`).
@@ -194,7 +193,7 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
         // that was never written would hang the wait.
         std::uint64_t frame[2] = {};
         bool failed = false;
-        if (!read_pair(fn_, device_, slot.pool, 0, frame, failed)) {
+        if (timerHideResults_ || !read_pair(fn_, device_, slot.pool, 0, frame, failed)) {
             if (!failed && ++slot.notReady <= kTimerMaxNotReady) break;  // not available yet: the next poll asks again
             if (!timerWarned_) {
                 timerWarned_ = true;
@@ -203,7 +202,11 @@ void VulkanDevice::timer_poll(std::vector<double>& frameMs) {
                         "it (the driver {}); the frame is dropped and its time not reported",
                         slot.notReady, failed ? "failed vkGetQueryPoolResults" : "never made them visible");
             }
-            timerPending_.pop_front();  // this frame is lost
+            // This frame is lost: the poll limit passed (or the read failed), so its time is never reported. Only a
+            // lost frame's own queries are dropped here; the frames after it are read as usual. The count of dropped
+            // frames (timer_dropped_frames()) and the warning (once) are all the report of it.
+            ++timerDropped_;
+            timerPending_.pop_front();
             continue;
         }
         timerPending_.pop_front();

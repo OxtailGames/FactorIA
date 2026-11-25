@@ -363,6 +363,18 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         }
     }
 
+    // vulkanPlayer (linux, android): whether the export ships the Vulkan variant of the player next to the GL one.
+    void take_vulkan_player(const Json& o, const std::string& base, bool& out) {
+        if (auto it = o.find("vulkanPlayer"); it != o.end() && !it->is_null()) {
+            if (!it->is_boolean())
+                error(base + "/vulkanPlayer", "expected true or false, got " + describe_json_value(*it),
+                      "Write false to ship only the GL player; remove the key for the default, true (the Vulkan "
+                      "player, which falls back to the GL one where Vulkan cannot start).");
+            else
+                out = it->get<bool>();
+        }
+    }
+
     // usesNonExemptEncryption -> ITSAppUsesNonExemptEncryption (iOS and macOS).
     void take_encryption_flag(const Json& o, const std::string& base, bool& out, const char* os) {
         if (auto it = o.find("usesNonExemptEncryption"); it != o.end() && !it->is_null()) {
@@ -513,7 +525,8 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 if (ok) s.categories = std::move(cats);
             }
         }
-        unknown_keys(o, base, names_of({"icon", "categories"}));
+        take_vulkan_player(o, base, s.vulkanPlayer);
+        unknown_keys(o, base, names_of({"icon", "categories", "vulkanPlayer"}));
     }
 
     void adaptive_icon(const Json& o, const std::string& base, AndroidAdaptiveIconSettings& s) {
@@ -613,9 +626,10 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
         if (const Json* sg =
                 object_member(o, base, "signing", "{\"keystore\": \"keys/upload.keystore\", \"alias\": \"upload\"}"))
             signing(*sg, base + "/signing", s.signing);
+        take_vulkan_player(o, base, s.vulkanPlayer);
         unknown_keys(o, base,
                      names_of({"icon", "format", "adaptiveIcon", "versionCode", "minSdk", "targetSdk", "permissions",
-                               "signing"}));
+                               "signing", "vulkanPlayer"}));
     }
 
     void ios(const Json& o, const std::string& base, IosExportSettings& s) {
