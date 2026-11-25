@@ -93,6 +93,12 @@ public:
     unsigned backends() const override { return bit(gpu::Backend::D3d12); }
     VendorProbe probe(const VendorEnv& env) override;
     std::shared_ptr<gpu::DeviceHook> device_hook() override { return shared_from_this(); }
+    // Only a game started with `xess` (or `auto`, which is XeSS on an Intel GPU) gets XeSS-FG's swapchain: `dlss` and `fsr` leave the
+    // window's swapchain to their own providers.
+    std::shared_ptr<gpu::DeviceHook> device_hook_for(FrameGenMode mode) override {
+        if (mode != FrameGenMode::Xess && mode != FrameGenMode::Auto) return nullptr;
+        return shared_from_this();
+    }
     std::string start(gpu::Device& device, const FrameGenSwapchain& swapchain) override;
     void configure(bool enabled) override;
     bool dispatch(FrameGenFrame& frame) override;
