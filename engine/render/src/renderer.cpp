@@ -326,6 +326,10 @@ bool gpu_backend_available(GpuBackend backend) {
     return backend == GpuBackend::Default || gpu::device_backend_compiled(device_backend_of(backend));
 }
 
+bool gpu_backend_on_context(GpuBackend backend) {
+    return backend == GpuBackend::Default || is_sokol_backend(device_backend_of(backend));
+}
+
 GpuBackend Renderer::device_backend() const {
     if (!impl_ || !impl_->gpu.has_device()) return GpuBackend::Default;
     return public_backend_of(impl_->gpu.device().backend());
@@ -593,9 +597,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         }
     }
     // The window's swapchain (gpu/device.h): the sokol devices present into sokol_app's. D3D12 and Vulkan make their
-    // own on a native window, which RendererDesc does not hand over yet, so they fail here and say why.
+    // own on RendererDesc::nativeWindow; without one (or on a window that refuses it) they fail here and say why. A
+    // failure destroys what was made, the swapchain first, so the caller can hand the window to another backend.
     auto fail = [&](const std::string& why) {
         if (error) *error = why;
+        if (im.gpu.has_device()) im.gpu.device().destroy_swapchain();
         im.gpu.shutdown();
         if (!im.adopted) gpu::close_context();
         impl_.reset();
@@ -608,6 +614,13 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     if (!desc.headless) {
         gpu::SwapchainDesc sd;
         sd.label = "window";
+        sd.nativeWindow = desc.nativeWindow.window;  // read by D3D12 and Vulkan only
+        sd.nativeDisplay = desc.nativeWindow.display;
+        sd.width = std::max(0, desc.nativeWindow.width);
+        sd.height = std::max(0, desc.nativeWindow.height);
+        // The window's MSAA, as the environment says it (the platform's sample count): the present pass is made for it.
+        sd.sampleCount = std::max(1, im.gpu.device().environment_defaults().sampleCount);
+        sd.vsync = desc.vsync;
         if (auto made = im.gpu.device().create_swapchain(sd); !made)
             return fail("The renderer cannot draw into the window: " + made.error().to_string());
     }

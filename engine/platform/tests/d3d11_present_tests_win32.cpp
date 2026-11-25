@@ -158,12 +158,36 @@ TEST_CASE("D3D11 window presenter: clear, read back, present, resize, destroy") 
 
 TEST_CASE("D3D11 window presenter with MSAA resolves into the swapchain's buffer") { run_presenter(4); }
 
+TEST_CASE("D3D11 window presenter: destroyed, the same window takes a new flip-model swapchain") {
+    // The in-process fallback (M77-P9e1): a D3D12 or Vulkan device claimed the window, so the presenter was destroyed (one
+    // flip-model swapchain per HWND, released at once by ClearState + Flush), then failed; the presenter is made again on the
+    // same HWND. Two rounds: the second one is the one a released swapchain would have refused (E_ACCESSDENIED).
+    HiddenWindow window(64, 48);
+    REQUIRE(window.hwnd);
+    for (int round = 0; round < 2; ++round) {
+        CAPTURE(round);
+        d3d11::Presenter p;
+        d3d11::PresenterDesc desc;
+        desc.hwnd = window.hwnd;
+        desc.width = 64;
+        desc.height = 48;
+        std::string error;
+        REQUIRE_MESSAGE(make_presenter(p, desc, error), error);
+        CHECK(p.valid());
+        CHECK_FALSE(p.lost());
+        CHECK(p.destroy());
+        CHECK_FALSE(p.valid());
+        CHECK(p.lost());  // nothing made: it never presents
+    }
+}
+
 TEST_CASE("D3D11 window presenter refuses a null window with a teaching error") {
     d3d11::Presenter p;
     std::string error;
     CHECK_FALSE(p.create(d3d11::PresenterDesc{}, &error));
     CHECK(error.find("HWND") != std::string::npos);
     CHECK_FALSE(p.valid());
+    CHECK(p.lost());
     CHECK(p.present(1, false) == d3d11::PresentResult::Failed);
 }
 

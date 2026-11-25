@@ -53,7 +53,10 @@ public:
     bool create(const PresenterDesc& desc, std::string* error);
     // Releases every object. True when each one's last reference went with it (nothing leaked: sokol_gfx is shut down first).
     bool destroy();
+    // Made, with its views and not lost: it presents. A presenter whose views could not be made again after a resize is
+    // not valid() but not lost() either: resize() is called every frame and makes them again.
     bool valid() const;
+    bool lost() const;  // the device was removed or reset (or nothing is made): it never presents again
 
     GfxEnvironment environment() const;
     // This frame's views. Call after resize() and before present().
@@ -94,9 +97,14 @@ private:
 // The presenter of sokol_app's window, made on the first call (app_gfx_environment). Null when it could not be made (the
 // error was logged once) or there is no window yet.
 Presenter* window_presenter_ensure();
-// The window's presenter when it exists (no creation).
+// The window's presenter when it exists and can present (valid(): its views are made). No creation.
 Presenter* window_presenter();
-// Releases it at the end of the app (after sokol_gfx shut down; left alone while sokol_gfx still uses it).
+// The window's presenter when it exists and is not lost, with or without its views: app.cpp resizes it every frame, which
+// makes views again that a failed resize left unmade (window_presenter() is null until then).
+Presenter* window_presenter_live();
+// Releases it (after sokol_gfx shut down; left alone while sokol_gfx still uses it): at the end of the app, and when a
+// D3D12 or Vulkan device claims the window (app_claim_native_window: one flip-model swapchain per window). A later
+// window_presenter_ensure() makes a new one (the fallback to D3D11 after such a device failed).
 void window_presenter_release();
 // True while Windows' modal move or resize loop runs on this thread (GetGUIThreadInfo: GUI_INMOVESIZE).
 bool in_modal_move_size_loop();

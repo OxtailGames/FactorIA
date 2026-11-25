@@ -80,9 +80,15 @@ struct EngineConfig {
     // The GPU backend to draw with (M77-P9a): "auto", "gl", "gles3", "webgl2", "d3d11", "metal", "d3d12" or "vulkan" (render::
     // gpu_backend_name); "" = the FA_GPU_BACKEND environment variable, else factoria.json render.backend, else "auto" (the
     // sokol backend this binary was built with). An unknown name makes init fail with the valid names; one this platform or
-    // build does not have is a warning and "auto". D3D12 and Vulkan have no window path yet: with a window the engine warns
-    // once and draws with "auto"; a headless run uses the one asked for. Engine::startup_report names the one that runs.
+    // build does not have is a warning and "auto". D3D12 and Vulkan draw into the window with a swapchain of their own (the
+    // engine claims the native window from the platform) or headless offscreen; when the one asked for cannot start (no
+    // driver, no such GPU, a window that cannot take its swapchain: an OpenGL window, the editor's view) the engine warns
+    // once with the first error and draws with "auto" in the same process. Engine::startup_report names the one that
+    // runs, the one asked for and why it fell back (gpu.backend, gpu.requestedBackend, gpu.backendFallback).
     std::string gpuBackend;
+    // Tests: called before each start of the renderer on a backend; a non-empty answer makes that start fail with it
+    // (before any device is made), so the fallback can be checked on a machine where every backend works. Empty = none.
+    std::function<std::string(GpuBackend backend)> gpuStartFault;
     // The calendar date `game.today()` answers, "YYYY-MM-DD" ("" = the fixed default, kDefaultDate 2026-01-01: a simulation
     // never reads the clock). A host with a window puts the player's real date here (run_windowed does, with
     // local_calendar_date()); `factoria test`, headless runs, `factoria call/session` and the MCP server leave it empty unless
@@ -381,7 +387,9 @@ public:
     // makes the next few GPU pipelines the first scene draws with (Renderer::warm_step) and records WarmEnd when done.
     // Returns how many steps are left; 0 at once without a renderer or without a window. Never changes what is drawn.
     int warm_step(const GfxSwapchain& swapchain);
-    // {firstPresentMs, firstGameFrameMs, ... (StartupTimeline::to_json), gpu: Renderer::startup_report() or null}.
+    // {firstPresentMs, firstGameFrameMs, ... (StartupTimeline::to_json), gpu: Renderer::startup_report() or null}. gpu
+    // also has requestedBackend (the backend asked for, when another one draws) and backendFallback (why the asked one
+    // could not start: its first error) after an in-process fallback.
     Json startup_report() const;
     // This engine's reader token (fa/core/load_trace.h): a host that drives the engine through calls outside its entry
     // points (play.auto's bot hook) opens a LoadTrace::ReadingFor with it, so those reads are the game's too.
