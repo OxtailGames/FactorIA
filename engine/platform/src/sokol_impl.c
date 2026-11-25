@@ -662,8 +662,7 @@ bool fa_sapp_set_window_size(int w, int h) {
 #endif
 }
 
-// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3)
-// ----------
+// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3) ---
 #if defined(_SAPP_GLX)
 // GLX 1.3 names sokol_app's own GLX declarations leave out (it includes no <GL/glx.h>, whose types would clash with
 // them).
