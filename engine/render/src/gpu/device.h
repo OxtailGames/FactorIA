@@ -176,6 +176,8 @@ struct SwapchainDesc {
     int sampleCount = 1;  // MSAA of the swapchain's image
     // The colour format of the swapchain: Default = the device's SDR format (EnvironmentDefaults::colorFormat);
     // Rgba16F = scRGB (Windows) or EDR (Apple); Rgb10A2 = HDR10. swapchain_format_supported() says which it takes.
+    // Vulkan: where the surface lacks the default's 8-bit order (Android has only RGBA) Default takes the other one
+    // and EnvironmentDefaults::colorFormat follows it (an error when pipelines made with the old one exist).
     PixelFormat colorFormat = PixelFormat::Default;
     bool vsync = true;
     const char* label = nullptr;
@@ -411,8 +413,10 @@ public:
     // the frame). D3D12 makes its own DXGI flip-model swapchain on SwapchainDesc::nativeWindow (an HWND): acquire waits
     // for the frame-latency object and hands back the next back buffer, present presents it on the graphics queue,
     // resize waits for the GPU and resizes the buffers (docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Swapchain").
-    // The defaults below are the answer of a backend without a window path (Vulkan for now, and RecordingDevice):
-    // every call fails with a teaching error and nothing changes.
+    // Vulkan makes its own VkSwapchainKHR on SwapchainDesc::nativeWindow (an HWND, an X11 Window, an ANativeWindow*
+    // or a CAMetalLayer*; docs/design/ARCHITECTURE_RENDERING_VULKAN.md, "Swapchain"). The defaults below are the answer
+    // of a backend without a window path (RecordingDevice, and a Vulkan device whose loader or driver lacks the surface
+    // and swapchain extensions): every call fails with a teaching error and nothing changes.
     virtual Result<void> create_swapchain(const SwapchainDesc& desc);
     virtual Result<void> resize_swapchain(int width, int height);
     // `windowFrame` is read by the sokol devices only (an explicit backend acquires the next image of its own

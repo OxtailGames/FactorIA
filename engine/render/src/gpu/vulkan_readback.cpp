@@ -72,6 +72,15 @@ Result<void> VulkanDevice::check_texture_read(const ImageRecord& rec, std::uint3
                               std::to_string(mw) + "x" + std::to_string(mh) + " mip " + std::to_string(mip),
                           "read inside the image's size");
     if (!rec.tracked) return make_error(where + ": the image has no Vulkan image", "make_image failed: see errors()");
+    if (rec.tracked->external && !(swapUsage_ & VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+        return make_error(where + ": the swapchain image was made without TRANSFER_SRC usage, so it cannot be copied "
+                                  "out",
+                          "this surface does not allow TRANSFER_SRC: draw into an offscreen image and read that");
+    if (const QueueKind owner = owner_of(*rec.tracked); owner != QueueKind::Graphics)
+        return make_error(where + ": the image belongs to the " + queue_name(owner) +
+                              " queue, and readbacks run on the Graphics queue",
+                          "hand it to Graphics first: submit_token(<a list of its queue>, {QueueHandoff{image, to = "
+                          "QueueKind::Graphics}}), then wait_queue(QueueKind::Graphics, token), then read it");
     return {};
 }
 
@@ -197,6 +206,11 @@ Result<void> VulkanDevice::read_buffer(Buffer buffer, std::size_t offset, std::s
         return make_error("gpu vulkan: read_buffer: buffer " + std::to_string(buffer.id) +
                               " is not a live buffer (destroyed, failed, or another device's)",
                           "read a buffer this device made, before destroy_buffer()");
+    if (const QueueKind owner = owner_of(*t); owner != QueueKind::Graphics)
+        return make_error("gpu vulkan: read_buffer of buffer '" + label + "': the buffer belongs to the " +
+                              queue_name(owner) + " queue, and readbacks run on the Graphics queue",
+                          "hand it to Graphics first: submit_token(<a list of its queue>, {QueueHandoff{buffer, to = "
+                          "QueueKind::Graphics}}), then wait_queue(QueueKind::Graphics, token), then read it");
     if (offset > size || bytes > size - offset)
         return make_error("gpu vulkan: read_buffer of buffer '" + label + "': " + std::to_string(bytes) +
                               " bytes from offset " + std::to_string(offset) + " go past its " + std::to_string(size) +
@@ -300,6 +314,11 @@ Result<ReadTicket> VulkanDevice::request_buffer_read(Buffer buffer, std::size_t 
         return make_error("gpu vulkan: request_buffer_read: buffer " + std::to_string(buffer.id) +
                               " is not a live buffer (destroyed, failed, or another device's)",
                           "read a buffer this device made, before destroy_buffer()");
+    if (const QueueKind owner = owner_of(*t); owner != QueueKind::Graphics)
+        return make_error("gpu vulkan: request_buffer_read of buffer '" + label + "': the buffer belongs to the " +
+                              queue_name(owner) + " queue, and readbacks run on the Graphics queue",
+                          "hand it to Graphics first: submit_token(<a list of its queue>, {QueueHandoff{buffer, to = "
+                          "QueueKind::Graphics}}), then wait_queue(QueueKind::Graphics, token), then read it");
     if (bytes == 0 || offset > size || bytes > size - offset)
         return make_error("gpu vulkan: request_buffer_read of buffer '" + label + "': " + std::to_string(bytes) +
                               " bytes from offset " + std::to_string(offset) +
