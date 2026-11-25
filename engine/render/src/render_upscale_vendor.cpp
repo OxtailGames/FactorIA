@@ -175,6 +175,21 @@ public:
         return nullptr;
 #endif
     }
+    std::unique_ptr<VendorLibrary> open_loaded(const char* moduleName, std::string* why) override {
+#if defined(_WIN32)
+        HMODULE h = GetModuleHandleA(
+            moduleName);  // no reference taken: the driver keeps its own module for the life of the process
+        if (!h) {
+            if (why) *why = std::string(moduleName) + " is not loaded in this process (the GPU driver loads it)";
+            return nullptr;
+        }
+        return std::make_unique<DiskLibrary>(h, moduleName);
+#else
+        (void)moduleName;
+        if (why) *why = "the GPU driver's modules are reached on Windows only";
+        return nullptr;
+#endif
+    }
 };
 
 VendorLoader* g_loader_override = nullptr;
@@ -408,13 +423,16 @@ VendorEnv vendor_env_of(const gpu::Device& device) {
 const char* vendor_backend_label(gpu::Backend backend) { return backend_label(backend); }
 std::string vendor_describe_gpu(GpuVendor vendor) { return describe_gpu(vendor); }
 
-std::string vendor_environment_problem(const VendorUpscaler& provider, const VendorEnv& env) {
-    const std::string name(provider.name());
-    if (!(provider.backends() & backend_bit(env.backend)))
-        return name + " needs " + backend_list(provider.backends()) + "; this game runs on " +
-               backend_label(env.backend) + ".";
+std::string vendor_environment_problem(std::string_view nameView, unsigned backends, const VendorEnv& env) {
+    const std::string name(nameView);
+    if (!(backends & backend_bit(env.backend)))
+        return name + " needs " + backend_list(backends) + "; this game runs on " + backend_label(env.backend) + ".";
     if (!env.windows) return name + " works on Windows only; this system is not Windows.";
     return {};
+}
+
+std::string vendor_environment_problem(const VendorUpscaler& provider, const VendorEnv& env) {
+    return vendor_environment_problem(provider.name(), provider.backends(), env);
 }
 
 }  // namespace fa::render

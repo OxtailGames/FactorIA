@@ -149,10 +149,13 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     list.end_pass();
     im.gpu.commit_frame();
     im.gpu.note_commit();
+    im.latency.mark(render::LatencyMarker::RenderSubmitEnd);
+    im.latency.mark(render::LatencyMarker::PresentStart);
     if (auto shown = device.present(); !shown) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", shown.error().to_string());
         im.presentFailed = true;
     }
+    im.latency.mark(render::LatencyMarker::PresentEnd);
     im.inFrame = false;
 }
 

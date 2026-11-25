@@ -67,6 +67,14 @@ public:
     virtual std::filesystem::path find(const VendorLibrarySpec& spec, std::string* why) = 0;
     // Null and `why` (when given) the system's reason when the file cannot be loaded.
     virtual std::unique_ptr<VendorLibrary> load(const std::filesystem::path& path, std::string* why) = 0;
+    // A module the GPU driver already loaded into the process (AMD's amdxc64.dll, which Anti-Lag 2 is reached through: it is part of the driver,
+    // never in a folder of the game). Null and `why` (when given) the reason when it is not loaded; nothing is loaded by this call. Not
+    // abstract: a loader that has no such modules (a test's fake that does not care) says there is none.
+    virtual std::unique_ptr<VendorLibrary> open_loaded(const char* moduleName, std::string* why) {
+        (void)moduleName;
+        if (why) *why = "this loader has no modules of the driver";
+        return nullptr;
+    }
 };
 VendorLoader& vendor_loader();                        // the fake of a test, else the process's
 void set_vendor_loader_for_test(VendorLoader* fake);  // null puts the process's back
@@ -147,5 +155,7 @@ std::string vendor_describe_gpu(GpuVendor vendor);
 // The sentence of a provider refused by `env`'s backend, GPU maker or system ("" when none refuses it): the checks every provider shares,
 // in the order backend, system. The GPU maker check of DLSS is its own.
 std::string vendor_environment_problem(const VendorUpscaler& provider, const VendorEnv& env);
+// The same for any SDK: its name and the backends (bits of 1 << gpu::Backend) it can run on (the low-latency providers use it).
+std::string vendor_environment_problem(std::string_view name, unsigned backends, const VendorEnv& env);
 
 }  // namespace fa::render

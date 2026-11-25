@@ -257,6 +257,15 @@ void Engine::Impl::track_display_refresh(double dt) {
     }
 }
 
+// The refresh rate the engine's own latency pacing aligns to (docs/LATENCY.md, "The engine's own pacing"): the display's, while the display paces a
+// windowed game (vsync on, no window.frameCap, a continuous render mode) and the rate is known; else 0 and no sleep is added.
+double Engine::Impl::latency_pacing_hz() const {
+    if (!windowed || cfg.editorMode || !renderer) return 0.0;
+    const bool paced =
+        app_vsync() && (!appWindow || appWindow->frame_cap() == 0) && cfg.renderMode != RenderMode::OnDemand;
+    return paced ? refreshHz : 0.0;
+}
+
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     world.interp().enabled = project.renderInterpolation;  // fa/scene/interpolation.h
@@ -288,6 +297,11 @@ void Engine::Impl::apply_project_settings() {
                 applyingPreset = false;
             }
         }
+    }
+    // The low-latency setting of factoria.json ("render.latency"), applied when it changes, like the upscaler. Always valid.
+    if (!appliedProjectLatency || *appliedProjectLatency != project.latency) {
+        appliedProjectLatency = project.latency;
+        self->set_latency(render::latency_to_json(project.latency), "factoria.json");
     }
     // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
     // load_project checked it.
@@ -811,7 +825,11 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             jobOwner.run_main_thread_tasks();
             jobs::run_main_thread_tasks();
         }
+        // The engine's own pacing sleeps here (before the input is sampled), or the vendor's Sleep call does; nothing runs while the
+        // setting is off. The frame id of the markers below is the count of presents so far plus one.
+        if (profiled && renderer) renderer->latency_frame_begin(latency_pacing_hz());
         platform.frame();
+        if (profiled && renderer) renderer->latency_mark(render::LatencyMarker::InputSample);
         tick_background_loads();  // scene.preload / assets.preload / async scene.load: this frame's share, then their handles hear it
         scripts.dispatch_platform();
         scripts.dispatch_back();      // the Back button of this frame: input.onBack handlers, else quit
@@ -952,6 +970,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // (`time_scale()`: a hit-stop or a pause holds them).
     feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
     interp_update(world, interpAlpha, false);  // what scripts moved since the steps is drawn where it is, not blended
+    if (profiled && renderer) renderer->latency_mark(render::LatencyMarker::SimulationEnd);
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
@@ -962,6 +981,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (recorder.recording())
         recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
+    if (profiled && renderer && Profiler::on())
+        Profiler::get().set_latency_ms(
+            renderer->take_latency_ms());  // this frame's input-to-present (M78), -1 when none
     if (profiled) {
         jobs::end_frame(&jobOwner);  // with 0 workers the jobs nobody waited for run here; closes the job statistics
         Profiler::get().end_frame();
@@ -1272,6 +1294,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
+            // The low-latency setting: a window the game draws into only (the editor's own loop and a headless run have no display to pace).
+            if (I.windowed && !config.editorMode) I.renderer->set_latency(I.latency);
             // The project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality
             // draws below the window's size from the first frame).
             I.sync_dynamic_resolution();
@@ -2024,6 +2048,41 @@ std::string Engine::set_upscaler(const Json& value, const std::string& where) {
     return err;
 }
 
+std::string Engine::set_latency(const Json& value, const std::string& where) {
+    auto parsed = render::parse_latency_settings(value, where, impl_->latency);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->latency = parsed.value();
+    if (impl_->renderer && impl_->windowed && !impl_->cfg.editorMode) impl_->renderer->set_latency(impl_->latency);
+    return std::string();
+}
+
+const render::LatencySettings& Engine::latency() const { return impl_->latency; }
+
+Json Engine::latency_status() {
+    Json j;
+    if (impl_->renderer) {
+        j = impl_->renderer->latency_status();
+        if (!(impl_->windowed && !impl_->cfg.editorMode) && impl_->latency.mode != render::LatencyMode::Off) {
+            j["mode"] = std::string(render::latency_mode_name(impl_->latency.mode));
+            j["boost"] = impl_->latency.boost;
+            j["driver"] = "none";
+            j["reason"] = "The latency setting acts in a game window only: this run is headless or the editor's own "
+                          "loop, so nothing is paced.";
+        }
+        return j;
+    }
+    j = render::latency_to_json(impl_->latency);
+    j["driver"] = "none";
+    j["reason"] =
+        impl_->latency.mode == render::LatencyMode::Off
+            ? std::string()
+            : std::string("No renderer: the engine runs with graphics=false, so the setting is only remembered.");
+    j["modes"] = Json::object();
+    return j;
+}
+
+Json Engine::latency_report() { return impl_->renderer ? impl_->renderer->latency_report() : Json::object(); }
+
 std::string Engine::set_dynamic_resolution(const Json& value, const std::string& where) {
     std::string err = ScriptHost::set_dynamic_resolution(value, where);
     if (err.empty()) {
@@ -2227,6 +2286,18 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
     }
     r->take_gpu_ms(msOut);
     if (supported) *supported = r->gpu_timing_supported(reason);
+}
+
+void Engine::profile_latency(std::string* driver, std::string* reason) {
+    const Json st = latency_status();
+    const std::string name = st.value("driver", std::string("none"));
+    std::string why = st.value("reason", std::string());
+    if (name == "none" && why.empty())
+        why = "render.latency is off (set mode auto, or the one of the GPU's maker: docs/LATENCY.md)";
+    else if (name != "none")
+        why = "no frame was presented while this was measured";
+    if (driver) *driver = name;
+    if (reason) *reason = why;
 }
 
 void Engine::step_frames(int n) { step(n); }

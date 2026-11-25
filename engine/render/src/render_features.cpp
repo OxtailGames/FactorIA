@@ -452,6 +452,31 @@ std::vector<FeatureDef> build_table() {
          "Where it is missing "
          "the mode draws as \"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
          nullptr},
+        // The low-latency modes of M78 (docs/LATENCY.md; render.latency): the answer is the provider's (render_latency.h), like the vendor
+        // upscalers'. The renderer's own pacing needs no row: it runs wherever a window is presented to.
+        {"reflex", "",
+         "NVIDIA Reflex low latency (render.latency mode \"reflex\", also picked by \"auto\" on an NVIDIA GPU): the "
+         "loop sleeps before the "
+         "input is read so the frame the player sees is as new as possible. Windows with an NVIDIA GPU, through "
+         "Streamline; its provider "
+         "arrives with the Streamline provider, so the row is false until then and the mode runs the engine's own "
+         "pacing "
+         "(render.supports gives the reason).",
+         nullptr},
+        {"antilag2", "",
+         "AMD Anti-Lag 2 low latency (render.latency mode \"antilag2\", also picked by \"auto\" on an AMD GPU): the "
+         "driver's own delay "
+         "before the input is read. Windows with a recent Radeon driver on D3D12 or Vulkan (the driver has it; nothing "
+         "to install). Where "
+         "it is missing the mode runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"xell", "",
+         "Intel XeSS Low Latency (render.latency mode \"xell\", also picked by \"auto\" on an Intel GPU): XeLL's sleep "
+         "before the input is "
+         "read, with the frame markers. Windows on D3D12, and the XeSS SDK installed (`factoria setup xess`). Where it "
+         "is missing the mode "
+         "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
+         nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
          "window.dynamicResolution): "
@@ -474,8 +499,8 @@ std::vector<FeatureDef> build_table() {
         // column is set. The row's answer always comes from the provider's probe (feature_supported), whatever this column says.
         const unsigned backends = row == "metalfx"                 ? bit(FeatureBackend::Metal)
                                   : row == "dlss" || row == "xess" ? bit(FeatureBackend::D3d11)
-                                  : row == "fsr"                   ? 0u
-                                                                   : kEveryGpu;
+                                  : row == "fsr" || row == "reflex" || row == "antilag2" || row == "xell" ? 0u
+                                                                                                          : kEveryGpu;
         t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)
@@ -486,6 +511,11 @@ std::vector<FeatureDef> build_table() {
 
 // 0 dlss, 1 xess, 2 fsr: the vendor rows; -1 any other.
 int vendor_row_index(std::string_view name) { return name == "dlss" ? 0 : name == "xess" ? 1 : name == "fsr" ? 2 : -1; }
+
+// 0 reflex, 1 antilag2, 2 xell: the low-latency rows; -1 any other.
+int latency_row_index(std::string_view name) {
+    return name == "reflex" ? 0 : name == "antilag2" ? 1 : name == "xell" ? 2 : -1;
+}
 
 bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
     auto need = [&](const char* word, bool have, const char* what) {
@@ -562,6 +592,18 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
         const VendorProbe& p = env.vendorUpscalers[std::size_t(vendor)];
         if (!p.available && why)
             *why = p.reason.empty() ? std::string("this upscaler is not available here") : p.reason;
+        return p.available;
+    }
+    if (const int lat = latency_row_index(f.name); lat >= 0) {
+        if (!env.latencyAsked) {
+            if (why)
+                *why = "the low-latency modes are asked of the open GPU (Renderer::supports), and no GPU has been "
+                       "asked here";
+            return false;
+        }
+        const VendorProbe& p = env.latency[std::size_t(lat)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this latency mode is not available here") : p.reason;
         return p.available;
     }
     if (env.backend == FeatureBackend::Headless) {
@@ -659,6 +701,11 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
         env.metalfxWhy = s.reason;
     }
     return env;
+}
+
+void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers) {
+    env.latency = answers;
+    env.latencyAsked = true;
 }
 
 void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers) {

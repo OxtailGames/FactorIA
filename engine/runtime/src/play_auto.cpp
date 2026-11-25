@@ -895,6 +895,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
     const std::size_t logErrors = error_count() - errorsBefore;
     profile.add_memory(engine.profile_memory());
     profile.set_gpu_status(false, "the GPU time is not measured in an automatic run");
+    profile.set_latency_status("none", "the input-to-present time is not measured in an automatic run");
 
     s.durationSec = double(steps) * fixedDt;
     s.frames = std::uint64_t(frames);
