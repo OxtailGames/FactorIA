@@ -64,6 +64,9 @@ struct MacosExportSettings {
 struct LinuxExportSettings {
     std::string icon;
     std::vector<std::string> categories = {"Game"};  // Categories= of the .desktop file
+    // Ship the Vulkan variant of the player too (<exe> = factoria_player_vulkan, <exe>-gl = factoria_player), when one is
+    // next to the player; false = only the GL player (docs/EXPORTING.md, "Desktop").
+    bool vulkanPlayer = true;
     bool operator==(const LinuxExportSettings&) const = default;
 };
 
@@ -89,6 +92,9 @@ struct AndroidExportSettings {
     int targetSdk = 36;                    // >= 26 (Google Play asks for the latest API level)
     std::vector<std::string> permissions;  // extra <uses-permission> names, "android.permission.VIBRATE"
     AndroidSigningSettings signing;
+    // Ship the Vulkan variant (libfactoria_player_vulkan.so, the launcher activity) with the GL player as its fallback;
+    // false = only the GL player (docs/EXPORTING.md, "Android").
+    bool vulkanPlayer = true;
     bool operator==(const AndroidExportSettings&) const = default;
 };
 
@@ -141,6 +147,15 @@ struct PackExportSettings {
     // True: the files go into the pack in the order the game first read them in play sessions (the editor's Play,
     // `factoria run`, play.auto record it in .factoria/cache/load-order.json); false, or nothing recorded: by path.
     bool useLoadOrder = true;
+    // export.pack.codec: "auto" (default) keeps the choice above per file type; "lz4", "zstd" or "gdeflate" packs every
+    // file the default would compress with that codec instead (files stored by default, and extensions named in
+    // `codecs`, keep theirs). With "auto", a Windows export with `directStorage` on packs those files as "gdeflate", the
+    // stream DirectStorage 1.1 decompresses on the GPU.
+    std::string codec = "auto";
+    // export.pack.directStorage: the "auto" codec above, and a Windows release export copies the DirectStorage DLLs
+    // `setup directstorage` installed next to the game (a warning when they are not installed), whose pack reader then
+    // reads its gdeflate files through DirectStorage (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). Default off.
+    bool directStorage = false;
     bool operator==(const PackExportSettings&) const = default;
 };
 

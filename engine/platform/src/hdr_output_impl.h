@@ -11,8 +11,8 @@ HdrDisplay dxgi_display();
 // Switches the swapchain to `encoding` (Sdr, ScRgb or Hdr10): its buffers (fa_sapp_set_swapchain_kind) and its colour
 // space (IDXGISwapChain3::SetColorSpace1). Returns what is in effect afterwards (Sdr when the driver refused).
 HdrEncoding dxgi_apply(HdrEncoding encoding);
-// Once per frame while `applied` is in effect: sets the colour space again after sokol_app resized the swapchain's buffers
-// (ResizeBuffers gives them DXGI's default colour space back). Cheap: it only compares the framebuffer size.
+// Once per frame while `applied` is in effect: sets the colour space again after the window's swapchain buffers were
+// resized (ResizeBuffers gives them DXGI's default colour space back). Cheap: it only compares the framebuffer size.
 void dxgi_keep_color_space(HdrEncoding applied);
 
 }  // namespace fa::hdr_impl

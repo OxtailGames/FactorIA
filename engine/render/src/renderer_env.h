@@ -121,14 +121,14 @@ public:
 
     // The view of the prefiltered cube (mips 0..kEnvLevels-1 the reflection, mip kEnvShMip the SH) and its sampler. The meshes do not sample
     // it any more (M73-P3c): it is the source of the sky's entry of the probe atlas (ProbeGpu::write_sky).
-    sg_view prefiltered_view() const { return preTex_; }
+    gpu::View prefiltered_view() const { return preTex_; }
     // The image id of the prefiltered cube: what the frame graph's resource for the environment imports
     // (frame_graph.h).
     std::uint64_t image_id() const { return pre_.id; }
-    sg_sampler sampler() const { return sampler_; }
+    gpu::Sampler sampler() const { return sampler_; }
     // The pixel format of the cubes (RGBA16F or RGBA8).
     // With RGBA8 the SH texels hold clamp(c / 4, -1, 1) * 127 / 255 + 128 / 255 (0 is the exact byte 128; fa_atlas.y = 1).
-    sg_pixel_format format() const { return format_; }
+    gpu::PixelFormat format() const { return format_; }
     // Tests only: the next ready() makes the cubes RGBA8 as a GPU that cannot render to half floats gets them (call before ready()).
     static void force_rgba8_for_tests(bool force);
 
@@ -138,8 +138,8 @@ public:
     enum class Prog { Copy, Prefilter, Sh, Count };
 
 private:
-    sg_pipeline pipeline(Prog prog);
-    void draw(Gpu& gpu, Prog prog, sg_view dst, sg_view srcTex, int face, float roughness, float samples,
+    gpu::Pipeline pipeline(Prog prog);
+    void draw(Gpu& gpu, Prog prog, gpu::View dst, gpu::View srcTex, int face, float roughness, float samples,
               const char* label, int* drawCalls, bool lit = false);
     void destroy_images();
     void bake_sky(Gpu& gpu, const SkyDraw& sky, int* drawCalls);
@@ -147,19 +147,21 @@ private:
     void bake_sh(Gpu& gpu, int* drawCalls);
 
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
-    sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
-    sg_shader shaders_[int(Prog::Count)]{};
-    sg_pipeline pipelines_[int(Prog::Count)]{};
-    sg_sampler sampler_{};
+    gpu::PixelFormat format_ = gpu::PixelFormat::None;
+    // The device the resources were made on (ready()): release() has no Gpu at hand. Null before the first ready().
+    gpu::Device* device_ = nullptr;
+    gpu::Shader shaders_[int(Prog::Count)]{};
+    gpu::Pipeline pipelines_[int(Prog::Count)]{};
+    gpu::Sampler sampler_{};
     // S0..S3: 1 mip each; their texture views and, per face, attachment views.
-    sg_image pyramid_[kEnvPyramid]{};
-    sg_view pyramidTex_[kEnvPyramid]{};
-    sg_view pyramidAtt_[kEnvPyramid][6]{};
+    gpu::Image pyramid_[kEnvPyramid]{};
+    gpu::View pyramidTex_[kEnvPyramid]{};
+    gpu::View pyramidAtt_[kEnvPyramid][6]{};
     // The prefiltered cube: kEnvLevels mips and the SH mip; attachment views per level and face.
-    sg_image pre_{};
-    sg_view preTex_{};
-    sg_view preAtt_[kEnvLevels][6]{};
-    sg_view shAtt_[6]{};  // the faces of mip kEnvShMip
+    gpu::Image pre_{};
+    gpu::View preTex_{};
+    gpu::View preAtt_[kEnvLevels][6]{};
+    gpu::View shAtt_[6]{};  // the faces of mip kEnvShMip
     bool baked_ = false;
     std::uint64_t key_ = 0;
     struct Look {

@@ -1,10 +1,11 @@
 // What the GPU is and how fast it draws (M76, docs/UPSCALING.md, "Graphics presets"): the data `graphics.detect` answers and the
 // graphics preset it suggests.
 //
-// query_gpu_info() asks the graphics API about the adapter (OpenGL: glGetString; D3D11: the DXGI adapter; Metal: the MTLDevice). The
-// benchmark draws a fixed scene a few times off-screen (Renderer::capture_camera on a world of its own) and reads the pictures back,
-// which makes the GPU finish, so the wall time of a capture is the GPU time of the scene on every backend. It never touches the world
-// of the game, its simulation, its clock or its random numbers. suggest_graphics_preset() is a pure function of what was measured.
+// Renderer::gpu_info() asks the graphics API of the renderer's device about the adapter (OpenGL: glGetString; D3D11: the DXGI
+// adapter; Metal: the MTLDevice). The benchmark draws a fixed scene a few times off-screen (Renderer::capture_camera on a world of
+// its own) and reads the pictures back, which makes the GPU finish, so the wall time of a capture is the GPU time of the scene on
+// every backend. It never touches the world of the game, its simulation, its clock or its random numbers.
+// suggest_graphics_preset() is a pure function of what was measured.
 #pragma once
 
 #include <cstdint>
@@ -21,8 +22,9 @@ class Renderer;
 namespace fa::render {
 
 struct GpuInfo {
-    std::string backend =
-        "none";        // Renderer::backend_name(): "glcore", "gles3", "d3d11", "metal", "dummy"; "none" = no renderer
+    // The backend the renderer draws through: Renderer::backend_name() ("glcore", "gles3", "d3d11", "metal") on the
+    // sokol context, "d3d12" or "vulkan" on the engine's own backends, "dummy" on a RecordingDevice; "none" = no renderer.
+    std::string backend = "none";
     std::string name;  // the adapter or the renderer string the API gives ("" = unknown)
     std::string
         vendor;  // "nvidia", "amd", "intel", "apple", "arm", "qualcomm", "microsoft", "mesa", "other" ("" = unknown)
@@ -38,10 +40,7 @@ struct GpuInfo {
 // Case-insensitive; "other" when nothing is known and the name is not empty.
 void classify_gpu(GpuInfo& info, std::string_view vendorString = {});
 
-// The GPU the renderer is on. Call it on the thread that draws (OpenGL answers for the context current on the calling thread). Without
-// a graphics device (a headless run with no renderer, the dummy backend) it answers backend "none" or "dummy" and nothing else.
-GpuInfo query_gpu_info();
-
+// What run_gpu_benchmark measured: the fixed scene's frame time on this GPU.
 struct GpuBenchmark {
     bool ran = false;      // false: nothing was drawn (no GPU, a software renderer, a failed capture); `why` says
     std::string why;       // set when !ran

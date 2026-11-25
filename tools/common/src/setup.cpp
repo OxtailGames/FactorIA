@@ -28,8 +28,9 @@ std::string factoria_home(const ExportEnvLookup& env) {
 namespace {
 
 const std::vector<std::string>& component_ids() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake",  "xcode",     "appimage",
-                                                 "shaders", "vscode",  "ffmpeg", "webplayer", "launcher"};
+    static const std::vector<std::string> ids = {"android",   "players",  "cmake",        "xcode",
+                                                 "appimage",  "shaders",  "vscode",       "ffmpeg",
+                                                 "webplayer", "launcher", "directstorage"};
     return ids;
 }
 
@@ -128,6 +129,8 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
             st.components.push_back(setup_detail::vscode_status(ctx));
         else if (id == "launcher")
             st.components.push_back(setup_detail::launcher_status(ctx));
+        else if (id == "directstorage")
+            st.components.push_back(setup_detail::directstorage_status(ctx));
         else
             st.components.push_back(setup_detail::ffmpeg_status(ctx));
     }
@@ -152,6 +155,7 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
     if (options.component == "vscode") return setup_detail::vscode_install(ctx, options);
     if (options.component == "ffmpeg") return setup_detail::ffmpeg_install(ctx, options);
     if (options.component == "launcher") return setup_detail::launcher_install(ctx, options);
+    if (options.component == "directstorage") return setup_detail::directstorage_install(ctx, options);
     SetupResult r;
     r.report.component = options.component;
     r.code = "invalid_argument";
@@ -188,7 +192,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.readOnly = true;
         info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other "
                        "platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, "
-                       "ffmpeg, the FactorIA app launcher.";
+                       "ffmpeg, the FactorIA app launcher, the DirectStorage DLLs of Windows games.";
         info.description =
             "Returns {home, host, components[]}; each component is {id, title, state, details, paths, "
             "problems[], installSizeMb, licenses[], canInstall}. Example: "
@@ -209,7 +213,12 @@ void register_setup_commands(CommandRegistry& registry) {
             "where the installer adds a Start menu entry; partial when it opens another factoria or its "
             "files are out of date) and `ffmpeg` (what `factoria run --record-video trailer.mp4` converts "
             "its recording to H.264 + AAC with: $FACTORIA_FFMPEG, \"publish\": {\"ffmpeg\"} of export.json, "
-            "PATH or the one under home/tools/ffmpeg/). state is installed | missing | partial | unsupported "
+            "PATH or the one under home/tools/ffmpeg/) and `directstorage` (the x64 dstorage.dll and "
+            "dstoragecore.dll a Windows release export with export.pack.directStorage puts next to the game, "
+            "under home/tools/directstorage/<version>/; any computer can hold them, but off Windows it is "
+            "unsupported: nothing there needs it, and it is installed only when asked for by name). state is "
+            "installed | missing | "
+            "partial | unsupported "
             "(nothing to do on this computer). problems[] says what is missing and how to fix it; "
             "`setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android "
             "SDK license is not accepted yet) holds {id, title, text}: the full license the user must read "
@@ -219,7 +228,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.inputSchema = Json::parse(R"({
           "type":"object",
           "properties":{
-            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher"],"description":"Only this component (default: all of them)."},
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage"],"description":"Only this component (default: all of them)."},
             "fetchLicenses":{"type":"boolean","default":true,"description":"Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI)."}
           }})");
         registry.add(info, [cache](const Json& args) {
@@ -240,8 +249,8 @@ void register_setup_commands(CommandRegistry& registry) {
         info.category = "setup";
         info.readOnly = false;
         info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, "
-                       "the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher (or "
-                       "open Xcode's App Store page).";
+                       "the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher, the "
+                       "DirectStorage DLLs (or open Xcode's App Store page).";
         info.description =
             "The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP "
             "client "
@@ -288,16 +297,21 @@ void register_setup_commands(CommandRegistry& registry) {
             "with the FactorIA icon (~/Applications/FactorIA.app, or factoria.desktop + its icon under "
             "~/.local/share), so it can be kept in the Dock or the application menu; nothing is downloaded, "
             "so it is fast and safe to run without asking; an existing launcher is rewritten in place (a "
-            "Dock item stays valid). Every download is checked against the publisher's checksum (error code "
-            "`checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, "
+            "Dock item stays valid). `directstorage`: the NuGet package Microsoft.Direct3D.DirectStorage "
+            "1.3.0 (about 3 MB, Microsoft's license in LICENSE.txt next to the DLLs), of which the x64 "
+            "dstorage.dll and dstoragecore.dll are kept in $FACTORIA_HOME/tools/directstorage/<version>/; a "
+            "Windows release export with export.pack.directStorage copies them next to the game, which then "
+            "reads the gdeflate blocks of game.pak through DirectStorage; any computer can install it, a "
+            "Mac or Linux that exports for Windows too. Every download is checked against the publisher's checksum "
+            "(error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, "
             "invalid_argument, failed; the data of the error holds the steps done so far.";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["component"],
           "properties":{
-            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), webplayer (builds the web player from the engine checkout), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4), launcher (the app that opens the editor, with the FactorIA icon)."},
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), webplayer (builds the web player from the engine checkout), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4), launcher (the app that opens the editor, with the FactorIA icon), directstorage (the DirectStorage DLLs a Windows export ships with the game)."},
             "acceptLicenses":{"type":"boolean","default":false,"description":"android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
             "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile","web"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). \"web\" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for."},
-            "force":{"type":"boolean","default":false,"description":"android, cmake, players, webplayer, ffmpeg, launcher: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
+            "force":{"type":"boolean","default":false,"description":"android, cmake, players, webplayer, ffmpeg, launcher, directstorage: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
           }})");
         registry.add(info, [cache](const Json& args) {
             SetupInstallOptions o;

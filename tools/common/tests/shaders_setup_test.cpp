@@ -224,6 +224,10 @@ TEST_CASE("setup shaders: compile_shaders.sh pins the same commit and hashes as 
         CHECK(has_text(script, std::string("SHDC_SHA256_") + b.dir + "=" + b.sha256));
     }
     CHECK(has_text(script, "sokol-tools-bin/$SHDC_COMMIT/bin/$DIR/$EXE"));
+    // The Vulkan backend's SPIR-V (M77.4) is generated for every shader, and the compute one that names its dialects.
+    CHECK(has_text(script, "metal_sim:hlsl5:wgsl:spirv_vk\""));
+    CHECK(has_text(testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine" / "render" / "shaders" / "hiz.glsl"),
+                   "hlsl5:spirv_vk"));
 }
 
 TEST_CASE("setup shaders: setup.h keeps the pin lines that the release's bundle script reads") {

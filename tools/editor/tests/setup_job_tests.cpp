@@ -327,6 +327,27 @@ TEST_CASE("setup action of a component: Install, Reinstall, Open App Store") {
     comp(st, "cmake").state = "unsupported";
     comp(st, "cmake").canInstall = false;
     CHECK_FALSE(setup_action_for_component(comp(st, "cmake"), st.home));
+
+    // DirectStorage: a button on Windows (missing there), none elsewhere ("unsupported", though the CLI installs it).
+    SetupComponent ds;
+    ds.id = "directstorage";
+    ds.state = "missing";
+    ds.canInstall = true;
+    ds.installSizeMb = 2;
+    auto dsAction = setup_action_for_component(ds, st.home);
+    REQUIRE(dsAction);
+    CHECK(dsAction->label == "Install");
+    CHECK(dsAction->component == "directstorage");
+    CHECK(dsAction->tooltip.find("dstorage.dll") != std::string::npos);
+    CHECK(dsAction->tooltip.find("/home/factoria") != std::string::npos);
+    ds.state = "installed";
+    dsAction = setup_action_for_component(ds, st.home);
+    REQUIRE(dsAction);
+    CHECK(dsAction->label == "Reinstall");
+    CHECK(dsAction->force);
+    ds.state = "unsupported";
+    CHECK_FALSE(setup_action_for_component(ds, st.home));
+    CHECK(setup_what("directstorage", {}) == "the DirectStorage runtime");
 }
 
 TEST_CASE("setup action of an Export row: android needs its toolchain") {
@@ -648,7 +669,7 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK(st.home == w.home.string());
     REQUIRE(
         st.components.size() ==
-        10);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player and the app launcher (no editor button for the shader and web player ones yet)
+        11);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher and the DirectStorage DLLs (no editor button for the shader, web player and DirectStorage ones yet)
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");

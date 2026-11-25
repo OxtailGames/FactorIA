@@ -11,7 +11,7 @@
 //               scene's files lie next to each other and a load reads the drive mostly forward
 //   index       u32 file count, u32 block size B (the most bytes one block holds once decoded: kPackBlockSize, 256 KiB),
 //               u32 block count, then per file, sorted by path (byte order):
-//                 u16 path length, the path, u8 codec (0 store, 1 lz4, 2 zstd: fa/core/compress.h),
+//                 u16 path length, the path, u8 codec (0 store, 1 lz4, 2 zstd, 3 gdeflate: fa/core/compress.h),
 //                 u64 size (decoded bytes), u64 offset of the file's first block (from the start of the pack),
 //                 u64 stored size (bytes of all its blocks in the pack), u32 index of its first block in the block table
 //               then the block table, one entry per block, file after file in index order:
@@ -23,7 +23,9 @@
 // Blocks. A file of `size` bytes has ceil(size / B) blocks (an empty file has none); block k decodes to bytes
 // [k*B, min((k+1)*B, size)) of the file, and the blocks of one file are contiguous in the pack. Each block is compressed
 // on its own with the file's codec, so a reader that wants part of a big file (a range of an audio stream, one mip of
-// a texture) decodes only the blocks that hold it: a read's buffers are what it returns plus at most one block (and
+// a texture) decodes only the blocks that hold it (a gdeflate block is one GDeflate stream of up to four 64 KiB tiles,
+// which the DirectStorage reader can hand to the GPU as it is; codec 3 was added in 0.37 without a new format
+// version, an older FactorIA reports a codec it does not know): a read's buffers are what it returns plus at most one block (and
 // the zstd decoder's own working state per block, ~14 KiB plus up to 128 KiB of literals, fa/core/compress.h). A block
 // keeps its compressed form only when that saves at least 1/32 of its bytes; else it is stored as it is (bit 31), and
 // a file none of whose blocks kept a compressed form is recorded with codec store. Small files do NOT share blocks:
@@ -45,6 +47,14 @@
 // possible or not wanted (a 32-bit process, the web build whose pack lives in browser memory, a failed map, the
 // FA_PACK_MAP=0 environment variable or PackOpenOptions::map false) it falls back to positional reads (pread /
 // ReadFile with an offset). Both are safe from any number of threads at the same time.
+//
+// DirectStorage (64-bit Windows, docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). The blocks of a gdeflate file are
+// read by Microsoft's DirectStorage runtime when dstorage.dll and dstoragecore.dll lie next to the executable (a Windows
+// export with export.pack.directStorage puts them there): it reads them from the pack and decompresses them into the
+// reader's memory itself. A raw block it reads as it is, and its checksum is checked; a compressed block is not
+// checksummed on this path (its stored bytes never reach the engine), a stream DirectStorage cannot decode is a failed
+// request. Any failure (no DLLs, a runtime older than 1.1, a failed request) logs why once and that pack's reads go back
+// to the CPU path above, which names a damaged block. FA_DIRECTSTORAGE=0 turns it off; other platforms never use it.
 //
 // A pack is immutable: the writer builds a new file next to the target and renames it over it when it is complete, so
 // a game that has the old pack mapped keeps reading the old bytes on macOS and Linux (rename never touches the old
@@ -109,7 +119,7 @@ struct PackStats {
     std::uint64_t files = 0, bytes = 0, storedBytes = 0;
     std::uint64_t packBytes = 0;  // the size of the pack file (data + index + header and footer)
     // By the codec each file ended up with (index = Codec value): a file whose codec saved nothing counts as store.
-    std::array<PackCodecStats, 3> codecs{};
+    std::array<PackCodecStats, 4> codecs{};
     std::uint64_t orderedFiles = 0;  // files placed by set_order (the rest came after them, by path)
     std::uint64_t blocksKeptRaw =
         0;  // blocks of lz4 / zstd files stored as they are, because the codec saved too little
@@ -134,6 +144,12 @@ public:
     // once), then every other file sorted by path. Without it the data is sorted by path. The index is always sorted.
     void set_order(std::vector<std::string> paths);
 
+    // The codec of the files added AFTER this call that get no codec of their own and that pack_default_codec would
+    // compress (lz4 or zstd): `codec` takes their place. Files it would store (PNG, Ogg, archives: already compressed)
+    // stay stored, and a codec given to add_bytes / add_file always wins. Empty (the default): pack_default_codec alone.
+    // The export uses it for export.pack.codec (docs/exporting/EXPORTING_DESKTOP.md, "Release build").
+    void set_default_codec(std::optional<Codec> codec) { defaultCodec_ = codec; }
+
     // Compression level for every file (fa::CompressOptions::level; 0 = each codec's default).
     void set_level(int level) { level_ = level; }
 
@@ -156,6 +172,10 @@ private:
     std::vector<Item> items_;
     std::vector<std::string> order_;
     int level_ = 0;
+    std::optional<Codec> defaultCodec_;
+    Codec choose_codec(Codec chosenByType) const {
+        return chosenByType != Codec::Store && defaultCodec_ ? *defaultCodec_ : chosenByType;
+    }
 };
 
 struct PackOpenOptions {
@@ -211,10 +231,40 @@ public:
 
     // Reads served since the pack was opened (read, read_range and view calls that succeeded) and the bytes they
     // returned and took from the pack (stored, before decoding). For the loading section of a play report.
+    // `directBlocks`: blocks of gdeflate files DirectStorage read and decompressed (Windows x64, see "DirectStorage"
+    // below); 0 everywhere else and whenever it is not used.
     struct Counters {
         std::uint64_t reads = 0, bytes = 0, storedBytes = 0;
+        std::uint64_t directBlocks = 0;
     };
     Counters counters() const;
+
+    // Where bytes [offset, offset + size) of a file (clamped to its end) lie in the pack: its codec and the blocks that
+    // hold them. The D3D12 backend reads them with DirectStorage straight into GPU resources (docs/design/
+    // ARCHITECTURE_FILES.md, "DirectStorage"). `packFile` is empty for a pack opened from memory; `blocks` is empty for a
+    // file of a format 1 pack (no blocks).
+    struct RangeLayout {
+        std::filesystem::path packFile;
+        Codec codec = Codec::Store;
+        std::uint64_t fileSize = 0;          // the file's decoded bytes
+        std::uint64_t offset = 0, size = 0;  // the range, clamped
+        std::uint32_t blockSize = kPackBlockSize;
+        std::uint64_t firstBlock =
+            0;  // the index within the file of blocks[0] (it decodes from firstBlock * blockSize)
+        struct Block {
+            std::uint64_t offset = 0;  // its stored bytes, from the start of the pack
+            std::uint32_t stored = 0, checksum = 0;
+            bool raw = false;
+        };
+        std::vector<Block> blocks;
+    };
+    Result<RangeLayout> range_layout(std::string_view path, std::uint64_t offset, std::uint64_t size) const;
+    // Reads the stored bytes of the blocks that hold bytes [offset, offset + size) of the file and checks them against
+    // their checksums (what a read on the CPU checks; a DirectStorage read checks them with FA_DIRECTSTORAGE_VERIFY=1).
+    Result<void> check_stored(std::string_view path, std::uint64_t offset, std::uint64_t size) const;
+    // Counts a read that another reader of the pack's bytes served (the D3D12 backend's DirectStorage reads), so the
+    // counters above stay whole. `directBlocks`: the blocks DirectStorage decompressed.
+    void count_external(std::uint64_t bytes, std::uint64_t stored, std::uint64_t directBlocks) const;
 
     // The error for a path the pack does not hold: the "did you mean" comes from the files in the same folder, else from
     // every path in the pack. `requested` is what the caller asked for, `normalized` the same, normalized.
@@ -246,6 +296,9 @@ private:
     // Decodes bytes [from, from + out.size()) of `e` into `out`.
     Result<void> decode_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const;
     Error damaged(const Entry& e, std::uint32_t block, const std::string& what) const;
+    // The DirectStorage path of decode_range for a gdeflate file (pack.cpp): true when `out` holds the bytes, false when
+    // the CPU path must read them (DirectStorage is not there, or a request failed: it says why once in the log).
+    bool direct_range(const Entry& e, std::uint64_t from, std::span<std::uint8_t> out) const;
     void count(std::uint64_t bytes, std::uint64_t stored) const;
 
     std::filesystem::path file_;
@@ -261,7 +314,9 @@ private:
     bool inMemory_ = false;              // open_memory: map_ points into memory_ and is not a file mapping to unmap
     std::uint64_t mapSize_ = 0;
     std::string registered_;  // the Windows rules registry key while open (fs.h, "Windows file rules")
-    mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0};
+    mutable std::atomic<std::uint64_t> reads_{0}, bytesRead_{0}, storedRead_{0}, directExternal_{0};
+    struct Direct;  // DirectStorage state (pack.cpp): only for a pack file with gdeflate files, on Win64
+    std::shared_ptr<Direct> direct_;  // shared_ptr: its type stays incomplete here
 };
 
 }  // namespace fa

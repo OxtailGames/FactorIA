@@ -17,7 +17,7 @@ Result<void> convert_shaders(ExportAssets& ea) {
         if (f.ends_with(".material.json")) materials.push_back(f);
     if (materials.empty()) return {};
     std::sort(materials.begin(), materials.end());
-    auto dialects = shader_dialects_for({ea.platform});
+    auto dialects = shader_dialects_for({ea.platform}, ea.vulkan);
     if (!dialects.ok()) return dialects.error();
 
     ShaderCompileOptions options;
@@ -33,7 +33,10 @@ Result<void> convert_shaders(ExportAssets& ea) {
             for (const ValidationIssue& i : shader_validation_issues(*compiled)) message += "\nerror: " + i.to_string();
             return err(message, "Fix it and export again; `factoria validate` lists the same errors.");
         }
-        if (!compiled->skippedDialects.empty() && compiled->twins.empty())
+        // spirv_vk alone is no shader the platform's own player can run (a compute material has it on android and the web has none).
+        const bool ownTwin = std::any_of(compiled->twins.begin(), compiled->twins.end(),
+                                         [](const auto& t) { return t.first != kShaderDialectVulkan; });
+        if (!compiled->skippedDialects.empty() && !ownTwin)
             ea.report.warnings.push_back(
                 "the " + compiled->material.kind + " material " + path + " has no shader for " + ea.platform +
                 ": that platform has no compute shaders and no storage buffers in the vertex stage (" +

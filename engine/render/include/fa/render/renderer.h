@@ -39,7 +39,9 @@
 #include "fa/core/math.h"
 #include "fa/platform/app.h"
 #include "fa/platform/hdr_output.h"
+#include "fa/render/gpu_info.h"
 #include "fa/render/graphics_preset.h"
+#include "fa/render/ui_painter.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -102,15 +104,73 @@ std::string mesh_template_hash();
 // twins' "template".
 std::string mesh_full_template_hash();
 
+// The GPU backend a renderer draws through (RendererDesc::backend). Default = the sokol backend this binary was built
+// with (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, GLES3 on Android, WebGL2 on the web), which presents
+// into the window sokol_app made. D3d12 (Windows) and Vulkan (Linux, Windows, Android; macOS through MoltenVK in a build
+// with the tests) are the engine's own backends: offscreen (RendererDesc::headless) or into a window through a swapchain
+// of their own on the native window RendererDesc::nativeWindow hands over (the runtime claims it from the platform:
+// fa/platform/app.h, app_claim_native_window). init() fails with a teaching error where they are not built, there is no
+// such GPU or the window cannot take their swapchain; the runtime then falls back to Default in process
+// (docs/RENDERING.md, "Choosing the GPU backend"). Recording draws on no GPU at all (it validates and records every
+// call: tests).
+enum class GpuBackend : std::uint8_t { Default, Gl, Gles3, WebGl2, D3d11, Metal, D3d12, Vulkan, Recording };
+
+// The name of a backend as a project's `render.backend` and the FA_GPU_BACKEND variable write it: "auto" (Default), "gl",
+// "gles3", "webgl2", "d3d11", "metal", "d3d12", "vulkan" ("recording" for GpuBackend::Recording, which no setting accepts).
+const char* gpu_backend_name(GpuBackend backend);
+// The inverse of gpu_backend_name for the names a game may ask for ("auto" and the seven GPU backends; "recording" is not
+// one); nullopt for anything else (the caller reports it with gpu_backend_names()).
+std::optional<GpuBackend> parse_gpu_backend_name(std::string_view name);
+// The names parse_gpu_backend_name accepts besides "auto": every GPU backend, whether this binary has it or not.
+std::vector<std::string> gpu_backend_names();
+// Whether this binary can make a device of `backend` (Default: always): the sokol backend it was built with, D3D12 on
+// Windows, Vulkan where FA_RENDER_VULKAN is on. True does not promise a GPU or a window path.
+bool gpu_backend_available(GpuBackend backend);
+// Whether `backend` runs on the sokol context (Default and the five sokol backends) and presents into the platform's
+// swapchain. False for D3d12, Vulkan and Recording: they make a device of their own, and a window renderer of D3d12 or
+// Vulkan needs the native window (RendererDesc::nativeWindow) to make its own swapchain on.
+bool gpu_backend_on_context(GpuBackend backend);
+
+// The window a renderer of D3d12 or Vulkan makes its swapchain on, as the platform hands it over
+// (fa/platform/app.h, app_claim_native_window: the render module includes no platform header). Ignored by the sokol
+// backends (sokol_app made the window's swapchain) and by a headless renderer.
+struct NativeWindowHandle {
+    // HWND (Windows), the X11 Window as an integer in the pointer (Linux), ANativeWindow* (Android), CAMetalLayer*
+    // (macOS: Vulkan on MoltenVK). Null: no window (init() of a D3d12 or Vulkan window renderer fails and says so).
+    const void* window = nullptr;
+    const void* display = nullptr;  // the X11 Display* (Linux); null elsewhere
+    int width = 0;                  // the framebuffer size in pixels; 0 = the window's own size
+    int height = 0;
+};
+
 struct RendererDesc {
     int designWidth = 1280;
     int designHeight = 720;
     int sampleCount = 1;    // MSAA of the game target (1 = off)
     bool headless = false;  // no swapchain; present() must not be called
     // The graphics context was opened before the renderer by Renderer::open_context (the player does, so it can present its
-    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() closes it.
-    // Ignored (a normal init) when no context is open.
+    // first frame before it reads any game file): init() uses it instead of calling sg_setup(), and shutdown() leaves it open
+    // (close_context() closes it). Ignored (a normal init) when no context is open. A context that is open when init() runs
+    // is never closed by shutdown(), with this flag or without it.
     bool adoptContext = false;
+    // The GPU backend (GpuBackend). A sokol one (Default, or the one this binary was built with) runs on the sokol
+    // context as above; any other sokol backend is an init() error. D3d12, Vulkan and Recording make a device of their
+    // own and never open, adopt or close the sokol context; without `headless`, D3d12 and Vulkan make their swapchain
+    // on `nativeWindow` (init() fails with the device's reason when it is null or the window refuses it; Recording has
+    // no window path and always fails there).
+    GpuBackend backend = GpuBackend::Default;
+    // M77-P10d (factoria.json render.asyncCompute / render.multiThreadRecording; docs/RENDERING.md): what the frame may use
+    // where the device has it (D3D12, and Vulkan with a compute queue of its own; the sokol backends have neither and
+    // record the frame as before). asyncCompute: the depth pyramid's reduce (SceneSettings.occlusionMode gpu) runs on the
+    // compute queue, next to the graphics passes after it. multiThreadRecording: the shadow views are recorded into
+    // command lists of their own on the job threads. The picture is the same either way; false keeps that work on the
+    // graphics queue / the render thread (to compare, or to rule a driver out). startup_report() says which is in use.
+    bool asyncCompute = true;
+    bool multiThreadRecording = true;
+    NativeWindowHandle nativeWindow;  // D3d12 and Vulkan without `headless`: the window to make the swapchain on
+    // D3d12 and Vulkan without `headless`: the present mode of their swapchain (true: FIFO / sync interval 1). The
+    // sokol backends follow the platform's (app_set_vsync).
+    bool vsync = true;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -296,7 +356,7 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    // Calls sg_setup() with `env` (unless desc.adoptContext and a context is open). Returns false + message on failure.
+    // Calls sg_setup() with `env` (unless a context is already open: the renderer then uses it and never closes it). Returns false + message on failure.
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
@@ -308,9 +368,12 @@ public:
     // sg_setup() with the same limits init() uses. False + message when the device is not usable. False when a context is open.
     static bool open_context(const GfxEnvironment& env, std::string* error);
     static bool context_open();
-    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
-    // renderer that adopted the context closes it in shutdown().
+    // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed, or the
+    // end of a player). A renderer whose init() found the context open leaves it open in shutdown(): whoever opened it closes it.
     static void close_context();
+    // The end of a frame of a client that draws into the window itself (the editor): presents what the passes drew. False when
+    // no context is open. A game's Renderer::present() commits on its own.
+    static bool commit_context();
     // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer
     // needed; also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The
     // player's error screen uses it with red.
@@ -327,8 +390,9 @@ public:
     // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
     int warm_step(const GfxSwapchain& swapchain, World& world);
     // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits,
-    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up spent on shader programs and pipelines
-    // (the `loading.startup.gpu` object of play.report).
+    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft, asyncCompute, multiThreadRecording}: what the start-up spent on
+    // shader programs and pipelines (the `loading.startup.gpu` object of play.report), and whether the frame uses the
+    // compute queue and the job threads (RendererDesc allows it and the device has the feature).
     Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
@@ -385,6 +449,13 @@ public:
     // The graphics backend in use: "metal", "d3d11", "glcore", "gles3", "dummy", or "unknown" for a sokol backend the
     // engine never builds (what game.device.gpuBackend reports).
     static const char* backend_name();
+    // The backend of the device this renderer draws on (never Default: the sokol backend it runs is named); Default
+    // before init() and after shutdown(). Unlike backend_name() it says "d3d12" or "vulkan" for the engine's own backends.
+    GpuBackend device_backend() const;
+    // The GPU this renderer draws on, as its device's graphics API describes it (the adapter's name, vendor, memory;
+    // fa/render/gpu_info.h), with `backend` = backend_name(). Before init() or after shutdown(): backend "none" and
+    // nothing else. Call it on the thread that draws (OpenGL answers for the context current there).
+    render::GpuInfo gpu_info();
     // The compute side of the renderer (storage buffers, dispatches of "kind": "compute" materials; available() says
     // whether this backend can). Usable once init() succeeded; its buffers end with shutdown().
     Compute& compute() { return *compute_; }
@@ -455,6 +526,13 @@ public:
     void end_frame();
     // Windowed: blit the game target into the swapchain with the scale mode.
     void present(const GfxSwapchain& swapchain, int framebufferWidth, int framebufferHeight, ScaleMode mode);
+    // D3D12 and Vulkan on a window that comes and goes (Android: app_set_native_window_listener), on the render thread
+    // between frames. Null: the window is going, so the swapchain is destroyed now (the device waits for its images);
+    // present() then only ends the frame. A window: the swapchain is made on it by the next present(), at the
+    // framebuffer size it is given (a failure is logged once, and the frames are not shown until the next window). A
+    // swapchain the device destroyed itself (Vulkan: VK_ERROR_SURFACE_LOST_KHR) is made again the same way on the window
+    // it had. Nothing on the sokol backends (sokol_app owns their swapchain) or headless.
+    void set_native_window(const void* window);
     // Letterbox mapping used by present(): framebuffer pixel -> design pixel.
     Vec2 framebuffer_to_design(Vec2 fbPos, int framebufferWidth, int framebufferHeight, ScaleMode mode) const;
     // The same mapping the other way: design pixel -> framebuffer (window) pixel.
@@ -553,13 +631,12 @@ public:
     // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
     RenderStats stats(bool passTimes = true) const;
 
-    // Native handle of the picture the editor viewport shows (sg_image id) and a texture view of it for sampling (sg_view id): the
-    // finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
+    // The picture the editor viewport shows, as the ids UiPainter and the editor's ImGui take (UiTexture::image is the memory, ::view
+    // what a UiDrawCommand names; both 0 until there is one): the finished game image (after the colour filter) in a gamma scene. In a linear scene that image holds linear light, which would be
     // too dark on screen: once set_editor_view(true) was called these are an 8-bit copy encoded to sRGB, made after each frame and
     // freed when the scene goes back to gamma (0 until the first frame of a linear scene made it). The same copy clamps a picture
     // above paper white (an HDR output's final pass) to the standard range. Without set_editor_view they are the game image as it is.
-    std::uint32_t game_target_image_id() const;
-    std::uint32_t game_target_view_id() const;
+    render::UiTexture game_target_texture() const;
     // Asks for the encoded copy above (the editor calls it once). Costs one full-screen copy per frame of a linear scene, so a game
     // never asks. false frees the copy.
     void set_editor_view(bool on);
@@ -758,7 +835,8 @@ public:
     struct Impl;
 
 private:
-    friend struct RendererTestAccess;  // tests (src/renderer_test_access.h)
+    friend struct RendererTestAccess;    // tests (src/renderer_test_access.h)
+    friend struct RendererDeviceAccess;  // the renderer's GPU device for fa_render's own code (src/render_internal.h)
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<Compute> compute_;  // storage buffers and dispatches of compute materials (fa/render/compute.h)
     std::vector<std::string> fallbackFonts_;

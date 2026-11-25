@@ -16,9 +16,11 @@ class TransientTargets {
     // Declared before `pool`: the pool's destructor destroys its targets through destroy(), which needs the table.
     std::unordered_map<std::uint64_t, Target> targets_;
     std::uint64_t next_ = 1;
+    gpu::Device& device_;
 
 public:
-    TransientTargets();
+    // `device` makes and destroys the targets: it must outlive the pool (Renderer::shutdown destroys the pool first).
+    explicit TransientTargets(gpu::Device& device);
     TransientTargets(const TransientTargets&) = delete;
     TransientTargets& operator=(const TransientTargets&) = delete;
 

@@ -12,6 +12,7 @@
 #include "fa/tooling/export.h"
 #include "fa/tooling/load_order.h"
 #include "fa/tooling/scaffold.h"
+#include "fa/tooling/setup.h"
 #include "test_helpers.h"
 
 #ifdef _WIN32
@@ -487,4 +488,110 @@ TEST_CASE("export --release: export.pack.codecs picks the codec of an extension,
     REQUIRE(big.ok());
     CHECK(big->size() == 200000);
     CHECK(r->packBytes < r->packFileBytes);  // 400 KB of repeated bytes pack small
+}
+
+TEST_CASE(
+    "export --release: export.pack.codec and directStorage choose gdeflate, files stored by default stay stored") {
+    // {codec, directStorage, platform, the codec of data/big.json, of data/big.txt, of data/raw.bin}
+    struct Case {
+        const char* codec;
+        bool directStorage;
+        const char* platform;
+        Codec json, txt;
+    };
+    const Case cases[] = {
+        {"auto", false, "windows", Codec::Lz4, Codec::Zstd},  // today's choice
+        {"auto", true, "linux", Codec::Lz4, Codec::Zstd},     // the option only matters on Windows
+        {"auto", true, "windows", Codec::GDeflate, Codec::GDeflate},
+        {"gdeflate", false, "linux", Codec::GDeflate, Codec::GDeflate},
+        {"zstd", false, "linux", Codec::Zstd, Codec::Zstd},
+        {"lz4", false, "windows", Codec::Lz4, Codec::Lz4},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.codec);
+        CAPTURE(c.directStorage);
+        CAPTURE(c.platform);
+        testing::TempDir tmp;
+        const std::string proj = make_project(tmp);
+        testing::write_all(stdfs::path(proj) / "data" / "big.json", std::string(200000, 'a'));
+        testing::write_all(stdfs::path(proj) / "data" / "big.txt", std::string(200000, 'b'));
+        testing::write_all(stdfs::path(proj) / "data" / "keep.dat", std::string(200000, 'c'));
+        testing::write_all(stdfs::path(proj) / "data" / "pic.png", std::string(200000, 'd'));  // stored by default
+        const stdfs::path file = stdfs::path(proj) / "factoria.json";
+        auto j = parse_json(testing::read_all(file), "factoria.json");
+        REQUIRE(j.ok());
+        (*j)["export"]["pack"]["codec"] = c.codec;
+        (*j)["export"]["pack"]["directStorage"] = c.directStorage;
+        (*j)["export"]["pack"]["codecs"] = Json::object({{".dat", "store"}});
+        testing::write_all(file, j->dump(2));
+        SetupContext setup;  // no DirectStorage DLLs installed: the case after this one covers them
+        setup.home = tmp.sub("fhome");
+        ExportOptions o = options_for(tmp, proj, c.platform, true);
+        o.setup = &setup;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string dir = std::string(c.platform) == "windows" ? "pack-test-windows" : "pack-test-linux";
+        auto pack = PackReader::open(tmp.sub("out/" + dir + "/game.pak"));
+        REQUIRE(pack.ok());
+        CHECK(pack.value()->codec_of("data/big.json") == c.json);
+        CHECK(pack.value()->codec_of("data/big.txt") == c.txt);
+        CHECK(pack.value()->codec_of("data/keep.dat") == Codec::Store);  // an extension named in codecs wins
+        CHECK(pack.value()->codec_of("data/pic.png") == Codec::Store);   // stored by default
+        auto big = pack.value()->read("data/big.txt");
+        REQUIRE(big.ok());
+        CHECK(big->size() == 200000);
+        CHECK(r->packBytes < r->packFileBytes);
+    }
+}
+
+TEST_CASE(
+    "export --release for Windows with export.pack.directStorage ships the DirectStorage DLLs, or says how to get "
+    "them") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const stdfs::path file = stdfs::path(proj) / "factoria.json";
+    auto j = parse_json(testing::read_all(file), "factoria.json");
+    REQUIRE(j.ok());
+    (*j)["export"]["pack"]["directStorage"] = true;
+    testing::write_all(file, j->dump(2));
+    SetupContext setup;
+    setup.home = tmp.sub("fhome");
+    const stdfs::path out = tmp.path / "out" / "pack-test-windows";
+    auto has_warning = [](const ExportReport& r) {
+        return std::any_of(r.warnings.begin(), r.warnings.end(), [](const std::string& w) {
+            return w.find("factoria setup directstorage") != std::string::npos;
+        });
+    };
+
+    // Not installed: the export succeeds without them and the warning names the command that installs them.
+    ExportOptions o = options_for(tmp, proj, "windows", true);
+    o.setup = &setup;
+    auto missing = export_project(o);
+    REQUIRE_MESSAGE(missing.ok(), (missing.ok() ? "" : missing.error().to_string()));
+    CHECK(has_warning(missing.value()));
+    CHECK_FALSE(stdfs::exists(out / "dstorage.dll"));
+    CHECK(stdfs::exists(out / "game.pak"));
+
+    // Installed (fake DLLs where `setup directstorage` puts them): both are copied next to the executable.
+    const stdfs::path installed = fs::path_from_utf8(directstorage_install_dir(setup));
+    testing::write_all(installed / "dstorage.dll", "fake dstorage");
+    testing::write_all(installed / "dstoragecore.dll", "fake dstoragecore");
+    REQUIRE(installed_directstorage_dir(setup) == fs::path_to_utf8(installed));
+    auto shipped = export_project(o);
+    REQUIRE_MESSAGE(shipped.ok(), (shipped.ok() ? "" : shipped.error().to_string()));
+    CHECK_FALSE(has_warning(shipped.value()));
+    CHECK(testing::read_all(out / "dstorage.dll") == "fake dstorage");
+    CHECK(testing::read_all(out / "dstoragecore.dll") == "fake dstoragecore");
+
+    // Only a Windows release export with the option on: not a folder export, not another platform.
+    ExportOptions debug = options_for(tmp, proj, "windows", false);
+    debug.outDir = tmp.sub("out-debug");
+    debug.setup = &setup;
+    REQUIRE(export_project(debug).ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out-debug" / "pack-test-windows" / "dstorage.dll"));
+    CHECK(stdfs::exists(tmp.path / "out-debug" / "pack-test-windows"));
+    ExportOptions forLinux = options_for(tmp, proj, "linux", true);
+    forLinux.setup = &setup;
+    REQUIRE(export_project(forLinux).ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out" / "pack-test-linux" / "dstorage.dll"));
 }

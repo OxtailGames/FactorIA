@@ -35,7 +35,7 @@ public:
 
     // Does this GPU render RGBA16F targets that it can also sample (the images hold light above 1 and signed changes)? The rule of the `half`
     // word of the feature rows (render_features.cpp), so render.supports("subsurface") and the renderer never disagree.
-    static bool gpu_supported();
+    static bool gpu_supported(gpu::Device& device);
     // The images of `plan`: A (light + depth, with a depth buffer: the sss-draw's), B (radius + strength), and the blur's H and V. All the size of the
     // camera's rectangle. `job` labels them.
     static TransientDesc light_desc(const SssPlan& plan, const std::string& job);   // A
@@ -55,17 +55,18 @@ public:
     // Forgets that creating the images failed (the game target was resized or recreated).
     void forget_targets();
 
-    bool ready(Prog prog);
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format, bool subtract = false);
+    bool ready(Gpu& gpu, Prog prog);
+    gpu::Pipeline pipeline(Gpu& gpu, Prog prog, const TargetFormat& format, bool subtract = false);
 
 private:
     struct PipelineEntry {
         Prog prog;
         bool subtract;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_shader shaders_[int(Prog::Count)]{};
+    gpu::Device* device_ = nullptr;  // what ready() made the shaders on: release() has no Gpu at hand
+    gpu::Shader shaders_[int(Prog::Count)]{};
     int state_[int(Prog::Count)]{};  // 0 = not made yet, 1 = ready, -1 = failed (logged)
     std::vector<PipelineEntry> pipelines_;
     bool warnedTargets_ = false;

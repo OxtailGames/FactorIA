@@ -19,3 +19,8 @@ what those tools write (`engine/core/tests/test_compress_blocks.cpp`). Source da
 The tests also take the other direction: frames and blocks our encoders write were checked by hand with `zstd -d` and
 `lz4 -d` (an LZ4 block wrapped in a frame header) for many inputs and every level; that is not repeatable without the tools,
 so it is not part of ctest.
+
+
+GDeflate has no fixture here: no reference tool is installed on the machines the tests run on. `test_gdeflate.cpp` pins the
+hashes of the streams this encoder writes for eight generated inputs, and writes them as `.raw`/`.gdef` files when
+`FA_GDEFLATE_VECTORS_DIR` is set, for a job that checks them with DirectStorage's own decoder (docs/design/ARCHITECTURE_FILES.md, "GDeflate").

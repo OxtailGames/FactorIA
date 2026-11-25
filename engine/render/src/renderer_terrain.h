@@ -73,8 +73,10 @@ public:
         Vec3 camera;
         bool linear = false;       // the scene is linear (the colour space of the textures)
         std::uint64_t serial = 0;  // Renderer::Impl::frameSerial
-        Gpu* gpu = nullptr;        // for the sub-rectangle copies of a sculpt (null: the whole texture is made again)
-        sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;  // Gpu::texture_format(RGBA8): SRGB8A8 in a linear scene
+        Gpu* gpu =
+            nullptr;  // the renderer's Gpu: its device makes the textures, its list takes the sub-rectangle copies of a sculpt (required)
+        gpu::PixelFormat albedoFormat =
+            gpu::PixelFormat::Rgba8;  // Gpu::texture_format(RGBA8): SRGB8A8 in a linear scene
         float lodQuality =
             1.0f;  // the graphics preset's factor on Terrain.lodQuality (QualityLimits.terrainLodQuality)
     };
@@ -116,7 +118,7 @@ private:
         std::uint64_t seenVersion = 0;
         TextureAsset tex;       // RG8 heights (r = high byte, g = low byte)
         bool copyable = false;  // `tex` was made to take copies (the first sculpt makes it so)
-        sg_buffer stage{};      // the staging buffer of the sub-rectangle copies, and its size
+        gpu::Buffer stage{};    // the staging buffer of the sub-rectangle copies, and its size
         std::size_t stageCap = 0;
         std::uint64_t stagedFrame = 0;  // Gpu::frame() + 1 of the frame whose copy wrote it (one write a frame)
         TerrainTileBounds bounds;
@@ -145,7 +147,7 @@ private:
             0;  // what its shape was made from: the maps, their sizes and serials, the heights object
         std::uint64_t splatSeen[kTerrainSplatMaps] = {0, 0};  // the version of each splat map the array holds
         bool controlCopyable = false;
-        sg_buffer controlStage{};
+        gpu::Buffer controlStage{};
         std::size_t controlStageCap = 0;
         std::uint64_t controlStagedFrame = 0;
         int splatMaps = 0, controlSide = 1;
@@ -156,13 +158,15 @@ private:
         std::uint64_t holesSeen = 0;  // the holesVersion the texture holds
         bool holesOn = false;
         bool holesCopyable = false;  // holesTex was made to take copies (the first holes stroke makes it so)
-        sg_buffer holesStage{};
+        gpu::Buffer holesStage{};
         std::size_t holesStageCap = 0;
         std::uint64_t holesStagedFrame = 0;
-        sg_pixel_format albedoFormat = SG_PIXELFORMAT_RGBA8;
+        gpu::PixelFormat albedoFormat = gpu::PixelFormat::Rgba8;
         std::string layerNote[2], controlNote, holesNote;  // the last problem of each part (said once, with the others)
         std::string note;                                  // the last problem said about the layers (said once)
         bool failed = false;                               // the texture could not be made: said once, nothing is drawn
+        gpu::Device* device =
+            nullptr;  // the device its textures and buffers were made on (the destructor frees them there)
         ~Entry();
     };
     Entry* prepare(const View& view, Entity e);
@@ -175,18 +179,20 @@ private:
                          bool reloaded, Entity e);
     void update_control(Entry& en, const View& view, const std::vector<TerrainLayerInfo>& layers, Entity e);
     bool copy_splat(Entry& en, const View& view, int maps, int side);
-    TextureAsset* dummy_array();
-    TextureAsset* dummy_holes(TextureAsset* fallback);
-    MeshAsset* patch(bool split);
-    MaterialAsset* material();
+    TextureAsset* dummy_array(gpu::Device& device);
+    TextureAsset* dummy_holes(gpu::Device& device, TextureAsset* fallback);
+    MeshAsset* patch(gpu::Device& device, bool split);
+    MaterialAsset* material(gpu::Device& device);
 
     std::unordered_map<std::uint64_t, std::unique_ptr<Entry>> entries_;  // by Entity::bits()
     std::unique_ptr<MeshAsset> patch_, splitPatch_;  // the shared patch and the split one (terrains with holes)
     std::unique_ptr<MaterialAsset> material_;
     TextureAsset dummy_;  // a 1 x 1 one-slice array of white: bound where a terrain has no layer pictures or no control
-    TextureAsset dummyHoles_;  // a 1 x 1 R8 texture of 0: the holes texture of a terrain without holes
-    sg_shader shaders_[3]{};   // terrain, shadow, prepass
-    int matState_ = 0;         // 0 = not tried, 1 = built, -1 = failed (said once)
+    TextureAsset dummyHoles_;   // a 1 x 1 R8 texture of 0: the holes texture of a terrain without holes
+    gpu::Shader shaders_[3]{};  // terrain, shadow, prepass
+    gpu::Device* device_ =
+        nullptr;        // the device of the last gather(): what the textures, patches and programs were made on
+    int matState_ = 0;  // 0 = not tried, 1 = built, -1 = failed (said once)
     std::uint64_t pruned_ = ~std::uint64_t(0);
     std::unordered_map<std::uint64_t, std::uint64_t>
         failedSeen_;                                   // entity -> reload generation of a heightmap that did not read

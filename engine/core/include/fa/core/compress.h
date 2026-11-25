@@ -2,13 +2,18 @@
 //
 // zlib (RFC 1950, deflate): used by `storage.set(key, value, {compress: true})` and PSD/PNG code.
 //
-// Block codecs (M70.4), FactorIA's own implementations of two public formats, used by game.pak:
+// Block codecs (M70.4, M77), FactorIA's own implementations of public formats, used by game.pak:
 //   lz4   the LZ4 block format (no frame): very fast to decode (GB/s), modest ratio. For data read on the hot path
 //         of a load where decode time matters more than size (scenes, meshes, scripts, raw images).
 //   zstd  the Zstandard frame format (RFC 8878): slower to encode, still fast to decode, much better ratio. For
 //         larger data that compresses well (text, JSON, fonts, uncompressed texture payloads).
+//   gdeflate  the stream DirectStorage 1.1 decompresses on the GPU (Windows): Deflate64 cut into 64 KiB tiles, each
+//         dealt to 32 lanes. About the ratio of zlib; on the CPU it decodes somewhat slower than zstd and about half
+//         as fast as lz4 (test_gdeflate.cpp's "decode speed" case prints the three); a game.pak
+//         uses it only so that the DirectStorage reader can hand its blocks to the GPU as they are (the layout is in
+//         docs/design/ARCHITECTURE_FILES.md, "GDeflate").
 //   store no compression (data that is compressed already: PNG, OGG, QOA, KTX2 with supercompression, MP4).
-// No outside library: both are written for the engine and are byte-compatible with the reference tools (`lz4 -d` on
+// No outside library: all are written for the engine and are byte-compatible with the reference tools (`lz4 -d` on
 // our block wrapped in an LZ4 frame and `zstd -d` on our frames give the bytes back; our decoders read blocks and
 // frames those tools write; tests check both ways with committed fixtures made by the reference tools).
 //
@@ -41,14 +46,16 @@ enum class Codec : std::uint8_t {
     Store = 0,
     Lz4 = 1,
     Zstd = 2,
+    GDeflate = 3,
 };
 
-// "store", "lz4", "zstd": the names used in factoria.json and in pack reports.
+// "store", "lz4", "zstd", "gdeflate": the names used in factoria.json and in pack reports.
 std::string_view codec_name(Codec codec);
 // Parses a name; an unknown one is an error with a "did you mean".
 Result<Codec> parse_codec(std::string_view name);
 
-// Level: lz4 1 (fast) .. 12 (high compression, same decoder); zstd 1 .. 19. 0 = the codec's default (lz4 1, zstd 3).
+// Level: lz4 1 (fast) .. 12 (high compression, same decoder); zstd 1 .. 19; gdeflate 1 (fast) .. 12 (same
+// decoder). 0 = the codec's default (lz4 1, zstd 3, gdeflate 6).
 // Out-of-range levels are clamped. Store ignores it.
 struct CompressOptions {
     Codec codec = Codec::Lz4;
@@ -69,7 +76,7 @@ Result<std::vector<std::uint8_t>> decompress(Codec codec, std::span<const std::u
                                              std::size_t expectedSize);
 // Same, into a caller buffer of exactly `out.size()` bytes (memory-mapped packs decode in place). It makes no
 // allocation proportional to the output; the zstd decoder still allocates its working state on every call (~14 KiB, plus
-// up to 128 KiB of literals), which it frees before returning.
+// up to 128 KiB of literals) and the gdeflate decoder its code tables (~10 KiB), which they free before returning.
 Result<void> decompress_into(Codec codec, std::span<const std::uint8_t> block, std::span<std::uint8_t> out);
 
 }  // namespace fa

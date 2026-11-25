@@ -75,7 +75,8 @@ public:
 
     // The apply, drawn inside the pass being drawn whose target has `format`: one full-screen triangle over its viewport (the caller has set
     // the viewport and the scissor to the camera's rectangle), reading the occlusion image `ao` and the prepass `pre`.
-    static void draw_apply(Gpu& gpu, const SsaoApply& apply, sg_view ao, sg_view pre, const TargetFormat& format);
+    static void draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre,
+                           const TargetFormat& format);
 
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
     void release() {

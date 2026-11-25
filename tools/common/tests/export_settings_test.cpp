@@ -81,6 +81,8 @@ TEST_CASE("export settings: a project without icon/export gets the defaults") {
     CHECK(s.macos.minimumSystemVersion == "11.0");
     CHECK(s.macos.copyright.empty());
     CHECK(s.linux.categories == std::vector<std::string>{"Game"});
+    CHECK(s.linux.vulkanPlayer);  // M77-P9e2: the Vulkan player ships by default, the GL one as its fallback
+    CHECK(s.android.vulkanPlayer);
     CHECK(s.android.format == "apk");
     CHECK(s.android.minSdk == 26);
     CHECK(s.android.targetSdk == 36);
@@ -1055,4 +1057,55 @@ TEST_CASE(
     CHECK(back->pack.codecs.at(".json") == Codec::Zstd);
     CHECK_FALSE(back->pack.useLoadOrder);
     CHECK_FALSE(back->scriptBytecode);
+}
+
+TEST_CASE("export settings: export.pack.codec and directStorage are read, and a wrong one names its pointer") {
+    auto none = parse_export_settings(parse(R"({"name": "G"})"));
+    CHECK(none.settings.pack.codec == "auto");
+    CHECK_FALSE(none.settings.pack.directStorage);
+
+    auto good = parse_export_settings(parse(R"({"export": {"pack": {"codec": "gdeflate", "directStorage": true}}})"));
+    CHECK(good.errors.empty());
+    CHECK(good.warnings.empty());
+    CHECK(good.settings.pack.codec == "gdeflate");
+    CHECK(good.settings.pack.directStorage);
+    auto named = parse_export_settings(parse(R"({"export": {"pack": {"codecs": {".json": "gdeflate"}}}})"));
+    CHECK(named.errors.empty());
+    CHECK(named.settings.pack.codecs.at(".json") == Codec::GDeflate);
+
+    auto typo = parse_export_settings(parse(R"({"export": {"pack": {"codec": "gdeflat"}}})"));
+    const ExportSettingsIssue* t = find_issue(typo.errors, "/export/pack/codec");
+    REQUIRE(t != nullptr);
+    CHECK(t->message.find("gdeflat") != std::string::npos);
+    CHECK(t->hint.find("gdeflate") != std::string::npos);
+    CHECK(typo.settings.pack.codec == "auto");  // an invalid value keeps the default
+
+    auto bad = parse_export_settings(parse(R"({"export": {"pack": {"codec": 3, "directStorage": "yes"}}})"));
+    CHECK(find_issue(bad.errors, "/export/pack/codec") != nullptr);
+    const ExportSettingsIssue* flag = find_issue(bad.errors, "/export/pack/directStorage");
+    REQUIRE(flag != nullptr);
+    CHECK(flag->message.find("expected true or false") != std::string::npos);
+    // "store" is not a choice here: it is per extension, in codecs.
+    auto store = parse_export_settings(parse(R"({"export": {"pack": {"codec": "store"}}})"));
+    CHECK(find_issue(store.errors, "/export/pack/codec") != nullptr);
+}
+
+TEST_CASE("export settings: vulkanPlayer of linux and android is a boolean that leaves the Vulkan player out") {
+    auto off = parse_export_settings(parse(R"({
+      "export": {"linux": {"vulkanPlayer": false}, "android": {"vulkanPlayer": false}}})"));
+    REQUIRE(off.errors.empty());
+    CHECK(off.warnings.empty());
+    CHECK_FALSE(off.settings.linux.vulkanPlayer);
+    CHECK_FALSE(off.settings.android.vulkanPlayer);
+
+    auto bad = parse_export_settings(parse(R"({
+      "export": {"linux": {"vulkanPlayer": "no"}, "android": {"vulkanPlayer": 0}}})"));
+    for (const char* ptr : {"/export/linux/vulkanPlayer", "/export/android/vulkanPlayer"}) {
+        INFO("pointer ", ptr);
+        const ExportSettingsIssue* e = find_issue(bad.errors, ptr);
+        REQUIRE(e != nullptr);
+        CHECK(e->message.find("expected true or false") != std::string::npos);
+        CHECK(e->hint.find("only the GL player") != std::string::npos);
+    }
+    CHECK(bad.settings.linux.vulkanPlayer);  // a wrong value keeps the default
 }

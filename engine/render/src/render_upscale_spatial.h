@@ -5,8 +5,8 @@
 
 #include <vector>
 
+#include "gpu/device.h"
 #include "gpu_types.h"
-#include "sokol_gfx.h"
 
 namespace fa::render {
 
@@ -15,9 +15,9 @@ public:
     enum class Prog : int { Edge, Sharpen };
 
     // Makes the two programs on the first call. False (and one logged error, once) when this backend cannot compile them.
-    bool ready();
+    bool ready(gpu::Device& device);
     // The pipeline of `prog` for a pass that writes `format`; an invalid one when not ready().
-    sg_pipeline pipeline(Prog prog, const TargetFormat& format);
+    gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
     // Destroys everything made; ready() makes it again.
     void release();
 
@@ -25,12 +25,13 @@ public:
     static float sharpen_weight(float sharpness);
 
 private:
-    sg_shader shaders_[2]{};
+    gpu::Device* device_ = nullptr;  // the device of the first ready(): everything is made and destroyed on it
+    gpu::Shader shaders_[2]{};
     int state_ = 0;  // 0 = not tried, 1 = ready, -1 = failed
     struct Entry {
         Prog prog;
         TargetFormat format;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
     std::vector<Entry> pipelines_;
 };

@@ -7,6 +7,7 @@
 
 #include "postprocess_resolve.h"
 #include "render_features.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/exposure.glsl.h"
 #include "shaders/post.glsl.h"
 
@@ -17,9 +18,8 @@ namespace {
 float finite_or(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
 template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
+void apply_uniforms(gpu::CommandList& list, int slot, const T& u) {
+    list.set_uniforms(slot, gpu::Range{&u, sizeof(T)});
 }
 
 constexpr float kMaxEv = 16.0f;      // +-16 stops: far beyond anything a display or a float target keeps
@@ -258,7 +258,7 @@ PostFx sliced_fx(const PostFx& in, const PostSlice& s) {
 }  // namespace
 
 void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, bool autoExposure, const PassDesc& pass,
-                   sg_view src, sg_view expo, sg_view white, sg_view aux, int picW, int picH,
+                   gpu::View src, gpu::View expo, gpu::View white, gpu::View aux, int picW, int picH,
                    const OutputTarget& output, const PostRect& rect, const PostSlice& slice) {
     const bool partial = !rect.whole(picW, picH);
     const int w =
@@ -275,14 +275,15 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     PostFx fx = sliced_fx(all, slice);
     const bool lut = fx.lut;
     fx.outline = fx.outline && aux.id != 0;  // the image the outline reads was not made: no outline
-    gpu.begin_pass(pass);
-    sg_apply_pipeline(gpu.post_pipeline(pass.format));
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(pass);
+    list.set_pipeline(gpu.post_pipeline(pass.format));
     if (partial) {  // the triangle covers the rectangle only: uv runs 0..1 across it
-        sg_apply_viewport(rect.x, rect.y, rect.w, rect.h, true);
-        sg_apply_scissor_rect(rect.x, rect.y, rect.w, rect.h, true);
+        list.set_viewport(rect.x, rect.y, rect.w, rect.h, true);
+        list.set_scissor(rect.x, rect.y, rect.w, rect.h, true);
     }
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_post_tex] = src;
     b.views[VIEW_post_expo_tex] = expo;
     b.views[VIEW_post_lut_tex] = lut ? plan.lutInfo.view : white;
@@ -291,10 +292,10 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
     b.samplers[SMP_post_smp] =
         gpu.sampler(SamplerKind::Nearest);  // the source has the size of the destination: texel for texel
     b.samplers[SMP_post_lin_smp] = gpu.sampler(SamplerKind::LinearClamp);  // the lens and the LUT
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     post_post_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_post_post_vs_params, vu);
+    apply_uniforms(list, UB_post_post_vs_params, vu);
     post_post_params_t u{};
     u.p[0] = plan.linear ? 1.0f : 0.0f;
     u.p[1] = convert ? 1.0f : 0.0f;
@@ -317,10 +318,11 @@ void run_post_pass(Gpu& gpu, const PostPlan& plan, bool finalPass, int filter, b
         u.h[2] = sh.slope;
         u.h[3] = sh.start;
     }
-    apply_uniforms(UB_post_post_params, u);
-    apply_uniforms(UB_post_post_fx_params, fx_uniforms(fx, plan.lutInfo, gpu.is_gl(), w, h, partial, rect, picW, picH));
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
+    apply_uniforms(list, UB_post_post_params, u);
+    apply_uniforms(list, UB_post_post_fx_params,
+                   fx_uniforms(fx, plan.lutInfo, gpu.is_gl(), w, h, partial, rect, picW, picH));
+    list.draw(0, 3, 1);
+    list.end_pass();
 }
 
 // ---- automatic exposure ------------------------------------------------------------------------------------------------------
@@ -336,18 +338,20 @@ void AutoExposure::warn_luma_missing() {
 }
 
 bool AutoExposure::ensure_targets(Gpu& gpu) {
-    if (ev_[0].valid() && ev_[1].valid()) return true;
-    for (Target& t : ev_) destroy_target(t);
+    gpu::Device& device = gpu.device();
+    if (ev_[0].valid(device) && ev_[1].valid(device)) return true;
+    for (Target& t : ev_) destroy_target(device, t);
+    device_ = &device;
     TargetDesc d;
     d.label = "exposure-ev";
     d.width = d.height = 1;
     // RGBA16F on every GPU, the EV as the sum of two channels (exposure.glsl): a plain 16-bit EV stalls once prev + (target - prev) * k
     // is under half a step of it (0.14 EV short at speed 0.5 and 144 frames a second, for an EV between 1 and 2), so the adaptation
     // would depend on the frame rate; a 32-bit target is not filterable or renderable everywhere (WebGL2, iOS).
-    d.colorFormat = SG_PIXELFORMAT_RGBA16F;
-    for (Target& t : ev_) t = make_target(d);
-    if (!ev_[0].valid() || !ev_[1].valid()) {
-        for (Target& t : ev_) destroy_target(t);
+    d.colorFormat = gpu::PixelFormat::Rgba16F;
+    for (Target& t : ev_) t = make_target(device, d);
+    if (!ev_[0].valid(device) || !ev_[1].valid(device)) {
+        for (Target& t : ev_) destroy_target(device, t);
         if (!warned_) {
             warned_ = true;
             FA_ERROR("render",
@@ -363,12 +367,15 @@ bool AutoExposure::ensure_targets(Gpu& gpu) {
 }
 
 void AutoExposure::release() {
-    for (Target& t : ev_) destroy_target(t);
+    if (device_) {  // nothing was made before ensure_targets
+        for (Target& t : ev_) destroy_target(*device_, t);
+    }
     fresh_ = true;
     retryAt_ = 0;
     lumaChecked_ = false;
     declaredBefore_ = false;
     cur_ = 0;
+    device_ = nullptr;
 }
 
 #if defined(_MSC_VER)
@@ -376,18 +383,18 @@ void AutoExposure::release() {
 #pragma warning(disable : 4324)  // the closures hold alignas(16) uniform blocks
 #endif
 ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const PostPlan& plan,
-                                    ResourceId game, sg_view srcTex, float dt, std::uint64_t serial, int* drawCalls,
+                                    ResourceId game, gpu::View srcTex, float dt, std::uint64_t serial, int* drawCalls,
                                     const std::string& job, int picW, int picH) {
     if (!plan.exposure || !plan.autoExposure) return {};
-    const sg_pixel_format fmt = gpu.scene_format();
-    if (fmt != SG_PIXELFORMAT_RGBA16F) {
+    const gpu::PixelFormat fmt = gpu.scene_format();
+    if (fmt != gpu::PixelFormat::Rgba16F) {
         if (!warned_) {
             warned_ = true;
             FA_WARN("render",
                     "PostProcess.exposureMode auto needs a float render target and this GPU draws the game in {}: the "
                     "exposure "
                     "stays at exposureEv. Hint: set exposureMode to manual",
-                    fmt == SG_PIXELFORMAT_RGBA8 ? "RGBA8" : "a format without it");
+                    fmt == gpu::PixelFormat::Rgba8 ? "RGBA8" : "a format without it");
         }
         return {};
     }
@@ -402,7 +409,7 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
     // manual; the pool keeps the target for the frames after it, the graph asks for it again.
     TransientDesc ld;
     ld.width = ld.height = kLumaSize;
-    ld.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, 1};
+    ld.format = TargetFormat{fmt, gpu::PixelFormat::None, 1};
     ld.label = job.empty() ? std::string("exposure-luma") : job + "/exposure-luma";  // unique in the graph
     if (!lumaChecked_) {
         const std::uint64_t h = targets.pool.acquire(ld);
@@ -463,20 +470,21 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
                 return;
             }
             PassDesc pd = pass_into(*t, "exposure-luma");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;  // every texel is drawn
-            g->begin_pass(pd);
-            sg_apply_pipeline(g->exposure_pipeline(ExposureStage::Luma, pd.format));
-            sg_bindings b{};
-            b.vertex_buffers[0] = g->fullscreen_triangle();
+            pd.colorLoad = gpu::LoadAction::DontCare;  // every texel is drawn
+            gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+            list.begin_pass(pd);
+            list.set_pipeline(g->exposure_pipeline(ExposureStage::Luma, pd.format));
+            gpu::Bindings b;
+            b.vertexBuffers[0] = g->fullscreen_triangle();
             b.views[VIEW_exposure_tex] = srcTex;
             b.samplers[SMP_exposure_smp] = g->sampler(SamplerKind::LinearClamp);
-            sg_apply_bindings(&b);
+            list.set_bindings(b);
             exposure_exposure_vs_params_t vu{};
             vu.flip[0] = g->is_gl() ? 1.0f : 0.0f;
-            apply_uniforms(UB_exposure_exposure_vs_params, vu);
-            apply_uniforms(UB_exposure_exposure_luma_params, u);
-            sg_draw(0, 3, 1);
-            g->end_pass();
+            apply_uniforms(list, UB_exposure_exposure_vs_params, vu);
+            apply_uniforms(list, UB_exposure_exposure_luma_params, u);
+            list.draw(0, 3, 1);
+            list.end_pass();
             ++*drawCalls;
         };
         graph.add_pass(std::move(p));
@@ -500,21 +508,22 @@ ResourceId AutoExposure::add_passes(FrameGraph& graph, TransientTargets& targets
             }
             Target& dst = self->ev_[next];
             PassDesc pd = pass_into(dst, "exposure-adapt");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
-            g->begin_pass(pd);
-            sg_apply_pipeline(g->exposure_pipeline(ExposureStage::Adapt, pd.format));
-            sg_bindings b{};
-            b.vertex_buffers[0] = g->fullscreen_triangle();
+            pd.colorLoad = gpu::LoadAction::DontCare;
+            gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+            list.begin_pass(pd);
+            list.set_pipeline(g->exposure_pipeline(ExposureStage::Adapt, pd.format));
+            gpu::Bindings b;
+            b.vertexBuffers[0] = g->fullscreen_triangle();
             b.views[VIEW_exposure_luma_tex] = lt->texView;
             b.views[VIEW_exposure_prev_tex] = self->ev_[prev].texView;
             b.samplers[SMP_exposure_smp] = g->sampler(SamplerKind::LinearClamp);
-            sg_apply_bindings(&b);
+            list.set_bindings(b);
             exposure_exposure_vs_params_t vu{};
             vu.flip[0] = g->is_gl() ? 1.0f : 0.0f;
-            apply_uniforms(UB_exposure_exposure_vs_params, vu);
-            apply_uniforms(UB_exposure_exposure_adapt_params, u);
-            sg_draw(0, 3, 1);
-            g->end_pass();
+            apply_uniforms(list, UB_exposure_exposure_vs_params, vu);
+            apply_uniforms(list, UB_exposure_exposure_adapt_params, u);
+            list.draw(0, 3, 1);
+            list.end_pass();
             ++*drawCalls;
             self->cur_ = next;  // the next frame reads what this one wrote
         };

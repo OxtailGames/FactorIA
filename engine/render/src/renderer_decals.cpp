@@ -20,8 +20,8 @@ std::string decal_key(const std::string& path) {
 }
 
 // The largest atlas side the GPU and kDecalAtlasMaxSide allow (a power of two).
-int decal_max_side() {
-    const int limit = std::max(64, sg_query_limits().max_image_size_2d);
+int decal_max_side(const gpu::Device& device) {
+    const int limit = std::max(64, device.limits().maxImageSize2d);
     int side = 64;
     while (side * 2 <= limit && side * 2 <= render::kDecalAtlasMaxSide) side *= 2;
     return side;
@@ -33,8 +33,8 @@ std::string Renderer::Impl::decal_path_key(const std::string& path) { return dec
 
 bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn, bool linear) {
     // 0 = gamma scene (raw bytes), 1 = linear scene, no sRGB format (the shader decodes the albedo), 2 = linear scene, SRGB8A8 atlas.
-    const sg_pixel_format format = gpu.texture_format(SG_PIXELFORMAT_RGBA8);
-    const int mode = !linear ? 0 : (format != SG_PIXELFORMAT_RGBA8 ? 2 : 1);
+    const gpu::PixelFormat format = gpu.texture_format(gpu::PixelFormat::Rgba8);
+    const int mode = !linear ? 0 : (format != gpu::PixelFormat::Rgba8 ? 2 : 1);
     const std::uint64_t generation = assets->reload_generation();
     DecalAtlasState& a = decalAtlas;
     // Only the reload of a texture the atlas holds (or refused) rebuilds it, not that of any other asset of the project.
@@ -59,7 +59,8 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
     }
     while (wanted.size() > render::kMaxDecalTextures) wanted.erase(std::prev(wanted.end()));
     const std::vector<std::string> list(wanted.begin(), wanted.end());
-    render::DecalAtlasImage built = render::build_decal_atlas(list, render::project_decal_source(), decal_max_side());
+    render::DecalAtlasImage built =
+        render::build_decal_atlas(list, render::project_decal_source(), decal_max_side(gpu.device()));
     // What went wrong, once for each text.
     for (const std::string& why : built.failed)
         if (warnedDecalTextures.insert(why).second)
@@ -77,38 +78,39 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
                 "The decal atlas is full: {} texture(s) were left out ({}{}) and their decals are not drawn. The atlas "
                 "holds at most {}x{} "
                 "pixels. Hint: use smaller decal textures (each is scaled to at most {} px) or fewer of them.",
-                built.layout.dropped.size(), names, built.layout.dropped.size() > 5 ? ", ..." : "", decal_max_side(),
-                decal_max_side(), render::kDecalTileMaxSide);
+                built.layout.dropped.size(), names, built.layout.dropped.size() > 5 ? ", ..." : "",
+                decal_max_side(gpu.device()), decal_max_side(gpu.device()), render::kDecalTileMaxSide);
     }
     // The new image, then the old one retired (an earlier job of this frame may still draw with it).
-    sg_image image{};
-    sg_view view{};
+    gpu::Device& device = gpu.device();
+    gpu::Image image{};
+    gpu::View view{};
     std::uint64_t bytes = 0;
     if (built.layout.width > 0 && !built.image.rgba.empty()) {
         const bool srgb = mode == 2;
         std::vector<Image> chain = mip_chain(std::move(built.image), srgb);
-        sg_image_desc d{};
+        gpu::ImageDesc d;
         d.width = built.layout.width;
         d.height = built.layout.height;
-        d.pixel_format = mode == 2 ? format : SG_PIXELFORMAT_RGBA8;
-        d.num_mipmaps = int(std::min<std::size_t>(chain.size(), SG_MAX_MIPMAPS));
-        for (int i = 0; i < d.num_mipmaps; ++i) {
-            d.data.mip_levels[i] = {chain[std::size_t(i)].rgba.data(), chain[std::size_t(i)].rgba.size()};
+        d.pixelFormat = mode == 2 ? format : gpu::PixelFormat::Rgba8;
+        d.numMipmaps = int(std::min<std::size_t>(chain.size(), gpu::kMaxMipmaps));
+        for (int i = 0; i < d.numMipmaps; ++i) {
+            d.data.mipLevels[i] = gpu::Range{chain[std::size_t(i)].rgba.data(), chain[std::size_t(i)].rgba.size()};
             bytes += chain[std::size_t(i)].rgba.size();
         }
         d.label = "decal-atlas";
-        image = make_image(d);
-        if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID) {
-            sg_view_desc vd{};
+        image = device.make_image(d);
+        if (device.state(image) == gpu::ResourceState::Valid) {
+            gpu::ViewDesc vd;
             vd.texture.image = image;
             vd.label = "decal-atlas";
-            view = sg_make_view(&vd);
+            view = device.make_view(vd);
         }
-        if (!view.id || sg_query_view_state(view) != SG_RESOURCESTATE_VALID) {
-            if (view.id) sg_destroy_view(view);
-            if (image.id) sg_destroy_image(image);
-            image = sg_image{};
-            view = sg_view{};
+        if (!view.id || device.state(view) != gpu::ResourceState::Valid) {
+            if (view.id) device.destroy_view(view);
+            if (image.id) device.destroy_image(image);
+            image = gpu::Image{};
+            view = gpu::View{};
             bytes = 0;
             built.layout = render::DecalAtlasLayout{};
             if (!warnedDecalAtlas) {
@@ -131,16 +133,16 @@ bool Renderer::Impl::ensure_decal_atlas(const std::vector<std::string>& pathsIn,
 
 void Renderer::Impl::free_retired_decal_atlases() {
     for (auto& [image, view] : decalRetired) {
-        if (view.id) sg_destroy_view(view);
-        if (image.id) sg_destroy_image(image);
+        if (view.id) gpu.device().destroy_view(view);
+        if (image.id) gpu.device().destroy_image(image);
     }
     decalRetired.clear();
 }
 
 void Renderer::Impl::destroy_decal_atlas() {
     free_retired_decal_atlases();
-    if (decalAtlas.view.id) sg_destroy_view(decalAtlas.view);
-    if (decalAtlas.image.id) sg_destroy_image(decalAtlas.image);
+    if (decalAtlas.view.id) gpu.device().destroy_view(decalAtlas.view);
+    if (decalAtlas.image.id) gpu.device().destroy_image(decalAtlas.image);
     decalAtlas = DecalAtlasState{};
 }
 

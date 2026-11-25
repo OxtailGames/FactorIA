@@ -113,7 +113,7 @@ file: then put this status and the milestones section back).
 
 **What comes next (2026-11-23):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
 M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
-(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0) and M76 (0.36.0) are done. Next M77-M89 in their own order. M99 waits for the
+(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0), M76 (0.36.0) and M77 (0.37.0) are done. Next M78-M89 in their own order. M99 waits for the
 user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -842,7 +842,7 @@ SHADERS.md "Not available yet" becomes empty.
   Ultra, auto-detected from the GPU and a short benchmark) that every M70-M80 feature reads, and the menu kit graphics
   page with all of it.
 
-## M77. Modern backends: D3D12 and Vulkan (L; 6 packages) — the user, 2026-11-06
+## M77. Modern backends: D3D12 and Vulkan (L; 6 packages) — the user, 2026-11-06 — DONE in 0.37.0
 
 sokol_gfx stays for GL, GLES3, WebGL2, D3D11 and Metal; D3D12 and Vulkan are our own backends behind the same render
 interface (external/ is not edited). They are the base of M78, M79, DirectStorage and the Xbox seam of M23.
@@ -850,8 +850,9 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M77.2 (L) D3D12 backend: descriptor heaps, pipeline state cache on disk, upload rings, resource barriers, debug layer
   in tests, WARP for CI.
 - M77.3 (L) Vulkan backend: Windows, Linux and Android, validation layers in tests, lavapipe for CI, pipeline cache.
-- M77.4 (M) Shaders: the shader tool emits DXIL and SPIR-V (with the M72 snippets), reflection kept for the material
-  inspector.
+- M77.4 (M) Shaders: the shader tool emits SPIR-V for Vulkan and the D3D12 backend consumes DXBC SM5.1 (the HLSL of
+  the D3D11 path, with the M72 snippets), reflection kept for the material inspector. DXIL (DXC, SM6) moves to M79.1,
+  which needs it for DXR.
 - M77.5 (M) Async compute and multi-threaded command recording on the M70 jobs, bindless where supported.
 - M77.6 (M) DirectStorage on Windows (GPU decompression of `game.pak` blocks) behind the M70 storage layer, and a
   backend choice in `project.json` and the launcher with automatic fallback.
@@ -869,7 +870,8 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 ## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
 
 - M79.1 (L) Acceleration structures: BLAS/TLAS for meshes (skinned refit, instances), on DXR (D3D12), Vulkan RT and
-  Metal RT, with `renderer.supports("raytracing")`.
+  Metal RT, with `renderer.supports("raytracing")`; the shader tool emits DXIL (DXC, SM6) for D3D12, which DXR needs
+  (moved from M77.4).
 - M79.2 (L) Ray-traced shadows (soft, area lights) and ambient occlusion.
 - M79.3 (L) Ray-traced reflections and translucency, falling back to M71.3/M73.3 per pixel.
 - M79.4 (L) Ray-traced global illumination (probes updated by rays, then per-pixel with denoising; DLSS Ray
@@ -1152,7 +1154,7 @@ drops its workaround in the same package.
 Order (M100, M101, M97.1, M97.2, M92 and M93 are done): M100 then M101, before M92 (M100 is what the game AI meets on
 its first run; M101 was the backlog). M100.1 (the measure) runs first so there is a "before". Then M97.1 and M97.2 (the
 cost of the first step; done in 0.24.0), then M92 (done in 0.25.0), M93 (done in 0.26.0, its ASan+UBSan job first),
-M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0), M73 (done in 0.33.0), M74 (done in 0.34.0), M75 (done in 0.35.0) and M76 (done in 0.36.0). M77-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
+M94, M95, M96, M98, M71 (done in 0.31.0), M72 (done in 0.32.0), M73 (done in 0.33.0), M74 (done in 0.34.0), M75 (done in 0.35.0), M76 (done in 0.36.0) and M77 (done in 0.37.0). M78-M89 follow, in their own order; M87 (the editor AI) after M97.2. A triage of every open
 entry of `examples/*` opens each milestone.
 
 **Left open by M101** (done 2026-11-11, 0.23.0; its history is in [done/M101.md](done/M101.md)):

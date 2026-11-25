@@ -17,6 +17,7 @@
 #include "fa/core/json.h"
 #include "fa/render/compute.h"
 #include "fa/scene/postprocess.h"
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
 #include "frame_graph.h"
 #include "postprocess.h"
 #include "renderer_custom_post.h"
@@ -998,8 +999,8 @@ struct ForcedOutput {
     ForcedOutput& operator=(const ForcedOutput&) = delete;
 };
 
-bool usable_format(sg_pixel_format f) {
-    const sg_pixelformat_info i = sg_query_pixelformat(f);
+bool usable_format(gpu::PixelFormat f) {
+    const sg_pixelformat_info i = sg_query_pixelformat(gpu::to_sg(f));
     return i.render && i.sample && i.filter;
 }
 
@@ -1010,12 +1011,12 @@ TEST_CASE(
     using render::pick_ldr_cut_format;
     // The choice, whatever this GPU can do: an SDR window and a float display keep the display format; an HDR window
     // over an 8-bit one takes the half float, else the full float, else stays.
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, false, true, true) == SG_PIXELFORMAT_RGBA8);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, true, true) == SG_PIXELFORMAT_RGBA16F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, true) == SG_PIXELFORMAT_RGBA32F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA8, true, false, false) == SG_PIXELFORMAT_RGBA8);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, true, true, true) == SG_PIXELFORMAT_RGBA16F);
-    CHECK(pick_ldr_cut_format(SG_PIXELFORMAT_RGBA16F, false, false, false) == SG_PIXELFORMAT_RGBA16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, false, true, true) == gpu::PixelFormat::Rgba8);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, true, true) == gpu::PixelFormat::Rgba16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, false, true) == gpu::PixelFormat::Rgba32F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba8, true, false, false) == gpu::PixelFormat::Rgba8);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba16F, true, true, true) == gpu::PixelFormat::Rgba16F);
+    CHECK(pick_ldr_cut_format(gpu::PixelFormat::Rgba16F, false, false, false) == gpu::PixelFormat::Rgba16F);
 
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -1038,8 +1039,8 @@ TEST_CASE(
         ForcedOutput hdr(g.renderer, HdrEncoding::ScRgb, 4.0f);
         cut_picture();
         const int format = render::renderer_ldr_cut_format(g.renderer);
-        if (usable_format(SG_PIXELFORMAT_RGBA16F) || usable_format(SG_PIXELFORMAT_RGBA32F))
-            CHECK((format == int(SG_PIXELFORMAT_RGBA16F) || format == int(SG_PIXELFORMAT_RGBA32F)));
+        if (usable_format(gpu::PixelFormat::Rgba16F) || usable_format(gpu::PixelFormat::Rgba32F))
+            CHECK((format == int(gpu::PixelFormat::Rgba16F) || format == int(gpu::PixelFormat::Rgba32F)));
         else
             CHECK(format == int(gpu->display_format()));
         CHECK(format == int(gpu->ldr_cut_format(true)));

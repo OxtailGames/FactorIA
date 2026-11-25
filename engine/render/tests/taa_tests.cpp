@@ -341,7 +341,7 @@ TEST_CASE(
     Scene s;
     s.taa();
     const Image img = own.draw(s.w, 40);
-    CHECK(RendererTestAccess::taa_format(own.r) == int(SG_PIXELFORMAT_RGBA8));
+    CHECK(RendererTestAccess::taa_format(own.r) == int(gpu::PixelFormat::Rgba8));
     double plainError = 0;
     {
         Own plainOwn(g);

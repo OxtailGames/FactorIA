@@ -131,6 +131,22 @@ SetupAction launcher_action(const SetupComponent& c, bool reinstall) {
     return a;
 }
 
+// Shown on Windows only: elsewhere the component is "unsupported" (`factoria setup directstorage` still installs it).
+SetupAction directstorage_action(const SetupComponent& c, const std::string& home, bool reinstall) {
+    SetupAction a;
+    a.component = "directstorage";
+    a.key = "directstorage";
+    a.force = reinstall;
+    a.label = reinstall ? "Reinstall" : "Install";
+    a.tooltip = std::string(reinstall ? "Downloads it again: " : "Downloads ") +
+                "Microsoft's DirectStorage runtime (the NuGet package Microsoft.Direct3D.DirectStorage, SHA-256 "
+                "checked) and keeps its x64 dstorage.dll and dstoragecore.dll in the directstorage folder of " +
+                join_path(home, "tools") +
+                ". A Windows release export with export.pack.directStorage copies them next to the game." +
+                size_sentence(c.installSizeMb);
+    return a;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -161,6 +177,7 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "xcode") return "Xcode";
     if (component == "vscode") return "the VS Code debugger";
     if (component == "launcher") return "the app launcher";
+    if (component == "directstorage") return "the DirectStorage runtime";
     if (component != "players") return component;
     std::vector<std::string> desktops;
     bool mobile = false, web = false;
@@ -236,6 +253,7 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
     }
     if (c.id == "vscode") return vscode_action(c, installed);
     if (c.id == "launcher") return launcher_action(c, installed);
+    if (c.id == "directstorage") return directstorage_action(c, home, installed);
     return std::nullopt;
 }
 

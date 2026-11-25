@@ -239,7 +239,13 @@ that adds it. [EXPORTING.md](../exporting/EXPORTING_CONTENTS.md#size-of-the-play
   own file is left alone), `factoria_player.exe` as built (its symbols are in the `.pdb`), `factoria_player.js` +
   `.wasm` uncompressed, and for iOS the sum of the device archives the release package carries (`libfactoria_player_main.a`
   and every engine archive it links; no job links a Release app, so there is no linked size, and the archives are larger
-  than the app).
+  than the app). The player measured carries what the shipped one carries: the renderer's SPIR-V (`FA_RENDER_VULKAN`,
+  about 3.4 MB) is in the Windows player (D3D11, D3D12 and Vulkan in one binary; its budget was raised for it in
+  M77-P9b) and in a Linux, Android or macOS tree only when it builds the tests, so the macOS job, whose tree builds them,
+  configures with `-DFA_RENDER_VULKAN=OFF`; the Linux and Android jobs that measure build no tests. The Vulkan player of
+  Linux and Android (`factoria_player_vulkan`, `libfactoria_player_vulkan.so`: the SPIR-V and the Vulkan backend) has
+  budget entries of its own (`linux-x64-vulkan`, `android-<abi>-vulkan`), measured next to the OpenGL player's in the same
+  jobs (artifact `player-size-<key>`); their `maxBytes` stay `null` until a CI measurement sets the baseline.
 - **Where.** `scripts/player-size.sh measure --platform <key>` after the build: `ci.yml` jobs `Linux (Steam Runtime sniper)`
   (`linux-x64`, the build that ships), `macOS` (`macos-arm64`), `Windows` (`windows-x64`, shard 1), `Web` (`web-wasm`) and
   `Android` (`android-arm64-v8a`; this job builds Release since a Debug size is meaningless), and `release.yml`: the Android
@@ -272,7 +278,7 @@ that adds it. [EXPORTING.md](../exporting/EXPORTING_CONTENTS.md#size-of-the-play
   whose budget is null from its first CI run. After a change that makes the player smaller, update the budget too, so the
   gain is kept (the step prints a notice when the player is 5% under its baseline).
 - **Locally.** Build a Release player (`cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_PLAYER_LINK_MAP=ON
-  && cmake --build build/rel --target factoria_player`), then `scripts/player-size.sh measure --platform macos-arm64
+  -DFA_BUILD_TESTS=OFF && cmake --build build/rel --target factoria_player`; without the tests, as the package is built), then `scripts/player-size.sh measure --platform macos-arm64
   --build-dir build/rel` (the platform key names the budget entry; a Windows build adds `--config Release`).
   `ctest -L size` runs `player_size_script`, the test of the script (schema of the budget file, the four map readers on
   sample maps (a demangled symbol line is not an input section), `measure` on a fake binary over, under and with no budget,

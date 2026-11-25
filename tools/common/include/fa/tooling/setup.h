@@ -77,7 +77,8 @@ inline constexpr const char* kSetupAppImageRuntimeSha256 =
 // sokol-shdc, the shader cross-compiler of custom materials (docs/design/CUSTOM_SHADERS.md): a pinned commit of
 // github.com/floooh/sokol-tools-bin (it has no release tags) and the SHA-256 of bin/<dir>/sokol-shdc[.exe] per host.
 // tools/shaders/compile_shaders.sh uses the same pin (a test keeps them equal); the generated code must match
-// external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together.
+// external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together. This commit
+// already writes `spirv_vk` (M77: SPIR-V for the Vulkan backend), so adding that dialect did not move it.
 inline constexpr const char* kSetupSokolShdcCommit = "b975d5642093d62e76a1e088bdae945d6d8b8ff2";
 struct SokolShdcBinary {
     const char* host;  // "windows" | "linux" | "macos" (SetupContext::host_os)
@@ -111,6 +112,20 @@ inline constexpr FfmpegBinary kSetupFfmpegBinaries[] = {
     {"macos", "x64", "darwin-x64", "a12354fce7eb62361473bbe10d53a1893695babd35869ec8e92e5dfea8d0440b", 24},
     {"macos", "aarch64", "darwin-arm64", "6be74d6f449889c2e87a75873894f8520cad56c08ac76f2a628d85b0519daaca", 19},
 };
+
+// DirectStorage, the Microsoft runtime a Windows game reads the gdeflate blocks of game.pak with
+// (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"): the NuGet package Microsoft.Direct3D.DirectStorage at
+// `version`, checked against the SHA-256 of its .nupkg. `setup directstorage` keeps its two redistributable x64 DLLs
+// (kSetupDirectStorageFiles) in <home>/tools/directstorage/<version>/ on any host; a Windows release export with
+// export.pack.directStorage copies them next to the game.
+struct DirectStoragePackage {
+    const char* version;
+    const char* sha256;  // of the .nupkg
+    int sizeMb;          // the download
+};
+inline constexpr DirectStoragePackage kSetupDirectStorage = {
+    "1.3.0", "8ab6c1082537565388b79050d94fdd7f5f437cd0f1d909e7b19f786042b97177", 3};
+inline constexpr const char* kSetupDirectStorageFiles[] = {"dstorage.dll", "dstoragecore.dll"};
 
 // The folder everything is installed into: $FACTORIA_HOME when set, else <HOME>/.factoria
 // (%USERPROFILE%\.factoria on Windows). It is also where ai.json lives (export.json follows FACTORIA_HOME unless
@@ -199,7 +214,8 @@ struct SetupLicense {
 
 struct SetupComponent {
     std::string
-        id;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
+        id;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
+    // "directstorage"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -231,7 +247,8 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 
 struct SetupInstallOptions {
     std::string
-        component;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher"
+        component;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
+    // "directstorage"
     bool acceptLicenses = false;  // android: the user agreed to the Android SDK license
     std::vector<std::string>
         platforms;       // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
@@ -309,6 +326,11 @@ std::string find_sokol_shdc(const SetupContext& context = {});
 const FfmpegBinary* ffmpeg_binary(const SetupContext& context);
 // <home>/tools/ffmpeg/<kSetupFfmpegRelease>/ffmpeg[.exe]: where `setup ffmpeg` puts it (the file may not exist).
 std::string ffmpeg_install_path(const SetupContext& context);
+
+// <home>/tools/directstorage/<kSetupDirectStorage.version>: where `setup directstorage` puts the DirectStorage DLLs.
+std::string directstorage_install_dir(const SetupContext& context);
+// That folder when it holds both kSetupDirectStorageFiles; "" when either is missing.
+std::string installed_directstorage_dir(const SetupContext& context);
 
 // When the launcher `setup launcher` wrote opens this factoria but is out of date (an update or a reinstall brought a new
 // icon or version), writes it again and returns true. A missing launcher, or one that opens another factoria (a

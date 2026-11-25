@@ -1551,6 +1551,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return Json::object({{"reset", cameraName}});
         });
 
+    register_gpu_backend_commands(engine, I);  // graphics.backend (P9e2)
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
                                                  {"render.output", capability_sets::reads()},

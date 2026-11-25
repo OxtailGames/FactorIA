@@ -1,16 +1,18 @@
-// Image creation shared by the renderer's subsystems.
-#include <algorithm>
-
-#include "render_internal.h"
+// The OpenGL ES fix of every image SokolDevice makes (gpu/sokol_native.h, native_finish_image). The GL names come from
+// the Device's natives; nothing here calls sokol.
+#include "gpu/sokol_native.h"
 
 #if defined(SOKOL_GLES3)
 #include <GLES3/gl3.h>
+
+#include <algorithm>
 #endif
 
-namespace fa::render {
+#include "gpu/device.h"
 
-sg_image make_image(const sg_image_desc& desc) {
-    sg_image image = sg_make_image(&desc);
+namespace fa::gpu {
+
+void native_finish_image(Device& device, Image image, int mipmaps) {
 #if defined(SOKOL_GLES3)
     // sokol_gfx gives every sampler a mipmap min filter (GL_NEAREST_MIPMAP_NEAREST, ...) and creates textures with
     // glTexStorage2D, trusting the driver to clamp the effective max level to the storage's levels. The Android
@@ -18,59 +20,29 @@ sg_image make_image(const sg_image_desc& desc) {
     // black, so everything but 1x1 textures (the game target, glyph atlas, bloom levels) vanishes. Setting the real
     // last level explicitly (what sokol itself does when it has no glTexStorage2D) makes the texture complete on any
     // driver and changes nothing on the conforming ones. A write-transient image (a video) has one texture per frame in
-    // flight: all of them.
-    const sg_gl_image_info info = sg_gl_query_image_info(image);
-    if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID) {
-        GLint previous = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
-        for (const GLuint tex : info.tex) {
-            if (!tex) continue;
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, std::max(desc.num_mipmaps, 1) - 1);
-        }
-        glBindTexture(GL_TEXTURE_2D, GLuint(previous));
+    // flight: all of them. On the image's own target (a cube or an array texture cannot be bound to GL_TEXTURE_2D); a
+    // 3D image is left as sokol made it, as before.
+    if (device.state(image) != ResourceState::Valid) return;
+    const NativeImage native = device.native_image(image);
+    GLenum binding = 0;
+    switch (native.glTarget) {
+        case GL_TEXTURE_2D: binding = GL_TEXTURE_BINDING_2D; break;
+        case GL_TEXTURE_CUBE_MAP: binding = GL_TEXTURE_BINDING_CUBE_MAP; break;
+        case GL_TEXTURE_2D_ARRAY: binding = GL_TEXTURE_BINDING_2D_ARRAY; break;
+        default: return;
     }
+    const GLenum target = GLenum(native.glTarget);
+    GLint previous = 0;
+    glGetIntegerv(binding, &previous);
+    for (const std::uint32_t tex : native.glTextures) {
+        if (!tex) continue;
+        glBindTexture(target, GLuint(tex));
+        glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, std::max(mipmaps, 1) - 1);
+    }
+    glBindTexture(target, GLuint(previous));
+#else
+    (void)device, (void)image, (void)mipmaps;
 #endif
-    return image;
 }
 
-sg_image make_cube_image(const sg_image_desc& desc) {
-    sg_image image = sg_make_image(&desc);
-#if defined(SOKOL_GLES3)
-    // As make_image: the last level is set explicitly, on the cube target (a cube texture cannot be bound to
-    // GL_TEXTURE_2D).
-    const sg_gl_image_info info = sg_gl_query_image_info(image);
-    if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID) {
-        GLint previous = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &previous);
-        for (const GLuint tex : info.tex) {
-            if (!tex) continue;
-            glBindTexture(GL_TEXTURE_CUBE_MAP, tex);
-            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, std::max(desc.num_mipmaps, 1) - 1);
-        }
-        glBindTexture(GL_TEXTURE_CUBE_MAP, GLuint(previous));
-    }
-#endif
-    return image;
-}
-
-sg_image make_array_image(const sg_image_desc& desc) {
-    sg_image image = sg_make_image(&desc);
-#if defined(SOKOL_GLES3)
-    // As make_image: the last level is set explicitly, on the array target (an array texture cannot be bound to GL_TEXTURE_2D).
-    const sg_gl_image_info info = sg_gl_query_image_info(image);
-    if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID) {
-        GLint previous = 0;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &previous);
-        for (const GLuint tex : info.tex) {
-            if (!tex) continue;
-            glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
-            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, std::max(desc.num_mipmaps, 1) - 1);
-        }
-        glBindTexture(GL_TEXTURE_2D_ARRAY, GLuint(previous));
-    }
-#endif
-    return image;
-}
-
-}  // namespace fa::render
+}  // namespace fa::gpu

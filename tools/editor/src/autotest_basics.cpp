@@ -390,8 +390,8 @@ void Editor::at_section_D(AtScript& at) {
 void Editor::at_section_E(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
     // ------------------------------------------------------------------------- E. Ctrl+V into the AI Assistant input
-    // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); sokol_imgui then presses
-    // Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
+    // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); the editor's ImGui backend
+    // then presses Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
     static const char* kPasted = "A 3D tower game.\nThree levels.";
     click("ai:input");
     step(4, [this] {
@@ -870,8 +870,8 @@ void Editor::at_section_J(AtScript& at) {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher ",
-                 "the window lists the ten components, in order (" + ids + ")");
+        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher directstorage ",
+                 "the window lists the eleven components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(),
                  "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)

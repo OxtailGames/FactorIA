@@ -77,6 +77,9 @@ struct ExportOptions {
                              // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
                              // ONE archive, game.pak, with the scripts as bytecode (export.scriptBytecode). ios: only
                              // changes the build commands of the script
+    bool vulkan = false;  // windows, linux, android: custom materials also ship their spirv_vk twin (SPIR-V, shaders.h
+                          // kShaderDialectVulkan) next to the platform's own. Nothing in the player reads it before the
+                          // Vulkan backend (M77), so it is off; the other platforms ship no SPIR-V either way
     bool allowDebugKey =
         false;  // android release without a keystore: sign with the debug key (fine to try on a device,
                 // Google Play rejects it) instead of failing
@@ -127,7 +130,8 @@ struct ExportOptions {
                   // and ~/.factoria/export.json (nullptr = this machine); only tests change it
     const SetupContext* setup =
         nullptr;  // linux appimage: which computer this is, where the AppImage tools are installed and how
-                  // programs are run (nullptr = this machine); only tests change it
+                  // programs are run; windows with export.pack.directStorage: where the DirectStorage DLLs are
+                  // installed (nullptr = this machine); only tests change it
 };
 
 // One row of the size report of an export (ExportReport::largestFolders, ExportReport::webFiles).
@@ -141,7 +145,7 @@ struct ExportSize {
 // One codec of a game pack: how many files it holds and their size before and after (a file whose compressed blocks saved
 // too little is stored as it is, and counts under "store").
 struct ExportPackCodec {
-    std::string codec;  // "store" | "lz4" | "zstd"
+    std::string codec;  // "store" | "lz4" | "zstd" | "gdeflate"
     std::uint64_t files = 0;
     std::uint64_t bytes = 0;        // the files' size
     std::uint64_t storedBytes = 0;  // what they take in the pack

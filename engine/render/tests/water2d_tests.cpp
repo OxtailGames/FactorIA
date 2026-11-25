@@ -481,16 +481,16 @@ TEST_CASE(
     REQUIRE(gpu != nullptr);
     WaterFx fx;
     CHECK(fx.pipeline_count() == 0);  // nothing is made before it is asked for
-    const TargetFormat game{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
+    const TargetFormat game{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 1};
     fx.warm(*gpu, game);
-    REQUIRE(fx.ready());
+    REQUIRE(fx.ready(*gpu));
     // pipeline_count() counts cache entries (a failed build is one too, with id 0). Here the copy's (in the scene format) and the
     // effect's two (with and without the depth test): what the first frame draws with.
     CHECK(fx.pipeline_count() == 3);
     fx.warm(*gpu, game);  // the same format again finds them all: the warm-up is idempotent
     CHECK(fx.pipeline_count() == 3);
     // Another format of the main pass adds only the effect's two pipelines (the copy's format does not depend on it).
-    fx.warm(*gpu, TargetFormat{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1});
+    fx.warm(*gpu, TargetFormat{gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1});
     CHECK(fx.pipeline_count() == 5);
     fx.release();
     CHECK(fx.pipeline_count() == 0);

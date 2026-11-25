@@ -13,6 +13,7 @@
 #include "frame.h"
 #include "render_scene.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/water2d.glsl.h"
 
 namespace fa::render {
@@ -295,14 +296,19 @@ void gather_water_fx(World& world, Frame& f) {
 // ---------------------------------------------------------------------------
 // WaterFx: the shaders, the copy and the draw
 // ---------------------------------------------------------------------------
-bool WaterFx::ready() {
+bool WaterFx::ready(Gpu& gpu) {
     if (state_ != 0) return state_ > 0;
-    copyShader_ = make_shader(water2d_copy_shader_desc(sg_query_backend()), "water2d_copy");
-    fxShader_ = make_shader(water2d_fx_shader_desc(sg_query_backend()), "water2d_fx");
-    if (sg_query_shader_state(copyShader_) != SG_RESOURCESTATE_VALID ||
-        sg_query_shader_state(fxShader_) != SG_RESOURCESTATE_VALID) {
-        if (copyShader_.id) sg_destroy_shader(copyShader_);
-        if (fxShader_.id) sg_destroy_shader(fxShader_);
+    return make_ready(gpu.device());
+}
+
+bool WaterFx::make_ready(gpu::Device& device) {
+    device_ = &device;
+    copyShader_ = make_shader(device, gpu::generated_shader_desc(device, water2d_copy_shader_desc), "water2d_copy");
+    fxShader_ = make_shader(device, gpu::generated_shader_desc(device, water2d_fx_shader_desc), "water2d_fx");
+    if (device.state(copyShader_) != gpu::ResourceState::Valid ||
+        device.state(fxShader_) != gpu::ResourceState::Valid) {
+        if (copyShader_.id) device.destroy_shader(copyShader_);
+        if (fxShader_.id) device.destroy_shader(fxShader_);
         copyShader_ = {};
         fxShader_ = {};
         state_ = -1;
@@ -318,70 +324,72 @@ bool WaterFx::ready() {
 }
 
 void WaterFx::warm(Gpu& gpu, const TargetFormat& gameFormat) {
-    if (!ready()) return;
+    if (!ready(gpu)) return;
     copy_pipeline(
-        TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1});  // the format copy() draws the pooled image in
+        TargetFormat{gpu.scene_format(), gpu::PixelFormat::None, 1});  // the format copy() draws the pooled image in
     fx_pipeline(gameFormat, false);
     fx_pipeline(gameFormat, true);
 }
 
-sg_pipeline WaterFx::copy_pipeline(const TargetFormat& format) {
+gpu::Pipeline WaterFx::copy_pipeline(const TargetFormat& format) {
     for (const PipelineEntry& e : copyPipelines_)
         if (e.format == format) return e.pipeline;
     if (state_ <= 0) return {};
-    sg_pipeline_desc d{};
+    const gpu::TargetFormat target = format;
+    gpu::PipelineDesc d;
     d.shader = copyShader_;
-    d.layout.attrs[ATTR_water2d_copy_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
+    d.layout.attrs[ATTR_water2d_copy_pos].format = gpu::VertexFormat::Float2;
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.depth.pixelFormat = target.depth;
+    d.colors[0].pixelFormat = target.color;
+    d.sampleCount = target.samples;
+    d.faceWinding = gpu::FaceWinding::Ccw;
     d.label = "scene-copy";
-    sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
+    gpu::Pipeline p = device_->make_pipeline(d);
+    if (device_->state(p) != gpu::ResourceState::Valid) {
         FA_ERROR("render", "failed to create the pipeline that copies the picture for Water2D / DistortionZone2D / "
                            "fa_scene_color(): those items "
                            "are not drawn. Hint: see the sokol log lines above.");
-        if (p.id) sg_destroy_pipeline(p);
+        if (p.id) device_->destroy_pipeline(p);
         p = {};
     }
     copyPipelines_.push_back({format, false, p});
     return p;
 }
 
-sg_pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
+gpu::Pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
     for (const PipelineEntry& e : fxPipelines_)
         if (e.format == format && e.depthTest == depthTest) return e.pipeline;
     if (state_ <= 0) return {};
-    sg_pipeline_desc d{};
+    const gpu::TargetFormat target = format;
+    gpu::PipelineDesc d;
     d.shader = fxShader_;
     static_assert(sizeof(Vertex2D) == 48, "the stride below is that of Vertex2D");
     d.layout.buffers[0].stride = int(sizeof(Vertex2D));
-    d.layout.attrs[ATTR_water2d_fx_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_water2d_fx_position].format = gpu::VertexFormat::Float3;
     d.layout.attrs[ATTR_water2d_fx_position].offset = 0;
-    d.primitive_type = SG_PRIMITIVETYPE_TRIANGLES;
-    d.index_type = SG_INDEXTYPE_UINT16;
-    d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
+    d.primitiveType = gpu::PrimitiveType::Triangles;
+    d.indexType = gpu::IndexType::Uint16;
+    d.depth.compare = depthTest ? gpu::CompareFunc::LessEqual : gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.depth.pixelFormat = target.depth;
+    d.colors[0].pixelFormat = target.color;
     d.colors[0].blend.enabled = true;
-    d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
-    d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-    d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
-    d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-    d.sample_count = format.samples;
-    d.cull_mode = SG_CULLMODE_NONE;
-    d.face_winding = SG_FACEWINDING_CCW;
+    d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::SrcAlpha;
+    d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.sampleCount = target.samples;
+    d.cullMode = gpu::CullMode::None;
+    d.faceWinding = gpu::FaceWinding::Ccw;
     d.label = "water2d";
-    sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
+    gpu::Pipeline p = device_->make_pipeline(d);
+    if (device_->state(p) != gpu::ResourceState::Valid) {
         FA_ERROR("render", "failed to create the pipeline of Water2D / DistortionZone2D for this render target format: "
                            "they are not drawn. "
                            "Hint: see the sokol log lines above.");
-        if (p.id) sg_destroy_pipeline(p);
+        if (p.id) device_->destroy_pipeline(p);
         p = {};
     }
     fxPipelines_.push_back({format, depthTest, p});
@@ -389,14 +397,14 @@ sg_pipeline WaterFx::fx_pipeline(const TargetFormat& format, bool depthTest) {
 }
 
 bool WaterFx::copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-                   std::uint64_t& handle, sg_view& view) {
+                   std::uint64_t& handle, gpu::View& view) {
     handle = 0;
     view = {};
-    if (w < 1 || h < 1 || !game.texView.id || !ready()) return false;
+    if (w < 1 || h < 1 || !game.texView.id || !ready(gpu)) return false;
     TransientDesc d;
     d.width = w;
     d.height = h;
-    d.format = TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu.scene_format(), gpu::PixelFormat::None, 1};
     d.label = "scene-copy";
     const std::uint64_t got = targets.pool.acquire(d);
     if (!got) return false;
@@ -406,48 +414,48 @@ bool WaterFx::copy(TransientTargets& targets, Gpu& gpu, const Target& game, int 
         return false;
     }
     PassDesc pd = pass_into(*t, "scene-copy");
-    const sg_pipeline pipe = copy_pipeline(pd.format);
+    const gpu::Pipeline pipe = copy_pipeline(pd.format);
     if (!pipe.id) {
         targets.pool.release(got);
         return false;
     }
-    pd.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    pd.colorStore = SG_STOREACTION_STORE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipe);
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(pd);
+    list.set_pipeline(pipe);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_water2d_src] = game.texView;
     b.samplers[SMP_water2d_src_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     water2d_water2d_copy_params_t cu{};
     cu.origin[0] = float(x);
     cu.origin[1] = float(row);
-    sg_range r{&cu, sizeof(cu)};
-    sg_apply_uniforms(UB_water2d_water2d_copy_params, &r);
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.set_uniforms(UB_water2d_water2d_copy_params, gpu::Range{&cu, sizeof(cu)});
+    list.draw(0, 3, 1);
+    list.end_pass();
     handle = got;
     view = t->texView;
     return true;
 }
 
 bool WaterFx::draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const DrawEnv& env) {
-    if (!env.scene.id || !env.viewProj || !env.map || !ready()) return false;
-    const sg_pipeline pipe = fx_pipeline(env.format, env.depthTest);
+    if (!env.scene.id || !env.viewProj || !env.map || !ready(gpu)) return false;
+    const gpu::Pipeline pipe = fx_pipeline(env.format, env.depthTest);
     if (!pipe.id) return false;
-    sg_apply_pipeline(pipe);
-    sg_bindings b{};
-    b.vertex_buffers[0] = env.vertices;
-    b.vertex_buffer_offsets[0] = int(std::size_t(firstQuad) * 4 * sizeof(Vertex2D));
-    b.index_buffer = gpu.quad_index_buffer();
+    gpu::CommandList& list = gpu.commands();  // the pass the caller opened is on this list
+    list.set_pipeline(pipe);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = env.vertices;
+    b.vertexBufferOffsets[0] = int(std::size_t(firstQuad) * 4 * sizeof(Vertex2D));
+    b.indexBuffer = gpu.quad_index_buffer();
     b.views[VIEW_water2d_scene_tex] = env.scene;
     b.samplers[SMP_water2d_scene_smp] = gpu.sampler(SamplerKind::LinearClamp);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
     water2d_water2d_vs_params_t vu{};
     std::memcpy(vu.view_proj, env.viewProj->m, sizeof(vu.view_proj));
-    sg_range vr{&vu, sizeof(vu)};
-    sg_apply_uniforms(UB_water2d_water2d_vs_params, &vr);
+    list.set_uniforms(UB_water2d_water2d_vs_params, gpu::Range{&vu, sizeof(vu)});
     water2d_water2d_fs_params_t fu{};
     fu.area[0] = fx.origin[0];
     fu.area[1] = fx.origin[1];
@@ -468,24 +476,26 @@ bool WaterFx::draw(Gpu& gpu, const Fx2D& fx, std::uint32_t firstQuad, const Draw
     fu.target[2] = env.gl ? 1.0f : 0.0f;
     std::memcpy(fu.scene, env.map->scene, sizeof(fu.scene));
     std::memcpy(fu.world_uv, env.map->worldUv, sizeof(fu.world_uv));
-    sg_range fr{&fu, sizeof(fu)};
-    sg_apply_uniforms(UB_water2d_water2d_fs_params, &fr);
-    sg_draw(0, 6, 1);
+    list.set_uniforms(UB_water2d_water2d_fs_params, gpu::Range{&fu, sizeof(fu)});
+    list.draw(0, 6, 1);
     return true;
 }
 
 void WaterFx::release() {
-    for (PipelineEntry& e : copyPipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
-    for (PipelineEntry& e : fxPipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
+    if (device_) {  // nothing was made before a device was given
+        for (PipelineEntry& e : copyPipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        for (PipelineEntry& e : fxPipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        if (copyShader_.id) device_->destroy_shader(copyShader_);
+        if (fxShader_.id) device_->destroy_shader(fxShader_);
+    }
     copyPipelines_.clear();
     fxPipelines_.clear();
-    if (copyShader_.id) sg_destroy_shader(copyShader_);
-    if (fxShader_.id) sg_destroy_shader(fxShader_);
     copyShader_ = {};
     fxShader_ = {};
     state_ = 0;
+    device_ = nullptr;
 }
 
 }  // namespace fa::render

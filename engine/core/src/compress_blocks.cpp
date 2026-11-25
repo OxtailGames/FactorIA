@@ -1,5 +1,5 @@
-// Block codecs of fa/core/compress.h: the engine's own LZ4 block and Zstandard (RFC 8878) codecs, dispatched here.
-// lz4_codec.cpp, zstd_decode.cpp, zstd_encode.cpp and xxh64.cpp hold the formats (compress_internal.h).
+// Block codecs of fa/core/compress.h: the engine's own LZ4 block, Zstandard (RFC 8878) and GDeflate codecs, dispatched here.
+// lz4_codec.cpp, zstd_decode.cpp, zstd_encode.cpp, gdeflate_codec.cpp and xxh64.cpp hold the formats (compress_internal.h).
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -17,16 +17,17 @@ std::string_view codec_name(Codec codec) {
         case Codec::Store: return "store";
         case Codec::Lz4: return "lz4";
         case Codec::Zstd: return "zstd";
+        case Codec::GDeflate: return "gdeflate";
     }
     return "store";
 }
 
 Result<Codec> parse_codec(std::string_view name) {
-    for (Codec c : {Codec::Store, Codec::Lz4, Codec::Zstd})
+    for (Codec c : {Codec::Store, Codec::Lz4, Codec::Zstd, Codec::GDeflate})
         if (codec_name(c) == name) return c;
-    const std::array<std::string, 3> names{"store", "lz4", "zstd"};
+    const std::array<std::string, 4> names{"store", "lz4", "zstd", "gdeflate"};
     return Error{"unknown codec \"" + std::string(name) + "\"",
-                 "use \"store\", \"lz4\" or \"zstd\"" + did_you_mean(name, names)};
+                 "use \"store\", \"lz4\", \"zstd\" or \"gdeflate\"" + did_you_mean(name, names)};
 }
 
 std::size_t compress_bound(Codec codec, std::size_t size) {
@@ -34,6 +35,7 @@ std::size_t compress_bound(Codec codec, std::size_t size) {
         case Codec::Store: return size;
         case Codec::Lz4: return codec::lz4_compress_bound(size);
         case Codec::Zstd: return codec::zstd_compress_bound(size);
+        case Codec::GDeflate: return codec::gdeflate_compress_bound(size);
     }
     return size;
 }
@@ -51,6 +53,9 @@ Result<std::vector<std::uint8_t>> compress(std::span<const std::uint8_t> input, 
                 break;
             case Codec::Zstd:
                 codec::zstd_compress(input, options.level == 0 ? 3 : std::clamp(options.level, 1, 19), false, out);
+                break;
+            case Codec::GDeflate:
+                codec::gdeflate_compress(input, options.level == 0 ? 6 : std::clamp(options.level, 1, 12), out);
                 break;
         }
         return out;
@@ -72,11 +77,12 @@ Result<void> decompress_into(Codec codec, std::span<const std::uint8_t> block, s
                 return {};
             case Codec::Lz4: return codec::lz4_decompress(block, out);
             case Codec::Zstd: return codec::zstd_decompress(block, out, true);
+            case Codec::GDeflate: return codec::gdeflate_decompress(block, out);
         }
     } catch (const std::bad_alloc&) {
         return Error{"out of memory decompressing a block", "close other programs and try again"};
     }
-    return Error{"unknown codec", "use \"store\", \"lz4\" or \"zstd\""};
+    return Error{"unknown codec", "use \"store\", \"lz4\", \"zstd\" or \"gdeflate\""};
 }
 
 Result<std::vector<std::uint8_t>> decompress(Codec codec, std::span<const std::uint8_t> block,

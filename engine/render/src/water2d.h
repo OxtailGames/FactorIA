@@ -60,9 +60,9 @@ public:
     WaterFx(const WaterFx&) = delete;
     WaterFx& operator=(const WaterFx&) = delete;
 
-    // True when the copy and effect shaders compiled (made on first use; one error line when they did not, and the effects are then not
-    // drawn).
-    bool ready();
+    // True when the copy and effect shaders compiled on `gpu`'s device (made on first use; one error line when they did not, and the
+    // effects are then not drawn). The device is remembered: warm, copy and draw take it from their Gpu too.
+    bool ready(Gpu& gpu);
 
     // Makes the shaders and the pipelines of a frame drawn into `gameFormat` (the main pass's format) ahead of the first draw: the start-up
     // warm-up of a scene that has a Water2D or a DistortionZone2D (renderer.cpp), so their first frame does not compile them. Does nothing
@@ -78,14 +78,14 @@ public:
     // image. Must be called outside any pass. On success `handle` is the pooled image (give it back with TransientTargets::pool.release) and
     // `view` its texture view; false (nothing held) when the shader or the image could not be made.
     bool copy(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-              std::uint64_t& handle, sg_view& view);
+              std::uint64_t& handle, gpu::View& view);
 
     // What draw() needs of the camera and the frame.
     struct DrawEnv {
-        sg_buffer vertices{};  // the frame's quad stream
+        gpu::Buffer vertices{};  // the frame's quad stream
         const Mat4* viewProj = nullptr;
         const SceneMap* map = nullptr;
-        sg_view scene{};  // the copy
+        gpu::View scene{};  // the copy
         float time = 0.0f;
         float targetInv[2]{};  // 1 / the size of the render target in pixels
         bool gl = false;       // render targets are bottom-up (OpenGL)
@@ -102,11 +102,14 @@ private:
     struct PipelineEntry {
         TargetFormat format;
         bool depthTest;
-        sg_pipeline pipeline;
+        gpu::Pipeline pipeline;
     };
-    sg_pipeline copy_pipeline(const TargetFormat& format);
-    sg_pipeline fx_pipeline(const TargetFormat& format, bool depthTest);
-    sg_shader copyShader_{}, fxShader_{};
+    bool make_ready(gpu::Device& device);
+    gpu::Pipeline copy_pipeline(const TargetFormat& format);
+    gpu::Pipeline fx_pipeline(const TargetFormat& format, bool depthTest);
+    gpu::Device* device_ =
+        nullptr;  // the device the shaders and pipelines were made on (set by the first call that has one)
+    gpu::Shader copyShader_{}, fxShader_{};
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
     std::vector<PipelineEntry> copyPipelines_, fxPipelines_;
 };

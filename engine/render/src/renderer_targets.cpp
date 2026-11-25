@@ -1,117 +1,8 @@
 // Renderer::Impl, part 2: the game target, the CameraView and Camera.renderTarget images, the 2D light buffer and
-// shadow targets, the colour filter and the RGBA8 readback.
+// shadow targets, the colour filter and the RGBA8 readback. The Target helpers are in target.cpp.
 #include "renderer_impl.h"
 
 #include <algorithm>
-
-namespace fa::render {
-
-bool Target::valid() const {
-    if (!color.id) return false;
-    for (sg_image i : {color, resolve, depth})
-        if (i.id && sg_query_image_state(i) != SG_RESOURCESTATE_VALID) return false;
-    for (sg_view v : {colorAtt, resolveAtt, resolveColorAtt, depthAtt, texView})
-        if (v.id && sg_query_view_state(v) != SG_RESOURCESTATE_VALID) return false;
-    // A view the description asked for that the GPU did not even create (a full pool) is as bad as a failed one.
-    return colorAtt.id && (!expectTexture || texView.id) && (!expectDepth || (depth.id && depthAtt.id)) &&
-           (samples <= 1 || (resolve.id && resolveAtt.id));
-}
-
-Target make_target(const TargetDesc& d) {
-    Target t;
-    t.w = d.width;
-    t.h = d.height;
-    t.samples = std::max(1, d.samples);
-    t.format = TargetFormat{d.colorFormat, d.depthFormat, t.samples};
-    t.expectTexture = d.texture;
-    t.expectDepth = d.depthFormat != SG_PIXELFORMAT_NONE;
-    const std::string base = d.label ? d.label : "target";
-    const std::string colorLabel = base + "-color", colorAttLabel = base + "-color-att",
-                      resolveLabel = base + "-resolve", resolveColorLabel = base + "-resolve-color-att",
-                      textureLabel = base + "-texture", depthLabel = base + "-depth";
-    const bool msaa = t.samples > 1;
-    if (d.colorFormat != SG_PIXELFORMAT_NONE) {
-        sg_image_desc cd{};
-        cd.usage.color_attachment = true;
-        cd.usage.storage_image = d.storage && !msaa;
-        cd.width = d.width;
-        cd.height = d.height;
-        cd.pixel_format = d.colorFormat;
-        cd.sample_count = t.samples;
-        cd.label = colorLabel.c_str();
-        t.color = make_image(cd);
-        sg_view_desc cv{};
-        cv.color_attachment.image = t.color;
-        cv.label = colorAttLabel.c_str();
-        t.colorAtt = sg_make_view(&cv);
-        if (msaa) {
-            sg_image_desc rd{};
-            rd.usage.resolve_attachment = true;
-            rd.usage.color_attachment = d.resolveAsColor;
-            rd.width = d.width;
-            rd.height = d.height;
-            rd.pixel_format = d.colorFormat;
-            rd.sample_count = 1;
-            rd.label = resolveLabel.c_str();
-            t.resolve = make_image(rd);
-            sg_view_desc rv{};
-            rv.resolve_attachment.image = t.resolve;
-            rv.label = resolveLabel.c_str();
-            t.resolveAtt = sg_make_view(&rv);
-            if (d.resolveAsColor) {
-                sg_view_desc rc{};
-                rc.color_attachment.image = t.resolve;
-                rc.label = resolveColorLabel.c_str();
-                t.resolveColorAtt = sg_make_view(&rc);
-            }
-        }
-        if (d.texture) {
-            sg_view_desc tv{};
-            tv.texture.image = t.texture_image();
-            tv.label = textureLabel.c_str();
-            t.texView = sg_make_view(&tv);
-        }
-    }
-    if (d.depthFormat != SG_PIXELFORMAT_NONE) {
-        sg_image_desc dd{};
-        dd.usage.depth_stencil_attachment = true;
-        dd.width = d.width;
-        dd.height = d.height;
-        dd.pixel_format = d.depthFormat;
-        dd.sample_count = t.samples;
-        dd.label = depthLabel.c_str();
-        t.depth = make_image(dd);
-        sg_view_desc dv{};
-        dv.depth_stencil_attachment.image = t.depth;
-        dv.label = depthLabel.c_str();
-        t.depthAtt = sg_make_view(&dv);
-    }
-    return t;
-}
-
-void destroy_target(Target& t) {
-    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.resolveColorAtt, &t.depthAtt, &t.texView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    for (sg_image* i : {&t.color, &t.resolve, &t.depth}) {
-        if (i->id) sg_destroy_image(*i);
-        *i = {};
-    }
-    t = Target{};
-}
-
-PassDesc pass_into(const Target& t, const char* label) {
-    PassDesc p;
-    p.label = label;
-    p.color = t.colorAtt;
-    if (t.samples > 1) p.resolve = t.resolveAtt;
-    p.depth = t.depthAtt;
-    p.format = t.format;
-    return p;
-}
-
-}  // namespace fa::render
 
 namespace fa {
 
@@ -136,12 +27,12 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
     const char* hook = std::getenv("FA_SCENE_FORMAT");
     const bool hookInvalid = hook && std::string(hook) == "rgba16f_invalid";
     auto refused = [&] {
-        return !game_targets_valid() || (hookInvalid && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F);
+        return !game_targets_valid() || (hookInvalid && gpu.scene_format() == gpu::PixelFormat::Rgba16F);
     };
-    if (!refused() || gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return;
+    if (!refused() || gpu.scene_format() == gpu::PixelFormat::Rgba8) return;
     scaleStepOnly = false;  // another scene format: every image is made again
     const int first = gpu.scene_pick();
-    const sg_pixel_format firstFormat = gpu.scene_format();
+    const gpu::PixelFormat firstFormat = gpu.scene_format();
     while (gpu.next_scene_format()) {
         destroy_targets();
         make_game_targets();
@@ -166,7 +57,7 @@ void Renderer::Impl::create_targets(int w, int h, bool settle) {
 void Renderer::Impl::sync_color_space(const World& world) {
     const bool linear = world.settings().colorSpace == ColorSpace::Linear;
     if (linear == gpu.linear()) return;
-    if (!linear) destroy_target(editorTarget);  // back in gamma the viewport shows the game image itself
+    if (!linear) destroy_target(gpu.device(), editorTarget);  // back in gamma the viewport shows the game image itself
     if (gpu.set_linear(linear)) create_targets(targetW, targetH, true);
 }
 
@@ -178,12 +69,12 @@ bool Renderer::Impl::editor_copy_wanted() const {
 
 // While the copy does not exist yet (the first frame, after a resize or a failed make_target) the viewport shows the image itself,
 // unencoded (too dark in a linear scene): better than the "no render target" text.
-sg_image Renderer::Impl::display_image() const {
+gpu::Image Renderer::Impl::display_image() const {
     if (!editor_copy_wanted() || !editorTarget.color.id) return final_image();
     return editorTarget.texture_image();
 }
 
-sg_view Renderer::Impl::display_view() const {
+gpu::View Renderer::Impl::display_view() const {
     if (!editor_copy_wanted() || !editorTarget.color.id) return final_view();
     return editorTarget.texView;
 }
@@ -195,41 +86,43 @@ sg_view Renderer::Impl::display_view() const {
 // two applies.
 void Renderer::Impl::update_editor_copy() {
     if (!editor_copy_wanted()) {
-        destroy_target(editorTarget);
+        destroy_target(gpu.device(), editorTarget);
         return;
     }
     if (editorTarget.color.id && (editorTarget.w != final_w() || editorTarget.h != final_h()))
-        destroy_target(editorTarget);
+        destroy_target(gpu.device(), editorTarget);
     if (!editorTarget.color.id) {
         TargetDesc d;
         d.label = "editor-view";
         d.width = final_w();
         d.height = final_h();
-        d.colorFormat = SG_PIXELFORMAT_RGBA8;
-        editorTarget = make_target(d);
-        if (!editorTarget.valid()) {
-            destroy_target(editorTarget);  // the viewport shows its "no render target" text; tried again next frame
+        d.colorFormat = gpu::PixelFormat::Rgba8;
+        editorTarget = make_target(gpu.device(), d);
+        if (!editorTarget.valid(gpu.device())) {
+            destroy_target(gpu.device(),
+                           editorTarget);  // the viewport shows its "no render target" text; tried again next frame
             return;
         }
     }
     PassDesc p = pass_into(editorTarget, "editor-view");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cl = gpu.commands();
+    cl.begin_pass(p);
+    cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_blit_tex] = final_view();
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    cl.set_bindings(b);
     blit_blit_vs_params_t u{};  // flip stays 0: the copy is stored like the game image
-    apply_uniforms(UB_blit_blit_vs_params, u);
+    apply_uniforms(cl, UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};
     fu.encode[0] =
         finalEncoded ? 0.0f : 1.0f;  // linear light is encoded; the final pass's picture already holds sRGB values
-    apply_uniforms(UB_blit_blit_fs_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
+    apply_uniforms(cl, UB_blit_blit_fs_params, fu);
+    cl.draw(0, 3, 1);
+    cl.end_pass();
 }
 
 void Renderer::Impl::make_game_targets() {
@@ -241,14 +134,14 @@ void Renderer::Impl::make_game_targets() {
     d.samples = gpu.sample_count();
     d.resolveAsColor = true;  // PostProcess bloom adds its glow to the resolved image
     d.depthFormat = kSceneDepthFormat;
-    gameTarget = make_target(d);
+    gameTarget = make_target(gpu.device(), d);
 }
 
-bool Renderer::Impl::game_targets_valid() const { return gameTarget.valid(); }
+bool Renderer::Impl::game_targets_valid() const { return gameTarget.valid(gpu.device()); }
 
 void Renderer::Impl::free_read_image() {
-    destroy_target(readbackTarget);
-    destroy_target(floatTarget);
+    destroy_target(gpu.device(), readbackTarget);
+    destroy_target(gpu.device(), floatTarget);
     readW = readH = 0;
 }
 
@@ -273,15 +166,15 @@ void Renderer::Impl::destroy_targets() {
     sssFx.forget_targets();
     customPost.forget_targets();
     if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
-    destroy_target(lightTarget);
-    for (Target& t : extraLightTargets) destroy_target(t);
+    destroy_target(gpu.device(), lightTarget);
+    for (Target& t : extraLightTargets) destroy_target(gpu.device(), t);
     lightBuffers = 0;
     lightW = lightH = 0;
     filterActive = false;
     hudActive = false;
     finalEncoded = false;
-    destroy_target(filterTarget);
-    destroy_target(hudTarget);
+    destroy_target(gpu.device(), filterTarget);
+    destroy_target(gpu.device(), hudTarget);
     // The output-size images do not depend on the render size: a dynamic step keeps them (render_world frees them after
     // kOutputIdleFrames frames without the stage); the MetalFX images are made for the input size, so they go.
     if (scaleStepOnly) {
@@ -290,15 +183,15 @@ void Renderer::Impl::destroy_targets() {
     } else {
         free_output_targets();
     }
-    for (Target& t : ldrMid) destroy_target(t);
+    for (Target& t : ldrMid) destroy_target(gpu.device(), t);
     if (!scaleStepOnly) {
         for (auto& [key, slot] : autoExposures)
             if (slot.exposure) slot.exposure->release();
         autoExposures.clear();
     }
-    destroy_target(editorTarget);
+    destroy_target(gpu.device(), editorTarget);
     free_read_image();
-    destroy_target(gameTarget);
+    destroy_target(gpu.device(), gameTarget);
 }
 
 // Makes (or keeps) the image of a CameraView: w x h pixels, drawn into with the game target's formats and sample count.
@@ -329,8 +222,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     d.resolveAsColor =
         true;  // capture_camera's custom passes draw into the resolved image, as the bloom does in the game's
     d.depthFormat = kSceneDepthFormat;
-    t.main = make_target(d);
-    if (!t.main.valid()) {
+    t.main = make_target(gpu.device(), d);
+    if (!t.main.valid(gpu.device())) {
         if (!viewWarned)
             FA_ERROR("render", "Cannot create the {}x{} image of a CameraView; the widget draws only its background", w,
                      h);
@@ -344,8 +237,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
         fd.width = w;
         fd.height = h;
         fd.colorFormat = gpu.scene_format();
-        t.flip = make_target(fd);
-        if (!t.flip.valid()) {
+        t.flip = make_target(gpu.device(), fd);
+        if (!t.flip.valid(gpu.device())) {
             if (!viewWarned) FA_ERROR("render", "Cannot create the {}x{} image of a render target", w, h);
             viewWarned = true;
             release_view(t);
@@ -367,8 +260,8 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
 }
 
 void Renderer::Impl::release_view(ViewTarget& t) {
-    destroy_target(t.main);
-    destroy_target(t.flip);
+    destroy_target(gpu.device(), t.main);
+    destroy_target(gpu.device(), t.flip);
     t.w = t.h = 0;
     t.asset = TextureAsset{};
 }
@@ -465,23 +358,24 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
     if (!t.flipCopy || !t.flip.color.id || !gpu.colorfilter_ready())
         return;  // the copy draws with the colour filter's shader
     PassDesc p = pass_into(t.flip, "target-flip");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cl = gpu.commands();
+    cl.begin_pass(p);
+    cl.set_pipeline(gpu.colorfilter_pipeline(p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_colorfilter_tex] = t.main.texView;
     b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    cl.set_bindings(b);
     colorfilter_colorfilter_vs_params_t vu{};
     vu.flip[0] = 0.0f;  // the filter's own flip (1 on GL) reads the target as it is stored; 0 turns it
-    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
+    apply_uniforms(cl, UB_colorfilter_colorfilter_vs_params, vu);
     colorfilter_colorfilter_params_t fu{};
     fu.p[0] = 0.0f;  // mode 0: a plain copy with the alpha
-    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
+    apply_uniforms(cl, UB_colorfilter_colorfilter_params, fu);
+    cl.draw(0, 3, 1);
+    cl.end_pass();
     ++stats.drawCalls;
 }
 
@@ -492,14 +386,14 @@ bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
     buffers = std::clamp(buffers, 1, kMaxLightBuffers2D);
     const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
     const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
-    const sg_pixel_format fmt = gpu.light_format();
+    const gpu::PixelFormat fmt = gpu.light_format();
     if (lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt && lightBuffers >= buffers)
         return true;
     // M74: a size or format change remakes every buffer; a frame that needs more sets of lights only adds the missing ones.
     const bool remake = !(lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt);
     if (remake) {
-        destroy_target(lightTarget);
-        for (Target& t : extraLightTargets) destroy_target(t);
+        destroy_target(gpu.device(), lightTarget);
+        for (Target& t : extraLightTargets) destroy_target(gpu.device(), t);
         lightBuffers = 0;
     }
     TargetDesc d;
@@ -509,14 +403,14 @@ bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
     d.colorFormat = fmt;
     for (int i = lightBuffers; i < buffers; ++i) {
         Target& t = i == 0 ? lightTarget : extraLightTargets[i - 1];
-        t = make_target(d);
-        if (!t.valid()) {
+        t = make_target(gpu.device(), d);
+        if (!t.valid(gpu.device())) {
             FA_ERROR(
                 "render",
                 "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only",
                 w, h, kDirectLights2D);
-            destroy_target(lightTarget);
-            for (Target& e : extraLightTargets) destroy_target(e);
+            destroy_target(gpu.device(), lightTarget);
+            for (Target& e : extraLightTargets) destroy_target(gpu.device(), e);
             lightBuffers = 0;
             lightTargetFailed = true;
             return false;
@@ -534,8 +428,8 @@ bool Renderer::Impl::ensure_light_target(float scale, int buffers) {
 // The jobs of a frame are planned before any draws, so the image returned stays valid until the frame graph ran: a slot
 // used in this frame (frameSerial) is never replaced in it. The result does not depend on timing: a hit is by key, a
 // miss replaces the slot with the lowest usedFrame (the first of them), or adds one when all were used this frame.
-sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
-    if (fr.shadowRows <= 0) return sg_view{};
+gpu::View Renderer::Impl::upload_shadow_rows(const Frame& fr) {
+    if (fr.shadowRows <= 0) return gpu::View{};
     for (ShadowRowsSlot& s : shadowRowsRing)
         if (s.view.id && s.key == fr.shadowKey) {
             s.usedFrame = frameSerial;
@@ -551,20 +445,21 @@ sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
         victim = &shadowRowsRing.back();
     }
     ShadowRowsSlot& slot = *victim;
-    if (slot.view.id) sg_destroy_view(slot.view);
-    if (slot.img.id) sg_destroy_image(slot.img);
-    sg_image_desc d{};
+    gpu::Device& device = gpu.device();
+    if (slot.view.id) device.destroy_view(slot.view);
+    if (slot.img.id) device.destroy_image(slot.img);
+    gpu::ImageDesc d;
     d.width = kShadowAngles;
     d.height = fr.shadowRows;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.data.mip_levels[0] = {fr.shadowData.data(), fr.shadowData.size()};
+    d.pixelFormat = gpu::PixelFormat::Rgba8;
+    d.data.mipLevels[0] = gpu::Range{fr.shadowData.data(), fr.shadowData.size()};
     d.label = "light-shadow-rows";
-    slot.img = make_image(d);
+    slot.img = device.make_image(d);
     ++shadowRowUploads;
-    sg_view_desc tv{};
+    gpu::ViewDesc tv;
     tv.texture.image = slot.img;
     tv.label = "light-shadow-rows-tex";
-    slot.view = sg_make_view(&tv);
+    slot.view = device.make_view(tv);
     slot.key = fr.shadowKey;
     slot.usedFrame = frameSerial;
     return slot.view;
@@ -590,18 +485,18 @@ void Renderer::Impl::trim_shadow_rows() {
         auto oldest = shadowRowsRing.begin();
         for (auto it = shadowRowsRing.begin(); it != shadowRowsRing.end(); ++it)
             if (it->usedFrame < oldest->usedFrame) oldest = it;
-        if (oldest->view.id) sg_destroy_view(oldest->view);
-        if (oldest->img.id) sg_destroy_image(oldest->img);
+        if (oldest->view.id) gpu.device().destroy_view(oldest->view);
+        if (oldest->img.id) gpu.device().destroy_image(oldest->img);
         shadowRowsRing.erase(oldest);
     }
 }
 
 void Renderer::Impl::destroy_light_resources() {
-    destroy_target(cookieTarget);
+    destroy_target(gpu.device(), cookieTarget);
     cookieStamp.clear();
     for (ShadowRowsSlot& s : shadowRowsRing) {
-        if (s.view.id) sg_destroy_view(s.view);
-        if (s.img.id) sg_destroy_image(s.img);
+        if (s.view.id) gpu.device().destroy_view(s.view);
+        if (s.img.id) gpu.device().destroy_image(s.img);
     }
     shadowRowsRing.clear();
     shadowRowsKeep = kShadowRowsRing;
@@ -619,14 +514,14 @@ bool Renderer::Impl::ensure_filter_target() {
     d.width = physW;
     d.height = physH;
     d.colorFormat = gpu.display_format();
-    filterTarget = make_target(d);
-    if (!filterTarget.valid()) {
+    filterTarget = make_target(gpu.device(), d);
+    if (!filterTarget.valid(gpu.device())) {
         FA_ERROR(
             "render",
             "Post-processing (PostProcess, PostProcess.colorFilter): cannot create the {}x{} target; the game is drawn "
             "without it",
             physW, physH);
-        destroy_target(filterTarget);
+        destroy_target(gpu.device(), filterTarget);
         return false;
     }
     return true;
@@ -643,14 +538,14 @@ bool Renderer::Impl::ensure_hud_target() {
     d.colorFormat = gpu.display_format();
     d.samples = gpu.sample_count();
     d.depthFormat = kSceneDepthFormat;
-    hudTarget = make_target(d);
-    if (!hudTarget.valid()) {
+    hudTarget = make_target(gpu.device(), d);
+    if (!hudTarget.valid(gpu.device())) {
         FA_ERROR("render",
                  "Post-processing: cannot create the {}x{} target the interface is drawn into after the final pass; "
                  "the interface is "
                  "drawn into the game picture instead",
                  physW, physH);
-        destroy_target(hudTarget);
+        destroy_target(gpu.device(), hudTarget);
         return false;
     }
     return true;
@@ -667,20 +562,20 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
     bool all = true;
     // They hold display values: the display format, and a float one when the window is HDR (Gpu::ldr_cut_format). A
     // change of the output makes them again.
-    const sg_pixel_format format = gpu.ldr_cut_format(frameOutput.extended());
+    const gpu::PixelFormat format = gpu.ldr_cut_format(frameOutput.extended());
     for (int i = 0; i < count; ++i) {
-        if (ldrMid[i].valid() && ldrMid[i].format.color == format) continue;
-        destroy_target(ldrMid[i]);
+        if (ldrMid[i].valid(gpu.device()) && ldrMid[i].format.color == format) continue;
+        destroy_target(gpu.device(), ldrMid[i]);
         TargetDesc d;
         d.label = i == 0 ? "post-mid-0" : "post-mid-1";
         d.width = physW;
         d.height = physH;
         d.colorFormat = format;
-        ldrMid[i] = make_target(d);
-        all = all && ldrMid[i].valid();
+        ldrMid[i] = make_target(gpu.device(), d);
+        all = all && ldrMid[i].valid(gpu.device());
     }
     if (all) return true;
-    for (Target& t : ldrMid) destroy_target(t);
+    for (Target& t : ldrMid) destroy_target(gpu.device(), t);
     if (!ldrWarned) {
         ldrWarned = true;
         FA_ERROR(
@@ -696,23 +591,23 @@ bool Renderer::Impl::ensure_ldr_targets(int count) {
 // Frees the images of the cut final pass (ldrMid) once no frame has used them for kLdrIdleFrames frames (a 4K image of
 // a float format is 130 MB); called once per frame, after its graph ran.
 void Renderer::Impl::release_idle_ldr_targets() {
-    if (!ldrMid[0].valid() && !ldrMid[1].valid()) return;
+    if (!ldrMid[0].valid(gpu.device()) && !ldrMid[1].valid(gpu.device())) return;
     if (ldrUsedFrame == frameSerial) {
         ldrIdle = 0;
         return;
     }
     if (++ldrIdle < kLdrIdleFrames) return;
     ldrIdle = 0;
-    for (Target& t : ldrMid) destroy_target(t);
+    for (Target& t : ldrMid) destroy_target(gpu.device(), t);
 }
 
 // Draws `src` through post.glsl into `dst` (ensure_filter_target / ensure_hud_target made it).
-void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, sg_view src,
-                               sg_view expo, sg_view aux, Target& dst, const char* label, bool keepMsaa,
+void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, bool autoExposure, gpu::View src,
+                               gpu::View expo, gpu::View aux, Target& dst, const char* label, bool keepMsaa,
                                const PostRect& rect, bool load, const PostSlice& slice) {
     PassDesc p = pass_into(dst, label);
-    p.colorLoad = load ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;  // else every pixel is drawn
-    p.colorStore = (dst.samples > 1 && !keepMsaa) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    p.colorLoad = load ? gpu::LoadAction::Load : gpu::LoadAction::DontCare;  // else every pixel is drawn
+    p.colorStore = (dst.samples > 1 && !keepMsaa) ? gpu::StoreAction::DontCare : gpu::StoreAction::Store;
     run_post_pass(gpu, pp, finalPass, filter, autoExposure, p, src, expo, assets->white()->view, aux, dst.w, dst.h,
                   frameOutput, rect, slice);
     ++stats.drawCalls;
@@ -729,21 +624,21 @@ void Renderer::Impl::post_pass(const PostPlan& pp, bool finalPass, int filter, b
 // encoded them when they were drawn), so they are read as they are too, except `premultiplied` (a world capture on a transparent
 // background): the colour must be un-premultiplied in linear light, which only the copy below does. Anything else (a float scene,
 // a linear scene in plain RGBA8) goes through blit_keep, which encodes linear light to sRGB when the scene is linear.
-bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,
+bool Renderer::Impl::read_rgba8(gpu::Image image, gpu::View view, int w, int h, std::vector<std::uint8_t>& out,
                                 std::string* error, bool premultiplied, bool displayValues) {
-    const sg_pixel_format sf = gpu.scene_format();
-    if ((sf == SG_PIXELFORMAT_RGBA8 && !gpu.linear()) || (sf == SG_PIXELFORMAT_SRGB8A8 && !premultiplied))
-        return readback_rgba8(image, w, h, out, error);
+    const gpu::PixelFormat sf = gpu.scene_format();
+    if ((sf == gpu::PixelFormat::Rgba8 && !gpu.linear()) || (sf == gpu::PixelFormat::Srgb8A8 && !premultiplied))
+        return render::result_ok(gpu.device().read_image_rgba8(image, w, h, out), error);
     if (!readbackTarget.color.id || readW != w || readH != h) {
         free_read_image();
         TargetDesc d;
         d.label = "readback-rgba8";
         d.width = w;
         d.height = h;
-        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        d.colorFormat = gpu::PixelFormat::Rgba8;
         d.texture = false;  // only drawn into and read back
-        readbackTarget = make_target(d);
-        if (!readbackTarget.valid()) {
+        readbackTarget = make_target(gpu.device(), d);
+        if (!readbackTarget.valid(gpu.device())) {
             if (error)
                 *error = std::format("the {}x{} image for reading the frame back as 8-bit colour could not be created "
                                      "(out of GPU memory?)",
@@ -755,29 +650,30 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
         readH = h;
     }
     PassDesc p = pass_into(readbackTarget, "readback-rgba8");
-    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
-    p.colorStore = SG_STOREACTION_STORE;
-    gpu.begin_pass(p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+    p.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cl = gpu.commands();
+    cl.begin_pass(p);
+    cl.set_pipeline(gpu.blit_keep_pipeline(p.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_blit_tex] = view;
     b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    cl.set_bindings(b);
     blit_blit_vs_params_t u{};
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_blit_blit_vs_params, u);
+    apply_uniforms(cl, UB_blit_blit_vs_params, u);
     blit_blit_fs_params_t fu{};
     fu.encode[0] =
         gpu.linear() && !displayValues ? 1.0f : 0.0f;  // linear light -> sRGB; display values stay (present_params)
     fu.encode[1] = premultiplied ? 1.0f : 0.0f;
-    apply_uniforms(UB_blit_blit_fs_params, fu);
-    sg_draw(0, 3, 1);
-    gpu.end_pass();
-    // The read-back waits for the GPU and on Metal only an sg_commit() submits the copy (see Renderer::capture()).
-    sg_commit();
+    apply_uniforms(cl, UB_blit_blit_fs_params, fu);
+    cl.draw(0, 3, 1);
+    cl.end_pass();
+    // The read-back waits for the GPU and on Metal only a commit submits the copy (see Renderer::capture()).
+    gpu.commit_frame();
     gpu.note_commit();
-    return readback_rgba8(readbackTarget.color, w, h, out, error);
+    return render::result_ok(gpu.device().read_image_rgba8(readbackTarget.color, w, h, out), error);
 }
 
 // Makes (or keeps) the shadow atlas, at least `width` x `height` texels (the part of the atlas the frame's layout uses). False when the
@@ -798,7 +694,7 @@ bool Renderer::Impl::create_shadow_targets(int width, int height) {
         }
         return false;
     }
-    const int limit = std::max(64, sg_query_limits().max_image_size_2d);
+    const int limit = std::max(64, gpu.device().limits().maxImageSize2d);
     width = std::clamp(width, 64, limit);
     height = std::clamp(height, 64, limit);
     if (shadowTarget.color.id && shadowTarget.w >= width && shadowTarget.h >= height) return true;
@@ -806,8 +702,8 @@ bool Renderer::Impl::create_shadow_targets(int width, int height) {
     d.label = "shadow";
     d.width = std::max(width, shadowTarget.color.id ? shadowTarget.w : 0);
     d.height = std::max(height, shadowTarget.color.id ? shadowTarget.h : 0);
-    d.colorFormat = SG_PIXELFORMAT_R32F;
-    d.depthFormat = SG_PIXELFORMAT_DEPTH;
+    d.colorFormat = gpu::PixelFormat::R32F;
+    d.depthFormat = gpu::PixelFormat::Depth;
     // 4 bytes of colour and 4 of depth per texel, in 64 bits: a refused size fails here, not inside the driver.
     if (std::uint64_t(d.width) * std::uint64_t(d.height) * 8u > kShadowAtlasMaxBytes) {
         shadowTargetFailed = true;
@@ -817,14 +713,14 @@ bool Renderer::Impl::create_shadow_targets(int width, int height) {
                 d.width, d.height, kShadowAtlasMaxBytes >> 20);
         return false;
     }
-    Target made = make_target(d);
+    Target made = make_target(gpu.device(), d);
     const char* hook = std::getenv("FA_SHADOW_MAP");
-    if (made.valid() && !(hook && std::string(hook) == "invalid")) {
+    if (made.valid(gpu.device()) && !(hook && std::string(hook) == "invalid")) {
         if (shadowTarget.color.id) shadowRetired.push_back(shadowTarget);
         shadowTarget = made;
         return true;
     }
-    destroy_target(made);
+    destroy_target(gpu.device(), made);
     shadowTargetFailed = true;
     FA_WARN("render",
             "Cannot create the {}x{} shadow atlas (R32F colour + depth): the game is drawn without shadows "
@@ -834,7 +730,7 @@ bool Renderer::Impl::create_shadow_targets(int width, int height) {
 }
 
 void Renderer::Impl::free_retired_shadow_targets() {
-    for (Target& t : shadowRetired) destroy_target(t);
+    for (Target& t : shadowRetired) destroy_target(gpu.device(), t);
     shadowRetired.clear();
 }
 

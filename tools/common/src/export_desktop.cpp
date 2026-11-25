@@ -45,6 +45,20 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
                "build it with `cmake --build <build dir> --target factoria_player`, or pass --player <path>");
 }
 
+stdfs::path vulkan_player_beside(const stdfs::path& player) {
+    stdfs::path stem = player.stem();
+    stem += "_vulkan";
+    stem += player.extension();  // none on Linux
+    return player.parent_path() / stem;
+}
+
+std::vector<DesktopPlayerFile> desktop_player_files(const std::string& platform, const stdfs::path& player,
+                                                    const stdfs::path& vulkanPlayer, const std::string& exeName) {
+    if (platform != "linux" || vulkanPlayer.empty()) return {{player, exeName, false}};
+    // The names fa/runtime/gpu_launch.h's gl_player_name expects: the variant that cannot start runs <its name>-gl.
+    return {{vulkanPlayer, exeName, true}, {player, exeName + "-gl", false}};
+}
+
 namespace {
 
 // True for the first bytes of a Windows (MZ), Linux and Android (ELF) or macOS (Mach-O, fat) executable, a WebAssembly
@@ -281,12 +295,22 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
 // pack, so nothing in the game changes. A script that does not compile is packed as the source it is, with a warning: the
 // game then behaves exactly as it does when run from the folder (the error shows when something loads that script).
 // Each file gets the codec export.pack.codecs names for its extension, else the engine's default for its type
-// (pack_default_codec); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
+// (pack_default_codec, or the one export.pack.codec names); the files go in the order play sessions first read them (fa/tooling/load_order.h) unless
 // export.pack.useLoadOrder is false or nothing was recorded.
-Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
-                       ExportReport& report) {
+Result<void> pack_game(const Project& p, const std::string& platform, const std::vector<std::string>& files,
+                       const stdfs::path& packFile, ExportReport& report) {
     PackWriter writer;
     const PackExportSettings& pack = p.settings.pack;
+    // export.pack.codec: a name replaces the codec of every file the default would compress; "auto" keeps each type's
+    // own, except that a Windows export with the DirectStorage option on packs them as gdeflate.
+    if (pack.codec != "auto") {
+        auto chosen = parse_codec(pack.codec);
+        if (!chosen.ok())
+            return err("export: factoria.json export.pack.codec: " + chosen.error().message, chosen.error().hint);
+        writer.set_default_codec(chosen.value());
+    } else if (platform == "windows" && pack.directStorage) {
+        writer.set_default_codec(Codec::GDeflate);
+    }
     auto codec_for = [&](const std::string& path) -> std::optional<Codec> {
         if (auto it = pack.codecs.find(fs::extension(path)); it != pack.codecs.end()) return it->second;
         return std::nullopt;  // the writer picks pack_default_codec
@@ -349,11 +373,40 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
     return {};
 }
 
+// export.pack.directStorage on a Windows release: the DirectStorage DLLs `setup directstorage` installed go next to the
+// executable, where the game's pack reader loads them (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"). Without them
+// the export still succeeds, with a warning: the game then decompresses its gdeflate blocks on the CPU.
+Result<void> copy_directstorage(const ExportOptions& options, const stdfs::path& exeDir, ExportReport& report) {
+    const SetupContext defaultContext;
+    const SetupContext& ctx = options.setup ? *options.setup : defaultContext;
+    const std::string dir = installed_directstorage_dir(ctx);
+    if (dir.empty()) {
+        report.warnings.push_back(
+            "export.pack.directStorage is on, but the DirectStorage DLLs are not installed on this computer: the game "
+            "was exported without dstorage.dll and dstoragecore.dll and decompresses its gdeflate blocks on the CPU. "
+            "Run "
+            "`factoria setup directstorage` and export again.");
+        return {};
+    }
+    for (const char* name : kSetupDirectStorageFiles) {
+        const stdfs::path from = fs::path_from_utf8(dir) / name;
+        std::error_code ec;
+        stdfs::copy_file(os_path(from), os_path(exeDir / name), stdfs::copy_options::overwrite_existing, ec);
+        if (ec)
+            return err("export: cannot copy " + fs::path_to_utf8(from) + " next to the game (" +
+                           fs::path_to_utf8(exeDir) + "): " + ec.message(),
+                       "Close the game exported there before if it still runs (Windows keeps a loaded DLL from being "
+                       "replaced), check that the output folder is writable, or run `factoria setup directstorage "
+                       "--force` if the installed DLLs are damaged.");
+    }
+    return {};
+}
+
 }  // namespace
 
 Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
                           ExportReport& report) {
-    return pack_game(p, files, packFile, report);
+    return pack_game(p, "web", files, packFile, report);
 }
 
 // The entitlements of a signed macOS app, from the plugins' manifests: Xcode's build settings ($(TeamIdentifierPrefix),
@@ -417,7 +470,7 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 }
 
 Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform,
-                            const stdfs::path& player, const stdfs::path& outRoot,
+                            const stdfs::path& player, const stdfs::path& vulkanPlayer, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = desktop_exe_name(slug, platform);
@@ -436,14 +489,20 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     }
     stdfs::create_directories(os_path(exeDest.parent_path()), ec);
     bool signatureRemoved = false;
-    if (auto r = install_player(p, player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
-    stdfs::permissions(os_path(exeDest),
-                       stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
-                       stdfs::perm_options::add, ec);
+    const std::vector<DesktopPlayerFile> players = desktop_player_files(platform, player, vulkanPlayer, exeName);
+    for (const DesktopPlayerFile& f : players) {
+        const stdfs::path dest = exeDest.parent_path() / f.name;
+        if (auto r = install_player(p, f.source, dest, platform, icon, report, signatureRemoved); !r.ok()) return r;
+        stdfs::permissions(os_path(dest),
+                           stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+                           stdfs::perm_options::add, ec);
+    }
     // The pack sits where the game/ folder would: next to the executable, in Contents/Resources of a macOS app.
     const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
     if (options.release) {
-        if (auto r = pack_game(p, files, packFile, report); !r.ok()) return r;
+        if (auto r = pack_game(p, platform, files, packFile, report); !r.ok()) return r;
+        if (platform == "windows" && p.settings.pack.directStorage)
+            if (auto r = copy_directstorage(options, exeDest.parent_path(), report); !r.ok()) return r;
     } else if (auto r = copy_game(p, files, gameDest); !r.ok()) {
         return r;
     }
@@ -542,7 +601,10 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
             !r.ok())
             return r;
         report.nextSteps = {
-            "Run it: " + generic(outRoot / exeName),
+            "Run it: " + generic(outRoot / exeName) +
+                (players.size() > 1 ? " (the Vulkan player; where Vulkan cannot start it runs the GL player " +
+                                          exeName + "-gl, which you can also run yourself)"
+                                    : std::string()),
             "To add it to the application menu, run this in the folder where the game will live: sed -e "
             "\"s|^Exec=.*|Exec=$PWD/" +
                 exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +

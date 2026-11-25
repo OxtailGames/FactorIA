@@ -25,14 +25,14 @@ std::uint8_t to_byte(float v) {
 // smallest world y. The irradiance image has one texel per probe of cascade 0 (Gi2dCascadePlan::gridW x gridH).
 bool read_image(render::Gpu& gpu, const render::Gi2dField& f, int which, std::vector<float>& out, std::string* error) {
     if (!gpu.committed()) {  // as read_floats: the work of the frame is submitted before a read-back waits for it
-        sg_commit();
+        gpu.commit_frame();
         gpu.note_commit();
     }
     const render::Target& t = which == 0   ? f.emission
                               : which == 1 ? f.occluder
                               : which == 2 ? f.distance
                                            : f.irradiance[f.irrCur];
-    return render::gi2d_read(t, gpu.is_gl(), out, error);
+    return render::gi2d_read(gpu.device(), t, gpu.is_gl(), out, error);
 }
 
 // A PNG of a field image: row 0 of the file is the largest world y (the way a picture of the world is read). Emission and albedo are written
@@ -82,7 +82,7 @@ Image make_png(const std::vector<float>& px, int w, int h, int which) {
 Json Renderer::gi2d_field(std::string_view savePrefix, std::string_view job) {
     if (!initialized()) return Json::object();
     Impl& im = *impl_;
-    Json out = im.gi2d.report(backend_name());
+    Json out = im.gi2d.report(im.gpu.device(), backend_name());
     if (savePrefix.empty()) return out;
     const std::string jobName(job);
     render::Gi2dField* f = im.gi2d.find(jobName);

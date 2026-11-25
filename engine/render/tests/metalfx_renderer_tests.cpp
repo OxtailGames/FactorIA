@@ -15,9 +15,12 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "gpu/sokol_device.h"  // the sokol calls this test makes to check the GPU directly
+#include "gpu/device.h"
 #include "metalfx.h"
 #include "render_features.h"
 #include "render_internal.h"
@@ -36,10 +39,28 @@ namespace {
 
 constexpr int kOutW = 320, kOutH = 180;
 
+// What the open sokol context draws with, asked through a gpu::Device that adopts it (nothing is opened: the Gfx of the test made
+// the context). `metal` false: not the Metal backend (or no context).
+struct MetalProbe {
+    bool metal = false;
+    render::metalfx::Support support;
+};
+MetalProbe probe_metal() {
+    MetalProbe p;
+    if (!sg_isvalid()) return p;
+    auto made = gpu::make_device(gpu::built_sokol_backend());
+    if (!made.ok()) return p;
+    std::unique_ptr<gpu::Device> device = std::move(made).value();
+    p.metal = render::metalfx::on_metal(*device);
+    p.support = render::metalfx::support(device->native().device);
+    return p;
+}
+
 // True when this host draws the MetalFX temporal scaler; else says why in the test output (the skip is never silent).
 bool mfx_here(const char* test) {
-    const render::metalfx::Support s = render::metalfx::support();
-    const bool ok = s.temporal && render::metalfx::on_metal();
+    const MetalProbe probe = probe_metal();
+    const render::metalfx::Support& s = probe.support;
+    const bool ok = s.temporal && probe.metal;
     if (!ok)
         MESSAGE("MetalFX is not available here, the test is skipped ("
                 << test << "): " << (s.reason.empty() ? "not the Metal backend" : s.reason));
@@ -195,7 +216,7 @@ std::vector<float> supersampled(Gfx& g, float boxX = 0.0f) {
 
 // True when the renderer can be made to believe MetalFX is there (any Metal GPU); else says why in the test output.
 bool metal_here(const char* test) {
-    const bool ok = sg_isvalid() && render::metalfx::on_metal();
+    const bool ok = probe_metal().metal;
     if (!ok) MESSAGE("This is not the Metal backend, the test is skipped (" << test << ")");
     return ok;
 }
@@ -218,13 +239,14 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     Own own(g);
     REQUIRE_MESSAGE(own.ok, own.error);
     Scene s;
-    const render::metalfx::Support support = render::metalfx::support();
-    const bool here = support.temporal && render::metalfx::on_metal();
+    const MetalProbe probe = probe_metal();
+    const render::metalfx::Support& support = probe.support;
+    const bool here = support.temporal && probe.metal;
     clear_recent_logs();
     own.upscale(0.5f);
     own.frame(s.w, 3);
     const render::UpscalerCaps caps = own.r.upscaler_caps();
-    CHECK(caps.metalfx == (here || (support.spatial && render::metalfx::on_metal())));
+    CHECK(caps.metalfx == (here || (support.spatial && probe.metal)));
     CHECK(caps.metalfxTemporal == support.temporal);
     CHECK(own.r.effective_upscaler_mode() == (caps.metalfx ? UpscalerMode::MetalFx : UpscalerMode::Temporal));
     CHECK(RendererTestAccess::upscale_impl(own.r) == int(caps.metalfx ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal));
@@ -235,7 +257,8 @@ TEST_CASE("metalfx renderer: the mode reported is metalfx where the GPU has it a
     const int row = render::find_feature("metalfx");
     REQUIRE(row >= 0);
     std::string why;
-    CHECK(render::feature_supported(render::feature_env_from_sokol(), row, &why) == caps.metalfx);
+    CHECK(render::feature_supported(render::feature_env_from_device(RendererTestAccess::gpu(own.r)->device()), row,
+                                    &why) == caps.metalfx);
     if (caps.metalfx) {
         CHECK(why.empty());
         CHECK(RendererTestAccess::mfx_encoded(own.r) == 3);

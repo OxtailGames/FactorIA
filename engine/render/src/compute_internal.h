@@ -27,7 +27,7 @@ struct ComputeTestAccess {
 // against the layout the material declares. Only the renderer's draw calls this, never a game.
 struct ComputeDrawAccess {
     struct Bound {
-        sg_view view{};
+        gpu::View view{};
         std::uint64_t count = 0;  // elements
     };
     // The live compute buffer `id` for the buffer `def` of mesh or sprite material `material`; an Error that names

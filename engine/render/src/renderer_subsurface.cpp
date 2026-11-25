@@ -7,6 +7,7 @@
 
 #include "postprocess.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/subsurface.glsl.h"
 
 namespace fa::render {
@@ -47,8 +48,8 @@ subsurface_sss_params_t blur_params(const SssPlan& plan) {
 
 }  // namespace
 
-bool SssFx::gpu_supported() {
-    const sg_pixelformat_info f = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+bool SssFx::gpu_supported(gpu::Device& device) {
+    const gpu::PixelFormatCaps f = device.pixel_format_caps(gpu::PixelFormat::Rgba16F);
     return f.render && f.sample && f.blend;
 }
 
@@ -56,7 +57,7 @@ TransientDesc SssFx::light_desc(const SssPlan& plan, const std::string& job) {
     TransientDesc d;
     d.width = plan.rectW;
     d.height = plan.rectH;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Depth, 1};
     d.label = job + "/sss-light";
     return d;
 }
@@ -65,23 +66,32 @@ TransientDesc SssFx::params_desc(const SssPlan& plan, const std::string& job) {
     TransientDesc d;
     d.width = plan.rectW;
     d.height = plan.rectH;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
     d.label = job + "/sss-image";
     return d;
 }
 
-bool SssFx::ready(Prog prog) {
+bool SssFx::ready(Gpu& gpu, Prog prog) {
     int& st = state_[int(prog)];
     if (st != 0) return st > 0;
-    const sg_backend backend = sg_query_backend();
-    sg_shader s{};
+    gpu::Device& device = gpu.device();
+    device_ = &device;
+    gpu::Shader s{};
     switch (prog) {
-        case Prog::BlurH: s = make_shader(subsurface_blur_h_shader_desc(backend), "subsurface_blur_h"); break;
-        case Prog::BlurV: s = make_shader(subsurface_blur_v_shader_desc(backend), "subsurface_blur_v"); break;
-        default: s = make_shader(subsurface_add_shader_desc(backend), "subsurface_add"); break;
+        case Prog::BlurH:
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_blur_h_shader_desc),
+                            "subsurface_blur_h");
+            break;
+        case Prog::BlurV:
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_blur_v_shader_desc),
+                            "subsurface_blur_v");
+            break;
+        default:
+            s = make_shader(device, gpu::generated_shader_desc(device, subsurface_add_shader_desc), "subsurface_add");
+            break;
     }
-    if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
-        if (s.id) sg_destroy_shader(s);
+    if (device.state(s) != gpu::ResourceState::Valid) {
+        if (s.id) device.destroy_shader(s);
         st = -1;
         FA_ERROR("render",
                  "Subsurface scattering is unavailable: the shader of its blur failed to compile for this graphics "
@@ -94,32 +104,32 @@ bool SssFx::ready(Prog prog) {
     return true;
 }
 
-sg_pipeline SssFx::pipeline(Prog prog, const TargetFormat& format, bool subtract) {
+gpu::Pipeline SssFx::pipeline(Gpu& gpu, Prog prog, const TargetFormat& format, bool subtract) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.subtract == subtract && e.format == format) return e.pipeline;
     if (state_[int(prog)] <= 0) return {};
-    sg_pipeline_desc d{};
+    gpu::Device& device = gpu.device();
+    gpu::PipelineDesc d;
     d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in every program
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
+    d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in every program
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
+    d.sampleCount = format.samples;
+    d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Add) {
         // picture + light (or picture - light): the fragment's rgb is the magnitude of the change; the alpha of the picture is kept.
         d.colors[0].blend.enabled = true;
-        d.colors[0].blend.op_rgb = subtract ? SG_BLENDOP_REVERSE_SUBTRACT : SG_BLENDOP_ADD;
-        d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
-        d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
-        d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
-        d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.opRgb = subtract ? gpu::BlendOp::ReverseSubtract : gpu::BlendOp::Add;
+        d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+        d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::One;
+        d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::Zero;
+        d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::One;
     }
     d.label = prog == Prog::BlurH ? "sss-blur-h" : prog == Prog::BlurV ? "sss-blur-v" : "sss-add";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    const gpu::Pipeline p = device.make_pipeline(d);
+    if (device.state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, subtract, format, p});
     return p;
 }
@@ -132,10 +142,10 @@ void SssFx::forget_targets() {
 
 void SssFx::release() {
     for (PipelineEntry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
+        if (e.pipeline.id && device_) device_->destroy_pipeline(e.pipeline);
     pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
+    for (gpu::Shader& s : shaders_) {
+        if (s.id && device_) device_->destroy_shader(s);
         s = {};
     }
     for (int& s : state_) s = 0;
@@ -147,7 +157,7 @@ void SssFx::release() {
 
 bool SssFx::can_draw(TransientTargets& targets, Gpu& gpu, const SssPlan& plan) {
     if (!plan.on) return false;
-    if (!gpu_supported()) {
+    if (!gpu_supported(gpu.device())) {
         if (!warnedGpu_) {
             warnedGpu_ = true;
             FA_WARN("render",
@@ -156,7 +166,8 @@ bool SssFx::can_draw(TransientTargets& targets, Gpu& gpu, const SssPlan& plan) {
         }
         return false;
     }
-    if (!gpu.sss_ready() || !ready(Prog::BlurH) || !ready(Prog::BlurV) || !ready(Prog::Add)) return false;
+    if (!gpu.sss_ready() || !ready(gpu, Prog::BlurH) || !ready(gpu, Prog::BlurV) || !ready(gpu, Prog::Add))
+        return false;
     const std::uint64_t key = (std::uint64_t(std::uint32_t(plan.rectW)) << 32) | std::uint32_t(plan.rectH);
     if (std::find(failed_.begin(), failed_.end(), key) != failed_.end()) return false;
     if (std::find(probed_.begin(), probed_.end(), key) != probed_.end()) return true;
@@ -186,7 +197,8 @@ bool SssFx::can_draw(TransientTargets& targets, Gpu& gpu, const SssPlan& plan) {
 int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SssPlan& plan, ResourceId a,
                       ResourceId b, const PostRect& rect, int picW, int picH, ResourceId game, const BloomTarget& dst,
                       int* drawCalls, const std::string& job) {
-    if (!plan.on || !a.valid() || !b.valid() || !ready(Prog::BlurH) || !ready(Prog::BlurV) || !ready(Prog::Add))
+    if (!plan.on || !a.valid() || !b.valid() || !ready(gpu, Prog::BlurH) || !ready(gpu, Prog::BlurV) ||
+        !ready(gpu, Prog::Add))
         return 0;
     const bool whole = rect.whole(picW, picH);
     const int rx = whole ? 0 : rect.x, ry = whole ? 0 : rect.y;
@@ -212,22 +224,21 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             const Target* ht = tt->get(c.handle(h));
             if (!at || !bt || !ht || !at->texView.id || !bt->texView.id) return;
             PassDesc pd = pass_into(*ht, "sss-blur-h");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
-            Gpu::begin_pass(pd);
-            sg_apply_pipeline(self->pipeline(Prog::BlurH, pd.format));
-            sg_bindings bind{};
-            bind.vertex_buffers[0] = g->fullscreen_triangle();
+            pd.colorLoad = gpu::LoadAction::DontCare;
+            gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+            list.begin_pass(pd);
+            list.set_pipeline(self->pipeline(*g, Prog::BlurH, pd.format));
+            gpu::Bindings bind;
+            bind.vertexBuffers[0] = g->fullscreen_triangle();
             bind.views[VIEW_subsurface_tex_a] = at->texView;
             bind.views[VIEW_subsurface_tex_b] = bt->texView;
             bind.samplers[SMP_subsurface_smp_pt] = g->sampler(SamplerKind::Nearest);
-            sg_apply_bindings(&bind);
-            float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
-            sg_range vr{flip, sizeof(flip)};
-            sg_apply_uniforms(UB_subsurface_sss_vs_params, &vr);
-            sg_range pr{&params, sizeof(params)};
-            sg_apply_uniforms(UB_subsurface_sss_params, &pr);
-            sg_draw(0, 3, 1);
-            Gpu::end_pass();
+            list.set_bindings(bind);
+            const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
+            list.set_uniforms(UB_subsurface_sss_vs_params, gpu::Range{flip, sizeof(flip)});
+            list.set_uniforms(UB_subsurface_sss_params, gpu::Range{&params, sizeof(params)});
+            list.draw(0, 3, 1);
+            list.end_pass();
             if (drawCalls) ++*drawCalls;
         };
         graph.add_pass(std::move(gp));
@@ -245,23 +256,22 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             const Target* vt = tt->get(c.handle(v));
             if (!at || !bt || !ht || !vt || !at->texView.id || !bt->texView.id || !ht->texView.id) return;
             PassDesc pd = pass_into(*vt, "sss-blur-v");
-            pd.colorLoad = SG_LOADACTION_DONTCARE;
-            Gpu::begin_pass(pd);
-            sg_apply_pipeline(self->pipeline(Prog::BlurV, pd.format));
-            sg_bindings bind{};
-            bind.vertex_buffers[0] = g->fullscreen_triangle();
+            pd.colorLoad = gpu::LoadAction::DontCare;
+            gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+            list.begin_pass(pd);
+            list.set_pipeline(self->pipeline(*g, Prog::BlurV, pd.format));
+            gpu::Bindings bind;
+            bind.vertexBuffers[0] = g->fullscreen_triangle();
             bind.views[VIEW_subsurface_tex_aa] = at->texView;
             bind.views[VIEW_subsurface_tex_ab] = bt->texView;
             bind.views[VIEW_subsurface_tex_ah] = ht->texView;
             bind.samplers[SMP_subsurface_smp_ap] = g->sampler(SamplerKind::Nearest);
-            sg_apply_bindings(&bind);
-            float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
-            sg_range vr{flip, sizeof(flip)};
-            sg_apply_uniforms(UB_subsurface_sss_vs_params, &vr);
-            sg_range pr{&params, sizeof(params)};
-            sg_apply_uniforms(UB_subsurface_sss_params, &pr);
-            sg_draw(0, 3, 1);
-            Gpu::end_pass();
+            list.set_bindings(bind);
+            const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
+            list.set_uniforms(UB_subsurface_sss_vs_params, gpu::Range{flip, sizeof(flip)});
+            list.set_uniforms(UB_subsurface_sss_params, gpu::Range{&params, sizeof(params)});
+            list.draw(0, 3, 1);
+            list.end_pass();
             if (drawCalls) ++*drawCalls;
         };
         graph.add_pass(std::move(gp));
@@ -272,7 +282,7 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         gp.name = job + "/sss-add";
         gp.reads = {v, game};
         gp.writes = {game};
-        const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
+        const TargetFormat dstFormat{gpu.scene_format(), gpu::PixelFormat::None, dst.samples};
         gp.execute = [=](const PassContext& c) {
             const Target* vt = tt->get(c.handle(v));
             if (!vt || !vt->texView.id || !dst.att.id) return;
@@ -281,33 +291,32 @@ int SssFx::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             pd.color = dst.att;
             pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
             pd.format = dstFormat;
-            pd.colorLoad = SG_LOADACTION_LOAD;
-            pd.colorStore = SG_STOREACTION_STORE;
-            Gpu::begin_pass(pd);
+            pd.colorLoad = gpu::LoadAction::Load;
+            pd.colorStore = gpu::StoreAction::Store;
+            gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+            list.begin_pass(pd);
             if (!whole) {
-                sg_apply_viewport(rx, ry, rw, rh, true);
-                sg_apply_scissor_rect(rx, ry, rw, rh, true);
+                list.set_viewport(rx, ry, rw, rh, true);
+                list.set_scissor(rx, ry, rw, rh, true);
             }
             for (int part = 0; part < 2; ++part) {
-                sg_apply_pipeline(self->pipeline(Prog::Add, pd.format, part == 1));
-                sg_bindings bind{};
-                bind.vertex_buffers[0] = g->fullscreen_triangle();
+                list.set_pipeline(self->pipeline(*g, Prog::Add, pd.format, part == 1));
+                gpu::Bindings bind;
+                bind.vertexBuffers[0] = g->fullscreen_triangle();
                 bind.views[VIEW_subsurface_tex_dv] = vt->texView;
                 bind.samplers[SMP_subsurface_smp_dv] = g->sampler(SamplerKind::Nearest);
-                sg_apply_bindings(&bind);
-                float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
-                sg_range vr{flip, sizeof(flip)};
-                sg_apply_uniforms(UB_subsurface_sss_vs_params, &vr);
+                list.set_bindings(bind);
+                const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
+                list.set_uniforms(UB_subsurface_sss_vs_params, gpu::Range{flip, sizeof(flip)});
                 subsurface_sss_add_params_t au{};
                 au.m[0] = float(part);
                 au.m[2] = float(rw);
                 au.m[3] = float(rh);
-                sg_range ar{&au, sizeof(au)};
-                sg_apply_uniforms(UB_subsurface_sss_add_params, &ar);
-                sg_draw(0, 3, 1);
+                list.set_uniforms(UB_subsurface_sss_add_params, gpu::Range{&au, sizeof(au)});
+                list.draw(0, 3, 1);
                 if (drawCalls) ++*drawCalls;
             }
-            Gpu::end_pass();
+            list.end_pass();
         };
         graph.add_pass(std::move(gp));
     }

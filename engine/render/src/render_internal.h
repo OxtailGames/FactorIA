@@ -10,12 +10,11 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-#include "sokol_gfx.h"
 
 #include "fa/core/image.h"
 #include "fa/core/json.h"
@@ -31,6 +30,7 @@
 #include "fa/scene/rich_text.h"
 #include "fa/scene/screen_fx.h"
 #include "fa/scene/world.h"
+#include "gpu/device.h"
 #include "gpu_types.h"
 #include "postprocess_resolve.h"
 
@@ -245,16 +245,16 @@ enum class TexEncoding : std::uint8_t { Raw, Srgb, Scene };
 struct TextureAsset {
     std::string path;
     TexEncoding enc = TexEncoding::Raw;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
     bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
     // A picture something draws into every frame (a camera's render target or view, a compute image): its contents change
     // under the same view id, so a copy of it made once is stale (the 2D light cookie atlas copies it every frame).
     // (Probes and GI faces are marked too, though a cookie cannot reach them today.)
     bool live = false;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
-    std::size_t bytes = 0;                          // GPU memory of all mip levels
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;  // what the GPU holds (compressed when the file is a KTX2 twin)
+    std::size_t bytes = 0;                              // GPU memory of all mip levels
     // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
     TextureAsset* atlas = nullptr;
     int atlasX = 0, atlasY = 0;
@@ -262,7 +262,7 @@ struct TextureAsset {
     // use (LoadTrace::file_used), so the load order lists them where a load on first use would have read them.
     std::vector<std::string> untraced;
 
-    sg_view gpu_view() const { return atlas ? atlas->view : view; }
+    gpu::View gpu_view() const { return atlas ? atlas->view : view; }
     // The fix the shader applies to a sample of this texture (fa_tex_fix: 0 none, 1 sRGB -> linear, 2 linear -> sRGB) so that a
     // colour use sees linear light in a linear scene and the file's own values otherwise, and a data use (normal map, masks)
     // always sees the file's values: one texture asset serves both uses, whichever format it was made in (the first user that
@@ -304,31 +304,32 @@ inline void normal_uv_transform(const TextureAsset& diffuse, const TextureAsset&
 // A KTX2 file (Basis Universal, UASTC or ETC1S) transcoded for the GPU (ktx2.cpp).
 struct TranscodedTexture {
     int width = 0, height = 0;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;
     std::vector<std::vector<std::uint8_t>> levels;  // every mip level, largest first
 };
 // Picks the best format this GPU samples: ASTC 4x4 (mobile GPUs), BC7 (desktop), ETC2 RGBA8 (every GLES3 device), else
 // RGBA8. `allowCompressed` false goes straight to RGBA8. The environment variable FA_TEXTURE_FORMAT (astc, bc7, etc2 or
 // rgba8) narrows the choice to that one format, to test a path on a GPU that would pick another.
-Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed);
+Result<TranscodedTexture> transcode_ktx2(gpu::Device& device, const std::uint8_t* data, std::size_t size,
+                                         bool allowCompressed);
 // The format transcode_ktx2 picks with compression allowed (asks the GPU: main thread), and the transcode to a format
 // chosen before (any thread: what a background decode job runs). A format that is not a block format, or a size that
 // is not a multiple of 4, gives RGBA8.
-sg_pixel_format ktx2_target_format();
-Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, sg_pixel_format format);
-const char* pixel_format_name(
-    sg_pixel_format
+gpu::PixelFormat ktx2_target_format(gpu::Device& device);
+Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_t size, gpu::PixelFormat format);
+const char* texture_format_name(
+    gpu::PixelFormat
         format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8", the sRGB twins ("SRGB8A8", "BC7_SRGB", ...), "RGBA16F", "R11G11B10"
 
 struct SubMesh {
-    sg_buffer vb{};
-    sg_buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
-    sg_buffer
+    gpu::Buffer vb{};
+    gpu::Buffer skinVb{};  // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
+    gpu::Buffer
         uv1Vb{};  // TEXCOORD_1 (two floats per vertex) when the glTF primitive has it, else id 0 (a material's "uv1")
-    sg_buffer
+    gpu::Buffer
         color1Vb{};  // COLOR_1 (four normalized bytes per vertex, like MeshVertex::color) when it has it, else id 0
     int skin = -1;   // index of the glTF skin that deforms it (-1 = not skinned)
-    sg_buffer ib{};
+    gpu::Buffer ib{};
     int ibOffset = 0;  // byte offset of this part's first index in `ib` (a procedural mesh's submeshes share one pair)
     int vertexCount = 0;
     int indexCount = 0;
@@ -365,7 +366,7 @@ struct MeshLightmap {
     std::string uvKind;  // "gltf" or "generated"
     std::string hashHex;         // lightmap_hash_hex of the geometry: compared with the manifest entry's meshHash
     std::vector<SubMesh> parts;  // one per part of the mesh, in the same order
-    sg_buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
+    gpu::Buffer vb{}, ib{}, uv{}, color1{};  // owned buffers of a generated unwrap (id 0 for a mesh drawn with its own)
 };
 
 struct MeshAsset {
@@ -382,8 +383,8 @@ struct MeshAsset {
 struct LightmapPageGpu {
     std::string file;
     int width = 0, height = 0;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     std::size_t bytes = 0;
     bool ok =
         false;  // false: the file could not be read (reported once); entities on this page are drawn without a lightmap
@@ -466,7 +467,7 @@ bool decode_gltf(const std::string& path, const std::uint8_t* data, std::size_t 
 // A texture file's bytes -> a prepared texture (any thread). `ktx2Format`: ktx2_target_format() of the main thread. `srgbMips`: the
 // texture will be made as an sRGB image (a linear scene, Gpu::texture_format of the main thread): its mips average in linear light.
 Result<PreparedTexture> decode_texture_file(const std::string& key, const std::string& file, const std::uint8_t* data,
-                                            std::size_t size, sg_pixel_format ktx2Format, bool srgbMips = false);
+                                            std::size_t size, gpu::PixelFormat ktx2Format, bool srgbMips = false);
 
 // Fonts ---------------------------------------------------------------------
 struct GlyphInfo {
@@ -503,12 +504,12 @@ struct TextLayout {
 // Pipelines
 // ---------------------------------------------------------------------------
 // A pipeline is valid only for passes with the colour and depth formats and the sample count it was made for, so those
-// are part of its key (`format`, the TargetFormat of gpu_types.h): the same program drawn into an RGBA8 and an RGBA16F
+// are part of its key (`format`, the TargetFormat of gpu/types.h): the same program drawn into an RGBA8 and an RGBA16F
 // target, or with 1 and 4 samples, is two entries that live side by side in Gpu's cache. Nothing is flushed when a
 // target's format changes.
 struct PipelineKey {
     std::uint32_t bits = 0;    // which pipeline (the getter and its flags)
-    std::uint32_t shader = 0;  // sg_shader id of a custom material program (0 = the built-in one)
+    std::uint32_t shader = 0;  // gpu::Shader id of a custom material program (0 = the built-in one)
     TargetFormat format{};     // what the pass the pipeline draws in writes into
     bool operator<(const PipelineKey& o) const {
         if (bits != o.bits) return bits < o.bits;
@@ -669,8 +670,7 @@ constexpr int mesh_fragment_units(int phase) {
 constexpr bool mesh_fragment_views_valid() {
     for (int i = 0; i < kMeshFragmentViewCount; ++i) {
         const MeshFragmentView& a = kMeshFragmentViews[i];
-        if (a.view < 0 || a.view >= SG_MAX_VIEW_BINDSLOTS || a.sampler >= kMeshSamplerSlots ||
-            a.firstPhase > a.lastPhase)
+        if (a.view < 0 || a.view >= gpu::kMaxViews || a.sampler >= kMeshSamplerSlots || a.firstPhase > a.lastPhase)
             return false;
         const bool storageRange = a.view >= kMeshBufferFirstView && a.view < kMeshNewViewFirst;
         if (storageRange) return false;
@@ -714,9 +714,9 @@ static_assert(kMaterialSpriteSceneView == 15 &&
 // One program of a twin (mesh, mesh_skin, shadow, shadow_skin, prepass, prepass_skin) and what its reflection declares: a draw binds and applies
 // only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
 struct MaterialProgram {
-    sg_shader shader{};                                       // id 0 = the material has no such program
+    gpu::Shader shader{};                                     // id 0 = the material has no such program
     std::uint32_t ubMask = 0, viewMask = 0, samplerMask = 0;  // bit n = slot n is declared
-    std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};    // bytes of each declared uniform block
+    std::uint32_t ubSize[gpu::kMaxUniformBlocks]{};           // bytes of each declared uniform block
     bool has_ub(int slot) const { return (ubMask >> slot) & 1u; }
 };
 enum MaterialProgramId : int {
@@ -785,7 +785,7 @@ struct MaterialBufferDef {
 struct MaterialImageDef {
     std::string name;
     int binding = 0;
-    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    gpu::PixelFormat format = gpu::PixelFormat::Rgba8;
     bool readWrite = false;         // the shader may imageLoad it too
     int width = 256, height = 256;  // the size compute.create_image uses when it gets none
 };
@@ -868,19 +868,20 @@ inline const char* missing_channel(const MaterialAsset& m, const SubMesh& part) 
     return nullptr;
 }
 
-// The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
-std::string backend_dialect(sg_backend backend);
+// The shader dialect of the device the renderer runs on ("hlsl5", "glsl430"...; Device::info(): the backend and, on
+// Metal, its platform); "" for an unsupported one.
+std::string backend_dialect(const gpu::DeviceInfo& info);
 
-// The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
+// The gpu::ShaderDesc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
 // shader is not made). The desc points into `program`, which must outlive it.
 // A compute program ("cs" instead of "vs" and "fs") also needs `workgroup`, the threads of a group (Metal takes them
 // with the shader).
 // `materialTextures` names the material's textures, so the too-many-texture-pairs error tells them from the engine's.
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
-                                            const int* workgroup = nullptr,
-                                            const std::vector<std::string>* materialTextures = nullptr);
+Result<gpu::ShaderDesc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots,
+                                             const int* workgroup = nullptr,
+                                             const std::vector<std::string>* materialTextures = nullptr);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program,
+Result<MaterialProgram> make_material_program(gpu::Device& device, const std::string& label, const Json& program,
                                               const int* workgroup = nullptr,
                                               const std::vector<std::string>* materialTextures = nullptr);
 
@@ -1171,8 +1172,8 @@ struct CameraInfo : CameraGeometry {
 // cube_lut_strip). `view` is empty when the file could not be loaded (Assets::lut then answers null).
 struct LutAsset {
     std::string path;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int size = 0, cols = 0, rows = 0;  // colours per side, and how many slices sit across and down the image
     std::size_t bytes = 0;
     bool retryPending =
@@ -1184,8 +1185,8 @@ struct LutAsset {
 // successful load, so a file that is reloaded is a different environment even at the same path.
 struct HdriAsset {
     std::string path;
-    sg_image image{};
-    sg_view view{};
+    gpu::Image image{};
+    gpu::View view{};
     int width = 0, height = 0;  // what the GPU has (mip 0)
     std::size_t bytes = 0;
     std::uint64_t serial = 0;
@@ -1339,7 +1340,7 @@ public:
     // (the program always declares it). Grows; the buffer of an earlier call may be destroyed by a later one, so ask again every draw.
     // `vertices` must be the part's own vertex count (SubMesh::vertexCount, the whole shared buffer for a lightmap mesh): the draw reads uv1
     // at every index of the part, so an index at or past `vertices` would read past the zeros.
-    sg_buffer zero_uv1(std::size_t vertices);
+    gpu::Buffer zero_uv1(std::size_t vertices);
 
     // Background loading (Renderer::adopt_background): puts a prepared asset in the cache with its GPU upload, unless it is
     // there already (loaded on first use meanwhile: the prepared one is dropped). `files`: the project files its read and
@@ -1387,13 +1388,13 @@ private:
     std::unique_ptr<LightmapSetAsset> lightmapSet_;
     std::string
         lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
-    sg_buffer zeroUv1_{};
+    gpu::Buffer zeroUv1_{};
     std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {
         std::unique_ptr<MeshAsset> asset;
         std::uint64_t version = 0;  // MeshStore::Entry::version the GPU copy was made from
-        sg_buffer vb{}, ib{};       // shared by every part
-        sg_buffer vbStage{},
+        gpu::Buffer vb{}, ib{};     // shared by every part
+        gpu::Buffer vbStage{},
             ibStage{};  // write-transient staging buffers of an updatable pair (id 0 = immutable buffers)
         std::size_t vbCap = 0, ibCap = 0;  // bytes the buffers hold
         std::uint64_t stagedFrame = 0;     // Gpu::frame() + 1 of the last write into the staging buffers, 0 = never
@@ -1562,22 +1563,92 @@ private:
 };
 
 // The depth-stencil format of the game target and of every pass that draws the scene.
-constexpr sg_pixel_format kSceneDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
+constexpr gpu::PixelFormat kSceneDepthFormat = gpu::PixelFormat::DepthStencil;
 
 // Pipelines, samplers, shaders, static buffers, transient buffer pool.
 // The format of the images between the pieces of a cut final pass (Gpu::ldr_cut_format), from what the GPU can do:
 // `display` is Gpu::display_format(); `half` and `full` say whether RGBA16F and RGBA32F can be rendered to and sampled
 // with filtering. Without an HDR output, or with a display format that is already float, the display format; else the
 // first float format the GPU can use, and the display format when it can use none.
-sg_pixel_format pick_ldr_cut_format(sg_pixel_format display, bool hdrOutput, bool half, bool full);
+gpu::PixelFormat pick_ldr_cut_format(gpu::PixelFormat display, bool hdrOutput, bool half, bool full);
 
+// The renderer's shared GPU state: the device (gpu::Device), the frame's command list, the pipeline cache, the samplers,
+// the static buffers and the transient pools. It reaches the GPU only through the device (gpu/device.h) and hands out
+// the interface's handles (gpu/types.h). docs/design/ARCHITECTURE_RENDERING_GPU.md, "How the renderer reaches the device".
 class Gpu {
 public:
     Gpu() = default;
-    bool init(int sampleCount, std::string* error);
+    // Leaves the live list (active()) and releases the device without touching the GPU's resources: call shutdown()
+    // first while the context is open. Not copyable or movable: active() holds its address.
+    ~Gpu();
+    Gpu(const Gpu&) = delete;
+    Gpu& operator=(const Gpu&) = delete;
+    // Takes `device` (Renderer::init makes it from RendererDesc::backend; a test may hand in a gpu::RecordingDevice,
+    // gpu/recording_device.h, that records what the renderer's passes call), or without one makes the device on the
+    // open sokol context (gpu::make_device(gpu::built_sokol_backend()) adopts the context Renderer::init opened). Then
+    // the frame's command list, the built-in programs (each in the dialect of the device: gpu::generated_shader_desc),
+    // samplers and buffers.
+    bool init(int sampleCount, std::string* error, std::unique_ptr<gpu::Device> device = nullptr);
+    // Destroys everything init and the getters made, submits the frame's list and releases the device (the sokol
+    // context stays open: it is the renderer's). Safe to call twice, and on a Gpu whose init failed.
     void shutdown();
 
-    sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
+    // The device every resource of the renderer is made on, between init() and shutdown(). Single-threaded: the
+    // thread that ran init (gpu/device.h, THREADING).
+    gpu::Device& device() {
+        FA_ASSERT(device_, "Gpu::device() before Gpu::init() or after shutdown()");
+        return *device_;
+    }
+    const gpu::Device& device() const {
+        FA_ASSERT(device_, "Gpu::device() before Gpu::init() or after shutdown()");
+        return *device_;
+    }
+    bool has_device() const { return device_ != nullptr; }
+    // The command list of the frame being recorded: every pass, draw, upload and copy of the frame goes into it. Ask
+    // for it again after a commit (commit_frame, begin_frame): a reference kept across one names a submitted list
+    // (gpu/device.h, LIFETIME). A frame-graph pass gets it from PassContext::commands().
+    gpu::CommandList& commands() {
+        FA_ASSERT(list_, "Gpu::commands() before Gpu::init() or after shutdown()");
+        return *list_;
+    }
+    // Ends the frame on the device: submits the frame's list, then makes the graphics queue wait (on the GPU) for the
+    // async compute work still pending (wait_queue), commits (Device::commit) and begins the next list.
+    void commit_frame();
+
+    // ---- parallel recording and async compute (M77-P10d; docs/design/ARCHITECTURE_RENDERING_QUEUES.md) ----------------
+    // What RendererDesc allows (asyncCompute, multiThreadRecording): each is in use when it is allowed and the device has
+    // the feature (gpu::Features). Renderer::init calls it once after init(); both are off until then, and on sokol
+    // (one immediate list, neither feature) the frame is recorded exactly as without them.
+    void set_queue_options(bool asyncCompute, bool multiThreadRecording);
+    bool async_compute() const { return asyncCompute_; }
+    bool parallel_recording() const { return parallelRecording_; }
+    // Where the frame graph reads the frame's list (FrameGraph::execute_on): a pass that submits the frame's list early
+    // (submit_in_order, the async compute calls) leaves the passes after it the new one.
+    gpu::CommandList* const* commands_slot() const { return &list_; }
+    // Submits the frame's list, then `lists` in their order (each begun with device().begin_commands, on any thread,
+    // and done recording), and begins the frame's next list: on one queue the GPU runs them as if they were one list,
+    // whichever job recorded which. Render thread, after the jobs that recorded them are joined.
+    void submit_in_order(std::span<gpu::CommandList* const> lists);
+    // Async compute (only while async_compute()): submits the frame's list handing `uses` (images and buffers; `to` is
+    // ignored) to the compute queue, begins the frame's next list and returns a list of the compute queue that waits for
+    // that submit. Record the compute pass on it and give it to end_async_compute with the same `uses` and `guard`. Make
+    // every resource and pipeline before: nothing may be recorded on commands() between the two calls. A compute list
+    // that still guards the pool target `guard` is waited for first (wait_compute_for), as the frame graph does before a
+    // pass that declares it: `uses` are back on the graphics queue when they are handed over.
+    gpu::CommandList& begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses,
+                                          std::uint64_t guard);
+    // Submits `compute` handing `uses` back to the graphics queue. The graphics queue waits for it only before the first
+    // frame-graph pass that declares the pool target `guard` (wait_compute_for, from the graph's `before` hook) or at the
+    // frame's end (commit_frame, shutdown): the graphics passes between run while the compute queue works.
+    void end_async_compute(gpu::CommandList& compute, std::span<const gpu::QueueHandoff> uses, std::uint64_t guard);
+    // When a pending compute list guards one of `handles`: submits the frame's list, makes the graphics queue wait for
+    // the compute list (Device::wait_queue) and begins the frame's next list.
+    void wait_compute_for(const std::vector<std::uint64_t>& handles);
+    // The same for every pending compute list (nothing when none is pending).
+    void wait_compute_all();
+    std::size_t compute_pending() const { return pendingCompute_.size(); }
+
+    gpu::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
     // `opaque` = blending off (QuadBatch::opaque).
     //
@@ -1588,13 +1659,13 @@ public:
     // that stage for the others.
     // `shader` = a program of a sprite material (quad or quad_plain; the pipeline is keyed by it); default = the
     // built-in one.
-    sg_pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
-                              BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
-                              sg_shader shader = {}, int instanceVec4 = 0);
+    gpu::Pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
+                                BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false,
+                                gpu::Shader shader = {}, int instanceVec4 = 0);
     // `instanceVec4` = the vec4 of per-quad instanced params of that material (MaterialUse::instVec4): vertex buffer 1
     // (kQuadInstBuffer), attributes 7.. (the quad vertex shader's fa_inst_d0..2), one value per vertex.
-    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
-                              bool opaque = false, sg_shader shader = {}, int instanceVec4 = 0) {
+    gpu::Pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
+                                bool opaque = false, gpu::Shader shader = {}, int instanceVec4 = 0) {
         return quad_pipeline(scene_target_format(), depthTest, lines, blend, plain, opaque, shader, instanceVec4);
     }
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
@@ -1606,43 +1677,44 @@ public:
     // `glass` = a blended mesh with transmission: it culls its back faces unless `doubleSided` (a blended mesh draws both faces otherwise).
     // `lod` = the built-in program (no `shader`) of a draw that cross-fades between two levels of detail: mesh_lod / mesh_skin_lod, the
     // programs with the dither's discard (mesh_common.glsl fa_lod_dither). A custom material dithers inside its own alphaMode "clip".
-    sg_pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
-                              sg_shader shader = {}, MeshExtras extras = {}, bool glass = false, bool lod = false);
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {},
-                              MeshExtras extras = {}, bool glass = false, bool lod = false) {
+    gpu::Pipeline mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned = false,
+                                gpu::Shader shader = {}, MeshExtras extras = {}, bool glass = false, bool lod = false);
+    gpu::Pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, gpu::Shader shader = {},
+                                MeshExtras extras = {}, bool glass = false, bool lod = false) {
         return mesh_pipeline(scene_target_format(), blended, doubleSided, skinned, shader, extras, glass, lod);
     }
     // One pass of a full-shader material: the vertex layout of mesh_pipeline with the pass's own cull, depth and blend
     // state.
-    sg_pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
-                              sg_shader shader, MeshExtras extras);
-    sg_pipeline full_pipeline(const MaterialPassState& state, bool skinned, sg_shader shader, MeshExtras extras) {
+    gpu::Pipeline full_pipeline(const TargetFormat& format, const MaterialPassState& state, bool skinned,
+                                gpu::Shader shader, MeshExtras extras);
+    gpu::Pipeline full_pipeline(const MaterialPassState& state, bool skinned, gpu::Shader shader, MeshExtras extras) {
         return full_pipeline(scene_target_format(), state, skinned, shader, extras);
     }
     // `shader`: the program of a sky material (id 0 = the built-in gradient).
-    sg_pipeline sky_pipeline(const TargetFormat& format, sg_shader shader = {});
-    sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
-    sg_pipeline sky_pipeline(sg_shader shader) { return sky_pipeline(scene_target_format(), shader); }
+    gpu::Pipeline sky_pipeline(const TargetFormat& format, gpu::Shader shader = {});
+    gpu::Pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
+    gpu::Pipeline sky_pipeline(gpu::Shader shader) { return sky_pipeline(scene_target_format(), shader); }
 
     // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
     // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the
     // RGBA16F fallback) or of the sample count only makes this return another key: the pipelines of the old one stay in
     // the cache until they go idle.
-    TargetFormat scene_target_format() const { return {sceneFormat_, kSceneDepthFormat, sampleCount_}; }
+    TargetFormat scene_target_format() const { return {scene_format(), kSceneDepthFormat, sampleCount_}; }
     // The shadow map pass: an R32F colour attachment and a DEPTH one, never multisampled.
-    static TargetFormat shadow_target_format() { return {SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_DEPTH, 1}; }
+    static TargetFormat shadow_target_format() { return {gpu::PixelFormat::R32F, gpu::PixelFormat::Depth, 1}; }
 
     // The depth and normal prepass (M71, mesh_common.glsl prepass_vs / prepass_fs): one float colour attachment (r = linear view
     // depth, gb = octahedral view-space normal, a = coverage) and a depth buffer, never multisampled. prepass_color_format() is what
     // the GPU renders to and samples: RGBA32F (a depth that stays exact far away), else RGBA16F (about three digits), else NONE: no
     // prepass, and the `sampledDepth` row of render.supports is false. Its shaders (and the debug view's) are made on first use.
-    static sg_pixel_format prepass_color_format();
+    gpu::PixelFormat prepass_color_format() const;
     // `velocity`: the pass also writes the motion vectors into a second colour attachment (velocity_format(), M76).
     TargetFormat prepass_target_format(bool velocity = false) const {
-        return {prepass_color_format(), SG_PIXELFORMAT_DEPTH, 1, velocity ? velocity_format() : SG_PIXELFORMAT_NONE};
+        return {prepass_color_format(), gpu::PixelFormat::Depth, 1,
+                velocity ? velocity_format() : gpu::PixelFormat::None};
     }
     // The motion vector image (VelocityRef): RG16F, uvPrev - uvCurr and the sentinel 1024, both exact in half float.
-    static sg_pixel_format velocity_format() { return SG_PIXELFORMAT_RG16F; }
+    static gpu::PixelFormat velocity_format() { return gpu::PixelFormat::Rg16F; }
     // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
     bool velocity_ready();
     bool prepass_ready();
@@ -1655,42 +1727,44 @@ public:
     // whose first hit is a back face is inside geometry).
     // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
     // the prepass with the dither); it declares the slots of prepass_program().
-    sg_pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
-                                 sg_shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
-                                 bool lod = false);
-    sg_pipeline prepass_pipeline(bool doubleSided, bool skinned = false, sg_shader shader = {},
-                                 MeshExtras extras = {}) {
+    gpu::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
+                                   gpu::Shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
+                                   bool lod = false);
+    gpu::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::Shader shader = {},
+                                   MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
     }
     // The subsurface pass (M73.5, mesh_common.glsl fs_sss): the diffuse light of the meshes that scatter into colour 0 (rgb light, a = linear
     // depth) and their scatter radius and strength into colour 1, both RGBA16F with a depth buffer, never multisampled. The shaders are made
     // on first use; sss_ready() is false when they cannot be made (the effect is skipped).
     static TargetFormat sss_target_format() {
-        return {SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_DEPTH, 1, SG_PIXELFORMAT_RGBA16F};
+        return {gpu::PixelFormat::Rgba16F, gpu::PixelFormat::Depth, 1, gpu::PixelFormat::Rgba16F};
     }
     // A built-in 3D program (mesh, skinned mesh, shadow, sky), made the first time a pipeline asks for it.
-    sg_shader builtin_shader(sg_shader& slot, const sg_shader_desc* (*desc)(sg_backend), const char* label);
+    // `desc` as in make_builtin (defined and used in gpu.cpp only).
+    template <class GeneratedShader>
+    gpu::Shader builtin_shader(gpu::Shader& slot, GeneratedShader desc, const char* label);
     bool sss_ready();
     // The slots the built-in sss program declares, for a draw that binds only those; after sss_ready().
     const MaterialProgram& sss_program(bool skinned) const { return sssProgram_[skinned ? 1 : 0]; }
     // The main pass's vertex layout and culling, no blending, depth written: the draw of the prepass's depth plus the two colours.
-    sg_pipeline sss_pipeline(bool doubleSided, bool skinned);
+    gpu::Pipeline sss_pipeline(bool doubleSided, bool skinned);
     // The debug view of the prepass (prepass_view.glsl): a full-screen triangle that draws it as a picture into `format` (the game target's).
     bool prepass_view_ready();
-    sg_pipeline prepass_view_pipeline(const TargetFormat& format);
+    gpu::Pipeline prepass_view_pipeline(const TargetFormat& format);
     // M76-P1d: the motion vectors and the reactive mask of the 2D quads of the world (shaders/quad_motion.glsl). The mask is an R8 image
     // (reactive_format(): renderable and sampleable on GLES3, WebGL2, D3D11 and Metal; the MAX blend is core on all of them), and
     // reactive_ready() says whether this GPU makes it. quad_motion_ready() builds the two programs (once; false with one log line when they
     // do not compile). quad_motion_pipeline() draws the quad vertices (Vertex2D in buffer 0 plus the per-vertex motion, buffer 1) into
     // `format` (velocity_format() without blending, or reactive_format() with the MAX blend); null when the shader is not ready.
-    static sg_pixel_format reactive_format() { return SG_PIXELFORMAT_R8; }
+    static gpu::PixelFormat reactive_format() { return gpu::PixelFormat::R8; }
     bool reactive_ready();
     bool quad_motion_ready();
-    sg_pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
+    gpu::Pipeline quad_motion_pipeline(const TargetFormat& format, bool reactive);
     // The full-screen triangle of a post material's program (post_common.glsl) into `format`, no blending (the pass
     // writes every pixel of its rectangle) and no depth; keyed by the program, so a reload that destroys it
     // (destroy_shader) drops the pipeline too.
-    sg_pipeline post_material_pipeline(const TargetFormat& format, sg_shader shader);
+    gpu::Pipeline post_material_pipeline(const TargetFormat& format, gpu::Shader shader);
 
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than
@@ -1709,7 +1783,7 @@ public:
     // Tests: while on, a pipeline getter makes and caches nothing (it returns an empty pipeline) and keeps the vertex
     // layout it built, which probed_layout() returns. Used to check offsets and strides without a draw.
     void set_layout_probe(bool on) { layoutProbe_ = on; }
-    const sg_vertex_layout_state& probed_layout() const { return probedLayout_; }
+    const gpu::VertexLayout& probed_layout() const { return probedLayout_; }
     // While on, every pipeline made or asked for is kept out of the eviction (Renderer::warm_step turns it on around a group).
     void set_warming(bool on) { warming_ = on; }
     static constexpr std::size_t kPipelineCacheCap = 192;
@@ -1724,46 +1798,43 @@ public:
     // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
     // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
     // `extras` count only with `fullVertex` (the shadow programs without vertex() and clip do not read them).
-    sg_pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false, sg_shader shader = {},
-                                bool fullVertex = false, MeshExtras extras = {});
-    sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false,
-                                MeshExtras extras = {}) {
+    gpu::Pipeline shadow_pipeline(const TargetFormat& format, bool skinned = false, gpu::Shader shader = {},
+                                  bool fullVertex = false, MeshExtras extras = {});
+    gpu::Pipeline shadow_pipeline(bool skinned = false, gpu::Shader shader = {}, bool fullVertex = false,
+                                  MeshExtras extras = {}) {
         return shadow_pipeline(shadow_target_format(), skinned, shader, fullVertex, extras);
     }
     // Destroys a custom material program together with the pipelines made from it.
-    void destroy_shader(sg_shader shader);
-    sg_pipeline blit_pipeline(const TargetFormat& format);
-    sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount) {
+    void destroy_shader(gpu::Shader shader);
+    gpu::Pipeline blit_pipeline(const TargetFormat& format);
+    gpu::Pipeline blit_pipeline(gpu::PixelFormat colorFormat, gpu::PixelFormat depthFormat, int sampleCount) {
         return blit_pipeline(TargetFormat{colorFormat, depthFormat, sampleCount});
     }
     // The same copy into an RGBA8 target without depth, keeping the source's alpha: how a frame in a float scene_format() is
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
-    sg_pipeline blit_keep_pipeline(const TargetFormat& format);
-    sg_pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
-    static TargetFormat blit_keep_target_format() { return {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_NONE, 1}; }
+    gpu::Pipeline blit_keep_pipeline(const TargetFormat& format);
+    gpu::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
+    static TargetFormat blit_keep_target_format() { return {gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
     // (MeshRenderer.emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). Linear scene
     // (SceneSettings.colorSpace): RGBA16F, else R11G11B10 (float, no alpha), else SRGB8A8, else RGBA8 (see Gpu::init).
     // FA_SCENE_FORMAT: rgba8 = the 8-bit end of the chain (gamma: RGBA8, linear: SRGB8A8), r11g11b10 = prefer the packed float one
     // (a linear scene; the gamma chain is as without it), read once at init to test a path on a GPU that would pick another.
-    sg_pixel_format scene_format() const { return sceneFormat_; }
+    gpu::PixelFormat scene_format() const { return sceneFormat_; }
     // The format of the images that hold the DISPLAY picture (what the final pass writes: sRGB-ENCODED values, so the GPU must not
     // encode them again): RGBA16F where the scene is, else plain RGBA8. SRGB8A8 (a linear scene in 8 bits) would encode them twice;
     // R11G11B10 has a 6-bit mantissa, so encoded values near 1 step by 1/64 of the range and a gradient bands where an 8-bit image
     // does not (the linear scene needs the packed format for its dark values, the encoded picture does not). An 8-bit display image
     // cannot hold values above 1: such a window stays within paper white (Renderer::Impl::float_display).
-    sg_pixel_format display_format() const {
-        return sceneFormat_ == SG_PIXELFORMAT_SRGB8A8 || sceneFormat_ == SG_PIXELFORMAT_RG11B10F ? SG_PIXELFORMAT_RGBA8
-                                                                                                 : sceneFormat_;
-    }
+    gpu::PixelFormat display_format() const { return display_pixel_format(); }
     // The format of the images a final pass cut by display-referred custom passes goes through
     // (Renderer::Impl::ldrMid): they hold DISPLAY values like display_format(), so never the scene's own SRGB8A8 (the
     // GPU would encode them again) or R11G11B10 (no alpha, banding). With an HDR output (`hdrOutput`) and a display
     // format that cannot go above 1, a float format the GPU renders to and samples with filtering (RGBA16F, else
     // RGBA32F) when there is one, so a pass that writes above paper white keeps it between the pieces. The choice is
     // pick_ldr_cut_format.
-    sg_pixel_format ldr_cut_format(bool hdrOutput) const;
+    gpu::PixelFormat ldr_cut_format(bool hdrOutput) const;
     // The scene is held in linear light (SceneSettings.colorSpace "linear"). set_linear returns true when scene_format() changed:
     // the caller (Renderer::Impl::sync_color_space) then makes the game target again. The pipelines made so far stay in the
     // cache under their own format key; the ones for the new format are made on first use, and nothing is flushed.
@@ -1784,7 +1855,7 @@ public:
     // The format a COLOUR texture of this format is made in now: in a linear scene the sRGB variant (SRGB8A8, BC7/ASTC/ETC2 sRGB)
     // where the GPU samples and filters it, so the GPU decodes the texels to linear light before filtering; the format itself in
     // a gamma scene or where there is no sRGB variant (the shader then decodes: TextureAsset::enc, tex_fix).
-    sg_pixel_format texture_format(sg_pixel_format unorm) const;
+    gpu::PixelFormat texture_format(gpu::PixelFormat unorm) const;
     // The GPU decodes SRGB8A8 when it samples it (every backend but some old GLES).
     bool srgb_textures() const { return srgbTextures_; }
 
@@ -1792,18 +1863,18 @@ public:
     // cannot be created, in which case the bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
-    sg_pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
-    sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
-        return bloom_pipeline(stage, TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, sampleCount});
+    gpu::Pipeline bloom_pipeline(BloomStage stage, const TargetFormat& format);
+    gpu::Pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1) {
+        return bloom_pipeline(stage, TargetFormat{scene_format(), gpu::PixelFormat::None, sampleCount});
     }
     // PostProcess.colorFilterEnabled: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
     // error when it cannot be created, and the game is then drawn unfiltered.
     bool colorfilter_ready();
     // Makes the shader first when nothing has yet (GL's render-target flip copy can be its first user); invalid when the
     // shader cannot be created.
-    sg_pipeline colorfilter_pipeline(const TargetFormat& format);
-    sg_pipeline colorfilter_pipeline() {
-        return colorfilter_pipeline(TargetFormat{sceneFormat_, SG_PIXELFORMAT_NONE, 1});
+    gpu::Pipeline colorfilter_pipeline(const TargetFormat& format);
+    gpu::Pipeline colorfilter_pipeline() {
+        return colorfilter_pipeline(TargetFormat{scene_format(), gpu::PixelFormat::None, 1});
     }
 
     // The final pass of the post-processing stack (post.glsl: exposure, tonemap, output encode, colour filter): one program, created on
@@ -1812,13 +1883,13 @@ public:
     int post_ready_calls() const {
         return postReadyCalls_;
     }  // how often a frame asked for it: 0 for a world without a stack (tests)
-    sg_pipeline post_pipeline(const TargetFormat& format);
+    gpu::Pipeline post_pipeline(const TargetFormat& format);
     // The automatic exposure (exposure.glsl), the same way.
     bool exposure_ready();
-    sg_pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
+    gpu::Pipeline exposure_pipeline(ExposureStage stage, const TargetFormat& format);
     // The ambient occlusion (ssao.glsl, renderer_ssao.cpp), the same way: false + one logged error when its shaders cannot be made.
     bool ssao_ready();
-    sg_pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
+    gpu::Pipeline ssao_pipeline(SsaoStage stage, const TargetFormat& format);
 
     // The 2D light buffer (light.glsl). Its shader is created on first use, like the bloom ones; false + one logged error
     // when it cannot be created, and lit visuals then shade with the per-pixel path (the first kDirectLights2D lights).
@@ -1826,36 +1897,23 @@ public:
     // The format the light buffer is drawn in: RGBA16F where the GPU renders to it with blending and filtering, else RGBA8
     // (half the range, see light_range()), else NONE: no light buffer. The environment variable FA_LIGHT_FORMAT (rgba16f,
     // rgba8 or none) narrows the choice to that one, to test a path on a GPU that would pick another.
-    sg_pixel_format light_format() const { return lightFormat_; }
+    gpu::PixelFormat light_format() const { return lightFormat_; }
     // How much light one texel of the light buffer holds: 1 in RGBA16F, 2 in RGBA8 (written as light / 2).
-    float light_range() const { return lightFormat_ == SG_PIXELFORMAT_RGBA8 ? 2.0f : 1.0f; }
-    sg_pipeline light_pipeline(const TargetFormat& format);
-    sg_pipeline light_pipeline() { return light_pipeline(light_target_format()); }
-    TargetFormat light_target_format() const { return {lightFormat_, SG_PIXELFORMAT_NONE, 1}; }
+    float light_range() const { return lightFormat_ == gpu::PixelFormat::Rgba8 ? 2.0f : 1.0f; }
+    gpu::Pipeline light_pipeline(const TargetFormat& format);
+    gpu::Pipeline light_pipeline() { return light_pipeline(light_target_format()); }
+    TargetFormat light_target_format() const { return {light_format(), gpu::PixelFormat::None, 1}; }
 
-    // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour
-    // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass.
-    // begin_pass records the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline
-    // it hands out was made for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong).
-    // Outside a pass (warm-up, a getter called before the pass begins) nothing is checked.
-    // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear,
-    // which runs before any Gpu exists, begins its pass the same way.
-    static void begin_pass(const PassDesc& pass);
-    static void end_pass();
-    static bool in_pass() { return inPass_; }
-    // A compute pass (Compute::dispatch): no attachments, so no PassDesc. Counts as a pass (in_pass()) until
-    // end_compute_pass().
-    static void begin_compute_pass();
-    static void end_compute_pass();
+    // True while a pass is open on this Gpu's frame list (commands()). The list checks that every pipeline set in a
+    // render pass was made for the pass's PassDesc::format (CommandList::set_pipeline: a debug assertion on the sokol
+    // backends, an errors() entry on RecordingDevice).
+    bool in_pass() const;
     // The compute pipeline of a compute material's program (`shader`), made on first use and cached like the others
     // (destroy_shader drops it). Invalid, with one logged error, when the driver rejects it. Call it outside a pass.
-    sg_pipeline compute_pipeline(sg_shader shader);
-    static const TargetFormat& pass_format() {
-        return passFormat_;
-    }  // of the pass begun last; meaningful while in_pass()
+    gpu::Pipeline compute_pipeline(gpu::Shader shader);
 
-    sg_buffer quad_index_buffer() const { return quadIndices_; }
-    sg_buffer fullscreen_triangle() const { return fsTriangle_; }
+    gpu::Buffer quad_index_buffer() const { return quadIndices_; }
+    gpu::Buffer fullscreen_triangle() const { return fsTriangle_; }
     // Call before the first CPU write into a write-transient buffer or image of a sokol frame (every writer in the renderer does).
     // A write-transient resource has SG_NUM_INFLIGHT_FRAMES copies and the write of a frame goes into the copy the frame before
     // the last one read; sokol's Metal backend waits for that frame (the semaphore of its command buffers) only when the frame's
@@ -1869,13 +1927,13 @@ public:
     // docs/design/ARCHITECTURE_THREADS.md, "GPU frames in flight and the CPU's writes".
     void begin_transient_writes();
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
-    sg_buffer acquire_transient(std::size_t bytes);
+    gpu::Buffer acquire_transient(std::size_t bytes);
     // The light data texture of one view (light_clusters.h): a write-transient RGBA32F image of kLightTextureWidth x `rows` texels
     // that holds `texels` (width * rows * 4 floats), written now and valid until the pool restarts like the buffers' (after a
     // commit). Call it once per view and frame, outside a pass, and bind the view this frame.
     struct LightImage {
-        sg_image image{};
-        sg_view view{};
+        gpu::Image image{};
+        gpu::View view{};
     };
     LightImage write_light_image(int rows, const float* texels);
     // The image of the previous joint palettes of the motion vectors (M76-P1c, kPrevPaletteWidth wide, the same format and the same rules as
@@ -1892,7 +1950,7 @@ public:
     void begin_frame() {
         if ((++pipelineTick_ & 15u) == 0 && pipelines_.size() > pipelineCap_) sweep_pipelines();
         const bool full = transientUsed_ >= 16 || lightImagesUsed_ >= 16 || paletteImagesUsed_ >= 16;
-        if (!committed_ && full) sg_commit();
+        if (!committed_ && full) commit_frame();
         if (committed_ || full) {
             // The light images the views of the last 256 restarts did not need (a view that had 4K of lights once) are freed.
             lightImagesPeak_ = std::max(lightImagesPeak_, lightImagesUsed_);
@@ -1920,28 +1978,52 @@ public:
     int sample_count() const { return sampleCount_; }
     bool shadows_supported() const { return shadowsSupported_; }
 
-    sg_shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
+    gpu::Shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
         blitKeepShader_{};
-    sg_shader meshSkinShader_{}, shadowSkinShader_{};
-    sg_shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
+    gpu::Shader meshSkinShader_{}, shadowSkinShader_{};
+    gpu::Shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
         prepassSkinLodShader_{};  // made on the first fade
-    sg_shader bloom_shaders_[int(BloomStage::Count)]{};
-    sg_shader colorfilter_shader_{};
-    sg_shader post_shader_{};
-    sg_shader exposure_shaders_[int(ExposureStage::Count)]{};
-    sg_shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
-    sg_shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
-    sg_shader sssShader_{}, sssSkinShader_{};
-    sg_shader light_shader_{};
+    gpu::Shader bloom_shaders_[int(BloomStage::Count)]{};
+    gpu::Shader colorfilter_shader_{};
+    gpu::Shader post_shader_{};
+    gpu::Shader exposure_shaders_[int(ExposureStage::Count)]{};
+    gpu::Shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
+    gpu::Shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
+    gpu::Shader sssShader_{}, sssSkinShader_{};
+    gpu::Shader light_shader_{};
 
 private:
+    // A generated program (shaders/*.glsl.h) made on the device through the cache layer (shader_cache.h). `desc` is the
+    // header's desc function (gpu::GeneratedShader, gpu/sokol_shaders.h): a template so this header stays sokol-free;
+    // defined and used in gpu.cpp only.
+    template <class GeneratedShader>
+    gpu::Shader make_builtin(GeneratedShader desc, const char* label);
+    // Destroys `s` when it was made and clears it.
+    void drop_shader(gpu::Shader& s);
+    bool shader_valid(gpu::Shader s) const;
+    // The capabilities of `f` on this GPU.
+    gpu::PixelFormatCaps caps(gpu::PixelFormat f) const;
+    gpu::PixelFormat display_pixel_format() const {
+        return sceneFormat_ == gpu::PixelFormat::Srgb8A8 || sceneFormat_ == gpu::PixelFormat::Rg11B10F
+                   ? gpu::PixelFormat::Rgba8
+                   : sceneFormat_;
+    }
+
+    std::unique_ptr<gpu::Device> device_;
+    gpu::CommandList* list_ = nullptr;  // the frame's (device_->begin_commands), until commit_frame
+    bool asyncCompute_ = false, parallelRecording_ = false;  // set_queue_options
+    struct PendingCompute {
+        gpu::SyncToken token{};   // end_async_compute's submit of the compute list
+        std::uint64_t guard = 0;  // the pool target whose first graphics use waits for it
+    };
+    std::vector<PendingCompute> pendingCompute_;  // compute lists the graphics queue has not waited for yet
+    // Submits the frame's list, makes the graphics queue wait for `token` and begins the next list.
+    void wait_graphics_for(gpu::SyncToken token);
     // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
     // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
-    sg_pipeline find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& desc);
+    gpu::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
     void sweep_pipelines();
 
-    static inline bool inPass_ = false;
-    static inline TargetFormat passFormat_{};
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int postReadyCalls_ = 0;
@@ -1956,29 +2038,29 @@ private:
     int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)
-    sg_shader quadVelShader_{}, quadReactShader_{};
+    gpu::Shader quadVelShader_{}, quadReactShader_{};
     int quadMotionState_ = 0;  // same meaning as bloomState_ (the quad motion programs)
-    sg_pixel_format lightFormat_ = SG_PIXELFORMAT_NONE;
-    sg_pixel_format sceneFormat_ = SG_PIXELFORMAT_RGBA8;  // see scene_format()
+    gpu::PixelFormat lightFormat_ = gpu::PixelFormat::None;
+    gpu::PixelFormat sceneFormat_ = gpu::PixelFormat::Rgba8;  // see scene_format()
     struct SceneChain {
-        sg_pixel_format formats[4]{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_RGBA8,
-                                   SG_PIXELFORMAT_RGBA8};
+        gpu::PixelFormat formats[4]{gpu::PixelFormat::Rgba8, gpu::PixelFormat::Rgba8, gpu::PixelFormat::Rgba8,
+                                    gpu::PixelFormat::Rgba8};
         int count = 0;
         int at = 0;
     };
     SceneChain sceneChain_[2];  // [0] gamma, [1] linear
     bool linear_ = false, srgbTextures_ = false;
     void refresh_scene_format();
-    sg_sampler samplers_[int(SamplerKind::Count)]{};
-    sg_buffer quadIndices_{}, fsTriangle_{};
+    gpu::Sampler samplers_[int(SamplerKind::Count)]{};
+    gpu::Buffer quadIndices_{}, fsTriangle_{};
     struct PipelineEntry {
-        sg_pipeline pipeline{};
+        gpu::Pipeline pipeline{};
         std::uint64_t lastUsed = 0;  // pipelineTick_ of the last ask
         bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
     bool layoutProbe_ = false;
-    sg_vertex_layout_state probedLayout_{};
+    gpu::VertexLayout probedLayout_{};
     std::unordered_set<std::uint32_t>
         failedComputePipelines_;      // shader ids whose compute pipeline the driver refused (one log)
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
@@ -1987,14 +2069,14 @@ private:
     std::size_t pipelineCap_ = kPipelineCacheCap;
     std::uint64_t pipelineIdleFrames_ = kPipelineIdleFrames;
     struct Transient {
-        sg_buffer buf{};
+        gpu::Buffer buf{};
         std::size_t capacity = 0;
     };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
     struct LightImg {
-        sg_image image{};
-        sg_view view{};
+        gpu::Image image{};
+        gpu::View view{};
         int rows = 0;
     };
     std::vector<LightImg> lightImages_;  // the pool of write_light_image, restarted with transient_
@@ -2006,8 +2088,8 @@ private:
     std::size_t lightImagesPeak_ = 0;  // the most images one restart used since the last trim
     std::uint32_t lightImagesRestarts_ = 0;
     bool committed_ = true;
-    sg_buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
-    std::uint64_t pacedFrame_ = 0;       // frame_ + 1 of the frame it last made the command buffer for
+    gpu::Buffer pacerSrc_{}, pacerDst_{};  // begin_transient_writes' empty copy (Metal)
+    std::uint64_t pacedFrame_ = 0;         // frame_ + 1 of the frame it last made the command buffer for
     // frame_ + 1 of the frame whose command buffer its copy opened (not committed yet).
     std::uint64_t pacerCopyFrame_ = 0;
     bool pacerFailed_ = false;  // the pacer buffers could not be made: said once, not tried again
@@ -2015,13 +2097,6 @@ private:
     bool listening_ = false;  // count_commit is registered as a commit listener
     static void count_commit(void* gpu) { ++static_cast<Gpu*>(gpu)->frame_; }
 };
-
-// sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
-sg_image make_image(const sg_image_desc& desc);
-// The same for a cube image (SG_IMAGETYPE_CUBE): the OpenGL ES fix goes through the cube target.
-sg_image make_cube_image(const sg_image_desc& desc);
-// The same for an array image (SG_IMAGETYPE_ARRAY: the layers of a Terrain), through the array target.
-sg_image make_array_image(const sg_image_desc& desc);
 
 // One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
 // MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game
@@ -2032,37 +2107,41 @@ struct TargetDesc {
     const char* label =
         "target";  // the base of the labels of its images and views ("<label>-color", "<label>-depth"...)
     int width = 1, height = 1;
-    sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
+    gpu::PixelFormat colorFormat = gpu::PixelFormat::None;  // NONE: no colour image (a depth-only target)
     int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
     // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): the bloom adds its glow to
     // the finished, resolved game image.
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
-    sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
+    gpu::PixelFormat depthFormat = gpu::PixelFormat::None;  // NONE: no depth image
     // The colour image can also be written as a storage image (usage.storage_image next to color_attachment): what MetalFX needs of its
     // output (metalfx.h). Single-sample targets only.
     bool storage = false;
 };
+// Its images and views are made on a gpu::Device (make_target) and are the device's handles; destroy_target frees them
+// on the same device.
 struct Target {
-    sg_image color{}, resolve{}, depth{};
-    sg_view colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
-    sg_view resolveAtt{};       // MSAA: the resolve attachment of `resolve`
-    sg_view resolveColorAtt{};  // MSAA and resolveAsColor: `resolve` as a colour attachment
-    sg_view depthAtt{};
-    sg_view texView{};  // a texture view of texture_image()
+    gpu::Image color{}, resolve{}, depth{};
+    gpu::View colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
+    gpu::View resolveAtt{};       // MSAA: the resolve attachment of `resolve`
+    gpu::View resolveColorAtt{};  // MSAA and resolveAsColor: `resolve` as a colour attachment
+    gpu::View depthAtt{};
+    gpu::View texView{};  // a texture view of texture_image()
     int w = 0, h = 0, samples = 1;
     TargetFormat format{};  // what a pass drawing into the whole target writes (PassDesc::format)
     bool expectTexture = false, expectDepth = false;  // what make_target was asked for (valid() checks it was made)
 
     // The image that holds the finished picture: the resolve image of an MSAA target, else the colour image.
-    sg_image texture_image() const { return resolve.id ? resolve : color; }
-    // True when it was made (a colour image exists) and the GPU accepted every image and view that was made.
-    bool valid() const;
+    gpu::Image texture_image() const { return resolve.id ? resolve : color; }
+    // True when it was made (a colour image exists) and `device` accepted every image and view that was made.
+    bool valid(const gpu::Device& device) const;
 };
-// Makes the target (nothing is checked: a GPU that cannot make an image leaves it FAILED, see Target::valid()).
-Target make_target(const TargetDesc& desc);
-// Destroys the views, then the images, and resets `t` to empty. Safe on an empty or half-made target.
-void destroy_target(Target& t);
+// Makes the target on `device` (nothing is checked: a GPU that cannot make an image leaves it FAILED, see
+// Target::valid()). target.cpp.
+Target make_target(gpu::Device& device, const TargetDesc& desc);
+// Destroys the views, then the images, on `device` (the one that made them), and resets `t` to empty. Safe on an
+// empty or half-made target.
+void destroy_target(gpu::Device& device, Target& t);
 // A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's
 // format. The caller sets what the pass does with the old contents: PassDesc's load and store actions default to
 // DONTCARE.
@@ -2107,60 +2186,17 @@ private:
     std::unique_ptr<State> s_;
 };
 
-// GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
-bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
-// GPU->CPU readback of `bytes` bytes of a storage buffer from `offset` (Compute::read). Waits for the GPU: the work
-// recorded so far must have been committed (sg_commit) by the caller. Backend specific; false + `error` where the
-// backend has no storage buffers.
-bool readback_buffer(sg_buffer buffer, std::size_t offset, std::size_t bytes, std::vector<std::uint8_t>& out,
-                     std::string* error);
-// GPU->CPU readback of the rectangle (x, y, width, height) of a storage image (Compute::read_image): the pixels as the
-// GPU holds them, `width * height * bytes_per_pixel` bytes, the rectangle's first row first (rows count from the row an
-// imageStore at y = 0 writes), tightly packed (RGBA16F as halves). Only the rectangle is copied (a blit, a staging copy
-// or glReadPixels of its size), so a small read of a large image never holds the whole image. Waits for the GPU: the
-// work recorded so far must have been committed (sg_commit) by the caller. `format` is the image's own (RGBA8, RGBA16F,
-// R32F, RGBA32F). False + `error` on a backend without storage images, or when the rectangle is outside the image.
-bool readback_storage_image(sg_image image, sg_pixel_format format, int x, int y, int width, int height,
-                            std::vector<std::uint8_t>& out, std::string* error);
-// Whether a compute shader can imageLoad (not only imageStore) a storage image of `format` (RGBA8, RGBA16F, R32F,
-// RGBA32F) on this GPU, the question behind `"access": "readWrite"`. sokol's `read` flag does not answer it: on
-// Direct3D 11 it means a typed UAV exists, not a typed load (D3D11.0 hardware loads only R32_FLOAT/UINT/SINT), and on
-// Metal the read-write texture tier decides (Tier 1: the 32-bit single-channel formats only). OpenGL 4.3 loads every
-// format its shader declares with a layout qualifier. False + `why` (a sentence about this GPU) when it cannot.
-bool storage_image_loadable(sg_pixel_format format, std::string* why);
-// The same for an RGBA16F image, as floats (4 per pixel, top row first): what the HDR tests read (Renderer::Impl::read_floats).
-bool readback_rgba16f(sg_image image, int width, int height, std::vector<float>& out, std::string* error);
+// A Device readback's Result as the bool + error sentence of the renderer's own read functions (capture, the HDR and
+// probe reads): true, or false with the error's message in `error` (when given).
+inline bool result_ok(const Result<void>& r, std::string* error) {
+    if (r.ok()) return true;
+    if (error) *error = r.error().message;
+    return false;
+}
 
-// GPU->CPU readback of the start of a storage buffer WITHOUT waiting (the Hi-Z culling, renderer_hiz.cpp): a small ring of staging
-// buffers. request() queues a copy of the first `bytes` bytes of `buffer` behind the work submitted so far and returns the slot it
-// uses; poll() hands the bytes over once the GPU has finished the copy, and never blocks unless `wait` is set (a headless frame
-// waits so its result does not depend on the GPU's speed). The work that wrote the buffer must have been committed (sg_commit)
-// before request(): on Metal the copy is a blit on the queue after sokol's command buffer. Needs the GPU's storage buffers (no
-// GLES3): `supported()` says so. Not thread safe: the render thread only.
-// What a request costs the frame: GL a glFlush (the fence must be submitted to be signalled), D3D11 a Flush of the immediate context
-// (the staging copy and its event query must be submitted), Metal one more command buffer committed behind sokol's. They are per request,
-// so a frame with several cameras that use the depth pyramid flushes once per camera: the price of reading each camera's cells without
-// waiting, bounded by the 8 cameras per frame that keep a pyramid (hiz.h).
-class AsyncBufferRead {
-public:
-    static constexpr int kSlots = 4;
-    AsyncBufferRead();
-    ~AsyncBufferRead();
-    AsyncBufferRead(const AsyncBufferRead&) = delete;
-    AsyncBufferRead& operator=(const AsyncBufferRead&) = delete;
-    static bool supported();
-    // The slot, or -1: every slot is still in flight (error stays empty: ask again later), or the copy failed (error says why).
-    int request(sg_buffer buffer, std::size_t bytes, std::string* error);
-    // True when the slot's copy has finished: `out` holds its bytes and the slot is free again. False: not done yet (or the slot is
-    // unused); with `wait` it returns after the GPU finished (bounded: a GPU that does not answer in seconds gives up, false).
-    bool poll(int slot, std::vector<std::uint8_t>& out, bool wait);
-    // Frees a slot without reading it (the copy may still be running; its staging buffer is reused only when it is done).
-    void release(int slot);
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
+// What `device`'s graphics API says about the adapter (gpu_info.cpp: the D3D11 device, the GL strings, the Metal
+// device, through Device::native()). `backend` is left empty: Renderer::gpu_info() fills it.
+GpuInfo query_gpu_info(gpu::Device& device);
 
 // Debug draw storage.
 struct DebugLine {
@@ -2199,4 +2235,14 @@ inline std::uint32_t pack_color(const Color& c) { return c.to_rgba8(); }
 
 namespace fa {
 struct DebugDraw::Impl : render::DebugDrawData {};
+
+// The renderer's GPU device for fa_render's own code (UiPainter::create(Renderer&), the tests): null before init() and
+// after shutdown(). Defined in renderer.cpp.
+struct RendererDeviceAccess {
+    static gpu::Device* device(Renderer& renderer);
+    // Tests: the device the next Renderer::init whose RendererDesc::backend is `device`'s backend takes instead of making one
+    // with the default options (a Vulkan device with VulkanOptions::queues OtherFamilies, so MoltenVK has a compute queue
+    // of its own). Kept until such an init takes it; null forgets it. Render thread.
+    static void set_next_device(std::unique_ptr<gpu::Device> device);
+};
 }  // namespace fa

@@ -48,7 +48,7 @@ public:
 
     // The image the picture's sky view is drawn into: what the frame graph's resource for it imports.
     std::uint64_t image_id() const { return view_[0].id; }
-    sg_pixel_format format() const { return format_; }
+    gpu::PixelFormat format() const { return format_; }
 
     // How many times each table was drawn (tests).
     int air_builds() const { return airBuilds_; }
@@ -58,18 +58,19 @@ public:
 
 private:
     enum Prog { Transmittance, MultiScatter, SkyView, Sky, ProgCount };
-    void pass(Gpu& gpu, Prog prog, sg_view target, const char* label, const PhysicalSkyState& st, int* drawCalls);
+    void pass(Gpu& gpu, Prog prog, gpu::View target, const char* label, const PhysicalSkyState& st, int* drawCalls);
     void update_air(Gpu& gpu, const PhysicalSkyState& st, int* drawCalls);
 
     int state_ = 0;  // 0 = not made, 1 = ready, -1 = failed (logged)
-    sg_pixel_format format_ = SG_PIXELFORMAT_NONE;
-    sg_shader shaders_[ProgCount]{};
-    sg_pipeline lutPipelines_
+    gpu::PixelFormat format_ = gpu::PixelFormat::None;
+    gpu::Device* device_ = nullptr;  // what ready() made the resources on: release() has no Gpu at hand
+    gpu::Shader shaders_[ProgCount]{};
+    gpu::Pipeline lutPipelines_
         [ProgCount]{};  // the three that draw a table (the sky's own pipelines come from Gpu::sky_pipeline)
-    sg_sampler sampler_{};
-    sg_image trImage_{}, msImage_{}, view_[2]{};
-    sg_view trTex_{}, msTex_{}, viewTex_[2]{};
-    sg_view trAtt_{}, msAtt_{}, viewAtt_[2]{};
+    gpu::Sampler sampler_{};
+    gpu::Image trImage_{}, msImage_{}, view_[2]{};
+    gpu::View trTex_{}, msTex_{}, viewTex_[2]{};
+    gpu::View trAtt_{}, msAtt_{}, viewAtt_[2]{};
     std::uint64_t airKey_ = 0;
     bool airDrawn_ = false;
     std::uint64_t viewKey_[2]{};

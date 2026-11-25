@@ -100,6 +100,13 @@ jobs:
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
 
+      # The engine's own Vulkan backend runs its tests (render_vulkan_device) on Mesa's CPU driver lavapipe with the
+      # Khronos validation layer and its synchronization validation; FA_VULKAN_REQUIRE=1 on the test step turns a
+      # missing driver, loader or layer from a skip into a failure. Only this job: the sanitizer jobs keep skipping
+      # (an uninstrumented driver under ASan/LSan reports the driver's own leaks).
+      - name: Install the Vulkan CPU driver and validation layers (lavapipe)
+        run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-validationlayers
+
       # The key must not be a prefix of another job's (ccache-Linux-linux-asan-, -tsan-, -fuzz-, -coverage-): restore-keys
       # would hand this GCC job whichever Clang cache is the newest (2% hits, a 55-minute build). The `bench` job reads this
       # cache on purpose. scripts/check-ci-cache-keys.py (the `lint` job) fails on such a collision.
@@ -162,6 +169,7 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
           FA_REQUIRE_COMPUTE: '1'  # llvmpipe offers GL 4.5: a runner without compute must fail, not skip the compute tests
+          FA_VULKAN_REQUIRE: '1'  # lavapipe and the validation layers are installed above: the Vulkan tests must run
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary
@@ -426,6 +434,20 @@ jobs:
           path: player-size/
           if-no-files-found: ignore
 
+      # The Vulkan variant of the player (factoria_player_vulkan, FA_PLAYER_VULKAN), its own budget entry.
+      - name: Player size (linux-x64-vulkan)
+        id: size-vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform linux-x64-vulkan --build-dir build/linux-sniper --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-linux-x64-vulkan
+          path: player-size-vulkan/
+          if-no-files-found: ignore
+
   # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
   # uses the D3D11 software adapter (WARP).
   # One command per step, so a failing command fails the step (PowerShell).
@@ -514,6 +536,61 @@ jobs:
           test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
           "$cli" setup shaders
 
+      # DirectStorage (docs/design/ARCHITECTURE_FILES.md, "DirectStorage"): the pinned NuGet package's dstorage.dll and
+      # dstoragecore.dll, installed the way a game developer does it. The engine's GDeflate test vectors go through
+      # DirectStorage's own codec (IDStorageCompressionCodec) both ways, and a gdeflate pack is read through its queue;
+      # FA_DIRECTSTORAGE_REQUIRE=1 turns their skip (no DLLs) into a failure. The ctest run below skips them (no DLLs next
+      # to the tests), so this step, on shard 1, is where they run. The D3D12 backend's reads of a pack into buffers and
+      # textures (render's "d3d12 pack reads" cases) run on WARP here too. The installed folder is cached under the
+      # pinned version and SHA-256 (tools/common/include/fa/tooling/setup.h), so NuGet is asked only when the pin moves.
+      - name: DirectStorage pin
+        if: ${{ matrix.shard == 1 }}
+        id: dstorage-pin
+        shell: bash
+        run: |
+          pin=$(grep -A1 'kSetupDirectStorage = {' tools/common/include/fa/tooling/setup.h | tail -n 1 | sed -E 's/[^"]*"([^"]*)", *"([^"]*)".*/\1-\2/' | tr -d '\r')
+          case "$pin" in *-*) ;; *) echo "::error::no kSetupDirectStorage pin in tools/common/include/fa/tooling/setup.h"; exit 1 ;; esac
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the DirectStorage DLLs
+        if: ${{ matrix.shard == 1 }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.factoria/tools/directstorage
+          key: directstorage-${{ runner.os }}-${{ steps.dstorage-pin.outputs.pin }}
+
+      - name: DirectStorage (factoria setup directstorage, GDeflate vectors and pack reads)
+        if: ${{ matrix.shard == 1 }}
+        shell: bash
+        run: |
+          cli=$(find build/windows-release/tools/cli -maxdepth 2 -type f -name factoria.exe | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
+          json="$RUNNER_TEMP/directstorage.json"
+          "$cli" setup directstorage --json > "$json" || { echo "::error::factoria setup directstorage failed"; cat "$json"; exit 1; }
+          dir=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['paths']['directstorage'])" "$json" | tr -d '\r') || { cat "$json"; exit 1; }
+          test -n "$dir" || { echo "::error::factoria setup directstorage reported no folder"; cat "$json"; exit 1; }
+          tests=$(find build/windows-release/engine/core -type f -name fa_test_core.exe | head -n 1)
+          test -n "$tests" || { echo "::error::fa_test_core.exe was not built under build/windows-release/engine/core"; exit 1; }
+          render=$(find build/windows-release/engine/render -type f -name fa_test_render.exe | head -n 1)
+          test -n "$render" || { echo "::error::fa_test_render.exe was not built under build/windows-release/engine/render"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/gdeflate-vectors"
+          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 FA_GDEFLATE_VECTORS_DIR="$RUNNER_TEMP/gdeflate-vectors" \
+            "$tests" "-tc=gdeflate: test vectors*,directstorage*"
+          # A runtime that loaded but refuses the WARP device (its D3D12 queue, the file or a request) is not a failure even
+          # with FA_DIRECTSTORAGE_REQUIRE=1 (WARP is not a GPU DirectStorage has to serve): the cases check the CPU
+          # fallback and say so in a MESSAGE, which becomes a warning on the run here, so that nobody reads it as covered.
+          log="$RUNNER_TEMP/d3d12-pack-reads.log"
+          status=0
+          # tee: a test that hangs until the job's timeout still shows its output.
+          FA_DIRECTSTORAGE_DIR="$dir" FA_DIRECTSTORAGE_REQUIRE=1 "$render" "-tc=d3d12 pack reads*" 2>&1 | tee "$log" \
+            || status=${PIPESTATUS[0]}
+          refused=$(tr -d '\r' < "$log" | grep -m1 -o "DirectStorage loaded but did not write this WARP device.*" || true)
+          if [ -n "$refused" ]; then
+            refused=${refused//%/%25}
+            echo "::warning title=DirectStorage refused WARP::render's d3d12 pack reads checked the CPU fallback, not DirectStorage's writes: $refused"
+          fi
+          exit "$status"
+
       # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
       - name: Display resolution for the editor autotest
         shell: pwsh
@@ -524,6 +601,7 @@ jobs:
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
+          FA_D3D12_REQUIRE: '1'  # every runner has D3D12 WARP: the renderer's D3D12 case must run, not skip
         # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
         # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
         # timing-sensitive tests failed.
@@ -597,11 +675,14 @@ jobs:
           key: ccache-${{ runner.os }}-macos-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-macos-
 
+      # FA_RENDER_VULKAN OFF: this tree builds the tests, which would put the renderer's SPIR-V (~3.4 MB) into the player
+      # the "Player size (macos-arm64)" step measures, and the macOS player ships without it (release.yml builds with
+      # the tests off). The renderer's Vulkan tests run in the linux job, on lavapipe.
       - name: Configure and build (macos-release)
         id: build
         run: |
           ccache --zero-stats
-          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
+          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_RENDER_VULKAN=OFF
           cmake --build --preset macos-release -- -k 0
           ccache --show-stats --verbose
 
@@ -1226,11 +1307,11 @@ jobs:
           test -f "$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
-      - name: Configure and build factoria_player (android-arm64)
+      - name: Configure and build factoria_player and factoria_player_vulkan (android-arm64)
         id: build
         run: |
           cmake --preset android-arm64 -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
-          cmake --build --preset android-arm64 --target factoria_player -- -k 0
+          cmake --build --preset android-arm64 --target factoria_player factoria_player_vulkan -- -k 0
 
       # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
@@ -1252,12 +1333,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-release-
 
-      # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
-      - name: Check the entry points of libfactoria_player.so
+      # Both players must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start them.
+      - name: Check the entry points of libfactoria_player.so and libfactoria_player_vulkan.so
         run: |
           nm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          "$nm" -D --defined-only build/android-arm64/player/libfactoria_player.so | tee /tmp/symbols.txt
-          grep -q ANativeActivity_onCreate /tmp/symbols.txt
+          for lib in libfactoria_player libfactoria_player_vulkan; do
+            "$nm" -D --defined-only "build/android-arm64/player/$lib.so" | tee "/tmp/symbols-$lib.txt"
+            grep -q ANativeActivity_onCreate "/tmp/symbols-$lib.txt"
+          done
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
       # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
@@ -1273,6 +1356,19 @@ jobs:
         with:
           name: player-size-android-arm64-v8a
           path: player-size/
+          if-no-files-found: ignore
+
+      - name: Player size (android-arm64-v8a-vulkan)
+        id: size-vulkan
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform android-arm64-v8a-vulkan --build-dir build/android-arm64 --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-arm64-v8a-vulkan
+          path: player-size-vulkan/
           if-no-files-found: ignore
 
   # Android end to end: `factoria export --platform android` writes the Gradle project and builds the APK itself, with
@@ -1466,6 +1562,8 @@ jobs:
           unzip -l /tmp/ci-out/ci-game-android/ci-game-debug.apk | tee /tmp/apk-contents.txt
           grep -q 'lib/arm64-v8a/libfactoria_player.so' /tmp/apk-contents.txt
           grep -q 'lib/x86_64/libfactoria_player.so' /tmp/apk-contents.txt
+          grep -q 'lib/arm64-v8a/libfactoria_player_vulkan.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libfactoria_player_vulkan.so' /tmp/apk-contents.txt
           grep -q 'assets/factoria.json' /tmp/apk-contents.txt
           grep -q 'lib/arm64-v8a/libexample.so' /tmp/apk-contents.txt
           grep -q 'lib/x86_64/libexample.so' /tmp/apk-contents.txt

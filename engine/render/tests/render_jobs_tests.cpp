@@ -529,7 +529,7 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
 
 TEST_CASE("TargetFormat compares and hashes by its three fields") {
     using fa::render::TargetFormat;
-    const TargetFormat a{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 4};
+    const TargetFormat a{gpu::PixelFormat::Rgba8, gpu::PixelFormat::DepthStencil, 4};
     TargetFormat b = a;
     CHECK(a == b);
     CHECK(a.hash() == b.hash());
@@ -538,11 +538,11 @@ TEST_CASE("TargetFormat compares and hashes by its three fields") {
     CHECK(a != b);
     CHECK(a.hash() != b.hash());
     b = a;
-    b.color = SG_PIXELFORMAT_RGBA16F;
+    b.color = gpu::PixelFormat::Rgba16F;
     CHECK(a != b);
     CHECK(a.hash() != b.hash());
     b = a;
-    b.depth = SG_PIXELFORMAT_NONE;
+    b.depth = gpu::PixelFormat::None;
     CHECK(a != b);
     CHECK(a.hash() != b.hash());
 }

@@ -246,8 +246,8 @@ void Renderer::Impl::gi_finish() {
         }
         if (skipping && skipped == job.grid) continue;
         const bool drawn = i < g.plans.size() && g.plans[i].drawn;
-        ps.gpu.face_gi(gpu, kGiScratchSlot, job.face, job.picture, drawn ? ps.gpu.dist_view(job.distIndex) : sg_view{},
-                       gr.layout.maxDistance, &calls);
+        ps.gpu.face_gi(gpu, kGiScratchSlot, job.face, job.picture,
+                       drawn ? ps.gpu.dist_view(job.distIndex) : gpu::View{}, gr.layout.maxDistance, &calls);
         if (!job.last) continue;
         const float blend = job.first ? 1.0f : std::clamp(1.0f - gr.layout.hysteresis, 0.01f, 1.0f);
         ps.gpu.filter_gi(gpu, ps.atlas, kGiScratchSlot, gr.base + job.probe, gr.layout.resolution, blend,
@@ -310,9 +310,9 @@ Json Renderer::gi_report() {
     Json atlas = Json::object();
     atlas["width"] = ps.atlas.size;
     atlas["height"] = ps.atlas.height;
-    atlas["format"] = ps.gpu.format() == SG_PIXELFORMAT_NONE ? "none"
-                      : ps.gpu.rgba8()                       ? "RGBA16F unavailable (RGBA8)"
-                                                             : "RGBA16F";
+    atlas["format"] = ps.gpu.format() == gpu::PixelFormat::None ? "none"
+                      : ps.gpu.rgba8()                          ? "RGBA16F unavailable (RGBA8)"
+                                                                : "RGBA16F";
     atlas["bytes"] = double(std::uint64_t(ps.atlas.size) * std::uint64_t(ps.atlas.height) * (ps.gpu.rgba8() ? 4u : 8u));
     atlas["blocksUsed"] = g.blocks.used();
     out["atlas"] = std::move(atlas);

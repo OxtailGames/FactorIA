@@ -112,23 +112,21 @@ MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshI
     return use;
 }
 
-void bind_mesh_buffers(sg_bindings& b, const MeshBufferUse& use, const MaterialProgram& prog) {
+void bind_mesh_buffers(gpu::Bindings& b, const MeshBufferUse& use, const MaterialProgram& prog) {
     for (int i = 0; i < use.count; ++i) {
         const int vertexSlot = kMeshBufferFirstView + i;
         const int fragmentSlot = kMeshBufferFirstView + use.count + i;
-        if (vertexSlot < SG_MAX_VIEW_BINDSLOTS && ((prog.viewMask >> vertexSlot) & 1u))
-            b.views[vertexSlot] = use.views[i];
-        if (fragmentSlot < SG_MAX_VIEW_BINDSLOTS && ((prog.viewMask >> fragmentSlot) & 1u))
+        if (vertexSlot < gpu::kMaxViews && ((prog.viewMask >> vertexSlot) & 1u)) b.views[vertexSlot] = use.views[i];
+        if (fragmentSlot < gpu::kMaxViews && ((prog.viewMask >> fragmentSlot) & 1u))
             b.views[fragmentSlot] = use.views[i];
     }
 }
 
-void apply_mesh_base_model(const MaterialProgram& prog, const Mat4& model) {
+void apply_mesh_base_model(gpu::CommandList& list, const MaterialProgram& prog, const Mat4& model) {
     if (!prog.has_ub(kMeshInstanceBaseUniform)) return;
     float m[16];
     std::memcpy(m, model.m, sizeof m);
-    sg_range range{m, sizeof m};
-    sg_apply_uniforms(kMeshInstanceBaseUniform, &range);
+    list.set_uniforms(kMeshInstanceBaseUniform, gpu::Range{m, sizeof m});
 }
 
 }  // namespace fa::render

@@ -1,4 +1,4 @@
-// Custom materials (MeshRenderer.material): the factoria.shader/1 twin -> sg_shader_desc (docs/design/CUSTOM_SHADERS.md),
+// Custom materials (MeshRenderer.material): the factoria.shader/1 twin -> gpu::ShaderDesc (docs/design/CUSTOM_SHADERS.md),
 // and the packing of a material's params.
 #include "fa/core/engine_version.h"
 #include <algorithm>
@@ -50,7 +50,7 @@ namespace fa::render {
 
 bool Assets::storage_buffers_available(std::string* backend, std::string* reason) const {
     if (bufferGate_) return bufferGate_(backend, reason);
-    const FeatureEnv env = feature_env_from_sokol();
+    const FeatureEnv env = feature_env_from_device(gpu_.device());
     if (backend) *backend = feature_backend_label(env.backend);
     return feature_supported(env, find_feature("computeShaders"), reason);
 }
@@ -60,18 +60,25 @@ int Assets::storage_binding_limit(bool* limited) const {
         *limited = true;
         return storageBindingLimit_;
     }
-    *limited = sg_query_backend() == SG_BACKEND_GLCORE;
-    return sg_query_limits().max_storage_buffer_bindings_per_stage;
+    *limited = gpu_.device().backend() == gpu::Backend::Gl;
+    return gpu_.device().limits().maxStorageBufferBindingsPerStage;
 }
 
-std::string backend_dialect(sg_backend backend) {
-    switch (backend) {
-        case SG_BACKEND_D3D11: return "hlsl5";
-        case SG_BACKEND_GLCORE: return "glsl430";
-        case SG_BACKEND_GLES3: return "glsl300es";
-        case SG_BACKEND_METAL_MACOS: return "metal_macos";
-        case SG_BACKEND_METAL_IOS: return "metal_ios";
-        case SG_BACKEND_METAL_SIMULATOR: return "metal_sim";
+std::string backend_dialect(const gpu::DeviceInfo& info) {
+    switch (info.backend) {
+        case gpu::Backend::D3d11: return "hlsl5";
+        case gpu::Backend::Gl: return "glsl430";
+        case gpu::Backend::Vulkan: return "spirv_vk";
+        case gpu::Backend::Gles3:
+        case gpu::Backend::WebGl2: return "glsl300es";
+        case gpu::Backend::Metal:
+            switch (info.metalTarget) {
+                case gpu::MetalTarget::MacOs: return "metal_macos";
+                case gpu::MetalTarget::Ios: return "metal_ios";
+                case gpu::MetalTarget::Simulator: return "metal_sim";
+                case gpu::MetalTarget::None: break;
+            }
+            return {};
         default: return {};
     }
 }
@@ -137,15 +144,15 @@ bool pick(const std::string& name, std::initializer_list<std::pair<const char*, 
     return false;
 }
 
-sg_shader_stage stage_of(const Json& j) {
+gpu::ShaderStage stage_of(const Json& j) {
     const std::string stage = text_of(j, "stage");
-    return stage == "vertex"    ? SG_SHADERSTAGE_VERTEX
-           : stage == "compute" ? SG_SHADERSTAGE_COMPUTE
-                                : SG_SHADERSTAGE_FRAGMENT;
+    return stage == "vertex"    ? gpu::ShaderStage::Vertex
+           : stage == "compute" ? gpu::ShaderStage::Compute
+                                : gpu::ShaderStage::Fragment;
 }
 
-// GLES3 and WebGL2 guarantee 16 texture units per stage (render_internal.h, kMeshMaxFragmentUnits); sokol's own cap is
-// SG_MAX_TEXTURE_SAMPLER_PAIRS (32) over both stages. The engine refuses a program past either on every backend (D3D11
+// GLES3 and WebGL2 guarantee 16 texture units per stage (render_internal.h, kMeshMaxFragmentUnits); the interface's cap is
+// gpu::kMaxTextureSamplerPairs (32) over both stages. The engine refuses a program past either on every backend (D3D11
 // and Metal could bind more: a game that loads on one must load on all). The error for it: counts the pairs of each
 // stage over its limit (both when both are), says which ones the engine's own bindings take and which are the
 // material's textures (or the vertex copies of them), and what to drop. A pair is the material's own when its view is
@@ -187,7 +194,7 @@ std::optional<Error> too_many_pairs(const std::string& where, const Json& pairLi
     }
     const bool over[2] = {stages[0].count > kUnitsPerStage, stages[1].count > kUnitsPerStage};
     const int total = int(pairList.size());
-    if (!over[0] && !over[1] && total <= SG_MAX_TEXTURE_SAMPLER_PAIRS) return std::nullopt;
+    if (!over[0] && !over[1] && total <= gpu::kMaxTextureSamplerPairs) return std::nullopt;
 
     // One clause per stage over its limit (both are reported), or one for the two stages together.
     auto clause = [&](const Stage& st, const char* name) {
@@ -219,10 +226,10 @@ std::optional<Error> too_many_pairs(const std::string& where, const Json& pairLi
         message += std::to_string(total) +
                    " image-sampler pairs over both stages (every texture a stage reads counts once, "
                    "with the sampler it is read through), and at most " +
-                   std::to_string(SG_MAX_TEXTURE_SAMPLER_PAIRS) +
-                   " fit in one shader (sokol's cap, the same on every backend): " + "fragment " +
+                   std::to_string(gpu::kMaxTextureSamplerPairs) +
+                   " fit in one shader (the engine's cap, the same on every backend): " + "fragment " +
                    clause(stages[0], "fragment") + "; vertex " + clause(stages[1], "vertex");
-        excess = total - SG_MAX_TEXTURE_SAMPLER_PAIRS;
+        excess = total - gpu::kMaxTextureSamplerPairs;
         vertexCopies = stages[1].nOwn > 0;
         manyOwn = stages[0].nOwn + stages[1].nOwn > 1;
     }
@@ -247,8 +254,8 @@ std::optional<Error> too_many_pairs(const std::string& where, const Json& pairLi
 
 }  // namespace
 
-Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
-                                            const int* workgroup, const std::vector<std::string>* materialTextures) {
+Result<gpu::ShaderDesc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out,
+                                             const int* workgroup, const std::vector<std::string>* materialTextures) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -265,66 +272,68 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
         return bad("a compute program needs the material's workgroup size");
 
     // The strings the desc points to live in `program` (the Json) for the whole call.
-    sg_shader_desc desc{};
+    gpu::ShaderDesc desc{};
     desc.label = label.c_str();
     const Json noFunc = Json::object();
-    auto function_of = [&](sg_shader_function& fn, const char* key, const std::string& source) {
+    auto function_of = [&](gpu::ShaderFunction& fn, const char* key, const std::string& source) {
         fn.source = source.c_str();
         auto f = refl->find(key);
         const Json& fj = f != refl->end() && f->is_object() ? *f : noFunc;
         fn.entry = cstr_or_null(fj, "entry_point");
         if (!fn.entry) fn.entry = "main";
-        fn.d3d11_target = cstr_or_null(fj, "d3d11_target");
+        fn.d3d11Target = cstr_or_null(fj, "d3d11_target");
     };
     if (cs) {
-        function_of(desc.compute_func, "compute_func", *cs);
-        desc.mtl_threads_per_threadgroup = {workgroup[0], workgroup[1], workgroup[2]};
+        function_of(desc.computeFunc, "compute_func", *cs);
+        for (int i = 0; i < 3; ++i) desc.mtlThreadsPerThreadgroup[i] = workgroup[i];
     } else {
-        function_of(desc.vertex_func, "vertex_func", *vs);
-        function_of(desc.fragment_func, "fragment_func", *fsText);
+        function_of(desc.vertexFunc, "vertex_func", *vs);
+        function_of(desc.fragmentFunc, "fragment_func", *fsText);
     }
 
     for (const Json& a : list_of(*refl, "attrs")) {
         const int slot = int_or(a, "slot", -1);
-        if (slot < 0 || slot >= SG_MAX_VERTEX_ATTRIBUTES)
-            return bad("an attribute slot outside 0.." + std::to_string(SG_MAX_VERTEX_ATTRIBUTES - 1));
-        sg_shader_vertex_attr& at = desc.attrs[slot];
+        if (slot < 0 || slot >= gpu::kMaxVertexAttributes)
+            return bad("an attribute slot outside 0.." + std::to_string(gpu::kMaxVertexAttributes - 1));
+        gpu::ShaderVertexAttr& at = desc.attrs[slot];
         const std::string base = text_of(a, "base_type");
-        at.base_type = base == "Sint"   ? SG_SHADERATTRBASETYPE_SINT
-                       : base == "Uint" ? SG_SHADERATTRBASETYPE_UINT
-                                        : SG_SHADERATTRBASETYPE_FLOAT;
-        at.glsl_name = cstr_or_null(a, "glsl_name");
-        at.hlsl_sem_name = cstr_or_null(a, "hlsl_sem_name");
-        at.hlsl_sem_index = std::uint8_t(int_or(a, "hlsl_sem_index"));
+        at.baseType = base == "Sint"   ? gpu::ShaderAttrBaseType::Sint
+                      : base == "Uint" ? gpu::ShaderAttrBaseType::Uint
+                                       : gpu::ShaderAttrBaseType::Float;
+        at.glslName = cstr_or_null(a, "glsl_name");
+        at.hlslSemName = cstr_or_null(a, "hlsl_sem_name");
+        at.hlslSemIndex = std::uint8_t(int_or(a, "hlsl_sem_index"));
     }
     for (const Json& u : list_of(*refl, "uniform_blocks")) {
         const int slot = int_or(u, "slot", -1);
-        if (slot < 0 || slot >= SG_MAX_UNIFORMBLOCK_BINDSLOTS)
-            return bad("a uniform block slot outside 0.." + std::to_string(SG_MAX_UNIFORMBLOCK_BINDSLOTS - 1));
-        sg_shader_uniform_block& ub = desc.uniform_blocks[slot];
+        if (slot < 0 || slot >= gpu::kMaxUniformBlocks)
+            return bad("a uniform block slot outside 0.." + std::to_string(gpu::kMaxUniformBlocks - 1));
+        gpu::ShaderUniformBlock& ub = desc.uniformBlocks[slot];
         ub.stage = stage_of(u);
-        ub.layout = SG_UNIFORMLAYOUT_STD140;
+        ub.layout = gpu::UniformLayout::Std140;
         ub.size = std::uint32_t(int_or(u, "size"));
-        ub.hlsl_register_b_n = std::uint8_t(int_or(u, "hlsl_register_b_n"));
-        ub.msl_buffer_n = std::uint8_t(int_or(u, "msl_buffer_n"));
+        ub.binding.hlslRegister = std::uint8_t(int_or(u, "hlsl_register_b_n"));
+        ub.binding.mslIndex = std::uint8_t(int_or(u, "msl_buffer_n"));
+        ub.binding.wgslBinding = std::uint8_t(int_or(u, "wgsl_group0_binding_n"));
+        ub.binding.spirvSet = 0;
+        ub.binding.spirvBinding = std::uint8_t(int_or(u, "spirv_set0_binding_n"));
         int n = 0;
         for (const Json& g : list_of(u, "glsl_uniforms")) {
-            if (n >= SG_MAX_UNIFORMBLOCK_MEMBERS) return bad("a uniform block with too many members");
-            sg_uniform_type type = SG_UNIFORMTYPE_FLOAT4;
-            if (!pick<sg_uniform_type>(text_of(g, "type"),
-                                       {{"float", SG_UNIFORMTYPE_FLOAT},
-                                        {"vec2", SG_UNIFORMTYPE_FLOAT2},
-                                        {"vec3", SG_UNIFORMTYPE_FLOAT3},
-                                        {"vec4", SG_UNIFORMTYPE_FLOAT4},
-                                        {"int", SG_UNIFORMTYPE_INT},
-                                        {"ivec2", SG_UNIFORMTYPE_INT2},
-                                        {"ivec3", SG_UNIFORMTYPE_INT3},
-                                        {"ivec4", SG_UNIFORMTYPE_INT4},
-                                        {"mat4", SG_UNIFORMTYPE_MAT4}},
-                                       type))
+            if (n >= gpu::kMaxUniformBlockMembers) return bad("a uniform block with too many members");
+            gpu::UniformType type = gpu::UniformType::Float4;
+            if (!pick<gpu::UniformType>(text_of(g, "type"),
+                                        {{"float", gpu::UniformType::Float},
+                                         {"vec2", gpu::UniformType::Float2},
+                                         {"vec3", gpu::UniformType::Float3},
+                                         {"vec4", gpu::UniformType::Float4},
+                                         {"int", gpu::UniformType::Int},
+                                         {"ivec2", gpu::UniformType::Int2},
+                                         {"ivec3", gpu::UniformType::Int3},
+                                         {"ivec4", gpu::UniformType::Int4},
+                                         {"mat4", gpu::UniformType::Mat4}},
+                                        type))
                 return bad("the uniform type '" + text_of(g, "type") + "'");
-            desc.uniform_blocks[slot].glsl_uniforms[n++] = {type, std::uint16_t(int_or(g, "array_count")),
-                                                            cstr_or_null(g, "glsl_name")};
+            ub.glslUniforms[n++] = {type, std::uint16_t(int_or(g, "array_count")), cstr_or_null(g, "glsl_name")};
         }
         out.ubMask |= 1u << slot;
         out.ubSize[slot] = ub.size;
@@ -332,37 +341,43 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     for (const Json& v : list_of(*refl, "views")) {
         if (auto sb = v.find("storage_buffer"); sb != v.end() && sb->is_object()) {
             const int slot = int_or(*sb, "slot", -1);
-            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
-                return bad("a storage buffer slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
-            sg_shader_storage_buffer_view& bv = desc.views[slot].storage_buffer;
-            bv.stage = cs ? SG_SHADERSTAGE_COMPUTE : stage_of(*sb);  // a mesh material reads them in both stages
+            if (slot < 0 || slot >= gpu::kMaxViews)
+                return bad("a storage buffer slot outside 0.." + std::to_string(gpu::kMaxViews - 1));
+            gpu::ShaderStorageBufferView& bv = desc.views[slot].storageBuffer;
+            bv.stage = cs ? gpu::ShaderStage::Compute : stage_of(*sb);  // a mesh material reads them in both stages
             bv.readonly = sb->find("readonly") != sb->end() && sb->at("readonly") == true;
             if (!cs && !bv.readonly) return bad("a storage buffer of a drawing program must be readonly");
-            bv.hlsl_register_t_n = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
-            bv.hlsl_register_u_n = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
-            bv.msl_buffer_n = std::uint8_t(int_or(*sb, "msl_buffer_n"));
-            bv.glsl_binding_n = std::uint8_t(int_or(*sb, "glsl_binding_n"));
+            bv.binding.hlslRegister = std::uint8_t(int_or(*sb, "hlsl_register_t_n"));
+            bv.hlslRegisterU = std::uint8_t(int_or(*sb, "hlsl_register_u_n"));
+            bv.binding.mslIndex = std::uint8_t(int_or(*sb, "msl_buffer_n"));
+            bv.binding.glslBinding = std::uint8_t(int_or(*sb, "glsl_binding_n"));
+            bv.binding.wgslBinding = std::uint8_t(int_or(*sb, "wgsl_group1_binding_n"));
+            bv.binding.spirvSet = 1;
+            bv.binding.spirvBinding = std::uint8_t(int_or(*sb, "spirv_set1_binding_n"));
             out.viewMask |= 1u << slot;
             continue;
         }
         if (auto si = v.find("storage_image"); cs && si != v.end() && si->is_object()) {
             const int slot = int_or(*si, "slot", -1);
-            if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
-                return bad("a storage image slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
-            sg_shader_storage_image_view& iv = desc.views[slot].storage_image;
-            iv.stage = SG_SHADERSTAGE_COMPUTE;
-            iv.image_type = SG_IMAGETYPE_2D;
-            if (!pick<sg_pixel_format>(text_of(*si, "access_format"),
-                                       {{"RGBA8", SG_PIXELFORMAT_RGBA8},
-                                        {"RGBA16F", SG_PIXELFORMAT_RGBA16F},
-                                        {"R32F", SG_PIXELFORMAT_R32F},
-                                        {"RGBA32F", SG_PIXELFORMAT_RGBA32F}},
-                                       iv.access_format))
+            if (slot < 0 || slot >= gpu::kMaxViews)
+                return bad("a storage image slot outside 0.." + std::to_string(gpu::kMaxViews - 1));
+            gpu::ShaderStorageImageView& iv = desc.views[slot].storageImage;
+            iv.stage = gpu::ShaderStage::Compute;
+            iv.imageType = gpu::ImageType::Tex2d;
+            if (!pick<gpu::PixelFormat>(text_of(*si, "access_format"),
+                                        {{"RGBA8", gpu::PixelFormat::Rgba8},
+                                         {"RGBA16F", gpu::PixelFormat::Rgba16F},
+                                         {"R32F", gpu::PixelFormat::R32F},
+                                         {"RGBA32F", gpu::PixelFormat::Rgba32F}},
+                                        iv.accessFormat))
                 return bad("the storage image format '" + text_of(*si, "access_format") + "'");
             iv.writeonly = si->find("writeonly") != si->end() && si->at("writeonly") == true;
-            iv.hlsl_register_u_n = std::uint8_t(int_or(*si, "hlsl_register_u_n"));
-            iv.msl_texture_n = std::uint8_t(int_or(*si, "msl_texture_n"));
-            iv.glsl_binding_n = std::uint8_t(int_or(*si, "glsl_binding_n"));
+            iv.binding.hlslRegister = std::uint8_t(int_or(*si, "hlsl_register_u_n"));
+            iv.binding.mslIndex = std::uint8_t(int_or(*si, "msl_texture_n"));
+            iv.binding.glslBinding = std::uint8_t(int_or(*si, "glsl_binding_n"));
+            iv.binding.wgslBinding = std::uint8_t(int_or(*si, "wgsl_group1_binding_n"));
+            iv.binding.spirvSet = 1;
+            iv.binding.spirvBinding = std::uint8_t(int_or(*si, "spirv_set1_binding_n"));
             out.viewMask |= 1u << slot;
             continue;
         }
@@ -371,43 +386,49 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
             return bad("a view that is neither a texture nor a storage buffer or image" +
                        std::string(cs ? "" : " (storage images only in a compute program)"));
         const int slot = int_or(*t, "slot", -1);
-        if (slot < 0 || slot >= SG_MAX_VIEW_BINDSLOTS)
-            return bad("a texture slot outside 0.." + std::to_string(SG_MAX_VIEW_BINDSLOTS - 1));
-        sg_shader_texture_view& tv = desc.views[slot].texture;
+        if (slot < 0 || slot >= gpu::kMaxViews)
+            return bad("a texture slot outside 0.." + std::to_string(gpu::kMaxViews - 1));
+        gpu::ShaderTextureView& tv = desc.views[slot].texture;
         tv.stage = stage_of(*t);
         tv.multisampled = t->find("multisampled") != t->end() && t->at("multisampled") == true;
-        tv.hlsl_register_t_n = std::uint8_t(int_or(*t, "hlsl_register_t_n"));
-        tv.msl_texture_n = std::uint8_t(int_or(*t, "msl_texture_n"));
-        if (!pick<sg_image_type>(text_of(*t, "type"),
-                                 {{"2d", SG_IMAGETYPE_2D},
-                                  {"cube", SG_IMAGETYPE_CUBE},
-                                  {"3d", SG_IMAGETYPE_3D},
-                                  {"array", SG_IMAGETYPE_ARRAY}},
-                                 tv.image_type))
+        tv.binding.hlslRegister = std::uint8_t(int_or(*t, "hlsl_register_t_n"));
+        tv.binding.mslIndex = std::uint8_t(int_or(*t, "msl_texture_n"));
+        tv.binding.wgslBinding = std::uint8_t(int_or(*t, "wgsl_group1_binding_n"));
+        tv.binding.spirvSet = 1;
+        tv.binding.spirvBinding = std::uint8_t(int_or(*t, "spirv_set1_binding_n"));
+        if (!pick<gpu::ImageType>(text_of(*t, "type"),
+                                  {{"2d", gpu::ImageType::Tex2d},
+                                   {"cube", gpu::ImageType::Cube},
+                                   {"3d", gpu::ImageType::Tex3d},
+                                   {"array", gpu::ImageType::Array}},
+                                  tv.imageType))
             return bad("the texture type '" + text_of(*t, "type") + "'");
-        if (!pick<sg_image_sample_type>(text_of(*t, "sample_type"),
-                                        {{"float", SG_IMAGESAMPLETYPE_FLOAT},
-                                         {"depth", SG_IMAGESAMPLETYPE_DEPTH},
-                                         {"sint", SG_IMAGESAMPLETYPE_SINT},
-                                         {"uint", SG_IMAGESAMPLETYPE_UINT},
-                                         {"unfilterable_float", SG_IMAGESAMPLETYPE_UNFILTERABLE_FLOAT}},
-                                        tv.sample_type))
+        if (!pick<gpu::ImageSampleType>(text_of(*t, "sample_type"),
+                                        {{"float", gpu::ImageSampleType::Float},
+                                         {"depth", gpu::ImageSampleType::Depth},
+                                         {"sint", gpu::ImageSampleType::Sint},
+                                         {"uint", gpu::ImageSampleType::Uint},
+                                         {"unfilterable_float", gpu::ImageSampleType::UnfilterableFloat}},
+                                        tv.sampleType))
             return bad("the texture sample type '" + text_of(*t, "sample_type") + "'");
         out.viewMask |= 1u << slot;
     }
     for (const Json& s : list_of(*refl, "samplers")) {
         const int slot = int_or(s, "slot", -1);
-        if (slot < 0 || slot >= SG_MAX_SAMPLER_BINDSLOTS)
-            return bad("a sampler slot outside 0.." + std::to_string(SG_MAX_SAMPLER_BINDSLOTS - 1));
-        sg_shader_sampler& sm = desc.samplers[slot];
+        if (slot < 0 || slot >= gpu::kMaxSamplers)
+            return bad("a sampler slot outside 0.." + std::to_string(gpu::kMaxSamplers - 1));
+        gpu::ShaderSampler& sm = desc.samplers[slot];
         sm.stage = stage_of(s);
-        sm.hlsl_register_s_n = std::uint8_t(int_or(s, "hlsl_register_s_n"));
-        sm.msl_sampler_n = std::uint8_t(int_or(s, "msl_sampler_n"));
-        if (!pick<sg_sampler_type>(text_of(s, "sampler_type"),
-                                   {{"filtering", SG_SAMPLERTYPE_FILTERING},
-                                    {"nonfiltering", SG_SAMPLERTYPE_NONFILTERING},
-                                    {"comparison", SG_SAMPLERTYPE_COMPARISON}},
-                                   sm.sampler_type))
+        sm.binding.hlslRegister = std::uint8_t(int_or(s, "hlsl_register_s_n"));
+        sm.binding.mslIndex = std::uint8_t(int_or(s, "msl_sampler_n"));
+        sm.binding.wgslBinding = std::uint8_t(int_or(s, "wgsl_group1_binding_n"));
+        sm.binding.spirvSet = 1;
+        sm.binding.spirvBinding = std::uint8_t(int_or(s, "spirv_set1_binding_n"));
+        if (!pick<gpu::SamplerType>(text_of(s, "sampler_type"),
+                                    {{"filtering", gpu::SamplerType::Filtering},
+                                     {"nonfiltering", gpu::SamplerType::Nonfiltering},
+                                     {"comparison", gpu::SamplerType::Comparison}},
+                                    sm.samplerType))
             return bad("the sampler type '" + text_of(s, "sampler_type") + "'");
         out.samplerMask |= 1u << slot;
     }
@@ -415,23 +436,25 @@ Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json
     const Json& pairList = list_of(*refl, "texture_sampler_pairs");
     if (auto tooMany = too_many_pairs(where, pairList, materialTextures)) return *tooMany;
     for (const Json& p : pairList) {
-        desc.texture_sampler_pairs[pairs++] = {stage_of(p), std::uint8_t(int_or(p, "view_slot")),
-                                               std::uint8_t(int_or(p, "sampler_slot")), cstr_or_null(p, "glsl_name")};
+        if (pairs >= gpu::kMaxTextureSamplerPairs) return bad("too many texture-sampler pairs");
+        desc.textureSamplerPairs[pairs++] = {stage_of(p), std::uint8_t(int_or(p, "view_slot")),
+                                             std::uint8_t(int_or(p, "sampler_slot")), cstr_or_null(p, "glsl_name")};
     }
 
     return desc;
 }
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program, const int* workgroup,
-                                              const std::vector<std::string>* materialTextures) {
+Result<MaterialProgram> make_material_program(gpu::Device& device, const std::string& label, const Json& program,
+                                              const int* workgroup, const std::vector<std::string>* materialTextures) {
     MaterialProgram out;
     auto made = material_shader_desc(label, program, out, workgroup, materialTextures);
     if (!made.ok()) return made.error();
     const std::string where = "the program '" + label + "'";
-    out.shader = make_shader(&*made, label.c_str());
-    if (sg_query_shader_state(out.shader) != SG_RESOURCESTATE_VALID) {
-        sg_destroy_shader(out.shader);
-        return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(sg_query_backend()) +
+    const gpu::Shader shader = make_shader(device, *made, label.c_str());
+    out.shader = shader;
+    if (device.state(shader) != gpu::ResourceState::Valid) {
+        device.destroy_shader(shader);
+        return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(device.info()) +
                               "; the sokol log lines above have the driver message)",
                           "The shaders were compiled for this backend by sokol-shdc and passed `factoria validate`, so "
                           "this is a driver problem: update the graphics driver, "
@@ -556,14 +579,13 @@ Result<void> read_compute_twin(const std::string& path, const Json& twin, std::s
 
     auto list = twin.find("buffers");
     if (list == twin.end() || !list->is_array()) return bad("it has no \"buffers\" list");
-    if (list->size() > std::size_t(SG_MAX_VIEW_BINDSLOTS) ||
-        list->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+    if (list->size() > std::size_t(gpu::kMaxViews) || list->size() + textureCount > std::size_t(gpu::kMaxViews))
         return bad("too many buffers and textures for one program");
     for (const Json& b : *list) {
         MaterialBufferDef def;
         def.name = text_of(b, "name");
         def.readOnly = text_of(b, "access") == "read";
-        if (def.name.empty() || !b.contains("binding") || !whole(b["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+        if (def.name.empty() || !b.contains("binding") || !whole(b["binding"], 0, gpu::kMaxViews - 1, n))
             return bad("a buffer without a name or a binding");
         def.binding = int(n);
         if (!b.contains("stride") || !whole(b["stride"], 4, 1 << 16, n))
@@ -604,23 +626,23 @@ Result<void> read_compute_twin(const std::string& path, const Json& twin, std::s
     // The storage images (absent in a twin of a material that declares none).
     if (auto imgs = twin.find("images"); imgs != twin.end()) {
         if (!imgs->is_array()) return bad("\"images\" is not a list");
-        if (list->size() + imgs->size() + textureCount > std::size_t(SG_MAX_VIEW_BINDSLOTS))
+        if (list->size() + imgs->size() + textureCount > std::size_t(gpu::kMaxViews))
             return bad("too many buffers, images and textures for one program");
         for (const Json& im : *imgs) {
             MaterialImageDef def;
             def.name = text_of(im, "name");
-            if (def.name.empty() || !im.contains("binding") || !whole(im["binding"], 0, SG_MAX_VIEW_BINDSLOTS - 1, n))
+            if (def.name.empty() || !im.contains("binding") || !whole(im["binding"], 0, gpu::kMaxViews - 1, n))
                 return bad("an image without a name or a binding");
             def.binding = int(n);
             const std::string format = text_of(im, "format");
             if (format == "rgba8")
-                def.format = SG_PIXELFORMAT_RGBA8;
+                def.format = gpu::PixelFormat::Rgba8;
             else if (format == "rgba16f")
-                def.format = SG_PIXELFORMAT_RGBA16F;
+                def.format = gpu::PixelFormat::Rgba16F;
             else if (format == "r32f")
-                def.format = SG_PIXELFORMAT_R32F;
+                def.format = gpu::PixelFormat::R32F;
             else if (format == "rgba32f")
-                def.format = SG_PIXELFORMAT_RGBA32F;
+                def.format = gpu::PixelFormat::Rgba32F;
             else
                 return bad("the image '" + def.name + "' has the format '" + format + "'");
             def.readWrite = text_of(im, "access") == "readWrite";
@@ -716,7 +738,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                     "buffers) from a script (docs/shaders/SHADERS_COMPUTE.md, \"Drawing from a compute buffer\").");
     }
     // The twin: from the compiler of the editor / `factoria`, else from the file an export wrote.
-    const std::string dialect = backend_dialect(sg_query_backend());
+    const std::string dialect = backend_dialect(gpu_.device().info());
     Json twin;
     if (shaderCompiler_) {
         auto r = shaderCompiler_(m.path, dialect);
@@ -866,8 +888,8 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
         auto compute = read_compute_twin(m.path, twin, textures.size(), workgroup, buffers, images);
         if (!compute.ok()) return compute.error();
         // The per-material cap of this GPU: the tooling allows the portable minimum (4); a GPU may allow fewer.
-        const int imageLimit = sg_isvalid() ? sg_query_limits().max_storage_image_bindings_per_stage : 0;
-        if (sg_isvalid() && int(images.size()) > imageLimit)
+        const int imageLimit = gpu_.has_device() ? gpu_.device().limits().maxStorageImageBindingsPerStage : 0;
+        if (gpu_.has_device() && int(images.size()) > imageLimit)
             return make_error("the compute material '" + m.path + "' declares " + std::to_string(images.size()) +
                                   " storage images, but this graphics driver binds at most " +
                                   std::to_string(imageLimit) + " to one shader",
@@ -924,7 +946,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                    ? &programsJson->at(name)
                                    : nullptr;
             Result<MaterialProgram> made =
-                prog ? make_material_program(m.path + " " + name, *prog, nullptr, &textureNames)
+                prog ? make_material_program(gpu_.device(), m.path + " " + name, *prog, nullptr, &textureNames)
                      : make_error("the shader of material '" + m.path + "' has no program '" + name + "'",
                                   kReexportHint);
             if (!made.ok()) {
@@ -940,7 +962,7 @@ Result<void> Assets::build_material_checked(MaterialAsset& m) {
                                ? &programsJson->at(names[i])
                                : nullptr;
         Result<MaterialProgram> made =
-            prog ? make_material_program(m.path + " " + names[i], *prog,
+            prog ? make_material_program(gpu_.device(), m.path + " " + names[i], *prog,
                                          kind == MaterialKind::Compute ? workgroup : nullptr, &textureNames)
                  : make_error("the shader of material '" + m.path + "' has no program '" + names[i] + "'",
                               kReexportHint);

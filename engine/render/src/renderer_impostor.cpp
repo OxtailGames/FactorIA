@@ -11,6 +11,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/impostor.glsl.h"
 
 namespace fa::render {
@@ -26,18 +27,18 @@ constexpr std::uint64_t kSettleFrames = 30;
 constexpr float kImpostorRoughness = 0.85f;
 
 // The slots a built-in program declares (as Gpu's program_slots).
-MaterialProgram program_slots(sg_shader shader, const sg_shader_desc* desc) {
+MaterialProgram program_slots(gpu::Shader shader, const gpu::ShaderDesc& desc) {
     MaterialProgram out;
     out.shader = shader;
-    for (int i = 0; i < SG_MAX_UNIFORMBLOCK_BINDSLOTS; ++i) {
-        if (desc->uniform_blocks[i].stage == SG_SHADERSTAGE_NONE) continue;
+    for (int i = 0; i < gpu::kMaxUniformBlocks; ++i) {
+        if (desc.uniformBlocks[i].stage == gpu::ShaderStage::None) continue;
         out.ubMask |= 1u << i;
-        out.ubSize[i] = desc->uniform_blocks[i].size;
+        out.ubSize[i] = desc.uniformBlocks[i].size;
     }
-    for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
-        if (desc->views[i].texture.stage != SG_SHADERSTAGE_NONE) out.viewMask |= 1u << i;
-    for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
-        if (desc->samplers[i].stage != SG_SHADERSTAGE_NONE) out.samplerMask |= 1u << i;
+    for (int i = 0; i < gpu::kMaxViews; ++i)
+        if (desc.views[i].texture.stage != gpu::ShaderStage::None) out.viewMask |= 1u << i;
+    for (int i = 0; i < gpu::kMaxSamplers; ++i)
+        if (desc.samplers[i].stage != gpu::ShaderStage::None) out.samplerMask |= 1u << i;
     return out;
 }
 
@@ -107,22 +108,23 @@ void ImpostorRenderer::destroy() {
     entries_.clear();
     if (quad_) {
         for (SubMesh& p : quad_->parts) {
-            if (p.vb.id) sg_destroy_buffer(p.vb);
-            if (p.ib.id) sg_destroy_buffer(p.ib);
+            if (p.vb.id) device_->destroy_buffer(p.vb);
+            if (p.ib.id) device_->destroy_buffer(p.ib);
         }
         quad_.reset();
     }
     material_.reset();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
+    for (gpu::Shader& s : shaders_) {
+        if (s.id) device_->destroy_shader(s);
         s = {};
     }
     matState_ = 0;
+    device_ = nullptr;
 }
 
 // The card: the square (-1..1, -1..1) at z = 0, two triangles. vertex() of shaders/impostor.glsl places it from the instance data, so the
 // mesh only says which corner each vertex is.
-MeshAsset* ImpostorRenderer::quad() {
+MeshAsset* ImpostorRenderer::quad(gpu::Device& device) {
     if (quad_) return quad_.get();
     std::vector<MeshVertex> v;
     for (int k = 0; k < 4; ++k) {
@@ -140,16 +142,18 @@ MeshAsset* ImpostorRenderer::quad() {
     auto mesh = std::make_unique<MeshAsset>();
     mesh->key = "<impostor-card>";
     SubMesh sm;
-    sg_buffer_desc vb{};
-    vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
+    gpu::BufferDesc vb;
+    vb.usage.vertexBuffer = true;
+    vb.size = v.size() * sizeof(MeshVertex);
+    vb.data = {v.data(), vb.size};
     vb.label = "impostor-card";
-    sm.vb = sg_make_buffer(&vb);
-    sg_buffer_desc ib{};
-    ib.usage.index_buffer = true;
-    ib.usage.vertex_buffer = false;
+    sm.vb = device.make_buffer(vb);
+    gpu::BufferDesc ib;
+    ib.usage.indexBuffer = true;
+    ib.size = sizeof idx;
     ib.data = {idx, sizeof idx};
     ib.label = vb.label;
-    sm.ib = sg_make_buffer(&ib);
+    sm.ib = device.make_buffer(ib);
     sm.vertexCount = 4;
     sm.indexCount = 6;
     sm.bmin = {-1, -1, 0};
@@ -164,20 +168,21 @@ MeshAsset* ImpostorRenderer::quad() {
 // The in-memory material the cards are drawn with: the three programs of shaders/impostor.glsl and the slots of its two textures. alphaMode
 // "clip" makes the engine run surface() in the shadow and prepass programs and fade the card with the dither of the LOD cross-fade; doubleSided
 // because the card faces the camera whatever the winding. null when the GPU rejects the shaders (said once).
-MaterialAsset* ImpostorRenderer::material() {
+MaterialAsset* ImpostorRenderer::material(gpu::Device& device) {
     if (matState_ != 0) return matState_ > 0 ? material_.get() : nullptr;
-    const sg_backend backend = sg_query_backend();
-    const sg_shader_desc* descs[3] = {impostor_impostor_shader_desc(backend), impostor_shadow_shader_desc(backend),
-                                      impostor_prepass_shader_desc(backend)};
+    device_ = &device;
+    const gpu::ShaderDesc descs[3] = {gpu::generated_shader_desc(device, impostor_impostor_shader_desc),
+                                      gpu::generated_shader_desc(device, impostor_shadow_shader_desc),
+                                      gpu::generated_shader_desc(device, impostor_prepass_shader_desc)};
     const char* labels[3] = {"impostor_impostor", "impostor_shadow", "impostor_prepass"};
     bool ok = true;
     for (int i = 0; i < 3; ++i) {
-        shaders_[i] = descs[i] ? make_shader(descs[i], labels[i]) : sg_shader{};
-        ok = ok && shaders_[i].id && sg_query_shader_state(shaders_[i]) == SG_RESOURCESTATE_VALID;
+        shaders_[i] = make_shader(device, descs[i], labels[i]);
+        ok = ok && shaders_[i].id && device.state(shaders_[i]) == gpu::ResourceState::Valid;
     }
     if (!ok) {
-        for (sg_shader& s : shaders_) {
-            if (s.id) sg_destroy_shader(s);
+        for (gpu::Shader& s : shaders_) {
+            if (s.id) device.destroy_shader(s);
             s = {};
         }
         matState_ = -1;
@@ -206,9 +211,10 @@ MaterialAsset* ImpostorRenderer::material() {
     return material_.get();
 }
 
-bool ImpostorRenderer::resolve(Assets& assets, std::uint64_t serial, const MeshRenderer& mr, Entity entity,
-                               ImpostorUse& out) {
-    if (!material() || !quad()) return false;
+bool ImpostorRenderer::resolve(gpu::Device& device, Assets& assets, std::uint64_t serial, const MeshRenderer& mr,
+                               Entity entity, ImpostorUse& out) {
+    device_ = &device;
+    if (!material(device) || !quad(device)) return false;
     Entry* slot = nullptr;
     std::string key;  // the normalised path, only where an entry is made or read again
     if (lastEntry_ && lastRaw_ == mr.impostor) {
@@ -329,8 +335,8 @@ void ImpostorRenderer::make_item(MeshItem& item, ImpostorDraws& draws, const Imp
     const Vec3 centre = m.transform_point(use.atlas->center);
     const float radius = use.atlas->radius * scale;
     const ImpostorDraw* d = draws.draw(use, cam);
-    item.mesh = quad();  // item.mr stays the entity's own: its shadow, decal and unlit flags still apply
-    item.material = material();
+    item.mesh = quad(*device_);  // item.mr stays the entity's own: its shadow, decal and unlit flags still apply
+    item.material = material(*device_);
     item.tex = nullptr;
     item.normalTex = nullptr;
     item.anim = nullptr;

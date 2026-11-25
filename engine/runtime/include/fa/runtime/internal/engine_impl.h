@@ -24,6 +24,7 @@
 #include "fa/platform/websocket.h"
 #include "fa/render/text_measure.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/gpu_backend_choice.h"
 #include "fa/runtime/input_recorder.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/rich_text.h"
@@ -113,6 +114,17 @@ struct Engine::Impl {
         false;  // this engine holds a reference on the job pool (jobs::start in init, jobs::stop in shutdown)
     std::string
         jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
+    GpuBackendChoice
+        gpuChoice;  // the GPU backend this run asked for (EngineConfig, FA_GPU_BACKEND, factoria.json, auto)
+    GpuBackend gpuBackendAuto = GpuBackend::Default;  // EngineConfig::gpuBackendAuto (graphics.backend reports it)
+    // graphics.backend {"name"} (P9e2): the choice stored for the next start. With memoryStorage it lives here only.
+    bool gpuStoreInMemory = false;
+    std::string gpuStoredBackend;  // "" = none stored ("auto")
+    // Why the run did not draw with the backend it asked for ("" = it did, or asked for none): the first error.
+    std::string gpuFallbackReason;
+    // The renderer's D3D12 or Vulkan device has the window's swapchain (app_claim_native_window): shutdown gives it
+    // back.
+    bool windowClaimed = false;
     jobs::Owner jobOwner{
         "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
@@ -363,6 +375,7 @@ void register_background_load_commands(
     Engine::Impl& impl);  // background_load_commands.cpp: scene.preload, assets.preload, load.status, load.cancel
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);      // localization.cpp: i18n.state, i18n.set_language
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
+void register_gpu_backend_commands(Engine& engine, Engine::Impl& impl);  // gpu_backend_commands.cpp: graphics.backend
 void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_compute_commands(

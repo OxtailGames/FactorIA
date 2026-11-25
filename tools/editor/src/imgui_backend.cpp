@@ -1,36 +1,60 @@
-// The only translation unit with the sokol_imgui implementation.
+// The editor's Dear ImGui backend. Dear ImGui's draw data goes to the renderer's 2D painter (fa::render::UiPainter, which
+// knows nothing of ImGui and owns every GPU object); sokol_app events go to ImGui's input queue. No sokol_gfx or
+// sokol_imgui call lives here.
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "imgui.h"
 #include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
-#include "sokol_log.h"
-#define SOKOL_IMGUI_IMPL
-#include "sokol_imgui.h"
-
-#include <cstring>
-#include <vector>
 #if defined(__linux__)
 #include <dlfcn.h>
 #endif
 #if defined(__APPLE__)
 #include "backbuffer_apple.h"
 #endif
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <d3d11.h>
-#endif
 
 #include "editor_fonts.h"
+#include "fa/core/log.h"
+#include "fa/render/renderer.h"
+#include "fa/render/ui_painter.h"
 #include "ui_backend.h"
 
 namespace fa::editor::ui {
 
 namespace {
-sg_sampler g_linear{};
-const void* g_frameDrawable = nullptr;  // Metal: the window pass's drawable of this frame (read_backbuffer)
+
+using render::UiDrawCommand;
+using render::UiDrawList;
+using render::UiFrame;
+using render::UiNativeHandles;
+using render::UiPainter;
+using render::UiTexture;
+using render::UiVertex;
+
+// An ImDrawVert is copied into the painter's vertex buffer as it is.
+static_assert(sizeof(ImDrawVert) == sizeof(UiVertex) && offsetof(ImDrawVert, pos) == offsetof(UiVertex, x) &&
+                  offsetof(ImDrawVert, uv) == offsetof(UiVertex, u) &&
+                  offsetof(ImDrawVert, col) == offsetof(UiVertex, color),
+              "UiVertex must have the layout of ImDrawVert");
+static_assert(sizeof(ImDrawIdx) == sizeof(std::uint16_t), "the painter draws 16-bit indices");
+
+std::unique_ptr<UiPainter> g_painter;
+UiNativeHandles g_native;  // this frame's Metal drawable and the queue / D3D11 device (read_backbuffer)
+
+// What flush() prepared and draw() draws: the pointers refer to the ImDrawLists of the frame, which live until the next
+// new_frame().
+std::vector<UiDrawList> g_lists;
+std::vector<UiDrawCommand> g_commands;
+UiFrame g_frame;
+bool g_reportedBadFrame = false;  // one log line for a UI that cannot be drawn, not one per frame
+
+// An ImTextureID is the picture's view id, plus 1 << 32 when its pixels are shown as they are (no smoothing).
+constexpr std::uint64_t kNearestBit = std::uint64_t(1) << 32;
 
 void apply_theme() {
     ImGuiStyle& s = ImGui::GetStyle();
@@ -101,25 +125,169 @@ void apply_theme() {
     c[ImGuiCol_DragDropTarget] = ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
     c[ImGuiCol_NavCursor] = accent;
 }
+
+void report_once(const std::string& what) {
+    if (g_reportedBadFrame) return;
+    g_reportedBadFrame = true;
+    FA_ERROR("editor", "the editor's UI cannot be drawn: {}", what);
+}
+
+// Dear ImGui asks for textures (its font atlas) by status: make, update the changed rectangle, or free them.
+void update_textures(ImDrawData* drawData) {
+    if (!drawData->Textures) return;
+    for (ImTextureData* tex : *drawData->Textures) {
+        std::string error;
+        if (tex->Status == ImTextureStatus_WantCreate) {
+            const UiTexture t = g_painter->make_updatable_texture(tex->Width, tex->Height, &error);
+            if (!t.valid() || !g_painter->update_texture(t, 0, 0, tex->Width, tex->Height,
+                                                         static_cast<const std::uint8_t*>(tex->GetPixels()),
+                                                         tex->GetPitch(), &error)) {
+                if (t.valid()) g_painter->destroy_texture(t);
+                report_once(error);
+                continue;
+            }
+            tex->BackendUserData = reinterpret_cast<void*>(std::uintptr_t(t.image));
+            tex->SetTexID(ImTextureID(t.view));
+            tex->SetStatus(ImTextureStatus_OK);
+        } else if (tex->Status == ImTextureStatus_WantUpdates) {
+            const UiTexture t{std::uint32_t(std::uintptr_t(tex->BackendUserData)), std::uint32_t(tex->TexID)};
+            const ImTextureRect& r = tex->UpdateRect;
+            if (r.w > 0 && r.h > 0 &&
+                !g_painter->update_texture(t, r.x, r.y, r.w, r.h,
+                                           static_cast<const std::uint8_t*>(tex->GetPixelsAt(r.x, r.y)),
+                                           tex->GetPitch(), &error)) {
+                report_once(error);
+                continue;
+            }
+            tex->SetStatus(ImTextureStatus_OK);
+        } else if (tex->Status == ImTextureStatus_WantDestroy && tex->UnusedFrames > 0) {
+            g_painter->destroy_texture(
+                UiTexture{std::uint32_t(std::uintptr_t(tex->BackendUserData)), std::uint32_t(tex->TexID)});
+            tex->BackendUserData = nullptr;
+            tex->SetTexID(ImTextureID_Invalid);
+            tex->SetStatus(ImTextureStatus_Destroyed);
+        }
+    }
+}
+
+ImGuiKey map_keycode(sapp_keycode key) {
+    // The letters, digits, function and keypad keys are consecutive in both enums.
+    if (key >= SAPP_KEYCODE_A && key <= SAPP_KEYCODE_Z) return ImGuiKey(ImGuiKey_A + (key - SAPP_KEYCODE_A));
+    if (key >= SAPP_KEYCODE_0 && key <= SAPP_KEYCODE_9) return ImGuiKey(ImGuiKey_0 + (key - SAPP_KEYCODE_0));
+    if (key >= SAPP_KEYCODE_F1 && key <= SAPP_KEYCODE_F12) return ImGuiKey(ImGuiKey_F1 + (key - SAPP_KEYCODE_F1));
+    if (key >= SAPP_KEYCODE_KP_0 && key <= SAPP_KEYCODE_KP_9)
+        return ImGuiKey(ImGuiKey_Keypad0 + (key - SAPP_KEYCODE_KP_0));
+    switch (key) {
+        case SAPP_KEYCODE_SPACE: return ImGuiKey_Space;
+        case SAPP_KEYCODE_APOSTROPHE: return ImGuiKey_Apostrophe;
+        case SAPP_KEYCODE_COMMA: return ImGuiKey_Comma;
+        case SAPP_KEYCODE_MINUS: return ImGuiKey_Minus;
+        case SAPP_KEYCODE_PERIOD: return ImGuiKey_Period;
+        case SAPP_KEYCODE_SLASH: return ImGuiKey_Slash;
+        case SAPP_KEYCODE_SEMICOLON: return ImGuiKey_Semicolon;
+        case SAPP_KEYCODE_EQUAL: return ImGuiKey_Equal;
+        case SAPP_KEYCODE_LEFT_BRACKET: return ImGuiKey_LeftBracket;
+        case SAPP_KEYCODE_BACKSLASH: return ImGuiKey_Backslash;
+        case SAPP_KEYCODE_RIGHT_BRACKET: return ImGuiKey_RightBracket;
+        case SAPP_KEYCODE_GRAVE_ACCENT: return ImGuiKey_GraveAccent;
+        case SAPP_KEYCODE_ESCAPE: return ImGuiKey_Escape;
+        case SAPP_KEYCODE_ENTER: return ImGuiKey_Enter;
+        case SAPP_KEYCODE_TAB: return ImGuiKey_Tab;
+        case SAPP_KEYCODE_BACKSPACE: return ImGuiKey_Backspace;
+        case SAPP_KEYCODE_INSERT: return ImGuiKey_Insert;
+        case SAPP_KEYCODE_DELETE: return ImGuiKey_Delete;
+        case SAPP_KEYCODE_RIGHT: return ImGuiKey_RightArrow;
+        case SAPP_KEYCODE_LEFT: return ImGuiKey_LeftArrow;
+        case SAPP_KEYCODE_DOWN: return ImGuiKey_DownArrow;
+        case SAPP_KEYCODE_UP: return ImGuiKey_UpArrow;
+        case SAPP_KEYCODE_PAGE_UP: return ImGuiKey_PageUp;
+        case SAPP_KEYCODE_PAGE_DOWN: return ImGuiKey_PageDown;
+        case SAPP_KEYCODE_HOME: return ImGuiKey_Home;
+        case SAPP_KEYCODE_END: return ImGuiKey_End;
+        case SAPP_KEYCODE_CAPS_LOCK: return ImGuiKey_CapsLock;
+        case SAPP_KEYCODE_SCROLL_LOCK: return ImGuiKey_ScrollLock;
+        case SAPP_KEYCODE_NUM_LOCK: return ImGuiKey_NumLock;
+        case SAPP_KEYCODE_PRINT_SCREEN: return ImGuiKey_PrintScreen;
+        case SAPP_KEYCODE_PAUSE: return ImGuiKey_Pause;
+        case SAPP_KEYCODE_KP_DECIMAL: return ImGuiKey_KeypadDecimal;
+        case SAPP_KEYCODE_KP_DIVIDE: return ImGuiKey_KeypadDivide;
+        case SAPP_KEYCODE_KP_MULTIPLY: return ImGuiKey_KeypadMultiply;
+        case SAPP_KEYCODE_KP_SUBTRACT: return ImGuiKey_KeypadSubtract;
+        case SAPP_KEYCODE_KP_ADD: return ImGuiKey_KeypadAdd;
+        case SAPP_KEYCODE_KP_ENTER: return ImGuiKey_KeypadEnter;
+        case SAPP_KEYCODE_KP_EQUAL: return ImGuiKey_KeypadEqual;
+        case SAPP_KEYCODE_LEFT_SHIFT: return ImGuiKey_LeftShift;
+        case SAPP_KEYCODE_LEFT_CONTROL: return ImGuiKey_LeftCtrl;
+        case SAPP_KEYCODE_LEFT_ALT: return ImGuiKey_LeftAlt;
+        case SAPP_KEYCODE_LEFT_SUPER: return ImGuiKey_LeftSuper;
+        case SAPP_KEYCODE_RIGHT_SHIFT: return ImGuiKey_RightShift;
+        case SAPP_KEYCODE_RIGHT_CONTROL: return ImGuiKey_RightCtrl;
+        case SAPP_KEYCODE_RIGHT_ALT: return ImGuiKey_RightAlt;
+        case SAPP_KEYCODE_RIGHT_SUPER: return ImGuiKey_RightSuper;
+        case SAPP_KEYCODE_MENU: return ImGuiKey_Menu;
+        default: return ImGuiKey_None;
+    }
+}
+
+#if defined(__APPLE__)
+constexpr bool kIsMac = true;
+#else
+constexpr bool kIsMac = false;
+#endif
+
+// The key that copies and pastes: Cmd on macOS, Ctrl elsewhere.
+bool is_copy_paste_modifier(std::uint32_t modifiers) {
+    return (modifiers & (kIsMac ? SAPP_MODIFIER_SUPER : SAPP_MODIFIER_CTRL)) != 0;
+}
+
+void update_modifiers(ImGuiIO& io, std::uint32_t mods) {
+    io.AddKeyEvent(ImGuiMod_Ctrl, (mods & SAPP_MODIFIER_CTRL) != 0);
+    io.AddKeyEvent(ImGuiMod_Shift, (mods & SAPP_MODIFIER_SHIFT) != 0);
+    io.AddKeyEvent(ImGuiMod_Alt, (mods & SAPP_MODIFIER_ALT) != 0);
+    io.AddKeyEvent(ImGuiMod_Super, (mods & SAPP_MODIFIER_SUPER) != 0);
+}
+
+void add_mouse_pos(ImGuiIO& io, float x, float y, ImGuiMouseSource source) {
+    io.AddMouseSourceEvent(source);
+    io.AddMousePosEvent(x, y);
+}
+
+void apply_mouse_cursor() {
+    sapp_mouse_cursor cursor = sapp_get_mouse_cursor();
+    switch (ImGui::GetMouseCursor()) {
+        case ImGuiMouseCursor_Arrow: cursor = SAPP_MOUSECURSOR_ARROW; break;
+        case ImGuiMouseCursor_TextInput: cursor = SAPP_MOUSECURSOR_IBEAM; break;
+        case ImGuiMouseCursor_ResizeAll: cursor = SAPP_MOUSECURSOR_RESIZE_ALL; break;
+        case ImGuiMouseCursor_ResizeNS: cursor = SAPP_MOUSECURSOR_RESIZE_NS; break;
+        case ImGuiMouseCursor_ResizeEW: cursor = SAPP_MOUSECURSOR_RESIZE_EW; break;
+        case ImGuiMouseCursor_ResizeNESW: cursor = SAPP_MOUSECURSOR_RESIZE_NESW; break;
+        case ImGuiMouseCursor_ResizeNWSE: cursor = SAPP_MOUSECURSOR_RESIZE_NWSE; break;
+        case ImGuiMouseCursor_Hand: cursor = SAPP_MOUSECURSOR_POINTING_HAND; break;
+        case ImGuiMouseCursor_NotAllowed: cursor = SAPP_MOUSECURSOR_NOT_ALLOWED; break;
+        default: break;
+    }
+    sapp_set_mouse_cursor(cursor);
+}
+
 }  // namespace
 
 void gfx_setup() {
-    sg_desc d{};
-    d.environment = sglue_environment();
-    d.logger.func = slog_func;
-    sg_setup(&d);
+    std::string error;
+    if (!Renderer::open_context(app_gfx_environment(), &error))
+        FA_ERROR("editor", "the graphics context could not be opened: {}", error);
 }
-void gfx_shutdown() {
-    if (sg_isvalid()) sg_shutdown();
-}
+void gfx_shutdown() { Renderer::close_context(); }
 
 void setup(const char* iniFile) {
-    simgui_desc_t d{};
-    d.no_default_font = true;
-    d.ini_filename = iniFile;
-    d.logger.func = slog_func;
-    simgui_setup(&d);
+    ImGui::CreateContext();
+    ImGui::StyleColorsDark();
     ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = iniFile;
+    io.ConfigMacOSXBehaviors = kIsMac;
+    io.BackendPlatformName = "factoria-sokol-app";
+    io.BackendRendererName = "factoria-ui-painter";
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures |
+                       ImGuiBackendFlags_HasMouseCursors;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.ConfigDockingTransparentPayload = true;
@@ -134,58 +302,185 @@ void setup(const char* iniFile) {
     if (!font) io.Fonts->AddFontDefault();
     apply_theme();
 
-    sg_sampler_desc sd{};
-    sd.min_filter = SG_FILTER_LINEAR;
-    sd.mag_filter = SG_FILTER_LINEAR;
-    sd.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
-    sd.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
-    g_linear = sg_make_sampler(&sd);
+    std::string error;
+    g_painter = UiPainter::create(&error);
+    g_reportedBadFrame = false;
+    if (!g_painter) report_once(error);
 }
 
 void shutdown() {
-    if (g_linear.id) {
-        sg_destroy_sampler(g_linear);
-        g_linear = {};
+    if (ImGui::GetCurrentContext()) {
+        if (g_painter) {
+            for (ImTextureData* tex : ImGui::GetPlatformIO().Textures) {
+                if (tex->RefCount == 1 && tex->TexID != ImTextureID_Invalid) {
+                    g_painter->destroy_texture(
+                        UiTexture{std::uint32_t(std::uintptr_t(tex->BackendUserData)), std::uint32_t(tex->TexID)});
+                    tex->BackendUserData = nullptr;
+                    tex->SetTexID(ImTextureID_Invalid);
+                    tex->SetStatus(ImTextureStatus_Destroyed);
+                }
+            }
+        }
+        ImGui::DestroyContext();
     }
-    simgui_shutdown();
+    g_lists.clear();
+    g_commands.clear();
+    g_frame = UiFrame{};
+    g_native = UiNativeHandles{};
+    g_painter.reset();
 }
 
 void new_frame(int w, int h, double dt, float dpi) {
-    simgui_frame_desc_t d{};
-    d.width = w;
-    d.height = h;
-    d.delta_time = dt > 0 ? dt : 1.0 / 60.0;
-    d.dpi_scale = dpi;
-    simgui_new_frame(&d);
+    const float scale = dpi > 0.0f ? dpi : 1.0f;
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(float(w) / scale, float(h) / scale);
+    io.DisplayFramebufferScale = ImVec2(scale, scale);
+    io.DeltaTime = dt > 0 ? float(dt) : 1.0f / 60.0f;
+    if (io.WantTextInput && !sapp_keyboard_shown()) sapp_show_keyboard(true);
+    if (!io.WantTextInput && sapp_keyboard_shown()) sapp_show_keyboard(false);
+    apply_mouse_cursor();
+    ImGui::NewFrame();
 }
-void flush() { simgui_flush(); }
-void draw() { simgui_draw(); }
-bool handle_event(const sapp_event* ev) { return simgui_handle_event(ev); }
+
+void flush() {
+    g_lists.clear();
+    g_commands.clear();
+    g_frame = UiFrame{};
+    ImGui::Render();
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (!drawData || !g_painter) return;
+    update_textures(drawData);
+
+    // One UiDrawCommand per ImDrawCmd (a user callback draws nothing: the editor registers none). g_commands is sized
+    // first, so the pointers into it stay valid.
+    std::size_t commandCount = 0;
+    for (const ImDrawList* list : drawData->CmdLists) commandCount += std::size_t(list->CmdBuffer.Size);
+    g_commands.reserve(commandCount);
+    std::vector<std::pair<std::size_t, std::size_t>> ranges;  // [first, count) of each list in g_commands
+    for (const ImDrawList* list : drawData->CmdLists) {
+        const std::size_t first = g_commands.size();
+        for (const ImDrawCmd& cmd : list->CmdBuffer) {
+            if (cmd.UserCallback) continue;
+            const ImTextureID id = cmd.GetTexID();
+            UiDrawCommand c;
+            c.view = std::uint32_t(id & 0xFFFFFFFFu);
+            c.nearest = (id & kNearestBit) != 0;
+            c.clipMinX = cmd.ClipRect.x;
+            c.clipMinY = cmd.ClipRect.y;
+            c.clipMaxX = cmd.ClipRect.z;
+            c.clipMaxY = cmd.ClipRect.w;
+            c.indexOffset = cmd.IdxOffset;
+            c.indexCount = cmd.ElemCount;
+            c.vertexOffset = cmd.VtxOffset;
+            g_commands.push_back(c);
+        }
+        ranges.emplace_back(first, g_commands.size() - first);
+    }
+    g_lists.reserve(ranges.size());
+    for (int i = 0; i < drawData->CmdLists.Size; ++i) {
+        const ImDrawList* list = drawData->CmdLists[i];
+        UiDrawList l;
+        l.vertices = reinterpret_cast<const UiVertex*>(list->VtxBuffer.Data);
+        l.vertexCount = list->VtxBuffer.Size;
+        l.indices = reinterpret_cast<const std::uint16_t*>(list->IdxBuffer.Data);
+        l.indexCount = list->IdxBuffer.Size;
+        l.commands = g_commands.data() + ranges[std::size_t(i)].first;
+        l.commandCount = int(ranges[std::size_t(i)].second);
+        g_lists.push_back(l);
+    }
+    g_frame.displayWidth = ImGui::GetIO().DisplaySize.x;
+    g_frame.displayHeight = ImGui::GetIO().DisplaySize.y;
+    g_frame.scaleX = drawData->FramebufferScale.x;
+    g_frame.scaleY = drawData->FramebufferScale.y;
+    g_frame.lists = g_lists.data();
+    g_frame.listCount = int(g_lists.size());
+    std::string error;
+    if (!g_painter->upload(g_frame, &error)) report_once(error);
+}
+
+void draw(const fa::GfxSwapchain& swapchain) {
+    if (g_painter && g_frame.listCount > 0) g_painter->draw(swapchain, g_frame);
+}
+
+bool handle_event(const sapp_event* ev) {
+    ImGuiIO& io = ImGui::GetIO();
+    const float scale = io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+    switch (ev->type) {
+        case SAPP_EVENTTYPE_FOCUSED: io.AddFocusEvent(true); break;
+        case SAPP_EVENTTYPE_UNFOCUSED: io.AddFocusEvent(false); break;
+        case SAPP_EVENTTYPE_MOUSE_DOWN:
+        case SAPP_EVENTTYPE_MOUSE_UP:
+            add_mouse_pos(io, ev->mouse_x / scale, ev->mouse_y / scale, ImGuiMouseSource_Mouse);
+            // SAPP_MOUSEBUTTON_INVALID (0x100, a button sokol does not name) is not an ImGui button: only left, right, middle pass.
+            if (ev->mouse_button >= SAPP_MOUSEBUTTON_LEFT && ev->mouse_button <= SAPP_MOUSEBUTTON_MIDDLE)
+                io.AddMouseButtonEvent(int(ev->mouse_button), ev->type == SAPP_EVENTTYPE_MOUSE_DOWN);
+            update_modifiers(io, ev->modifiers);
+            break;
+        case SAPP_EVENTTYPE_MOUSE_MOVE:
+            add_mouse_pos(io, ev->mouse_x / scale, ev->mouse_y / scale, ImGuiMouseSource_Mouse);
+            break;
+        case SAPP_EVENTTYPE_MOUSE_SCROLL:
+            io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
+            io.AddMouseWheelEvent(ev->scroll_x, ev->scroll_y);
+            break;
+        case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+        case SAPP_EVENTTYPE_TOUCHES_MOVED:
+        case SAPP_EVENTTYPE_TOUCHES_ENDED:
+            add_mouse_pos(io, ev->touches[0].pos_x / scale, ev->touches[0].pos_y / scale, ImGuiMouseSource_TouchScreen);
+            if (ev->type != SAPP_EVENTTYPE_TOUCHES_MOVED)
+                io.AddMouseButtonEvent(0, ev->type == SAPP_EVENTTYPE_TOUCHES_BEGAN);
+            break;
+        case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
+            io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+            io.AddMouseButtonEvent(0, false);
+            break;
+        case SAPP_EVENTTYPE_KEY_DOWN:
+        case SAPP_EVENTTYPE_KEY_UP: {
+            const bool down = ev->type == SAPP_EVENTTYPE_KEY_DOWN;
+            update_modifiers(io, ev->modifiers);
+            // Ctrl/Cmd+V arrives as SAPP_EVENTTYPE_CLIPBOARD_PASTED below.
+            if (is_copy_paste_modifier(ev->modifiers) && ev->key_code == SAPP_KEYCODE_V) break;
+            // Copy and cut are the UI's: the browser must not see them either.
+            if (is_copy_paste_modifier(ev->modifiers) &&
+                (ev->key_code == SAPP_KEYCODE_X || ev->key_code == SAPP_KEYCODE_C))
+                sapp_consume_event();
+            io.AddKeyEvent(map_keycode(ev->key_code), down);  // an unmapped key is ImGuiKey_None, which ImGui ignores
+            break;
+        }
+        case SAPP_EVENTTYPE_CHAR:
+            update_modifiers(io, ev->modifiers);
+            // Some platforms report special keys as characters; with Alt, Ctrl or Cmd down it is a shortcut, not text.
+            if (ev->char_code >= 32 && ev->char_code != 127 &&
+                (ev->modifiers & (SAPP_MODIFIER_ALT | SAPP_MODIFIER_CTRL | SAPP_MODIFIER_SUPER)) == 0)
+                io.AddInputCharacter(ev->char_code);
+            break;
+        case SAPP_EVENTTYPE_CLIPBOARD_PASTED: {
+            const ImGuiKey modifier = kIsMac ? ImGuiMod_Super : ImGuiMod_Ctrl;  // a Ctrl/Cmd+V key press
+            io.AddKeyEvent(modifier, true);
+            io.AddKeyEvent(ImGuiKey_V, true);
+            io.AddKeyEvent(ImGuiKey_V, false);
+            io.AddKeyEvent(modifier, false);
+            break;
+        }
+        default: break;
+    }
+    return io.WantCaptureKeyboard || io.WantCaptureMouse;
+}
 
 std::uint64_t texture_from_view(std::uint32_t viewId, bool linear) {
-    sg_view v{viewId};
-    return linear ? simgui_imtextureid_with_sampler(v, g_linear) : simgui_imtextureid(v);
+    return std::uint64_t(viewId) | (linear ? 0 : kNearestBit);
 }
 
 bool make_texture(int w, int h, const std::uint8_t* rgba, std::uint32_t& imageId, std::uint32_t& viewId) {
-    sg_image_desc id{};
-    id.width = w;
-    id.height = h;
-    id.pixel_format = SG_PIXELFORMAT_RGBA8;
-    id.data.mip_levels[0].ptr = rgba;
-    id.data.mip_levels[0].size = size_t(w) * size_t(h) * 4;
-    sg_image img = sg_make_image(&id);
-    if (sg_query_image_state(img) != SG_RESOURCESTATE_VALID) return false;
-    sg_view_desc vd{};
-    vd.texture.image = img;
-    sg_view v = sg_make_view(&vd);
-    imageId = img.id;
-    viewId = v.id;
+    if (!g_painter) return false;
+    const UiTexture t = g_painter->make_texture(w, h, rgba, nullptr);
+    if (!t.valid()) return false;
+    imageId = t.image;
+    viewId = t.view;
     return true;
 }
 void destroy_texture(std::uint32_t imageId, std::uint32_t viewId) {
-    if (viewId) sg_destroy_view(sg_view{viewId});
-    if (imageId) sg_destroy_image(sg_image{imageId});
+    if (g_painter) g_painter->destroy_texture(UiTexture{imageId, viewId});
 }
 
 void prepare_backbuffer_readback(bool showWindow) {
@@ -196,11 +491,11 @@ void prepare_backbuffer_readback(bool showWindow) {
 #endif
 }
 
-void note_window_swapchain(const sg_swapchain& swapchain) { g_frameDrawable = swapchain.metal.current_drawable; }
+void note_window_swapchain(const fa::GfxSwapchain& swapchain) { g_native = render::native_window_handles(swapchain); }
 
 bool read_backbuffer(int w, int h, std::uint8_t* out) {
 #if defined(__APPLE__)
-    return metal_read_drawable(g_frameDrawable, w, h, out);
+    return metal_read_drawable(g_native.metalDrawable, g_native.metalQueue, w, h, out);
 #elif defined(__linux__)
     // libGL is already loaded by sokol_app; resolve glReadPixels without linking GL.
     void* lib = dlopen("libGL.so.1", RTLD_LAZY | RTLD_NOLOAD);
@@ -231,52 +526,9 @@ bool read_backbuffer(int w, int h, std::uint8_t* out) {
         std::memcpy(out + size_t(y) * w * 4, tmp.data() + size_t(h - 1 - y) * w * 4, size_t(w) * 4);
     return true;
 #elif defined(_WIN32)
-    // D3D11: sokol_gfx has already resolved the MSAA render target into the swap chain's buffer 0 at the end of the
-    // window pass, and the flip-discard swap chain only changes buffers inside Present(), which runs after the frame
-    // callback returns. So buffer 0 holds exactly the frame just drawn; copy it to a staging texture and map it.
-    auto* swap = static_cast<IDXGISwapChain*>(const_cast<void*>(sapp_d3d11_get_swap_chain()));
-    auto* dev = static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device()));
-    auto* ctx = static_cast<ID3D11DeviceContext*>(const_cast<void*>(sg_d3d11_device_context()));
-    if (!swap || !dev || !ctx) return false;
-    ID3D11Texture2D* back = nullptr;
-    if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back))) || !back) return false;
-    D3D11_TEXTURE2D_DESC desc{};
-    back->GetDesc(&desc);
-    if (int(desc.Width) != w || int(desc.Height) != h || desc.SampleDesc.Count != 1 ||
-        (desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM && desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)) {
-        back->Release();
-        return false;
-    }
-    D3D11_TEXTURE2D_DESC sd = desc;
-    sd.Usage = D3D11_USAGE_STAGING;
-    sd.BindFlags = 0;
-    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    sd.MiscFlags = 0;
-    ID3D11Texture2D* staging = nullptr;
-    D3D11_MAPPED_SUBRESOURCE m{};
-    if (FAILED(dev->CreateTexture2D(&sd, nullptr, &staging)) || !staging) {
-        back->Release();
-        return false;
-    }
-    ctx->CopyResource(staging, back);
-    back->Release();
-    if (FAILED(ctx->Map(staging, 0, D3D11_MAP_READ, 0, &m))) {
-        staging->Release();
-        return false;
-    }
-    for (int y = 0; y < h; ++y) {
-        const auto* src = static_cast<const std::uint8_t*>(m.pData) + size_t(y) * m.RowPitch;
-        std::uint8_t* dst = out + size_t(y) * w * 4;
-        for (int x = 0; x < w; ++x) {  // BGRA -> RGBA; the surface is already top row first
-            dst[x * 4 + 0] = src[x * 4 + 2];
-            dst[x * 4 + 1] = src[x * 4 + 1];
-            dst[x * 4 + 2] = src[x * 4 + 0];
-            dst[x * 4 + 3] = src[x * 4 + 3];
-        }
-    }
-    ctx->Unmap(staging, 0);
-    staging->Release();
-    return true;
+    // D3D11: the window pass has resolved MSAA into the swapchain's buffer 0, and the flip model only changes buffers inside
+    // Present(), which the platform runs after the frame callback returns: the platform's presenter copies that buffer.
+    return fa::app_read_window_back_buffer(w, h, out);
 #else
     (void)w;
     (void)h;

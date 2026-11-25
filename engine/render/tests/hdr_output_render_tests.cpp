@@ -82,8 +82,8 @@ bool float_path(Gfx& g) {
     Flat warm(0.5f);  // a frame, so there is a picture to read back
     g.draw(warm.world);
     render::Gpu* gpu = render::renderer_gpu(g.renderer);
-    const sg_pixel_format f = gpu ? gpu->display_format() : SG_PIXELFORMAT_NONE;
-    if (f != SG_PIXELFORMAT_RGBA16F) {  // R11G11B10 scenes keep their display picture in RGBA8 (Gpu::display_format)
+    const gpu::PixelFormat f = gpu ? gpu->display_format() : gpu::PixelFormat::None;
+    if (f != gpu::PixelFormat::Rgba16F) {  // R11G11B10 scenes keep their display picture in RGBA8 (Gpu::display_format)
         MESSAGE("skipped: this GPU holds the picture in 8 bits (nothing above paper white can be stored)");
         return false;
     }
@@ -255,16 +255,14 @@ TEST_CASE("hdr output: the editor viewport shows a picture above paper white cla
     const Floats fin = read(g, shot, false);
     CHECK(fin.at(160, 90, 0) > 1.2f);
     // ... and the image the viewport shows is the 8-bit copy, which holds at most white: an EDR editor window would not show it
-    // brighter than the SDR present() does. (readback_rgba8 reads RGBA8 images only: a float image would make it fail.)
-    const std::uint32_t id = g.renderer.game_target_image_id();
+    // brighter than the SDR present() does. (read_image_rgba8 reads RGBA8 images only: a float image would make it fail.)
+    const std::uint32_t id = g.renderer.game_target_texture().image;
     REQUIRE(id != 0);
-    CHECK(g.renderer.game_target_view_id() != 0);
-    sg_image image{};
-    image.id = id;
+    CHECK(g.renderer.game_target_texture().view != 0);
     std::vector<std::uint8_t> px;
-    std::string err;
     const int tw = g.renderer.target_width(), th = g.renderer.target_height();
-    REQUIRE_MESSAGE(render::readback_rgba8(image, tw, th, px, &err), err);
+    const auto read = RendererTestAccess::gpu(g.renderer)->device().read_image_rgba8(gpu::Image{id}, tw, th, px);
+    REQUIRE_MESSAGE(read.ok(), (read.ok() ? std::string() : read.error().to_string()));
     const std::size_t mid = (std::size_t(th / 2) * std::size_t(tw) + std::size_t(tw / 2)) * 4;
     CHECK(int(px[mid]) == 255);
     CHECK(int(px[mid + 1]) == 255);

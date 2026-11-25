@@ -19,9 +19,117 @@
 #if defined(__ANDROID__)
 #define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
 #endif
-// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue with
-// XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then the
-// backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
+// Android: sokol_app's EGL window surface leaves the ANativeWindow while a GPU device presents there (M77-P9e3b,
+// egl_surface_handover.h). sokol_app's EGL calls get wrappers: outside a release they are the real calls; while
+// released its window surface is a stand-in (a 1x1 pbuffer or "no drawable"), a new ANativeWindow gets a stand-in and
+// is told to the device, the window's loss is told to the device before the stand-in goes. EGL's headers come first, so
+// their own declarations keep their names. Every call runs on sokol_app's loop thread (its frame thread too).
+#if defined(__ANDROID__)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <android/native_window.h>
+#include <string.h>
+
+#include "egl_surface_handover.h"
+_Static_assert(EGL_WIDTH == FA_EGL_WIDTH && EGL_HEIGHT == FA_EGL_HEIGHT, "egl_surface_handover.h's EGL names");
+
+static void* fa_egl_op_create_pbuffer(void* user, void* display, void* config) {
+    (void)user;
+    EGLint types = 0;
+    if (!eglGetConfigAttrib((EGLDisplay)display, (EGLConfig)config, EGL_SURFACE_TYPE, &types)) return NULL;
+    if (!(types & EGL_PBUFFER_BIT)) return NULL;
+    const EGLint attribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    const EGLSurface pbuffer = eglCreatePbufferSurface((EGLDisplay)display, (EGLConfig)config, attribs);
+    return pbuffer == EGL_NO_SURFACE ? NULL : (void*)pbuffer;
+}
+static bool fa_egl_op_surfaceless(void* user, void* display) {
+    (void)user;
+    const char* extensions = eglQueryString((EGLDisplay)display, EGL_EXTENSIONS);
+    return extensions && strstr(extensions, "EGL_KHR_surfaceless_context") != NULL;
+}
+static void* fa_egl_op_create_window_surface(void* user, void* display, void* config, void* window,
+                                             const int* attribs) {
+    (void)user;
+    const EGLSurface s = eglCreateWindowSurface((EGLDisplay)display, (EGLConfig)config, (EGLNativeWindowType)window,
+                                                (const EGLint*)attribs);
+    return s == EGL_NO_SURFACE ? NULL : (void*)s;
+}
+static bool fa_egl_op_destroy_surface(void* user, void* display, void* surface) {
+    (void)user;
+    return eglDestroySurface((EGLDisplay)display, (EGLSurface)surface) == EGL_TRUE;
+}
+static bool fa_egl_op_make_current(void* user, void* display, void* draw, void* read, void* context) {
+    (void)user;
+    return eglMakeCurrent((EGLDisplay)display, (EGLSurface)draw, (EGLSurface)read, (EGLContext)context) == EGL_TRUE;
+}
+static bool fa_egl_op_swap_buffers(void* user, void* display, void* surface) {
+    (void)user;
+    return eglSwapBuffers((EGLDisplay)display, (EGLSurface)surface) == EGL_TRUE;
+}
+static bool fa_egl_op_query_surface(void* user, void* display, void* surface, int attribute, int* value) {
+    (void)user;
+    EGLint v = 0;
+    const bool ok = eglQuerySurface((EGLDisplay)display, (EGLSurface)surface, attribute, &v) == EGL_TRUE;
+    if (ok) *value = v;
+    return ok;
+}
+static void fa_egl_op_window_size(void* user, void* window, int* width, int* height) {
+    (void)user;
+    *width = ANativeWindow_getWidth((ANativeWindow*)window);
+    *height = ANativeWindow_getHeight((ANativeWindow*)window);
+    if (*width < 0) *width = 0;  // a negative value is an error code
+    if (*height < 0) *height = 0;
+}
+static void fa_egl_op_finish(void* user) {
+    (void)user;
+    glFinish();
+}
+static const fa_egl_surface_ops fa_egl_ops = {
+    NULL,
+    fa_egl_op_create_pbuffer,
+    fa_egl_op_surfaceless,
+    fa_egl_op_create_window_surface,
+    fa_egl_op_destroy_surface,
+    fa_egl_op_make_current,
+    fa_egl_op_swap_buffers,
+    fa_egl_op_query_surface,
+    fa_egl_op_window_size,
+    fa_egl_op_finish,
+};
+static fa_egl_surface_handover fa_egl = {&fa_egl_ops, 0, NULL, NULL, NULL, NULL};
+
+static EGLSurface fa_egl_create_window_surface(EGLDisplay display, EGLConfig config, EGLNativeWindowType window,
+                                               const EGLint* attribs) {
+    void* s = fa_egl_handover_create_window_surface(&fa_egl, (void*)display, (void*)config, (void*)window,
+                                                    (const int*)attribs);
+    return s ? (EGLSurface)s : EGL_NO_SURFACE;
+}
+static EGLBoolean fa_egl_destroy_surface(EGLDisplay display, EGLSurface surface) {
+    return fa_egl_handover_destroy_surface(&fa_egl, (void*)display, (void*)surface) ? EGL_TRUE : EGL_FALSE;
+}
+static EGLBoolean fa_egl_make_current(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
+    return fa_egl_handover_make_current(&fa_egl, (void*)display, (void*)draw, (void*)read, (void*)context) ? EGL_TRUE
+                                                                                                           : EGL_FALSE;
+}
+static EGLBoolean fa_egl_swap_buffers(EGLDisplay display, EGLSurface surface) {
+    return fa_egl_handover_swap_buffers(&fa_egl, (void*)display, (void*)surface) ? EGL_TRUE : EGL_FALSE;
+}
+static EGLBoolean fa_egl_query_surface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
+    int v = 0;
+    if (!fa_egl_handover_query_surface(&fa_egl, (void*)display, (void*)surface, (int)attribute, &v)) return EGL_FALSE;
+    *value = (EGLint)v;
+    return EGL_TRUE;
+}
+#define eglCreateWindowSurface fa_egl_create_window_surface
+#define eglDestroySurface fa_egl_destroy_surface
+#define eglMakeCurrent fa_egl_make_current
+#define eglSwapBuffers fa_egl_swap_buffers
+#define eglQuerySurface fa_egl_query_surface
+#endif
+// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue
+// with XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then
+// the backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
 // declarations keep their names.
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <X11/Xlib.h>
@@ -49,60 +157,28 @@ static int fa_x11_next_event(Display* display, XEvent* event) {
 #define XPending fa_x11_pending
 #define XNextEvent fa_x11_next_event
 #endif
-// Windows: the HDR formats of the swapchain (fa_sapp_set_swapchain_kind, hdr_output.cpp). sokol_app resizes the swapchain
-// buffers with a hard-wired DXGI_FORMAT_B8G8R8A8_UNORM and makes the view of buffer 0 in its own 8-bit or 16-bit float format,
-// so a 16-bit float (scRGB) or 10-bit (HDR10) swapchain would go back to 8 bits at the first resize, and a 10-bit one would
-// get a view of the wrong format. sokol_app calls both through its C helpers (self->lpVtbl->ResizeBuffers(...),
-// self->lpVtbl->CreateRenderTargetView(...)): the two function-like macros below give those calls the format the engine chose
-// (fa_d3d11_kind). The D3D11 headers come first, so their declarations keep their names (in C the vtable members are
-// "(*ResizeBuffers)(...)", never followed by an opening parenthesis, so they would not expand anyway), and the macros end
-// right after sokol_app.h: sokol_gfx.h's own calls are not touched. sokol_app makes no other render target view: the
-// 10-bit kind is refused with MSAA (its MSAA texture would be 8-bit).
+// Windows: sokol_app makes the window and owns no graphics device (SOKOL_NOAPI); sokol_gfx stays SOKOL_D3D11. The
+// engine makes the D3D11 device and the window's DXGI swapchain itself (d3d11_present_win32.cpp), so the D3D12 and
+// Vulkan backends can make their own swapchain on the same window. sokol_app's frame callback then only runs the frame:
+// app.cpp resizes and presents around it. The backend macro is SOKOL_D3D11 again from sokol_gfx.h on (sokol_glue.h is
+// not used for it).
 #if defined(_WIN32) && defined(SOKOL_D3D11)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef D3D11_NO_HELPERS
-#define D3D11_NO_HELPERS
-#endif
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4201 4115)
-#endif
-#include <windows.h>
-#include <d3d11.h>
-#include <dxgi.h>
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
-static int fa_d3d11_kind;  // 0 = 8-bit (sokol's own), 1 = R16G16B16A16_FLOAT, 2 = R10G10B10A2_UNORM
-static DXGI_FORMAT fa_d3d11_buffer_format(DXGI_FORMAT asked) {
-    if (fa_d3d11_kind == 1) return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    if (fa_d3d11_kind == 2) return DXGI_FORMAT_R10G10B10A2_UNORM;
-    return asked;
-}
-static D3D11_RENDER_TARGET_VIEW_DESC fa_d3d11_view_desc_copy;
-static const D3D11_RENDER_TARGET_VIEW_DESC* fa_d3d11_view_desc(const D3D11_RENDER_TARGET_VIEW_DESC* desc) {
-    if (fa_d3d11_kind != 2 || desc == NULL) return desc;
-    fa_d3d11_view_desc_copy = *desc;
-    fa_d3d11_view_desc_copy.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-    return &fa_d3d11_view_desc_copy;
-}
-#define ResizeBuffers(self, count, width, height, format, flags)                                                       \
-    ResizeBuffers(self, count, width, height, fa_d3d11_buffer_format(format), flags)
-#define CreateRenderTargetView(self, resource, desc, view)                                                             \
-    CreateRenderTargetView(self, resource, fa_d3d11_view_desc(desc), view)
+#define FA_SOKOL_APP_NOAPI 1
+#undef SOKOL_D3D11
+#define SOKOL_NOAPI
 #endif
 #include "sokol_app.h"
-#if defined(_WIN32) && defined(SOKOL_D3D11)
-#undef ResizeBuffers
-#undef CreateRenderTargetView
+#if defined(FA_SOKOL_APP_NOAPI)
+#undef SOKOL_NOAPI
+#define SOKOL_D3D11
 #endif
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
+#undef eglCreateWindowSurface
+#undef eglDestroySurface
+#undef eglMakeCurrent
+#undef eglSwapBuffers
+#undef eglQuerySurface
 #endif
 #if defined(__linux__) && !defined(__ANDROID__)
 #undef XPending
@@ -586,13 +662,260 @@ bool fa_sapp_set_window_size(int w, int h) {
 #endif
 }
 
-bool fa_sapp_set_vsync(bool on) {
-#if defined(SOKOL_D3D11)
-    // _sapp_d3d11_present() reads disable_vsync at every present (Windows 10 and later).
-    if (!_sapp.win32.is_win10_or_greater) return false;
-    _sapp.desc.disable_vsync = !on;
+// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3) ---
+#if defined(_SAPP_GLX)
+// GLX 1.3 names sokol_app's own GLX declarations leave out (it includes no <GL/glx.h>, whose types would clash with
+// them).
+#define FA_GLX_PBUFFER_BIT 0x00000004
+#define FA_GLX_PBUFFER_HEIGHT 0x8040
+#define FA_GLX_PBUFFER_WIDTH 0x8041
+typedef XID fa_glx_pbuffer;
+typedef fa_glx_pbuffer (*fa_glx_create_pbuffer_fn)(Display*, GLXFBConfig, const int*);
+typedef void (*fa_glx_destroy_pbuffer_fn)(Display*, fa_glx_pbuffer);
+
+static struct {
+    int state;               // fa_sapp_gl_surface_state(): 0 on the window, 1 a pbuffer, 2 no drawable
+    fa_glx_pbuffer pbuffer;  // state 1
+    fa_glx_destroy_pbuffer_fn destroy_pbuffer;
+    PFNGLXSWAPBUFFERSPROC swap;  // sokol_app's glXSwapBuffers, replaced by fa_glx_no_swap while the surface is off
+} fa_gl_surface;
+
+// sokol_app swaps _sapp.glx.window after every frame; while the device has the window there is nothing to swap.
+static void fa_glx_no_swap(Display* display, GLXDrawable drawable) {
+    (void)display;
+    (void)drawable;
+}
+
+// X errors of the GLX requests below are trapped (Xlib's default handler would end the process) and answered with their
+// code. The handler that was installed before (none: Xlib's default) comes back afterwards.
+static int fa_x11_error_code;
+static int fa_x11_record_error(Display* display, XErrorEvent* event) {
+    (void)display;
+    fa_x11_error_code = event->error_code;
+    return 0;
+}
+static XErrorHandler fa_x11_trap_errors(void) {
+    XSync(_sapp.x11.display, False);  // the errors of earlier requests are not these ones'
+    fa_x11_error_code = Success;
+    return XSetErrorHandler(fa_x11_record_error);
+}
+static int fa_x11_untrap_errors(XErrorHandler previous) {
+    XSync(_sapp.x11.display, False);  // every error of the trapped requests has arrived
+    XSetErrorHandler(previous);
+    return fa_x11_error_code;
+}
+
+static void fa_glx_destroy_pbuffer_quietly(fa_glx_destroy_pbuffer_fn destroy, fa_glx_pbuffer pbuffer) {
+    if (!destroy || !pbuffer) return;
+    const XErrorHandler previous = fa_x11_trap_errors();
+    destroy(_sapp.x11.display, pbuffer);
+    fa_x11_untrap_errors(previous);
+}
+
+static void fa_glx_destroy_window_quietly(GLXWindow window) {
+    if (!window) return;
+    const XErrorHandler previous = fa_x11_trap_errors();
+    _sapp.glx.DestroyWindow(_sapp.x11.display, window);
+    fa_x11_untrap_errors(previous);
+}
+
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    if (fa_gl_surface.state != 0) return true;
+    if (!_sapp.valid || !_sapp.x11.display || !_sapp.glx.ctx || !_sapp.glx.window) {
+        snprintf(err, errLen, "sokol_app has no OpenGL surface on a window yet (no window)");
+        return false;
+    }
+    Display* display = _sapp.x11.display;
+    const GLXFBConfig config = _sapp_glx_choosefbconfig();  // the one sokol_app made the context and GLXWindow with
+    const fa_glx_create_pbuffer_fn create = (fa_glx_create_pbuffer_fn)dlsym(_sapp.glx.libgl, "glXCreatePbuffer");
+    const fa_glx_destroy_pbuffer_fn destroy = (fa_glx_destroy_pbuffer_fn)dlsym(_sapp.glx.libgl, "glXDestroyPbuffer");
+    glFinish();  // what OpenGL still draws into the window is done before its surface goes
+
+    // 1. A 1x1 pbuffer of the window's GLXFBConfig.
+    fa_glx_pbuffer pbuffer = 0;
+    char pbuffer_why[96];
+    pbuffer_why[0] = 0;
+    if (!config) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "no GLXFBConfig to make a pbuffer with");
+    } else if (!create || !destroy) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "this libGL has no glXCreatePbuffer");
+    } else if (!(_sapp_glx_attrib(config, GLX_DRAWABLE_TYPE) & FA_GLX_PBUFFER_BIT)) {
+        snprintf(pbuffer_why, sizeof pbuffer_why, "the window's GLXFBConfig makes no pbuffer");
+    } else {
+        const int attribs[] = {FA_GLX_PBUFFER_WIDTH, 1, FA_GLX_PBUFFER_HEIGHT, 1, None};
+        XErrorHandler previous = fa_x11_trap_errors();
+        pbuffer = create(display, config, attribs);
+        int code = fa_x11_untrap_errors(previous);
+        if (code != Success || !pbuffer) {
+            fa_glx_destroy_pbuffer_quietly(destroy, pbuffer);
+            pbuffer = 0;
+            snprintf(pbuffer_why, sizeof pbuffer_why, "glXCreatePbuffer failed (X error %d)", code);
+        } else {
+            previous = fa_x11_trap_errors();
+            const Bool current = _sapp.glx.MakeCurrent(display, pbuffer, _sapp.glx.ctx);
+            code = fa_x11_untrap_errors(previous);
+            if (!current || code != Success) {
+                fa_glx_destroy_pbuffer_quietly(destroy, pbuffer);
+                pbuffer = 0;
+                snprintf(pbuffer_why, sizeof pbuffer_why, "glXMakeCurrent on the pbuffer failed (X error %d)", code);
+            }
+        }
+    }
+    // 2. No drawable at all: a 3.0+ context of GLX_ARB_create_context may be current without a default framebuffer.
+    int state = pbuffer ? 1 : 0;
+    if (state == 0) {
+        const XErrorHandler previous = fa_x11_trap_errors();
+        const Bool current = _sapp.glx.MakeCurrent(display, None, _sapp.glx.ctx);
+        if (fa_x11_untrap_errors(previous) == Success && current) state = 2;
+    }
+    if (state == 0) {
+        const XErrorHandler previous = fa_x11_trap_errors();  // a failed glXMakeCurrent keeps the old one; said again
+        _sapp.glx.MakeCurrent(display, _sapp.glx.window, _sapp.glx.ctx);
+        fa_x11_untrap_errors(previous);
+        snprintf(err, errLen,
+                 "the OpenGL context sokol_app made on the window could not leave it (%s, and the driver refused a "
+                 "context with no drawable), so a Vulkan swapchain cannot be made there (hint: leave render.backend "
+                 "on auto on this driver, or run headless)",
+                 pbuffer_why);
+        return false;
+    }
+    // The GLXWindow goes. _sapp.glx.window is 0 from now on: sokol_app's shutdown then destroys no GLXWindow, and the
+    // only other per-frame use, its glXSwapBuffers, does nothing (fa_sapp_set_vsync refuses while the surface is off).
+    fa_glx_destroy_window_quietly(_sapp.glx.window);
+    _sapp.glx.window = 0;
+    fa_gl_surface.swap = _sapp.glx.SwapBuffers;
+    _sapp.glx.SwapBuffers = fa_glx_no_swap;
+    fa_gl_surface.pbuffer = pbuffer;
+    fa_gl_surface.destroy_pbuffer = destroy;
+    fa_gl_surface.state = state;
+    if (state == 2) snprintf(err, errLen, "%s", pbuffer_why);  // why there is no pbuffer (app.cpp logs it)
     return true;
-#elif defined(_SAPP_GLX)
+}
+
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    if (fa_gl_surface.state == 0) return true;
+    Display* display = _sapp.x11.display;
+    const GLXFBConfig config = _sapp_glx_choosefbconfig();
+    GLXWindow window = 0;
+    XErrorHandler previous = fa_x11_trap_errors();
+    if (config) window = _sapp.glx.CreateWindow(display, config, _sapp.x11.window, NULL);
+    int code = fa_x11_untrap_errors(previous);
+    if (!window || code != Success) {
+        fa_glx_destroy_window_quietly(window);
+        snprintf(err, errLen,
+                 "glXCreateWindow on the X11 window failed (X error %d): the OpenGL context stays off the window "
+                 "and its frames are not shown (hint: leave render.backend on auto on this driver)",
+                 code);
+        return false;
+    }
+    previous = fa_x11_trap_errors();
+    const Bool current = _sapp.glx.MakeCurrent(display, window, _sapp.glx.ctx);
+    code = fa_x11_untrap_errors(previous);
+    if (!current || code != Success) {
+        fa_glx_destroy_window_quietly(window);
+        snprintf(err, errLen,
+                 "glXMakeCurrent on the new GLXWindow failed (X error %d): the OpenGL context stays off the window "
+                 "and its frames are not shown (hint: leave render.backend on auto on this driver)",
+                 code);
+        return false;
+    }
+    // sokol_app's state as _sapp_glx_create_context and _sapp_glx_make_current left it.
+    _sapp.glx.window = window;
+    _sapp.glx.SwapBuffers = fa_gl_surface.swap;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&_sapp.gl.framebuffer);
+    fa_glx_destroy_pbuffer_quietly(fa_gl_surface.destroy_pbuffer, fa_gl_surface.pbuffer);
+    fa_gl_surface.pbuffer = 0;
+    fa_gl_surface.state = 0;
+    // The swap interval belongs to the drawable (GLX_EXT_swap_control): the new one gets what the window had.
+    previous = fa_x11_trap_errors();
+    _sapp_glx_swapinterval(_sapp.desc.disable_vsync ? 0 : _sapp.desc.swap_interval);
+    fa_x11_untrap_errors(previous);
+    return true;
+}
+
+void fa_sapp_gl_surface_discard(void) {
+    if (fa_gl_surface.state == 0) return;
+    // sokol_app's shutdown destroys no GLXWindow (_sapp.glx.window is 0) and its context: the pbuffer goes now.
+    fa_glx_destroy_pbuffer_quietly(fa_gl_surface.destroy_pbuffer, fa_gl_surface.pbuffer);
+    fa_gl_surface.pbuffer = 0;
+    fa_gl_surface.state = 0;
+}
+
+int fa_sapp_gl_surface_state(void) { return fa_gl_surface.state; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;  // the X11 window outlives the release: nothing to hear
+    (void)user;
+}
+#elif defined(_SAPP_ANDROID)
+// sokol_app's EGL surface attributes, as _sapp_android_init_egl_surface passes them.
+static const EGLint* fa_egl_window_attribs(void) {
+    static const EGLint srgb[] = {EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_SRGB, EGL_NONE};
+    return _sapp.desc.srgb ? srgb : NULL;
+}
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+    void* surface = (void*)_sapp.android.surface;
+    const bool ok = fa_egl_handover_release(&fa_egl, (void*)_sapp.android.display, (void*)_sapp.android.config,
+                                            (void*)_sapp.android.context, (void*)_sapp.android.current.window, &surface,
+                                            err, errLen);
+    _sapp.android.surface = (EGLSurface)surface;
+    return ok;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    void* surface = (void*)_sapp.android.surface;
+    const bool was_released = fa_egl.state != 0;
+    const bool ok = fa_egl_handover_restore(&fa_egl, (void*)_sapp.android.display, (void*)_sapp.android.config,
+                                            (void*)_sapp.android.context, (const int*)fa_egl_window_attribs(), &surface,
+                                            err, errLen);
+    _sapp.android.surface = (EGLSurface)surface;
+    // sokol_app's state as _sapp_android_init_egl_surface leaves it, when there is a window surface again.
+    if (ok && was_released && _sapp.android.surface != EGL_NO_SURFACE) {
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&_sapp.gl.framebuffer);
+    }
+    return ok;
+}
+void fa_sapp_gl_surface_discard(void) {
+    // sokol_app's shutdown destroys its surface, the stand-in, through the wrapper above, which knows it (state stays
+    // set).
+}
+int fa_sapp_gl_surface_state(void) { return fa_egl.state; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    fa_egl_handover_set_listener(&fa_egl, listener, user);
+}
+#else
+bool fa_sapp_gl_surface_release(char* err, size_t errLen) {
+#if defined(_SAPP_LINUX) && defined(_SAPP_EGL)
+    snprintf(err, errLen,
+             "this build's sokol_app draws its window through EGL (SOKOL_FORCE_EGL or -DFA_GFX_BACKEND=GLES3), whose "
+             "window surface the engine does not hand over, so a Vulkan swapchain cannot be made there (hint: build "
+             "with the default GLX window, leave render.backend on auto, or run headless)");
+#else
+    snprintf(err, errLen, "this platform's window has no OpenGL surface to release");
+#endif
+    return false;
+}
+bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
+    if (errLen > 0) err[0] = 0;
+    return true;
+}
+void fa_sapp_gl_surface_discard(void) {}
+int fa_sapp_gl_surface_state(void) { return 0; }
+void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
+    (void)listener;
+    (void)user;
+}
+#endif
+
+// The CAMetalLayer of a macOS window is sokol_impl_apple.m's: nothing to save or restore elsewhere.
+void fa_sapp_window_claimed(void) {}
+void fa_sapp_window_returned(void) {}
+
+// Windows (FA_SOKOL_APP_NOAPI): the swapchain is the engine's, so are vsync and its kind (d3d11_present_win32.cpp).
+#if !defined(FA_SOKOL_APP_NOAPI)
+bool fa_sapp_set_vsync(bool on) {
+#if defined(_SAPP_GLX)
+    if (fa_gl_surface.state != 0) return false;  // a GPU device presents into the window: its swapchain has the vsync
     if (!_sapp.glx.EXT_swap_control && !_sapp.glx.MESA_swap_control) return false;  // the driver offers no swap control
     _sapp_glx_swapinterval(on ? 1 : 0);
     _sapp.desc.disable_vsync = !on;
@@ -603,44 +926,14 @@ bool fa_sapp_set_vsync(bool on) {
 #endif
 }
 
-int fa_sapp_swapchain_kind(void) {
-#if defined(SOKOL_D3D11)
-    return fa_d3d11_kind;
-#else
-    return 0;
-#endif
-}
+int fa_sapp_swapchain_kind(void) { return 0; }
 
 int fa_sapp_set_swapchain_kind(int kind, bool linear) {
-    (void)linear;  // Metal only: D3D11's colour space is set by hdr_output_win32.cpp
-#if defined(SOKOL_D3D11)
-    if (kind < 0 || kind > 2) kind = 0;
-    if (kind == fa_d3d11_kind) return kind;
-    if (!_sapp.valid || _sapp.d3d11.swap_chain == NULL || _sapp.d3d11.rtv == NULL) return fa_d3d11_kind;
-    // HDR needs the flip model, which sokol_app uses from Windows 10 on; the 10-bit kind has no MSAA texture (see above).
-    if (kind != 0 && !_sapp.win32.is_win10_or_greater) return fa_d3d11_kind;
-    if (kind == 2 && _sapp.desc.sample_count > 1) return fa_d3d11_kind;
-    // What sokol_app's own resize does (_sapp_d3d11_resize_default_render_target), between two frames: the views of the
-    // buffers go, the buffers change, the views come back. sokol_gfx unbinds the swapchain's view at the end of every pass,
-    // so nothing else holds the buffers. desc.hdr makes sokol_app make its views (and sapp_color_format()) 16-bit float.
-    const int old = fa_d3d11_kind;
-    _sapp_d3d11_destroy_default_render_target();
-    fa_d3d11_kind = kind;
-    _sapp.desc.hdr = kind == 1;
-    const HRESULT hr = _sapp_dxgi_ResizeBuffers(_sapp.d3d11.swap_chain, _sapp.d3d11.swap_chain_desc.BufferCount,
-                                                (UINT)_sapp.framebuffer_width, (UINT)_sapp.framebuffer_height,
-                                                DXGI_FORMAT_B8G8R8A8_UNORM /* the hook above picks the format */, 0);
-    if (FAILED(hr)) {  // the buffers are unchanged: views of the old format again
-        fa_d3d11_kind = old;
-        _sapp.desc.hdr = old == 1;
-    }
-    _sapp_d3d11_create_default_render_target();
-    return fa_d3d11_kind;
-#else
     (void)kind;
+    (void)linear;
     return 0;
-#endif
 }
+#endif
 
 bool fa_sapp_edr(fa_sapp_edr_screen* out) {
     memset(out, 0, sizeof(*out));  // Apple only (sokol_impl_apple.m)
@@ -654,6 +947,21 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
     (void)w;
     (void)h;
     return false;
+}
+
+bool fa_sapp_native_window(void** window, void** display) {
+    *window = NULL;
+    *display = NULL;
+#if defined(_SAPP_WIN32)
+    *window = (void*)_sapp.win32.hwnd;
+#elif defined(_SAPP_LINUX)
+    if (!_sapp.x11.display || _sapp.x11.window == 0) return false;
+    *window = (void*)(uintptr_t)_sapp.x11.window;  // an XID: VK_KHR_xlib_surface takes it back as an integer
+    *display = (void*)_sapp.x11.display;
+#elif defined(_SAPP_ANDROID)
+    *window = (void*)_sapp.android.current.window;  // the surface of now (null while the activity has none)
+#endif
+    return *window != NULL;
 }
 
 bool fa_sapp_set_class_name(const char* name) {

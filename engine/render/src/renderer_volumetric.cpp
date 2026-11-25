@@ -10,6 +10,7 @@
 #include "mesh_batch.h"
 #include "postprocess.h"
 #include "shader_cache.h"
+#include "gpu/sokol_shaders.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/volumetric.glsl.h"
 
@@ -227,8 +228,8 @@ VolPlan make_vol_plan(const SceneSettings& ss, const CameraGeometry& cam, const 
 // The GPU side
 // ---------------------------------------------------------------------------
 
-bool VolumetricFx::gpu_supported() {
-    const sg_pixelformat_info f = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
+bool VolumetricFx::gpu_supported(gpu::Device& device) {
+    const gpu::PixelFormatCaps f = device.pixel_format_caps(gpu::PixelFormat::Rgba16F);
     // The rule of the `half` word of the feature rows (render_features.cpp, FeatureEnv::halfTargets), so render.supports("volumetricFog") and the
     // renderer never disagree.
     return f.render && f.blend && f.filter;
@@ -238,19 +239,23 @@ TransientDesc VolumetricFx::image_desc(const VolPlan& plan, const std::string& j
     TransientDesc d;
     d.width = plan.width;
     d.height = plan.height;
-    d.format = TargetFormat{SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_NONE, 1};
+    d.format = TargetFormat{gpu::PixelFormat::Rgba16F, gpu::PixelFormat::None, 1};
     d.label = job + "/vol-image";
     return d;
 }
 
-bool VolumetricFx::ready(Prog prog) {
+bool VolumetricFx::ready(Gpu& gpu, Prog prog) { return ready(gpu.device(), prog); }
+
+bool VolumetricFx::ready(gpu::Device& device, Prog prog) {
     int& st = state_[int(prog)];
     if (st != 0) return st > 0;
-    const sg_backend backend = sg_query_backend();
-    const sg_shader s = prog == Prog::March ? make_shader(volumetric_march_shader_desc(backend), "volumetric_march")
-                                            : make_shader(volumetric_apply_shader_desc(backend), "volumetric_apply");
-    if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
-        if (s.id) sg_destroy_shader(s);
+    device_ = &device;
+    const gpu::Shader s =
+        prog == Prog::March
+            ? make_shader(device, gpu::generated_shader_desc(device, volumetric_march_shader_desc), "volumetric_march")
+            : make_shader(device, gpu::generated_shader_desc(device, volumetric_apply_shader_desc), "volumetric_apply");
+    if (device.state(s) != gpu::ResourceState::Valid) {
+        if (s.id) device.destroy_shader(s);
         st = -1;
         FA_ERROR(
             "render",
@@ -264,31 +269,30 @@ bool VolumetricFx::ready(Prog prog) {
     return true;
 }
 
-sg_pipeline VolumetricFx::pipeline(Prog prog, const TargetFormat& format) {
+gpu::Pipeline VolumetricFx::pipeline(gpu::Device& device, Prog prog, const TargetFormat& format) {
     for (const PipelineEntry& e : pipelines_)
         if (e.prog == prog && e.format == format) return e.pipeline;
     if (state_[int(prog)] <= 0) return {};
-    sg_pipeline_desc d{};
+    gpu::PipelineDesc d;
     d.shader = shaders_[int(prog)];
-    d.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT2;  // `pos`, location 0 in both programs
-    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
-    d.depth.write_enabled = false;
-    d.depth.pixel_format = format.depth;
-    d.colors[0].pixel_format = format.color;
-    d.sample_count = format.samples;
-    d.face_winding = SG_FACEWINDING_CCW;
+    d.layout.attrs[0].format = gpu::VertexFormat::Float2;  // `pos`, location 0 in both programs
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.depth.pixelFormat = format.depth;
+    d.colors[0].pixelFormat = format.color;
+    d.sampleCount = format.samples;
+    d.faceWinding = gpu::FaceWinding::Ccw;
     if (prog == Prog::Apply) {
         // picture * a + rgb: the fragment's alpha is what the picture keeps of its light, its rgb what the fog adds. The alpha of the picture is kept.
         d.colors[0].blend.enabled = true;
-        d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
-        d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
-        d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
-        d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+        d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+        d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::SrcAlpha;
+        d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::Zero;
+        d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::One;
     }
     d.label = prog == Prog::March ? "vol-march" : "vol-apply";
-    const sg_pipeline p = sg_make_pipeline(&d);
-    if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID)
-        FA_ERROR("render", "failed to create pipeline '{}'", d.label);
+    const gpu::Pipeline p = device.make_pipeline(d);
+    if (device.state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", d.label);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -301,10 +305,10 @@ void VolumetricFx::forget_targets() {
 
 void VolumetricFx::release() {
     for (PipelineEntry& e : pipelines_)
-        if (e.pipeline.id) sg_destroy_pipeline(e.pipeline);
+        if (e.pipeline.id && device_) device_->destroy_pipeline(e.pipeline);
     pipelines_.clear();
-    for (sg_shader& s : shaders_) {
-        if (s.id) sg_destroy_shader(s);
+    for (gpu::Shader& s : shaders_) {
+        if (s.id && device_) device_->destroy_shader(s);
         s = {};
     }
     for (int& s : state_) s = 0;
@@ -314,9 +318,13 @@ void VolumetricFx::release() {
     warnedGpu_ = false;
 }
 
-bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
+bool VolumetricFx::can_draw(TransientTargets& targets, Gpu& gpu, const VolPlan& plan) {
+    return can_draw(targets, gpu.device(), plan);
+}
+
+bool VolumetricFx::can_draw(TransientTargets& targets, gpu::Device& device, const VolPlan& plan) {
     if (!plan.on) return false;
-    if (!gpu_supported()) {
+    if (!gpu_supported(device)) {
         if (!warnedGpu_) {
             warnedGpu_ = true;
             FA_WARN("render", "The volumetric fog needs RGBA16F render targets and this GPU has none: the scene keeps "
@@ -325,7 +333,7 @@ bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
         }
         return false;
     }
-    if (!ready(Prog::March) || !ready(Prog::Apply)) return false;
+    if (!ready(device, Prog::March) || !ready(device, Prog::Apply)) return false;
     const std::uint64_t key = (std::uint64_t(std::uint32_t(plan.width)) << 32) | std::uint32_t(plan.height);
     if (std::find(failed_.begin(), failed_.end(), key) != failed_.end()) return false;
     if (std::find(probed_.begin(), probed_.end(), key) != probed_.end()) return true;
@@ -350,25 +358,25 @@ bool VolumetricFx::can_draw(TransientTargets& targets, const VolPlan& plan) {
     return true;
 }
 
-void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, sg_view prepass, sg_view shadowTex,
-                         sg_view lightTex, const mesh_fa_shadows_t& shadows, int* drawCalls) {
-    if (!dst.colorAtt.id || !prepass.id || !shadowTex.id || !lightTex.id || !ready(Prog::March)) return;
+void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, gpu::View prepass, gpu::View shadowTex,
+                         gpu::View lightTex, const mesh_fa_shadows_t& shadows, int* drawCalls) {
+    if (!dst.colorAtt.id || !prepass.id || !shadowTex.id || !lightTex.id || !ready(gpu, Prog::March)) return;
     PassDesc pd = pass_into(dst, "vol-march");
-    pd.colorLoad = SG_LOADACTION_DONTCARE;
-    Gpu::begin_pass(pd);
-    sg_apply_pipeline(pipeline(Prog::March, pd.format));
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    pd.colorLoad = gpu::LoadAction::DontCare;
+    gpu::CommandList& list = gpu.commands();
+    list.begin_pass(pd);
+    list.set_pipeline(pipeline(gpu.device(), Prog::March, pd.format));
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_volumetric_tex_p] = prepass;
     b.views[VIEW_volumetric_fa_shadow_tex] = shadowTex;
     b.views[VIEW_volumetric_fa_light_tex] = lightTex;
     b.samplers[SMP_volumetric_smp_pt] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
+    list.set_bindings(b);
 
     const float gl = gpu.is_gl() ? 1.0f : 0.0f;
-    float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
-    sg_range vr{flip, sizeof(flip)};
-    sg_apply_uniforms(UB_volumetric_vol_vs_params, &vr);
+    const float flip[4] = {gl, 0.0f, 0.0f, 0.0f};
+    list.set_uniforms(UB_volumetric_vol_vs_params, gpu::Range{flip, sizeof(flip)});
 
     volumetric_vol_params_t u{};
     u.a[0] = gl;
@@ -403,32 +411,29 @@ void VolumetricFx::march(Gpu& gpu, const VolPlan& plan, const Target& dst, sg_vi
         u.albedo[i] = plan.albedo[i];
         u.amb[i] = plan.ambient[i];
     }
-    sg_range pr{&u, sizeof(u)};
-    sg_apply_uniforms(UB_volumetric_vol_params, &pr);
+    list.set_uniforms(UB_volumetric_vol_params, gpu::Range{&u, sizeof(u)});
 
     volumetric_vol_lights_t lu{};
     std::memcpy(lu.dirs, plan.directional, sizeof(lu.dirs));
     std::memcpy(lu.loc, plan.local, sizeof(lu.loc));
-    sg_range lr{&lu, sizeof(lu)};
-    sg_apply_uniforms(UB_volumetric_vol_lights, &lr);
+    list.set_uniforms(UB_volumetric_vol_lights, gpu::Range{&lu, sizeof(lu)});
 
     // The shadow block of the mesh shaders, with the sun's filter set to a single tap: a fog sample is blurred by the jitter and the upsample
     // already, and takes a few of them per pixel.
     volumetric_fa_shadows_t su;
     std::memcpy(&su, &shadows, sizeof(su));
     su.fa_shadow_cfg[2] = 1.0f;
-    sg_range sr{&su, sizeof(su)};
-    sg_apply_uniforms(UB_volumetric_fa_shadows, &sr);
+    list.set_uniforms(UB_volumetric_fa_shadows, gpu::Range{&su, sizeof(su)});
 
-    sg_draw(0, 3, 1);
-    Gpu::end_pass();
+    list.draw(0, 3, 1);
+    list.end_pass();
     if (drawCalls) ++*drawCalls;
 }
 
 int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const VolPlan& plan, ResourceId vol,
                             const PostRect& rect, int picW, int picH, ResourceId game, const BloomTarget& dst,
                             const PrepassRef& prepass, int* drawCalls, const std::string& job) {
-    if (!plan.on || !prepass.valid() || !vol.valid() || !ready(Prog::Apply)) return 0;
+    if (!plan.on || !prepass.valid() || !vol.valid() || !ready(gpu, Prog::Apply)) return 0;
     const bool whole = rect.whole(picW, picH);
     const int rx = whole ? 0 : rect.x, ry = whole ? 0 : rect.y;
     const int rw = whole ? picW : rect.w, rh = whole ? picH : rect.h;
@@ -437,7 +442,7 @@ int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& g
     Gpu* g = &gpu;
     VolumetricFx* self = this;
     const PrepassRef prepassRef = prepass;
-    const TargetFormat dstFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, dst.samples};
+    const TargetFormat dstFormat{gpu.scene_format(), gpu::PixelFormat::None, dst.samples};
     volumetric_apply_params_t u{};
     u.a[0] = float(plan.width);
     u.a[1] = float(plan.height);
@@ -454,27 +459,26 @@ int VolumetricFx::add_apply(FrameGraph& graph, TransientTargets& targets, Gpu& g
         pd.color = dst.att;
         pd.resolve = dst.resolve;  // id 0 when the pass does not resolve
         pd.format = dstFormat;
-        pd.colorLoad = SG_LOADACTION_LOAD;
-        pd.colorStore = SG_STOREACTION_STORE;
-        Gpu::begin_pass(pd);
+        pd.colorLoad = gpu::LoadAction::Load;
+        pd.colorStore = gpu::StoreAction::Store;
+        gpu::CommandList& list = c.commands() ? *c.commands() : g->commands();
+        list.begin_pass(pd);
         if (!whole) {
-            sg_apply_viewport(rx, ry, rw, rh, true);
-            sg_apply_scissor_rect(rx, ry, rw, rh, true);
+            list.set_viewport(rx, ry, rw, rh, true);
+            list.set_scissor(rx, ry, rw, rh, true);
         }
-        sg_apply_pipeline(self->pipeline(Prog::Apply, pd.format));
-        sg_bindings b{};
-        b.vertex_buffers[0] = g->fullscreen_triangle();
+        list.set_pipeline(self->pipeline(g->device(), Prog::Apply, pd.format));
+        gpu::Bindings b;
+        b.vertexBuffers[0] = g->fullscreen_triangle();
         b.views[VIEW_volumetric_tex_av] = vt->texView;
         b.views[VIEW_volumetric_tex_ap] = pt->texView;
         b.samplers[SMP_volumetric_smp_ap] = g->sampler(SamplerKind::Nearest);
-        sg_apply_bindings(&b);
-        float flip[4] = {g->is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-        sg_range vr{flip, sizeof(flip)};
-        sg_apply_uniforms(UB_volumetric_vol_vs_params, &vr);
-        sg_range fr{&u, sizeof(u)};
-        sg_apply_uniforms(UB_volumetric_apply_params, &fr);
-        sg_draw(0, 3, 1);
-        Gpu::end_pass();
+        list.set_bindings(b);
+        const float flip[4] = {g->is_gl() ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+        list.set_uniforms(UB_volumetric_vol_vs_params, gpu::Range{flip, sizeof(flip)});
+        list.set_uniforms(UB_volumetric_apply_params, gpu::Range{&u, sizeof(u)});
+        list.draw(0, 3, 1);
+        list.end_pass();
         if (drawCalls) ++*drawCalls;
     };
     graph.add_pass(std::move(gp));

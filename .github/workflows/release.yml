@@ -94,24 +94,29 @@ jobs:
           test -f "$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
-      - name: Build libfactoria_player.so (${{ matrix.preset }}, Release)
+      # libfactoria_player_vulkan.so: the Vulkan player (FA_PLAYER_VULKAN), which an export launches first and which hands
+      # over to libfactoria_player.so where Vulkan cannot start (docs/EXPORTING.md, "Android").
+      - name: Build libfactoria_player.so and libfactoria_player_vulkan.so (${{ matrix.preset }}, Release)
         run: |
           cmake --preset ${{ matrix.preset }} -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_PLAYER_LINK_MAP=ON
-          cmake --build --preset ${{ matrix.preset }} --target factoria_player
+          cmake --build --preset ${{ matrix.preset }} --target factoria_player factoria_player_vulkan
 
-      # The layout of the packages: FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so. Stripped here, so Gradle
-      # needs no NDK later. The player must export ANativeActivity_onCreate or NativeActivity cannot start it.
-      - name: Strip and stage the library
+      # The layout of the packages: FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so and
+      # libfactoria_player_vulkan.so. Stripped here, so Gradle needs no NDK later. Each player must export
+      # ANativeActivity_onCreate or NativeActivity cannot start it.
+      - name: Strip and stage the libraries
         run: |
           llvm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           out="mobile/android/jniLibs/${{ matrix.abi }}"
           mkdir -p "$out"
-          cp "build/${{ matrix.preset }}/player/libfactoria_player.so" "$out/"
-          "$llvm/llvm-strip" --strip-unneeded "$out/libfactoria_player.so"
-          # grep reads all of nm's output: `grep -q` stops early, nm then fails writing and pipefail fails the step.
-          "$llvm/llvm-nm" -D --defined-only "$out/libfactoria_player.so" | grep ANativeActivity_onCreate >/dev/null
-          # The build fingerprint that `factoria export --platform android` compares with its own (player/main.cpp).
-          grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player.so"
+          for lib in libfactoria_player.so libfactoria_player_vulkan.so; do
+            cp "build/${{ matrix.preset }}/player/$lib" "$out/"
+            "$llvm/llvm-strip" --strip-unneeded "$out/$lib"
+            # grep reads all of nm's output: `grep -q` stops early, nm then fails writing and pipefail fails the step.
+            "$llvm/llvm-nm" -D --defined-only "$out/$lib" | grep ANativeActivity_onCreate >/dev/null
+            # The build fingerprint that `factoria export --platform android` compares with its own (player/main.cpp).
+            grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/$lib"
+          done
           ls -l "$out"
 
       - uses: actions/upload-artifact@v4
@@ -133,6 +138,18 @@ jobs:
         with:
           name: player-size-android-${{ matrix.abi }}
           path: player-size/
+          if-no-files-found: ignore
+
+      - name: Player size (android-${{ matrix.abi }}-vulkan)
+        id: size-vulkan
+        run: ./scripts/player-size.sh measure --platform android-${{ matrix.abi }}-vulkan --build-dir build/${{ matrix.preset }} --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-${{ matrix.abi }}-vulkan
+          path: player-size-vulkan/
           if-no-files-found: ignore
 
   # The iOS player as static libraries: the player's own archive (target factoria_player_main) and every engine archive it
@@ -384,6 +401,21 @@ jobs:
           path: player-size/
           if-no-files-found: ignore
 
+      # Linux also ships the Vulkan player (factoria_player_vulkan), measured against its own budget entry.
+      - name: Player size (linux-x64-vulkan)
+        id: size-vulkan
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: ./scripts/player-size.sh measure --platform linux-x64-vulkan --build-dir build/${{ matrix.preset }} --config Release --out-dir player-size-vulkan
+
+      - name: Upload the Vulkan player size report
+        if: ${{ !cancelled() && steps.size-vulkan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-linux-x64-vulkan
+          path: player-size-vulkan/
+          if-no-files-found: ignore
+
       # sokol-shdc, the shader compiler of custom materials, goes next to factoria (docs/design/CUSTOM_SHADERS.md, D3). The
       # script reads the commit and the SHA-256 from setup.h, the pin factoria checks `setup shaders` against: a file that
       # does not match fails the release. Windows and Linux ship the pinned file unchanged (not signed: it is not ours, and
@@ -436,6 +468,8 @@ jobs:
           mkdir -p dist/FactorIA
           cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md LICENSE dist/FactorIA/
           cp "build/sokol-shdc/sokol-shdc${{ matrix.exe }}" dist/FactorIA/
+          # Linux: the Vulkan player next to the OpenGL one, where `factoria export --platform linux` finds it.
+          if [[ "$RUNNER_OS" == Linux ]]; then cp "build/${{ matrix.preset }}/player/factoria_player_vulkan" dist/FactorIA/; fi
           # FactorIA's MIT license plus every third-party license inside the binaries (fa/tooling/notices.h).
           "$bin/factoria${{ matrix.exe }}" docs licenses > dist/FactorIA/THIRD_PARTY_NOTICES.txt
           cd dist
@@ -615,7 +649,11 @@ jobs:
       - name: Check the mobile players in the package
         run: |
           tmp="${RUNNER_TEMP//\\//}/smoke"
-          for abi in arm64-v8a x86_64; do test -s "$tmp/FactorIA/mobile/android/jniLibs/$abi/libfactoria_player.so"; done
+          for abi in arm64-v8a x86_64; do
+            test -s "$tmp/FactorIA/mobile/android/jniLibs/$abi/libfactoria_player.so"
+            test -s "$tmp/FactorIA/mobile/android/jniLibs/$abi/libfactoria_player_vulkan.so"
+          done
+          if [[ "$RUNNER_OS" == Linux ]]; then test -x "$tmp/FactorIA/factoria_player_vulkan"; fi
           if [[ "$RUNNER_OS" == macOS ]]; then
             for sdk in iphoneos iphonesimulator; do test -s "$tmp/FactorIA/mobile/ios/$sdk/libfactoria_player_main.a"; done
           fi
@@ -666,6 +704,8 @@ jobs:
           unzip -l "$apk" | tee "$tmp/apk-contents.txt"
           grep -q 'lib/arm64-v8a/libfactoria_player.so' "$tmp/apk-contents.txt"
           grep -q 'lib/x86_64/libfactoria_player.so' "$tmp/apk-contents.txt"
+          grep -q 'lib/arm64-v8a/libfactoria_player_vulkan.so' "$tmp/apk-contents.txt"
+          grep -q 'lib/x86_64/libfactoria_player_vulkan.so' "$tmp/apk-contents.txt"
           grep -q 'assets/factoria.json' "$tmp/apk-contents.txt"
 
       # `factoria export --platform ios` from the unpacked package, then the generated project (CMake + Xcode, linking
@@ -756,9 +796,9 @@ jobs:
           compression-level: 0  # already compressed
 
       - name: Player size verdict
-        if: ${{ !cancelled() && steps.size.outcome == 'failure' }}
+        if: ${{ !cancelled() && (steps.size.outcome == 'failure' || steps.size-vulkan.outcome == 'failure') }}
         run: |
-          echo "::error::the Player size step failed: the Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (the step's log says which; the report is the artifact player-size-${{ matrix.size-platform }}, and the job summary has its table)"
+          echo "::error::a Player size step failed: a Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (the step's log says which; the reports are the artifacts player-size-${{ matrix.size-platform }} and, on Linux, player-size-linux-x64-vulkan, and the job summary has their tables)"
           exit 1
 
   publish:

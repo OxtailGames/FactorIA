@@ -24,6 +24,28 @@ TEST_CASE("notices: every component has its license text bundled") {
         CHECK(text->size() > 100);
         CHECK_FALSE(c.url.empty());
         CHECK_FALSE(c.license.empty());
+        for (const std::string& more : c.moreLicenseFiles) {
+            CAPTURE(more);
+            auto extra = bundled_read(more);
+            REQUIRE(extra.has_value());
+            CHECK(extra->size() > 100);
+        }
+    }
+}
+
+TEST_CASE("notices: the Vulkan headers travel with both full licenses they are under") {
+    for (NoticeScope scope : {NoticeScope::Game, NoticeScope::All}) {
+        const std::string text = third_party_notices(scope);
+        const std::size_t at = text.find("\nVulkan-Headers (");
+        REQUIRE(at != std::string::npos);
+        const std::size_t end = text.find("\n" + std::string(78, '-'), at + 1);
+        const std::string part = text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        CHECK(part.find("Files in this repository fall under one of these licenses") != std::string::npos);
+        CHECK(part.find("Apache-2.0.txt:") != std::string::npos);
+        CHECK(part.find("TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION") != std::string::npos);
+        CHECK(part.find("MIT.txt:") != std::string::npos);
+        CHECK(part.find("Permission is hereby granted, free of charge") != std::string::npos);
+        CHECK(part.find("license text missing") == std::string::npos);
     }
 }
 

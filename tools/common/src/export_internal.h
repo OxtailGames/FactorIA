@@ -122,6 +122,20 @@ inline constexpr const char* kIosSlices[] = {"iphoneos", "iphonesimulator"};
 inline constexpr const char* kIosMarkerLib =
     "libfactoria_player_main.a";  // the player's own archive, next to the engine ones
 
+// The native libraries of an Android export and the one its launcher activity loads. With the Vulkan variant
+// (export.android.vulkanPlayer, and in prebuilt mode only when every ABI has it) the launcher loads
+// libfactoria_player_vulkan.so and the GL player runs in factoria.engine.GlActivity (process ":gl") when Vulkan cannot
+// start; without it the launcher loads libfactoria_player.so, as before. Pure: the tests check both.
+struct AndroidPlayerLibs {
+    std::string launcher;           // android.app.lib_name of the launcher activity
+    std::vector<std::string> libs;  // "libfactoria_player.so" (+ "libfactoria_player_vulkan.so")
+    bool vulkan = false;
+};
+AndroidPlayerLibs android_player_libs(bool vulkan);
+inline constexpr const char* kAndroidVulkanLib = "libfactoria_player_vulkan.so";
+// Every ABI of a prebuilt players folder has the Vulkan variant (<libs>/jniLibs/<abi>/kAndroidVulkanLib).
+bool android_vulkan_libs_present(const stdfs::path& libs);
+
 struct MobileSetup {
     bool prebuilt = false;
     stdfs::path engine;  // source: the engine checkout
@@ -148,6 +162,22 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
 // commit with "-dirty" on one side only is a warning.
 Result<void> check_player_build(const ExportOptions& o, const stdfs::path& player, const std::string& platform,
                                 std::vector<std::string>& warnings);
+// The Vulkan variant of a desktop player: factoria_player_vulkan in the player's folder (<dir>/<stem>_vulkan for a player
+// with another name). Only Linux ships it (decision D4 of M77: the GL player is its fallback).
+stdfs::path vulkan_player_beside(const stdfs::path& player);
+// One player file of a desktop export: `source` is copied to <export root>/<name> (inside Contents/MacOS on macOS).
+struct DesktopPlayerFile {
+    stdfs::path source;
+    std::string name;
+    bool vulkan = false;  // the Vulkan variant (the GL player is its fallback)
+    bool operator==(const DesktopPlayerFile&) const = default;
+};
+// The player files of a desktop export. `vulkanPlayer` is the variant the plan found (empty: none, or the export
+// settings left it out): on Linux the game's executable <exeName> is then the variant and <exeName>-gl the GL player it
+// starts where Vulkan cannot (gl_player_name of fa/runtime/gpu_launch.h gives the same name). Otherwise only the GL
+// player, as <exeName>. Pure: the tests check both lists.
+std::vector<DesktopPlayerFile> desktop_player_files(const std::string& platform, const stdfs::path& player,
+                                                    const stdfs::path& vulkanPlayer, const std::string& exeName);
 // The game name with the characters a file name cannot hold replaced (the .app folder of macOS).
 std::string fs_safe_name(const std::string& s);
 // The game's executable in a desktop export: <slug>.exe on Windows, else <slug>. On Linux the slug `game` gives game-bin:
@@ -159,8 +189,9 @@ std::string sign_app_ad_hoc(const stdfs::path& app);
 // `icon` is the platform's icon (load_platform_icon), empty when none is set: the .icns of a macOS app, the icon of the
 // Windows exe, the PNG and .desktop file of a Linux build. With options.release the game goes into one pack
 // (game.pak, fa/core/pack.h) instead of the game/ folder; scripts become bytecode unless export.scriptBytecode is false.
+// `vulkanPlayer`: the Linux Vulkan variant to ship as the executable (desktop_player_files), empty for none.
 Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform,
-                            const stdfs::path& player, const stdfs::path& outRoot,
+                            const stdfs::path& player, const stdfs::path& vulkanPlayer, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, const Image& icon, ExportReport& report);
 
 // Packs `files` (project-relative; p.staged applies) into the pack `packFile`, scripts as bytecode unless
@@ -319,6 +350,8 @@ struct ExportAssets {
     Json manifest;              // the assets.json that ships: import settings, no provenance; steps may add to it
     ExportReport& report;       // warnings
     const SetupContext& setup;  // how sokol-shdc is found and started (convert_shaders)
+    bool vulkan =
+        false;  // ExportOptions::vulkan: convert_shaders adds the spirv_vk twin where the platform can run Vulkan
     bool mobile() const { return platform == "android" || platform == "ios"; }
     // Devices whose GPUs may sample only 2048 px on a side (GLES3 phones, and browsers, which run on them too): atlas pages stay
     // that small. The web otherwise ships PNGs like the desktop: WebGL2 guarantees no compressed texture format.
@@ -329,7 +362,7 @@ struct ExportAssets {
 
 // Runs the asset steps on `files` (what collect_game_files found) and records the converted files in p.staged.
 Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files,
-                                 ExportReport& report, const SetupContext& setup);
+                                 ExportReport& report, const SetupContext& setup, bool vulkan = false);
 
 // Custom materials (export_shaders.cpp): every shipped *.material.json gets <material>.json.<slang>.shader for each dialect
 // of the platform, and the snippets they name are not shipped. A material that does not compile fails the export.

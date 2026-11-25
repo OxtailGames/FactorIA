@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -12,6 +13,7 @@
 
 #include "fa/core/blob_cache.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "shader_cache.h"
 
 using namespace fa;
@@ -42,7 +44,7 @@ struct FakeCompiler {
     int calls = 0;
     bool fail = false;
     StageCompiler fn() {
-        return [this](const sg_shader_function& f, std::vector<std::uint8_t>& out, std::string& error) {
+        return [this](const gpu::ShaderFunction& f, std::vector<std::uint8_t>& out, std::string& error) {
             ++calls;
             if (fail) {
                 error = "boom";
@@ -55,11 +57,11 @@ struct FakeCompiler {
     }
 };
 
-sg_shader_function func(const char* source) {
-    sg_shader_function f{};
+gpu::ShaderFunction func(const char* source) {
+    gpu::ShaderFunction f{};
     f.source = source;
     f.entry = "main";
-    f.d3d11_target = "vs_5_0";
+    f.d3d11Target = "vs_5_0";
     return f;
 }
 
@@ -70,7 +72,7 @@ TEST_CASE("shader cache: the first run compiles and stores, the second reads the
     FakeCompiler c;
     ShaderBuildStats stats;
     std::vector<std::uint8_t> out;
-    const sg_shader_function f = func("float4 main() { return 0; }");
+    const gpu::ShaderFunction f = func("float4 main() { return 0; }");
     REQUIRE(cached_stage_bytecode(t.dir, "d3d11|1|flags", "quad", "vs", f, c.fn(), out, stats));
     CHECK(c.calls == 1);
     CHECK(stats.cacheMisses == 1);
@@ -154,7 +156,7 @@ TEST_CASE("shader cache: a damaged or cut-short file is recompiled and stored ag
     FakeCompiler c;
     std::vector<std::uint8_t> out;
     ShaderBuildStats stats;
-    const sg_shader_function f = func("src");
+    const gpu::ShaderFunction f = func("src");
     REQUIRE(cached_stage_bytecode(t.dir, "k", "mesh", "fs", f, c.fn(), out, stats));
     const auto files = cache_files(t.dir);
     REQUIRE(files.size() == 1);
@@ -225,4 +227,32 @@ TEST_CASE("shader cache: the stats report is plain numbers") {
     CHECK(j.at("backend").get<std::string>() == "d3d11");
     CHECK(j.at("programs").get<int>() == 3);
     CHECK(j.at("cacheHits").get<int>() == 2);
+}
+
+TEST_CASE("shader cache: on Vulkan a stage given as text is base64 SPIR-V, decoded into bytecode") {
+    const std::uint32_t words[2] = {0x07230203u, 0x00010000u};
+    const std::string vs = base64_encode(words, sizeof words);
+    gpu::ShaderDesc desc;
+    desc.vertexFunc.source = vs.c_str();
+    desc.fragmentFunc.source = vs.c_str();
+    std::size_t seen = 0;
+    bool bytecode = false;
+    make_shader_via(gpu::Backend::Vulkan, desc, "spirv", [&](const gpu::ShaderDesc* prepared) {
+        REQUIRE(prepared);
+        seen = prepared->vertexFunc.bytecode.size;
+        bytecode = prepared->vertexFunc.source == nullptr && prepared->fragmentFunc.bytecode.size == sizeof words &&
+                   std::memcmp(prepared->vertexFunc.bytecode.ptr, words, sizeof words) == 0;
+        return gpu::Shader{};
+    });
+    CHECK(seen == sizeof words);
+    CHECK(bytecode);
+
+    // Not base64 of whole 32-bit words: the backend gets the desc as it is and reports the stage.
+    desc.fragmentFunc.source = "@@ text, not base64 @@";  // outside the base64 alphabet, whatever the text
+    bool asIs = false;
+    make_shader_via(gpu::Backend::Vulkan, desc, "spirv", [&](const gpu::ShaderDesc* prepared) {
+        asIs = prepared == nullptr;
+        return gpu::Shader{};
+    });
+    CHECK(asIs);
 }
