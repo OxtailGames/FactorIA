@@ -1166,10 +1166,20 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.multiThreadRecording = I.project.renderMultiThreadRecording;
         std::string gerr;
         bool ok = false;
-        // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native window
-        // first (the platform's swapchain goes: one per window) and give it back when they fail, so the fallback below
-        // makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
+        // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native
+        // window first (the platform's swapchain goes: one per window) and give it back when they fail, so the fallback
+        // below makes the platform's again (ARCHITECTURE_RENDERING_GPU.md, "Who presents into the window").
         const bool appWindow = I.windowed && !config.editorMode && app_native_window().window != nullptr;
+        // The claimed window goes back to the platform. When sokol_app's OpenGL surface cannot come back on it (the
+        // driver refused), `why` says so too: the fallback reason shows it, and the OpenGL frames that follow show
+        // nothing.
+        auto release_window = [&](std::string& why) {
+            if (!I.windowClaimed) return;
+            std::string back;
+            if (!app_release_native_window(&back))
+                why += " (and the window's OpenGL surface could not come back on it: " + back + ")";
+            I.windowClaimed = false;
+        };
         auto start = [&](GpuBackend backend) -> std::string {
             RendererDesc d = rd;
             d.backend = backend;
@@ -1195,17 +1205,14 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 env = app_gfx_formats();  // the window's formats, no device: D3D12 and Vulkan make their own
                 I.windowClaimed = true;
             } else if (appWindow && !gfx_device_active()) {
-                // The sokol backend in a game window whose context the runner left closed (it asked for D3D12 or Vulkan):
-                // the platform's swapchain is made now (Windows: the D3D11 presenter).
+                // The sokol backend in a game window whose context the runner left closed (it asked for D3D12 or
+                // Vulkan): the platform's swapchain is made now (Windows: the D3D11 presenter).
                 env = app_gfx_environment();
             }
             // Tests: a forced failure after the claim, so the fallback goes through its release too.
             if (config.gpuStartFault)
                 if (std::string fault = config.gpuStartFault(backend); !fault.empty()) {
-                    if (I.windowClaimed) {
-                        app_release_native_window();
-                        I.windowClaimed = false;
-                    }
+                    release_window(fault);
                     return fault;
                 }
             I.renderer = std::make_unique<Renderer>();
@@ -1222,11 +1229,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             }
             I.renderer->shutdown();
             I.renderer.reset();
-            if (I.windowClaimed) {
-                app_release_native_window();  // the renderer destroyed its swapchain: the window is free again
-                I.windowClaimed = false;
-            }
-            return why.empty() ? std::string("Renderer::init failed") : why;
+            if (why.empty()) why = "Renderer::init failed";
+            release_window(why);  // the renderer destroyed its swapchain: the window is free again
+            return why;
         };
         if (!I.windowed) {
             I.gpu = std::make_unique<HeadlessGpu>();
@@ -1460,7 +1465,8 @@ void Engine::shutdown() {
     if (I.windowClaimed) app_set_native_window_listener({});  // nothing to tell a renderer that is going
     if (I.renderer) I.renderer->shutdown();
     I.renderer.reset();
-    if (I.windowClaimed) app_release_native_window();  // its swapchain is gone with the renderer
+    // The device's swapchain is gone with the renderer (a failure to restore the GL surface is logged).
+    if (I.windowClaimed) (void)app_release_native_window();
     I.windowClaimed = false;
     if (I.gpu) I.gpu->shutdown();
     I.gpu.reset();
@@ -1508,14 +1514,15 @@ Json Engine::startup_report() const {
     j["gpu"] = impl_->renderer && impl_->renderer->initialized() ? impl_->renderer->startup_report() : Json();
     // "backend" is the device's; the asked one is named when it is another (M77-P9a).
     if (j["gpu"].is_object()) {
-        // The one asked for, or what "auto" means in this binary (the Vulkan player: Vulkan), so an in-process fallback of
-        // the Vulkan player names it too.
+        // The one asked for, or what "auto" means in this binary (the Vulkan player: Vulkan), so an in-process fallback
+        // of the Vulkan player names it too.
         const GpuBackend asked =
             impl_->gpuChoice.requested != GpuBackend::Default ? impl_->gpuChoice.requested : impl_->gpuChoice.backend;
         if (asked != GpuBackend::Default && asked != impl_->renderer->device_backend())
             j["gpu"]["requestedBackend"] = gpu_backend_name(asked);
-        // This player was started in place of another one (another process) that could not start its backend (M77-P9e2):
-        // the Vulkan player of Linux and Android handing the game to the OpenGL player. Not the in-process fallback below.
+        // This player was started in place of another one (another process) that could not start its backend
+        // (M77-P9e2): the Vulkan player of Linux and Android handing the game to the OpenGL player. Not the in-process
+        // fallback below.
         if (!impl_->gpuChoice.fallbackFrom.empty()) {
             j["gpu"]["fallbackFrom"] = impl_->gpuChoice.fallbackFrom;
             j["gpu"]["fallbackReason"] = impl_->gpuChoice.fallbackReason;

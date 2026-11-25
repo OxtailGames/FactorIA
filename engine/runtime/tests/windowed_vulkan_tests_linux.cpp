@@ -1,11 +1,11 @@
-// The game window on the engine's own Vulkan device (M77-P9e3): on Linux sokol_app's OpenGL surface leaves the X11 window
-// (app_claim_native_window) and the Vulkan device makes its swapchain there; when that start fails the claim is released,
-// the OpenGL surface comes back and the build's backend draws in the same process. Linux only (the _linux suffix), in a
-// real window: runs when FA_WINDOWED_SMOKE=1 and a display exists (CI: ctest `runtime_windowed_vulkan` and
-// `runtime_windowed_vulkan_fallback`, under xvfb with lavapipe):
+// The game window on the engine's own Vulkan device (M77-P9e3): on Linux sokol_app's OpenGL surface leaves the X11
+// window (app_claim_native_window) and the Vulkan device makes its swapchain there; when that start fails the claim is
+// released, the OpenGL surface comes back and the build's backend draws in the same process. Linux only (the _linux
+// suffix), in a real window: runs when FA_WINDOWED_SMOKE=1 and a display exists (CI: ctest `runtime_windowed_vulkan`
+// and `runtime_windowed_vulkan_fallback`, under xvfb with lavapipe):
 //   FA_WINDOWED_SMOKE=1 xvfb-run -a -s "-screen 0 1280x720x24" build/.../fa_test_runtime -tc="windowed vulkan: *"
-// A machine without a Vulkan driver says so (MESSAGE) and passes, unless FA_VULKAN_REQUIRE=1 (the Linux CI job). Each case
-// runs alone in its process (sokol_app and sokol_gfx are singletons).
+// A machine without a Vulkan driver says so (MESSAGE) and passes, unless FA_VULKAN_REQUIRE=1 (the Linux CI job). Each
+// case runs alone in its process (sokol_app and sokol_gfx are singletons).
 #include <doctest.h>
 
 #include <algorithm>
@@ -22,53 +22,17 @@
 #include "fa/render/renderer.h"
 #include "fa/runtime/engine.h"
 
-// Last: Xlib's macros (None, Bool, Status...) would rename the engine's identifiers.
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#undef None
+// Last: it includes Xlib, whose macros (None, Bool, Status...) would rename the engine's identifiers.
+#include "../../platform/tests/x11_window_pixel.h"
 
 using namespace fa;
+using fa::test::x11_window_pixel;
 
 namespace {
 
 bool vulkan_required() {
     const char* v = std::getenv("FA_VULKAN_REQUIRE");
     return v && std::strcmp(v, "1") == 0;
-}
-
-int g_x_error = 0;
-int record_x_error(Display*, XErrorEvent* e) {
-    g_x_error = e->error_code;
-    return 0;
-}
-
-// The colour the X server holds for the window's pixel (x, y): what the last present put there, whichever API presented
-// it. False: no window, or the server refused the read (an X error, trapped).
-bool window_pixel(int x, int y, unsigned& r, unsigned& g, unsigned& b) {
-    const NativeWindow h = app_native_window();
-    if (!h.window || !h.display) return false;
-    Display* display = static_cast<Display*>(const_cast<void*>(h.display));
-    const Window window = static_cast<Window>(reinterpret_cast<std::uintptr_t>(h.window));
-    XSync(display, False);
-    g_x_error = 0;
-    const XErrorHandler previous = XSetErrorHandler(record_x_error);
-    XImage* image = XGetImage(display, window, x, y, 1, 1, AllPlanes, ZPixmap);
-    XSync(display, False);
-    XSetErrorHandler(previous);
-    if (!image) return false;
-    const unsigned long pixel = XGetPixel(image, 0, 0);
-    auto channel = [pixel](unsigned long mask) -> unsigned {
-        if (mask == 0) return 0;
-        int shift = 0;
-        while (((mask >> shift) & 1UL) == 0) ++shift;
-        const unsigned long max = mask >> shift;
-        return static_cast<unsigned>(((pixel & mask) >> shift) * 255UL / max);
-    };
-    r = channel(image->red_mask);
-    g = channel(image->green_mask);
-    b = channel(image->blue_mask);
-    XDestroyImage(image);
-    return g_x_error == 0;
 }
 
 // A 320x180 game whose camera clears to red, with a square in the middle.
@@ -113,7 +77,7 @@ int run_game(EngineConfig cfg) {
         if (s.frames == 60) {
             s.widthAfterResize = app_framebuffer_width();
             s.dpiScale = app_dpi_scale();
-            s.pixel = window_pixel(5, 5, s.r, s.g, s.b);
+            s.pixel = x11_window_pixel(5, 5, s.r, s.g, s.b);
         }
         if (s.frames == 80) app_request_quit();
     };
@@ -185,6 +149,8 @@ TEST_CASE("windowed vulkan: the game window draws with the engine's own Vulkan d
 TEST_CASE("windowed vulkan fallback: a Vulkan start that fails after the claim gives the window back to OpenGL" *
           doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     if (!gpu_backend_available(GpuBackend::Vulkan)) {
+        // The Linux CI job builds with Vulkan: a build without it there would let this case pass by checking nothing.
+        if (vulkan_required()) FAIL("FA_VULKAN_REQUIRE=1 but this build has no Vulkan backend (FA_RENDER_VULKAN)");
         MESSAGE("this build has no Vulkan backend: no claim to fall back from");
         return;
     }

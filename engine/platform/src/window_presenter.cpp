@@ -24,7 +24,6 @@ WindowPresenterStep window_presenter_step(WindowPresenter now, WindowPresenterEv
                     "that renderer down and call app_release_native_window() first)";
                 return step;
             }
-            step.makePlatform = now == WindowPresenter::None;
             step.next = WindowPresenter::Platform;
             return step;
         case WindowPresenterEvent::DeviceClaim:

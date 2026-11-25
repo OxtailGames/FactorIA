@@ -20,10 +20,10 @@
 #define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
 #endif
 // Android: sokol_app's EGL window surface leaves the ANativeWindow while a GPU device presents there (M77-P9e3b,
-// egl_surface_handover.h). sokol_app's EGL calls get wrappers: outside a release they are the real calls; while released
-// its window surface is a stand-in (a 1x1 pbuffer or "no drawable"), a new ANativeWindow gets a stand-in and is told to
-// the device, the window's loss is told to the device before the stand-in goes. EGL's headers come first, so their own
-// declarations keep their names. Every call runs on sokol_app's loop thread (its frame thread too).
+// egl_surface_handover.h). sokol_app's EGL calls get wrappers: outside a release they are the real calls; while
+// released its window surface is a stand-in (a 1x1 pbuffer or "no drawable"), a new ANativeWindow gets a stand-in and
+// is told to the device, the window's loss is told to the device before the stand-in goes. EGL's headers come first, so
+// their own declarations keep their names. Every call runs on sokol_app's loop thread (its frame thread too).
 #if defined(__ANDROID__)
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -127,9 +127,9 @@ static EGLBoolean fa_egl_query_surface(EGLDisplay display, EGLSurface surface, E
 #define eglSwapBuffers fa_egl_swap_buffers
 #define eglQuerySurface fa_egl_query_surface
 #endif
-// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue with
-// XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then the
-// backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
+// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue
+// with XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then
+// the backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
 // declarations keep their names.
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <X11/Xlib.h>
@@ -157,10 +157,11 @@ static int fa_x11_next_event(Display* display, XEvent* event) {
 #define XPending fa_x11_pending
 #define XNextEvent fa_x11_next_event
 #endif
-// Windows: sokol_app makes the window and owns no graphics device (SOKOL_NOAPI); sokol_gfx stays SOKOL_D3D11. The engine
-// makes the D3D11 device and the window's DXGI swapchain itself (d3d11_present_win32.cpp), so the D3D12 and Vulkan backends
-// can make their own swapchain on the same window. sokol_app's frame callback then only runs the frame: app.cpp resizes and
-// presents around it. The backend macro is SOKOL_D3D11 again from sokol_gfx.h on (sokol_glue.h is not used for it).
+// Windows: sokol_app makes the window and owns no graphics device (SOKOL_NOAPI); sokol_gfx stays SOKOL_D3D11. The
+// engine makes the D3D11 device and the window's DXGI swapchain itself (d3d11_present_win32.cpp), so the D3D12 and
+// Vulkan backends can make their own swapchain on the same window. sokol_app's frame callback then only runs the frame:
+// app.cpp resizes and presents around it. The backend macro is SOKOL_D3D11 again from sokol_gfx.h on (sokol_glue.h is
+// not used for it).
 #if defined(_WIN32) && defined(SOKOL_D3D11)
 #define FA_SOKOL_APP_NOAPI 1
 #undef SOKOL_D3D11
@@ -661,9 +662,11 @@ bool fa_sapp_set_window_size(int w, int h) {
 #endif
 }
 
-// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3) ----------
+// ---- the window's OpenGL surface, off the window while a GPU device presents there (sokol_window.h, M77-P9e3)
+// ----------
 #if defined(_SAPP_GLX)
-// GLX 1.3 names sokol_app's own GLX declarations leave out (it includes no <GL/glx.h>, whose types would clash with them).
+// GLX 1.3 names sokol_app's own GLX declarations leave out (it includes no <GL/glx.h>, whose types would clash with
+// them).
 #define FA_GLX_PBUFFER_BIT 0x00000004
 #define FA_GLX_PBUFFER_HEIGHT 0x8040
 #define FA_GLX_PBUFFER_WIDTH 0x8041
@@ -833,6 +836,14 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
     return true;
 }
 
+void fa_sapp_gl_surface_discard(void) {
+    if (fa_gl_surface.state == 0) return;
+    // sokol_app's shutdown destroys no GLXWindow (_sapp.glx.window is 0) and its context: the pbuffer goes now.
+    fa_glx_destroy_pbuffer_quietly(fa_gl_surface.destroy_pbuffer, fa_gl_surface.pbuffer);
+    fa_gl_surface.pbuffer = 0;
+    fa_gl_surface.state = 0;
+}
+
 int fa_sapp_gl_surface_state(void) { return fa_gl_surface.state; }
 void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
     (void)listener;  // the X11 window outlives the release: nothing to hear
@@ -865,6 +876,10 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
     }
     return ok;
 }
+void fa_sapp_gl_surface_discard(void) {
+    // sokol_app's shutdown destroys its surface, the stand-in, through the wrapper above, which knows it (state stays
+    // set).
+}
 int fa_sapp_gl_surface_state(void) { return fa_egl.state; }
 void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
     fa_egl_handover_set_listener(&fa_egl, listener, user);
@@ -885,12 +900,17 @@ bool fa_sapp_gl_surface_restore(char* err, size_t errLen) {
     if (errLen > 0) err[0] = 0;
     return true;
 }
+void fa_sapp_gl_surface_discard(void) {}
 int fa_sapp_gl_surface_state(void) { return 0; }
 void fa_sapp_gl_surface_set_window_listener(void (*listener)(void* window, void* user), void* user) {
     (void)listener;
     (void)user;
 }
 #endif
+
+// The CAMetalLayer of a macOS window is sokol_impl_apple.m's: nothing to save or restore elsewhere.
+void fa_sapp_window_claimed(void) {}
+void fa_sapp_window_returned(void) {}
 
 // Windows (FA_SOKOL_APP_NOAPI): the swapchain is the engine's, so are vsync and its kind (d3d11_present_win32.cpp).
 #if !defined(FA_SOKOL_APP_NOAPI)
