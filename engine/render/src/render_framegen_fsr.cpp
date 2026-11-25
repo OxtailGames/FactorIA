@@ -485,6 +485,7 @@ public:
     void vulkan_device_request(const gpu::VulkanPhysicalDevice& pd, gpu::VulkanDeviceRequest& req) override {
         Core& c = *core_;
         std::lock_guard<std::mutex> lock(c.mutex);
+        c.hookReason.clear();  // a new device: the reason the last one gave no swapchain is not this one's
         c.vkQueuesOk = false;
         c.vendorOk =
             c.armedMode == FrameGenMode::Fsr || (c.armedMode == FrameGenMode::Auto && pd.vendorId == kPciVendorAmd);
@@ -651,6 +652,7 @@ public:
     void d3d12_device_created(gpu::D3d12DeviceCreated& made) override {
         Core& c = *core_;
         std::lock_guard<std::mutex> lock(c.mutex);
+        c.hookReason.clear();  // a new device: the reason the last one gave no swapchain is not this one's
         c.vendorOk = c.armedMode == FrameGenMode::Fsr ||
                      (c.armedMode == FrameGenMode::Auto && adapter_vendor(made.adapter) == kPciVendorAmd);
         // mode auto and no FidelityFX installed: no swapchain, no error (the probe tells the user; see vulkan_device_request).
@@ -692,9 +694,11 @@ public:
         abi::Context ctx = nullptr;
         if (const abi::ReturnCode rc = c.api.createContext(&ctx, &desc.header, nullptr);
             rc != abi::kOk || !ctx || !proxy) {
-            // A proxy the library handed over with a failing result (or with no context to go with it) is ours to give back: the engine never
-            // sees it. The SDK's order is the app's reference first, then the context.
-            com_release(proxy);
+            // An ok result with a swapchain and no context: the reference came through the out parameter, as it does on success, and nothing can
+            // use it, so it is given back before the engine (which never sees it) could leak it. An error result gives none: by COM's
+            // convention an out parameter of a failed call holds no reference (as far as FidelityFX's headers say; its source is not part of
+            // this repository), so there is nothing to release then.
+            if (rc == abi::kOk) com_release(proxy);
             if (ctx && c.api.destroyContext) c.api.destroyContext(&ctx, nullptr);
             return fail("FSR frame generation could not make its Direct3D 12 swapchain " + std::to_string(head.width) +
                         "x" + std::to_string(head.height) + ": " + call_failed("ffxCreateContext(swapchain)", rc) +
@@ -763,7 +767,7 @@ public:
             if (g_active.lock() == core_) g_active.reset();
         }
         core_->teardown_fg(nullptr);
-        core_->teardown_swapchain();
+        core_->release_swapchain();  // (a swapchain the engine still presents on waits for its presents first)
     }
 
     std::string_view name() const override { return "FSR 3 frame generation"; }

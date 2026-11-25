@@ -347,7 +347,8 @@ the rest is private to `fa_render`:
   On D3D12 `swapchain_destroying` runs before the engine releases the proxy, and FidelityFX's sample releases the application's reference
   first: so it destroys only the generation context (and waits for the presents) there, and the swapchain's context goes with the next swapchain,
   `device_destroying` or the provider (`release_swapchain()`); `swap_alive()` says whether the engine still presents on it. A D3D12 create that
-  fails with a proxy already made gives the proxy back (`com_release`, a test seam `set_fsr_com_release_for_test`). On Vulkan a swapchain
+  returns ok but gives no context releases the proxy it made (`com_release`, a test seam `set_fsr_com_release_for_test`: the reference came
+  through the out parameter); one that returns an error releases nothing, since a failed call leaves no reference in an out parameter. On Vulkan a swapchain
   query that fails is asked once more; if it fails again the proxy is ended through the destroy function an earlier swapchain gave, and with
   none (the first swapchain) it stays, and the error says so. `mode auto` on an AMD GPU with no library installed asks for no queue and makes
   no swapchain (`auto_without_library`). **Threads**: the game's render thread makes every call of the provider and the hook, all under
@@ -355,8 +356,8 @@ the rest is private to `fa_render`:
   `api.dispatch`; lock order `mutex`, then `fgMutex`), because the render thread holds `Core::mutex` while it waits for the presents the callback
   belongs to. The render thread clears the context under `fgMutex` and destroys it outside the lock. The Vulkan destroy trampoline reaches the
   `Core` through a `weak_ptr` and reads `retired` under `Core::mutex`. The frame number of `configure` between two frames is the last one
-  dispatched (`lastFrameId`). Not verified without an AMD machine: the real library's behaviour (the interpolated picture, extra device features its Vulkan swapchain may
-  want, the state of the hudless image at present time).
+  dispatched (`lastFrameId`). Not verified without an AMD machine: the real library's behaviour (the interpolated picture, extra device
+  features its Vulkan swapchain may want, the state of the hudless image at present time).
 - **Tests.** `engine/render/tests/framegen_fsr_tests.cpp` (ctest `render`): a fake library table and a fake hook driver: probe refusals, both
   hooks, the order of start, configure, prepare and stop, the prepare descriptor's fields, resets, and each ffx call failing into a reason.
   `engine/render/tests/framegen_tests.cpp` (ctest `render`): key parsing and errors, the provider choice per GPU maker, each
@@ -372,24 +373,28 @@ the rest is private to `fa_render`:
   (`applicationSwapChain` null, one interpolated frame, `uiMode` none, flags 0: unjittered motion, non-inverted depth), then
   `GetSwapChainPtr` for `IDXGISwapChain1`, which the hook returns with its one reference. It makes no swapchain (and says nothing) on a
   GPU that is not Intel (vendor id read from `IDXGIAdapter1::GetDesc1`: through `dxgi.h` on Windows, through the vtable slot where there is no
-  Windows header, which is what the tests use), without the library, or without `libxell.dll`: the probe is what tells the user. A library that is installed and fails sets `error`, which marks the hook
-  unavailable for the device. The context is destroyed lazily (when the next swapchain is made, and at `device_destroying`, the
+  Windows header, which is what the tests use), without the library, or without `libxell.dll`: the probe is what tells the user. A library
+  that is installed and fails sets `error`, which marks the hook unavailable for the device. The context is destroyed lazily (when the next swapchain is made, and at `device_destroying`, the
   swapchain's references must be gone) and always before XeLL's. `start` only checks that the hook made the swapchain of this device,
   `configure` sets XeLL's sleep mode and `SetEnabled`, `dispatch` tags depth and motion (ONLY_NOW, COPY_SOURCE through `begin_native`) and the
   constants, `present_begin` calls `SetPresentId`, `present_end` counts `framesPresented - 1`. A failing call is `fail()`: logged once,
   `failure()` (a new virtual of the seam) keeps the reason, the probe and `provider_reason` repeat it and the controller stops the provider
   for the run, except the swapchain's own `frameGenResult` of a present: five presents in a row (`kStatusFailures`, a count) fail it, one good
   present restarts the count. `configure` keeps `wantEnabled_` (what the controller asked) apart from `enabled_` (what the swapchain has): a
-  window made again gives a swapchain with generation off, and the next `dispatch` turns it on. Present ids are strictly increasing
-  (`lastPresentId_`, reset with the device): an id that is not above the last is the last plus one. The enum values of the ABI are
-  `static_assert`ed like its sizes. **Threads**: the render thread makes every hook call and every provider call (`present_begin` and
+  window made again gives a swapchain with generation off, and the next `dispatch` turns it on. The id of a frame has one
+  source, XeLL's last sleep id (`XellShare::frame_id()`, 0 until XeLL has slept with its sleep mode on, and the count of presents plus one
+  names the frame until then): `dispatch` tags the frame with it, `present_begin` gives `SetPresentId` the same id (`taggedId_`), and an untagged present only
+  reads it, so presents with generation off never move the ids on. `lastPresentId_` is the id of the last tagged frame (reset with the
+  device); a frame whose id equals it is tagged with the last plus one (two frames before XeLL's next sleep), and an id that went back (XeLL's
+  context made again) is followed, not outrun. The one enum value that depends on a Windows header (`D3D12_RESOURCE_STATE_COPY_SOURCE`) is
+  `static_assert`ed against it on Windows; the rest of the ABI is checked by its sizes. **Threads**: the render thread makes every hook call and every provider call (`present_begin` and
   `present_end` run on the thread that presents, which is the render thread in this engine); the probe may come from the editor's thread, and
   it and the hook both load `libxess_fg.dll`, so `lib_` and `api_` are under `mutex_`, the first library stays when both load (the second copy
   is closed), and the render thread works on a copy of the function table (`api()`).
 - **XeLL shared (`XellShare`, `render_latency_xell.h`).** The XeLL latency provider owns the context; XeSS-FG takes a reference when it makes
   the swapchain (before the latency controller exists) and the context goes with the last reference (`LatencyProvider::xell_share()`).
   `LatencyController::require_driver(Xell)` forces XeLL on while XeSS-FG is the running provider (`Renderer::Impl::sync_framegen_latency`)
-  whatever `render.latency` is; `latency_status` says so. XeLL's last sleep id is the present id of the frame's tags.
+  whatever `render.latency` is; `latency_status` says so. XeLL's last sleep id is the tag id and the present id of the frame (see XeSS-FG above).
 - **Open.** The hook is not told the mode (`RendererDesc::frameGeneration` is a bool): on an Intel GPU with both libraries it makes the proxy
   swapchain even when another provider's mode was chosen. Depth and projection conventions are untested on hardware.
 

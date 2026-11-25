@@ -86,8 +86,9 @@ confirm.
   could not generate: one such present (a resize, a device that stalled for a frame) is let go, and only five presents in a row turn
   generation off for the run.
 - **When the window is made again.** A new swapchain starts with generation off; the provider remembers what the controller last asked for and
-  turns generation back on with the first frame of the new swapchain. Present ids only grow (a frame is never tagged with an id a present
-  already used), whatever XeLL's frame ids and the count of presents do when a swapchain or a device is made again.
+  turns generation back on with the first frame of the new swapchain. A frame's tag, its present id and XeLL's frame id are always the same
+  number (XeLL's last sleep id): presents with generation off do not move it, and when XeLL's ids go back (its context made again) they are
+  followed. Only a frame dispatched twice before XeLL's next sleep gets the last id plus one.
 - **Which games get its swapchain.** Only a game started with `xess`, or with `auto` on an Intel GPU; `dlss` and `fsr` leave the window's
   swapchain to their own providers.
 

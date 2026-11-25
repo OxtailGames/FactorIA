@@ -873,8 +873,7 @@ TEST_CASE(
     CHECK(r.h.p->dispatch(r.f));
     REQUIRE(fgfx.constants.size() == 1);
     const std::uint32_t tagged = fgfx.constants[0].first;
-    CHECK(tagged ==
-          11);  // 10 was the id of the present above: ids only grow, a frame is never tagged with one already used
+    CHECK(tagged == 10);  // the untagged present above only read the count: it does not move the ids on
     e.frame = 10;
     r.h.hook->present_begin(e);
     REQUIRE(fgfx.presentIds.size() == 2);
@@ -937,47 +936,73 @@ TEST_CASE("xess frame generation: a negative result of one or a few presents is 
     CHECK(contains(r.h.p->failure(), "5 presents in a row"));
 }
 
-TEST_CASE("xess frame generation: present ids only grow, across XeLL's ids restarting, a swapchain made again and a "
-          "new device") {
+TEST_CASE("xess frame generation: the tag, the present id and XeLL's frame id are the same after a stop, a restart and "
+          "XeLL's ids "
+          "going back") {
     if (sizeof(void*) != 8) return;
-    FrameRig r;
-    std::vector<std::uint32_t> ids;  // every id the SDK was given, in order: tags and present ids
-    const auto collect = [&] {
-        ids.clear();
-        // fgfx.presentIds and fgfx.constants are two lists of the same sequence of ids: merge by checking each grows alone
-        for (const auto& c : fgfx.constants) ids.push_back(c.first);
-    };
-    gpu::PresentEvent e;
-    r.rig.xell->sleep(41);
-    CHECK(r.h.p->dispatch(r.f));
-    e.frame = 1;
-    r.h.hook->present_begin(e);
-    r.h.hook->present_end(e);
-    r.rig.xell->sleep(7);  // XeLL's frame ids start again (a new XeLL context)
-    CHECK(r.h.p->dispatch(r.f));
-    e.frame = 2;
-    r.h.hook->present_begin(e);
-    r.h.hook->present_end(e);
-    // The swapchain is made again and the count of presents starts at 1.
-    r.h.hook->swapchain_destroying(gpu::SwapchainEvent{});
-    REQUIRE(r.h.make_swapchain());
-    REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
-    e.frame = 1;
-    r.h.hook->present_begin(e);  // nothing tagged
-    r.h.hook->present_end(e);
-    CHECK(r.h.p->dispatch(r.f));
-    e.frame = 2;
-    r.h.hook->present_begin(e);
-    r.h.hook->present_end(e);
-    collect();
-    REQUIRE(ids.size() == 3);
-    REQUIRE(fgfx.presentIds.size() == 4);
-    CHECK(ids[0] == 41);
-    for (std::size_t i = 1; i < ids.size(); ++i) CHECK(ids[i] > ids[i - 1]);
-    for (std::size_t i = 1; i < fgfx.presentIds.size(); ++i) CHECK(fgfx.presentIds[i] > fgfx.presentIds[i - 1]);
-    // The present of a tagged frame carries the id of its tag.
-    CHECK(fgfx.presentIds[0] == ids[0]);
-    CHECK(fgfx.presentIds[1] == ids[1]);
+    {
+        FrameRig r;
+        gpu::PresentEvent e;
+        r.rig.xell->sleep(41);
+        CHECK(r.h.p->dispatch(r.f));
+        REQUIRE(fgfx.constants.size() == 1);
+        CHECK(fgfx.constants[0].first == 41);
+        e.frame = 1;
+        r.h.hook->present_begin(e);
+        r.h.hook->present_end(e);
+        CHECK(fgfx.presentIds.back() == 41);
+        // Generation stops: the presents go on (and XeLL stops counting). They name no frame and must not move the ids on.
+        r.h.p->configure(false);
+        r.h.p->stop(r.dev);
+        for (int frame = 2; frame <= 7; ++frame) {
+            e.frame = std::uint64_t(frame);
+            r.h.hook->present_begin(e);
+            r.h.hook->present_end(e);
+            CHECK(fgfx.presentIds.back() == 41);  // XeLL's last id, the one source
+        }
+        // Generation again: XeLL's next sleep is the one after its last (42, below what a count of the presents would give).
+        REQUIRE(r.h.p->start(r.dev, swapchain_of(r.dev)).empty());
+        r.h.p->configure(true);
+        r.rig.xell->sleep(42);
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 42);
+        e.frame = 8;
+        r.h.hook->present_begin(e);
+        r.h.hook->present_end(e);
+        CHECK(fgfx.presentIds.back() == 42);  // the present carries the id of its tag
+        // XeLL's ids go back (its context was made again): they are followed, not outrun.
+        r.rig.xell->sleep(5);
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 5);
+        e.frame = 9;
+        r.h.hook->present_begin(e);
+        CHECK(fgfx.presentIds.back() == 5);
+        r.rig.xell->sleep(6);
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 6);
+        // The one guard: two frames dispatched before XeLL's next sleep do not carry one id twice.
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 7);
+        r.rig.xell->sleep(8);
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 8);
+    }
+    {  // presents before XeLL's first sleep (named by the count) do not push the first tagged frame's id away from XeLL's
+        FrameRig r;
+        gpu::PresentEvent e;
+        for (int frame = 1; frame <= 5; ++frame) {
+            e.frame = std::uint64_t(frame);
+            r.h.hook->present_begin(e);
+            r.h.hook->present_end(e);
+        }
+        CHECK(fgfx.presentIds.back() == 6);
+        r.rig.xell->sleep(3);
+        CHECK(r.h.p->dispatch(r.f));
+        CHECK(fgfx.constants.back().first == 3);
+        e.frame = 6;
+        r.h.hook->present_begin(e);
+        CHECK(fgfx.presentIds.back() == 3);
+    }
 }
 
 TEST_CASE("xess frame generation: generation the controller asked for is back on after the window's swapchain was made "
