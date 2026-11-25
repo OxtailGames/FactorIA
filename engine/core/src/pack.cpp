@@ -674,6 +674,7 @@ bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std:
     std::vector<std::uint8_t> scratch[2];  // the first and the last block when the range holds only part of them
     std::vector<detail::DirectIo> ios;
     std::string failure;
+    std::string failureHint;  // what to do, from direct_storage_read's error (empty for a checksum mismatch)
     for (const detail::DirectBatch& batch : batches) {
         ios.clear();
         for (std::size_t i = batch.first; i < batch.first + batch.count; ++i) {
@@ -687,6 +688,7 @@ bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std:
         }
         if (auto done = detail::direct_storage_read(*d.file, ios); !done.ok()) {
             failure = done.error().message;
+            failureHint = done.error().hint;
             break;
         }
         std::size_t io = 0;
@@ -717,10 +719,18 @@ bool PackReader::direct_range(const Entry& e, std::uint64_t from, std::span<std:
         d.blocks.fetch_add(requests.size(), std::memory_order_relaxed);
         return true;
     }
-    // Not this read only: a pack whose reads fail through DirectStorage is read on the CPU from now on.
-    if (!d.off.exchange(true, std::memory_order_acq_rel))
-        FA_WARN("fs", "{}: DirectStorage failed ({}); its gdeflate files are decompressed on the CPU from now on",
-                quoted(file_), failure);
+    // Not this read only: a pack whose reads fail through DirectStorage is read on the CPU from now on, so the
+    // warning comes once per pack, never once per read (a queue whose status slots are all retired fails every read).
+    if (!d.off.exchange(true, std::memory_order_acq_rel)) {
+        if (failureHint.empty())
+            FA_WARN("fs", "{}: DirectStorage failed ({}); its gdeflate files are decompressed on the CPU from now on",
+                    quoted(file_), failure);
+        else
+            FA_WARN("fs",
+                    "{}: DirectStorage failed ({}); its gdeflate files are decompressed on the CPU from now on "
+                    "(hint: {})",
+                    quoted(file_), failure, failureHint);
+    }
     return false;
 }
 
