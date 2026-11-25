@@ -221,16 +221,17 @@ Super Resolution, Reflex and DLSS frame generation).
   hardware depth of `camera.proj` to colour 1 (R32F; `rr_depth_terms` and `rr_hardware_depth` are the formula the shader repeats), and a
   clear pass for each albedo). `UpscaleInput` carries the guide views and an `UpscaleCamera`
   (view, projection and previous-frame matrices, the camera axes and planes, from the TAA plan).
-- **Provider.** `draw(in, frame, api, runtime, rr)` shares the frame token, constants and native section with Super Resolution. With `rr`
-  it sets the options every frame (`slDLSSDSetOptions`: the camera's view matrices change), tags seven buffers in the order colour in,
-  depth (that hardware depth, `VendorFrame::rrDepth`: the constants carry the projection, so the prepass's d / (d + 1) would not agree), motion, colour out, albedo, specular albedo, normal-roughness, and evaluates `kFeatureDlssRr`. Matrices: `fa::Mat4` is column
-  major with column vectors, the same memory as Streamline's row-major `Float4x4` with row vectors, so they are copied as they are.
-  A switch between the two features, a lost device or a failed frame resets the history. When Ray Reconstruction cannot draw, `upscale`
+- **Provider.** `draw(in, frame, api, runtime, rr)` shares the frame token, constants and native section with Super Resolution. With
+  `rr` it sets the options every frame (`slDLSSDSetOptions`: the camera's view matrices change), tags seven buffers in the order colour
+  in, depth (that hardware depth, `VendorFrame::rrDepth`: the constants carry the projection, so the prepass's d / (d + 1) would not
+  agree), motion, colour out, albedo, specular albedo, normal-roughness, and evaluates `kFeatureDlssRr`. Matrices: `fa::Mat4` is column
+  major with column vectors, the same memory as Streamline's row-major `Float4x4` with row vectors, so they are copied as they are. A
+  switch between the two features, a lost device or a failed frame resets the history. When Ray Reconstruction cannot draw, `upscale`
   draws the same frame with Super Resolution and sets `VendorFrame::rayReconstructionFallback`; the renderer logs it once and, for a
   frame Streamline refused, latches `rrFailed`.
-- **Tests.** `dlss_upscale_tests.cpp` ("dlss ray reconstruction ..."): the probe and its reasons, the feature switch, the tags (the depth tag is the hardware-depth image, whose values `rr_hardware_depth` gives for a known distance), the options
-  and matrices, every fall back, the switch back and device loss, release; `upscaler_tests.cpp` and `upscaler_commands_tests.cpp`: the
-  setting.
+- **Tests.** `dlss_upscale_tests.cpp` ("dlss ray reconstruction ..."): the probe and its reasons, the feature switch, the tags (the
+  depth tag is the hardware-depth image, whose values `rr_hardware_depth` gives for a known distance), the options and matrices, every
+  fall back, the switch back and device loss, release; `upscaler_tests.cpp` and `upscaler_commands_tests.cpp`: the setting.
 
 ## Low latency (M78)
 
@@ -268,24 +269,26 @@ the rest is private to `fa_render`:
 `engine/render/include/fa/render/framegen.h` holds the public part (`FrameGenSettings`, the mode and slot enums, `parse_frame_gen_settings`,
 `effective_frame_generation`); the rest is private to `fa_render`. User text: docs/FRAME_GENERATION.md.
 
-- **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `device_hook_for`, `start`, `swapchain_changed`, `wants_reversed_depth`,
-  `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS, each filled when the table is made
-  (`make_dlss_framegen_provider()`, `make_fsr_framegen_provider()`, `make_xess_framegen_provider()`, below); `register_framegen_provider()`
-  replaces a slot's provider and an empty slot answers with why (`framegen_absent_reason`). A provider can ask for Reflex
-  (`requires_reflex()`, see "DLSS frame generation" below). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
-  swapchain returns its `DeviceHook` from `device_hook()`, or from `device_hook_for(mode)` when it must know the mode the game asked for (the
-  default calls `device_hook()`; `RendererDesc::frameGenerationMode` carries it and `framegen_device_hooks(mode)` asks each provider);
-  `Renderer::init` puts `framegen_device_hooks(desc.frameGenerationMode)` in `DeviceInit::hooks` of the device it
-  is about to make when `RendererDesc::frameGeneration` is on (a window of D3D12 or Vulkan the renderer claims), and tells the controller the
-  device was "hooked". **The hooks are never registered process-wide** (unlike the latency ones): a second renderer in the process that did
-  not ask for frame generation makes a device none of them sees (tested with a fake hook: the device given the hooks marks it, the other leaves
-  it available). The same hook object serves each device that has it and passes everything through once `stop()` ran. Without the hook the
-  controller refuses with "restart the game": a swapchain cannot be taken over afterwards. A provider is told when the swapchain it runs on
-  changes (`swapchain_changed`: made again after the window came back, resized, or lost with width and height 0; `Renderer::present` and
-  `set_native_window` call `FrameGenController::set_swapchain`) and the next frame carries `reset`. A swapchain made again at the **same size**
-  (the device lost it) is told with `remade = true`, which `set_swapchain` takes as a change: a provider's views of the old one are out of date.
-  A swapchain of 0 x 0 (the window went) is a refusal ("the window has no swapchain", generation off), told BEFORE `destroy_swapchain` so the
-  provider lets go of it first. The statistics restart when the mode leaves or returns to `off`.
+- **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `device_hook_for`, `start`,
+  `swapchain_changed`, `wants_reversed_depth`, `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS,
+  FSR 3 and XeSS, each filled when the table is made (`make_dlss_framegen_provider()`, `make_fsr_framegen_provider()`,
+  `make_xess_framegen_provider()`, below); `register_framegen_provider()` replaces a slot's provider and an empty slot answers with why
+  (`framegen_absent_reason`). A provider can ask for Reflex (`requires_reflex()`, see "DLSS frame generation" below). The table is
+  never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the swapchain returns its `DeviceHook`
+  from `device_hook()`, or from `device_hook_for(mode)` when it must know the mode the game asked for (the default calls
+  `device_hook()`; `RendererDesc::frameGenerationMode` carries it and `framegen_device_hooks(mode)` asks each provider);
+  `Renderer::init` puts `framegen_device_hooks(desc.frameGenerationMode)` in `DeviceInit::hooks` of the device it is about to make when
+  `RendererDesc::frameGeneration` is on (a window of D3D12 or Vulkan the renderer claims), and tells the controller the device was
+  "hooked". **The hooks are never registered process-wide** (unlike the latency ones): a second renderer in the process that did not
+  ask for frame generation makes a device none of them sees (tested with a fake hook: the device given the hooks marks it, the other
+  leaves it available). The same hook object serves each device that has it and passes everything through once `stop()` ran. Without
+  the hook the controller refuses with "restart the game": a swapchain cannot be taken over afterwards. A provider is told when the
+  swapchain it runs on changes (`swapchain_changed`: made again after the window came back, resized, or lost with width and height 0;
+  `Renderer::present` and `set_native_window` call `FrameGenController::set_swapchain`) and the next frame carries `reset`. A swapchain
+  made again at the **same size** (the device lost it) is told with `remade = true`, which `set_swapchain` takes as a change: a
+  provider's views of the old one are out of date. A swapchain of 0 x 0 (the window went) is a refusal ("the window has no swapchain",
+  generation off), told BEFORE `destroy_swapchain` so the provider lets go of it first. The statistics restart when the mode leaves or
+  returns to `off`.
 - **`FrameGenFrame`** is everything the three SDKs' constants need, so a provider package does not reshape it: the images (`hudless`,
   `presented`, `depth`, `motion`), the depth convention (`depthReversed` / `depthInfinite`, from `FrameGenProvider::wants_reversed_depth`: the
   upscaler's preparation pass makes either `d / (d + 1)` or the reversed infinite `near / d`, and `framegen_pass` remakes it if the upscaler left
@@ -321,30 +324,34 @@ the rest is private to `fa_render`:
   `fsrFrameGen`, `xessFrameGen`; `framegen_slot_backends` adds their D3D12 and Vulkan keys).
 - **`render_framegen_dlss.{h,cpp}`: DLSS frame generation (M78-P5b).** `DlssFrameGenProvider` runs NVIDIA DLSS-G through the Streamline
   runtime above, with no NVIDIA header: `DlssgOptions` (120 bytes) and `DlssgState` (88) are declared in `streamline_runtime.h` with their
-  sizes and offsets checked, and the two functions (`slDLSSGSetOptions`, `slDLSSGGetState`) come from `slGetFeatureFunction(kFeatureDlssG)`, so
-  a test runs the provider on every platform with a fake table (`framegen_dlss_tests.cpp`).
-  - **The feature is asked before the device.** Streamline loads only the plugins `slInit` is told of and DLSS-G asks for its own Vulkan
-    queues and extensions, so `device_hook()` (called by `framegen_device_hooks()` when a renderer asks for frame generation, before its device
-    exists) calls `StreamlineRuntime::add_feature(kFeatureDlssG)` and returns no hook of its own: the process's runtime is already a hook of
-    every D3D12 and Vulkan device (`register_streamline_runtime`). A device made without the feature cannot get it (`feature_asked`; the probe
-    says "restart"). `framegen_device_hooks(mode)` asks every slot and `device_hook_for(mode)` adds the feature only for `dlss` and `auto`: a game started with
-    `fsr` or `xess` does not load the plugin. Each feature of Streamline's list is loaded on its own (`vk_instance_request` and the D3D12 loop
-    go through `features_` one by one), so leaving this one out changes nothing for the DLSS upscaler, Reflex and PCL. The list is the
-    process's and keeps what was added (`add_feature`).
-  - **No evaluate.** DLSS-G generates inside Present. `dispatch` sets the constants of the frame (`slSetConstants`, the same frame token as
-    Reflex and DLSS: `StreamlineRuntime::frame_token`) and tags the depth, the motion vectors and, when `FrameGenFrame::hudDrawn`, the hudless
-    colour with the lifecycle `kValidUntilPresent`, inside a native section of the frame's list (`begin_native` with every image declared
-    shader-read, `end_native` always closed). On Vulkan the sampled views are made once per image and kept in three slots. A view replaced (another image) or dropped (`swapchain_changed`) goes through `destroy_view`, which both devices defer until the frame that is open has finished on the GPU (`defer` / `collect`), so no wait for idle is needed; `stop` waits all the same. The matrices are
-    Streamline's row-major row-vector ones: a `Mat4` (column-major, column vectors) is copied as is, which is the transpose. The depth is
-    the reversed infinite `near / d` the provider asks for (`wants_reversed_depth`), so the projection's clip z row is `[0, 0, 0, near]` and the
-    row of `prevFromView` (made with the engine's own depth row) is replaced by the same one before `clipToPrevClip` is built. An orthographic
-    camera is refused (its reprojection is not built). `kErrorDuplicatedConstants` (the DLSS upscaler sets the frame's constants too) is
-    logged once and not fatal.
-  - **Options and state.** `configure(bool)` sends `slDLSSGSetOptions` only when mode, flags or sizes change (a refused set is sent again by the next `dispatch`; the status's Reflex bit is ignored for the first two state reads after generation goes on) (`numFramesToGenerate` 1, the
-    resources are retained while off and given back in `stop`). `generated_frames()` is the only caller of `slDLSSGGetState` (not thread
-    safe, once per rendered frame from the controller's `begin_frame`): `numFramesActuallyPresented` counts every frame Streamline presented
-    since the last call, so `max(0, presented - 1)` is added to the count; the status bits are trusted only when they were read while generation
-    was on and turn into the frame's refusal reason after the inputs went out.
+  sizes and offsets checked, and the two functions (`slDLSSGSetOptions`, `slDLSSGGetState`) come from `slGetFeatureFunction(kFeatureDlssG)`.
+  A test runs the provider on every platform with a fake table (`framegen_dlss_tests.cpp`).
+  - **The feature is asked before the device.** Streamline loads only the plugins `slInit` is told of and DLSS-G asks for its own
+    Vulkan queues and extensions, so `device_hook()` (called by `framegen_device_hooks()` when a renderer asks for frame generation,
+    before its device exists) calls `StreamlineRuntime::add_feature(kFeatureDlssG)` and returns no hook of its own: the process's
+    runtime is already a hook of every D3D12 and Vulkan device (`register_streamline_runtime`). A device made without the feature
+    cannot get it (`feature_asked`; the probe says "restart"). `framegen_device_hooks(mode)` asks every slot and
+    `device_hook_for(mode)` adds the feature only for `dlss` and `auto`: a game started with `fsr` or `xess` does not load the plugin.
+    Each feature of Streamline's list is loaded on its own (`vk_instance_request` and the D3D12 loop go through `features_` one by
+    one), so leaving this one out changes nothing for the DLSS upscaler, Reflex and PCL. The list is the process's and keeps what was
+    added (`add_feature`).
+  - **No evaluate.** DLSS-G generates inside Present. `dispatch` sets the constants of the frame (`slSetConstants`, the same frame
+    token as Reflex and DLSS: `StreamlineRuntime::frame_token`) and tags the depth, the motion vectors and, when
+    `FrameGenFrame::hudDrawn`, the hudless colour with the lifecycle `kValidUntilPresent`, inside a native section of the frame's list
+    (`begin_native` with every image declared shader-read, `end_native` always closed). On Vulkan the sampled views are made once per
+    image and kept in three slots. A view replaced (another image) or dropped (`swapchain_changed`) goes through `destroy_view`, which
+    both devices defer until the frame that is open has finished on the GPU (`defer` / `collect`), so no wait for idle is needed;
+    `stop` waits all the same. The matrices are Streamline's row-major row-vector ones: a `Mat4` (column-major, column vectors) is
+    copied as is, which is the transpose. The depth is the reversed infinite `near / d` the provider asks for (`wants_reversed_depth`),
+    so the projection's clip z row is `[0, 0, 0, near]` and the row of `prevFromView` (made with the engine's own depth row) is
+    replaced by the same one before `clipToPrevClip` is built. An orthographic camera is refused (its reprojection is not built).
+    `kErrorDuplicatedConstants` (the DLSS upscaler sets the frame's constants too) is logged once and not fatal.
+  - **Options and state.** `configure(bool)` sends `slDLSSGSetOptions` only when mode, flags or sizes change (a refused set is sent
+    again by the next `dispatch`; the status's Reflex bit is ignored for the first two state reads after generation goes on)
+    (`numFramesToGenerate` 1, the resources are retained while off and given back in `stop`). `generated_frames()` is the only caller
+    of `slDLSSGGetState` (not thread safe, once per rendered frame from the controller's `begin_frame`): `numFramesActuallyPresented`
+    counts every frame Streamline presented since the last call, so `max(0, presented - 1)` is added to the count; the status bits are
+    trusted only when they were read while generation was on and turn into the frame's refusal reason after the inputs went out.
   - **The latency SDK a provider needs.** One requirement for every provider: `Renderer::Impl::sync_framegen_latency` (after `attach`,
     `set_frame_generation` and each `begin_frame`, and when a provider failed for good) calls `LatencyController::require_driver(d)`, with
     Reflex while `FrameGenController::requires_reflex()` (DLSS-G), XeLL while the running provider is XeSS, and none otherwise. While a driver
@@ -355,46 +362,48 @@ the rest is private to `fa_render`:
 - **The engine** (`Engine::set_frame_generation`, the command `render.frame_generation`, `profile_frame_generation`): the setting is applied
   to a windowed, non-editor renderer only (like latency); `rd.frameGeneration` is on when the project's mode is not `off` at the start.
   `ProfileSummary::set_frame_generation` stores the readout as `profile.frameGeneration`.
-- **`render_framegen_fsr.{h,cpp}`: the FSR 3 provider (M78-P5c).** Slot Fsr, D3D12 and Vulkan, `wants_reversed_depth()` true. The engine
-  declares the C ABI of the parts of FidelityFX's `ffx_api` it calls (`ffx_abi`, with `static_assert`s on sizes and offsets, written from the
-  public SDK 2.4 headers: the frame generation effect, its Hudless and Version descriptors, `PrepareV2`, the DX12 `ForHwnd` swapchain, the
-  Vulkan swapchain with its `VkSwapchainCreateInfoKHR` and queue infos, the replacement functions) and takes the five functions
-  (`ffxCreateContext`, `ffxDestroyContext`, `ffxConfigure`, `ffxQuery`, `ffxDispatch`) from the library `fsr_library_spec` names through
-  `VendorLibrary::symbol` (the loader of the FSR upscaler), so a test's fake table runs on every platform. State lives in a `Core` shared by the
-  provider and its `FsrHook`. **The hook** (armed by `device_hook_for(Fsr | Auto)`; `Auto` takes part on an AMD GPU only, read from the PCI
-  vendor on Vulkan and `IDXGIAdapter::GetDesc` on D3D12): on Vulkan it asks the device for three queues: compute (the interpolation), a
-  family that can present (graphics + compute when the graphics family has queues to spare, as on NVIDIA; else the compute bit, which AMD's
-  GPUs present from; never transfer-only, which NVIDIA's cannot) and any (the image acquire). Then `vulkan_create_swapchain` first asks
-  `vkGetPhysicalDeviceSurfaceSupportKHR` whether the present queue's family presents to the window's surface (a hook error that says so
-  otherwise: the SDK refuses such a queue), and has FidelityFX make the swapchain. The handle it is given is the game's native swapchain, which
-  FidelityFX uses as the driver's `oldSwapchain` and destroys with the driver (FidelityFX SDK 2.4, `fsr3/vk/FrameInterpolationSwapchainVK.cpp`
-  :469-487, `ffx_provider_framegenerationswapchain_vk.cpp`:232-234), so the hook gives it none: a resize ends the old proxy through
-  FidelityFX's own destroy function (after its two contexts) and makes the new swapchain from no handle; the engine's own destroy of the old
-  handle, which still comes, is skipped by the hook's `retired` flag (also when the creation fails, or when the new proxy got the old one's
-  address). The hook asks for the replacement functions and hands them to the engine
-  (`destroySwapchain` through a trampoline that drops FidelityFX's context argument); on D3D12 `d3d12_create_swapchain` has it make the proxy
-  swapchain from the engine's description. A swapchain it cannot make is `error`: the engine then makes its own and `start()` refuses with the
-  reason. **The frame generation context** is made lazily by the first `dispatch` (it needs the display size, the maximum render size and the
-  hudless format), and again when those or the flags (inverted and infinite depth, jitter cancellation, HDR) change; a failure is kept per key
-  so the same picture is not tried every frame. Per frame: `ffxConfigure` (enabled, the hudless picture only when the items were drawn over the
-  final one, the frame id, the callback) then `ffxDispatch` of `PrepareV2` inside `begin_native` / `end_native`, with every float checked for
-  NaN. The callback FidelityFX calls at present time counts `generated_frames()`. **Shutdown order**: configure with no callbacks,
-  `WaitForPresents`, `Device::wait_idle`, destroy the generation context, destroy the swapchain context (on Vulkan then the replacement
-  destroy with no context, after `swapchain_destroying`); `stop()` does the first four and leaves the swapchain presenting the rendered frames.
-  On D3D12 `swapchain_destroying` runs before the engine releases the proxy, and FidelityFX's sample releases the application's reference
-  first: so it destroys only the generation context (and waits for the presents) there, and the swapchain's context goes with the next swapchain,
-  `device_destroying` or the provider (`release_swapchain()`); `swap_alive()` says whether the engine still presents on it. A D3D12 create that
-  returns ok but gives no context releases the proxy it made (`com_release`, a test seam `set_fsr_com_release_for_test`: the reference came
-  through the out parameter); one that returns an error releases nothing, since a failed call leaves no reference in an out parameter. On Vulkan a swapchain
-  query that fails is asked once more; if it fails again the proxy is ended through the destroy function an earlier swapchain gave, and with
-  none (the first swapchain) it stays, and the error says so. `mode auto` on an AMD GPU with no library installed asks for no queue and makes
-  no swapchain (`auto_without_library`). **Threads**: the game's render thread makes every call of the provider and the hook, all under
+- **`render_framegen_fsr.{h,cpp}`: the FSR 3 provider (M78-P5c).** Slot Fsr, D3D12 and Vulkan, `wants_reversed_depth()` true. The
+  engine declares the C ABI of the parts of FidelityFX's `ffx_api` it calls (`ffx_abi`, with `static_assert`s on sizes and offsets,
+  written from the public SDK 2.4 headers: the frame generation effect, its Hudless and Version descriptors, `PrepareV2`, the DX12
+  `ForHwnd` swapchain, the Vulkan swapchain with its `VkSwapchainCreateInfoKHR` and queue infos, the replacement functions) and takes
+  the five functions (`ffxCreateContext`, `ffxDestroyContext`, `ffxConfigure`, `ffxQuery`, `ffxDispatch`) from the library
+  `fsr_library_spec` names through `VendorLibrary::symbol` (the loader of the FSR upscaler), so a test's fake table runs on every
+  platform. State lives in a `Core` shared by the provider and its `FsrHook`. **The hook** (armed by `device_hook_for(Fsr | Auto)`;
+  `Auto` takes part on an AMD GPU only, read from the PCI vendor on Vulkan and `IDXGIAdapter::GetDesc` on D3D12): on Vulkan it asks the
+  device for three queues: compute (the interpolation), a family that can present (graphics + compute when the graphics family has
+  queues to spare, as on NVIDIA; else the compute bit, which AMD's GPUs present from; never transfer-only, which NVIDIA's cannot) and
+  any (the image acquire). Then `vulkan_create_swapchain` first asks `vkGetPhysicalDeviceSurfaceSupportKHR` whether the present queue's
+  family presents to the window's surface (a hook error that says so otherwise: the SDK refuses such a queue), and has FidelityFX make
+  the swapchain. The handle it is given is the game's native swapchain, which FidelityFX uses as the driver's `oldSwapchain` and
+  destroys with the driver (FidelityFX SDK 2.4, `fsr3/vk/FrameInterpolationSwapchainVK.cpp` :469-487,
+  `ffx_provider_framegenerationswapchain_vk.cpp`:232-234), so the hook gives it none: a resize ends the old proxy through FidelityFX's
+  own destroy function (after its two contexts) and makes the new swapchain from no handle; the engine's own destroy of the old handle,
+  which still comes, is skipped by the hook's `retired` flag (also when the creation fails, or when the new proxy got the old one's
+  address). The hook asks for the replacement functions and hands them to the engine (`destroySwapchain` through a trampoline that
+  drops FidelityFX's context argument); on D3D12 `d3d12_create_swapchain` has it make the proxy swapchain from the engine's
+  description. A swapchain it cannot make is `error`: the engine then makes its own and `start()` refuses with the reason. **The frame
+  generation context** is made lazily by the first `dispatch` (it needs the display size, the maximum render size and the hudless
+  format), and again when those or the flags (inverted and infinite depth, jitter cancellation, HDR) change; a failure is kept per key
+  so the same picture is not tried every frame. Per frame: `ffxConfigure` (enabled, the hudless picture only when the items were drawn
+  over the final one, the frame id, the callback) then `ffxDispatch` of `PrepareV2` inside `begin_native` / `end_native`, with every
+  float checked for NaN. The callback FidelityFX calls at present time counts `generated_frames()`. **Shutdown order**: configure with
+  no callbacks, `WaitForPresents`, `Device::wait_idle`, destroy the generation context, destroy the swapchain context (on Vulkan then
+  the replacement destroy with no context, after `swapchain_destroying`); `stop()` does the first four and leaves the swapchain
+  presenting the rendered frames. On D3D12 `swapchain_destroying` runs before the engine releases the proxy, and FidelityFX's sample
+  releases the application's reference first: so it destroys only the generation context (and waits for the presents) there, and the
+  swapchain's context goes with the next swapchain, `device_destroying` or the provider (`release_swapchain()`); `swap_alive()` says
+  whether the engine still presents on it. A D3D12 create that returns ok but gives no context releases the proxy it made
+  (`com_release`, a test seam `set_fsr_com_release_for_test`: the reference came through the out parameter); one that returns an error
+  releases nothing, since a failed call leaves no reference in an out parameter. On Vulkan a swapchain query that fails is asked once
+  more; if it fails again the proxy is ended through the destroy function an earlier swapchain gave, and with none (the first
+  swapchain) it stays, and the error says so. `mode auto` on an AMD GPU with no library installed asks for no queue and makes no
+  swapchain (`auto_without_library`). **Threads**: the game's render thread makes every call of the provider and the hook, all under
   `Core::mutex`; FidelityFX's present thread calls `fg_dispatch_callback`, which takes only `Core::fgMutex` (it guards `fgCtx` and
-  `api.dispatch`; lock order `mutex`, then `fgMutex`), because the render thread holds `Core::mutex` while it waits for the presents the callback
-  belongs to. The render thread clears the context under `fgMutex` and destroys it outside the lock. The Vulkan destroy trampoline reaches the
-  `Core` through a `weak_ptr` and reads `retired` under `Core::mutex`. The frame number of `configure` between two frames is the last one
-  dispatched (`lastFrameId`). Not verified without an AMD machine: the real library's behaviour (the interpolated picture, extra device
-  features its Vulkan swapchain may want, the state of the hudless image at present time).
+  `api.dispatch`; lock order `mutex`, then `fgMutex`), because the render thread holds `Core::mutex` while it waits for the presents
+  the callback belongs to. The render thread clears the context under `fgMutex` and destroys it outside the lock. The Vulkan destroy
+  trampoline reaches the `Core` through a `weak_ptr` and reads `retired` under `Core::mutex`. The frame number of `configure` between
+  two frames is the last one dispatched (`lastFrameId`). Not verified without an AMD machine: the real library's behaviour (the
+  interpolated picture, extra device features its Vulkan swapchain may want, the state of the hudless image at present time).
 - **Tests.** `engine/render/tests/framegen_fsr_tests.cpp` (ctest `render`): a fake library table and a fake hook driver: probe refusals, both
   hooks, the order of start, configure, prepare and stop, the prepare descriptor's fields, resets, and each ffx call failing into a reason.
   `engine/render/tests/framegen_tests.cpp` (ctest `render`): key parsing and errors, the provider choice per GPU maker, each
@@ -402,32 +411,34 @@ the rest is private to `fa_render`:
   real headless renderer with a fake provider (the frame it gets, the passes it runs, off stops it; `RendererTestAccess::framegen_assume_hooked`
   stands for the swapchain hook a headless run has no window for). No vendor SDK, and no D3D12 or Vulkan swapchain, is exercised.
 
-- **Intel XeSS frame generation (M78-P5d): `render_framegen_xess.{h,cpp}`.** The provider of the `xess` slot and its `DeviceHook`: one object
-  (`make_xess_framegen_provider()`, registered by the provider table). The C ABI of `xefg_swapchain.h` and `xefg_swapchain_d3d12.h` (XeSS
-  3.0.2) is declared in the header (64-bit `static_assert`s on every struct), the functions come from `libxess_fg.dll` through
-  `VendorLibrary::symbol`, and the tests (`framegen_xess_tests.cpp`) run against a fake table. XeSS-FG is a proxy swapchain, so the work is in
-  `d3d12_create_swapchain`: XeLL's context (below), `xefgSwapChainD3D12CreateContext`, `SetLatencyReduction` **before** `InitFromSwapChainDesc`
-  (`applicationSwapChain` null, one interpolated frame, `uiMode` none, flags 0: unjittered motion, non-inverted depth), then
-  `GetSwapChainPtr` for `IDXGISwapChain1`, which the hook returns with its one reference. It makes no swapchain (and says nothing) on a
-  GPU that is not Intel (vendor id read from `IDXGIAdapter1::GetDesc1`: through `dxgi.h` on Windows, through the vtable slot where there is no
-  Windows header, which is what the tests use), without the library, or without `libxell.dll`: the probe is what tells the user. A library
-  that is installed and fails sets `error`, which marks the hook unavailable for the device. The context is destroyed lazily (when the next swapchain is made, and at `device_destroying`, the
-  swapchain's references must be gone) and always before XeLL's. `start` only checks that the hook made the swapchain of this device,
-  `configure` sets XeLL's sleep mode and `SetEnabled`, `dispatch` tags depth and motion (ONLY_NOW, COPY_SOURCE through `begin_native`) and the
-  constants, `present_begin` calls `SetPresentId`, `present_end` counts `framesPresented - 1`. A failing call is `fail()`: logged once,
-  `failure()` (a new virtual of the seam) keeps the reason, the probe and `provider_reason` repeat it and the controller stops the provider
-  for the run, except the swapchain's own `frameGenResult` of a present: five presents in a row (`kStatusFailures`, a count) fail it, one good
-  present restarts the count. `configure` keeps `wantEnabled_` (what the controller asked) apart from `enabled_` (what the swapchain has): a
-  window made again gives a swapchain with generation off, and the next `dispatch` turns it on. The id of a frame has one
-  source, XeLL's last sleep id (`XellShare::frame_id()`, 0 until XeLL has slept with its sleep mode on, and the count of presents plus one
-  names the frame until then): `dispatch` tags the frame with it, `present_begin` gives `SetPresentId` the same id (`taggedId_`), and an untagged present only
-  reads it, so presents with generation off never move the ids on. `lastPresentId_` is the id of the last tagged frame (reset with the
-  device); a frame whose id equals it is tagged with the last plus one (two frames before XeLL's next sleep), and an id that went back (XeLL's
-  context made again) is followed, not outrun. The one enum value that depends on a Windows header (`D3D12_RESOURCE_STATE_COPY_SOURCE`) is
-  `static_assert`ed against it on Windows; the rest of the ABI is checked by its sizes. **Threads**: the render thread makes every hook call and every provider call (`present_begin` and
-  `present_end` run on the thread that presents, which is the render thread in this engine); the probe may come from the editor's thread, and
-  it and the hook both load `libxess_fg.dll`, so `lib_` and `api_` are under `mutex_`, the first library stays when both load (the second copy
-  is closed), and the render thread works on a copy of the function table (`api()`).
+- **Intel XeSS frame generation (M78-P5d): `render_framegen_xess.{h,cpp}`.** The provider of the `xess` slot and its `DeviceHook`: one
+  object (`make_xess_framegen_provider()`, registered by the provider table). The C ABI of `xefg_swapchain.h` and
+  `xefg_swapchain_d3d12.h` (XeSS 3.0.2) is declared in the header (64-bit `static_assert`s on every struct), the functions come from
+  `libxess_fg.dll` through `VendorLibrary::symbol`, and the tests (`framegen_xess_tests.cpp`) run against a fake table. XeSS-FG is a
+  proxy swapchain, so the work is in `d3d12_create_swapchain`: XeLL's context (below), `xefgSwapChainD3D12CreateContext`,
+  `SetLatencyReduction` **before** `InitFromSwapChainDesc` (`applicationSwapChain` null, one interpolated frame, `uiMode` none, flags
+  0: unjittered motion, non-inverted depth), then `GetSwapChainPtr` for `IDXGISwapChain1`, which the hook returns with its one
+  reference. It makes no swapchain (and says nothing) on a GPU that is not Intel (vendor id read from `IDXGIAdapter1::GetDesc1`:
+  through `dxgi.h` on Windows, through the vtable slot where there is no Windows header, which is what the tests use), without the
+  library, or without `libxell.dll`: the probe is what tells the user. A library that is installed and fails sets `error`, which marks
+  the hook unavailable for the device. The context is destroyed lazily (when the next swapchain is made, and at `device_destroying`,
+  the swapchain's references must be gone) and always before XeLL's. `start` only checks that the hook made the swapchain of this
+  device, `configure` sets XeLL's sleep mode and `SetEnabled`, `dispatch` tags depth and motion (ONLY_NOW, COPY_SOURCE through
+  `begin_native`) and the constants, `present_begin` calls `SetPresentId`, `present_end` counts `framesPresented - 1`. A failing call
+  is `fail()`: logged once, `failure()` (a new virtual of the seam) keeps the reason, the probe and `provider_reason` repeat it and the
+  controller stops the provider for the run, except the swapchain's own `frameGenResult` of a present: five presents in a row
+  (`kStatusFailures`, a count) fail it, one good present restarts the count. `configure` keeps `wantEnabled_` (what the controller
+  asked) apart from `enabled_` (what the swapchain has): a window made again gives a swapchain with generation off, and the next
+  `dispatch` turns it on. The id of a frame has one source, XeLL's last sleep id (`XellShare::frame_id()`, 0 until XeLL has slept with
+  its sleep mode on, and the count of presents plus one names the frame until then): `dispatch` tags the frame with it, `present_begin`
+  gives `SetPresentId` the same id (`taggedId_`), and an untagged present only reads it, so presents with generation off never move the
+  ids on. `lastPresentId_` is the id of the last tagged frame (reset with the device); a frame whose id equals it is tagged with the
+  last plus one (two frames before XeLL's next sleep), and an id that went back (XeLL's context made again) is followed, not outrun.
+  The one enum value that depends on a Windows header (`D3D12_RESOURCE_STATE_COPY_SOURCE`) is `static_assert`ed against it on Windows;
+  the rest of the ABI is checked by its sizes. **Threads**: the render thread makes every hook call and every provider call
+  (`present_begin` and `present_end` run on the thread that presents, which is the render thread in this engine); the probe may come
+  from the editor's thread, and it and the hook both load `libxess_fg.dll`, so `lib_` and `api_` are under `mutex_`, the first library
+  stays when both load (the second copy is closed), and the render thread works on a copy of the function table (`api()`).
 - **XeLL shared (`XellShare`, `render_latency_xell.h`).** The XeLL latency provider owns the context; XeSS-FG takes a reference when it makes
   the swapchain (before the latency controller exists) and the context goes with the last reference (`LatencyProvider::xell_share()`).
   `LatencyController::require_driver(Xell)` forces XeLL on while XeSS-FG is the running provider (`Renderer::Impl::sync_framegen_latency`)

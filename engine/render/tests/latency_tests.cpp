@@ -417,6 +417,30 @@ TEST_CASE("latency controller: a driver a feature requires runs whatever the mod
     }
 }
 
+TEST_CASE("latency controller: Anti-Lag 2 can be required like Reflex and XeLL (it has a provider slot)") {
+    FakeClock clock;
+    ClockGuard cg(&clock);
+    FakeProvider amd(LatencyDriver::AntiLag2);
+    ProviderGuard pa(LatencyDriver::AntiLag2, &amd);
+    LDevice dev(gpu::Backend::D3d12, 0x1002);
+    render::LatencyController c;
+    c.attach(&dev, env_of(dev, GpuVendor::Amd), true);
+    c.set_settings(settings(LatencyMode::Off));
+    CHECK(c.driver() == LatencyDriver::None);
+    c.require_driver(LatencyDriver::AntiLag2);
+    CHECK(c.required_driver() == LatencyDriver::AntiLag2);
+    CHECK(c.driver() == LatencyDriver::AntiLag2);
+    CHECK(c.forced());
+    CHECK(c.settings().mode == LatencyMode::Off);  // the player's setting is not rewritten
+    c.set_settings(settings(LatencyMode::Auto));   // auto on an AMD GPU is Anti-Lag 2 already: not forced
+    CHECK(c.driver() == LatencyDriver::AntiLag2);
+    CHECK_FALSE(c.forced());
+    c.require_driver(LatencyDriver::None);
+    CHECK(c.required_driver() == LatencyDriver::None);
+    CHECK(c.driver() == LatencyDriver::AntiLag2);
+    c.detach();
+}
+
 TEST_CASE("latency controller: forced() is false while the required driver does not run") {
     FakeClock clock;
     ClockGuard cg(&clock);
@@ -809,8 +833,9 @@ TEST_CASE("antilag2 on Vulkan: the extension is asked of an AMD GPU only, the st
     p->sleep(41);  // the input stage, with the frame index
     p->marker(LatencyMarker::InputSample, 41);
     p->marker(LatencyMarker::RenderSubmitEnd, 41);
-    p->marker(LatencyMarker::PresentStart, 41);  // the present stage, the same index
-    p->marker(LatencyMarker::PresentEnd, 41);
+    p->marker(LatencyMarker::PresentStart,
+              41);  // the present stage, the same index: sent here, before the image is acquired
+    p->marker(LatencyMarker::PresentEnd, 41);  // no stage of its own
     REQUIRE(vkfx.data.size() == 3);
     CHECK(vkfx.infos[1].stage == al::kStageInput);
     CHECK(vkfx.infos[1].frameIndex == 41);

@@ -76,10 +76,13 @@ Each SDK is fed the same points of a frame, with the id of the present that will
    Direct3D 12) and the simulation start;
 2. the input sample (after the platform has read the input, `platform.frame()`);
 3. the end of the simulation (scripts, physics and animation are done, before the scene is drawn);
-4. the start and the end of the render submit (the frame is recorded and sent to the GPU);
-5. the start of the present step and the end of the present call. The start is marked before the window's image is acquired, because
-   the acquire can wait for the display (Direct3D 12 waits for the swapchain's frame-latency object), and that wait is not the frame's
-   work; the render-submit end, which needs the image, comes after it.
+4. the start of the render submit (the frame is recorded);
+5. the start of the present step. It is marked before the window's image is acquired, because the acquire can wait for the display
+   (Direct3D 12 waits for the swapchain's frame-latency object), and that wait is not the frame's work;
+6. the end of the render submit: the last pass (the blit to the window) needs the image, so it is submitted after the acquire and the
+   end comes after the start of the present step, not before it as the SDKs' numbering lists them (see "Hardware checks");
+7. the end of the present call. When the window's image cannot be acquired the frame ends right after the start of the present step
+   (the present end is still sent, so the frame's id is closed).
 
 A frame that does not present (the render mode skipped it) gives its id to the next one. With the mode `off` every one of these
 points is one branch and calls nothing.
@@ -105,40 +108,56 @@ without XeLL, so XeLL also runs while it does, whatever `render.latency` says (t
 
 ## NVIDIA Reflex
 
-Reflex is reached through NVIDIA Streamline, the runtime that also draws DLSS (UPSCALING_VENDORS.md, "NVIDIA DLSS Super Resolution"):
-`factoria setup streamline` installs its DLLs (`sl.interposer.dll`, `sl.reflex.dll`, `sl.pcl.dll`), and the engine asks Streamline for
-the Reflex and PC latency plugins whenever it starts it, because the latency mode can change after the device is made. The engine ships
-no NVIDIA code.
+Reflex is reached through NVIDIA Streamline, the runtime that also draws DLSS (UPSCALING_VENDORS.md, "NVIDIA DLSS Super
+Resolution"): `factoria setup streamline` installs its DLLs (`sl.interposer.dll`, `sl.reflex.dll`, `sl.pcl.dll`), and the engine
+asks Streamline for the Reflex and PC latency plugins whenever it starts it, because the latency mode can change after the device
+is made. The engine ships no NVIDIA code.
 
-- **Where it runs.** Windows, an NVIDIA GPU, Direct3D 12 or Vulkan: Streamline has to take part in making the device, which the engine's
-  device hooks do on those two backends only (Direct3D 11 says so in the reason). Streamline must have started with the device: a game
-  that installed it after it started says "restart the game". The driver has to offer Reflex Low Latency (`slReflexGetState`); an
-  older one says what to update.
-- **What it does.** At the start Reflex is set off; `reflex` (or `auto`) sets Low Latency and `boost` sets Low Latency Boost, with no
-  frame limit (the driver decides). `slReflexSleep` runs once per frame before the input is read, and each marker of "The markers"
-  goes to `slPCLSetMarker` with the frame's token, except the input sample (its PCL marker is deprecated: Reflex finds the input
-  itself). Reflex, DLSS and DLSS frame generation share the token of the frame, so a game that uses them gives Streamline one frame to
-  follow. Turning the mode off sets Reflex off again, **unless DLSS frame generation runs**: it cannot generate without Reflex's markers, so
-  the engine keeps Reflex on (Low Latency, no boost; `reflex`, and `auto` on an NVIDIA GPU, keep their `boost`) while it runs, whatever the
-  mode, and `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS frame generation needs it" (only while Reflex runs: when it
-  failed to start the reason names why, and says nothing of the sort). The mode itself does not change, and the state before comes back
-  when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency plugin Reflex still sleeps,
-  only the markers are not sent, and the engine logs one warning at the start that says so (it is not repeated per frame). Each refusal
-  names its feature: a hint about the Reflex plugin is not given for a PCL call, nor the other way round.
+- **Where it runs.** Windows, an NVIDIA GPU, Direct3D 12 or Vulkan: Streamline has to take part in making the device, which the
+  engine's device hooks do on those two backends only (Direct3D 11 says so in the reason). Streamline must have started with the
+  device: a game that installed it after it started says "restart the game". The driver has to offer Reflex Low Latency
+  (`slReflexGetState`); an older one says what to update.
+- **What it does.** At the start Reflex is set off; `reflex` (or `auto`) sets Low Latency and `boost` sets Low Latency Boost, with
+  no frame limit (the driver decides). `slReflexSleep` runs once per frame before the input is read, and each marker of "The
+  markers" goes to `slPCLSetMarker` with the frame's token, except the input sample (its PCL marker is deprecated: Reflex finds
+  the input itself). Reflex, DLSS and DLSS frame generation share the token of the frame, so a game that uses them gives
+  Streamline one frame to follow. Turning the mode off sets Reflex off again, **unless DLSS frame generation runs**: it cannot
+  generate without Reflex's markers, so the engine keeps Reflex on (Low Latency, no boost; `reflex`, and `auto` on an NVIDIA GPU,
+  keep their `boost`) while it runs, whatever the mode, and `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS
+  frame generation needs it" (only while Reflex runs: when it failed to start the reason names why, and says nothing of the sort).
+  The mode itself does not change, and the state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS
+  frame generation"). Without the PC latency plugin Reflex still sleeps, only the markers are not sent, and the engine logs one
+  warning at the start that says so (it is not repeated per frame). Each refusal names its feature: a hint about the Reflex plugin
+  is not given for a PCL call, nor the other way round.
 - **When it stops.** A refusal of any call logs one warning and the frame goes on; once the device is destroyed the provider calls
   Streamline no more (its library shuts down with the device).
 - **The report.** `render.latency`'s `vendor` has `source` `Reflex`, `frames` (how many of Reflex's last frames it measured),
   `lastFrameId`, the time from the start of the simulation to the end of the present of the last frame and on average
-  (`lastSimulationToPresentMs`, `avgSimulationToPresentMs`) and `avgGpuFrameMs`, in milliseconds of Reflex's own clock. The report is read on the thread that runs the frame (the profiler's); a call
-  from another thread answers `null`, because Streamline's state calls are not thread safe.
-- **What NVIDIA asks of a game that ships Reflex or DLSS** (the license of the NVIDIA RTX SDKs; `factoria setup streamline` shows it and
-  asks for acceptance; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super Resolution"): notify NVIDIA before the game's commercial
-  release (<https://developer.nvidia.com/sw-notification>), credit NVIDIA and show its marks.
+  (`lastSimulationToPresentMs`, `avgSimulationToPresentMs`) and `avgGpuFrameMs`, in milliseconds of Reflex's own clock. The report
+  is read on the thread that runs the frame (the profiler's); a call from another thread answers `null`, because Streamline's
+  state calls are not thread safe.
+- **What NVIDIA asks of a game that ships Reflex or DLSS** (the license of the NVIDIA RTX SDKs; `factoria setup streamline` shows
+  it and asks for acceptance; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super Resolution"): notify NVIDIA before the game's
+  commercial release (<https://developer.nvidia.com/sw-notification>), credit NVIDIA and show its marks.
 - **Known limit.** Streamline loads its Reflex and PC latency plugins before the device exists, so they are requested whatever
-  `render.latency` is at the start (the mode can be changed in the game's settings afterwards). Likewise the Vulkan extensions Reflex needs
-  are asked for with the mode `off`. Gating them on the setting would break that switch; it needs a hardware check (an RTX and a GTX).
-- **Not checked by the tests** (they use a fake Streamline): that the real library takes the engine's declarations as they are and that
-  the latency gets shorter; that needs a machine with an NVIDIA GPU.
+  `render.latency` is at the start (the mode can be changed in the game's settings afterwards). Likewise the Vulkan extensions
+  Reflex needs are asked for with the mode `off`. Gating them on the setting would break that switch; it needs a hardware check
+  (an RTX and a GTX).
+- **Not checked by the tests** (they use a fake Streamline): that the real library takes the engine's declarations as they are and
+  that the latency gets shorter; that needs a machine with an NVIDIA GPU.
+
+## Hardware checks
+
+The tests use fake SDKs; these need a machine with the hardware:
+
+- **Marker order (Reflex's PC latency markers, XeLL).** A frame sends `PresentStart` before `RenderSubmitEnd` ("The markers", points 5
+  and 6), while the SDKs number the markers `RenderSubmitEnd` (3) before `PresentStart` (4). Check that PCL (Reflex's latency report
+  and the overlay's numbers) and XeLL's report (`render.latency`'s `vendor`) still measure the frame, and that neither drops the
+  frames or reports a negative or zero render-submit time. If one does, the render-submit end has to be sent before the acquire.
+- **Anti-Lag 2 on Vulkan (an AMD GPU).** The present stage (`VK_AMD_anti_lag`) is sent at `PresentStart`, before the acquire and the
+  blit, and not right before `vkQueuePresentKHR` as AMD's sample does. Check that the delay still shortens the latency (the readout of
+  `render.latency` against `off`) and that the validation layer has no complaint about the stage order.
+- **Reflex without the PC latency plugin, Reflex on a GTX and an RTX** (see "NVIDIA Reflex", "Known limit").
 
 ## What the number is
 

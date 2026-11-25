@@ -449,16 +449,14 @@ TEST_CASE("renderer: the present step is marked before the window's image is acq
     rec.renderer.begin_frame();
     rec.renderer.render_world(s.world, 0.0f);
     rec.renderer.end_frame();
-    // A RecordingDevice has no window: its acquire is refused (an error is logged) and the frame ends there. The marker is in the list all the
-    // same, which it could not be if it were sent after the acquire; the markers after the acquire (render-submit end, present end) are not.
+    // A RecordingDevice has no window: its acquire is refused (an error is logged) and the frame ends there. PresentStart is in the list all the
+    // same, which it could not be if it were sent after the acquire; the frame is closed with PresentEnd (the id of the frame would stay open for
+    // the next one otherwise), and the render-submit end, which needs the acquired image, is not sent.
     sdk.markers.clear();
     rec.renderer.present(GfxSwapchain{}, kW, kH, ScaleMode::Fit);
-    REQUIRE(sdk.markers.size() == 1);
-    CHECK(sdk.markers.front() == "presentStart");
-    for (const std::string& m : sdk.markers) {
-        CHECK(m != "renderSubmitEnd");
-        CHECK(m != "presentEnd");
-    }
+    REQUIRE(sdk.markers.size() == 2);
+    CHECK(sdk.markers[0] == "presentStart");
+    CHECK(sdk.markers[1] == "presentEnd");
 }
 
 TEST_CASE("renderer: a UiPainter made on a renderer of the sokol backend uploads and draws next to its frame") {

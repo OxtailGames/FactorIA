@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <mutex>
+#include <thread>
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
@@ -88,6 +89,9 @@ private:
     bool startHeld_ = false;  // start() holds one of them
     bool enabled_ = false;    // the sleep mode is on
     std::atomic<std::uint32_t> frameId_{0};
+    std::atomic<std::thread::id>
+        owner_{};  // the thread that started the provider (the one that draws); none while XeSS FG alone holds the context
+    std::atomic<bool> warnedReportThread_{false};
 };
 
 VendorProbe XellProvider::probe(const VendorEnv& env) {
@@ -209,6 +213,7 @@ std::string XellProvider::start(gpu::Device& device) {
     startHeld_ = false;
     if (std::string why = acquire_locked(nativeDevice, nullptr); !why.empty()) return why;
     startHeld_ = true;
+    owner_.store(std::this_thread::get_id());
     return {};
 }
 
@@ -247,6 +252,14 @@ void XellProvider::marker(LatencyMarker m, std::uint64_t frameId) {
 // XeLL's own timestamps of the last frames: the span from the start of the simulation to the end of the present, per frame.
 Json XellProvider::vendor_report() {
     if (!ctx_ || !enabled_ || !api_.getFramesReports) return Json();
+    // The context belongs to the thread that draws, like Reflex's state: the report of another thread is empty, not a race.
+    const std::thread::id owner = owner_.load();
+    if (owner != std::thread::id() && std::this_thread::get_id() != owner) {
+        if (!warnedReportThread_.exchange(true))
+            FA_WARN("render", "XeLL: the report was asked from thread {}, not from thread {} that draws: left empty",
+                    latency_thread_text(std::this_thread::get_id()), latency_thread_text(owner));
+        return Json();
+    }
     abi::FrameReport reports[abi::kReportCount] = {};
     if (api_.getFramesReports(ctx_, reports) != abi::kResultSuccess) return Json();
     double sum = 0, newestMs = 0;
@@ -276,6 +289,8 @@ void XellProvider::stop(gpu::Device& device) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!startHeld_ || !ctx_ || nativeDevice_ != device.native().device) return;
     startHeld_ = false;
+    owner_.store(std::thread::id());
+    warnedReportThread_ = false;
     release_locked(nativeDevice_);
 }
 
