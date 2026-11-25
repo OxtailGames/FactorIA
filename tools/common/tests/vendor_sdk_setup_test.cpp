@@ -292,8 +292,12 @@ TEST_CASE("setup streamline: the install removes the older versions, and leaves 
     stdfs::create_directories(tools / "0.1.0");
     testing::write_all(tools / "0.1.0" / "leftover.dll", "old");
     // Not ours to delete: a newer version (a newer factoria shares this home), and what is not named like a version.
-    for (const char* other : {"9.9.9", "notes", "backup-0.1", "0.9.0.old-1-2", "1.0"})
+    for (const char* other :
+         {"9.9.9", "notes", "backup-0.1", "1.0", "9.9.9.old-1-2", "0.9.0.old-x-2", "0.9.0.old-1", ".old-1-2"})
         testing::write_all(tools / other / "keep.txt", "keep");
+    // The leftovers of replaced installs (a program had a file open on Windows): of this version or an older one, they go.
+    for (const char* aside : {"0.9.0.old-1-2", "1.0.0.old-4242-3", "0.1.0.old-7-1"})
+        testing::write_all(tools / aside / "dead.dll", "old");
 
     FakeSdk current(lab, true, "1.0.0");
     REQUIRE(setup_detail::vendor_sdk_install(c, options(true), current.sdk).ok);
@@ -303,7 +307,10 @@ TEST_CASE("setup streamline: the install removes the older versions, and leaves 
     CHECK(stdfs::exists(tools / "9.9.9" / "keep.txt"));
     CHECK(stdfs::exists(tools / "notes" / "keep.txt"));
     CHECK(stdfs::exists(tools / "backup-0.1" / "keep.txt"));
-    CHECK(stdfs::exists(tools / "0.9.0.old-1-2" / "keep.txt"));
+    for (const char* gone : {"0.9.0.old-1-2", "1.0.0.old-4242-3", "0.1.0.old-7-1"})
+        CHECK_FALSE(stdfs::exists(tools / gone));
+    for (const char* kept : {"9.9.9.old-1-2", "0.9.0.old-x-2", "0.9.0.old-1", ".old-1-2"})
+        CHECK(stdfs::exists(tools / kept / "keep.txt"));
     CHECK(stdfs::exists(tools / "1.0" / "keep.txt"));  // 1.0 is 1.0.0 for the comparison, not older: not removed
 
     // A newer pin whose download fails keeps the working install.

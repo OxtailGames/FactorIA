@@ -87,6 +87,8 @@ TEST_CASE("shader text: every packed text decodes to the bytes sokol-shdc wrote 
         CHECK(std::strncmp(all, es ? "#version 300 es" : "#version 430", es ? 15 : 12) == 0);
     }
     CHECK(texts > 100);
+    // A floor far under what is there (35 headers, 69 packs): the sweep over the headers must not shrink to nothing unnoticed.
+    CHECK(std::size(kShaderTexts) > 20);
 }
 
 TEST_CASE("shader text: a text is decoded once and the same pointer comes back") {
@@ -126,6 +128,39 @@ TEST_CASE("shader text: threads asking for the same new text get one decode and 
     for (const char* s : seen) CHECK(s == seen[0]);
     CHECK(text == seen[0]);
     CHECK(fa::shader_text::decoded_count() == before + 1);
+}
+
+TEST_CASE("shader text: the cache key is the frame's content, not its address or a copy of it") {
+    auto make = [](char letter) {
+        std::string text = "#version 300 es\nvoid main() {}\n";
+        for (int i = 0; i < 40; ++i)
+            text += std::string("// line ") + letter + " of a made-up shader " + std::to_string(i) + "\n";
+        fa::CompressOptions options;
+        options.codec = fa::Codec::Zstd;
+        auto frame = fa::compress(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.c_str()), text.size() + 1),
+            options);
+        REQUIRE(bool(frame));
+        return std::make_pair(text, std::move(*frame));
+    };
+    auto [textA, frameA] = make('A');
+    auto [textB, frameB] = make('B');  // the same sizes, one letter per line different
+    CHECK(textA.size() == textB.size());
+    const char* a = nullptr;
+    {
+        std::vector<std::uint8_t> temporary = frameA;  // a frame that goes away: no key may point into it
+        a = fa::shader_text::get({temporary.data(), temporary.size(), textA.size() + 1}, 0);
+    }
+    REQUIRE(a != nullptr);
+    CHECK(textA == a);
+    const char* b = fa::shader_text::get({frameB.data(), frameB.size(), textB.size() + 1}, 0);
+    CHECK(textB == b);
+    CHECK(a != b);
+    const std::size_t decoded = fa::shader_text::decoded_count();
+    CHECK(fa::shader_text::get({frameA.data(), frameA.size(), textA.size() + 1}, 0) ==
+          a);  // the same bytes at another address
+    CHECK(fa::shader_text::get({frameB.data(), frameB.size(), textB.size() + 1}, 0) == b);
+    CHECK(fa::shader_text::decoded_count() == decoded);
 }
 
 TEST_CASE("shader text: a damaged frame gives an empty string, not a crash") {

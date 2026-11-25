@@ -43,6 +43,31 @@ Result run(std::vector<std::string> args, const std::string& input = {}) {
     int code = fa::cli::cli_main(args, out, err, in);
     return {code, out.str(), err.str()};
 }
+
+struct EnvVar {
+    std::string name, old;
+    bool had;
+    EnvVar(const std::string& n, const std::string& value) : name(n) {
+        const char* o = std::getenv(n.c_str());
+        had = o != nullptr;
+        if (had) old = o;
+#ifdef _WIN32
+        _putenv_s(n.c_str(), value.c_str());
+#else
+        setenv(n.c_str(), value.c_str(), 1);
+#endif
+    }
+    ~EnvVar() {
+#ifdef _WIN32
+        _putenv_s(name.c_str(), had ? old.c_str() : "");
+#else
+        if (had)
+            setenv(name.c_str(), old.c_str(), 1);
+        else
+            unsetenv(name.c_str());
+#endif
+    }
+};
 }  // namespace
 
 TEST_CASE("version and help") {
@@ -138,7 +163,10 @@ TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, wit
 }
 
 TEST_CASE("setup: --force of a vendor SDK needs the license accepted again, and the error says so") {
-    // --json never prompts and refuses before it downloads or writes anything.
+    // --json never prompts and refuses before it downloads or writes anything. An empty home of its own: with xess installed in
+    // the real ~/.factoria the second run below would say "already installed".
+    const EnvVar home("FACTORIA_HOME",
+                      fa::fs::path_to_utf8(fa::fs::make_temp_dir_until_exit("fa_cli_setup_home").value()));
     auto r = run({"setup", "xess", "--force", "--json"});
     CHECK(r.code == 1);
     CHECK(r.out.find("license_required") != std::string::npos);
@@ -1220,30 +1248,6 @@ TEST_CASE("feedback signout and signin: unknown provider is a usage error; signo
 
 // ---- ai doctor / ai run resolve the project they run in (cwd or --project), with its AI settings
 namespace {
-struct EnvVar {
-    std::string name, old;
-    bool had;
-    EnvVar(const std::string& n, const std::string& value) : name(n) {
-        const char* o = std::getenv(n.c_str());
-        had = o != nullptr;
-        if (had) old = o;
-#ifdef _WIN32
-        _putenv_s(n.c_str(), value.c_str());
-#else
-        setenv(n.c_str(), value.c_str(), 1);
-#endif
-    }
-    ~EnvVar() {
-#ifdef _WIN32
-        _putenv_s(name.c_str(), had ? old.c_str() : "");
-#else
-        if (had)
-            setenv(name.c_str(), old.c_str(), 1);
-        else
-            unsetenv(name.c_str());
-#endif
-    }
-};
 
 // A scratch folder that is removed when the test ends, also when a REQUIRE throws (and the working directory goes back first: a folder
 // that is the current directory cannot be removed on Windows).
