@@ -552,8 +552,7 @@ bool Presenter::read_back_buffer(int w, int h, std::uint8_t* rgba) const {
     return true;
 }
 
-// ---- the window's presenter
-// ----------------------------------------------------------------------------------------------
+// ---- the window's presenter ----------------------------------------------------------------------------------------
 
 namespace {
 // Made with new and deleted only by window_presenter_release: a presenter sokol_gfx still uses at exit is left to the
@@ -606,8 +605,7 @@ bool in_modal_move_size_loop() {
 
 }  // namespace fa::d3d11
 
-// ---- sokol_window.h on Windows: the swapchain is the presenter's, not sokol_app's
-// -----------------------------------------
+// ---- sokol_window.h on Windows: the swapchain is the presenter's, not sokol_app's -----------------------------------
 
 extern "C" bool fa_sapp_set_vsync(bool on) {
     // app.cpp keeps the wish and passes the interval to every present(). The blit model of Windows before 10 always

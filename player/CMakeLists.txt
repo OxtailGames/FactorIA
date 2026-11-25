@@ -200,15 +200,13 @@ elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang
     endif()
 endif()
 
-# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that measure the player
-# configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
+# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that
+# measure the player configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
 #   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read;
-#   the web
-#     player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
+#     the web player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);
 #   - the archives the player links, as player/player_libs-<config>.txt, one path per line, relative to the build
-#   directory (a build in a container has other
-#     absolute paths than the host that measures it): what the report falls back to
-#     where there is no map (web, iOS) and when a map cannot be read.
+#     directory (a build in a container has other absolute paths than the host that measures it): what the report
+#     falls back to where there is no map (web, iOS) and when a map cannot be read.
 # Only link flags and a generated text file: no compile line changes, so the ccache is as warm as without the option.
 if(FA_PLAYER_LINK_MAP)
     set(FA_PLAYER_MAP_FILE ${CMAKE_CURRENT_BINARY_DIR}/factoria_player.map)

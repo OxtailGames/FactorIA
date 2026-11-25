@@ -373,7 +373,8 @@ TEST_CASE("gpu backend: Engine::init tells the host about a failed backend once,
         MESSAGE("this build has neither D3D12 nor Vulkan: the host's hook was not checked");
         return;
     }
-    // A window: the first start fails (forced), so does the fallback; the host hears about the first one, once.
+    // A window: the first start fails (forced), so does the fallback (the fault fails every backend, Default too: no
+    // OpenGL context is opened here); the host hears about the first one, once.
     {
         EngineConfig c = cfg(proj);
         c.headless = false;
@@ -383,7 +384,7 @@ TEST_CASE("gpu backend: Engine::init tells the host about a failed backend once,
         c.gpuBackendFailed = [&heard](const std::string& backend, const std::string& why) {
             heard.push_back(backend + ": " + why);
         };
-        GfxEnvironment gfx{};  // no device: every start is refused before a renderer is made
+        GfxEnvironment gfx{};  // no device: no start makes a renderer (the claim is refused, or the fault is)
         Engine e;
         std::string err;
         REQUIRE_MESSAGE(e.init(c, &gfx, &err), err);

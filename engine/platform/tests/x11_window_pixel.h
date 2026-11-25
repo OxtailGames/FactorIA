@@ -1,7 +1,7 @@
-// Tests that run in a real X11 window (Linux, under xvfb): the colour the X server holds for one pixel of the game window.
-// Shared by tests/gl_surface_handover_tests_linux.cpp and the runtime's tests/windowed_vulkan_tests_linux.cpp. Include it
-// AFTER every engine header of the test file: Xlib's macros (None, Bool, Status...) would rename the engine's identifiers
-// (this header undefines None, which is WindowPresenter's here).
+// Tests that run in a real X11 window (Linux, under xvfb): the colour the X server holds for one pixel of the game
+// window. Shared by tests/gl_surface_handover_tests_linux.cpp and the runtime's tests/windowed_vulkan_tests_linux.cpp.
+// Include it AFTER every engine header of the test file: Xlib's macros (None, Bool, Status...) would rename the
+// engine's identifiers (this header undefines None, which is WindowPresenter's here).
 #pragma once
 
 #include <cstdint>
@@ -14,7 +14,8 @@
 
 namespace fa::test {
 
-// The colour of the window's pixel (x, y) as 0-255 channels: what the last present put there, whichever API presented it.
+// The colour of the window's pixel (x, y) as 0-255 channels: what the last present put there, whichever API presented
+// it.
 // False: no window, or the server refused the read (an X error, trapped: Xlib's default handler would end the process).
 inline bool x11_window_pixel(int x, int y, unsigned& r, unsigned& g, unsigned& b) {
     static int xError = 0;

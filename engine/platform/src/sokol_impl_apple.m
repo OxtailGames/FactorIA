@@ -315,10 +315,9 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
 #endif
 }
 
-// ---- the native window for a GPU device of its own (app_native_window, M77-P9e1)
-// ---------------------------------------- macOS: the CAMetalLayer sokol_app made for its view (Vulkan on MoltenVK
-// presents into it). sokol_app takes a drawable of it only when sokol_glue asks for the frame's swapchain, which
-// app.cpp does not while a device has the window.
+// ---- the native window for a GPU device of its own (app_native_window, M77-P9e1) ----------------------------------
+// macOS: the CAMetalLayer sokol_app made for its view (Vulkan on MoltenVK presents into it). sokol_app takes a drawable
+// of it only when sokol_glue asks for the frame's swapchain, which app.cpp does not while a device has the window.
 bool fa_sapp_native_window(void** window, void** display) {
     *window = NULL;
     *display = NULL;
@@ -377,8 +376,7 @@ void fa_sapp_window_claimed(void) {}
 void fa_sapp_window_returned(void) {}
 #endif
 
-// ---- IME (ime_apple.mm)
-// -------------------------------------------------------------------------------------------------
+// ---- IME (ime_apple.mm) --------------------------------------------------------------------------------------------
 void* fa_sapp_macos_view(void) {
 #if !TARGET_OS_IPHONE
     return (__bridge void*)_sapp.macos.view;

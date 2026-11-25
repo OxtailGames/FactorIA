@@ -503,8 +503,10 @@ int main(int argc, char** argv) {
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
+        // First, so the Vulkan player's own lines are in the file and the OpenGL player that it starts in its place
+        // appends to this run's log.txt (log_to_file) instead of to the one of an earlier run.
+        log_to_file(fa::fs::user_dir());
 #if defined(FA_PLAYER_VULKAN_VARIANT)
-        // Before log.txt is started: the OpenGL player that takes over starts it again (its warning names the reason).
         cfg.memoryStorage = checkRun && !persistStorage;
         // A check run (--input, --dump-state, --screenshot) in "auto" draws like `factoria run --headless`, with the
         // OpenGL backend, so its state and pixels match that run byte for byte; FA_GPU_BACKEND=vulkan (or the game's
@@ -533,7 +535,6 @@ int main(int argc, char** argv) {
             };
         }
 #endif
-        log_to_file(fa::fs::user_dir());
         report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
