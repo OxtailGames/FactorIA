@@ -1897,6 +1897,11 @@ Result<void> VulkanDevice::wait_idle() {
     Result<void> r;
     for (int k = 0; k < kQueueKinds && r; ++k)
         if (queues_[k].own) r = wait_timeline(queues_[k].value, "wait_idle", QueueKind(k));
+    // The timelines already say the GPU finished, so this returns at once; it is here for the validation layers before
+    // 1.3.29x (Ubuntu 24.04 ships 1.3.275), whose synchronization validation does not follow host waits on timeline
+    // semaphores and would report the next write into memory a destroyed resource used as a hazard. The queue mutex
+    // held above is the external synchronization vkDeviceWaitIdle asks for.
+    if (r) (void)fn_.vkDeviceWaitIdle(device_);
     collect();  // takes the retired objects too
     // The GPU finished everything submitted, so what the open frame deferred (destroyed handles, the kept objects of
     // submitted lists) goes too, unless a list is still open: its command buffer may name a view, sampler or

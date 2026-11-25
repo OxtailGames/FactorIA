@@ -86,7 +86,9 @@ VkSurfaceKHR make_platform_surface(PFN_vkGetInstanceProcAddr gipa, VkInstance in
     ci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     ci.hinstance = GetModuleHandleW(nullptr);
     ci.hwnd = hwnd;
-    return made(create(instance, &ci, nullptr, &surface), surface, "vkCreateWin32SurfaceKHR", error);
+    // Two statements: the order a call evaluates its arguments in is unspecified (GCC copied `surface` before create set it).
+    const VkResult createResult = create(instance, &ci, nullptr, &surface);
+    return made(createResult, surface, "vkCreateWin32SurfaceKHR", error);
 #elif defined(__ANDROID__)
     auto create = reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(gipa(instance, "vkCreateAndroidSurfaceKHR"));
     if (!create) {
@@ -96,7 +98,9 @@ VkSurfaceKHR make_platform_surface(PFN_vkGetInstanceProcAddr gipa, VkInstance in
     VkAndroidSurfaceCreateInfoKHR ci{};
     ci.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
     ci.window = static_cast<ANativeWindow*>(const_cast<void*>(desc.nativeWindow));
-    return made(create(instance, &ci, nullptr, &surface), surface, "vkCreateAndroidSurfaceKHR", error);
+    // Two statements: the order a call evaluates its arguments in is unspecified (GCC copied `surface` before create set it).
+    const VkResult createResult = create(instance, &ci, nullptr, &surface);
+    return made(createResult, surface, "vkCreateAndroidSurfaceKHR", error);
 #elif defined(__APPLE__)
     auto create = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(gipa(instance, "vkCreateMetalSurfaceEXT"));
     if (!create) {
@@ -107,7 +111,9 @@ VkSurfaceKHR make_platform_surface(PFN_vkGetInstanceProcAddr gipa, VkInstance in
     VkMetalSurfaceCreateInfoEXT ci{};
     ci.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
     ci.pLayer = static_cast<const CAMetalLayer*>(desc.nativeWindow);
-    return made(create(instance, &ci, nullptr, &surface), surface, "vkCreateMetalSurfaceEXT", error);
+    // Two statements: the order a call evaluates its arguments in is unspecified (GCC copied `surface` before create set it).
+    const VkResult createResult = create(instance, &ci, nullptr, &surface);
+    return made(createResult, surface, "vkCreateMetalSurfaceEXT", error);
 #elif defined(__linux__)
     auto create = reinterpret_cast<CreateXlibSurface>(gipa(instance, "vkCreateXlibSurfaceKHR"));
     if (!create) {
@@ -125,7 +131,9 @@ VkSurfaceKHR make_platform_surface(PFN_vkGetInstanceProcAddr gipa, VkInstance in
     ci.flags = 0;
     ci.dpy = const_cast<void*>(desc.nativeDisplay);
     ci.window = static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(desc.nativeWindow));
-    return made(create(instance, &ci, nullptr, &surface), surface, "vkCreateXlibSurfaceKHR", error);
+    // Two statements: the order a call evaluates its arguments in is unspecified (GCC copied `surface` before create set it).
+    const VkResult createResult = create(instance, &ci, nullptr, &surface);
+    return made(createResult, surface, "vkCreateXlibSurfaceKHR", error);
 #else
     (void)gipa;
     (void)instance;
