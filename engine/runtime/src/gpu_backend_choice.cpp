@@ -1,5 +1,7 @@
 #include "fa/runtime/gpu_backend_choice.h"
 
+#include <cstdlib>
+
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
@@ -31,6 +33,26 @@ std::string available_list() {
 }
 
 }  // namespace
+
+std::string gpu_window_path_reason(const std::string& backend, const std::string& why) {
+    return std::string(kGpuWindowPathReason) + " (the " + backend + " backend cannot make its swapchain on it: " + why +
+           ")";
+}
+
+bool is_gpu_window_path_reason(const std::string& reason) { return reason.rfind(kGpuWindowPathReason, 0) == 0; }
+
+GpuBackendInputs make_gpu_backend_inputs(const std::string& configValue, bool readStored, GpuBackend autoBackend,
+                                         const std::string& projectValue, std::string* storedWarning) {
+    GpuBackendInputs in;
+    in.config = configValue;
+    in.env = std::getenv("FA_GPU_BACKEND");
+    if (readStored) in.user = read_gpu_backend_setting(fs::user_dir(), storedWarning);
+    in.project = projectValue;
+    in.autoBackend = autoBackend;
+    in.fallbackFrom = std::getenv(kGpuFallbackFromEnv);
+    in.fallbackReason = std::getenv(kGpuFallbackReasonEnv);
+    return in;
+}
 
 Result<GpuBackendChoice> choose_gpu_backend(const GpuBackendInputs& in) {
     GpuBackendChoice c;
@@ -79,12 +101,21 @@ Result<GpuBackendChoice> choose_gpu_backend(const GpuBackendInputs& in) {
         gpu_backend_available(in.autoBackend) && c.fallbackFrom != gpu_backend_name(in.autoBackend))
         c.backend = in.autoBackend;
     if (!c.fallbackFrom.empty()) {
-        c.warnings.push_back("The " + c.fallbackFrom + " player could not start (" +
-                             (c.fallbackReason.empty() ? std::string("no reason given") : c.fallbackReason) +
-                             "), so this player started in its place and draws with " +
-                             (c.backend == GpuBackend::Default ? std::string(Renderer::backend_name())
-                                                               : std::string(gpu_backend_name(c.backend))) +
-                             ". graphics.backend says the same; a driver update or installing Vulkan brings it back.");
+        const std::string drawsWith = c.backend == GpuBackend::Default ? std::string(Renderer::backend_name())
+                                                                       : std::string(gpu_backend_name(c.backend));
+        if (is_gpu_window_path_reason(c.fallbackReason)) {
+            // Not a broken driver: the window of this platform cannot take that backend's swapchain yet. Nothing a driver
+            // update or an install brings back, so the warning does not say so.
+            c.warnings.push_back(
+                "The " + c.fallbackFrom + " player started and handed this window over: " + c.fallbackReason +
+                ". This player started in its place and draws with " + drawsWith + ". graphics.backend says the same.");
+        } else {
+            c.warnings.push_back("The " + c.fallbackFrom + " player could not start (" +
+                                 (c.fallbackReason.empty() ? std::string("no reason given") : c.fallbackReason) +
+                                 "), so this player started in its place and draws with " + drawsWith +
+                                 ". graphics.backend says the same; a driver update or installing " + c.fallbackFrom +
+                                 " brings it back.");
+        }
     }
     return c;
 }
@@ -98,9 +129,44 @@ Result<GpuBackendChoice> choose_gpu_backend(const std::string& configValue, cons
     return choose_gpu_backend(in);
 }
 
-std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used) {
-    return std::string("The ") + gpu_backend_name(asked) + " backend cannot draw into a window yet (" + why +
-           "); the window uses the " + used + " backend instead.";
+std::string gpu_backend_fallback_warning(GpuBackend asked, const std::string& why, const std::string& used,
+                                         bool windowed) {
+    const std::string name = gpu_backend_name(asked);
+    return "The " + name + " backend could not start (" + why + "); " +
+           (windowed ? "the window" : "this headless run") + " draws with the " + used +
+           " backend of this build instead (hint: fix what the error says, or set "
+           "render.backend to \"auto\" in factoria.json, FA_GPU_BACKEND or EngineConfig.gpuBackend to stop asking "
+           "for " +
+           name + ").";
+}
+
+GpuBackendStartResult start_gpu_backend(GpuBackend asked, const GpuBackendStart& start, const std::string& defaultName,
+                                        bool windowed, const GpuBackendFailed& failed) {
+    GpuBackendStartResult r;
+    r.used = asked;
+    const std::string first = start ? start(asked) : std::string("no start function");
+    if (first.empty()) {
+        r.ok = true;
+        return r;
+    }
+    if (gpu_backend_on_context(asked)) {  // the build's own backend: nothing to fall back to
+        r.error = first;
+        return r;
+    }
+    r.fallbackReason = first;
+    // Before the in-process fallback: the host may take the process over (the Vulkan player starts the OpenGL player), and
+    // then the fallback below never hides the failure. It returns when the host does nothing or could not.
+    if (failed) failed(first);
+    r.warning = gpu_backend_fallback_warning(asked, first, defaultName, windowed);
+    r.used = GpuBackend::Default;
+    const std::string second = start(GpuBackend::Default);
+    if (second.empty()) {
+        r.ok = true;
+        return r;
+    }
+    r.error = std::string("the ") + gpu_backend_name(asked) + " backend failed (" + first + "), and so did the " +
+              defaultName + " backend of this build (" + second + ")";
+    return r;
 }
 
 std::string read_gpu_backend_setting(const std::filesystem::path& userDir, std::string* warning) {

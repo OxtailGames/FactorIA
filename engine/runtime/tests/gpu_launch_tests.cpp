@@ -222,6 +222,29 @@ TEST_CASE("gpu backend: auto in the Vulkan player and the fallback marker") {
     }
 }
 
+TEST_CASE("gpu backend: the marker of a window that cannot take the swapchain does not promise a driver update") {
+    const std::string reason =
+        gpu_window_path_reason("vulkan", "the window cannot be handed to the vulkan device: OpenGL");
+    CHECK(is_gpu_window_path_reason(reason));
+    CHECK_FALSE(is_gpu_window_path_reason("no Vulkan driver"));
+    GpuBackendInputs in;
+    in.fallbackFrom = "vulkan";
+    in.fallbackReason = reason.c_str();
+    auto c = choose_gpu_backend(in);
+    REQUIRE(c.ok());
+    REQUIRE(c.value().warnings.size() == 1);
+    const std::string& w = c.value().warnings[0];
+    CHECK(contains(w, "the window path is not available on this platform yet"));
+    CHECK_FALSE(contains(w, "driver update"));
+    CHECK_FALSE(contains(w, "brings it back"));
+    // A Vulkan that could not start keeps the advice.
+    in.fallbackReason = "no Vulkan driver";
+    c = choose_gpu_backend(in);
+    REQUIRE(c.ok());
+    REQUIRE(c.value().warnings.size() == 1);
+    CHECK(contains(c.value().warnings[0], "driver update"));
+}
+
 TEST_CASE("gpu backend: the stored choice file round-trips, 'auto' removes it, a broken one is ignored") {
     ScopedUserDir user("file");
     CHECK(read_gpu_backend_setting(user.dir, nullptr).empty());

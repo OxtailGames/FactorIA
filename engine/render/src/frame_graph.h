@@ -87,6 +87,9 @@ struct PassStats {
 // before it, `end` right after it with its CPU time in milliseconds, also when the callback throws. The renderer uses them to
 // place GPU timestamps and to feed the profiler; they must not touch the graph. Empty functions are skipped.
 struct PassHooks {
+    // Before `begin`, with the physical handle of every resource the pass declared (its reads, then its writes; 0 for none): the
+    // renderer makes the graphics queue wait there for the async compute work that still holds one of them (Gpu::wait_compute_for).
+    std::function<void(const std::vector<std::uint64_t>& handles)> before;
     std::function<void(const std::string& pass)> begin;
     std::function<void(const std::string& pass, double cpuMs)> end;
 };
@@ -122,6 +125,10 @@ public:
     // compile() has not succeeded. `commands` is the command list the passes record on (PassContext::commands(): the
     // renderer's frame list, Gpu::commands()); null in the CPU-only tests.
     Result<void> execute(TargetPool& pool, gpu::CommandList* commands = nullptr);
+    // The same, with the address of the list pointer instead of the list: PassContext::commands() reads `*current` each time, so
+    // a pass that ends the list and begins another (the renderer's parallel shadow recording and async compute,
+    // Gpu::commands_slot) leaves the passes after it the new list. Null = no list.
+    Result<void> execute_on(TargetPool& pool, gpu::CommandList* const* current);
 
     // The functions execute() calls around each pass callback; kept by clear() and release_callbacks().
     void set_pass_hooks(PassHooks hooks) { hooks_ = std::move(hooks); }
@@ -183,9 +190,11 @@ private:
     bool released_ = false;  // release_callbacks() ran: the passes cannot execute
     std::vector<PassStats> stats_;
     PassHooks hooks_;
-    int hookFailures_ = 0;                  // `end` hooks that threw in the last execute()
-    std::vector<std::uint64_t> physical_;   // per resource, valid while execute() runs
-    gpu::CommandList* commands_ = nullptr;  // execute()'s `commands`, while it runs
+    int hookFailures_ = 0;                        // `end` hooks that threw in the last execute()
+    std::vector<std::uint64_t> hookHandles_;      // what the `before` hook is given (kept: no allocation per pass)
+    std::vector<std::uint64_t> physical_;         // per resource, valid while execute() runs
+    gpu::CommandList* commands_ = nullptr;        // execute()'s `commands`, while it runs
+    gpu::CommandList* const* current_ = nullptr;  // where PassContext::commands() reads the list, while execute runs
 };
 
 // What a pass's callback sees: the physical target of each resource it declared.
@@ -211,7 +220,7 @@ public:
     // The command list the pass records on (FrameGraph::execute's `commands`): null when the graph runs without one
     // (the CPU-only tests). Ask for it in the callback each frame: it is valid only while the pass runs (a list is
     // invalid after its submit, gpu/device.h, LIFETIME).
-    gpu::CommandList* commands() const { return graph_.commands_; }
+    gpu::CommandList* commands() const { return graph_.current_ ? *graph_.current_ : nullptr; }
 
 private:
     const FrameGraph& graph_;

@@ -105,8 +105,8 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
     }
     if (!surface_) return true;  // before the window's surface exists: what the instance can ask for
     // With a surface, what it offers (vkGetPhysicalDeviceSurfaceFormatsKHR, asked once per surface and swapchain).
-    if (!surfaceFormatsKnown_) (void)load_surface_formats();
-    for (const VkSurfaceFormatKHR& f : surfaceFormats_)
+    // (a copy: the render thread may load the list again for a new surface while a test or the UI thread asks)
+    for (const VkSurfaceFormatKHR& f : surface_formats_snapshot())
         if (f.format == sf.format && f.colorSpace == sf.space) return true;
     if (why)
         *why = "the window's surface on " + deviceName_ + " does not offer " + pixel_format_name(format) + " (" +
@@ -115,25 +115,40 @@ bool VulkanDevice::swapchain_format_supported(PixelFormat format, std::string* w
     return false;
 }
 
-// The surface's formats, asked again from the driver (a new surface, or a swapchain made again after the window
-// changed: a display's HDR setting changes the list). Render thread (and a test thread, one at a time).
+// The surface's formats, asked again from the driver (a new surface, a surface recreated on Android, a swapchain made
+// again after the window or the monitor changed: a display's HDR setting changes the list). The list is built aside
+// and swapped in under surfaceFormatsMutex_, which guards it and the known flag: swapchain_format_supported() is const
+// and any thread may call it. The driver is asked outside the lock.
 VkResult VulkanDevice::load_surface_formats() const {
-    surfaceFormats_.clear();
-    surfaceFormatsKnown_ = false;
+    std::vector<VkSurfaceFormatKHR> formats;
     std::uint32_t n = 0;
     VkResult r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, nullptr);
     if (r == VK_SUCCESS && n > 0) {
-        surfaceFormats_.resize(n);
-        r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, surfaceFormats_.data());
-        surfaceFormats_.resize(r >= VK_SUCCESS ? n : 0);
+        formats.resize(n);
+        r = fn_.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_, surface_, &n, formats.data());
+        formats.resize(r >= VK_SUCCESS ? n : 0);
     }
     // A format a test pretends the surface lacks (hide_surface_format_for_tests).
     for (VkFormat hidden : hiddenSurfaceFormats_)
-        surfaceFormats_.erase(std::remove_if(surfaceFormats_.begin(), surfaceFormats_.end(),
-                                             [&](const VkSurfaceFormatKHR& s) { return s.format == hidden; }),
-                              surfaceFormats_.end());
+        formats.erase(std::remove_if(formats.begin(), formats.end(),
+                                     [&](const VkSurfaceFormatKHR& s) { return s.format == hidden; }),
+                      formats.end());
+    std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+    surfaceFormats_ = std::move(formats);
     surfaceFormatsKnown_ = r >= VK_SUCCESS;
     return r;
+}
+
+// A copy of the surface's formats, asked from the driver first when they are not known yet.
+std::vector<VkSurfaceFormatKHR> VulkanDevice::surface_formats_snapshot() const {
+    bool known = false;
+    {
+        std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+        known = surfaceFormatsKnown_;
+    }
+    if (!known) (void)load_surface_formats();
+    std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+    return surfaceFormats_;
 }
 
 void VulkanDevice::hide_surface_format_for_tests(PixelFormat format) {
@@ -203,11 +218,10 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
     // 8-bit order of the same kind (the sRGB twin of an sRGB default) when the surface has only that one (Android
     // offers RGBA).
     SwapFormat sf = swap_format(asked);
-    surfaceFormatsKnown_ = false;  // a new surface: its list is asked again
-    r = load_surface_formats();
-    if (r < VK_SUCCESS || surfaceFormats_.empty())
+    r = load_surface_formats();  // a new surface: its list is asked again
+    const std::vector<VkSurfaceFormatKHR> formats = surface_formats_snapshot();
+    if (r < VK_SUCCESS || formats.empty())
         return fail(vk_fail(where, "vkGetPhysicalDeviceSurfaceFormatsKHR", r, "the window or the device was lost"));
-    const std::vector<VkSurfaceFormatKHR>& formats = surfaceFormats_;
     auto offered = [&](const SwapFormat& f) {
         for (const VkSurfaceFormatKHR& s : formats)
             if (s.format == f.format && s.colorSpace == f.space) return true;
@@ -253,11 +267,6 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
                                        pixel_format_name(format) +
                                        " (where the window's surface offers only that one: Android), or create the "
                                        "swapchain before the first pipeline"));
-        defaults_.colorFormat = format;
-        FA_INFO("render",
-                "gpu vulkan: the window's surface offers {} and not {}: the device's default colour format is "
-                "now {}",
-                pixel_format_name(format), pixel_format_name(asked), pixel_format_name(format));
     }
 
     // The present mode: FIFO (every GPU has it) with vsync; else MAILBOX (no tearing), IMMEDIATE, then FIFO.
@@ -295,6 +304,13 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
         swapIndex_ = 0;
     }
     if (auto made = make_swapchain(where, false); !made) return fail(made.error());
+    if (format != asked) {
+        // Only now, with the swapchain made: a failed one leaves the device's default colour format as it was.
+        defaults_.colorFormat = format;
+        FA_INFO("render",
+                "gpu vulkan: the window's surface offers {} and not {}: the device's default colour format is now {}",
+                pixel_format_name(format), pixel_format_name(asked), pixel_format_name(format));
+    }
     int width = 0, height = 0;
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
@@ -307,10 +323,29 @@ Result<void> VulkanDevice::create_swapchain(const SwapchainDesc& desc) {
 }
 
 Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowSize) {
+    if (failNextSwapchain_) {
+        failNextSwapchain_ = false;
+        return make_error(where + ": a swapchain failure injected by a test", "tests only");
+    }
     VkSurfaceCapabilitiesKHR caps{};
     VkResult r = fn_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps);
     if (r != VK_SUCCESS)
         return vk_fail(where, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", r, "the window or the device was lost");
+    // The surface's formats again: a surface recreated (Android) or a monitor change (HDR on or off) changes the list,
+    // and a swapchain asks for a format the surface offers now.
+    {
+        const VkResult fr = load_surface_formats();
+        if (fr < VK_SUCCESS)
+            return vk_fail(where, "vkGetPhysicalDeviceSurfaceFormatsKHR", fr, "the window or the device was lost");
+        bool offered = false;
+        for (const VkSurfaceFormatKHR& f : surface_formats_snapshot())
+            if (f.format == swapVkFormat_ && f.colorSpace == swapColorSpace_) offered = true;
+        if (!offered)
+            return make_error(where + ": the window's surface no longer offers " + pixel_format_name(swapFormat_) +
+                                  " images (the window or the display changed)",
+                              "destroy_swapchain() and create_swapchain() again: the new swapchain takes a format the "
+                              "surface offers now");
+    }
     // 0 = the surface's size (currentExtent; 0xFFFFFFFF when the swapchain sets it, as on Wayland): a swapchain made
     // again because the window changed takes the window's size where the surface has one.
     const bool undefined = caps.currentExtent.width == 0xFFFFFFFFu;
@@ -690,8 +725,13 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
         if (auto w = wait_timeline(acquireSemaphores_[slot].waitedAt, "acquire_swapchain"); !w) return w.error();
         const VkSemaphore semaphore = acquireSemaphores_[slot].semaphore;
         std::uint32_t index = 0;
-        const VkResult r =
-            fn_.vkAcquireNextImageKHR(device_, swapchain_, kAcquireTimeoutNs, semaphore, VK_NULL_HANDLE, &index);
+        VkResult r = VK_SUCCESS;
+        if (injectedAcquires_ > 0) {  // a test's answer: nothing was signalled, as with a timeout
+            --injectedAcquires_;
+            r = injectedAcquire_;
+        } else {
+            r = fn_.vkAcquireNextImageKHR(device_, swapchain_, kAcquireTimeoutNs, semaphore, VK_NULL_HANDLE, &index);
+        }
         if (r == VK_ERROR_OUT_OF_DATE_KHR) {  // nothing was signalled: made again, then one more try
             swapStale_ = true;
             continue;
@@ -846,8 +886,11 @@ void VulkanDevice::destroy_swapchain() {
     swapPresentMode_ = VK_PRESENT_MODE_FIFO_KHR;
     swapUsage_ = 0;
     swapStale_ = false;
-    surfaceFormats_.clear();
-    surfaceFormatsKnown_ = false;
+    {
+        std::lock_guard<std::mutex> lock(surfaceFormatsMutex_);
+        surfaceFormats_.clear();
+        surfaceFormatsKnown_ = false;
+    }
     swapPreRotation_ = 0;
     std::lock_guard<std::mutex> lock(swapMutex_);
     swapWidth_ = swapHeight_ = 0;

@@ -362,13 +362,24 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 - The order at start: `EngineConfig::gpuBackend`, then the environment variable `FA_GPU_BACKEND` (same names, for tests and for players
   that tools run), then the player's own stored choice (`graphics.backend`, below), then `factoria.json`, then `auto`. A wrong name in the
   variable fails the start with the same teaching error; a stored choice that is not valid any more is a startup warning and is ignored.
-- `d3d12` and `vulkan` draw offscreen only until their window paths land. A headless run (`factoria call`, `factoria test`, the MCP
-  server, tests) uses the one asked for; on a machine with no driver for it, that run has no graphics (a warning says so: no
-  renders or captures), so leave such runs on `auto`. In a window the renderer cannot start on them: the engine warns once (what was asked, why
-  it failed, what draws instead) and the window uses the `auto` backend.
-- The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
-  backend of the renderer's device in `backend`, the one asked for in `requestedBackend` when they differ, and `fallbackFrom` and
-  `fallbackReason` when another player could not start its backend and started this one (below).
+- `d3d12` and `vulkan` draw into the game window with a swapchain of their own (M77-P9e1): the engine takes the window's native
+  handle from the platform, which then makes no swapchain of its own (a window holds one). On Windows that is the player itself
+  (it carries Direct3D 11, Direct3D 12 and Vulkan); on macOS `vulkan` presents through MoltenVK in a build that has it. On Linux
+  and Android the window is an OpenGL one, which cannot take a Vulkan swapchain yet, so they fall back as below. A headless run
+  (`factoria call`, `factoria test`, the MCP server, tests) draws offscreen on the one asked for. The editor draws the game into
+  its own view with the `auto` backend.
+- When the backend asked for cannot start (no driver, no such GPU, a window that cannot take its swapchain), the engine falls back
+  to `auto` **in the same process**, in a window and headless alike: one warning keeps the first error whole, says what draws instead
+  and how to stop asking (set `"auto"`). Only `auto` failing as well leaves the run without graphics (a warning says so: no renders
+  or captures). HDR output is not available while D3D12 or Vulkan draws the window (`hdrOutput` says why), and the window's vsync
+  is the swapchain's present mode, set when it starts. In the Vulkan player of Linux and Android, below, another player gets the
+  failure first.
+- The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) has two
+  separate kinds of fallback, which can both be present:
+  - **In this process** (`requestedBackend`, `backendFallback`): `backend` is the backend of the renderer's device, `requestedBackend`
+    the one asked for when they differ (in the Vulkan player, `auto` is Vulkan) and `backendFallback` the first error of the one asked for.
+  - **Another process** (`fallbackFrom`, `fallbackReason`): this player was started because the Vulkan player (`fallbackFrom`
+    `vulkan`) could not draw the game, and `fallbackReason` says why. It exists only in the OpenGL player of Linux and Android.
 
 ### Two players on Linux and Android
 
@@ -378,23 +389,31 @@ the same player whose renderer also has the engine's Vulkan backend and the SPIR
 (`export.linux.vulkanPlayer` and `export.android.vulkanPlayer`, on by default; `false` ships only the OpenGL player:
 [platform settings](exporting/EXPORTING_SETUP.md#exportplatform)).
 
-- **What starts.** The Vulkan player starts first, and its `auto` is Vulkan. Before it opens a window it reads the choice in the
-  order above and, when the choice is Vulkan, checks that a Vulkan instance and device can be made. When the choice is `gl` or
+- **What starts, in order.** The Vulkan player starts first, and its `auto` is Vulkan. (1) Before it opens a window it reads the choice
+  in the order above and, when the choice is Vulkan, checks that a Vulkan instance and device can be made. When the choice is `gl` or
   `gles3` it runs the OpenGL player directly; when Vulkan cannot start it runs the OpenGL player with the environment variables
-  `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). The OpenGL player
-  records them as `fallbackFrom` and `fallbackReason` in the startup report and in `graphics.backend`, and never starts another player;
-  a player that carries the marker never hands over either, so there is no loop. A check run (`--input`, `--dump-state`,
-  `--screenshot`) in `auto` runs the OpenGL player, so its state and pixels match `factoria run --headless` byte for byte;
-  `FA_GPU_BACKEND=vulkan` checks the Vulkan path.
+  `FA_GPU_FALLBACK_FROM=vulkan` and `FA_GPU_FALLBACK_REASON=<why>` (Android: the same two as intent extras). (2) In the window, a
+  Vulkan start that fails (no surface, no swapchain, or a window that cannot take one) is reported to the player
+  (`EngineConfig::gpuBackendFailed`) **before** the in-process fallback below, and the player runs the OpenGL player in the same way.
+  (3) Only when the OpenGL player is not there, or cannot be started, does the Vulkan player draw with its own sokol (OpenGL) backend
+  in this process, with the in-process warning and `backendFallback` of the section above. So a Vulkan failure always reaches the OpenGL
+  player when it exists, and the in-process fallback is the last resort. The OpenGL player records the marker as `fallbackFrom` and
+  `fallbackReason` in the startup report and in `graphics.backend`, and never starts another player; a player that carries the marker
+  never hands over either, so there is no loop. A check run (`--input`, `--dump-state`, `--screenshot`) in `auto` runs the OpenGL
+  player, so its state and pixels match `factoria run --headless` byte for byte; `FA_GPU_BACKEND=vulkan` checks the Vulkan path.
 - **Linux.** The exported game's `<exe>` is the Vulkan player and `<exe>-gl` the OpenGL one, in the same folder (in a build tree:
   `player/factoria_player_vulkan` and `player/factoria_player`). The Vulkan player replaces its own process with `<exe>-gl` (`execv`,
   same arguments and environment). Without `<exe>-gl` next to it, or when that fails, it warns and draws with its own sokol (OpenGL)
-  backend. A window whose Vulkan surface cannot start runs `<exe>-gl` the same way, once.
+  backend.
 - **Android.** The launcher activity loads `libfactoria_player_vulkan.so`. To hand over it starts `factoria.engine.GlActivity`, which
   loads `libfactoria_player.so` in its own process (`:gl`), and finishes itself. A window whose Vulkan surface cannot start draws with
   the player's own OpenGL ES 3 backend in the same process.
-- **Today.** The engine's Vulkan backend has no window path yet (later M77 work), so a game in a window is always drawn with
-  OpenGL in the end: on Linux by `<exe>-gl`, on Android by GlActivity or by the Vulkan player's own OpenGL ES 3 backend.
+- **Today.** The window of these platforms is an OpenGL one, which cannot take a Vulkan swapchain yet (M77-P9e3), so a game in a window
+  is always drawn with OpenGL in the end: on Linux by `<exe>-gl`, on Android by GlActivity or by the Vulkan player's own OpenGL ES 3
+  backend. The reason the Vulkan player hands over with then is `the window path is not available on this platform yet (...)`, and the
+  warning of the OpenGL player says that the window cannot take the backend yet, not that a driver or an install would bring Vulkan
+  back (it says that only for a Vulkan that cannot start). The probe before the window is separate: a machine with no Vulkan driver
+  hands over before any window opens.
 
 ### `graphics.backend`
 
@@ -405,6 +424,22 @@ what was asked and from where (`requested`, `source`), what `auto` draws with in
 a run with in-memory storage) and returns `changed` and `takesEffect: "next start"`; the backend in use does not change. `"auto"`
 forgets it. On Linux and Android the OpenGL player may store `vulkan` too: the Vulkan player reads it at the next start. A name this
 platform cannot have is an `invalid_argument` error, and nothing is written.
+
+### Async compute and multi-thread recording
+
+On `d3d12` and `vulkan` the renderer records the shadow cascades and the spot and point light shadows on job threads (up
+to four command lists, submitted in a fixed order), and runs the depth pyramid of GPU occlusion culling
+(`SceneSettings.occlusionMode` `gpu` or `auto`) on the GPU's compute queue next to the drawing, where the device has a
+compute queue of its own. Both are on by default and change nothing in the picture: the same draws in the same order,
+the same pixels. Turn either off to compare timings or to rule out a driver problem:
+
+```json
+"render": { "asyncCompute": false, "multiThreadRecording": false }
+```
+
+A value that is not `true` or `false` fails the load with `/render/asyncCompute` (or `/render/multiThreadRecording`). The
+other backends ignore both. The startup report has `asyncCompute` and `multiThreadRecording`: whether each is in use on
+this device (false where the backend or the GPU has no such feature, or the setting is off).
 
 ## Temporal effects and upscaling at a glance (M76)
 

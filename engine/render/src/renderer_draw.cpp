@@ -15,9 +15,12 @@
 #include <bit>
 #include <functional>
 #include <iterator>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 
+#include "fa/core/jobs.h"
 #include "shaders/prepass_view.glsl.h"
 #include "shaders/quad_motion.glsl.h"
 
@@ -583,6 +586,10 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
             gpuTimer.end_pass();
             if (Profiler::on()) Profiler::get().add_zone(pass, cpuMs);
         };
+        // Async compute (M77-P10d): a pass that declares a target the compute queue still holds (the prepass the depth pyramid
+        // reads) makes the graphics queue wait for that work first. Without async compute nothing is ever pending: no hook.
+        if (gpu.has_device() && gpu.async_compute())
+            hooks.before = [this](const std::vector<std::uint64_t>& handles) { gpu.wait_compute_for(handles); };
         graph.set_pass_hooks(std::move(hooks));
     }
     graph.clear();
@@ -622,7 +629,9 @@ void Renderer::Impl::run_frame_graph() {
     if (beforeFrameGraph) beforeFrameGraph();
     if (Result<void> r = graph.compile(); !r)
         report(r.error(), false);
-    else if (Result<void> e = graph.execute(transient_targets().pool, gpu.has_device() ? &gpu.commands() : nullptr); !e)
+    else if (Result<void> e =
+                 graph.execute_on(transient_targets().pool, gpu.has_device() ? gpu.commands_slot() : nullptr);
+             !e)
         report(e.error(), true);
     graph.release_callbacks();
     jobContexts.clear();
@@ -3382,29 +3391,78 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene,
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
 // Writes: the shadow atlas (ctx.shadowTgt); stats.drawCalls.
+//
+// Parallel recording (M77-P10d, Gpu::parallel_recording(): D3D12 and Vulkan): the views are split into at most
+// kShadowRecordGroups groups of consecutive views (the split depends on the number of views only, never on the threads), each
+// group is captured on this thread (the draw loop makes pipelines and reads the caches: render-thread work) and replayed into a
+// list of its own on the job threads, and the lists are submitted after the frame's list in group order. Every view draws only
+// into its own tile, so the first group's pass clears the atlas and the later ones load the colour (their tiles' depth is
+// cleared again, which is what the first clear left there): the atlas is the one a single pass draws.
+namespace {
+constexpr int kShadowRecordGroups = 4;
+}  // namespace
+
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
+    auto pass_desc = [&](bool first) {
+        PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
+        sp.colorLoad = first ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
+        sp.clearColor = {1, 1, 1, 1};
+        sp.colorStore = gpu::StoreAction::Store;
+        sp.depthLoad = gpu::LoadAction::Clear;
+        sp.clearDepth = 1.0f;
+        return sp;
+    };
+    std::vector<int> placed;  // the views shadow_views draws
+    for (int view = 0; view < int(ctx.viewProj.size()); ++view) {
+        const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
+        if (tile.placed() && !(view >= ctx.cascades && view < ctx.sunViews)) placed.push_back(view);
+    }
+    if (!gpu.parallel_recording() || placed.size() < 2) {
+        gpu::CommandList& cl = gpu.commands();
+        cl.begin_pass(pass_desc(true));
+        shadow_views(ctx, cl, 0, int(ctx.viewProj.size()));
+        cl.end_pass();
+        return;
+    }
+    // min(views, 4) groups of consecutive views, as even as the count allows (5 views: 1, 1, 1, 2).
+    const std::size_t views = placed.size();
+    const std::size_t groups = std::min<std::size_t>(views, kShadowRecordGroups);
+    while (shadowCaptures.size() < groups) shadowCaptures.push_back(std::make_unique<render::CommandCapture>());
+    for (std::size_t g = 0; g < groups; ++g) {
+        render::CommandCapture& cap = *shadowCaptures[g];
+        cap.clear();
+        const std::size_t first = g * views / groups, last = (g + 1) * views / groups;
+        cap.begin_pass(pass_desc(g == 0));
+        shadow_views(ctx, cap, placed[first], placed[last - 1] + 1);
+        cap.end_pass();
+    }
+    // Every list is begun here, so a job that fails leaves an empty pass at worst, never a list that is not there.
+    gpu::Device& device = gpu.device();
+    std::array<gpu::CommandList*, kShadowRecordGroups> lists{};
+    for (std::size_t g = 0; g < groups; ++g) lists[g] = &device.begin_commands("shadow", gpu::QueueKind::Graphics);
+    const Result<void> recorded = jobs::parallel_for("render.shadow_record", groups, 1, [&](const jobs::Chunk& c) {
+        for (std::size_t g = c.begin; g < c.end; ++g) shadowCaptures[g]->replay(*lists[g]);
+    });
+    if (!recorded) FA_ERROR("render", "The shadow views could not be recorded: {}", recorded.error().message);
+    gpu.submit_in_order(std::span<gpu::CommandList* const>(lists.data(), groups));
+}
+
+void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int viewFirst, int viewEnd) {
     const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
     const std::vector<MeshItem>& opaque = ctx.opaque;
     const std::vector<MeshItem>& blended = ctx.blended;
     const gpu::Buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
-    PassDesc sp = pass_into(ctx.shadowTgt, "shadow");
-    sp.colorLoad = gpu::LoadAction::Clear;
-    sp.clearColor = {1, 1, 1, 1};
-    sp.colorStore = gpu::StoreAction::Store;
-    sp.depthLoad = gpu::LoadAction::Clear;
-    sp.clearDepth = 1.0f;
-    gpu::CommandList& cl = gpu.commands();
-    cl.begin_pass(sp);
     mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
     // One draw per batch and view (a cascade of the sun, a tile of a local light), each into its own tile of the atlas: the viewport and
-    // the scissor are the tile (y from the top). A batch's runs are in ascending view order, so each batch keeps a cursor.
+    // the scissor are the tile (y from the top). A batch's runs are in ascending view order, so each batch keeps a cursor (which skips
+    // the runs of the views before viewFirst).
     const std::vector<ShadowRun>& runs = ctx.shadowRuns;
     std::array<std::vector<std::uint32_t>, 2> cursors;
     cursors[0].assign(opaqueBatches.size(), 0);
     cursors[1].assign(blendedBatches.size(), 0);
-    for (int view = 0; view < int(ctx.viewProj.size()); ++view) {
+    for (int view = viewFirst; view < viewEnd && view < int(ctx.viewProj.size()); ++view) {
         const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
         if (!tile.placed() || (view >= ctx.cascades && view < ctx.sunViews)) continue;
         cl.set_viewport(tile.x, tile.y, tile.size, tile.size, true);
@@ -3472,7 +3530,6 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
             }
         }
     }
-    cl.end_pass();
 }
 
 // ---- depth and normal prepass ----
@@ -4952,7 +5009,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 [this, &ctx, hc, prepassRes](const PassContext& c) {
                     const Target* t = transient_targets().get(c.handle(prepassRes));
                     if (t && c.commands())
-                        hiz_reduce_pass(*c.commands(), *hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame());
+                        hiz_reduce_pass(*c.commands(), *hc, *t, hiz_pose_of(ctx.fr.cam), ctx.world.frame(),
+                                        c.handle(prepassRes));
                 },
                 true);
         }

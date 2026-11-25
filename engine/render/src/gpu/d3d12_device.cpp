@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
@@ -100,14 +101,82 @@ std::string pipeline_cache_mismatch(const std::vector<std::uint8_t>& bytes, cons
 }
 
 std::string d3d12_pipeline_cache_name(std::string_view program) {
-    std::string safe;
+    if (program.empty()) return "d3d12-pipelines.bin";
+    std::string safe, folded;
     for (char c : program) {
-        if (safe.size() >= 48) break;
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');  // Windows paths ignore case: Game.exe and game.exe share
+        folded += c;
         const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
-        safe += ok ? c : '_';
+        if (safe.size() < 48) safe += ok ? c : '_';
     }
-    return safe.empty() ? std::string("d3d12-pipelines.bin") : "d3d12-pipelines-" + safe + ".bin";
+    // The cleaned-up, cut name alone would give "Jóc" and "Jòc", or two long names with one start, the same file.
+    return "d3d12-pipelines-" + safe + "-" + sha256_hex(folded).substr(0, 8) + ".bin";
+}
+
+CacheWriteFailure d3d12_classify_cache_write_error(unsigned winError, bool tempHeld, bool targetHeld,
+                                                   bool targetReadOnly) {
+    constexpr unsigned kAccessDenied = 5, kSharingViolation = 32, kLockViolation = 33, kUserMappedFile = 1224;
+    const bool heldKind = winError == kSharingViolation || winError == kLockViolation || winError == kUserMappedFile;
+    if (!heldKind && winError != kAccessDenied) return CacheWriteFailure::Other;
+    if (tempHeld) return CacheWriteFailure::TempHeld;
+    if (winError == kAccessDenied && targetReadOnly) return CacheWriteFailure::ReadOnlyFile;
+    if (heldKind || targetHeld) return CacheWriteFailure::TargetHeld;
+    return CacheWriteFailure::FolderDenied;
+}
+
+CacheReplacePolicy d3d12_cache_replace_policy(CacheWriteFailure kind) {
+    switch (kind) {
+        case CacheWriteFailure::TempHeld: return {8, 20};
+        case CacheWriteFailure::TargetHeld:
+        case CacheWriteFailure::FolderDenied: return {3, 1};
+        case CacheWriteFailure::ReadOnlyFile:
+        case CacheWriteFailure::Other: break;
+    }
+    return {};
+}
+
+std::string d3d12_cache_write_hint(CacheWriteFailure kind, std::string_view file) {
+    const std::string f(file);
+    switch (kind) {
+        case CacheWriteFailure::TargetHeld:
+            return "another process holds " + f +
+                   " open (Windows replaces no open file): it is written again at the next save or the next run";
+        case CacheWriteFailure::TempHeld:
+            return "an antivirus or indexer held the temporary file next to " + f +
+                   " open for longer than a save waits: it is written again at the next save or the next run; "
+                   "excluding the cache folder from the scanner stops it";
+        case CacheWriteFailure::ReadOnlyFile:
+            return f + " has the read-only attribute: clear it (attrib -r \"" + f +
+                   "\") or delete the file; the next save or the next run writes it then";
+        case CacheWriteFailure::FolderDenied:
+            return "Windows denied access to " + f +
+                   " or its folder: check the folder's permissions for this user (and that no program holds the "
+                   "file); the next save or the next run tries again";
+        case CacheWriteFailure::Other: break;
+    }
+    return "check that the folder of " + f +
+           " is writable and the disk has room; the next save or the next run tries again";
+}
+
+std::vector<std::string> d3d12_orphan_cache_temps(const std::vector<CacheFolderEntry>& entries,
+                                                  std::string_view cacheFileName) {
+    auto lower = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c; };
+    const std::string marker = ".fa-tmp";
+    std::vector<std::string> orphans;
+    if (cacheFileName.empty()) return orphans;
+    for (const CacheFolderEntry& e : entries) {
+        if (e.ageSeconds < kOrphanTempAgeSeconds) continue;
+        const std::string_view name = e.name;
+        if (name.size() <= cacheFileName.size() + marker.size()) continue;
+        bool match = true;
+        for (std::size_t i = 0; i < cacheFileName.size() && match; ++i)
+            match = lower(name[i]) == lower(cacheFileName[i]);
+        for (std::size_t i = 0; i < marker.size() && match; ++i) match = name[cacheFileName.size() + i] == marker[i];
+        for (std::size_t i = cacheFileName.size() + marker.size(); i < name.size() && match; ++i)
+            match = (name[i] >= '0' && name[i] <= '9') || name[i] == '_';
+        if (match) orphans.push_back(e.name);
+    }
+    return orphans;
 }
 
 std::filesystem::path d3d12_pipeline_cache_file() {

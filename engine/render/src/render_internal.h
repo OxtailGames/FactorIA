@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1610,8 +1611,39 @@ public:
         FA_ASSERT(list_, "Gpu::commands() before Gpu::init() or after shutdown()");
         return *list_;
     }
-    // Ends the frame on the device: submits the frame's list, commits (Device::commit) and begins the next list.
+    // Ends the frame on the device: submits the frame's list, then makes the graphics queue wait (on the GPU) for the
+    // async compute work still pending (wait_queue), commits (Device::commit) and begins the next list.
     void commit_frame();
+
+    // ---- parallel recording and async compute (M77-P10d; docs/design/ARCHITECTURE_RENDERING_QUEUES.md) ----------------
+    // What RendererDesc allows (asyncCompute, multiThreadRecording): each is in use when it is allowed and the device has
+    // the feature (gpu::Features). Renderer::init calls it once after init(); both are off until then, and on sokol
+    // (one immediate list, neither feature) the frame is recorded exactly as without them.
+    void set_queue_options(bool asyncCompute, bool multiThreadRecording);
+    bool async_compute() const { return asyncCompute_; }
+    bool parallel_recording() const { return parallelRecording_; }
+    // Where the frame graph reads the frame's list (FrameGraph::execute_on): a pass that submits the frame's list early
+    // (submit_in_order, the async compute calls) leaves the passes after it the new one.
+    gpu::CommandList* const* commands_slot() const { return &list_; }
+    // Submits the frame's list, then `lists` in their order (each begun with device().begin_commands, on any thread,
+    // and done recording), and begins the frame's next list: on one queue the GPU runs them as if they were one list,
+    // whichever job recorded which. Render thread, after the jobs that recorded them are joined.
+    void submit_in_order(std::span<gpu::CommandList* const> lists);
+    // Async compute (only while async_compute()): submits the frame's list handing `uses` (images and buffers; `to` is
+    // ignored) to the compute queue, begins the frame's next list and returns a list of the compute queue that waits for
+    // that submit. Record the compute pass on it and give it to end_async_compute with the same `uses`. Make every
+    // resource and pipeline before: nothing may be recorded on commands() between the two calls.
+    gpu::CommandList& begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses);
+    // Submits `compute` handing `uses` back to the graphics queue. The graphics queue waits for it only before the first
+    // frame-graph pass that declares the pool target `guard` (wait_compute_for, from the graph's `before` hook) or at the
+    // frame's end (commit_frame, shutdown): the graphics passes between run while the compute queue works.
+    void end_async_compute(gpu::CommandList& compute, std::span<const gpu::QueueHandoff> uses, std::uint64_t guard);
+    // When a pending compute list guards one of `handles`: submits the frame's list, makes the graphics queue wait for
+    // the compute list (Device::wait_queue) and begins the frame's next list.
+    void wait_compute_for(const std::vector<std::uint64_t>& handles);
+    // The same for every pending compute list (nothing when none is pending).
+    void wait_compute_all();
+    std::size_t compute_pending() const { return pendingCompute_.size(); }
 
     gpu::Sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
@@ -1976,6 +2008,14 @@ private:
 
     std::unique_ptr<gpu::Device> device_;
     gpu::CommandList* list_ = nullptr;  // the frame's (device_->begin_commands), until commit_frame
+    bool asyncCompute_ = false, parallelRecording_ = false;  // set_queue_options
+    struct PendingCompute {
+        gpu::SyncToken token{};   // end_async_compute's submit of the compute list
+        std::uint64_t guard = 0;  // the pool target whose first graphics use waits for it
+    };
+    std::vector<PendingCompute> pendingCompute_;  // compute lists the graphics queue has not waited for yet
+    // Submits the frame's list, makes the graphics queue wait for `token` and begins the next list.
+    void wait_graphics_for(gpu::SyncToken token);
     // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
     // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
     gpu::Pipeline find_or_make(PipelineKey key, const TargetFormat& format, const gpu::PipelineDesc& desc);
@@ -2197,5 +2237,9 @@ struct DebugDraw::Impl : render::DebugDrawData {};
 // after shutdown(). Defined in renderer.cpp.
 struct RendererDeviceAccess {
     static gpu::Device* device(Renderer& renderer);
+    // Tests: the device the next Renderer::init whose RendererDesc::backend is `device`'s backend takes instead of making one
+    // with the default options (a Vulkan device with VulkanOptions::queues OtherFamilies, so MoltenVK has a compute queue
+    // of its own). Kept until such an init takes it; null forgets it. Render thread.
+    static void set_next_device(std::unique_ptr<gpu::Device> device);
 };
 }  // namespace fa
