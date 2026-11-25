@@ -180,6 +180,11 @@ struct RendererDesc {
     // The mode the game asked for (render.frameGeneration.mode; the renderer's frame generation settings can change it later, a provider that
     // makes the swapchain cannot): each provider's hook decides from it whether it takes part (an FSR swapchain under mode "dlss" would be wrong).
     render::FrameGenMode frameGenerationMode = render::FrameGenMode::Auto;
+    // M78 (factoria.json render.upscaler.rayReconstruction): the game asks for DLSS Ray Reconstruction, so NVIDIA Streamline is told to load
+    // its plugin (sl.dlss_d) before the Direct3D 12 or Vulkan device is made. False: the setting can still be set at run time, but the plugin
+    // is not loaded and render.supports "dlssRayReconstruction" says to restart with the project setting on (a game that never uses it is not
+    // asked for the plugin's load time and memory).
+    bool rayReconstruction = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,

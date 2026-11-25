@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cfloat>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <mutex>
@@ -85,6 +87,26 @@ void init_resource_tag(ResourceTag& t) {
     std::memset(&t, 0, sizeof t);
     set_base(t.base, kTagType, 1);
 }
+std::uint32_t streamline_application_id(const char* text) {
+    if (!text || !*text) return 0;
+    std::uint64_t v = 0;
+    for (const char* p = text; *p; ++p) {
+        if (*p < '0' || *p > '9') return 0;
+        v = v * 10 + std::uint64_t(*p - '0');
+        if (v > 0xFFFFFFFFull) return 0;
+    }
+    return static_cast<std::uint32_t>(v);
+}
+std::string streamline_project_id(const char* text) {
+    // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    bool guid = text && std::strlen(text) == 36;
+    for (std::size_t i = 0; guid && i < 36; ++i) {
+        const char ch = text[i];
+        const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+        guid = dash ? ch == '-' : (std::isxdigit(static_cast<unsigned char>(ch)) != 0);
+    }
+    return guid ? std::string(text) : std::string(kDefaultProjectId);
+}
 void init_constants(Constants& c) {
     std::memset(&c, 0, sizeof c);
     set_base(c.base, kConstantsType, 2);
@@ -95,12 +117,15 @@ void init_constants(Constants& c) {
         m->row[2] = {0, 0, 1, 0};
         m->row[3] = {0, 0, 0, 1};
     }
-    c.mvecScale = {1, 1};
-    c.cameraUp = {0, 1, 0};
-    c.cameraRight = {1, 0, 0};
-    c.cameraFwd = {0, 0, 1};
-    c.depthInverted = c.cameraMotionIncluded = c.motionVectors3d = c.reset = c.orthographicProjection =
-        c.motionVectorsDilated = c.motionVectorsJittered = kInvalid;
+    // The header's own defaults for what a caller does not set: INVALID_FLOAT (FLT_MAX) for every vector and plane, eInvalid for the four flags
+    // Streamline wants said (depthInverted, cameraMotionIncluded, motionVectors3d, reset) and eFalse for the three optional ones.
+    const Float2 none2{FLT_MAX, FLT_MAX};
+    const Float3 none3{FLT_MAX, FLT_MAX, FLT_MAX};
+    c.jitterOffset = c.mvecScale = c.cameraPinholeOffset = none2;
+    c.cameraPos = c.cameraUp = c.cameraRight = c.cameraFwd = none3;
+    c.cameraNear = c.cameraFar = c.cameraFov = c.cameraAspectRatio = c.motionVectorsInvalidValue = FLT_MAX;
+    c.depthInverted = c.cameraMotionIncluded = c.motionVectors3d = c.reset = kInvalid;
+    c.orthographicProjection = c.motionVectorsDilated = c.motionVectorsJittered = kFalse;
     c.minRelativeLinearDepthObjectSeparation = 40.0f;
 }
 void init_dlss_options(DlssOptions& o) {
@@ -481,6 +506,10 @@ struct StreamlineRuntime::Impl {
     Impl(std::vector<std::uint32_t> features, StreamlineHost host)
         : features_(std::move(features)), host_(std::move(host)) {}
 
+    // Guards the phase, the states and the frame token: the render thread (upscale, frame generation), the thread that answers
+    // render.supports and the device hooks all call in. frame_token holds it across slGetNewFrameToken on purpose: the check "is this frame's
+    // token already made" and the call that makes it must be one step, or two providers asking for the same frame (DLSS and Reflex) would
+    // get two tokens and Streamline would see two frames.
     mutable std::mutex mu_;
     std::vector<std::uint32_t> features_;
     StreamlineHost host_;
@@ -558,10 +587,13 @@ struct StreamlineRuntime::Impl {
         prefs.logMessageCallback = &log_callback;
         prefs.featuresToLoad = features_.data();
         prefs.numFeaturesToLoad = static_cast<std::uint32_t>(features_.size());
-        prefs.applicationId = 0;
+        // NVIDIA's registration of a game gives it an application id; without one it is 0 (Streamline runs, NVIDIA's per-title overrides do not
+        // apply). The project id is the GUID of the game (a custom engine must give one): FactorIA's own unless the game sets its own.
+        prefs.applicationId = streamline_application_id(std::getenv("FA_STREAMLINE_APP_ID"));
+        const std::string projectId = streamline_project_id(std::getenv("FA_STREAMLINE_PROJECT_ID"));
         prefs.engine = 0;  // eCustom
         prefs.engineVersion = fa::engine_version();
-        prefs.projectId = "FactorIA";
+        prefs.projectId = projectId.c_str();
         prefs.renderApi = backend == gpu::Backend::Vulkan ? kRenderApiVulkan : kRenderApiD3d12;
         if (const Result r = api.init(&prefs, kSdkVersion); r != kOk) return streamline_refusal("slInit", r);
         lib_ = std::move(lib);
@@ -944,9 +976,10 @@ std::shared_ptr<StreamlineRuntime>& process_runtime() {
     // The features every device asks for. Reflex and the PC latency markers are always asked: the low-latency setting is chosen after the
     // device exists, and a plugin that is not installed only makes its feature unsupported (feature_reason says why) while DLSS and the
     // others run. DLSS frame generation is not here: a renderer that asks for frame generation adds it (add_feature) before its device is
-    // made, so a game that never does is not asked for the extra Vulkan queues and extensions it needs.
+    // made, so a game that never does is not asked for the extra Vulkan queues and extensions it needs. DLSS Ray Reconstruction (sl.dlss_d) is
+    // added the same way when the project asks for it (Renderer::init, RendererDesc::rayReconstruction).
     static std::shared_ptr<StreamlineRuntime> runtime =
-        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureDlssRr, kFeatureReflex, kFeaturePcl});
+        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureReflex, kFeaturePcl});
     return runtime;
 }
 }  // namespace

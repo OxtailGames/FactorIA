@@ -591,7 +591,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
             init.environment.defaults = gpu::environment_defaults_of(env);
             // NVIDIA Streamline (DLSS) takes part in making a Direct3D 12 or Vulkan device: its hook must be registered before the device
             // exists. It does nothing where the GPU is not NVIDIA or the library is not installed (Windows only).
-            if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) register_streamline_runtime();
+            if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) {
+                // Streamline loads only the plugins slInit is told of: Ray Reconstruction's (sl.dlss_d) is asked when the project uses it.
+                if (desc.rayReconstruction) streamline_runtime().add_feature(sl_abi::kFeatureDlssRr);
+                register_streamline_runtime();
+            }
             // Anti-Lag 2 asks a Vulkan device for its extension (Windows; render_latency_antilag2.h).
             render::register_latency_device_hooks();
             // Frame generation makes (or wraps) the window's swapchain: its providers' hooks go to THIS device only (M78; not registered for the
@@ -1398,6 +1402,10 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
     return true;
 }
 bool RendererTestAccess::last_job_needs_velocity(Renderer& r) { return r.impl_ && r.impl_->lastJobNeedsVelocity; }
+bool RendererTestAccess::rr_guide_images(Renderer& r) {
+    return r.impl_ && (r.impl_->rrNormal.color.id != 0 || r.impl_->rrDiffuse.color.id != 0 ||
+                       r.impl_->rrSpecular.color.id != 0 || r.impl_->rrDepth.color.id != 0);
+}
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;

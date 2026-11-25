@@ -62,14 +62,27 @@ build registers one device hook, and every Direct3D 12 or Vulkan device the proc
   ratio keeps the mode it is in within 0.13 of its ratio, so the options are not set again at every step.
 - **What a frame does.** DLSS is asked its recommended render size for the mode and the output size (`slDLSSGetOptimalSettings`) whenever
   either changes. A frame drawn outside what DLSS takes (two pixels of its recommended size when it gives no range) is refused with the
-  size it wanted and the setting to change (`render.upscaler.quality`), and the frame draws as the next best mode. Then, per frame:
+  size it wanted, the range of render sizes DLSS takes for the mode and the setting to change (`render.upscaler.quality`,
+  `window.renderScale`), and the frame draws as the next best mode. Then, per frame:
   Streamline's frame token (counted in presents, so a frame is the same number everywhere), the constants (the jitter in render pixels,
   motion scale 1: the prepass writes motion in UV units, depth 0..1 growing with the distance, a reset flag after a cut, a resize, a change
   of the options or a frame that failed), the four images (colour, depth, motion, output) with the states the engine's native section
   declares, and the evaluation, all inside one native command section of the pass's list. The options (mode, output size, pre-exposure, HDR
   or not) are set only when one changes; DLSS is told the colour is exposed already and finds its own scene exposure.
-- **What it does not read.** The reactive mask of the frame is not given to DLSS, and the camera matrices are not set (Super Resolution
-  does not read them; the frame generation package sets them).
+- **The reactive mask.** When the frame has one (particles and other items that blend over the scene, at the render size), it is tagged
+  as Streamline's `BiasCurrentColorHint`, the optional mask where DLSS Super Resolution weighs the current frame's colour more. A frame
+  without one tags the four images only. Not checked on hardware (hardware checks, below).
+- **The camera matrices.** Super Resolution does not read them: it gets identity matrices, the header's "not set" values for the rest of
+  the camera and the plain jitter, motion scale and flags. Ray Reconstruction (below) sends the camera's real matrices, and DLSS frame
+  generation sets its own constants (docs/FRAME_GENERATION.md).
+- **The ids Streamline is started with.** `applicationId` is NVIDIA's id of a registered game: 0 (none) unless the environment variable
+  `FA_STREAMLINE_APP_ID` holds a decimal number. `projectId` is the GUID of the game that a custom engine must give: FactorIA's own
+  (`f7e365b8-d718-4b3b-9c87-73752211173b`) unless `FA_STREAMLINE_PROJECT_ID` holds a GUID (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`; any other
+  text is ignored). A shipped game sets both before it starts, from its launcher; they are read when Streamline starts.
+- **On a GPU that is not NVIDIA.** On Direct3D 12 the adapter is read before Streamline starts, so it never loads. On Vulkan the
+  instance is made before the GPU is chosen, so Streamline has started by then: once the GPU is known not to be an NVIDIA one, the engine
+  calls `slShutdown` and uses its own Vulkan functions from then on. The library itself stays loaded (the instance's function pointers
+  were taken through it).
 - **What it frees.** When the renderer shuts down the GPU is waited for, the options are turned off and DLSS's resources are released.
 - **Not checked by the tests** (they use a fake Streamline): that the real library takes the engine's declarations as they are, that
   the picture is right, and the Direct3D 12 and Vulkan device flows on a real driver: those need a machine with an NVIDIA RTX GPU.
@@ -80,12 +93,19 @@ build registers one device hook, and every Direct3D 12 or Vulkan device the proc
 
 ## DLSS Ray Reconstruction
 
-An opt-in preview of the `dlss` mode: `render.upscaler` `rayReconstruction: true` (project `render.upscaler.rayReconstruction`,
-`window.upscaler.rayReconstruction`; default `false`). DLSS Ray Reconstruction (Streamline's `DLSS-D`, feature id 1001, DLSS 3.5) is a
+An opt-in preview of the `dlss` mode (and of `auto` where it picks DLSS): `render.upscaler` `rayReconstruction: true` (project
+`render.upscaler.rayReconstruction`, `window.upscaler.rayReconstruction`; default `false`). DLSS Ray Reconstruction (Streamline's `DLSS-D`, feature id 1001, DLSS 3.5) is a
 denoiser and upscaler in one network: instead of upscaling a clean picture (Super Resolution) it takes a picture with noisy lighting plus
 **guide buffers** that say what each pixel is, and gives back the denoised, upscaled picture. It needs the same machine as Super Resolution
 (an NVIDIA RTX GPU, D3D12 or Vulkan, Streamline installed) plus its own plugin (`sl.dlss_d.dll` and `nvngx_dlssd.dll`, which
 `factoria setup streamline` installs with the rest).
+
+- **The plugin is asked for at start.** Streamline loads only the plugins it is told of when it starts, before the device, so the plugin of
+  Ray Reconstruction is asked for only when the project's `render.upscaler.rayReconstruction` is true when the game starts (a game that
+  never uses it does not pay its load time and memory). A `window.upscaler` or `render.upscaler` change to true later in a run that started
+  with the project setting off is refused: `render.supports` `dlssRayReconstruction` says to set the project setting and restart.
+- **The graphics presets turn it off.** `low`, `medium` and `high` write a whole upscaler (mode `auto`, a quality, sharpness 0.5), so
+  `rayReconstruction` is false while one is on; `ultra` and `custom` keep the game's own setting (docs/UPSCALING.md, "Graphics presets").
 
 - **What it does without ray tracing, today.** The renderer is a forward renderer: it has no ray-traced signals, so the picture it hands
   Ray Reconstruction has little noise to remove. Ray Reconstruction still upscales it, and it still reads the guides, but with
@@ -126,9 +146,34 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   chose, not what drew).
 - **The cost.** Ray Reconstruction is a larger network than Super Resolution (NVIDIA publishes no figure for a given GPU): expect a
   higher cost per frame than Super Resolution at the same size, and four more render-size images (one RGBA16F, one R32F, two RGBA8) with the
-  guides pass. Measure it with `perf.measure` on your GPU.
+  guides pass. Measure it with `perf.measure` on your GPU. The four guide images are kept for as long as the setting is on and the machine
+  can run it: a frame that cannot use them (a dynamic resolution moving the render size, a frame with a final pass) draws as Super
+  Resolution and does not free them, so they are not made again at every step. They are freed when the setting goes false, when the
+  machine or a frame refuses Ray Reconstruction, or when another upscaler draws.
 - **Not tested.** The tests use a fake Streamline (feature switch, the seven tags and their order, the options and matrices sent, the
   fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen.
+- **Checked against NVIDIA's header** (`sl_dlss_d.h` and `sl_core_types.h` of Streamline 2.14, read on the web, not copied): the feature
+  id 1001, the GUIDs of `DLSSDOptions` and `DLSSDOptimalSettings`, the buffer ids (albedo 7, specular albedo 8, normals and roughness 14,
+  specular hit distance 42) and the 224-byte layout of `DLSSDOptions` (a `static_assert` checks the member offsets). Not checked: how the
+  real plugin reads them.
+
+## DLSS hardware checks
+
+What the tests cannot say (they use a fake Streamline) and a machine with an NVIDIA RTX GPU must, before DLSS is called done:
+
+1. **D3D12:** the `IDXGIFactory` that `slUpgradeInterface` returns keeps the right reference count through Streamline's proxy (the device
+   and the swapchain live to the end, and exit does not crash or leak a reference).
+2. **Vulkan on a machine with an AMD or Intel GPU first and an NVIDIA one second** (a laptop): the NVIDIA GPU is chosen and DLSS runs, and
+   on a machine with only a non-NVIDIA GPU the device is made normally after `slShutdown` (no crash on the first frame, no Streamline lines).
+3. **Registration:** a build with `FA_STREAMLINE_APP_ID` and `FA_STREAMLINE_PROJECT_ID` set to NVIDIA's registration of the game starts as
+   it does without them, and the id FactorIA ships with (no NVIDIA application id, a GUID that is not registered) is accepted by `slInit`.
+4. **Constants:** `slSetConstants` takes the header's "not set" values (FLT_MAX for the camera, eInvalid and eFalse for the flags) in the
+   frames of Super Resolution and gives no missing-input or duplicate-constants error with frame generation on.
+5. **The reactive mask:** a scene with particles looks cleaner (less ghosting) with the mask than without it, and the `R8` image is
+   accepted as `BiasCurrentColorHint` on D3D12 and Vulkan.
+6. **Ray Reconstruction:** the picture is right with world-space normals (lighting does not follow the camera), the plugin loads only
+   with the project setting on, and a run with the setting off never loads `sl.dlss_d.dll`.
+7. **Frame generation on the same device** (docs/FRAME_GENERATION.md) with Super Resolution and then with Ray Reconstruction.
 
 ## Intel XeSS
 

@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -46,6 +48,8 @@ struct Sx {
     std::vector<std::uint32_t> loaded;
     std::uint64_t prefsFlags = 0;
     std::uint32_t prefsRenderApi = 99;
+    std::uint32_t prefsAppId = 99;
+    std::string prefsProjectId;
     std::uint64_t sdkVersion = 0;
     int inits = 0, shutdowns = 0, frees = 0;
     // slIsFeatureSupported
@@ -98,6 +102,8 @@ SlR f_init(const sl::Preferences* p, std::uint64_t version) {
     sx.loaded.assign(p->featuresToLoad, p->featuresToLoad + p->numFeaturesToLoad);
     sx.prefsFlags = p->flags;
     sx.prefsRenderApi = p->renderApi;
+    sx.prefsAppId = p->applicationId;
+    sx.prefsProjectId = p->projectId ? p->projectId : "";
     sx.sdkVersion = version;
     return sx.initRc;
 }
@@ -599,6 +605,14 @@ TEST_CASE(
     CHECK(c.base.version == 2u);
     CHECK(c.base.type.data1 == 0xdcd35ad7);
     CHECK(c.reset == sl::kInvalid);
+    // The header's own defaults: INVALID_FLOAT for what is not set, eFalse for the three optional flags.
+    CHECK(c.cameraNear == FLT_MAX);
+    CHECK(c.cameraAspectRatio == FLT_MAX);
+    CHECK(c.jitterOffset.x == FLT_MAX);
+    CHECK(c.cameraPos.z == FLT_MAX);
+    CHECK(c.orthographicProjection == sl::kFalse);
+    CHECK(c.motionVectorsDilated == sl::kFalse);
+    CHECK(c.motionVectorsJittered == sl::kFalse);
     CHECK(c.minRelativeLinearDepthObjectSeparation == doctest::Approx(40.0f));
     CHECK(c.cameraViewToClip.row[2].z == 1.0f);
     sl::DlssOptions o;
@@ -940,6 +954,9 @@ TEST_CASE(
         CHECK(sx.shutdowns == 1);
         CHECK(dr.extensions.empty());
         CHECK_FALSE(rt.status().ready);
+        // Streamline is off for good: the engine's own Vulkan functions are used from now on, none of Streamline's.
+        CHECK(rt.vulkan_resolve("vkCmdBindPipeline", &sx.vkDeviceMarker, nullptr) == nullptr);
+        CHECK(rt.vulkan_resolve("vkCreateDevice", nullptr, nullptr) == nullptr);
     }
     SUBCASE("Streamline does not do Vulkan") {
         sx.requirementFlags = sl::kReqD3d12;
@@ -971,6 +988,36 @@ TEST_CASE(
         CHECK(rt.unavailable_reason().find("slSetVulkanInfo") != std::string::npos);
         CHECK(sx.shutdowns == 1);
         CHECK_FALSE(rt.status().ready);
+    }
+}
+
+TEST_CASE("streamline: slInit gets FactorIA's project GUID and no application id unless the environment sets them") {
+    // The text of the variables: a decimal id that fits 32 bits, a GUID; anything else is the default.
+    CHECK(sl::streamline_application_id(nullptr) == 0u);
+    CHECK(sl::streamline_application_id("") == 0u);
+    CHECK(sl::streamline_application_id("123456") == 123456u);
+    CHECK(sl::streamline_application_id("4294967295") == 4294967295u);
+    CHECK(sl::streamline_application_id("4294967296") == 0u);
+    CHECK(sl::streamline_application_id("12x") == 0u);
+    CHECK(sl::streamline_project_id(nullptr) == sl::kDefaultProjectId);
+    CHECK(sl::streamline_project_id("FactorIA") == sl::kDefaultProjectId);
+    CHECK(sl::streamline_project_id("0123456789abcdef0123456789abcdef0123") == sl::kDefaultProjectId);
+    CHECK(sl::streamline_project_id("01234567-89AB-cdef-0123-456789abcdeg") == sl::kDefaultProjectId);
+    CHECK(sl::streamline_project_id("01234567-89AB-cdef-0123-456789abcdef") == "01234567-89AB-cdef-0123-456789abcdef");
+    // The default is itself a GUID, so slInit is given one.
+    CHECK(sl::streamline_project_id(sl::kDefaultProjectId) == sl::kDefaultProjectId);
+    // And the start: the variables are not set in a test run (a developer who exports them gets what they set).
+    if (!std::getenv("FA_STREAMLINE_APP_ID") && !std::getenv("FA_STREAMLINE_PROJECT_ID")) {
+        sx.reset();
+        FakeLoader loader;
+        LoaderGuard guard(&loader);
+        AdapterFx adapter;
+        render::StreamlineRuntime rt({sl::kFeatureDlss}, make_host(adapter));
+        gpu::D3d12DeviceCreated c;
+        run_d3d12(rt, c);
+        CHECK(sx.inits == 1);
+        CHECK(sx.prefsAppId == 0u);
+        CHECK(sx.prefsProjectId == sl::kDefaultProjectId);
     }
 }
 
@@ -1181,6 +1228,26 @@ TEST_CASE("dlss D3D12: a frame sets the constants and tags of the frame's token 
     CHECK(rig.list.ends == 1);
 }
 
+TEST_CASE(
+    "dlss: a frame with a reactive mask tags it as the bias hint of the current colour, one without tags the four") {
+    Rig rig(gpu::Backend::D3d12);
+    REQUIRE(rig.draw());
+    CHECK(sx.tags.size() == 4);
+    gpu::Image reactive = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::R8);
+    rig.frame.reactive = reactive;
+    rig.in.reactive = rig.dev.view(reactive);
+    REQUIRE(rig.draw());
+    REQUIRE(sx.tags.size() == 5);
+    CHECK(sx.tags[4].type == sl::kBufferBiasCurrentColorHint);
+    CHECK(sx.resources[4].native == reinterpret_cast<void*>(std::uintptr_t(reactive.id) * 16));
+    CHECK(sx.resources[4].state == 0xC0);
+    CHECK(sx.tags[4].extent.width == 160);
+    REQUIRE(rig.list.declared.size() == 5);
+    CHECK(rig.list.declared[4].image == reactive);
+    CHECK(rig.list.declared[4].state == gpu::NativeState::ShaderRead);
+    rig.dev.destroy_image(reactive);
+}
+
 TEST_CASE("dlss: the options are set only when they change, and the history restarts with them") {
     Rig rig(gpu::Backend::D3d12);
     REQUIRE(rig.draw());
@@ -1239,6 +1306,8 @@ TEST_CASE("dlss: the quality names of M76 land on DLSS's modes and a render size
     const int endsBefore = rig.list.ends;
     CHECK_FALSE(rig.draw());
     CHECK(rig.frame.error.find("213x120") != std::string::npos);
+    CHECK(rig.frame.error.find("takes render sizes from ") != std::string::npos);       // the valid range
+    CHECK(rig.frame.error.find("the frame was drawn at 160x90") != std::string::npos);  // the size asked for
     CHECK(rig.frame.error.find("render.upscaler.quality") != std::string::npos);
     CHECK(rig.list.ends == endsBefore);  // the section was never opened
     // DLSS says it does not do this size at all.
@@ -1444,6 +1513,11 @@ TEST_CASE("dlss ray reconstruction: the probe is DLSS's plus the plugin, and the
         env);  // Super Resolution is there, the plugin of Ray Reconstruction was not asked
     CHECK_FALSE(p.available);
     CHECK(p.reason.find("Ray Reconstruction") != std::string::npos);
+    CHECK(p.reason.find("render.upscaler.rayReconstruction") !=
+          std::string::npos);  // the project setting and a restart
+    CHECK(p.reason.find("restart") != std::string::npos);
+    CHECK(std::find(sx.loaded.begin(), sx.loaded.end(), sl::kFeatureDlssRr) ==
+          sx.loaded.end());  // slInit was not told of the plugin
     env.backend = gpu::Backend::Vulkan;
     p = dlss->probe_ray_reconstruction(env);
     CHECK_FALSE(p.available);
