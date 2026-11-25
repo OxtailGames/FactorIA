@@ -146,6 +146,7 @@ Json ShaderBuildStats::to_json(const char* backend) const {
         p["stored"] = t.filesStored;
         p["discarded"] = t.filesDiscarded;
         p["storeFailed"] = t.storeFailed;
+        p["trimmed"] = t.filesTrimmed;
         j["pipelineCache"] = std::move(p);
     }
     return j;

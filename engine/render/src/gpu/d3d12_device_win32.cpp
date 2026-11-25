@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "gpu/d3d12_device.h"
 
@@ -21,6 +22,21 @@ Result<std::unique_ptr<Device>> make_d3d12_device(const D3d12Options& options) {
     auto device = d3d12::D3d12Device::create(options);
     if (!device) return device.error();
     return std::unique_ptr<Device>(std::move(device.value()));
+}
+
+std::string d3d12_program_name() {
+    // The path may be longer than MAX_PATH (a long-path aware process): the buffer grows until the name fits.
+    std::wstring buffer(260, L'\0');
+    for (int attempt = 0; attempt < 6; ++attempt) {
+        const DWORD n = GetModuleFileNameW(nullptr, buffer.data(), DWORD(buffer.size()));
+        if (n == 0) return {};
+        if (n < buffer.size()) {
+            buffer.resize(n);
+            return fs::path_to_utf8(std::filesystem::path(buffer).stem());
+        }
+        buffer.resize(buffer.size() * 4);
+    }
+    return {};
 }
 
 }  // namespace fa::gpu
@@ -373,6 +389,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     features_.bindless = bindlessDescriptors_ > 0;
     init_timer();
     pipelineCacheFile_ = options.pipelineCacheFile;
+    trimBytes_ = options.pipelineCacheTrimBytes;
     init_pipeline_library();
     dead_ = std::make_unique<D3d12CommandList>(*this);
     drain_messages();
@@ -501,7 +518,8 @@ D3d12Device::~D3d12Device() {
     packReads_.reset();
     // The window's swapchain goes before the queue it presents on (it waits for the GPU first).
     destroy_swapchain();
-    // The PSOs made since the cache file was loaded go to it (a failure was logged as a warning: the old file stays).
+    // The PSOs made since the cache file was loaded go to it. save_pipeline_cache logs what happened itself: the file
+    // it wrote (info), or a warning that says why it wrote none and that the old file stays.
     (void)save_pipeline_cache();
     if (device_ && queue_ && fence_) {
         if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
@@ -674,6 +692,7 @@ D3d12Counters D3d12Device::counters() const {
         c.psoLibraryMisses = libraryMisses_;
         c.pipelineCacheStored = cacheStored_;
         c.pipelineCacheDiscarded = cacheDiscarded_;
+        c.pipelineCacheTrimmed = cacheTrimmed_;
     }
     std::lock_guard<std::mutex> lock(cacheMutex_);
     c.psoCacheHits = psoHits_;

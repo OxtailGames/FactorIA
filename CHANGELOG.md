@@ -45,9 +45,14 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   thread) and `bindless` (every live texture view has a slot of the bindless table, `bindless_index`). Compute lists' timed scopes are
   measured, copy lists' are ignored, and a list kept open no longer lets the timer ring reuse its slot. On binding tier 1 a writable view
   that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
-- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
+- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines-<program>.bin`
+  (one file per program, the editor's, the CLI's and each player's, so none overwrites another's PSOs), loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
-  one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The
+  one, is thrown away with one warning (deleting the file clears the cache); the adapter's LUID, new at every boot, is not compared. A
+  library over `D3d12Options::pipelineCacheTrimBytes` (64 MiB) is rebuilt at save with only the PSOs that run used, so the file does not
+  grow without bound. A save that fails (serializing, a library over 1 GiB, a reader that holds the file, a full disk) is a warning that
+  names the file and keeps the old one, and waits for a reader at most three 1 ms tries instead of about a second; a write is logged with
+  its size. The shader cache report has a `pipelineCache` object (`trimmed` counts the rebuilds). The
   backend also answers `storage_image_loadable` from the GPU's typed UAV loads, refuses a view of the pass's own attachment in
   `set_bindings`, checks the writable-view limit of binding tier 1, and an asynchronous read that finds no free slot on a lost device says
   the device was lost. A renderer on D3D12 (`RendererDesc::backend`, M77-P9b) uses the file.
