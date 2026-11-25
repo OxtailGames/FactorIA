@@ -216,18 +216,17 @@ std::shared_ptr<gpu::DeviceHook> DlssFrameGenProvider::device_hook_for(FrameGenM
 
 std::string DlssFrameGenProvider::not_set_up_reason() const {
     const FrameGenMode started = FrameGenMode(startedMode_.load(std::memory_order_relaxed));
+    // clang-format off
     if (started == FrameGenMode::Fsr || started == FrameGenMode::Xess)
-        return "DLSS frame generation was not set up when the graphics device was made: the game started with "
-               "render.frameGeneration.mode \"" +
+        return std::string("DLSS frame generation was not set up when the graphics device was made: the game started with "
+                           "render.frameGeneration.mode \"") +
                std::string(frame_gen_mode_name(started)) +
-               "\" (Streamline loads its plugin before the device exists). Set it to \"dlss\" or \"auto\" (in "
-               "factoria.json, or in the "
-               "settings) and restart the game.";
+               "\" (Streamline loads its plugin before the device exists). Set it to \"dlss\" or \"auto\" in "
+               "factoria.json or in the settings, then restart the game.";
     return "DLSS frame generation was not set up when the graphics device was made (Streamline loads its plugin before "
-           "the device "
-           "exists): set render.frameGeneration.mode to \"dlss\" or \"auto\" in factoria.json (or turn it on in the "
-           "settings) and "
-           "restart the game.";
+           "the device exists): set render.frameGeneration.mode to \"dlss\" or \"auto\" in factoria.json (or turn it on "
+           "in the settings), then restart the game.";
+    // clang-format on
 }
 
 VendorProbe DlssFrameGenProvider::probe(const VendorEnv& env) {

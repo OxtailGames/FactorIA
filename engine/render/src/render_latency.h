@@ -172,6 +172,7 @@ private:
 
     std::uint64_t presented_ = 0;  // presents completed
     bool haveInput_ = false;
+    bool submitted_ = false;  // RenderSubmitEnd came in this frame: the picture was handed to the present
     double inputMs_ = 0;
     double frameStartMs_ = 0;    // the end of the sleep (the frame's start)
     bool frameStarted_ = false;  // frame_begin ran and the frame has not presented yet

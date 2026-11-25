@@ -300,6 +300,7 @@ void LatencyController::frame_begin(double refreshHz) {
     frameStartMs_ = clock.now_ms();
     frameStarted_ = true;
     haveInput_ = false;
+    submitted_ = false;
     if (running_) running_->marker(LatencyMarker::SimulationStart, id);
 }
 
@@ -322,7 +323,9 @@ void LatencyController::mark(LatencyMarker m) {
             break;
         case LatencyMarker::PresentEnd:
             presentEndMs_ = now;
-            if (haveInput_) {
+            // A frame that never reached RenderSubmitEnd (the acquire failed: a minimized window, a lost swapchain) was not shown: it closes the
+            // frame id but adds no input-to-present sample.
+            if (haveInput_ && submitted_) {
                 lastFrameMs_ = std::max(0.0, now - inputMs_);
                 lastShownMs_ = lastFrameMs_;
                 ring_[ringHead_] = lastFrameMs_;
@@ -332,13 +335,15 @@ void LatencyController::mark(LatencyMarker m) {
                 ++samples_;
                 haveInput_ = false;
             }
+            haveInput_ = false;
+            submitted_ = false;
             frameStarted_ = false;
             ++presented_;
             break;
         case LatencyMarker::SimulationStart:
         case LatencyMarker::SimulationEnd:
-        case LatencyMarker::RenderSubmitStart:
-        case LatencyMarker::RenderSubmitEnd: break;
+        case LatencyMarker::RenderSubmitEnd: submitted_ = true; break;
+        case LatencyMarker::RenderSubmitStart: break;
     }
 }
 
