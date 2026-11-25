@@ -23,10 +23,10 @@ struct Pack {
 
 // One text of a pack as the tests list it (FA_SHADER_TEXT_CHECK in the generated headers).
 struct Entry {
-    const char* name;     // the array of the original header, e.g. "mesh_fs_source_glsl300es"
-    std::size_t offset;   // where the text starts in the decoded pack
-    std::size_t size;     // its size, with its terminating NUL
-    std::uint64_t hash;   // fnv1a64 of the text, taken by shader_pack when it wrote the header
+    const char* name;    // the array of the original header, e.g. "mesh_fs_source_glsl300es"
+    std::size_t offset;  // where the text starts in the decoded pack
+    std::size_t size;    // its size, with its terminating NUL
+    std::uint64_t hash;  // fnv1a64 of the text, taken by shader_pack when it wrote the header
 };
 
 // A pack with its entries, e.g. mesh.glsl300es (what the render tests walk).

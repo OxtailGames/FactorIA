@@ -38,7 +38,7 @@ struct Dialect {
 constexpr Dialect kDialects[] = {{"glsl300es", "SOKOL_GLES3"}, {"glsl430", "SOKOL_GLCORE"}};
 
 struct Text {
-    std::string name;  // NAME_source_<dialect>
+    std::string name;                 // NAME_source_<dialect>
     std::size_t first = 0, last = 0;  // the lines of its `#if` .. `#endif`
     std::size_t offset = 0;
     std::vector<std::uint8_t> bytes;
@@ -77,7 +77,8 @@ bool array_at(const std::vector<std::string>& lines, std::size_t i, const Dialec
     if (open == std::string::npos) return false;
     const std::string name = line.substr(head.size(), open - head.size());
     const std::string suffix = "_source_" + std::string(d.name);
-    if (name.size() <= suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) return false;
+    if (name.size() <= suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0)
+        return false;
     const std::size_t close = line.find(']', open);
     if (close == std::string::npos || line.compare(close, std::string::npos, "] = {") != 0) return false;
     t.name = name;
@@ -96,7 +97,8 @@ bool pack_dialect(const std::string& path, const std::string& base, const Dialec
         std::size_t j = i + 2;
         for (; j < lines.size() && lines[j] != "};"; ++j) {
             for (std::size_t p = lines[j].find("0x"); p != std::string::npos; p = lines[j].find("0x", p + 2))
-                t.bytes.push_back(static_cast<std::uint8_t>(std::strtoul(lines[j].substr(p + 2, 2).c_str(), nullptr, 16)));
+                t.bytes.push_back(
+                    static_cast<std::uint8_t>(std::strtoul(lines[j].substr(p + 2, 2).c_str(), nullptr, 16)));
         }
         if (j + 1 >= lines.size() || t.bytes.size() != size || t.bytes.empty() || t.bytes.back() != 0 ||
             lines[j + 1].rfind("#endif", 0) != 0)
@@ -128,11 +130,12 @@ bool pack_dialect(const std::string& path, const std::string& base, const Dialec
     auto frame = fa::compress(all, options);
     if (!frame) return fail(path, frame.error().to_string());
     auto back = fa::decompress(fa::Codec::Zstd, *frame, all.size());
-    if (!back || *back != all) return fail(path, "the " + std::string(d.name) + " frame does not decode to the original texts");
+    if (!back || *back != all)
+        return fail(path, "the " + std::string(d.name) + " frame does not decode to the original texts");
     std::size_t before = 0;
     for (const Text& t : texts) before += t.bytes.size();
-    std::cerr << path << ": " << d.name << " " << kept.size() << " of " << texts.size() << " texts, " << before << " -> "
-              << frame->size() << " bytes\n";
+    std::cerr << path << ": " << d.name << " " << kept.size() << " of " << texts.size() << " texts, " << before
+              << " -> " << frame->size() << " bytes\n";
 
     const std::string guard = "defined(" + std::string(d.guard) + ") || defined(FA_SHADER_TEXT_CHECK)";
     std::ostringstream out;
@@ -145,12 +148,13 @@ bool pack_dialect(const std::string& path, const std::string& base, const Dialec
             if (!placed) {
                 placed = true;
                 out << "#if " << guard << "\n#include \"../shader_text.h\"\n";
-                out << "/* The " << d.name << " texts of this file (" << all.size() << " bytes, NUL after each) as one zstd frame: "
+                out << "/* The " << d.name << " texts of this file (" << all.size()
+                    << " bytes, NUL after each) as one zstd frame: "
                     << "tools/shaders/shader_pack, engine/render/src/shader_text.h. */\n";
                 out << "static const uint8_t " << pack << "_z[" << frame->size() << "] = {\n";
                 write_bytes(out, *frame);
-                out << "};\nstatic const fa::shader_text::Pack " << pack << " = {" << pack << "_z, sizeof(" << pack << "_z), "
-                    << all.size() << "};\n#endif\n";
+                out << "};\nstatic const fa::shader_text::Pack " << pack << " = {" << pack << "_z, sizeof(" << pack
+                    << "_z), " << all.size() << "};\n#endif\n";
             }
             i = here->last;
             continue;
@@ -168,9 +172,11 @@ bool pack_dialect(const std::string& path, const std::string& base, const Dialec
     out << "static const fa::shader_text::Entry " << pack << "_entries[] = {\n";
     for (const Text* t : kept)
         out << "    {\"" << t->name << "\", " << t->offset << ", " << t->bytes.size() << ", "
-            << hex64(fa::shader_text::fnv1a64(reinterpret_cast<const char*>(t->bytes.data()), t->bytes.size())) << "},\n";
-    out << "};\nstatic const fa::shader_text::Texts " << pack << "_texts = {\"" << base << "." << d.name << "\", &" << pack << ", "
-        << pack << "_entries, sizeof(" << pack << "_entries) / sizeof(" << pack << "_entries[0])};\n#endif\n";
+            << hex64(fa::shader_text::fnv1a64(reinterpret_cast<const char*>(t->bytes.data()), t->bytes.size()))
+            << "},\n";
+    out << "};\nstatic const fa::shader_text::Texts " << pack << "_texts = {\"" << base << "." << d.name << "\", &"
+        << pack << ", " << pack << "_entries, sizeof(" << pack << "_entries) / sizeof(" << pack
+        << "_entries[0])};\n#endif\n";
     (void)stats;
     std::vector<std::string> next;
     std::istringstream split(out.str());

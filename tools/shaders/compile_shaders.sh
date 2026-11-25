@@ -138,8 +138,12 @@ INDEX="$ROOT/engine/render/tests/shader_text_index.h"
     echo "// the GLES3 and GLCORE descs (sokol_gfx.h's declarations need no backend code): nothing here draws."
     echo "#pragma once"
     echo "#define FA_SHADER_TEXT_CHECK"
-    echo "#define SOKOL_GLES3"
-    echo "#define SOKOL_GLCORE"
+    # Not redefined where the build already gives them (fa_ext_sokol: -DSOKOL_GLES3 or -DSOKOL_GLCORE, value 1).
+    for macro in SOKOL_GLES3 SOKOL_GLCORE; do
+        echo "#ifndef $macro"
+        echo "#define $macro 1"
+        echo "#endif"
+    done
     echo '#include "sokol_gfx.h"'
     echo
     for h in "$OUT"/*.glsl.h; do

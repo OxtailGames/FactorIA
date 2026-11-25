@@ -54,7 +54,8 @@ std::string glsl_source_from_header(const std::string& headerName, const std::st
     return {};
 }
 
-TEST_CASE("shader text: every packed text decodes to the bytes sokol-shdc wrote (the hash taken when the header was generated)") {
+TEST_CASE("shader text: every packed text decodes to the bytes sokol-shdc wrote (the hash taken when the header was "
+          "generated)") {
     REQUIRE(std::size(kShaderTexts) > 40);  // 32 headers, two dialects (hiz: desktop GL only)
     std::size_t texts = 0;
     for (const Texts* t : kShaderTexts) {
@@ -90,7 +91,8 @@ TEST_CASE("shader text: a text is decoded once and the same pointer comes back")
     const char* second = fa::shader_text::get(*mesh->pack, mesh->entries[0].offset);
     CHECK(first == second);
     const std::size_t decoded = fa::shader_text::decoded_count();
-    for (std::size_t i = 0; i < mesh->count; ++i) CHECK(fa::shader_text::get(*mesh->pack, mesh->entries[i].offset) != nullptr);
+    for (std::size_t i = 0; i < mesh->count; ++i)
+        CHECK(fa::shader_text::get(*mesh->pack, mesh->entries[i].offset) != nullptr);
     CHECK(fa::shader_text::decoded_count() == decoded);  // the other texts of the pack were already there
     // A copy of the frame (another translation unit's copy of the header) is the same pack.
     std::vector<std::uint8_t> copy(mesh->pack->frame, mesh->pack->frame + mesh->pack->frameSize);
@@ -106,13 +108,15 @@ TEST_CASE("shader text: threads asking for the same new text get one decode and 
     for (int i = 0; i < 200; ++i) text += "// a line of a made-up shader, number " + std::to_string(i) + "\n";
     fa::CompressOptions options;
     options.codec = fa::Codec::Zstd;
-    auto frame = fa::compress(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.c_str()), text.size() + 1), options);
+    auto frame = fa::compress(
+        std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.c_str()), text.size() + 1), options);
     REQUIRE(bool(frame));
     const Pack pack{frame->data(), frame->size(), text.size() + 1};
     const std::size_t before = fa::shader_text::decoded_count();
     std::vector<const char*> seen(4, nullptr);
     std::vector<std::thread> threads;
-    for (std::size_t i = 0; i < seen.size(); ++i) threads.emplace_back([&, i] { seen[i] = fa::shader_text::get(pack, 0); });
+    for (std::size_t i = 0; i < seen.size(); ++i)
+        threads.emplace_back([&, i] { seen[i] = fa::shader_text::get(pack, 0); });
     for (std::thread& t : threads) t.join();
     for (const char* s : seen) CHECK(s == seen[0]);
     CHECK(text == seen[0]);
@@ -151,7 +155,8 @@ TEST_CASE("shader text: what every OpenGL shader_desc hands to the driver is one
                 for (const Texts* t : kShaderTexts) {
                     if (std::string(t->label).find(es ? "glsl300es" : "glsl430") == std::string::npos) continue;
                     for (std::size_t i = 0; i < t->count; ++i)
-                        known = known || (t->entries[i].size == size && t->entries[i].hash == fa::shader_text::fnv1a64(source, size));
+                        known = known || (t->entries[i].size == size &&
+                                          t->entries[i].hash == fa::shader_text::fnv1a64(source, size));
                 }
                 CHECK(known);
                 seen.insert(std::string(es ? "es:" : "gl:") + source);
