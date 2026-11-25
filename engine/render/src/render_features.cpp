@@ -458,9 +458,9 @@ std::vector<FeatureDef> build_table() {
          "NVIDIA Reflex low latency (render.latency mode \"reflex\", also picked by \"auto\" on an NVIDIA GPU): the "
          "loop sleeps before the "
          "input is read so the frame the player sees is as new as possible. Windows with an NVIDIA GPU, through "
-         "Streamline; its provider "
-         "arrives with the Streamline provider, so the row is false until then and the mode runs the engine's own "
-         "pacing "
+         "Streamline "
+         "(D3D12 or Vulkan, `factoria setup streamline`, and a driver with Reflex Low Latency). Where it cannot run "
+         "the mode runs the engine's own pacing "
          "(render.supports gives the reason).",
          nullptr},
         {"antilag2", "",

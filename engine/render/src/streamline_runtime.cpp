@@ -39,6 +39,10 @@ constexpr StructType kTagType{0x4c6a5aad, 0xb445, 0x496c, {0x87, 0xff, 0x1a, 0xf
 constexpr StructType kConstantsType{0xdcd35ad7, 0x4e4a, 0x4bad, {0xa9, 0x0c, 0xe0, 0xc4, 0x9e, 0xb2, 0x3a, 0xfe}};
 constexpr StructType kDlssOptionsType{0x6ac826e4, 0x4c61, 0x4101, {0xa9, 0x2d, 0x63, 0x8d, 0x42, 0x10, 0x57, 0xb8}};
 constexpr StructType kDlssOptimalType{0xef1d0957, 0xfd58, 0x4df7, {0xb5, 0x04, 0x8b, 0x69, 0xd8, 0xaa, 0x6b, 0x76}};
+constexpr StructType kReflexOptionsType{0xf03af81a, 0x6d0b, 0x4902, {0xa6, 0x51, 0xc4, 0x96, 0x5e, 0x21, 0x54, 0x34}};
+constexpr StructType kReflexReportType{0x0d569b37, 0xa1c8, 0x4453, {0xbe, 0x4d, 0x40, 0xf4, 0xde, 0x57, 0x95, 0x2b}};
+constexpr StructType kReflexReport2Type{0x68bb0632, 0x5e1c, 0x402b, {0x89, 0x9d, 0xb4, 0x9f, 0x63, 0x3c, 0x56, 0xc2}};
+constexpr StructType kReflexStateType{0xf0bb5985, 0xdaf9, 0x4728, {0xb2, 0xfd, 0xae, 0x80, 0xa2, 0xbd, 0x79, 0x89}};
 constexpr StructType kVulkanInfoType{0x0eed6fd5, 0x82cd, 0x43a9, {0xbd, 0xb5, 0x47, 0xa5, 0xba, 0x2f, 0x45, 0xd6}};
 
 void set_base(Base& b, const StructType& type, std::uint64_t version) {
@@ -80,7 +84,8 @@ void init_resource_tag(ResourceTag& t) {
 void init_constants(Constants& c) {
     std::memset(&c, 0, sizeof c);
     set_base(c.base, kConstantsType, 2);
-    for (Float4x4* m : {&c.cameraViewToClip, &c.clipToCameraView, &c.clipToLensClip, &c.clipToPrevClip, &c.prevClipToClip}) {
+    for (Float4x4* m :
+         {&c.cameraViewToClip, &c.clipToCameraView, &c.clipToLensClip, &c.clipToPrevClip, &c.prevClipToClip}) {
         m->row[0] = {1, 0, 0, 0};
         m->row[1] = {0, 1, 0, 0};
         m->row[2] = {0, 0, 1, 0};
@@ -90,8 +95,8 @@ void init_constants(Constants& c) {
     c.cameraUp = {0, 1, 0};
     c.cameraRight = {1, 0, 0};
     c.cameraFwd = {0, 0, 1};
-    c.depthInverted = c.cameraMotionIncluded = c.motionVectors3d = c.reset = c.orthographicProjection = c.motionVectorsDilated =
-        c.motionVectorsJittered = kInvalid;
+    c.depthInverted = c.cameraMotionIncluded = c.motionVectors3d = c.reset = c.orthographicProjection =
+        c.motionVectorsDilated = c.motionVectorsJittered = kInvalid;
     c.minRelativeLinearDepthObjectSeparation = 40.0f;
 }
 void init_dlss_options(DlssOptions& o) {
@@ -108,6 +113,17 @@ void init_vulkan_info(VulkanInfo& v) {
     std::memset(&v, 0, sizeof v);
     set_base(v.base, kVulkanInfoType, 3);
 }
+void init_reflex_options(ReflexOptions& o) {
+    std::memset(&o, 0, sizeof o);
+    set_base(o.base, kReflexOptionsType, 1);
+    o.mode = kReflexOff;
+}
+void init_reflex_state(ReflexState& s) {
+    std::memset(&s, 0, sizeof s);
+    set_base(s.base, kReflexStateType, 2);
+    for (ReflexReport& r : s.frameReport) set_base(r.base, kReflexReportType, 1);
+    for (ReflexReport2& r : s.frameReport2) set_base(r.base, kReflexReport2Type, 1);
+}
 
 }  // namespace sl_abi
 
@@ -117,7 +133,8 @@ using namespace sl_abi;
 
 constexpr std::uint32_t kNvidiaVendorId = 0x10DE;
 // kSDKVersion of sl.h: (major << 48) | (minor << 32) | (build << 16) | 0xfedc.
-constexpr std::uint64_t kSdkVersion = (std::uint64_t(2) << 48) | (std::uint64_t(14) << 32) | (std::uint64_t(16) << 16) | 0xfedcu;
+constexpr std::uint64_t kSdkVersion =
+    (std::uint64_t(2) << 48) | (std::uint64_t(14) << 32) | (std::uint64_t(16) << 16) | 0xfedcu;
 constexpr VendorLibrarySpec kStreamlineSpec{"streamline", "FA_STREAMLINE_DIR", "sl.interposer.dll"};
 
 template <class Fn>
@@ -188,15 +205,15 @@ const char* result_hint(Result r) {
     switch (r) {
         case kErrorDriverOutOfDate:
             return "Update the NVIDIA graphics driver (DLSS needs a recent Game Ready or Studio driver).";
-        case kErrorOSOutOfDate:
-            return "Update Windows.";
+        case kErrorOSOutOfDate: return "Update Windows.";
         case kErrorOSDisabledHWS:
             return "Turn on \"Hardware-accelerated GPU scheduling\" in Windows' graphics settings and restart.";
         case kErrorNoSupportedAdapterFound:
         case kErrorAdapterNotSupported:
         case kErrorFeatureNotSupported:
-            return "DLSS needs an NVIDIA RTX GPU with a driver that supports it; on any other GPU use the XeSS, FSR or "
-                   "temporal upscaler.";
+            return "DLSS needs an NVIDIA RTX GPU and Reflex a GeForce GTX 900 series or newer, with a driver that "
+                   "supports it; "
+                   "for DLSS on any other GPU use the XeSS, FSR or temporal upscaler.";
         case kErrorNoPlugins:
         case kErrorFeatureMissing:
         case kErrorFeatureFailedToLoad:
@@ -204,9 +221,9 @@ const char* result_hint(Result r) {
                    "sl.interposer.dll: run `factoria setup streamline` to install the whole set again.";
         case kErrorFeatureMissingDependency:
         case kErrorMissingProxy:
-            return "Streamline could not hook the graphics device: this is a bug in the engine's integration, please report it.";
-        default:
-            return "";
+            return "Streamline could not hook the graphics device: this is a bug in the engine's integration, please "
+                   "report it.";
+        default: return "";
     }
 }
 
@@ -230,42 +247,77 @@ std::vector<std::string> names_of(const char** names, std::uint32_t count) {
 }
 std::string feature_label(std::uint32_t feature) {
     switch (feature) {
-        case kFeatureDlss:
-            return "DLSS";
-        case kFeatureReflex:
-            return "Reflex";
-        case kFeaturePcl:
-            return "PC latency";
-        case kFeatureDlssG:
-            return "DLSS frame generation";
-        default:
-            return "Streamline feature " + std::to_string(feature);
+        case kFeatureDlss: return "DLSS";
+        case kFeatureReflex: return "Reflex";
+        case kFeaturePcl: return "PC latency";
+        case kFeatureDlssG: return "DLSS frame generation";
+        default: return "Streamline feature " + std::to_string(feature);
     }
 }
 
 // The member names of VkPhysicalDeviceVulkan12Features / Vulkan13Features, in the order of their VkBool32 members.
-constexpr const char* kVulkan12Members[] = {
-    "samplerMirrorClampToEdge", "drawIndirectCount", "storageBuffer8BitAccess", "uniformAndStorageBuffer8BitAccess",
-    "storagePushConstant8", "shaderBufferInt64Atomics", "shaderSharedInt64Atomics", "shaderFloat16", "shaderInt8",
-    "descriptorIndexing", "shaderInputAttachmentArrayDynamicIndexing", "shaderUniformTexelBufferArrayDynamicIndexing",
-    "shaderStorageTexelBufferArrayDynamicIndexing", "shaderUniformBufferArrayNonUniformIndexing",
-    "shaderSampledImageArrayNonUniformIndexing", "shaderStorageBufferArrayNonUniformIndexing",
-    "shaderStorageImageArrayNonUniformIndexing", "shaderInputAttachmentArrayNonUniformIndexing",
-    "shaderUniformTexelBufferArrayNonUniformIndexing", "shaderStorageTexelBufferArrayNonUniformIndexing",
-    "descriptorBindingUniformBufferUpdateAfterBind", "descriptorBindingSampledImageUpdateAfterBind",
-    "descriptorBindingStorageImageUpdateAfterBind", "descriptorBindingStorageBufferUpdateAfterBind",
-    "descriptorBindingUniformTexelBufferUpdateAfterBind", "descriptorBindingStorageTexelBufferUpdateAfterBind",
-    "descriptorBindingUpdateUnusedWhilePending", "descriptorBindingPartiallyBound", "descriptorBindingVariableDescriptorCount",
-    "runtimeDescriptorArray", "samplerFilterMinmax", "scalarBlockLayout", "imagelessFramebuffer", "uniformBufferStandardLayout",
-    "shaderSubgroupExtendedTypes", "separateDepthStencilLayouts", "hostQueryReset", "timelineSemaphore", "bufferDeviceAddress",
-    "bufferDeviceAddressCaptureReplay", "bufferDeviceAddressMultiDevice", "vulkanMemoryModel", "vulkanMemoryModelDeviceScope",
-    "vulkanMemoryModelAvailabilityVisibilityChains", "shaderOutputViewportIndex", "shaderOutputLayer",
-    "subgroupBroadcastDynamicId"};
-constexpr const char* kVulkan13Members[] = {
-    "robustImageAccess", "inlineUniformBlock", "descriptorBindingInlineUniformBlockUpdateAfterBind",
-    "pipelineCreationCacheControl", "privateData", "shaderDemoteToHelperInvocation", "shaderTerminateInvocation",
-    "subgroupSizeControl", "computeFullSubgroups", "synchronization2", "textureCompressionASTC_HDR",
-    "shaderZeroInitializeWorkgroupMemory", "dynamicRendering", "shaderIntegerDotProduct", "maintenance4"};
+constexpr const char* kVulkan12Members[] = {"samplerMirrorClampToEdge",
+                                            "drawIndirectCount",
+                                            "storageBuffer8BitAccess",
+                                            "uniformAndStorageBuffer8BitAccess",
+                                            "storagePushConstant8",
+                                            "shaderBufferInt64Atomics",
+                                            "shaderSharedInt64Atomics",
+                                            "shaderFloat16",
+                                            "shaderInt8",
+                                            "descriptorIndexing",
+                                            "shaderInputAttachmentArrayDynamicIndexing",
+                                            "shaderUniformTexelBufferArrayDynamicIndexing",
+                                            "shaderStorageTexelBufferArrayDynamicIndexing",
+                                            "shaderUniformBufferArrayNonUniformIndexing",
+                                            "shaderSampledImageArrayNonUniformIndexing",
+                                            "shaderStorageBufferArrayNonUniformIndexing",
+                                            "shaderStorageImageArrayNonUniformIndexing",
+                                            "shaderInputAttachmentArrayNonUniformIndexing",
+                                            "shaderUniformTexelBufferArrayNonUniformIndexing",
+                                            "shaderStorageTexelBufferArrayNonUniformIndexing",
+                                            "descriptorBindingUniformBufferUpdateAfterBind",
+                                            "descriptorBindingSampledImageUpdateAfterBind",
+                                            "descriptorBindingStorageImageUpdateAfterBind",
+                                            "descriptorBindingStorageBufferUpdateAfterBind",
+                                            "descriptorBindingUniformTexelBufferUpdateAfterBind",
+                                            "descriptorBindingStorageTexelBufferUpdateAfterBind",
+                                            "descriptorBindingUpdateUnusedWhilePending",
+                                            "descriptorBindingPartiallyBound",
+                                            "descriptorBindingVariableDescriptorCount",
+                                            "runtimeDescriptorArray",
+                                            "samplerFilterMinmax",
+                                            "scalarBlockLayout",
+                                            "imagelessFramebuffer",
+                                            "uniformBufferStandardLayout",
+                                            "shaderSubgroupExtendedTypes",
+                                            "separateDepthStencilLayouts",
+                                            "hostQueryReset",
+                                            "timelineSemaphore",
+                                            "bufferDeviceAddress",
+                                            "bufferDeviceAddressCaptureReplay",
+                                            "bufferDeviceAddressMultiDevice",
+                                            "vulkanMemoryModel",
+                                            "vulkanMemoryModelDeviceScope",
+                                            "vulkanMemoryModelAvailabilityVisibilityChains",
+                                            "shaderOutputViewportIndex",
+                                            "shaderOutputLayer",
+                                            "subgroupBroadcastDynamicId"};
+constexpr const char* kVulkan13Members[] = {"robustImageAccess",
+                                            "inlineUniformBlock",
+                                            "descriptorBindingInlineUniformBlockUpdateAfterBind",
+                                            "pipelineCreationCacheControl",
+                                            "privateData",
+                                            "shaderDemoteToHelperInvocation",
+                                            "shaderTerminateInvocation",
+                                            "subgroupSizeControl",
+                                            "computeFullSubgroups",
+                                            "synchronization2",
+                                            "textureCompressionASTC_HDR",
+                                            "shaderZeroInitializeWorkgroupMemory",
+                                            "dynamicRendering",
+                                            "shaderIntegerDotProduct",
+                                            "maintenance4"};
 
 #if defined(_WIN32)
 std::string utf8_of(const wchar_t* w) {
@@ -332,7 +384,8 @@ std::string streamline_result_text(sl_abi::Result result) {
 }
 
 std::string streamline_refusal(const char* what, sl_abi::Result result) {
-    std::string out = std::string(what) + " answered \"" + streamline_result_text(result) + "\" (" + std::to_string(result) + ").";
+    std::string out =
+        std::string(what) + " answered \"" + streamline_result_text(result) + "\" (" + std::to_string(result) + ").";
     if (const std::string hint = result_hint(result); !hint.empty()) out += " " + hint;
     return out;
 }
@@ -406,6 +459,10 @@ struct StreamlineRuntime::Impl {
     std::vector<QueueRole> roles_;
     const void* instance_ = nullptr;
     std::atomic<std::uint64_t> presents_{0};
+    // The token of the frame asked for last: a second ask of the same frame (DLSS and Reflex both) gets this one without a call.
+    void* tokenValue_ = nullptr;
+    std::uint32_t tokenFrame_ = 0;
+    std::uint64_t tokenGeneration_ = 0;
 
     // Marks the set-up failed with `why`: Streamline is shut down when it was started. The reason says what is wrong and what to do; `warn`
     // logs it as a warning (a machine that should have DLSS and does not), else as information (no NVIDIA GPU, not installed).
@@ -435,6 +492,7 @@ struct StreamlineRuntime::Impl {
         needs_.clear();
         roles_.clear();
         instance_ = nullptr;
+        tokenValue_ = nullptr;
     }
 
     // Finds the library, takes its functions and calls slInit for `backend`. "" when it runs; else the reason, and `warn` tells whether the
@@ -444,7 +502,7 @@ struct StreamlineRuntime::Impl {
         std::string why;
         const std::filesystem::path found = vendor_loader().find(kStreamlineSpec, &why);
         if (found.empty())
-            return "NVIDIA Streamline (DLSS) is not installed: run `factoria setup streamline` (" + why + ").";
+            return "NVIDIA Streamline (DLSS, Reflex) is not installed: run `factoria setup streamline` (" + why + ").";
         warn = true;
         std::unique_ptr<VendorLibrary> lib = vendor_loader().load(found, &why);
         if (!lib)
@@ -453,10 +511,12 @@ struct StreamlineRuntime::Impl {
         StreamlineApi api;
         if (const std::string missing = streamline_load_api(*lib, backend, api); !missing.empty())
             return "NVIDIA Streamline's library " + lib->path() + " has no export " + missing +
-                   " (it is not Streamline 2.x): run `factoria setup streamline` to install the version FactorIA was tested with.";
+                   " (it is not Streamline 2.x): run `factoria setup streamline` to install the version FactorIA was "
+                   "tested with.";
         Preferences prefs;
         init_preferences(prefs);
-        prefs.flags = kPrefDisableClStateTracking | kPrefDisableDebugText | kPrefUseManualHooking | kPrefUseFrameBasedResourceTagging;
+        prefs.flags = kPrefDisableClStateTracking | kPrefDisableDebugText | kPrefUseManualHooking |
+                      kPrefUseFrameBasedResourceTagging;
         prefs.logMessageCallback = &log_callback;
         prefs.featuresToLoad = features_.data();
         prefs.numFeaturesToLoad = static_cast<std::uint32_t>(features_.size());
@@ -499,8 +559,11 @@ struct StreamlineRuntime::Impl {
         StreamlineAdapter adapter;
         const bool known = before.adapter && host_.readAdapter && host_.readAdapter(before.adapter, adapter);
         if (before.warp || (known && adapter.vendorId != kNvidiaVendorId)) {
-            const std::string who = before.warp ? "Microsoft's software adapter (WARP)" : adapter.name.empty() ? "this GPU" : adapter.name;
-            fail("DLSS needs an NVIDIA RTX GPU; the adapter " + who + " is not one.", gpu::Backend::D3d12, false, false);
+            const std::string who = before.warp            ? "Microsoft's software adapter (WARP)"
+                                    : adapter.name.empty() ? "this GPU"
+                                                           : adapter.name;
+            fail("DLSS needs an NVIDIA RTX GPU; the adapter " + who + " is not one.", gpu::Backend::D3d12, false,
+                 false);
             return;
         }
         bool warn = false;
@@ -510,7 +573,8 @@ struct StreamlineRuntime::Impl {
 
     // "" when the device is set up, else the reason (the caller marks the hook unavailable).
     std::string d3d12_created(gpu::D3d12DeviceCreated& c) {
-        if (phase_ != Phase::Inited) return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
+        if (phase_ != Phase::Inited)
+            return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
         Result r = kOk;
         if (api_.setD3dDevice && c.device && (r = api_.setD3dDevice(c.device)) != kOk)
             return fail(streamline_refusal("slSetD3DDevice", r), gpu::Backend::D3d12, true, true);
@@ -595,16 +659,19 @@ struct StreamlineRuntime::Impl {
             }
             states_.push_back(std::move(s));
         }
-        if (const std::string none = none_usable_reason(); !none.empty()) return fail(none, gpu::Backend::Vulkan, true, true);
+        if (const std::string none = none_usable_reason(); !none.empty())
+            return fail(none, gpu::Backend::Vulkan, true, true);
         for (const FeatureNeeds& n : needs_)
             for (const std::string& e : n.instanceExtensions) add_unique(request.extensions, e);
         return {};
     }
 
     std::string vk_device_request(const gpu::VulkanPhysicalDevice& physical, gpu::VulkanDeviceRequest& request) {
-        if (phase_ != Phase::Inited) return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
+        if (phase_ != Phase::Inited)
+            return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
         if (physical.vendorId != kNvidiaVendorId)
-            return fail("DLSS needs an NVIDIA RTX GPU; the engine chose " + (physical.name.empty() ? std::string("another GPU") : physical.name) +
+            return fail("DLSS needs an NVIDIA RTX GPU; the engine chose " +
+                            (physical.name.empty() ? std::string("another GPU") : physical.name) +
                             ", which is not one.",
                         gpu::Backend::Vulkan, true, false);
         AdapterInfo info;
@@ -618,7 +685,8 @@ struct StreamlineRuntime::Impl {
                 s.reason = streamline_refusal("slIsFeatureSupported", r);
             }
         }
-        if (const std::string none = none_usable_reason(); !none.empty()) return fail(none, gpu::Backend::Vulkan, true, true);
+        if (const std::string none = none_usable_reason(); !none.empty())
+            return fail(none, gpu::Backend::Vulkan, true, true);
         std::vector<std::string> f12, f13;
         QueueRole graphics{kQueueGraphics, 0}, compute{kQueueCompute, 0}, opticalFlow{kQueueOpticalFlow, 0};
         for (const FeatureNeeds& n : needs_) {
@@ -643,7 +711,8 @@ struct StreamlineRuntime::Impl {
     }
 
     std::string vk_created(const gpu::VulkanDeviceCreated& created) {
-        if (phase_ != Phase::Inited) return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
+        if (phase_ != Phase::Inited)
+            return why_.empty() ? "NVIDIA Streamline was not started before the device was made." : why_;
         VulkanInfo info;
         init_vulkan_info(info);
         info.device = const_cast<void*>(created.native.device);
@@ -687,7 +756,7 @@ struct StreamlineRuntime::Impl {
         else
             fn = api_.vkGetInstanceProcAddr ? api_.vkGetInstanceProcAddr(const_cast<void*>(instance_), name) : nullptr;
         if (!fn || fn == reinterpret_cast<void*>(resolved)) return nullptr;  // NOLINT: a function address
-        return reinterpret_cast<gpu::HookProcAddr>(fn);                       // NOLINT
+        return reinterpret_cast<gpu::HookProcAddr>(fn);                      // NOLINT
     }
 };
 
@@ -710,7 +779,8 @@ void StreamlineRuntime::vulkan_instance_created(const void* instance, gpu::HookP
     impl_->instance_ = instance;
 }
 
-void StreamlineRuntime::vulkan_device_request(const gpu::VulkanPhysicalDevice& physical, gpu::VulkanDeviceRequest& request) {
+void StreamlineRuntime::vulkan_device_request(const gpu::VulkanPhysicalDevice& physical,
+                                              gpu::VulkanDeviceRequest& request) {
     std::string err;
     {
         std::lock_guard lock(impl_->mu_);
@@ -783,9 +853,7 @@ const StreamlineApi* StreamlineRuntime::api() const {
     return impl_->phase_ == Phase::Ready ? &impl_->api_ : nullptr;
 }
 
-std::uint32_t StreamlineRuntime::frame_index() const {
-    return static_cast<std::uint32_t>(impl_->presents_.load());
-}
+std::uint32_t StreamlineRuntime::frame_index() const { return static_cast<std::uint32_t>(impl_->presents_.load()); }
 
 void* StreamlineRuntime::frame_token(std::uint32_t* index, std::string* why) const {
     std::lock_guard lock(impl_->mu_);
@@ -794,14 +862,26 @@ void* StreamlineRuntime::frame_token(std::uint32_t* index, std::string* why) con
         return nullptr;
     }
     std::uint32_t frame = static_cast<std::uint32_t>(impl_->presents_.load());
+    if (impl_->tokenValue_ && impl_->tokenGeneration_ == impl_->generation_ && impl_->tokenFrame_ == frame) {
+        if (index) *index = frame;
+        return impl_->tokenValue_;
+    }
     void* token = nullptr;
     const Result r = impl_->api_.getNewFrameToken(&token, &frame);
     if (r != kOk || !token) {
         if (why) *why = streamline_refusal("slGetNewFrameToken", r == kOk ? kErrorInvalidState : r);
         return nullptr;
     }
+    impl_->tokenValue_ = token;
+    impl_->tokenFrame_ = frame;
+    impl_->tokenGeneration_ = impl_->generation_;
     if (index) *index = frame;
     return token;
+}
+
+std::uint64_t StreamlineRuntime::ready_generation() const {
+    std::lock_guard lock(impl_->mu_);
+    return impl_->phase_ == Phase::Ready ? impl_->generation_ : 0;
 }
 
 // ---- the process's runtime ---------------------------------------------------------------------------------------------------------
@@ -810,9 +890,11 @@ namespace {
 std::atomic<StreamlineRuntime*> g_test_runtime{nullptr};
 
 std::shared_ptr<StreamlineRuntime>& process_runtime() {
-    // The features of the engine today; the packages that add one (DLSS frame generation, Reflex) add its id here.
+    // The features of the engine today; the packages that add one (DLSS frame generation) add its id here. Reflex and the PC latency markers
+    // are always asked: the low-latency setting is chosen after the device exists, and a plugin that is not installed only makes its
+    // feature unsupported (feature_reason says why) while DLSS and the others run.
     static std::shared_ptr<StreamlineRuntime> runtime =
-        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss});
+        std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureReflex, kFeaturePcl});
     return runtime;
 }
 }  // namespace
@@ -829,8 +911,6 @@ void register_streamline_runtime() {
 #endif
 }
 
-void set_streamline_runtime_for_test(StreamlineRuntime* runtime) {
-    g_test_runtime.store(runtime);
-}
+void set_streamline_runtime_for_test(StreamlineRuntime* runtime) { g_test_runtime.store(runtime); }
 
 }  // namespace fa::render

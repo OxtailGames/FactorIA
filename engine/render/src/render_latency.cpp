@@ -58,6 +58,7 @@ struct ProviderTable {
     std::shared_ptr<LatencyProvider> registered[3];
     LatencyProvider* fake[3] = {};
     ProviderTable() {
+        registered[0] = make_reflex_provider();
         registered[1] = make_antilag2_provider();
         registered[2] = make_xell_provider();
     }
@@ -101,12 +102,12 @@ void register_latency_provider(std::shared_ptr<LatencyProvider> provider) {
     t.registered[i] = std::move(provider);
 }
 
-void clear_registered_latency_provider_for_test(LatencyDriver driver) {
+void restore_latency_provider_for_test(LatencyDriver driver) {
     const int i = slot_index(driver);
     if (i < 0) return;
     ProviderTable& t = table();
     std::lock_guard<std::mutex> lock(t.mutex);
-    t.registered[i].reset();
+    t.registered[i] = i == 0 ? make_reflex_provider() : i == 1 ? make_antilag2_provider() : make_xell_provider();
 }
 
 // ---- the controller ---------------------------------------------------------------------------------------------------------------
@@ -148,8 +149,7 @@ LatencyController::Slot& LatencyController::slot(LatencyDriver d) {
         s.probed = true;
         LatencyProvider* p = latency_provider(d);
         if (!p) {
-            s.probe.reason = d == LatencyDriver::Reflex ? std::string("NVIDIA Reflex ") + kReflexAbsentReason + "."
-                                                        : std::string("no provider for this mode.");
+            s.probe.reason = "no provider for this mode.";
         } else {
             s.probe = p->probe(env_);
         }

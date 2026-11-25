@@ -13,12 +13,12 @@ the input**, so the input is as fresh as possible when the frame is drawn. It is
 | mode | what runs |
 |---|---|
 | `off` (default) | nothing: no call, no sleep. The loop is the one of a game without this setting. |
-| `auto` | the SDK of the GPU's maker when it is usable: AMD Anti-Lag 2, Intel XeLL (NVIDIA Reflex when its provider lands); else the engine's own pacing. |
-| `reflex` | NVIDIA Reflex. It arrives with the Streamline provider (M78): until then `render.supports {"feature":"reflex"}` says "arrives with the Streamline provider" and the engine's own pacing runs. |
+| `auto` | the SDK of the GPU's maker when it is usable: AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex; else the engine's own pacing. |
+| `reflex` | NVIDIA Reflex: Windows, an NVIDIA GPU (GeForce GTX 900 series or newer, driver 456.38 or newer), Direct3D 12 or Vulkan, with NVIDIA Streamline installed (`factoria setup streamline`). |
 | `antilag2` | AMD Anti-Lag 2: Windows, an AMD Radeon GPU, Direct3D 12 or Vulkan. Part of the Radeon driver: nothing to install. |
 | `xell` | Intel XeSS Low Latency: Windows, Direct3D 12, any GPU, with the XeSS SDK installed (`factoria setup xess`). |
 
-`boost` keeps the GPU clocks up while the game waits, for less latency at more power. XeLL has it (and Reflex will); Anti-Lag 2 and the
+`boost` keeps the GPU clocks up while the game waits, for less latency at more power. XeLL and Reflex (Low Latency Boost) have it; Anti-Lag 2 and the
 engine's own pacing ignore it.
 
 The setting is read and changed with the command `render.latency` (`{"mode":"antilag2"}`; no argument reads it). The project file
@@ -33,7 +33,7 @@ valid values and a "did you mean", and changes nothing.
   only remembered).
 - `pacing`: the engine's own pacing, which runs when the mode names an SDK that cannot run here (`auto` on a GPU without one, an SDK not
   installed, a backend it does not support, a call that failed).
-- `antilag2`, `xell` (`reflex` later): that SDK.
+- `reflex`, `antilag2`, `xell`: that SDK.
 
 `reason` says why the driver is not the one the mode names (the SDK's own words: what is missing and what to do), and `modes` says per SDK
 whether it is usable here and why not. A SDK that cannot start never fails the device or the game: the mode reports itself unavailable,
@@ -85,13 +85,40 @@ points is one branch and calls nothing.
 for the device, `xellSetSleepMode` says low latency (and boost), `xellSleep` runs before the input and `xellAddMarkerData` gets the
 markers above. On Vulkan and Direct3D 11 the mode is unavailable and says so.
 
+## NVIDIA Reflex
+
+Reflex is reached through NVIDIA Streamline, the runtime that also draws DLSS (UPSCALING_VENDORS.md, "NVIDIA DLSS Super Resolution"):
+`factoria setup streamline` installs its DLLs (`sl.interposer.dll`, `sl.reflex.dll`, `sl.pcl.dll`), and the engine asks Streamline for
+the Reflex and PC latency plugins whenever it starts it, because the latency mode can change after the device is made. The engine ships
+no NVIDIA code.
+
+- **Where it runs.** Windows, an NVIDIA GPU, Direct3D 12 or Vulkan: Streamline has to take part in making the device, which the engine's
+  device hooks do on those two backends only (Direct3D 11 says so in the reason). Streamline must have started with the device: a game
+  that installed it after it started says "restart the game". The driver has to offer Reflex Low Latency (`slReflexGetState`); an
+  older one says what to update.
+- **What it does.** At the start Reflex is set off; `reflex` (or `auto`) sets Low Latency and `boost` sets Low Latency Boost, with no
+  frame limit (the driver decides). `slReflexSleep` runs once per frame before the input is read, and each marker of "The markers"
+  goes to `slPCLSetMarker` with the frame's token, except the input sample (its PCL marker is deprecated: Reflex finds the input
+  itself). Reflex and DLSS share the token of the frame, so a game that uses both gives Streamline one frame to follow. Turning the
+  mode off sets Reflex off again. Without the PC latency plugin Reflex still sleeps, only the markers are not sent.
+- **When it stops.** A refusal of any call logs one warning and the frame goes on; once the device is destroyed the provider calls
+  Streamline no more (its library shuts down with the device).
+- **The report.** `render.latency`'s `vendor` has `source` `Reflex`, `frames` (how many of Reflex's last frames it measured),
+  `lastFrameId`, the time from the start of the simulation to the end of the present of the last frame and on average
+  (`lastSimulationToPresentMs`, `avgSimulationToPresentMs`) and `avgGpuFrameMs`, in milliseconds of Reflex's own clock.
+- **What NVIDIA asks of a game that ships Reflex or DLSS** (the license of the NVIDIA RTX SDKs; `factoria setup streamline` shows it and
+  asks for acceptance; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super Resolution"): notify NVIDIA before the game's commercial
+  release (<https://developer.nvidia.com/sw-notification>), credit NVIDIA and show its marks.
+- **Not checked by the tests** (they use a fake Streamline): that the real library takes the engine's declarations as they are and that
+  the latency gets shorter; that needs a machine with an NVIDIA GPU.
+
 ## What the number is
 
 The profiler (`perf.profile`, `play.report`'s `profile`, the editor's View > Profiler) shows **input to present**: the time from the
 input sample to the end of the present call, in milliseconds, per frame: `avgMs`, `p95Ms` and `maxMs` over the frames measured. It is
 what the CPU sees: after the present call the frame still waits for the display's refresh, so this is a measure to compare settings
 (`off` against `auto`), not the photon latency of a screen. `render.latency` returns the same in `report` (`lastMs`, `avgMs`, `p95Ms`,
-`maxMs`, `samples` over the last 120 frames) and, when the SDK reports its own times (XeLL: the time from the start of the simulation to
+`maxMs`, `samples` over the last 120 frames) and, when the SDK reports its own times (XeLL and Reflex: the time from the start of the simulation to
 the end of the present, from its own clock), `vendor`.
 
 No frame is measured while the driver is `none`; `profile.latency.reason` says why.
