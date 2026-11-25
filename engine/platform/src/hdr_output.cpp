@@ -193,6 +193,11 @@ HdrDisplay no_window() {
 std::string swapchain_format() {
     if (!sapp_isvalid()) return {};
     if (fa_sapp_swapchain_kind() == 2) return "RGB10A2";
+#if defined(_WIN32) && defined(SOKOL_D3D11)
+    // sokol_app has no graphics API on Windows (its colour format says RGBA8): the window presenter's buffers are BGRA8 or,
+    // for scRGB, RGBA16F (d3d11_present_win32.cpp).
+    return fa_sapp_swapchain_kind() == 1 ? "RGBA16F" : "BGRA8";
+#else
     switch (sapp_color_format()) {
         case SAPP_PIXELFORMAT_RGBA8: return "RGBA8";
         case SAPP_PIXELFORMAT_SRGB8A8: return "SRGBA8";
@@ -201,6 +206,7 @@ std::string swapchain_format() {
         case SAPP_PIXELFORMAT_RGBA16F: return "RGBA16F";
         default: return "?";
     }
+#endif
 }
 
 bool same_request(const HdrRequest& a, const HdrRequest& b) {

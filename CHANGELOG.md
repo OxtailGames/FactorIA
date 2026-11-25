@@ -12,6 +12,10 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- On Windows the window no longer owns a D3D11 device (M77-P9f): sokol_app runs without a graphics API there, and the platform makes the
+  D3D11 device and the window's DXGI flip-model swapchain itself, resizes it and presents it (vsync interval, tearing when vsync is off
+  and the display allows it, the same frame latency as before), so the D3D12 and Vulkan backends can present on the same window. A lost
+  device is logged once with its reason and what to do. HDR output, the editor's frame readback, fullscreen and HiDPI work as before.
 - The D3D12 backend runs lists on three queues (M77-P10b): `begin_commands(label, QueueKind::Compute)` records for a COMPUTE queue and
   `QueueKind::Transfer` for a COPY queue, each with its own fence; `submit_token` returns the list's token, `wait_list` and `wait_queue` make
   a queue wait for another's, and `QueueHandoff` moves a buffer or image between queues (a list that uses what its queue does not own is
