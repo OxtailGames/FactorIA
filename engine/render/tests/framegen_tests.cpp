@@ -229,15 +229,19 @@ TEST_CASE("frame generation settings: the provider a mode names on what the mach
 
 // ---- the slot table ----------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("frame generation providers: every slot is empty and says which package fills it") {
-    for (FrameGenSlot s : {FrameGenSlot::Dlss, FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
+TEST_CASE("frame generation providers: the DLSS slot has its provider, the others say which package fills them") {
+    // M78-P5b: the DLSS frame generation provider is in its slot (render_framegen_dlss.h); FSR 3 and XeSS arrive with their packages.
+    const render::FrameGenProvider* dlss = render::framegen_provider(FrameGenSlot::Dlss);
+    REQUIRE(dlss != nullptr);
+    CHECK(dlss->slot() == FrameGenSlot::Dlss);
+    CHECK(dlss->setup_id() == "streamline");
+    for (FrameGenSlot s : {FrameGenSlot::Fsr, FrameGenSlot::Xess}) {
         CAPTURE(render::frame_gen_slot_name(s));
         CHECK(render::framegen_provider(s) == nullptr);
         const std::string why = render::framegen_absent_reason(s);
         CHECK(why.find("provider") != std::string::npos);
         CHECK(why.find("yet") != std::string::npos);
     }
-    CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Dlss)).find("Streamline") != std::string::npos);
     CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Fsr)).find("FidelityFX") != std::string::npos);
     CHECK(std::string(render::framegen_absent_reason(FrameGenSlot::Xess)).find("XeSS") != std::string::npos);
     CHECK(std::string(render::framegen_slot_setup_id(FrameGenSlot::Dlss)) == "streamline");
@@ -312,9 +316,9 @@ TEST_CASE("frame generation controller: every refusal says what is wrong and how
     SUBCASE("an empty slot names the package that fills it") {
         FrameGenController c;
         c.attach(&nv, env_of(nv, GpuVendor::Nvidia), swapchain_of(nv), true);
-        c.set_settings(settings(FrameGenMode::Dlss));
+        c.set_settings(settings(FrameGenMode::Xess));
         CHECK(c.state() == FrameGenState::Refused);
-        CHECK(c.reason().find("Streamline") != std::string::npos);
+        CHECK(c.reason().find("XeSS") != std::string::npos);
         CHECK(c.provider_reason(FrameGenSlot::Fsr).find("FidelityFX") != std::string::npos);
     }
     SUBCASE("the provider's probe says no: its sentence is the reason, once") {
@@ -848,12 +852,12 @@ TEST_CASE("frame generation renderer: a mode with no provider in this build is r
     World w;
     box_scene(w, true);
     own.temporal();
-    own.r.set_frame_generation(settings(FrameGenMode::Dlss));
+    own.r.set_frame_generation(settings(FrameGenMode::Xess));
     own.frame(w, 3);
     CHECK(own.r.effective_frame_generation() == FrameGenSlot::None);
     const Json status = own.r.frame_generation_status();
     CHECK(status["state"] == "refused");
-    CHECK(status["reason"].get<std::string>().find("Streamline") != std::string::npos);
+    CHECK(status["reason"].get<std::string>().find("XeSS") != std::string::npos);
     CHECK(status["modes"]["xess"]["setupId"] == "xess");
     CHECK(RendererTestAccess::output_passes(own.r) == std::vector<std::string>{"upscale", "hud-over-upscale"});
     Image img;

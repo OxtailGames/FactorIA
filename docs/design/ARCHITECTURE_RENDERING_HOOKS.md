@@ -141,7 +141,7 @@ The swapchain:
 ## Streamline runtime core (M78-P4b)
 
 `engine/render/src/streamline_runtime.{h,cpp}`: the first user of the hooks above, shared by every Streamline feature (DLSS
-Super Resolution and Reflex today, DLSS frame generation in a later package).
+Super Resolution, Reflex and DLSS frame generation).
 
 - **No NVIDIA code.** The structures and functions of the Streamline C interface are the engine's own declarations in
   `sl_abi` (checked field by field against the MIT headers of tag v2.14.16, with `static_assert`s on sizes). The
@@ -212,9 +212,10 @@ the rest is private to `fa_render`:
 `effective_frame_generation`); the rest is private to `fa_render`. User text: docs/FRAME_GENERATION.md.
 
 - **`render_framegen.{h,cpp}`: the seam.** A `FrameGenProvider` is one SDK (`probe`, `device_hook`, `start`, `swapchain_changed`, `wants_reversed_depth`,
-  `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS, **all empty** in this package; `register_framegen_provider()`
-  fills one (the three provider packages call it once each) and an empty slot answers with the package that fills it
-  (`framegen_absent_reason`). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
+  `configure`, `dispatch`, `generated_frames`, `stop`). The table has three slots, DLSS, FSR 3 and XeSS; the DLSS one holds the provider of `render_framegen_dlss.cpp` from the
+  start (the table's constructor makes it), the other two are empty until their packages `register_framegen_provider()`, and an empty slot
+  answers with the package that fills it (`framegen_absent_reason`). A provider can ask for Reflex (`requires_reflex()`, see "DLSS frame
+  generation" below). The table is never destroyed and tests use `set_framegen_provider_for_test`. A provider that makes or wraps the
   swapchain returns its `DeviceHook` from `device_hook()`; `Renderer::init` puts `framegen_device_hooks()` in `DeviceInit::hooks` of the device it
   is about to make when `RendererDesc::frameGeneration` is on (a window of D3D12 or Vulkan the renderer claims), and tells the controller the
   device was "hooked". **The hooks are never registered process-wide** (unlike the latency ones): a second renderer in the process that did
@@ -256,6 +257,34 @@ the rest is private to `fa_render`:
 - **`renderer_framegen.cpp`.** The renderer's API (`set_frame_generation`, `frame_generation`, `effective_frame_generation`,
   `frame_generation_status`, `frame_generation_report`) and the `render.supports` answers (`set_framegen_env`: the rows `dlssFrameGen`,
   `fsrFrameGen`, `xessFrameGen`; `framegen_slot_backends` adds their D3D12 and Vulkan keys).
+- **`render_framegen_dlss.{h,cpp}`: DLSS frame generation (M78-P5b).** `DlssFrameGenProvider` runs NVIDIA DLSS-G through the Streamline
+  runtime above, with no NVIDIA header: `DlssgOptions` (120 bytes) and `DlssgState` (88) are declared in `streamline_runtime.h` with their
+  sizes and offsets checked, and the two functions (`slDLSSGSetOptions`, `slDLSSGGetState`) come from `slGetFeatureFunction(kFeatureDlssG)`, so
+  a test runs the provider on every platform with a fake table (`framegen_dlss_tests.cpp`).
+  - **The feature is asked before the device.** Streamline loads only the plugins `slInit` is told of and DLSS-G asks for its own Vulkan
+    queues and extensions, so `device_hook()` (called by `framegen_device_hooks()` when a renderer asks for frame generation, before its device
+    exists) calls `StreamlineRuntime::add_feature(kFeatureDlssG)` and returns no hook of its own: the process's runtime is already a hook of
+    every D3D12 and Vulkan device (`register_streamline_runtime`). A device made without the feature cannot get it (`feature_asked`; the probe
+    says "restart"). `framegen_device_hooks()` asks every slot, so a game that starts with `fsr` on NVIDIA also loads the DLSS-G plugin.
+  - **No evaluate.** DLSS-G generates inside Present. `dispatch` sets the constants of the frame (`slSetConstants`, the same frame token as
+    Reflex and DLSS: `StreamlineRuntime::frame_token`) and tags the depth, the motion vectors and, when `FrameGenFrame::hudDrawn`, the hudless
+    colour with the lifecycle `kValidUntilPresent`, inside a native section of the frame's list (`begin_native` with every image declared
+    shader-read, `end_native` always closed). On Vulkan the sampled views are made once per image and kept in three slots. The matrices are
+    Streamline's row-major row-vector ones: a `Mat4` (column-major, column vectors) is copied as is, which is the transpose. The depth is
+    the reversed infinite `near / d` the provider asks for (`wants_reversed_depth`), so the projection's clip z row is `[0, 0, 0, near]` and the
+    row of `prevFromView` (made with the engine's own depth row) is replaced by the same one before `clipToPrevClip` is built. An orthographic
+    camera is refused (its reprojection is not built). `kErrorDuplicatedConstants` (the DLSS upscaler sets the frame's constants too) is
+    logged once and not fatal.
+  - **Options and state.** `configure(bool)` sends `slDLSSGSetOptions` only when mode, flags or sizes change (`numFramesToGenerate` 1, the
+    resources are retained while off and given back in `stop`). `generated_frames()` is the only caller of `slDLSSGGetState` (not thread
+    safe, once per rendered frame from the controller's `begin_frame`): `numFramesActuallyPresented` counts every frame Streamline presented
+    since the last call, so `max(0, presented - 1)` is added to the count; the status bits are trusted only when they were read while generation
+    was on and turn into the frame's refusal reason after the inputs went out.
+  - **Reflex.** `FrameGenProvider::requires_reflex()` -> `FrameGenController::requires_reflex()` -> `LatencyController::require_reflex(bool)`,
+    called by `Renderer::Impl::sync_reflex_for_framegen` after `attach`, `set_frame_generation` and each `begin_frame`. While required, the
+    latency controller's effective settings turn the modes `off`, `antilag2` and `xell` into `reflex` (no boost); `reflex` and `auto` are kept
+    (`effective_settings`, `reflex_forced`); the player's setting is not rewritten. `dispatch` also refuses a frame while `reflex_running()` (a
+    process flag the Reflex provider sets with its options) is false.
 - **The engine** (`Engine::set_frame_generation`, the command `render.frame_generation`, `profile_frame_generation`): the setting is applied
   to a windowed, non-editor renderer only (like latency); `rd.frameGeneration` is on when the project's mode is not `off` at the start.
   `ProfileSummary::set_frame_generation` stores the readout as `profile.frameGeneration`.

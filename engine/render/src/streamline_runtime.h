@@ -54,6 +54,7 @@ using Result = std::int32_t;
 inline constexpr Result kOk = 0;
 inline constexpr Result kErrorIO = 1, kErrorDriverOutOfDate = 2, kErrorOSOutOfDate = 3, kErrorOSDisabledHWS = 4;
 inline constexpr Result kErrorNoSupportedAdapterFound = 6, kErrorAdapterNotSupported = 7, kErrorNoPlugins = 8;
+inline constexpr Result kErrorDuplicatedConstants = 27;
 inline constexpr Result kErrorMissingProxy = 17, kErrorFeatureMissing = 31, kErrorFeatureNotSupported = 32,
                         kErrorFeatureFailedToLoad = 34, kErrorFeatureMissingDependency = 36, kErrorInvalidState = 38;
 inline constexpr Result kWarnOutOfVram = 39;
@@ -257,6 +258,51 @@ inline constexpr std::uint32_t kPclSimulationStart = 0, kPclSimulationEnd = 1, k
 inline constexpr std::uint32_t kDlssOff = 0, kDlssMaxPerformance = 1, kDlssBalanced = 2, kDlssMaxQuality = 3,
                                kDlssUltraPerformance = 4, kDlssUltraQuality = 5, kDlssDlaa = 6;
 
+// sl::DLSSGOptions and sl::DLSSGState (sl_dlss_g.h, Streamline 2.14.16): the options of DLSS frame generation and what it reports. DLSS-G has
+// no evaluate call: it generates inside Present, from the tags and the constants of the frame. The two functions are given by
+// slGetFeatureFunction and are not thread safe (slDLSSGGetState has to run on the thread that presents).
+struct DlssgOptions {
+    Base base;
+    std::uint32_t mode;  // sl::DLSSGMode
+    std::uint32_t numFramesToGenerate;
+    std::uint32_t flags;  // sl::DLSSGFlags
+    std::uint32_t dynamicResWidth, dynamicResHeight;
+    std::uint32_t numBackBuffers;
+    std::uint32_t mvecDepthWidth, mvecDepthHeight;
+    std::uint32_t colorWidth, colorHeight;
+    std::uint32_t colorBufferFormat, mvecBufferFormat, depthBufferFormat, hudLessBufferFormat, uiBufferFormat;
+    void* onErrorCallback;
+    char bReserved15;
+    std::uint32_t queueParallelismMode;  // sl::DLSSGQueueParallelismMode
+    char enableUserInterfaceRecomposition;
+    float dynamicTargetFrameRate;
+};
+struct DlssgState {
+    Base base;
+    std::uint64_t estimatedVRAMUsageInBytes;
+    std::uint32_t status;  // sl::DLSSGStatus: a bit set of the kDlssgFail values, 0 = ok
+    std::uint32_t minWidthOrHeight;
+    std::uint32_t
+        numFramesActuallyPresented;  // every frame presented since the last slDLSSGGetState call, rendered and generated
+    std::uint32_t numFramesToGenerateMax;
+    char bReserved4;
+    char bIsVsyncSupportAvailable;
+    void* inputsProcessingCompletionFence;
+    std::uint64_t lastPresentInputsProcessingCompletionFenceValue;
+    char bIsDynamicMFGSupported;
+};
+// sl::DLSSGMode
+inline constexpr std::uint32_t kDlssgOff = 0, kDlssgOn = 1, kDlssgAuto = 2;
+// sl::DLSSGFlags
+inline constexpr std::uint32_t kDlssgRequestVramEstimate = 1u << 2, kDlssgRetainResourcesWhenOff = 1u << 3;
+// sl::DLSSGStatus (a bit set): why generation is not running
+inline constexpr std::uint32_t kDlssgFailResolutionTooLow = 1u << 0, kDlssgFailReflexNotDetectedAtRuntime = 1u << 1,
+                               kDlssgFailHdrFormatNotSupported = 1u << 2, kDlssgFailCommonConstantsInvalid = 1u << 3,
+                               kDlssgFailGetCurrentBackBufferIndexNotCalled = 1u << 4;
+// sl::BufferType and sl::ResourceLifecycle values DLSS-G reads
+inline constexpr std::uint32_t kBufferHudLessColor = 2, kBufferUiColorAndAlpha = 23;
+inline constexpr std::uint32_t kValidUntilPresent = 1;
+
 #if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
 static_assert(sizeof(Base) == 32, "sl::BaseStructure");
 static_assert(sizeof(Preferences) == 144, "sl::Preferences");
@@ -273,6 +319,18 @@ static_assert(sizeof(ReflexOptions) == 48, "sl::ReflexOptions");
 static_assert(sizeof(ReflexReport) == 152, "sl::ReflexReport");
 static_assert(sizeof(ReflexReport2) == 48, "sl::ReflexReport2");
 static_assert(sizeof(ReflexState) == 12848, "sl::ReflexState");
+static_assert(sizeof(DlssgOptions) == 120, "sl::DLSSGOptions");
+static_assert(offsetof(DlssgOptions, mode) == 32 && offsetof(DlssgOptions, colorWidth) == 64 &&
+                  offsetof(DlssgOptions, uiBufferFormat) == 88 && offsetof(DlssgOptions, onErrorCallback) == 96 &&
+                  offsetof(DlssgOptions, queueParallelismMode) == 108 &&
+                  offsetof(DlssgOptions, dynamicTargetFrameRate) == 116,
+              "sl::DLSSGOptions members");
+static_assert(sizeof(DlssgState) == 88, "sl::DLSSGState");
+static_assert(offsetof(DlssgState, estimatedVRAMUsageInBytes) == 32 && offsetof(DlssgState, status) == 40 &&
+                  offsetof(DlssgState, numFramesActuallyPresented) == 48 &&
+                  offsetof(DlssgState, inputsProcessingCompletionFence) == 64 &&
+                  offsetof(DlssgState, bIsDynamicMFGSupported) == 80,
+              "sl::DLSSGState members");
 #endif
 
 // The GUID and the version each structure is made with (the macros SL_STRUCT_BEGIN of the headers). Fills `base`.
@@ -288,6 +346,8 @@ void init_dlss_optimal_settings(DlssOptimalSettings& s);
 void init_vulkan_info(VulkanInfo& v);
 void init_reflex_options(ReflexOptions& o);  // mode off, no limit
 void init_reflex_state(ReflexState& s);      // zeroed, with the base of the state and of each report
+void init_dlssg_options(DlssgOptions& o);    // mode off, one frame to generate, the "not set" values of the header
+void init_dlssg_state(DlssgState& s);        // zeroed, with the base of the state
 
 // The functions, as the headers declare them (SL_API is the C calling convention; the C++ references are pointers).
 using InitFn = Result (*)(const Preferences*, std::uint64_t sdkVersion);
@@ -316,6 +376,10 @@ using ReflexSetOptionsFn = Result (*)(const ReflexOptions*);
 using ReflexGetStateFn = Result (*)(ReflexState*);
 using ReflexSleepFn = Result (*)(void* frame);
 using PclSetMarkerFn = Result (*)(std::uint32_t marker, void* frame);
+// The DLSS-G functions slGetFeatureFunction gives (sl_dlss_g.h): slDLSSGSetOptions(viewport, options) and slDLSSGGetState(viewport, state,
+// options): the options the state is asked for are optional (null: the last set).
+using DlssgSetOptionsFn = Result (*)(const ViewportHandle*, const DlssgOptions*);
+using DlssgGetStateFn = Result (*)(const ViewportHandle*, DlssgState*, const DlssgOptions*);
 
 }  // namespace sl_abi
 
@@ -399,6 +463,13 @@ public:
     void present_end(const gpu::PresentEvent& event) override;
     void device_destroying() override;
 
+    // Adds `feature` to the ones slInit loads, when the runtime has not started yet (a device made with this hook before; later calls change
+    // nothing for that device, and a device made after a reset takes it). The feature stays in the list: a feature built on the runtime
+    // that is optional (DLSS frame generation: it asks for Vulkan queues and extensions) is added by the one that wants it, before the device.
+    void add_feature(std::uint32_t feature);
+    // Whether `feature` was in the list the set-up of the current device used (so feature_reason is Streamline's own answer for it).
+    bool feature_asked(std::uint32_t feature) const;
+
     StreamlineStatus status() const;
     // "" when Streamline says `feature` runs on this machine, else its reason (slIsFeatureSupported's answer, with what to do). Meaningful
     // once status().ready.
@@ -423,7 +494,8 @@ private:
 };
 
 // The process's runtime, with the features of the engine today (DLSS Super Resolution, Reflex and the PC latency markers it needs). Created on
-// first use. M78's later packages (DLSS frame generation) add their feature ids where it is made (streamline_runtime.cpp, process_runtime).
+// first use. DLSS frame generation adds its id when a renderer asks for frame generation, before that renderer's device is made
+// (DlssFrameGenProvider::device_hook, StreamlineRuntime::add_feature).
 // The latency setting is chosen after the device exists, so Reflex and PCL are always asked of slInit: a plugin that is not installed makes
 // that feature unsupported with its reason and the others run.
 StreamlineRuntime& streamline_runtime();

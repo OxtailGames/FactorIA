@@ -43,6 +43,8 @@ constexpr StructType kReflexOptionsType{0xf03af81a, 0x6d0b, 0x4902, {0xa6, 0x51,
 constexpr StructType kReflexReportType{0x0d569b37, 0xa1c8, 0x4453, {0xbe, 0x4d, 0x40, 0xf4, 0xde, 0x57, 0x95, 0x2b}};
 constexpr StructType kReflexReport2Type{0x68bb0632, 0x5e1c, 0x402b, {0x89, 0x9d, 0xb4, 0x9f, 0x63, 0x3c, 0x56, 0xc2}};
 constexpr StructType kReflexStateType{0xf0bb5985, 0xdaf9, 0x4728, {0xb2, 0xfd, 0xae, 0x80, 0xa2, 0xbd, 0x79, 0x89}};
+constexpr StructType kDlssgOptionsType{0xfac5f1cb, 0x2dfd, 0x4f36, {0xa1, 0xe6, 0x3a, 0x9e, 0x86, 0x52, 0x56, 0xc5}};
+constexpr StructType kDlssgStateType{0xcc8ac8e1, 0xa179, 0x44f5, {0x97, 0xfa, 0xe7, 0x41, 0x12, 0xf9, 0xbc, 0x61}};
 constexpr StructType kVulkanInfoType{0x0eed6fd5, 0x82cd, 0x43a9, {0xbd, 0xb5, 0x47, 0xa5, 0xba, 0x2f, 0x45, 0xd6}};
 
 void set_base(Base& b, const StructType& type, std::uint64_t version) {
@@ -123,6 +125,19 @@ void init_reflex_state(ReflexState& s) {
     set_base(s.base, kReflexStateType, 2);
     for (ReflexReport& r : s.frameReport) set_base(r.base, kReflexReportType, 1);
     for (ReflexReport2& r : s.frameReport2) set_base(r.base, kReflexReport2Type, 1);
+}
+
+void init_dlssg_options(DlssgOptions& o) {
+    std::memset(&o, 0, sizeof o);
+    set_base(o.base, kDlssgOptionsType, 5);
+    o.mode = kDlssgOff;
+    o.numFramesToGenerate = 1;
+    o.bReserved15 = kInvalid;
+    o.enableUserInterfaceRecomposition = kFalse;
+}
+void init_dlssg_state(DlssgState& s) {
+    std::memset(&s, 0, sizeof s);
+    set_base(s.base, kDlssgStateType, 4);
 }
 
 }  // namespace sl_abi
@@ -217,8 +232,11 @@ const char* result_hint(Result r) {
         case kErrorNoPlugins:
         case kErrorFeatureMissing:
         case kErrorFeatureFailedToLoad:
-            return "A plugin library of Streamline (sl.dlss.dll, sl.common.dll, nvngx_dlss.dll) is missing next to "
-                   "sl.interposer.dll: run `factoria setup streamline` to install the whole set again.";
+            return "A plugin library of Streamline (sl.dlss.dll, sl.dlss_g.dll, sl.reflex.dll, sl.pcl.dll, "
+                   "sl.common.dll, "
+                   "nvngx_dlss.dll, nvngx_dlssg.dll) is missing next to sl.interposer.dll: run `factoria setup "
+                   "streamline` "
+                   "to install the whole set again.";
         case kErrorFeatureMissingDependency:
         case kErrorMissingProxy:
             return "Streamline could not hook the graphics device: this is a bug in the engine's integration, please "
@@ -830,6 +848,19 @@ void StreamlineRuntime::device_destroying() {
     impl_->presents_ = 0;
 }
 
+void StreamlineRuntime::add_feature(std::uint32_t feature) {
+    std::lock_guard lock(impl_->mu_);
+    if (std::find(impl_->features_.begin(), impl_->features_.end(), feature) == impl_->features_.end())
+        impl_->features_.push_back(feature);
+}
+
+bool StreamlineRuntime::feature_asked(std::uint32_t feature) const {
+    std::lock_guard lock(impl_->mu_);
+    for (const FeatureState& s : impl_->states_)
+        if (s.feature == feature) return true;
+    return false;
+}
+
 StreamlineStatus StreamlineRuntime::status() const {
     std::lock_guard lock(impl_->mu_);
     StreamlineStatus s;
@@ -890,9 +921,10 @@ namespace {
 std::atomic<StreamlineRuntime*> g_test_runtime{nullptr};
 
 std::shared_ptr<StreamlineRuntime>& process_runtime() {
-    // The features of the engine today; the packages that add one (DLSS frame generation) add its id here. Reflex and the PC latency markers
-    // are always asked: the low-latency setting is chosen after the device exists, and a plugin that is not installed only makes its
-    // feature unsupported (feature_reason says why) while DLSS and the others run.
+    // The features every device asks for. Reflex and the PC latency markers are always asked: the low-latency setting is chosen after the
+    // device exists, and a plugin that is not installed only makes its feature unsupported (feature_reason says why) while DLSS and the
+    // others run. DLSS frame generation is not here: a renderer that asks for frame generation adds it (add_feature) before its device is
+    // made, so a game that never does is not asked for the extra Vulkan queues and extensions it needs.
     static std::shared_ptr<StreamlineRuntime> runtime =
         std::make_shared<StreamlineRuntime>(std::vector<std::uint32_t>{kFeatureDlss, kFeatureReflex, kFeaturePcl});
     return runtime;
