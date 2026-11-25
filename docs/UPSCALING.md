@@ -205,7 +205,7 @@ hand the upscale to the maker's SDK, on Windows (Direct3D 12 and Vulkan; XeSS al
 depth and motion as `temporal`, need a single camera, and fall back to the next best mode with one warning when the SDK is missing, the
 GPU is not suitable or a frame fails. The engine ships no vendor header or binary: the libraries are installed with `factoria setup
 streamline`, `factoria setup xess` and `factoria setup fidelityfx`. The whole description (where the libraries are looked for, `auto`,
-the reasons, the NVIDIA, Intel and AMD sections, and the opt-in DLSS Ray Reconstruction, `rayReconstruction: true` with mode `dlss`) is in
+the reasons, the NVIDIA, Intel and AMD sections, and the opt-in DLSS Ray Reconstruction, `rayReconstruction: true` with mode `dlss`, or `auto` where it picks DLSS) is in
 [UPSCALING_VENDORS.md](UPSCALING_VENDORS.md).
 
 ## Temporal antialiasing

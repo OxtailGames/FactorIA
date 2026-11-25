@@ -679,6 +679,10 @@ const char* dlss_mode_name(std::uint32_t mode) {
     return "unknown";
 }
 
+void streamline_ask_upscaler_features(StreamlineRuntime& runtime, bool rayReconstruction) {
+    if (rayReconstruction) runtime.add_feature(kFeatureDlssRr);
+}
+
 std::unique_ptr<VendorUpscaler> make_dlss_provider() { return std::make_unique<DlssProvider>(); }
 
 }  // namespace fa::render

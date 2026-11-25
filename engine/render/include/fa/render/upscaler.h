@@ -39,6 +39,9 @@ constexpr int vendor_upscaler_index(UpscalerMode m) {
     return m == UpscalerMode::Dlss ? 0 : m == UpscalerMode::Xess ? 1 : m == UpscalerMode::Fsr ? 2 : -1;
 }
 inline constexpr int kVendorUpscalerCount = 3;
+// Whether a game that starts in `m` can draw with DLSS: "dlss", or "auto" (which picks it on an NVIDIA GPU). Only such a game asks Streamline
+// for the Ray Reconstruction plugin at its start (RendererDesc::rayReconstruction).
+constexpr bool upscaler_mode_may_use_dlss(UpscalerMode m) { return m == UpscalerMode::Dlss || m == UpscalerMode::Auto; }
 constexpr UpscalerMode vendor_upscaler_mode(int index) {
     return index == 0 ? UpscalerMode::Dlss : index == 1 ? UpscalerMode::Xess : UpscalerMode::Fsr;
 }
@@ -59,11 +62,13 @@ struct UpscalerSettings {
     UpscalerMode mode = UpscalerMode::Stretch;
     UpscalerQuality quality = UpscalerQuality::Native;
     float sharpness = 0.5f;  // 0..1: the contrast-adaptive sharpen of the spatial and temporal modes
-    // M78-P4c: with mode "dlss" (or "auto" where it picks DLSS), draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of
-    // Super Resolution, where this GPU, the installed SDK and the frame allow it (the "dlssRayReconstruction" row of render.supports says
-    // why not; the frame then draws with Super Resolution). An opt-in preview: the renderer has no ray-traced signals to denoise yet and its
-    // guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). Ignored by every other mode. Its plugin is loaded when the game starts
-    // (RendererDesc::rayReconstruction, from the project's setting): turning it on later in a run that started without it is refused with that reason.
+    // M78-P4c: with mode "dlss" (or "auto" where it picks DLSS), draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of
+    // DLSS 3.5, through Streamline) instead of Super Resolution, where this GPU, the installed SDK and the frame allow it (the
+    // "dlssRayReconstruction" row of render.supports says why not; the frame then draws with Super Resolution). An opt-in preview: the
+    // renderer has no ray-traced signals to denoise yet and its guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray
+    // Reconstruction"). Ignored by every other mode. Its plugin is loaded when the game starts, and only when the project's mode is
+    // "dlss" or "auto" (RendererDesc::rayReconstruction, from the project's setting): turning it on later in a run that started without
+    // it is refused with that reason.
     bool rayReconstruction = false;
     bool operator==(const UpscalerSettings&) const = default;
 };

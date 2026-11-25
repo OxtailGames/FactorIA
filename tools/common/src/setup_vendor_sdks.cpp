@@ -18,13 +18,14 @@
 // install them (a Windows export made on a Mac copies them); off Windows the component is "unsupported" in the status,
 // installed only when asked for by name. The folders of OLDER pinned versions (a folder named like a version, lower than this
 // one) and the `<version>.old-<pid>-<n>` leftovers of replaced installs (of a version up to this one) are removed once the new
-// one is in place; anything else under tools/<id>/ (a newer version a newer factoria installed
-// side by side, a folder somebody made) stays. The DLLs are never loaded by FactorIA, so no running editor keeps one open.
+// one is in place, except the leftovers of another install that is still running; anything else under tools/<id>/ (a newer version a
+// newer factoria installed side by side, a folder somebody made) stays. The DLLs are never loaded by FactorIA, so no running editor keeps one open.
 #include <algorithm>
 #include <filesystem>
 
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
+#include "fa/core/process.h"
 #include "fa/core/strings.h"
 #include "setup_internal.h"
 
@@ -225,7 +226,8 @@ std::string license_required_hint(const VendorSdk& sdk, bool force) {
            (force ? ",\"force\":true" : "") + ",\"acceptLicenses\":true}). An AI must ask the user first.";
 }
 
-// "2.14.16" -> {2, 14, 16}; empty when the name is not dotted numbers (a folder somebody else made, "2.14.16.old-1-2").
+// "2.14.16" -> {2, 14, 16}; empty when the name is not dotted numbers (a leftover "2.14.16.old-1-2" is an aside folder; "notes" is
+// neither).
 std::vector<long> version_numbers(const std::string& name) {
     std::vector<long> out;
     std::size_t digits = 0;
@@ -260,10 +262,20 @@ std::string aside_base_name(const std::string& name) {
     return name.substr(0, at);
 }
 
+// The <pid> of "2.14.16.old-4242-3" (4242), 0 when `name` is not an aside folder or the pid does not fit an int.
+int aside_pid(const std::string& name) {
+    if (aside_base_name(name).empty()) return 0;
+    const std::string rest = name.substr(name.rfind(".old-") + 5);
+    const std::string digits = rest.substr(0, rest.find('-'));
+    if (digits.size() > 9) return 0;
+    return std::stoi(digits);
+}
+
 // Is the folder `name` of tools/<id>/ one an install of `current` may remove? A folder named like an OLDER pinned version, and
 // the leftover `<v>.old-<pid>-<n>` of a replaced install of a version that is not newer than `current` (a replaced install
-// that could not be deleted on Windows stays aside; the next install sweeps it). A newer version, a name that is no version
-// and a folder somebody else made stay.
+// that could not be deleted on Windows stays aside; the next install sweeps it), unless a process other than this one that is
+// running owns it (<pid>): it may be between the two renames of its own replace_dir, and its old install is still in that folder.
+// A newer version, a name that is no version and a folder somebody else made stay.
 bool is_removable_version_folder(const std::string& name, const std::string& current) {
     std::vector<long> b = version_numbers(current);
     if (b.empty()) return false;
@@ -274,7 +286,9 @@ bool is_removable_version_folder(const std::string& name, const std::string& cur
     const std::size_t n = std::max(a.size(), b.size());
     a.resize(n, 0);
     b.resize(n, 0);
-    return aside ? a <= b : a < b;
+    if (!aside) return a < b;
+    const int pid = aside_pid(name);
+    return a <= b && (pid == setup_detail::current_process_id() || !process_alive(pid));
 }
 
 // What a failed download, unpack or copy adds to its hint: how much free disk space the install needs.
@@ -436,9 +450,10 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     s.downloadedBytes = bytes;
     s.seconds = timer.seconds();
     in.add_step(s);
-    // The folders of older pinned versions are no longer used (best effort: a failure leaves the old folder). Only folders
-    // named like a version and lower than this one: a newer one belongs to a newer factoria that shares this home, and
-    // whatever else is there was not made by this setup.
+    // The folders of older pinned versions are no longer used (best effort: a failure leaves the old folder), and so are the
+    // leftovers of replaced installs (`<version>.old-<pid>-<n>`) of this version or an older one, except those of another
+    // process that is still running (its install may be between the two renames of replace_dir). A newer version belongs to a newer
+    // factoria that shares this home, and whatever else is there was not made by this setup.
     for (stdfs::directory_iterator it(dir.parent_path(), ec), end; !ec && it != end; it.increment(ec))
         if (it->is_directory() && is_removable_version_folder(fs::path_to_utf8(it->path().filename()), sdk.version)) {
             std::error_code rm;

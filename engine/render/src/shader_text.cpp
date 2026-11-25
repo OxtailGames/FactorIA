@@ -1,8 +1,9 @@
 #include "shader_text.h"
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
-#include <cstdint>
 #include <unordered_map>
 #include <vector>
 
@@ -13,10 +14,10 @@ namespace fa::shader_text {
 
 namespace {
 
-// What identifies a pack in the cache. The frame bytes are not kept (the generated headers' arrays live as long as the process, but
-// a caller may pass a frame that goes away, and a copy of 150 KB per pack and dialect would be memory the players pay for): two packs
-// are the same when their sizes and BOTH of two independent 64-bit hashes of the frame agree, 128 bits besides the sizes. The first
-// hash is the lookup key; a slot whose second one differs is another pack that happens to share the key.
+// What identifies a pack in the cache. The frame bytes are not kept (the generated headers' arrays live as long as the process, but a
+// caller may pass a frame that goes away, and a copy of each frame, a few KB per pack and about 155 KB for all of them, would be memory
+// the players pay for): two packs are the same when their sizes and BOTH of two independent 64-bit hashes of the frame agree, 128 bits
+// besides the sizes. The first hash is the lookup key; a slot whose second one differs is another pack that happens to share the key.
 struct Slot {
     std::size_t frameSize;
     std::size_t textSize;
@@ -35,6 +36,12 @@ Cache& cache() {
     return *c;
 }
 
+std::atomic<bool> g_same_key{false};  // tests: every pack gets the same key, so the check alone tells packs apart
+
+}  // namespace
+
+namespace detail {
+
 // The two hashes of the frame bytes, in one pass: FNV-1a (the key) and a rotate-xor-multiply over the same bytes (the check).
 void hash_frame(const std::uint8_t* bytes, std::size_t size, std::uint64_t& key, std::uint64_t& check) {
     std::uint64_t h = 1469598103934665603ull;
@@ -49,13 +56,16 @@ void hash_frame(const std::uint8_t* bytes, std::size_t size, std::uint64_t& key,
     check = k;
 }
 
-}  // namespace
+void set_same_key_for_test(bool same) { g_same_key.store(same); }
+
+}  // namespace detail
 
 const char* decoded(const Pack& pack) {
     if (!pack.frame || pack.frameSize == 0 || pack.textSize == 0) return nullptr;
     std::uint64_t key = 0, check = 0;
-    hash_frame(pack.frame, pack.frameSize, key, check);  // outside the lock: 150 KB of hashing
+    detail::hash_frame(pack.frame, pack.frameSize, key, check);  // outside the lock: a few KB of hashing per pack
     key ^= std::uint64_t(pack.textSize) * 0x9E3779B97F4A7C15ull;
+    if (g_same_key.load()) key = 0;
     Cache& c = cache();
     std::lock_guard lock(c.mutex);
     std::vector<Slot>& bucket = c.packs[key];

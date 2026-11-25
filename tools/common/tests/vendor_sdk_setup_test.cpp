@@ -20,6 +20,12 @@
 #include "fa/tooling/setup.h"
 #include "test_helpers.h"
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 using namespace fa;
 namespace stdfs = std::filesystem;
 
@@ -295,9 +301,22 @@ TEST_CASE("setup streamline: the install removes the older versions, and leaves 
     for (const char* other :
          {"9.9.9", "notes", "backup-0.1", "1.0", "9.9.9.old-1-2", "0.9.0.old-x-2", "0.9.0.old-1", ".old-1-2"})
         testing::write_all(tools / other / "keep.txt", "keep");
-    // The leftovers of replaced installs (a program had a file open on Windows): of this version or an older one, they go.
-    for (const char* aside : {"0.9.0.old-1-2", "1.0.0.old-4242-3", "0.1.0.old-7-1"})
-        testing::write_all(tools / aside / "dead.dll", "old");
+// The leftovers of replaced installs (a program had a file open on Windows): of this version or an older one, they go when the
+// process that made them is this one or is not running.
+#if defined(_WIN32)
+    const std::string own = std::to_string(int(_getpid()));
+#else
+    const std::string own = std::to_string(int(::getpid()));
+#endif
+    const std::vector<std::string> asides = {"0.9.0.old-" + own + "-2", "1.0.0.old-999999999-3",
+                                             "0.1.0.old-999999999-1"};
+    for (const std::string& aside : asides) testing::write_all(tools / aside / "dead.dll", "old");
+    // The aside folder of another install that is running (it may be between the two renames of its replace_dir) stays.
+    std::vector<std::string> running;
+#if !defined(_WIN32)
+    running.push_back("1.0.0.old-" + std::to_string(int(::getppid())) + "-7");  // the process that started this test
+    testing::write_all(tools / running.back() / "live.dll", "old");
+#endif
 
     FakeSdk current(lab, true, "1.0.0");
     REQUIRE(setup_detail::vendor_sdk_install(c, options(true), current.sdk).ok);
@@ -307,8 +326,8 @@ TEST_CASE("setup streamline: the install removes the older versions, and leaves 
     CHECK(stdfs::exists(tools / "9.9.9" / "keep.txt"));
     CHECK(stdfs::exists(tools / "notes" / "keep.txt"));
     CHECK(stdfs::exists(tools / "backup-0.1" / "keep.txt"));
-    for (const char* gone : {"0.9.0.old-1-2", "1.0.0.old-4242-3", "0.1.0.old-7-1"})
-        CHECK_FALSE(stdfs::exists(tools / gone));
+    for (const std::string& gone : asides) CHECK_FALSE(stdfs::exists(tools / gone));
+    for (const std::string& live : running) CHECK(stdfs::exists(tools / live / "live.dll"));
     for (const char* kept : {"9.9.9.old-1-2", "0.9.0.old-x-2", "0.9.0.old-1", ".old-1-2"})
         CHECK(stdfs::exists(tools / kept / "keep.txt"));
     CHECK(stdfs::exists(tools / "1.0" / "keep.txt"));  // 1.0 is 1.0.0 for the comparison, not older: not removed

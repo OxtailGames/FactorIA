@@ -952,6 +952,29 @@ TEST_CASE("xess D3D12: a render size that moves inside the range XeSS accepts do
     CHECK(fx.lastRangeOutput.x == 400);
 }
 
+TEST_CASE(
+    "xess D3D12: a render size outside the range of the setting in use is refused with the range, not by the library") {
+    Rig r(gpu::Backend::D3d12);
+    fx.rangeOverride = true;
+    fx.overrideMin = {150, 84};
+    fx.overrideMax = {160, 90};
+    REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.inits == 1);
+    const int executes = fx.executes;
+    // 170x96 is a ratio of 1.88: the nearest setting is the one in use (balanced), so initialising again would not change the range.
+    r.resize(170, 96, 320, 180);
+    CHECK_FALSE(r.draw());
+    CHECK(r.frame.error.find("render size 170x96 is outside XeSS's input range 150x84..160x90 for quality balanced") !=
+          std::string::npos);
+    CHECK(fx.inits == 1);
+    CHECK(fx.executes == executes);  // XeSS was not called with it
+    // A size inside the range draws again with the same context.
+    r.resize(155, 87, 320, 180);
+    REQUIRE_MESSAGE(r.draw(), r.frame.error);
+    CHECK(fx.inits == 1);
+}
+
 TEST_CASE("xess D3D12: a library without a range, or one that refuses the question, initialises again for every new "
           "render size") {
     for (const bool refuses : {false, true}) {
@@ -997,12 +1020,15 @@ TEST_CASE("xess: every quality asks the range of its own setting, and a size ins
         CHECK(fx.inits == 1);
         // 30% smaller: outside, so the setting of the new ratio and a new init.
         r.resize(int(std::lround(float(rw) * 0.7f)), int(std::lround(float(rh) * 0.7f)), outW, outH);
-        REQUIRE(r.draw());
         if (q == abi::kQualityUltraPerformance) {
-            // The coarsest setting: a smaller size has no coarser one to move to, and initialising again at the same one would not help.
+            // The coarsest setting: a smaller size has no coarser one to move to, and initialising again at the same one would not
+            // help. The frame is refused with the range (the library is not called with a size it would refuse).
+            CHECK_FALSE(r.draw());
+            CHECK(r.frame.error.find("is outside XeSS's input range") != std::string::npos);
             CHECK(fx.inits == 1);
             CHECK(fx.init12.quality == q);
         } else {
+            REQUIRE(r.draw());
             CHECK(fx.inits == 2);
             CHECK(fx.init12.quality != q);
         }
@@ -1107,6 +1133,21 @@ TEST_CASE("xess Vulkan device hook: the extensions and feature structs XeSS asks
         CHECK(grant.deviceExtensions == fx.deviceExtensions);
         CHECK(grant.unavailableReason.empty());
         hook->device_destroying();
+        CHECK(hook->grant().deviceExtensions.empty());
+    }
+    SUBCASE("a second device going first leaves the grant of the one that lives") {
+        const auto hook = render::make_xess_device_hook();
+        gpu::VulkanInstanceRequest instance;
+        gpu::VulkanDeviceRequest device;
+        hook->vulkan_instance_request(instance);
+        hook->vulkan_device_request(pd, device);
+        hook->vulkan_device_created(gpu::VulkanDeviceCreated{});
+        hook->vulkan_instance_request(instance);  // the second device
+        hook->vulkan_device_request(pd, device);
+        hook->vulkan_device_created(gpu::VulkanDeviceCreated{});
+        hook->device_destroying();  // one of them goes
+        CHECK(hook->grant().deviceExtensions == fx.deviceExtensions);
+        hook->device_destroying();  // the last one
         CHECK(hook->grant().deviceExtensions.empty());
     }
     SUBCASE("a library that is not installed asks for nothing and does not turn the hook off") {
