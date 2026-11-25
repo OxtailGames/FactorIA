@@ -371,6 +371,22 @@ Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `re
 | `press` | array | no | Actions/keys to press first. |
 | `release` | array | no | Actions/keys to release first. |
 
+## `graphics.backend` (modifies state)
+
+Not released yet (on main after 0.36.0).
+
+Reads which GPU backend draws the game, or stores the one the next start draws with ("takes effect at the next start").
+
+Capabilities: read, state
+
+With no argument it reads and changes nothing: {active, sokolBackend, requested, source, auto, available, fallback, stored, storedIn}. `active` is the backend the renderer draws with ("none" without graphics), `requested` the name asked for and `source` where it came from ("EngineConfig", "FA_GPU_BACKEND", "user settings", "factoria.json" or "default"), `auto` what auto draws with in this player, `available` the backends this player has, `fallback` {from, reason} when another player could not start its backend and started this one in its place (the Vulkan player of Linux and Android, which hands over to the OpenGL one), else null. With `name` it stores that choice for the next start in the game's user settings (`storedIn`: graphics_backend.json in the save folder, or memory in a run with in-memory storage) and returns the same report plus {changed, takesEffect: "next start"}; the backend in use does not change. "auto" forgets the choice. Example: graphics.backend {"name":"gl"}
+
+The order at start: EngineConfig.gpuBackend, the FA_GPU_BACKEND environment variable, the stored choice, factoria.json render.backend, auto. On Linux and Android an exported game ships two players: the Vulkan one starts first and runs the OpenGL one when the choice is gl or gles3 or when Vulkan cannot start (docs/RENDERING.md, "Choosing the GPU backend"); there `vulkan` may be stored from the OpenGL player too. Errors: `invalid_argument` for an unknown name (with a "did you mean"), a backend this platform cannot have, or an unknown argument; `io_error` when the save folder cannot be written. Nothing changes on an error.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string ["auto","gl","gles3","webgl2","d3d11","metal","d3d12","vulkan"] | no | The backend the next start draws with; "auto" forgets the stored choice. Leave it out to read. |
+
 ## `graphics.detect`
 
 Since 0.36.0.

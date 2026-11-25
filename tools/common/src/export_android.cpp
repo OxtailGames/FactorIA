@@ -369,6 +369,51 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
 
 // ---- the Gradle project --------------------------------------------------------------------------------
 
+bool android_vulkan_libs_present(const stdfs::path& libs) {
+    std::error_code ec;
+    for (const char* abi : kAndroidAbis)
+        if (!stdfs::is_regular_file(os_path(libs / "jniLibs" / abi / kAndroidVulkanLib), ec)) return false;
+    return true;
+}
+
+AndroidPlayerLibs android_player_libs(bool vulkan) {
+    AndroidPlayerLibs out;
+    out.vulkan = vulkan;
+    out.launcher = vulkan ? "factoria_player_vulkan" : "factoria_player";
+    out.libs = {"libfactoria_player.so"};
+    if (vulkan) out.libs.push_back(kAndroidVulkanLib);
+    return out;
+}
+
+namespace {
+
+// The GL player's activity of an export with the Vulkan variant (platforms/android/.../factoria/engine/GlActivity.java).
+// Its own process: sokol_app ends the process when its activity is destroyed (exit(0) in onDestroy), and the Vulkan
+// launcher that hands over finishes itself. Not exported and without a launcher entry: only the Vulkan player starts it.
+std::string gl_activity_xml(const std::string& orient) {
+    return "\n        <!-- The GL player: the Vulkan launcher above hands over to it where Vulkan cannot start (no "
+           "driver, no\n"
+           "             device), with the reason in the extras (gpu.fallbackFrom in its startup report). -->\n"
+           "        <activity\n"
+           "            android:name=\"factoria.engine.GlActivity\"\n"
+           "            android:process=\":gl\"\n"
+           "            android:exported=\"false\"\n"
+           "            android:screenOrientation=\"" +
+           orient +
+           "\"\n"
+           "            "
+           "android:configChanges=\"mcc|mnc|locale|layoutDirection|fontScale|fontWeightAdjustment|colorMode|"
+           "orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|"
+           "density\"\n"
+           "            android:stateNotNeeded=\"true\"\n"
+           "            android:launchMode=\"singleTask\"\n"
+           "            android:theme=\"@android:style/Theme.Black.NoTitleBar.Fullscreen\">\n"
+           "            <meta-data android:name=\"android.app.lib_name\" android:value=\"factoria_player\" />\n"
+           "        </activity>";
+}
+
+}  // namespace
+
 Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a,
                             const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report) {
     const AndroidExportSettings& s = p.settings.android;
@@ -420,6 +465,19 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     auto plugins = export_plugins(p, outRoot);
     if (!plugins.ok()) return plugins.error();
 
+    // The Vulkan variant (export.android.vulkanPlayer): built from source with the GL player, or taken from the prebuilt
+    // players when every ABI has it (an older download has only the GL player: the export ships that, and says so).
+    bool vulkan = s.vulkanPlayer;
+    if (vulkan && setup.prebuilt && !android_vulkan_libs_present(setup.libs)) {
+        vulkan = false;
+        report.warnings.push_back("The prebuilt Android players in " + generic(setup.libs) + " have no " +
+                                  kAndroidVulkanLib +
+                                  " for every ABI, so this export ships only the GL player. Run `factoria setup "
+                                  "players` for the players of this FactorIA version, or set "
+                                  "export.android.vulkanPlayer to false to keep the GL player without this warning.");
+    }
+    const AndroidPlayerLibs playerLibs = android_player_libs(vulkan);
+
     const std::vector<std::pair<std::string, std::string>> vars = {
         {"APPLICATION_ID", p.id},
         {"PROJECT_SLUG", slug_of(p)},
@@ -427,6 +485,11 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"VERSION_NAME", safe_version_name(p.version)},
         {"VERSION_CODE", std::to_string(versionCode)},
         {"SCREEN_ORIENTATION", orient},
+        {"LAUNCHER_LIB", playerLibs.launcher},
+        {"GL_ACTIVITY", vulkan ? gl_activity_xml(orient) : std::string()},
+        // Source mode: the libraries CMake builds; a GL-only export does not configure the variant at all.
+        {"CMAKE_TARGETS", vulkan ? "'factoria_player', 'factoria_player_vulkan'" : "'factoria_player'"},
+        {"CMAKE_PLAYER_VULKAN", vulkan ? "ON" : "OFF"},
         {"ENGINE_ROOT", setup.prebuilt ? std::string() : generic(setup.engine)},
         {"CMAKE_VERSION", a.cmakeVersion},
         {"MIN_SDK", std::to_string(s.minSdk)},
@@ -483,15 +546,16 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
 
     std::error_code ec;
     if (setup.prebuilt)
-        for (const char* abi : kAndroidAbis) {
-            const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / "libfactoria_player.so";
-            stdfs::create_directories(os_path(to.parent_path()), ec);
-            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", os_path(to),
-                             stdfs::copy_options::overwrite_existing, ec);
-            if (ec)
-                return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " +
-                           ec.message());
-        }
+        for (const char* abi : kAndroidAbis)
+            for (const std::string& lib : playerLibs.libs) {
+                const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / lib;
+                stdfs::create_directories(os_path(to.parent_path()), ec);
+                stdfs::copy_file(os_path(setup.libs / "jniLibs" / abi / lib), os_path(to),
+                                 stdfs::copy_options::overwrite_existing, ec);
+                if (ec)
+                    return err(std::string("export: cannot copy the prebuilt ") + abi + " player " + lib + " to " +
+                               generic(to) + ": " + ec.message());
+            }
     stdfs::path assets = outRoot / "app" / "src" / "main" / "assets";
     if (auto r = copy_game(p, files, assets); !r.ok()) return r;
     std::string index;

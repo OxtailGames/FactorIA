@@ -208,6 +208,7 @@ endif()
 # The player ships to players: it must not link the commands of the developer tools (tools/authoring), through any chain.
 fa_check_not_linked(factoria_player fa_authoring)
 fa_check_not_linked(factoria_player_main fa_authoring)
+fa_check_not_linked(factoria_player_vulkan fa_authoring)  # when FA_PLAYER_VULKAN builds it
 
 # fa_check_not_linked itself: a configure-only project where a target reaches the forbidden library directly, through a
 # chain and inside generator expressions must fail with the message (cmake/tests/check_not_linked_test.cmake).

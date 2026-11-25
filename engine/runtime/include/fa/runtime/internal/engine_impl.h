@@ -116,6 +116,10 @@ struct Engine::Impl {
         jobThreadsSource;  // where the job thread setting came from: "EngineConfig", "FA_JOB_THREADS", "factoria.json", "default"
     GpuBackendChoice
         gpuChoice;  // the GPU backend this run asked for (EngineConfig, FA_GPU_BACKEND, factoria.json, auto)
+    GpuBackend gpuBackendAuto = GpuBackend::Default;  // EngineConfig::gpuBackendAuto (graphics.backend reports it)
+    // graphics.backend {"name"} (P9e2): the choice stored for the next start. With memoryStorage it lives here only.
+    bool gpuStoreInMemory = false;
+    std::string gpuStoredBackend;  // "" = none stored ("auto")
     jobs::Owner jobOwner{
         "engine"};  // this engine's jobs and main-thread tasks (shutdown waits for them; a frame runs its tasks)
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
@@ -366,6 +370,7 @@ void register_background_load_commands(
     Engine::Impl& impl);  // background_load_commands.cpp: scene.preload, assets.preload, load.status, load.cancel
 void register_i18n_commands(Engine& engine, Engine::Impl& impl);      // localization.cpp: i18n.state, i18n.set_language
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
+void register_gpu_backend_commands(Engine& engine, Engine::Impl& impl);  // gpu_backend_commands.cpp: graphics.backend
 void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_compute_commands(

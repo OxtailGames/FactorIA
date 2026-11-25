@@ -41,6 +41,21 @@
         "c_nonshared": 308
       }
     },
+    "linux-x64-vulkan": {
+      "description": "factoria_player_vulkan of the Linux package (the Vulkan variant, FA_PLAYER_VULKAN; the GL factoria_player is its fallback and has the linux-x64 entry): preset linux-sniper, stripped copy. Measured by ci.yml (job linux-sniper) and release.yml (package linux-x64).",
+      "kind": "binary",
+      "preset": "linux-sniper",
+      "files": [
+        {
+          "path": "player/factoria_player_vulkan",
+          "strip": "gnu"
+        }
+      ],
+      "map": "player/factoria_player_vulkan.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "GNU ld link map. Not set yet: the first CI run's player-size-linux-x64-vulkan artifact sets it (scripts/player-size.sh update). The fa_render sources compiled again for Vulkan count as fa_render_vulkan."
+    },
     "macos-arm64": {
       "description": "factoria_player of the macos-release preset on Apple Silicon (arm64 only), stripped copy (strip -x). Measured by ci.yml (job macos).",
       "kind": "binary",
@@ -211,6 +226,21 @@
         "clang_rt.builtins-aarch64-android": 6412
       }
     },
+    "android-arm64-v8a-vulkan": {
+      "description": "libfactoria_player_vulkan.so for arm64-v8a (the Vulkan variant, the launcher of an export with export.android.vulkanPlayer; libfactoria_player.so is its fallback and has the android-arm64-v8a entry): preset android-arm64 in Release, llvm-strip --strip-unneeded as in the package. Measured by ci.yml (job android) and release.yml (mobile-android).",
+      "kind": "binary",
+      "preset": "android-arm64",
+      "files": [
+        {
+          "path": "player/libfactoria_player_vulkan.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player_vulkan.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "lld link map. Not set yet: the first CI run's player-size-android-arm64-v8a-vulkan artifact sets it (scripts/player-size.sh update)."
+    },
     "android-x86_64": {
       "description": "libfactoria_player.so for x86_64 (emulators, Chromebooks): preset android-x86_64 in Release, stripped. Measured by release.yml (mobile-android) only.",
       "kind": "binary",
@@ -251,6 +281,21 @@
         "unwind": 18643,
         "clang_rt.builtins-x86_64-android": 2590
       }
+    },
+    "android-x86_64-vulkan": {
+      "description": "libfactoria_player_vulkan.so for x86_64 (the Vulkan variant, the launcher of an export with export.android.vulkanPlayer; libfactoria_player.so is its fallback and has the android-x86_64 entry): preset android-x86_64 in Release, llvm-strip --strip-unneeded as in the package. Measured by release.yml (mobile-android) only.",
+      "kind": "binary",
+      "preset": "android-x86_64",
+      "files": [
+        {
+          "path": "player/libfactoria_player_vulkan.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player_vulkan.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "lld link map. Not set yet: the first CI run's player-size-android-x86_64-vulkan artifact sets it (scripts/player-size.sh update)."
     },
     "ios-arm64": {
       "description": "The player for iOS devices as the static archives the release package carries: libfactoria_player_main.a and every engine archive it links (arm64, Release). Measured by release.yml (mobile-ios, iphoneos); ci.yml builds a Debug simulator app, whose size says nothing.",
