@@ -633,6 +633,7 @@ TEST_CASE(
     set_factoria_json(proj, [](Json& j) { j["render"]["upscaler"]["mode"] = "dlss"; });
     SetupContext setup;
     setup.home = tmp.sub("fhome");
+    setup.verifyVendorSdkFiles = false;  // the DLLs here are fake: their hashes are not the pinned ones (tested below)
     const stdfs::path out = tmp.path / "out" / "pack-test-windows";
     ExportOptions o = options_for(tmp, proj, "windows", true);
     o.setup = &setup;
@@ -695,6 +696,7 @@ TEST_CASE("export for Windows with export.pack.vendorSdks: none ships nothing, a
     const std::string proj = make_project(tmp);
     SetupContext setup;
     setup.home = tmp.sub("fhome");
+    setup.verifyVendorSdkFiles = false;  // fake DLLs
     fake_install_vendor_sdk(setup, "streamline");
     fake_install_vendor_sdk(setup, "xess");
     set_factoria_json(proj, [](Json& j) {
@@ -742,4 +744,39 @@ TEST_CASE("export for Windows with export.pack.vendorSdks: none ships nothing, a
     forLinux.setup = &setup;
     REQUIRE_MESSAGE(export_project(forLinux).ok(), "a Windows-only setting must not fail another platform");
     CHECK_FALSE(stdfs::exists(tmp.path / "out-linux" / "pack-test-linux" / "libxess.dll"));
+}
+
+TEST_CASE(
+    "export for Windows: an installed vendor SDK whose files are not the pinned ones fails before any work, naming "
+    "the fix") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    SetupContext setup;  // verifyVendorSdkFiles stays true: the fake DLLs do not hash to what FactorIA pinned
+    setup.home = tmp.sub("fhome");
+    fake_install_vendor_sdk(setup, "streamline");
+    for (const char* mode : {"dlss", "list"}) {
+        CAPTURE(mode);
+        set_factoria_json(proj, [&](Json& j) {
+            if (std::string(mode) == "dlss")
+                j["render"]["upscaler"]["mode"] = "dlss";
+            else
+                j["export"]["pack"]["vendorSdks"] = Json::array({"streamline"});
+        });
+        ExportOptions o = options_for(tmp, proj, "windows", true);
+        o.outDir = tmp.sub(std::string("out-damaged-") + mode);
+        o.setup = &setup;
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("streamline") != std::string::npos);
+        CHECK(r.error().message.find("sl.") != std::string::npos);  // names the file
+        CHECK(r.error().message.find("pinned") != std::string::npos);
+        CHECK(r.error().hint.find("factoria setup streamline --force") != std::string::npos);
+        CHECK(r.error().hint.find("--accept-licenses") != std::string::npos);  // --force asks for the license again
+        CHECK_FALSE(
+            stdfs::exists(tmp.path / ("out-damaged-" + std::string(mode)) / "pack-test-windows"));  // nothing exported
+        set_factoria_json(proj, [](Json& j) {
+            j.erase("render");
+            if (j.contains("export")) j["export"].erase("pack");
+        });
+    }
 }

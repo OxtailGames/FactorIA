@@ -116,9 +116,12 @@ std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& 
 // ---- files ----------------------------------------------------------------------------------------------------------
 
 // Unpacks a .zip, .tar.gz or .tgz into `destination` (created). macOS and Windows use the system bsdtar
-// (/usr/bin/tar, %SystemRoot%\System32\tar.exe), Linux `tar` and `unzip`.
-std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive,
-                                    const stdfs::path& destination);
+// (/usr/bin/tar, %SystemRoot%\System32\tar.exe), Linux `tar` and `unzip`. `only`, when not empty, lists the archive entries
+// to unpack (exact names, no wildcards: the tools read `*`, `?` and `[` in them as patterns); nothing else is written, so a
+// release with hundreds of files, some nested deeper than Windows' MAX_PATH, unpacks only what the caller keeps. An entry
+// the archive does not hold fails the unpack and the Error says so.
+std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination,
+                                    const std::vector<std::string>& only = {});
 
 // Moves `from` to `to`, replacing what is there: the old folder is renamed aside first and removed once the new one is in
 // place; when the move fails the old one is put back.

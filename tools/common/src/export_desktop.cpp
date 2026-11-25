@@ -431,7 +431,7 @@ Result<void> copy_vendor_sdks(const ExportOptions& options, const Project& p, co
                         "): " + ec.message(),
                     "Close the game exported there before if it still runs (Windows keeps a loaded DLL from being "
                     "replaced), check that the output folder is writable, or run `factoria setup " +
-                        id + " --force` if the installed files are damaged.");
+                        id + " --force` (it asks you to accept the license again) if the installed files are damaged.");
         }
         report.nextSteps.push_back(std::string("Shipped ") + sdk->title + " " + sdk->version +
                                    ": its DLLs sit next to the "

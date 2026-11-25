@@ -15,6 +15,8 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
+#include "fa/core/process.h"
+#include "fa/core/strings.h"
 #include "fa/tooling/setup.h"
 #include "test_helpers.h"
 
@@ -53,7 +55,9 @@ struct Lab {
     std::string home = tmp.sub("fhome");
     std::map<std::string, std::string> served;  // url -> body
     std::vector<std::string> requested;
-    std::string host;  // "" = this machine
+    std::vector<std::string> destinations;            // the DownloadRequest::destination of every request: UTF-8 text
+    std::vector<std::vector<std::string>> processes;  // the argv of every program the setup ran
+    std::string host;                                 // "" = this machine
 
     SetupContext ctx() {
         SetupContext c;
@@ -62,8 +66,13 @@ struct Lab {
         c.host = host;
         c.machineConfigPath = tmp.sub("export.json");
         c.executableDir = tmp.sub("bin");
+        c.run = [this](const ProcessOptions& po) {
+            processes.push_back(po.argv);
+            return fa::run_process(po);
+        };
         c.download = [this](const DownloadRequest& rq) {
             requested.push_back(rq.url);
+            destinations.push_back(rq.destination);
             DownloadResult r;
             auto it = served.find(rq.url);
             if (it == served.end()) {
@@ -72,7 +81,7 @@ struct Lab {
                 r.error = make_error("not served in the test: " + rq.url, "test hint");
                 return r;
             }
-            testing::write_all(rq.destination, it->second);
+            testing::write_all(fs::path_from_utf8(rq.destination), it->second);
             return r;
         };
         return c;
@@ -102,7 +111,7 @@ struct FakeSdk {
         std::size_t i = 0;
         for (const auto& [src, body] : bodies) {
             const char* dst = src == "license.txt" ? "sl.license.txt" : nullptr;
-            files.push_back(VendorSdkFile{keep(src), dst, archive ? "" : keep(hashes[i])});
+            files.push_back(VendorSdkFile{keep(src), dst, keep(hashes[i])});  // pinned inside an archive too
             ++i;
         }
         licenseHash = sha256_hex(licenseBody);
@@ -144,7 +153,8 @@ struct FakeSdk {
                         kLicenseUrl,
                         licenseHash.c_str(),
                         licenseEnd.c_str(),
-                        "Obligation: credit the vendor."};
+                        "Obligation: credit the vendor.",
+                        5};
     }
 };
 
@@ -168,11 +178,11 @@ TEST_CASE("vendor SDK tables: pinned, and never the profiler, the unsigned build
         CHECK(std::string(sdk->licenseUrl).rfind("https://", 0) == 0);
         CHECK(sdk->fileCount > 0);
         CHECK(*sdk->obligations != 0);
-        if (*sdk->archiveUrl) {
-            CHECK(std::string(sdk->archiveSha256).size() == 64);
-        } else {
-            for (int i = 0; i < sdk->fileCount; ++i) CHECK(std::string(sdk->files[i].sha256).size() == 64);
-        }
+        if (*sdk->archiveUrl) CHECK(std::string(sdk->archiveSha256).size() == 64);
+        // Every file is pinned (inside an archive too): checked after unpacking and again before an export copies it.
+        for (int i = 0; i < sdk->fileCount; ++i) CHECK(std::string(sdk->files[i].sha256).size() == 64);
+        // The install says how much disk it needs, which is more than the download alone.
+        CHECK(sdk->diskMb > sdk->sizeMb);
         for (const std::string& src : sources_of(*sdk)) {
             CAPTURE(src);
             CHECK_FALSE(lower_has(src, "nvperf"));  // a separate, non redistributable license
@@ -196,6 +206,15 @@ TEST_CASE("vendor SDK tables: pinned, and never the profiler, the unsigned build
     CHECK(has_file(streamline, "nvngx_dlss.dll"));
     CHECK(has_file(sources_of(*find_vendor_sdk("xess")), "libxess.dll"));
     CHECK(has_file(sources_of(*find_vendor_sdk("fidelityfx")), "amd_fidelityfx_loader_dx12.dll"));
+    // What the frame generation providers load: DLSS-G (the plugin and the runtime), XeSS-FG and XeLL, FSR's frame
+    // generation for DirectX 12 and Vulkan; and Reflex's PCL, which DLSS-G needs.
+    CHECK(has_file(streamline, "sl.dlss_g.dll"));
+    CHECK(has_file(streamline, "nvngx_dlssg.dll"));
+    CHECK(has_file(streamline, "sl.pcl.dll"));
+    CHECK(has_file(sources_of(*find_vendor_sdk("xess")), "libxess_fg.dll"));
+    CHECK(has_file(sources_of(*find_vendor_sdk("xess")), "libxell.dll"));
+    CHECK(has_file(sources_of(*find_vendor_sdk("fidelityfx")), "amd_fidelityfx_framegeneration_dx12.dll"));
+    CHECK(has_file(sources_of(*find_vendor_sdk("fidelityfx")), "amd_fidelityfx_framegeneration_vk.dll"));
 }
 
 TEST_CASE("setup streamline: refuses without the license accepted, then installs only the listed files") {
@@ -272,12 +291,20 @@ TEST_CASE("setup streamline: the install removes the older versions, and leaves 
     REQUIRE(stdfs::is_directory(tools / "0.9.0"));
     stdfs::create_directories(tools / "0.1.0");
     testing::write_all(tools / "0.1.0" / "leftover.dll", "old");
+    // Not ours to delete: a newer version (a newer factoria shares this home), and what is not named like a version.
+    for (const char* other : {"9.9.9", "notes", "backup-0.1", "0.9.0.old-1-2", "1.0"})
+        testing::write_all(tools / other / "keep.txt", "keep");
 
     FakeSdk current(lab, true, "1.0.0");
     REQUIRE(setup_detail::vendor_sdk_install(c, options(true), current.sdk).ok);
     CHECK(stdfs::is_directory(tools / "1.0.0"));
     CHECK_FALSE(stdfs::exists(tools / "0.9.0"));
     CHECK_FALSE(stdfs::exists(tools / "0.1.0"));
+    CHECK(stdfs::exists(tools / "9.9.9" / "keep.txt"));
+    CHECK(stdfs::exists(tools / "notes" / "keep.txt"));
+    CHECK(stdfs::exists(tools / "backup-0.1" / "keep.txt"));
+    CHECK(stdfs::exists(tools / "0.9.0.old-1-2" / "keep.txt"));
+    CHECK(stdfs::exists(tools / "1.0" / "keep.txt"));  // 1.0 is 1.0.0 for the comparison, not older: not removed
 
     // A newer pin whose download fails keeps the working install.
     FakeSdk next(lab, true, "1.1.0");
@@ -469,4 +496,139 @@ TEST_CASE("vendor_sdks_used_by_project: what factoria.json says the game can use
     CHECK(why[0].first == "streamline");
     CHECK(has_text(why[0].second, "/render/frameGeneration/mode"));
     CHECK(why[1].second == "/render/upscaler/mode = \"fsr\"");
+}
+
+TEST_CASE("setup streamline: only the entries of the table are unpacked from the release archive") {
+    Lab lab;
+    FakeSdk fake(lab);
+    const SetupContext c = lab.ctx();
+    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+    // The program that unpacked got the entries to keep after the archive (the real zip holds 500 files, some of them deeper
+    // than Windows' MAX_PATH once placed under a long user folder), not just the archive.
+    bool listed = false;
+    for (const auto& argv : lab.processes) {
+        const std::string joined = [&] {
+            std::string t;
+            for (const std::string& a : argv) t += a + "\n";
+            return t;
+        }();
+        if (has_text(joined, "sdk-1.0.0.zip") || has_text(joined, "streamline.zip")) {
+            listed = has_text(joined, "\nbin/x64/sl.interposer.dll\n") && has_text(joined, "\nbin/x64/sl.dlss.dll\n") &&
+                     has_text(joined, "\nlicense.txt\n");
+            CHECK_FALSE(has_text(joined, "nvperf"));
+            CHECK_FALSE(has_text(joined, "include/sl.h"));
+        }
+    }
+    CHECK(listed);
+}
+
+TEST_CASE("setup streamline: an archive that lacks a listed entry installs nothing and says how much disk it needs") {
+    Lab lab;
+    FakeSdk fake(lab);
+    fake.files.push_back(VendorSdkFile{"bin/x64/sl.reflex.dll", nullptr, "00"});  // not in the archive
+    fake.refresh();
+    const SetupContext c = lab.ctx();
+    const SetupResult r = setup_detail::vendor_sdk_install(c, options(true), fake.sdk);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "failed");
+    CHECK(has_text(r.error.hint, "5 MB of free disk space"));
+    CHECK(installed_vendor_sdk_dir(c, fake.sdk).empty());
+    CHECK_FALSE(stdfs::exists(fs::path_from_utf8(vendor_sdk_install_dir(c, fake.sdk))));
+}
+
+TEST_CASE("setup streamline: a file of the archive that is not its own pin is refused") {
+    Lab lab;
+    FakeSdk fake(lab);
+    fake.hashes[1] =
+        sha256_hex("another file");  // the archive matches its pin, but FactorIA's pin of this file is wrong
+    fake.files[1].sha256 = fake.hashes[1].c_str();
+    fake.refresh();
+    const SetupContext c = lab.ctx();
+    const SetupResult r = setup_detail::vendor_sdk_install(c, options(true), fake.sdk);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "checksum_mismatch");
+    CHECK(has_text(r.error.hint, "Nothing was installed"));
+    CHECK(installed_vendor_sdk_dir(c, fake.sdk).empty());
+}
+
+TEST_CASE("verify_installed_vendor_sdk: finds a damaged or missing file and names the command that fixes it") {
+    Lab lab;
+    FakeSdk fake(lab);
+    SetupContext c = lab.ctx();
+    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+    CHECK(verify_installed_vendor_sdk(c, fake.sdk).ok());
+
+    const stdfs::path dir = fs::path_from_utf8(installed_vendor_sdk_dir(c, fake.sdk));
+    testing::write_all(dir / "sl.dlss.dll", "dlss 1.0.0 but changed");
+    auto damaged = verify_installed_vendor_sdk(c, fake.sdk);
+    REQUIRE_FALSE(damaged.ok());
+    CHECK(has_text(damaged.error().message, "sl.dlss.dll"));
+    CHECK(has_text(damaged.error().message, "pinned"));
+    CHECK(has_text(damaged.error().hint, "factoria setup streamline --force"));
+    CHECK(has_text(damaged.error().hint, "--accept-licenses"));  // --force asks for the license again
+    CHECK_FALSE(installed_vendor_sdk_dir(c, fake.sdk).empty());  // existence alone is what the status checks
+
+    // Cut short (a size that is not the pinned one) is found too; a test context with fake files can turn the check off.
+    testing::write_all(dir / "sl.dlss.dll", "");
+    CHECK_FALSE(verify_installed_vendor_sdk(c, fake.sdk).ok());
+    c.verifyVendorSdkFiles = false;
+    CHECK(verify_installed_vendor_sdk(c, fake.sdk).ok());
+    c.verifyVendorSdkFiles = true;
+    testing::write_all(dir / "sl.dlss.dll", "dlss 1.0.0");
+    CHECK(verify_installed_vendor_sdk(c, fake.sdk).ok());
+    stdfs::remove(dir / "sl.license.txt");
+    auto gone = verify_installed_vendor_sdk(c, fake.sdk);
+    REQUIRE_FALSE(gone.ok());
+    CHECK(has_text(gone.error().message, "sl.license.txt"));
+
+    // The real tables: every file is pinned, so a fake install never passes.
+    for (const std::string& id : vendor_sdk_ids()) {
+        const VendorSdk& real = *find_vendor_sdk(id);
+        const stdfs::path realDir = fs::path_from_utf8(vendor_sdk_install_dir(c, real));
+        for (int i = 0; i < real.fileCount; ++i)
+            testing::write_all(realDir / fs::path_from_utf8(vendor_sdk_file_name(real.files[i])), "fake");
+        CHECK_FALSE(verify_installed_vendor_sdk(c, real).ok());
+    }
+}
+
+TEST_CASE("setup streamline: --force asks for the license again, and the hint says so") {
+    Lab lab;
+    FakeSdk fake(lab);
+    const SetupContext c = lab.ctx();
+    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+    lab.requested.clear();
+
+    SetupResult r = setup_detail::vendor_sdk_install(c, options(false, true), fake.sdk);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.code == "license_required");
+    CHECK(has_text(r.error.hint, "--force installs it again"));
+    CHECK(has_text(r.error.hint, "accepted again"));
+    CHECK(has_text(r.error.hint, "factoria setup streamline --force --accept-licenses"));
+    CHECK(has_text(r.error.hint, "\"force\":true"));
+    CHECK(lab.requested.empty());                                // nothing was downloaded
+    CHECK_FALSE(installed_vendor_sdk_dir(c, fake.sdk).empty());  // and the install that was there stays
+
+    // Without --force the first-install hint does not talk about it.
+    stdfs::remove_all(fs::path_from_utf8(vendor_sdk_install_dir(c, fake.sdk)));
+    r = setup_detail::vendor_sdk_install(c, options(false), fake.sdk);
+    REQUIRE_FALSE(r.ok);
+    CHECK_FALSE(has_text(r.error.hint, "--force"));
+}
+
+TEST_CASE("setup: the paths handed to the downloader are UTF-8 text, also under an accented home") {
+    Lab lab;
+    lab.home = fs::path_to_utf8(lab.tmp.path / fs::path_from_utf8("Usu\xC3\xA1rio-\xC3\xB1"));
+    FakeSdk fake(lab, false);  // single files: every request is a download_file
+    const SetupContext c = lab.ctx();
+    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+    REQUIRE_FALSE(lab.destinations.empty());
+    for (const std::string& d : lab.destinations) {
+        CAPTURE(d);
+        CHECK(is_valid_utf8(d));
+        CHECK(has_text(d, "Usu\xC3\xA1rio-\xC3\xB1"));
+        CHECK(d == fs::path_to_utf8(fs::path_from_utf8(d)));  // the form path_to_utf8 gives: forward slashes, no ANSI
+    }
+    const std::string dir = installed_vendor_sdk_dir(c, fake.sdk);
+    CHECK_FALSE(dir.empty());
+    CHECK(has_text(dir, "Usu\xC3\xA1rio-\xC3\xB1"));
 }
