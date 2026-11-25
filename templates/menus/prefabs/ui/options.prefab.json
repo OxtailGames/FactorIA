@@ -374,7 +374,7 @@
         "active": false,
         "components": {
           "Panel": {
-            "size": [712, 440],
+            "size": [712, 460],
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "layout": "column",
@@ -520,9 +520,9 @@
                   "Button": {
                     "autoSize": true,
                     "text": "Auto",
-                    "size": [72, 36],
+                    "size": [56, 36],
                     "layer": 303,
-                    "fontSize": 18
+                    "fontSize": 14
                   }
                 }
               },
@@ -532,9 +532,9 @@
                   "Button": {
                     "autoSize": true,
                     "text": "Stretch",
-                    "size": [72, 36],
+                    "size": [56, 36],
                     "layer": 303,
-                    "fontSize": 18
+                    "fontSize": 14
                   }
                 }
               },
@@ -544,9 +544,9 @@
                   "Button": {
                     "autoSize": true,
                     "text": "Spatial",
-                    "size": [72, 36],
+                    "size": [56, 36],
                     "layer": 303,
-                    "fontSize": 18
+                    "fontSize": 14
                   }
                 }
               },
@@ -556,9 +556,9 @@
                   "Button": {
                     "autoSize": true,
                     "text": "Temporal",
-                    "size": [72, 36],
+                    "size": [56, 36],
                     "layer": 303,
-                    "fontSize": 18
+                    "fontSize": 14
                   }
                 }
               },
@@ -568,9 +568,45 @@
                   "Button": {
                     "autoSize": true,
                     "text": "MetalFX",
-                    "size": [72, 36],
+                    "size": [56, 36],
                     "layer": 303,
-                    "fontSize": 18
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_dlss",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "DLSS",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_xess",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "XeSS",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
+                  }
+                }
+              },
+              {
+                "id": "gfx_mode_fsr",
+                "components": {
+                  "Button": {
+                    "autoSize": true,
+                    "text": "FSR",
+                    "size": [56, 36],
+                    "layer": 303,
+                    "fontSize": 14
                   }
                 }
               }

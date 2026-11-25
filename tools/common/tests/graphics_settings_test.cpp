@@ -144,7 +144,7 @@ TEST_CASE(
 
 TEST_CASE("graphics settings: the lists are the engine's names") {
     CHECK(graphics_presets().size() == 5);
-    CHECK(upscaler_modes().size() == 5);
+    CHECK(upscaler_modes().size() == 8);
     CHECK(upscaler_qualities().size() == 5);
     CHECK(std::find(upscaler_modes().begin(), upscaler_modes().end(), "metalfx") != upscaler_modes().end());
 }

@@ -255,7 +255,7 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
     info.inputSchema = Json::parse(R"({"type":"object","properties":{
         "preset":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"render.graphicsPreset: the preset a run starts with (custom removes the key)."},
         "upscaler":{"type":"object","description":"render.upscaler: the keys given replace the file's.","properties":{
-            "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"]},
+            "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","dlss","xess","fsr","auto"]},
             "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"]},
             "sharpness":{"type":"number","minimum":0,"maximum":1}}},
         "dynamicResolution":{"type":"object","description":"render.dynamicResolution: the keys given replace the file's.","properties":{

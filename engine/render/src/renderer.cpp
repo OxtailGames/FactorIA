@@ -956,6 +956,7 @@ bool Renderer::supports(std::string_view feature) const {
     if (index < 0) return false;
     render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
+    impl_->set_vendor_env(env);
     return render::feature_supported(env, index);
 }
 std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
@@ -963,6 +964,7 @@ Json Renderer::supports_report() const {
     if (!initialized()) return Json::object();
     render::FeatureEnv env = render::feature_env_from_device(impl_->gpu.device());
     render::set_hdr_env(env, app_hdr_output().display);
+    impl_->set_vendor_env(env);
     return render::feature_report(env, backend_name());
 }
 
@@ -1445,6 +1447,9 @@ bool RendererTestAccess::upscale_used_history(Renderer& r) {
     return r.impl_ && r.impl_->taa.last_used_history(render::kUpscaleCamKey);
 }
 bool RendererTestAccess::mfx_failed(Renderer& r) { return r.impl_ && r.impl_->mfxFailed; }
+bool RendererTestAccess::vendor_failed(Renderer& r, int index) {
+    return r.impl_ && index >= 0 && index < render::kVendorUpscalerCount && r.impl_->vendorFailed[index];
+}
 int RendererTestAccess::mfx_encoded(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.encoded() : 0; }
 int RendererTestAccess::mfx_generation(Renderer& r) { return r.impl_ ? r.impl_->mfxScaler.generation() : 0; }
 bool RendererTestAccess::mfx_reset(Renderer& r) { return r.impl_ && r.impl_->mfxLastReset; }
@@ -1682,6 +1687,7 @@ void Renderer::Impl::render(World& world, float dt) {
     upscaleTaa = TaaPlan{};
     upscaleImpl = render::UpscaleImpl::Stretch;
     mfxFrame = false;
+    vendorFrameImpl = render::UpscaleImpl::Stretch;
     outStorage = false;
     int wantedPhases = 0;
     if (upscale_active()) {
@@ -1692,7 +1698,13 @@ void Renderer::Impl::render(World& world, float dt) {
         // draw); a GPU with only its spatial scaler draws an unjittered frame (run_upscale).
         mfxFrame = oneCameraMode == render::UpscalerMode::MetalFx && oneCamera.metalfxTemporal && oneCamera.temporal;
         outStorage = oneCameraMode == render::UpscalerMode::MetalFx;
-        if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame)
+        // A vendor SDK (M78) takes the same jittered frame; effective_upscaler_mode only names it on a frame that can be jittered
+        // (caps.temporal), so a provider that fails for a frame has the temporal upscaler to fall to. The output image is not made with
+        // storage usage here: the SDK packages ask for it when their provider needs it.
+        if (const int vendor = render::vendor_upscaler_index(oneCameraMode); vendor >= 0)
+            vendorFrameImpl = render::vendor_impl(vendor);
+        if (oneCameraMode == render::UpscalerMode::Temporal || mfxFrame ||
+            vendorFrameImpl != render::UpscaleImpl::Stretch)
             wantedPhases = render::upscale_jitter_phases(physW, physH, targetW, targetH);
         // A dynamic resolution (renderScale is not the base scale) moves the ratio by small steps: the sequence is
         // made longer in steps of 4 phases, so it changes every few steps and the jitter of the frames before it
@@ -1708,6 +1720,7 @@ void Renderer::Impl::render(World& world, float dt) {
     if (wantedPhases > 0 && oneFullCamera && !taa.reserve_upscale(gpu.device(), targetW, targetH, postSerial)) {
         wantedPhases = 0;
         mfxFrame = false;
+        vendorFrameImpl = render::UpscaleImpl::Stretch;
     }
     if (temporalPhases != (oneFullCamera ? wantedPhases : 0)) {
         temporalPhases = oneFullCamera ? wantedPhases : 0;
@@ -1716,7 +1729,9 @@ void Renderer::Impl::render(World& world, float dt) {
     temporalBlocked = !oneFullCamera;
     if (temporalPhases > 0) {
         temporalFrame = true;
-        upscaleImpl = mfxFrame ? render::UpscaleImpl::MetalFx : render::UpscaleImpl::Temporal;
+        upscaleImpl = vendorFrameImpl != render::UpscaleImpl::Stretch ? vendorFrameImpl
+                      : mfxFrame                                      ? render::UpscaleImpl::MetalFx
+                                                                      : render::UpscaleImpl::Temporal;
     }
     refresh_logic_cameras(world);
     occlusionPrev = std::move(

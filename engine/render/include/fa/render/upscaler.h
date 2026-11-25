@@ -4,6 +4,10 @@
 // M76-P0 defines, validates and stores it (factoria.json "render.upscaler", the command render.upscaler, `window.upscaler` in
 // scripts). The renderer draws "stretch", "spatial" (M76-P3b), "temporal" (M76-P4) and "metalfx" (M76-P5b, Apple's MetalFX on Metal);
 // effective_upscaler_mode is the one place that says which mode draws; the renderer reads Renderer::upscaler().
+//
+// M78-P1 adds "dlss" (NVIDIA DLSS through Streamline), "xess" (Intel XeSS) and "fsr" (AMD FidelityFX Super Resolution 3.1): the vendor
+// upscalers, reached through the vendor provider seam (src/render_upscale_vendor.h). The three modes parse and choose now; each one
+// reports unavailable with a reason until its SDK package lands.
 #pragma once
 
 #include <array>
@@ -20,11 +24,24 @@ namespace fa::render {
 //  spatial:  our own edge-adaptive upscale plus a contrast-adaptive sharpen of the one frame (M76 P3b).
 //  temporal: our own temporal upscaler, the jittered frames accumulated at the output size (M76 P4).
 //  metalfx:  Apple's MetalFX on Metal (M76 P5).
-//  auto:     the best of the above this GPU and backend can draw.
-enum class UpscalerMode : std::int32_t { Stretch, Spatial, Temporal, MetalFx, Auto };
-inline constexpr int kUpscalerModeCount = 5;
-inline constexpr std::array<std::string_view, kUpscalerModeCount> kUpscalerModeNames = {"stretch", "spatial",
-                                                                                        "temporal", "metalfx", "auto"};
+//  dlss:     NVIDIA DLSS Super Resolution through Streamline (M78): an NVIDIA RTX GPU, D3D12, Vulkan or D3D11, the SDK installed.
+//  xess:     Intel XeSS (M78): any GPU (best on Intel Arc), D3D12, Vulkan or D3D11, the SDK installed.
+//  fsr:      AMD FidelityFX Super Resolution 3.1 (M78): any GPU, D3D12 or Vulkan, the SDK installed.
+//  auto:     the GPU vendor's own SDK when it is installed and usable (NVIDIA: dlss, Intel: xess, AMD: fsr), else the best of
+//            metalfx, temporal and spatial this GPU and backend can draw.
+// The value of a mode is its index in kUpscalerModeNames.
+enum class UpscalerMode : std::int32_t { Stretch, Spatial, Temporal, MetalFx, Dlss, Xess, Fsr, Auto };
+inline constexpr int kUpscalerModeCount = 8;
+inline constexpr std::array<std::string_view, kUpscalerModeCount> kUpscalerModeNames = {
+    "stretch", "spatial", "temporal", "metalfx", "dlss", "xess", "fsr", "auto"};
+// Whether `m` is one of the vendor SDK modes (dlss, xess, fsr), and which of the three (0..2, the order of kVendorUpscalerCount), else -1.
+constexpr int vendor_upscaler_index(UpscalerMode m) {
+    return m == UpscalerMode::Dlss ? 0 : m == UpscalerMode::Xess ? 1 : m == UpscalerMode::Fsr ? 2 : -1;
+}
+inline constexpr int kVendorUpscalerCount = 3;
+constexpr UpscalerMode vendor_upscaler_mode(int index) {
+    return index == 0 ? UpscalerMode::Dlss : index == 1 ? UpscalerMode::Xess : UpscalerMode::Fsr;
+}
 
 // How much smaller than the output the frame is drawn: the scale factor is the share of the output's width and height.
 enum class UpscalerQuality : std::int32_t { Native, Quality, Balanced, Performance, UltraPerformance };
@@ -54,6 +71,21 @@ constexpr std::string_view upscaler_quality_name(UpscalerQuality q) {
     return (i >= 0 && i < kUpscalerQualityCount) ? kUpscalerQualityNames[std::size_t(i)] : std::string_view("native");
 }
 
+// The maker of the GPU, from its PCI vendor id (what decides which SDK "auto" tries first). None: no GPU asked; Other: a GPU none of the
+// four makers below (or one the backend could not identify).
+enum class GpuVendor : std::int32_t { None, Nvidia, Amd, Intel, Apple, Other };
+constexpr std::string_view gpu_vendor_name(GpuVendor v) {
+    switch (v) {
+        case GpuVendor::Nvidia: return "NVIDIA";
+        case GpuVendor::Amd: return "AMD";
+        case GpuVendor::Intel: return "Intel";
+        case GpuVendor::Apple: return "Apple";
+        case GpuVendor::Other: return "other";
+        case GpuVendor::None: break;
+    }
+    return "none";
+}
+
 // What the renderer can draw, and what the game's display asks for, when the effective mode is decided.
 struct UpscalerCaps {
     bool pixelArt =
@@ -67,6 +99,16 @@ struct UpscalerCaps {
     // MetalFX has its temporal scaler here (else only the spatial one, which needs no history and so draws on a frame of several cameras
     // too). Read only with `metalfx`.
     bool metalfxTemporal = true;
+    // The maker of this GPU (what "auto" tries first among the vendor SDKs).
+    GpuVendor gpuVendor = GpuVendor::None;
+    // The "dlss", "xess" and "fsr" rows (M78): the provider's library is installed and loads, this GPU and backend suit it, and none of
+    // its frames failed yet. The reasons are the providers' (src/render_upscale_vendor.h) and the rows of render.supports. They read the
+    // same jittered frame as the temporal upscaler, so they are drawable only with `temporal` and a single camera.
+    bool dlss = false;
+    bool xess = false;
+    bool fsr = false;
+    // `dlss`, `xess` or `fsr` by index (vendor_upscaler_index).
+    constexpr bool vendor(int index) const { return index == 0 ? dlss : index == 1 ? xess : index == 2 ? fsr : false; }
 };
 
 // Whether the default Metal GPU of this machine can run MetalFX, and why not when it cannot (a sentence that says what is missing and
@@ -87,10 +129,13 @@ MetalFxHere metalfx_available_here();
 //    is not drawable when `caps.temporal` is false or the frame has several cameras (`caps.multiCamera`: one history per rectangle
 //    is not made), and spatial draws instead; metalfx is not drawable when `caps.metalfx` is false (not on Metal, no MetalFX on this
 //    GPU, or it failed) or, with its temporal scaler, on a frame of several cameras: the same rule as temporal;
-//  - auto: the best drawable of metalfx, temporal, spatial; stretch when none is.
+//  - dlss, xess and fsr (M78): themselves when `caps` says the SDK is usable and the frame can be jittered for it (`caps.temporal`, one
+//    camera); else the same chain as metalfx (metalfx -> temporal -> spatial);
+//  - auto: the SDK of this GPU's maker (`caps.gpuVendor`: NVIDIA dlss, Intel xess, AMD fsr) when it is usable, else the best drawable
+//    of metalfx, temporal, spatial; stretch when none is. (An Apple GPU has no vendor SDK here: it takes metalfx.)
 // Without a renderer (a run with graphics=false) the host reports what a GPU would draw: caps with pixelArt taken from the project's
 // scale mode and the default `spatial` (true), so a pixel-perfect project says stretch and any other says spatial for spatial, auto,
-// temporal and metalfx. The default argument is that host with a scale mode that is not pixel perfect.
+// temporal, metalfx, dlss, xess and fsr. The default argument is that host with a scale mode that is not pixel perfect.
 UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCaps& caps = {});
 
 // The render scale the game is drawn at and whether the upscale stage runs (docs/UPSCALING.md, "The render scale"): the player's scale

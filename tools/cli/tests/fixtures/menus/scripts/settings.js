@@ -56,11 +56,11 @@ const DETECTED = ["low", "medium", "high", "ultra"];
 export const PRESET_QUALITY = { low: "low", medium: "medium", high: "high", ultra: "high" };
 
 /** The modes of the "Upscaling" row (window.upscaler.mode) and the choices of its quality row (window.upscaler.quality), best picture first. */
-export const UPSCALER_MODES = ["auto", "stretch", "spatial", "temporal", "metalfx"];
+export const UPSCALER_MODES = ["auto", "stretch", "spatial", "temporal", "metalfx", "dlss", "xess", "fsr"];
 export const UPSCALER_QUALITIES = ["native", "quality", "balanced", "performance", "ultraPerformance"];
 
 /** render.supports feature that tells whether this GPU draws each upscaler mode ("auto" and "stretch" always work). */
-const MODE_FEATURE = { spatial: "spatialUpscaler", temporal: "temporalUpscaler", metalfx: "metalfx" };
+const MODE_FEATURE = { spatial: "spatialUpscaler", temporal: "temporalUpscaler", metalfx: "metalfx", dlss: "dlss", xess: "xess", fsr: "fsr" };
 
 /** The range window.renderScale accepts (a third of the window to all of it). */
 export const RENDER_SCALE_MIN = 0.33;

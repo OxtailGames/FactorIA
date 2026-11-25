@@ -31,7 +31,7 @@ This page has the render targets, the depth and normals prepass, capture and HDR
 - [Transmission, volume and the material cost](rendering/RENDERING_TRANSMISSION.md): glass and liquids (`transmission`, `thickness`, `attenuationColor`, `attenuationDistance`), what the refraction costs, and the `render.material_cost` view.
 - [2D water, distortion and the scene colour (M74.4)](rendering/RENDERING_2D_WATER.md): `Water2D`, `DistortionZone2D`, `fa_scene_color` in sprite materials, the copy of the picture and its cap.
 - [The post-processing stack](rendering/RENDERING_POSTPROCESS.md): bloom, exposure, tonemap, colour grading, lens effects, colour filter, the LUT, and the commands, looks and panel that read and change the stack.
-- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect, the spatial, temporal and MetalFX upscalers, the dynamic resolution, the motion vectors and the graphics presets.
+- [Upscaling and temporal antialiasing (M76)](UPSCALING.md): `render.upscaler`, `window.upscaler`, the `TemporalAA` effect, the spatial, temporal, MetalFX and vendor (DLSS, XeSS, FSR) upscalers, the dynamic resolution, the motion vectors and the graphics presets.
 - [Transient screen effects](rendering/RENDERING_SCREEN_EFFECTS.md): Shockwave, heat haze, radial blur pulse, flash and fade of the camera, drawn by its post pass.
 
 ## Render targets
@@ -462,10 +462,11 @@ What each M76 feature is switched on with, which GPU backends draw it and what i
 | Spatial upscaler | `render.upscaler` mode `spatial` | `spatialUpscaler` | every GPU backend | two fragment passes at the window size |
 | Temporal upscaler | `render.upscaler` mode `temporal` | `temporalUpscaler` | every GPU backend; one camera over the whole window, else it draws `spatial` | one history at the window size, two passes, the depth prepass |
 | MetalFX | `render.upscaler` mode `metalfx` | `metalfx` | Metal only (macOS 13 or iOS 16 or later, a GPU with the MetalFX scalers, not the iOS simulator) | one more command buffer a frame; falls back to `temporal`, then `spatial` |
+| DLSS, XeSS, FSR 3.1 (M78) | `render.upscaler` mode `dlss`, `xess`, `fsr` (`auto` picks the GPU maker's own) | `dlss`, `xess`, `fsr` | Windows only: D3D12, Vulkan (and D3D11 for DLSS and XeSS); `dlss` needs an NVIDIA RTX GPU; the SDK installed with `factoria setup streamline`, `xess` or `fidelityfx` | one history in the SDK, the depth prepass and velocity; one jittered camera, else `spatial`; fall back to `metalfx`, `temporal`, then `spatial` with the reason in `render.supports` |
 | Dynamic resolution | `render.dynamic_resolution`, `window.dynamicResolution`, `render.dynamicResolution` in `factoria.json` | `dynamicResolution` | every GPU backend (GPU time where there are timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) | none of its own; the targets are made again at a step of the scale (at most twice a second) |
 | Graphics presets | `graphics.preset`, `game.graphics`, `render.graphicsPreset` | none (limits on other rows) | every backend; a knob for a feature the GPU cannot draw is capped | none: it only lowers what the scene asks for |
 
-Where a row says `false`, the mode that needs it draws as the next best one (`auto`, `metalfx`, `temporal`, `spatial`, `stretch`) and `window.upscaler.effectiveMode`
+Where a row says `false`, the mode that needs it draws as the next best one (`auto`, `dlss`, `xess`, `fsr`, `metalfx`, `temporal`, `spatial`, `stretch`) and `window.upscaler.effectiveMode`
 tells which. A sprite, tile or glyph that moves writes its own velocity in a 2D game, and a particle or an additive sprite is marked in the reactive mask
 (`ParticleEmitter.reactive`, `Sprite.reactive`) so it does not trail. The passes are in [The passes of a frame](rendering/RENDERING_PASSES.md).
 
