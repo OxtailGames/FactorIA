@@ -96,7 +96,10 @@ TEST_CASE("every command has help with examples") {
                                                           {"setup", "players"},
                                                           {"setup", "cmake"},
                                                           {"setup", "xcode"},
-                                                          {"setup", "appimage"}}) {
+                                                          {"setup", "appimage"},
+                                                          {"setup", "streamline"},
+                                                          {"setup", "xess"},
+                                                          {"setup", "fidelityfx"}}) {
         auto args = sub;
         args.push_back("--help");
         auto r = run(args);
@@ -108,12 +111,19 @@ TEST_CASE("every command has help with examples") {
 TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, without touching the computer") {
     auto h = run({"setup", "--help"});
     CHECK(h.code == 0);
-    for (const char* c : {"android", "players", "cmake", "xcode", "appimage", "FACTORIA_HOME"})
+    for (const char* c :
+         {"android", "players", "cmake", "xcode", "appimage", "streamline", "xess", "fidelityfx", "FACTORIA_HOME"})
         CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
 
     auto typo = run({"setup", "andriod"});
     CHECK(typo.code == 2);
     CHECK(typo.err.find("android") != std::string::npos);
+    auto sdk = run({"setup", "streamlin"});  // the vendor SDKs are components too, with "did you mean"
+    CHECK(sdk.code == 2);
+    CHECK(sdk.err.find("streamline") != std::string::npos);
+    auto sdkFlag = run({"setup", "xess", "--accept-licence"});
+    CHECK(sdkFlag.code == 2);
+    CHECK(sdkFlag.err.find("--accept-licenses") != std::string::npos);
     auto flag = run({"setup", "android", "--accept-licence"});
     CHECK(flag.code == 2);
     CHECK(flag.err.find("--accept-licenses") != std::string::npos);

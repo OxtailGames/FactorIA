@@ -348,6 +348,26 @@ TEST_CASE("setup action of a component: Install, Reinstall, Open App Store") {
     ds.state = "unsupported";
     CHECK_FALSE(setup_action_for_component(ds, st.home));
     CHECK(setup_what("directstorage", {}) == "the DirectStorage runtime");
+
+    // The vendor SDKs: a button on Windows (missing there) that opens the license dialog first (the install refuses without it).
+    SetupComponent sl;
+    sl.id = "streamline";
+    sl.state = "missing";
+    sl.canInstall = true;
+    sl.installSizeMb = 276;
+    auto slAction = setup_action_for_component(sl, st.home);
+    REQUIRE(slAction);
+    CHECK(slAction->label == "Install");
+    CHECK(slAction->component == "streamline");
+    CHECK(slAction->tooltip.find("license") != std::string::npos);
+    CHECK_FALSE(slAction->options(false).acceptLicenses);
+    CHECK(slAction->options(true).acceptLicenses);
+    sl.state = "unsupported";
+    CHECK_FALSE(setup_action_for_component(sl, st.home));
+    CHECK(setup_what("streamline", {}) == "NVIDIA Streamline");
+    CHECK(setup_what("xess", {}) == "Intel XeSS");
+    CHECK(setup_license_name("android") == "Android SDK");
+    CHECK(setup_license_name("fidelityfx") == setup_what("fidelityfx", {}));
 }
 
 TEST_CASE("setup action of an Export row: android needs its toolchain") {
@@ -669,7 +689,7 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK(st.home == w.home.string());
     REQUIRE(
         st.components.size() ==
-        11);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher and the DirectStorage DLLs (no editor button for the shader, web player and DirectStorage ones yet)
+        14);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher, the DirectStorage DLLs and the three vendor SDKs (Streamline, XeSS, FidelityFX; no editor button for the shader and web player ones yet)
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");

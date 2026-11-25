@@ -19,9 +19,9 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android",   "players",  "cmake",        "xcode",
-                                                 "appimage",  "shaders",  "vscode",       "ffmpeg",
-                                                 "webplayer", "launcher", "directstorage"};
+    static const std::vector<std::string> ids = {"android",       "players",    "cmake",  "xcode",     "appimage",
+                                                 "shaders",       "vscode",     "ffmpeg", "webplayer", "launcher",
+                                                 "directstorage", "streamline", "xess",   "fidelityfx"};
     return ids;
 }
 
@@ -98,6 +98,16 @@ void print_report(std::ostream& out, const SetupResult& r) {
     for (std::size_t i = 0; i < rep.nextSteps.size(); ++i) out << "  " << (i + 1) << ". " << rep.nextSteps[i] << "\n";
 }
 
+// What the license question names: "the Android SDK", "NVIDIA Streamline"...
+std::string license_subject(const std::string& component) {
+    if (const VendorSdk* sdk = find_vendor_sdk(component)) {
+        std::string title = sdk->title;
+        if (const std::size_t paren = title.find(" ("); paren != std::string::npos) title.resize(paren);
+        return title;
+    }
+    return "the Android SDK";
+}
+
 int run_install(Context& ctx, const std::string& component) {
     SetupInstallOptions o;
     o.component = component;
@@ -117,14 +127,15 @@ int run_install(Context& ctx, const std::string& component) {
         if (c && !c->licenses.empty()) {
             for (const SetupLicense& l : c->licenses)
                 ctx.err << "\n" << l.title << " (" << l.id << ")\n\n" << l.text << "\n\n";
-            ctx.err << "Installing the Android SDK means agreeing to the license above. Do you accept it? [y/N] "
-                    << std::flush;
+            ctx.err << "Installing " << license_subject(component)
+                    << " means agreeing to the license above. Do you accept it? [y/N] " << std::flush;
             std::string answer;
             std::getline(ctx.in, answer);
             const std::string a = to_lower(trim(answer));
             if (a != "y" && a != "yes")
-                return report_failure(ctx, "The Android SDK license was not accepted, so nothing was installed.",
-                                      "Run 'factoria setup android' again when you want to install it.");
+                return report_failure(
+                    ctx, "The " + license_subject(component) + " license was not accepted, so nothing was installed.",
+                    "Run 'factoria setup " + component + "' again when you want to install it.");
             o.acceptLicenses = true;
             r = setup_install(o, sc);
         }
@@ -144,7 +155,8 @@ int run_install(Context& ctx, const std::string& component) {
         std::string hint = r.error.hint;
         if (r.code == "license_required")
             hint = "Run it in a terminal to read and accept the license, or pass --accept-licenses after reading it "
-                   "('factoria call setup.status \"{\\\"component\\\":\\\"android\\\"}\"' prints the text).";
+                   "('factoria call setup.status \"{\\\"component\\\":\\\"" +
+                   component + "\\\"}\"' prints the text).";
         return report_failure(ctx, r.error.message, hint);
     }
     if (json) {
@@ -283,6 +295,25 @@ Command make_setup_command() {
                          "puts next to the game.",
                          {{"force", "", "Download them again even when installed."}},
                          {"factoria setup directstorage"}));
+    const char* sdkAccept =
+        "You have read the license of this SDK and accept it (without it a terminal asks, anything else "
+        "refuses).";
+    g.subs.push_back(
+        sub("streamline",
+            "Windows x64: download NVIDIA Streamline (DLSS, DLSS Frame Generation, Reflex) a Windows export "
+            "ships next to the game; shows NVIDIA's license first.",
+            {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+            {"factoria setup streamline", "factoria setup streamline --accept-licenses"}));
+    g.subs.push_back(sub("xess",
+                         "Windows x64: download Intel XeSS (upscaling, frame generation, XeLL) a Windows export ships "
+                         "next to the game; shows Intel's license first.",
+                         {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+                         {"factoria setup xess", "factoria setup xess --accept-licenses"}));
+    g.subs.push_back(sub("fidelityfx",
+                         "Windows x64: download the AMD FidelityFX SDK (FSR upscaling and frame generation) a Windows "
+                         "export ships next to the game; shows AMD's license first.",
+                         {{"accept-licenses", "", sdkAccept}, {"force", "", "Download it again even when installed."}},
+                         {"factoria setup fidelityfx", "factoria setup fidelityfx --accept-licenses"}));
     return g;
 }
 

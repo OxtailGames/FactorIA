@@ -32,6 +32,8 @@ const char* setup_state_label(const std::string& state);
 std::string setup_size_text(int mb);
 // What a setup installs, in a few words: "Android build tools", "Windows player", "mobile libraries", "CMake", "Xcode".
 std::string setup_what(const std::string& component, const std::vector<std::string>& platforms = {});
+// What the license dialog and the toast call the license of a component: "Android SDK", "NVIDIA Streamline", "Intel XeSS".
+std::string setup_license_name(const std::string& component);
 // The trailing percentage of a progress line ("Downloading CMake 3.31.6: 31 MB of 75 MB (40%)" -> 40; "... 40%" -> 40);
 // nullopt when the line does not end in one.
 std::optional<int> parse_progress_percent(const std::string& line);
@@ -188,7 +190,8 @@ private:
     double requestedAt_ = -1e9;
 };
 
-// The Android SDK license text, fetched on a worker thread when the dialog opens (it is the only network request of a status).
+// The license text of the Android SDK or of a vendor SDK (streamline, xess, fidelityfx), fetched on a worker thread when the
+// dialog opens (it is the only network request of a status).
 class SetupLicenseLoad {
 public:
     enum class State {
@@ -198,11 +201,12 @@ public:
         NotNeeded,  // the licenses are accepted already: the install needs no agreement
         Failed,     // the text could not be fetched: error says why
     };
-    bool start(const SetupContext& context);  // false while loading
-    bool poll();                              // true when a result arrived this call
-    void reset();                             // forget it (the dialog closed)
+    bool start(const SetupContext& context, const std::string& component = "android");  // false while loading
+    bool poll();   // true when a result arrived this call
+    void reset();  // forget it (the dialog closed)
     State state() const { return state_; }
     bool loading() const { return state_ == State::Loading; }
+    const std::string& component() const { return component_; }
     const std::vector<SetupLicense>& licenses() const { return licenses_; }
     const std::string& error() const { return error_; }
     void set(State state, std::vector<SetupLicense> licenses, std::string error = {});  // tests and the autotest
@@ -211,6 +215,7 @@ public:
 private:
     Async<SetupStatus> job_;
     State state_ = State::Idle;
+    std::string component_ = "android";  // the component whose license was asked for
     std::vector<SetupLicense> licenses_;
     std::string error_;
 };
