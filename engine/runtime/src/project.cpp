@@ -1155,7 +1155,7 @@ constexpr const char* kSchemaText =
           "type": "string",
           "enum": ["auto", "d3d11", "d3d12", "vulkan", "metal", "gl", "gles3", "webgl2"],
           "default": "auto",
-          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan draw into the game window with a swapchain of their own (Windows; vulkan on macOS through MoltenVK in a build that has it; Linux and Android windows are OpenGL ones, which cannot take it yet) and headless runs draw offscreen on them; when the one asked for cannot start, the engine warns once with its first error and draws with auto in the same process. The FA_GPU_BACKEND environment variable (same names) overrides it, and so does EngineConfig.gpuBackend."
+          "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. On Linux and Android the exported game runs the Vulkan variant of the player first (factoria_player_vulkan, export.linux.vulkanPlayer / export.android.vulkanPlayer): auto there means Vulkan, and where Vulkan cannot start (or, on Android, the window cannot take its swapchain yet) that player hands over to the GL one, a second process whose startup report names gpu.fallbackFrom and gpu.fallbackReason. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan draw into the game window with a swapchain of their own (Windows; Linux, where the window's OpenGL surface waits off screen; vulkan on macOS through MoltenVK in a build that has it; Android windows are OpenGL ES ones, which cannot take it yet) and headless runs draw offscreen on them; when the one asked for cannot start, the engine warns once with its first error and draws with auto in the same process (gpu.backendFallback), after the Vulkan player of Linux and Android has tried to hand over to the GL player. The player's user setting (the graphics.backend command, stored in the user folder) overrides this key, the FA_GPU_BACKEND environment variable (same names) overrides both, and EngineConfig.gpuBackend overrides everything."
         },
         "asyncCompute": {
           "type": "boolean",
@@ -2107,6 +2107,11 @@ constexpr const char* kSchemaText =
                 "description": "One freedesktop.org menu category, e.g. \"Game\", \"ActionGame\", \"ArcadeGame\", \"PuzzleGame\"."
               },
               "description": "Menu categories of the game's .desktop file (the Categories= line; FactorIA joins the entries with ';'). Default [\"Game\"]."
+            },
+            "vulkanPlayer": {
+              "type": "boolean",
+              "default": true,
+              "description": "Ship the Vulkan variant of the player: the game's executable is factoria_player_vulkan and <executable>-gl the GL player it starts where Vulkan cannot (no driver, no device). Only when the variant is next to the player the export uses. false = only the GL player, as the game's executable. Default true."
             }
           }
         },
@@ -2171,6 +2176,11 @@ constexpr const char* kSchemaText =
                 "description": "Android permission name, e.g. \"android.permission.VIBRATE\"."
               },
               "description": "Extra <uses-permission> entries of the manifest, for permissions the game's scripts or features need (the engine itself needs none). Default: none."
+            },
+            "vulkanPlayer": {
+              "type": "boolean",
+              "default": true,
+              "description": "Ship the Vulkan variant of the player: the launcher activity loads libfactoria_player_vulkan.so and hands over to the GL player (libfactoria_player.so, its own activity in the process :gl) where Vulkan cannot start. A prebuilt export ships it only when the downloaded players have it for every ABI. false = only the GL player, as the launcher. Default true."
             },
             "signing": {
               "type": "object",

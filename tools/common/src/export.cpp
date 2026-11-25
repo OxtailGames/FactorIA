@@ -834,14 +834,15 @@ struct Plan {
     stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export (absent,
                                      // empty or an earlier export: check_replaceable)
     stdfs::path player;              // desktop
-    WebPlayer web;                   // web
-    stdfs::path webZip;     // web: <outParent>/<slug>-web.zip, next to the export folder (empty with singleFile)
-    stdfs::path webPage;    // web, singleFile: <outRoot>/<slug>.html
-    MobileSetup mobile;     // android/ios
-    Image icon;             // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
-    AndroidPlan android;    // android
-    AppImagePlan appimage;  // linux, format "appimage"
-    MsixPlan msix;          // windows, format "msix"
+    stdfs::path vulkanPlayer;  // linux: the Vulkan variant next to the player (export.linux.vulkanPlayer), or empty
+    WebPlayer web;             // web
+    stdfs::path webZip;        // web: <outParent>/<slug>-web.zip, next to the export folder (empty with singleFile)
+    stdfs::path webPage;       // web, singleFile: <outRoot>/<slug>.html
+    MobileSetup mobile;        // android/ios
+    Image icon;                // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
+    AndroidPlan android;       // android
+    AppImagePlan appimage;     // linux, format "appimage"
+    MsixPlan msix;             // windows, format "msix"
     std::vector<std::string> warnings;
 };
 
@@ -893,8 +894,11 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
                 .prebuilt) {  // the engine compiled from source is this checkout's; prebuilt libraries have a fingerprint
             std::vector<stdfs::path> libs;
             if (plan.platform == "android")
-                for (const char* abi : kAndroidAbis)
+                for (const char* abi : kAndroidAbis) {
                     libs.push_back(plan.mobile.libs / "jniLibs" / abi / "libfactoria_player.so");
+                    if (p.settings.android.vulkanPlayer && android_vulkan_libs_present(plan.mobile.libs))
+                        libs.push_back(plan.mobile.libs / "jniLibs" / abi / kAndroidVulkanLib);
+                }
             else
                 for (const char* slice : kIosSlices) libs.push_back(plan.mobile.libs / slice / kIosMarkerLib);
             for (const stdfs::path& lib : libs)
@@ -919,6 +923,17 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!player.ok()) return player.error();
         plan.player = std::move(player.value());
         if (auto r = check_player_build(options, plan.player, plan.platform, plan.warnings); !r.ok()) return r.error();
+        // Linux: the Vulkan variant next to the player ships as the game's executable, the GL player as its fallback
+        // (export.linux.vulkanPlayer; a player without the variant beside it ships alone, as before).
+        if (plan.platform == "linux" && p.settings.linux.vulkanPlayer) {
+            std::error_code ec;
+            const stdfs::path vulkan = vulkan_player_beside(plan.player);
+            if (stdfs::is_regular_file(os_path(vulkan), ec)) {
+                if (auto r = check_player_build(options, vulkan, plan.platform, plan.warnings); !r.ok())
+                    return r.error();
+                plan.vulkanPlayer = vulkan;
+            }
+        }
     }
     // --format wins over export.windows.format of factoria.json.
     const std::string windowsFormat = !options.format.empty() ? to_lower(options.format) : p.settings.windows.format;
@@ -1252,7 +1267,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     } else if (platform == "web") {
         r = export_web(options, p, plan.web, outRoot, files, report);
     } else {
-        r = export_desktop(options, p, platform, plan.player, outRoot, files, plan.icon, report);
+        r = export_desktop(options, p, platform, plan.player, plan.vulkanPlayer, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);

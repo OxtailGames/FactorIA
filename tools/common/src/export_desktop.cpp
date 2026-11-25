@@ -45,6 +45,20 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
                "build it with `cmake --build <build dir> --target factoria_player`, or pass --player <path>");
 }
 
+stdfs::path vulkan_player_beside(const stdfs::path& player) {
+    stdfs::path stem = player.stem();
+    stem += "_vulkan";
+    stem += player.extension();  // none on Linux
+    return player.parent_path() / stem;
+}
+
+std::vector<DesktopPlayerFile> desktop_player_files(const std::string& platform, const stdfs::path& player,
+                                                    const stdfs::path& vulkanPlayer, const std::string& exeName) {
+    if (platform != "linux" || vulkanPlayer.empty()) return {{player, exeName, false}};
+    // The names fa/runtime/gpu_launch.h's gl_player_name expects: the variant that cannot start runs <its name>-gl.
+    return {{vulkanPlayer, exeName, true}, {player, exeName + "-gl", false}};
+}
+
 namespace {
 
 // True for the first bytes of a Windows (MZ), Linux and Android (ELF) or macOS (Mach-O, fat) executable, a WebAssembly
@@ -456,7 +470,7 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 }
 
 Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform,
-                            const stdfs::path& player, const stdfs::path& outRoot,
+                            const stdfs::path& player, const stdfs::path& vulkanPlayer, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = desktop_exe_name(slug, platform);
@@ -475,10 +489,14 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     }
     stdfs::create_directories(os_path(exeDest.parent_path()), ec);
     bool signatureRemoved = false;
-    if (auto r = install_player(p, player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
-    stdfs::permissions(os_path(exeDest),
-                       stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
-                       stdfs::perm_options::add, ec);
+    const std::vector<DesktopPlayerFile> players = desktop_player_files(platform, player, vulkanPlayer, exeName);
+    for (const DesktopPlayerFile& f : players) {
+        const stdfs::path dest = exeDest.parent_path() / f.name;
+        if (auto r = install_player(p, f.source, dest, platform, icon, report, signatureRemoved); !r.ok()) return r;
+        stdfs::permissions(os_path(dest),
+                           stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+                           stdfs::perm_options::add, ec);
+    }
     // The pack sits where the game/ folder would: next to the executable, in Contents/Resources of a macOS app.
     const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
     if (options.release) {
@@ -583,7 +601,10 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
             !r.ok())
             return r;
         report.nextSteps = {
-            "Run it: " + generic(outRoot / exeName),
+            "Run it: " + generic(outRoot / exeName) +
+                (players.size() > 1 ? " (the Vulkan player; where Vulkan cannot start it runs the GL player " +
+                                          exeName + "-gl, which you can also run yourself)"
+                                    : std::string()),
             "To add it to the application menu, run this in the folder where the game will live: sed -e "
             "\"s|^Exec=.*|Exec=$PWD/" +
                 exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +

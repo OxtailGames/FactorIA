@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <fstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/export.h"
@@ -347,6 +348,17 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
                                make_error("Cannot copy " + src.string() + " into " + tmp.string() + ": " + ec.message(),
                                           "Check the free disk space."));
             make_executable(tmp / player_file_name(os));
+            // Linux: the Vulkan player next to it, where `factoria export --platform linux` looks for it (a release
+            // older than the Vulkan player has none: that export then ships the OpenGL player only).
+            if (os == "linux" && is_file(top / "factoria_player_vulkan")) {
+                stdfs::copy_file(top / "factoria_player_vulkan", tmp / "factoria_player_vulkan",
+                                 stdfs::copy_options::overwrite_existing, ec);
+                if (ec)
+                    return in.fail("failed", make_error("Cannot copy factoria_player_vulkan into " +
+                                                            fs::path_to_utf8(tmp) + ": " + ec.message(),
+                                                        "Check the free disk space."));
+                make_executable(tmp / "factoria_player_vulkan");
+            }
             if (auto f = replace_dir(tmp, root / os)) return in.fail(*f);
             SetupStep s;
             s.id = "player-" + os;
