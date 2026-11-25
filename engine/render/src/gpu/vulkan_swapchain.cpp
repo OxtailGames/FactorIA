@@ -862,11 +862,14 @@ Result<void> VulkanDevice::present() {
     {
         // The image goes to PRESENT_SRC on the graphics queue, behind the frame's lists: the fix-up barrier of an
         // internal list that only requires that layout, whose submission signals the render-finished semaphore (and
-        // waits for the acquire semaphore when nothing drew into the image).
+        // waits for the acquire semaphore when nothing drew into the image). The barrier's second scope is ALL_COMMANDS,
+        // not NONE: with NONE nothing is ordered after the layout transition, so the semaphore signal (whose first
+        // scope is ALL_COMMANDS) does not chain with it and synchronization validation reports the present as a
+        // PRESENT_AFTER_WRITE hazard.
         std::lock_guard<std::mutex> lock(queueMutex_);
         flush_prelude();
         if (VulkanCommandList* list = acquire_list("fa-vulkan-present", true)) {
-            list->require(tracked, 0, {VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0, 0});
+            list->require(tracked, 0, {VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0});
             submitted = execute(*list, {}, finished);
         }
         if (submitted) {
