@@ -27,6 +27,14 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   them, for example on machines without a GPU.
 - Tests run with the repository root as their working directory, so fixture
   paths are relative to the root.
+- **Tests never write into the source tree.** A test that needs a project (to load, build, screenshot or run it) works on
+  a copy in a temp dir, never in `examples/`, `tools/*/tests/fixtures` or anywhere else in the checkout: a run leaves
+  caches, replays and saves in the project's `.factoria` folder. C++ tests make the folder with
+  `fa::fs::make_temp_dir_until_exit(prefix)` (`engine/core/include/fa/core/fs.h`; removed at normal exit, a crash or the
+  display watchdog's `_Exit` leaves it) and copy or scaffold the project there (`create_project`); the CMake script tests
+  (`tools/cli/tests/graphics_same_hash.cmake`, `jobs_same_frames.cmake`) copy the example with `file(COPY ... PATTERN
+  ".factoria" EXCLUDE)` into a temp dir and remove it before they end, also before a failure message (a test that
+  ctest kills at its TIMEOUT leaves it). A single file in the temp folder goes inside such a folder too, never loose.
 - **The example games run on an optimized build.** `example_<name>_test` (their JS tests), `example_<name>_validate` and
   the perf budgets (`example_*_perf`) carry the CTest label `example`. The games' tests run the whole engine for minutes
   (the biggest take ten minutes in Debug under load, about a tenth of that in Release), so the cache variable
