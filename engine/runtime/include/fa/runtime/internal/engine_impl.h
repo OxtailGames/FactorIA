@@ -206,6 +206,14 @@ struct Engine::Impl {
         std::uint64_t bucket = 0;
         std::string name, reason;  // the status' "driver" and "reason"
     } latencyProfileCache;
+    // Engine::profile_frame_generation, while the report is empty and the setting is not off: the status it reads probes every SDK, so it is asked
+    // again after a second of the simulation clock (World::time(), which a scene load puts back to 0), not on every frame.
+    struct FrameGenProfileCache {
+        bool valid = false;
+        render::FrameGenMode mode = render::FrameGenMode::Off;
+        double atS = 0.0;  // World::time() when the status was read
+        std::string state, reason;
+    } frameGenProfileCache;
     // The frame generation setting (M78, docs/FRAME_GENERATION.md): the project's render.frameGeneration, or what render.frame_generation /
     // Engine::set_frame_generation last set. The renderer holds the same value once it exists.
     render::FrameGenSettings frameGeneration;

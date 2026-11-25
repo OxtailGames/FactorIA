@@ -183,8 +183,9 @@ void AntiLag2Provider::sleep(std::uint64_t frameId) {
 }
 
 void AntiLag2Provider::marker(LatencyMarker m, std::uint64_t frameId) {
-    // Direct3D 12 has no markers outside frame generation; Vulkan wants the present stage just before vkQueuePresentKHR, with the frame
-    // index of the input stage.
+    // Direct3D 12 has no markers outside frame generation; Vulkan wants the present stage with the frame index of the input stage. It is sent
+    // at PresentStart, which the renderer marks before it acquires the window's image (the blit and vkQueuePresentKHR follow it), so it is
+    // earlier than AMD's own "right before vkQueuePresentKHR" (docs/LATENCY.md, "AMD Anti-Lag 2": a hardware check).
     if (!on_ || backend_ != gpu::Backend::Vulkan || m != LatencyMarker::PresentStart) return;
     const abi::VkPresentationInfo info{abi::kStructPresentationInfo, nullptr, abi::kStagePresent, frameId};
     vk_update(true, &info);

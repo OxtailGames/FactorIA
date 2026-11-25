@@ -51,11 +51,13 @@ constexpr std::string_view latency_driver_name(LatencyDriver d) {
     return (i >= 0 && i < kLatencyDriverCount) ? kLatencyDriverNames[std::size_t(i)] : std::string_view("none");
 }
 
-// The points of a frame the game reports (the markers of Reflex, XeLL and Anti-Lag 2 are these; the order below is the order of a frame).
+// The points of a frame the game reports (the markers of Reflex, XeLL and Anti-Lag 2 are these). The order of a frame is SimulationStart,
+// InputSample, SimulationEnd, RenderSubmitStart, PresentStart, RenderSubmitEnd, PresentEnd: the declaration below follows the SDKs' numbering.
 //  SimulationStart: the frame's work starts (after the pacing sleep). InputSample: the player's input of this frame is read.
-//  SimulationEnd: scripts and physics are done. RenderSubmitStart/End: the frame is recorded and submitted to the GPU.
-//  PresentStart/End: the present step: PresentStart comes before the window's image is acquired (that call can wait for the display, which is
-//  not the frame's work), PresentEnd after the call that hands the picture to the display returns.
+//  SimulationEnd: scripts and physics are done. RenderSubmitStart: the frame starts to be recorded.
+//  PresentStart comes before the window's image is acquired (that call can wait for the display, which is not the frame's work).
+//  RenderSubmitEnd: the last pass (the blit to the window) is submitted to the GPU, so it comes after PresentStart and before the present.
+//  PresentEnd: after the call that hands the picture to the display returns (or the acquire failed: the frame is over).
 enum class LatencyMarker : std::int32_t {
     SimulationStart,
     InputSample,

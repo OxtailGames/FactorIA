@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -13,6 +14,12 @@
 #include "fa/core/sleep.h"
 
 namespace fa::render {
+
+std::string latency_thread_text(std::thread::id id) {
+    std::ostringstream out;
+    out << id;
+    return out.str();
+}
 
 namespace {
 
