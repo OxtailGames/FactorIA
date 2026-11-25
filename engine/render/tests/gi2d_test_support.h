@@ -9,8 +9,9 @@
 
 namespace fa::test {
 
-// Empty when `device` has RGBA16F targets that render, blend and filter (render::Gi2dSystem::float_targets_ok). Otherwise what
-// is missing, on which backend, and whether that backend may lack it (a case that skips) or never does (a bug to fix).
+// Empty when `device` has RGBA16F targets that render, blend and filter (render::Gi2dSystem::float_targets_ok).
+// Otherwise what is missing, on which backend, and whether that backend may lack it (a case that skips) or never
+// does (a bug to fix).
 inline std::string gi2d_missing_targets(const gpu::Device& device) {
     if (render::Gi2dSystem::float_targets_ok(device)) return {};
     const gpu::PixelFormatCaps half = device.pixel_format_caps(gpu::PixelFormat::Rgba16F);
