@@ -415,7 +415,9 @@ TEST_CASE(
     CHECK(s.state == "unsupported");
     CHECK(s.canInstall);
 
-    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
+    // The archive is unpacked by this machine's own tool (unzip, bsdtar, tar.exe), so the install runs as this machine.
+    lab.host.clear();
+    REQUIRE(setup_detail::vendor_sdk_install(lab.ctx(), options(true), fake.sdk).ok);
     s = setup_detail::vendor_sdk_status(c, fake.sdk, false);
     CHECK(s.state == "installed");
     REQUIRE_FALSE(s.paths.empty());
@@ -424,9 +426,10 @@ TEST_CASE(
 TEST_CASE("setup streamline: an installed SDK lists its license when asked, so a reinstall can ask for it again") {
     Lab lab;
     FakeSdk fake(lab);
+    // Installed as this machine (its own unzip/bsdtar/tar.exe unpacks the archive; GNU tar reads no .zip), read as Windows.
+    REQUIRE(setup_detail::vendor_sdk_install(lab.ctx(), options(true), fake.sdk).ok);
     lab.host = "windows";
     SetupContext c = lab.ctx();
-    REQUIRE(setup_detail::vendor_sdk_install(c, options(true), fake.sdk).ok);
 
     lab.requested.clear();
     SetupComponent s = setup_detail::vendor_sdk_status(c, fake.sdk, false);
