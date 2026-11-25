@@ -58,12 +58,30 @@ DeviceHooks with_registered_hooks(const DeviceHooks& hooks) {
 
 void mark_hooks_unsupported(const DeviceHooks& hooks, Backend backend) {
     for (const auto& h : hooks) {
-        if (!h || h->in_use()) continue;  // a live D3D12 or Vulkan device uses it: its state is not ours to change
-        h->mark_available();
-        h->mark_unavailable(std::string("the ") + backend_name(backend) +
-                            " backend calls no device hooks: vendor SDKs that change how the device or the swapchain "
-                            "is made need the D3D12 or the Vulkan backend (render.backend in factoria.json)");
+        if (!h) continue;  // a live D3D12 or Vulkan device that uses it keeps its state (mark_unsupported_if_unused)
+        h->mark_unsupported_if_unused(std::string("the ") + backend_name(backend) +
+                                      " backend calls no device hooks: vendor SDKs that change how the device or the "
+                                      "swapchain is made need the D3D12 or the Vulkan backend (render.backend in "
+                                      "factoria.json)");
     }
+}
+
+DeviceHooks HookAttachment::attach(const DeviceHooks& hooks, Backend backend, std::vector<std::string>* refused) {
+    release();
+    for (const auto& h : hooks) {
+        if (!h || std::find(hooks_.begin(), hooks_.end(), h) != hooks_.end()) continue;
+        if (h->try_begin_use())
+            hooks_.push_back(h);
+        else if (refused)
+            refused->push_back(device_hook_refused_warning(backend, *h));
+    }
+    return hooks_;
+}
+
+std::string device_hook_refused_warning(Backend backend, const DeviceHook& hook) {
+    return std::string("gpu ") + backend_name(backend) + ": device hook '" + std::string(hook.name()) +
+           "' is not used by this device: another live D3D12 or Vulkan device holds it, and a hook serves one device "
+           "at a time (the device is made without it; destroy the other device first, or give this one its own hook)";
 }
 
 std::string device_hook_warning(Backend backend, const DeviceHook& hook) {

@@ -308,6 +308,11 @@ struct VkFunctions {
     PFN_vkSetHdrMetadataEXT vkSetHdrMetadataEXT = nullptr;
 };
 
+// The core struct of the engine's device chain that covers a per-feature struct a hook asked for (Vulkan forbids both in
+// one chain): "VkPhysicalDeviceVulkan12Features" or, on a Vulkan 1.3 device (`core13`), "VkPhysicalDeviceVulkan13Features"
+// for the structs of Vulkan 1.3; "" when no core struct covers `type` (vulkan_device.cpp).
+const char* covered_by_core(VkStructureType type, bool core13);
+
 // "VK_ERROR_DEVICE_LOST (-4)": a VkResult's name and value, for the error messages.
 std::string result_text(VkResult r);
 

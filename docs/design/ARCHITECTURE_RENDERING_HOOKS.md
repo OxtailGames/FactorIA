@@ -1,6 +1,7 @@
 # Device hooks for vendor SDKs (M78-P2b)
 
-Part of [ARCHITECTURE.md](ARCHITECTURE.md) (the device contract: [ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md);
+Part of [ARCHITECTURE.md](ARCHITECTURE.md) (the device contract:
+[ARCHITECTURE_RENDERING_GPU.md](ARCHITECTURE_RENDERING_GPU.md);
 the backends: [ARCHITECTURE_RENDERING_D3D12.md](ARCHITECTURE_RENDERING_D3D12.md),
 [ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md)). How a vendor SDK takes part in making the
 engine's D3D12 and Vulkan devices and their swapchains. The native handles of a finished device (`NativeDevice`,
@@ -28,11 +29,12 @@ and ships no vendor binary. Objects cross the interface as `void*` (COM pointers
   part from the next device on.
 - **Availability.** `available()` and `unavailable_reason()` say whether the device took the hook, and why not. A D3D12
   or Vulkan device attaches to each of its hooks for as long as it lives (`HookAttachment`, `DeviceHook::in_use()`).
-  The first device to attach starts the hook available, so a hook used again for a later device starts clean. A second
-  device made while the first lives shares the hook's state and never turns it available again under the first. A
-  device of a backend without hooks does not mark a hook that a live device holds. The first reason stays. The state is
-  thread safe (an atomic flag, the reason under a mutex; `unavailable_reason()` returns a copy). The state belongs to
-  the hook, not to the device: a hook shared by two live devices is unavailable for both once one of them marks it.
+  The first device to attach starts the hook available, so a hook used again for a later device starts clean. **A hook
+  serves one device at a time**: a second D3D12 or Vulkan device made while the first lives is made without that hook
+  (`HookAttachment::attach` leaves it out, and a warning of the second device says why), so it never turns the hook
+  available again, nor marks it unavailable, under the first. A device of a backend without hooks does not mark a hook
+  that a live device holds (`mark_unsupported_if_unused`, one step under the hook's mutex). The first reason stays. The
+  state is thread safe (an atomic flag, the reason under a mutex; `unavailable_reason()` returns a copy).
 - **Where hooks are called.**
   - D3D12 (`d3d12_device_win32.cpp`, `d3d12_swapchain_win32.cpp`) and Vulkan (`vulkan_device.cpp`,
     `vulkan_swapchain.cpp`) call each callback at the moment its comment names. The callbacks run on the thread that
@@ -57,8 +59,11 @@ hook.
 Callbacks pair. `device_destroying` follows `vulkan_device_created` / `d3d12_device_created` and only a hook that heard
 it (a device whose init fails in between never tells the hooks it was made). On D3D12, a swapchain the hooks heard
 `d3d12_swapchain_created` for and the engine then drops on an error (no `IDXGISwapChain3`, a colour space the display
-refuses) is announced with `swapchain_destroying` before it goes. Each reason is also a warning of the device (`Device::warnings()`, the log): "gpu vulkan: device
-hook 'DLSS' is unavailable: Apple M5 has no device extension VK_NVX_binary_import (update the GPU driver; ...)".
+refuses) is announced with `swapchain_destroying` before it goes. `swapchain_destroying` and the present events name the
+D3D12 swapchain by its `IDXGISwapChain3*` (a QueryInterface of the object `d3d12_swapchain_created` got as an
+`IDXGISwapChain1*`; compare COM identity, not the two pointers). Each reason is also a warning of the device
+(`Device::warnings()`, the log): "gpu vulkan: device hook 'DLSS' is unavailable: Apple M5 has no device extension
+VK_NVX_binary_import (update the GPU driver; ...)".
 
 These make a hook unavailable:
 
@@ -66,8 +71,10 @@ These make a hook unavailable:
 - a feature bit the GPU does not have (the struct and the member's index are named);
 - a feature struct that is not one, or a Vulkan 1.3 struct on a 1.2 device;
 - a feature struct that cannot go in the device's chain: one a core struct covers (the per-feature structs of Vulkan
-  1.2, which the engine chains as `Vulkan12Features`; synchronization2's own struct on a Vulkan 1.3 device, which
-  `Vulkan13Features` covers: VUID-VkDeviceCreateInfo-pNext-06532), the synchronization2 or portability struct without
+  1.2, which the engine chains as `Vulkan12Features`; on a Vulkan 1.3 device every per-feature struct that
+  `Vulkan13Features` covers: synchronization2 (VUID-VkDeviceCreateInfo-pNext-06532), dynamic rendering, maintenance4,
+  private data, subgroup size control, inline uniform block, image robustness, ... `covered_by_core`), the
+  synchronization2 or portability struct without
   its extension or device, and a struct of any other extension when the hook asks for no required device extension;
 - a queue family with the flags asked for and no queue left (every family's flags and counts are listed);
 - an `error` the hook sets itself (D3D12 device, either backend's swapchain).
@@ -96,10 +103,10 @@ In order, on the thread that makes the device:
    portability subset) is ORed into the engine's own struct. Any other struct is appended to
    `VkDeviceCreateInfo::pNext`: a copy whose `pNext` the engine sets. A Vulkan 1.2 struct and the older per-feature
    structs it covers cannot share a chain, so a hook asks through `Vulkan11/12/13`. Each bit is checked first with
-   `vkGetPhysicalDeviceFeatures2` on a zeroed copy of the struct. Only the `VkBool32` members are read, never the padding
-   after the last one (a `Vulkan12` struct is 204 bytes of members in 208): the engine knows the member count of the
-   structs it chains. A struct of an extension is read for `add_features(s, members)` members, or every 4 bytes after its
-   header when none is given (zero it first).
+   `vkGetPhysicalDeviceFeatures2` on a zeroed copy of the struct. Only the `VkBool32` members are read, never the
+   padding after the last one (a `Vulkan12` struct is 204 bytes of members in 208): the engine knows the member count
+   of the structs it chains. A struct of an extension is read for `add_features(s, members)` members, or every 4 bytes
+   after its header when none is given (zero it first).
 
    A queue request takes queues after the engine's own in a family whose flags hold every bit asked. A graphics request
    tries the engine's graphics family first; any other request tries, first, a family that does not draw.
@@ -437,8 +444,8 @@ the rest is private to `fa_render`:
 
 - **`engine/render/tests/gpu_native_tests.cpp`.** The registry: each hook added once, the caller's first. The
   `RecordingDevice` marks every hook unavailable with the reason, unless a live device holds it (`HookAttachment`). The
-  first reason stays, a second attached device does not make it available again, and `mark_available` starts a hook
-  over.
+  first reason stays, a second device cannot take a hook a live one holds (it is left out, with a warning, and the first
+  device's state does not change), and `mark_available` starts a hook over.
 - **`engine/render/tests/vulkan_hooks_tests.cpp`.** Runs on MoltenVK here and on lavapipe in the Linux CI job, with the
   validation layer. Fake hooks:
   - ask for an instance extension, a device extension, a feature merged into the engine's struct and one appended;
@@ -446,11 +453,13 @@ the rest is private to `fa_render`:
   - ask for what no device has (an extension, a bad struct, an impossible queue) and become unavailable with their
     reasons, while the device works;
   - a compute queue is granted where a family has one left;
-  - a `Vulkan12` struct with garbage in its padding is accepted; a per-feature struct, synchronization2's struct and an
-    extension's struct with no extension make a hook unavailable with a reason that names the struct;
+  - a `Vulkan12` struct with garbage in its padding is accepted; a per-feature struct, synchronization2's struct (on
+    Vulkan 1.3 only: on 1.2 it is the extension's own and the hook is served) and an extension's struct with no
+    extension make a hook unavailable with a reason that names the struct; `covered_by_core` names every struct
+    `Vulkan12Features` and `Vulkan13Features` cover;
   - a hook that wraps `vkCreateDevice` and then becomes unavailable is not called (the engine's own is);
-  - `device_destroying` is heard exactly as often as `vulkan_device_created` (an init that may fail after
-    `vkCreateDevice`);
+  - `device_destroying` is heard exactly as often as `vulkan_device_created`: a hook that wraps `vkCreateBuffer` to fail
+    makes the device fail after `vkCreateDevice`, and the hook hears neither;
   - `handle_from_bits` for a pointer handle and for a 64-bit integer one (a 32-bit target's non-dispatchable handle).
 
   The case is under ctest `render_gpu_native`.
