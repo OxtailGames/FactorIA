@@ -100,8 +100,10 @@ static_assert(sizeof(VkQueueFamilyMirror) == 24, "VkQueueFamilyProperties");
 
 using VoidFn = void (*)();
 using GetInstanceProcFn = VoidFn (*)(const void* instance, const char* name);  // vkGetInstanceProcAddr
+// `out` is void*: the driver's own type is VkQueueFamilyProperties*, which the engine does not include (and a pointer to the
+// mirror struct would be a different function type from the one a test's fake has: UBSan's -fsanitize=function).
 using QueueFamiliesFn = void (*)(const void* physicalDevice, std::uint32_t* count,
-                                 VkQueueFamilyMirror* out);  // ...QueueFamilyProperties
+                                 void* out);  // ...QueueFamilyProperties
 using SurfaceSupportFn = std::int32_t (*)(const void* physicalDevice, std::uint32_t family, std::uint64_t surface,
                                           std::uint32_t* supported);  // vkGetPhysicalDeviceSurfaceSupportKHR
 
