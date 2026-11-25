@@ -62,6 +62,19 @@ the limits count frames, never time. `pipelines`, `pipelineHits`,
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). The script also asks for `spirv_vk` (M77: the SPIR-V of the
 Vulkan backend): the arrays and the `SG_BACKEND_VULKAN` description sit behind `#if defined(SOKOL_VULKAN)`, so a player without that backend
 links none of it, and `spirv_shader_tests.cpp` defines `SOKOL_VULKAN` for itself to check the module headers and the set and binding numbers.
+**Embedded shader text (M78):** the GLSL ES 3.00 and GLSL 4.30 texts of the generated headers are spirv-cross output, 0.9 MB of repeating
+code per dialect in the web, Android and Linux players, so `compile_shaders.sh` builds `tools/shaders/shader_pack` (its own small cmake project: the
+codec files of `engine/core` and nothing else, under `.cache/shader-pack`) and runs it on every header after sokol-shdc. Per header and
+dialect the tool writes the texts the programs use (one after the other, a NUL after each) as ONE zstd frame made with the engine's own encoder
+(level 19; one frame is about half the size of one frame per text, because the variants of a program share most of their code) and puts
+`fa::shader_text::get(<header>_<dialect>_pack, offset)` where sokol-shdc had `(const char*)<array>`. `src/shader_text.{h,cpp}` decodes a pack
+the first time one of its texts is asked for (in the `*_shader_desc()` the header caches, so once per shader and translation unit) into a
+cache keyed by the frame bytes, thread-safe, that lives as long as the process: the cached `sg_shader_desc` keeps a pointer into it. The
+driver receives the bytes sokol-shdc wrote. A text no program reads (a variant of a template that no program calls) is dropped. Sizes at M78,
+the texts the players link: GLSL ES 941,595 -> 158,753 bytes, GLSL 4.30 889,035 -> 157,544 bytes. The other dialects keep their arrays (Metal
+and HLSL sources are not in the web, Android or Linux players). Behind `FA_SHADER_TEXT_CHECK` each header also has a table with the FNV-1a hash
+of every original text, and `compile_shaders.sh` writes `tests/shader_text_index.h`, which lists them all with every shader_desc function:
+`shader_text_tests.cpp` decodes every text, compares the hashes, and checks that the GLES3 and GLCORE descs hand the driver exactly those texts.
 Custom materials get the same dialect on request (docs/design/CUSTOM_SHADERS.md, "Dialects per target"). Every mesh program (`mesh`,
 `mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
