@@ -140,6 +140,14 @@ struct RendererDesc {
     // own and never open, adopt or close the sokol context; without `headless` init() fails (D3D12 and Vulkan make
     // their swapchain on a native window, which this desc does not carry yet).
     GpuBackend backend = GpuBackend::Default;
+    // M77-P10d (factoria.json render.asyncCompute / render.multiThreadRecording; docs/RENDERING.md): what the frame may use
+    // where the device has it (D3D12, and Vulkan with a compute queue of its own; the sokol backends have neither and
+    // record the frame as before). asyncCompute: the depth pyramid's reduce (SceneSettings.occlusionMode gpu) runs on the
+    // compute queue, next to the graphics passes after it. multiThreadRecording: the shadow views are recorded into
+    // command lists of their own on the job threads. The picture is the same either way; false keeps that work on the
+    // graphics queue / the render thread (to compare, or to rule a driver out). startup_report() says which is in use.
+    bool asyncCompute = true;
+    bool multiThreadRecording = true;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -359,8 +367,9 @@ public:
     // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
     int warm_step(const GfxSwapchain& swapchain, World& world);
     // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits,
-    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up spent on shader programs and pipelines
-    // (the `loading.startup.gpu` object of play.report).
+    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft, asyncCompute, multiThreadRecording}: what the start-up spent on
+    // shader programs and pipelines (the `loading.startup.gpu` object of play.report), and whether the frame uses the
+    // compute queue and the job threads (RendererDesc allows it and the device has the feature).
     Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).

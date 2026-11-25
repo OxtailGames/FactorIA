@@ -367,6 +367,19 @@ Result<void> FrameGraph::compile() {
 }
 
 Result<void> FrameGraph::execute(TargetPool& pool, gpu::CommandList* commands) {
+    commands_ = commands;
+    return execute_on(pool, commands ? &commands_ : nullptr);
+}
+
+Result<void> FrameGraph::execute_on(TargetPool& pool, gpu::CommandList* const* current) {
+    struct ForgetCommands {  // PassContext::commands() is null again once execute() returns, whatever the way out
+        gpu::CommandList*& list;
+        gpu::CommandList* const*& current;
+        ~ForgetCommands() {
+            list = nullptr;
+            current = nullptr;
+        }
+    } forgetCommands{commands_, current_};
     if (released_) {
         return make_error("Frame graph: execute() called on a graph whose pass callbacks were released.",
                           "Declare the passes again (clear(), add_pass(), compile()) before executing.");
@@ -381,11 +394,7 @@ Result<void> FrameGraph::execute(TargetPool& pool, gpu::CommandList* commands) {
     }
     stats_.clear();
     hookFailures_ = 0;
-    commands_ = commands;
-    struct ForgetCommands {  // PassContext::commands() is null again once execute() returns, whatever the way out
-        gpu::CommandList*& list;
-        ~ForgetCommands() { list = nullptr; }
-    } forgetCommands{commands_};
+    current_ = current;
     // Gives every transient still held back to the pool on any way out (an error, a pass that throws).
     struct Release {
         const std::vector<Resource>& resources;
@@ -417,6 +426,14 @@ Result<void> FrameGraph::execute(TargetPool& pool, gpu::CommandList* commands) {
         }
         PassStats st;
         st.name = p.name;
+        if (p.execute && hooks_.before) {
+            std::vector<std::uint64_t>& handles = hookHandles_;
+            handles.clear();
+            for (const std::vector<ResourceId>* list : {&p.reads, &p.writes})
+                for (ResourceId r : *list)
+                    handles.push_back(r.valid() && r.index < physical_.size() ? physical_[r.index] : 0);
+            hooks_.before(handles);
+        }
         if (p.execute) {
             // Times the callback and calls the hooks on every way out of it, an exception included.
             struct Timed {

@@ -368,6 +368,22 @@ have a page of their own: [Transient screen effects](rendering/RENDERING_SCREEN_
 - The startup report (`Engine::startup_report`, the `gpu` entry of `perf.measure`'s `startup`, and the player's "startup:" log line) names the
   backend of the renderer's device in `backend`, and the one asked for in `requestedBackend` when they differ.
 
+### Async compute and multi-thread recording
+
+On `d3d12` and `vulkan` the renderer records the shadow cascades and the spot and point light shadows on job threads (up
+to four command lists, submitted in a fixed order), and runs the depth pyramid of GPU occlusion culling
+(`SceneSettings.occlusionMode` `gpu` or `auto`) on the GPU's compute queue next to the drawing, where the device has a
+compute queue of its own. Both are on by default and change nothing in the picture: the same draws in the same order,
+the same pixels. Turn either off to compare timings or to rule out a driver problem:
+
+```json
+"render": { "asyncCompute": false, "multiThreadRecording": false }
+```
+
+A value that is not `true` or `false` fails the load with `/render/asyncCompute` (or `/render/multiThreadRecording`). The
+other backends ignore both. The startup report has `asyncCompute` and `multiThreadRecording`: whether each is in use on
+this device (false where the backend or the GPU has no such feature, or the setting is off).
+
 ## Temporal effects and upscaling at a glance (M76)
 
 What each M76 feature is switched on with, which GPU backends draw it and what it costs. The contract of every setting is

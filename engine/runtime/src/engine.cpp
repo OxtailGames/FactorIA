@@ -1154,6 +1154,8 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.headless = !I.windowed;
         rd.adoptContext = I.windowed && config.adoptGraphicsContext;
         rd.backend = I.gpuChoice.backend;
+        rd.asyncCompute = I.project.renderAsyncCompute;
+        rd.multiThreadRecording = I.project.renderMultiThreadRecording;
         std::string gerr;
         bool ok = false;
         if (I.windowed) {

@@ -57,6 +57,16 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   that several stages see counts once against the limit. `D3d12Options::asyncQueues = false` keeps one queue.
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines-<program>.bin`
   (one file per program, the editor's, the CLI's and each player's, so none overwrites another's PSOs), loaded
+- The renderer uses the queues and threads of D3D12 and Vulkan (M77-P10d): the shadow views (sun cascades, spot and point light tiles)
+  are recorded on job threads into up to four command lists submitted in a fixed order (`render.shadow_record`), and the depth-pyramid
+  reduce of GPU occlusion runs on the compute queue, handing the prepass and its cells buffer over and back, with the graphics queue
+  waiting at the first pass that reads the prepass. The picture and the draws are the same as on one thread and one queue (a test
+  compares them on Vulkan and D3D12 WARP); the sokol backends are untouched. `"render": {"asyncCompute": false}` and
+  `{"multiThreadRecording": false}` in `factoria.json` (`RendererDesc::asyncCompute`, `multiThreadRecording`) turn each off, and the
+  startup report says whether each is in use (docs/RENDERING.md, "Async compute and multi-thread recording"). GPU occlusion culling
+  (the depth pyramid) now runs on D3D12 and Vulkan devices with compute shaders, and the light data upload names its rectangle
+  (RecordingDevice reported an empty one).
+- The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache); the adapter's LUID, new at every boot, is not compared. A
   library over `D3d12Options::pipelineCacheTrimBytes` (64 MiB) is rebuilt at save with only the PSOs that run used, so the file does not

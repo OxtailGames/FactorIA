@@ -222,8 +222,74 @@ gpu::Shader Gpu::make_builtin(GeneratedShader desc, const char* label) {
 void Gpu::commit_frame() {
     FA_ASSERT(device_ && list_, "Gpu::commit_frame() before Gpu::init() or after shutdown()");
     device_->submit(*list_);
+    // The frame's async compute work that no pass waited for (the depth pyramid of a camera whose prepass nothing else
+    // read): the graphics queue waits for it from here on, so the next frame (its read-backs included) sees it done and
+    // its resources back on the graphics queue.
+    for (const PendingCompute& p : pendingCompute_) device_->wait_queue(gpu::QueueKind::Graphics, p.token);
+    pendingCompute_.clear();
     device_->commit();
     list_ = &device_->begin_commands("frame");
+}
+
+void Gpu::set_queue_options(bool asyncCompute, bool multiThreadRecording) {
+    FA_ASSERT(device_, "Gpu::set_queue_options() before Gpu::init()");
+    const gpu::Features& f = device_->features();
+    asyncCompute_ = asyncCompute && f.asyncCompute;
+    parallelRecording_ = multiThreadRecording && f.multiThreadRecording;
+}
+
+void Gpu::submit_in_order(std::span<gpu::CommandList* const> lists) {
+    FA_ASSERT(device_ && list_, "Gpu::submit_in_order() before Gpu::init() or after shutdown()");
+    device_->submit(*list_);
+    for (gpu::CommandList* l : lists)
+        if (l) device_->submit(*l);
+    list_ = &device_->begin_commands("frame");
+}
+
+gpu::CommandList& Gpu::begin_async_compute(const char* label, std::span<const gpu::QueueHandoff> uses) {
+    FA_ASSERT(device_ && list_ && asyncCompute_, "Gpu::begin_async_compute() without async compute");
+    std::vector<gpu::QueueHandoff> to(uses.begin(), uses.end());
+    for (gpu::QueueHandoff& h : to) h.to = gpu::QueueKind::Compute;
+    const gpu::SyncToken handed = device_->submit_token(*list_, to);
+    list_ = &device_->begin_commands("frame");
+    gpu::CommandList& compute = device_->begin_commands(label, gpu::QueueKind::Compute);
+    device_->wait_list(compute, handed);
+    return compute;
+}
+
+void Gpu::end_async_compute(gpu::CommandList& compute, std::span<const gpu::QueueHandoff> uses, std::uint64_t guard) {
+    FA_ASSERT(device_ && list_, "Gpu::end_async_compute() before Gpu::init() or after shutdown()");
+    std::vector<gpu::QueueHandoff> back(uses.begin(), uses.end());
+    for (gpu::QueueHandoff& h : back) h.to = gpu::QueueKind::Graphics;
+    PendingCompute p;
+    p.token = device_->submit_token(compute, back);
+    p.guard = guard;
+    pendingCompute_.push_back(p);
+}
+
+void Gpu::wait_graphics_for(gpu::SyncToken token) {
+    device_->submit(*list_);
+    device_->wait_queue(gpu::QueueKind::Graphics, token);
+    list_ = &device_->begin_commands("frame");
+}
+
+void Gpu::wait_compute_for(const std::vector<std::uint64_t>& handles) {
+    if (pendingCompute_.empty()) return;
+    // The latest pending list that guards one of the handles: the compute queue runs its lists in submission order, so
+    // waiting for it waits for every one before it too (they are dropped with it).
+    std::size_t last = pendingCompute_.size();
+    for (std::size_t i = 0; i < pendingCompute_.size(); ++i)
+        for (std::uint64_t h : handles)
+            if (h != 0 && h == pendingCompute_[i].guard) last = i;
+    if (last == pendingCompute_.size()) return;
+    wait_graphics_for(pendingCompute_[last].token);
+    pendingCompute_.erase(pendingCompute_.begin(), pendingCompute_.begin() + std::ptrdiff_t(last) + 1);
+}
+
+void Gpu::wait_compute_all() {
+    if (pendingCompute_.empty()) return;
+    wait_graphics_for(pendingCompute_.back().token);
+    pendingCompute_.clear();
 }
 
 Gpu::~Gpu() = default;
@@ -432,6 +498,9 @@ void Gpu::shutdown() {
     lightState_ = 0;
     // The frame's list goes back to the device before it is released (the sokol context stays: it is the renderer's).
     device_->submit(*list_);
+    for (const PendingCompute& p : pendingCompute_) device_->wait_queue(gpu::QueueKind::Graphics, p.token);
+    pendingCompute_.clear();
+    asyncCompute_ = parallelRecording_ = false;
     list_ = nullptr;
     device_.reset();
 }
@@ -1368,6 +1437,8 @@ Gpu::LightImage Gpu::fill_light_image(LightImg& l, int rows, const float* texels
     gpu::ImageWrite w{};
     w.data = {texels, std::size_t(kLightTextureWidth) * std::size_t(rows) * 16};
     w.dst.image = l.image;
+    w.size.width = kLightTextureWidth;  // the whole image, said explicitly: RecordingDevice checks the rectangle
+    w.size.height = rows;
     list_->write_image(w);
     return {l.image, l.view};
 }

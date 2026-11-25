@@ -27,6 +27,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "command_capture.h"
 #include "decal_atlas.h"
 #include "light_clusters.h"
 #include "portal_graph.h"
@@ -561,9 +562,11 @@ struct Renderer::Impl {
     // Only the cameras that draw the game's picture call it: a view job (capture_camera, a CameraView) has no pyramid, because
     // hiz_submit only runs when a frame begins and a capture's reduce could never come back within it.
     HizCamera* hiz_cull(World& world, Frame& fr, std::vector<MeshItem>& meshes);
-    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image.
+    // The reduce pass of one job: the compute pass that fills the camera's cells from its prepass image. With
+    // Gpu::async_compute() it runs on the compute queue (M77-P10d): the graphics queue waits for it before the first pass that
+    // declares `prepassHandle` (the prepass's pool target), or at the frame's end.
     void hiz_reduce_pass(gpu::CommandList& cmd, HizCamera& hc, const Target& prepass, const render::HizPose& pose,
-                         std::uint64_t worldFrame);
+                         std::uint64_t worldFrame, std::uint64_t prepassHandle = 0);
     void hiz_overlay();
     std::string hizModeName = "cpu";  // SceneSettings.occlusionMode of the last frame's world
     // The "gpu" object of Renderer::occlusion_report: what the depth pyramid did in the last frame; `level` of the pyramid is saved to
@@ -974,6 +977,11 @@ struct Renderer::Impl {
     void gi2d_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
+    // The draws of the shadow views [viewFirst, viewEnd) into `cl` (inside the shadow pass). shadow_pass records them on the
+    // frame's list, or, with Gpu::parallel_recording(), captures groups of views and replays each group into a list of its own
+    // on the job threads (M77-P10d). The captures are kept across frames (their memory).
+    void shadow_views(DrawContext& ctx, gpu::CommandList& cl, int viewFirst, int viewEnd);
+    std::vector<std::unique_ptr<render::CommandCapture>> shadowCaptures;
     // The depth and normal prepass (M71): plan_prepass decides whether the job has one, prepass_pass draws it into `t` (a transient of
     // the graph), prepass_view_pass paints it over the game image (Renderer::set_debug_view).
     bool plan_prepass(DrawContext& ctx);
