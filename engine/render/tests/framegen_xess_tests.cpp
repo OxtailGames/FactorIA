@@ -1033,6 +1033,7 @@ TEST_CASE("xess frame generation: XeLL runs with it whatever render.latency says
     lc.require_driver(LatencyDriver::Xell);  // XeSS frame generation is the provider that runs
     CHECK(lc.required_driver() == LatencyDriver::Xell);
     CHECK(lc.driver() == LatencyDriver::Xell);
+    CHECK(lc.forced());                                     // XeLL runs only because XeSS frame generation requires it
     CHECK(lc.settings().mode == render::LatencyMode::Off);  // the setting itself is untouched
     CHECK(count_of("xell.create") == 1);  // the context the swapchain took is the one the controller uses
     REQUIRE_FALSE(xlfx.modes.empty());
@@ -1058,6 +1059,7 @@ TEST_CASE("xess frame generation: XeLL runs with it whatever render.latency says
     // The requirement ends with the provider: the latency controller stops XeLL (its own reference), the swapchain's stays.
     lc.require_driver(LatencyDriver::None);
     CHECK(lc.driver() == LatencyDriver::None);
+    CHECK_FALSE(lc.forced());
     CHECK(xlfx.contexts == 1);
     lc.detach();
     h.hook->device_destroying();

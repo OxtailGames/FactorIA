@@ -14,9 +14,11 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/core/log.h"
 #include "gpu/device_hooks.h"
 #include "gpu/recording_device.h"
 #include "render_latency.h"
@@ -61,7 +63,9 @@ SlR f_shutdown() {
     ++rx.shutdowns;
     return 0;
 }
-SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) { return feature == rx.refusedFeature ? rx.supportedRc : 0; }
+SlR f_supported(std::uint32_t feature, const sl::AdapterInfo*) {
+    return feature == rx.refusedFeature ? rx.supportedRc : 0;
+}
 SlR f_free(std::uint32_t, const sl::ViewportHandle*) { return 0; }
 SlR f_upgrade(void** p) {
     if (*p == &rx.deviceMarker) *p = &rx.proxyDevice;
@@ -86,7 +90,8 @@ SlR f_reflex_state(sl::ReflexState* s) {
     if (rx.stateRc != 0) return rx.stateRc;
     s->lowLatencyAvailable = rx.lowLatencyAvailable;
     s->latencyReportAvailable = rx.reportAvailable;
-    for (std::size_t i = 0; i < rx.reports.size() && i < std::size_t(sl::kReflexFrameReportCount); ++i) s->frameReport[i] = rx.reports[i];
+    for (std::size_t i = 0; i < rx.reports.size() && i < std::size_t(sl::kReflexFrameReportCount); ++i)
+        s->frameReport[i] = rx.reports[i];
     return 0;
 }
 SlR f_reflex_sleep(void* frame) {
@@ -102,12 +107,18 @@ SlR f_pcl_marker(std::uint32_t marker, void* frame) {
 std::vector<std::string> g_hiddenFunctions;
 SlR f_function(std::uint32_t feature, const char* name, void** fn) {
     const std::string n = name;
-    if (std::find(g_hiddenFunctions.begin(), g_hiddenFunctions.end(), n) != g_hiddenFunctions.end()) return sl::kErrorFeatureMissing;
-    if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_options);
-    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_state);
-    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex) *fn = reinterpret_cast<void*>(&f_reflex_sleep);
-    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl) *fn = reinterpret_cast<void*>(&f_pcl_marker);
-    else return sl::kErrorFeatureMissing;
+    if (std::find(g_hiddenFunctions.begin(), g_hiddenFunctions.end(), n) != g_hiddenFunctions.end())
+        return sl::kErrorFeatureMissing;
+    if (n == "slReflexSetOptions" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_options);
+    else if (n == "slReflexGetState" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_state);
+    else if (n == "slReflexSleep" && feature == sl::kFeatureReflex)
+        *fn = reinterpret_cast<void*>(&f_reflex_sleep);
+    else if (n == "slPCLSetMarker" && feature == sl::kFeaturePcl)
+        *fn = reinterpret_cast<void*>(&f_pcl_marker);
+    else
+        return sl::kErrorFeatureMissing;
     return 0;
 }
 
@@ -271,7 +282,8 @@ LatencySettings settings(LatencyMode m, bool boost = false) {
 
 bool has(const std::string& text, const char* part) { return text.find(part) != std::string::npos; }
 
-sl::ReflexReport report_of(std::uint64_t frameId, std::uint64_t simStart, std::uint64_t presentEnd, std::uint32_t gpuFrameUs = 0) {
+sl::ReflexReport report_of(std::uint64_t frameId, std::uint64_t simStart, std::uint64_t presentEnd,
+                           std::uint32_t gpuFrameUs = 0) {
     sl::ReflexReport r{};
     r.frameId = frameId;
     r.simStartTime = simStart;
@@ -403,7 +415,8 @@ TEST_CASE("reflex probe: every refusal says what to do") {
 
 // ---- start and configure ---------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("reflex: start sets the options off once; configure sends the mode, the boost and the frame limit only when they change") {
+TEST_CASE("reflex: start sets the options off once; configure sends the mode, the boost and the frame limit only when "
+          "they change") {
     Rig r;
     REQUIRE(r.reflex->start(r.dev).empty());
     REQUIRE(rx.options.size() == 1);
@@ -502,13 +515,30 @@ TEST_CASE("reflex: sleep and markers carry the frame's token, taken once") {
 TEST_CASE("reflex: a PCL plugin that is missing leaves Reflex sleeping without markers") {
     Rig r;
     g_hiddenFunctions = {"slPCLSetMarker"};
+    const std::uint64_t seq = log_last_seq();
     REQUIRE(r.reflex->start(r.dev).empty());
+    // One warning at the start says what is lost (not one per frame), and names the plugin.
+    int warnings = 0;
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn, seq))
+        if (has(e.message, "sl.pcl")) ++warnings;
+    CHECK(warnings == 1);
     r.reflex->configure(true, false, 0);
     r.reflex->sleep(1);
     r.reflex->marker(LatencyMarker::SimulationStart, 1);
     r.reflex->marker(LatencyMarker::PresentEnd, 1);
     CHECK(rx.sleepTokens.size() == 1);
     CHECK(rx.markers.empty());
+    warnings = 0;  // the sleep and the markers added no second one
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn, seq))
+        if (has(e.message, "sl.pcl")) ++warnings;
+    CHECK(warnings == 1);
+}
+
+TEST_CASE("reflex: with the PCL plugin there is no warning at the start") {
+    Rig r;
+    const std::uint64_t seq = log_last_seq();
+    REQUIRE(r.reflex->start(r.dev).empty());
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn, seq)) CHECK_FALSE(has(e.message, "sl.pcl"));
 }
 
 TEST_CASE("reflex: a refused token or sleep warns once and never stops the frame") {
@@ -573,9 +603,9 @@ TEST_CASE("reflex through the controller: auto on NVIDIA picks Reflex, which sle
         e.frame = std::uint64_t(frame + 1);
         r.runtime.present_end(e);
     }
-    CHECK(rx.sleepTokens.size() == 3);        // once per frame
-    CHECK(rx.markers.size() == 3 * 6);        // the input sample has no PCL marker
-    CHECK(rx.tokenCalls == 3);                // one token per frame, shared by the sleep and the markers
+    CHECK(rx.sleepTokens.size() == 3);  // once per frame
+    CHECK(rx.markers.size() == 3 * 6);  // the input sample has no PCL marker
+    CHECK(rx.tokenCalls == 3);          // one token per frame, shared by the sleep and the markers
     // Within each frame the sleep is the first call after the token, then the simulation start.
     std::size_t sleeps = 0;
     for (std::size_t i = 0; i + 1 < rx.events.size(); ++i)
@@ -599,7 +629,8 @@ TEST_CASE("reflex through the controller: auto on NVIDIA picks Reflex, which sle
     c.detach();
 }
 
-TEST_CASE("reflex through the controller: auto on NVIDIA without Streamline is the engine's own pacing, with the reason") {
+TEST_CASE(
+    "reflex through the controller: auto on NVIDIA without Streamline is the engine's own pacing, with the reason") {
     ClockGuard clock;
     Rig r(false);
     r.loader.installed = false;
@@ -648,7 +679,7 @@ TEST_CASE("reflex: the vendor report is the span from simulation start to presen
     r.reflex->configure(true, false, 0);
     CHECK(r.reflex->vendor_report().is_null());  // no frame measured yet
 
-    rx.reports = {report_of(10, 1000, 9000, 4000),  // 8 ms
+    rx.reports = {report_of(10, 1000, 9000, 4000),   // 8 ms
                   report_of(11, 2000, 12000, 6000),  // 10 ms
                   report_of(0, 0, 0),                // an empty slot
                   report_of(12, 5000, 5000),         // never presented
@@ -667,4 +698,42 @@ TEST_CASE("reflex: the vendor report is the span from simulation start to presen
     rx.reportAvailable = true;
     rx.stateRc = sl::kErrorInvalidState;
     CHECK(r.reflex->vendor_report().is_null());
+}
+
+TEST_CASE("reflex: the report is read by the thread that draws only (slReflexGetState is not thread safe)") {
+    Rig r;
+    REQUIRE(r.reflex->start(r.dev).empty());
+    r.reflex->configure(true, false, 0);
+    rx.reports = {report_of(10, 1000, 9000, 4000)};
+    const int before = rx.getStateCalls;
+    Json other;
+    std::thread t([&] { other = r.reflex->vendor_report(); });
+    t.join();
+    CHECK(other.is_null());
+    CHECK(rx.getStateCalls == before);         // the SDK was not asked from the other thread
+    const Json j = r.reflex->vendor_report();  // the drawing thread still gets it
+    REQUIRE(j.is_object());
+    CHECK(j["frames"].get<int>() == 1);
+    CHECK(rx.getStateCalls == before + 1);
+}
+
+TEST_CASE("streamline: a refusal says what the feature it was about needs, not another's") {
+    const std::string dlss =
+        render::streamline_refusal("slIsFeatureSupported", sl::kErrorFeatureNotSupported, sl::kFeatureDlss);
+    CHECK(has(dlss, "DLSS needs an NVIDIA RTX GPU"));
+    CHECK_FALSE(has(dlss, "GTX 900"));
+    const std::string reflex =
+        render::streamline_refusal("slIsFeatureSupported", sl::kErrorFeatureNotSupported, sl::kFeatureReflex);
+    CHECK(has(reflex, "GTX 900"));
+    CHECK(has(reflex, "render.latency"));
+    CHECK_FALSE(has(reflex, "DLSS"));
+    CHECK(has(render::streamline_refusal("slPCLSetMarker", sl::kErrorAdapterNotSupported, sl::kFeaturePcl), "GTX 900"));
+    const std::string dlssg =
+        render::streamline_refusal("slIsFeatureSupported", sl::kErrorFeatureNotSupported, sl::kFeatureDlssG);
+    CHECK(has(dlssg, "frame generation"));
+    CHECK_FALSE(has(dlssg, "GTX 900"));
+    // No feature named: both, as before.
+    const std::string any = render::streamline_refusal("slInit", sl::kErrorFeatureNotSupported);
+    CHECK(has(any, "DLSS"));
+    CHECK(has(any, "Reflex"));
 }

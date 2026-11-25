@@ -62,10 +62,11 @@ The vendor SDKs are **Windows only** (the code of the other systems is built and
 Where no SDK runs, the engine sleeps itself. It needs a game window that is presented to (not a headless run, not the editor), vsync on,
 no `window.frameCap`, a continuous render mode and a display refresh rate it knows (the platform's, or the estimate of
 UPSCALING.md, "The display's refresh rate"); otherwise it adds no sleep. It measures how long the frame's work takes (from the end of the
-sleep to the call that presents, smoothed: a longer frame counts at once, a shorter one slowly) and starts the next frame so that the
+sleep to the start of the present step, smoothed: a longer frame counts at once, a shorter one slowly) and starts the next frame so that the
 work ends about one refresh interval after the last present returned, with a 15% and 1 ms margin. The sleep is a `sleep_for` and a
 short yield at the end, never above 250 ms. It does not change the simulation: the fixed steps are the same, only the moment the
-frame starts moves.
+frame starts moves. The time spent in the sleep (the engine's or the SDK's) is waiting, not work: the profiler lists it as its own zone
+`Latency` (while a driver runs) and not inside the Platform system's time.
 
 ## The markers
 
@@ -76,7 +77,9 @@ Each SDK is fed the same points of a frame, with the id of the present that will
 2. the input sample (after the platform has read the input, `platform.frame()`);
 3. the end of the simulation (scripts, physics and animation are done, before the scene is drawn);
 4. the start and the end of the render submit (the frame is recorded and sent to the GPU);
-5. the start and the end of the present call.
+5. the start of the present step and the end of the present call. The start is marked before the window's image is acquired, because
+   the acquire can wait for the display (Direct3D 12 waits for the swapchain's frame-latency object), and that wait is not the frame's
+   work; the render-submit end, which needs the image, comes after it.
 
 A frame that does not present (the render mode skipped it) gives its id to the next one. With the mode `off` every one of these
 points is one branch and calls nothing.
@@ -88,7 +91,7 @@ points is one branch and calls nothing.
   with no data before the input of each frame. Direct3D 12 takes no markers.
 - **Vulkan:** the device extension `VK_AMD_anti_lag`, asked for when the device is made, on an AMD GPU, on Windows (a device hook; the
   extension is requested whatever the mode, so a mode changed later works). The input stage is sent at the sleep
-  point and the present stage right before the present, with the same frame index.
+  point and the present stage at the present-start marker (before the image is acquired), with the same frame index.
 - **Direct3D 11** is not supported: the mode says so and the engine's own pacing runs.
 - The driver decides the delay; `boost` has no meaning.
 - Needs an AMD driver that has the feature; the reason names what the driver did not answer.
@@ -116,17 +119,24 @@ no NVIDIA code.
   goes to `slPCLSetMarker` with the frame's token, except the input sample (its PCL marker is deprecated: Reflex finds the input
   itself). Reflex, DLSS and DLSS frame generation share the token of the frame, so a game that uses them gives Streamline one frame to
   follow. Turning the mode off sets Reflex off again, **unless DLSS frame generation runs**: it cannot generate without Reflex's markers, so
-  the engine keeps Reflex on (Low Latency, no boost; `reflex` and `auto` keep their `boost`) while it runs, whatever the mode, and
-  `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS frame generation needs it". The mode itself does not change, and the
-  state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency plugin Reflex still sleeps, only the markers are not sent.
+  the engine keeps Reflex on (Low Latency, no boost; `reflex`, and `auto` on an NVIDIA GPU, keep their `boost`) while it runs, whatever the
+  mode, and `render.latency`'s `reason` says "NVIDIA Reflex is on because DLSS frame generation needs it" (only while Reflex runs: when it
+  failed to start the reason names why, and says nothing of the sort). The mode itself does not change, and the
+  state before comes back when frame generation stops (FRAME_GENERATION.md, "NVIDIA DLSS frame generation"). Without the PC latency plugin Reflex still sleeps, only the markers are not sent, and the engine logs one warning at the start that
+  says so (it is not repeated per frame). Each refusal names its feature: a hint about the Reflex plugin is not given for a PCL call, nor the
+  other way round.
 - **When it stops.** A refusal of any call logs one warning and the frame goes on; once the device is destroyed the provider calls
   Streamline no more (its library shuts down with the device).
 - **The report.** `render.latency`'s `vendor` has `source` `Reflex`, `frames` (how many of Reflex's last frames it measured),
   `lastFrameId`, the time from the start of the simulation to the end of the present of the last frame and on average
-  (`lastSimulationToPresentMs`, `avgSimulationToPresentMs`) and `avgGpuFrameMs`, in milliseconds of Reflex's own clock.
+  (`lastSimulationToPresentMs`, `avgSimulationToPresentMs`) and `avgGpuFrameMs`, in milliseconds of Reflex's own clock. The report is read on the thread that runs the frame (the profiler's); a call
+  from another thread answers `null`, because Streamline's state calls are not thread safe.
 - **What NVIDIA asks of a game that ships Reflex or DLSS** (the license of the NVIDIA RTX SDKs; `factoria setup streamline` shows it and
   asks for acceptance; UPSCALING_VENDORS.md, last item of "NVIDIA DLSS Super Resolution"): notify NVIDIA before the game's commercial
   release (<https://developer.nvidia.com/sw-notification>), credit NVIDIA and show its marks.
+- **Known limit.** Streamline loads its Reflex and PC latency plugins before the device exists, so they are requested whatever
+  `render.latency` is at the start (the mode can be changed in the game's settings afterwards). Likewise the Vulkan extensions Reflex needs
+  are asked for with the mode `off`. Gating them on the setting would break that switch; it needs a hardware check (an RTX and a GTX).
 - **Not checked by the tests** (they use a fake Streamline): that the real library takes the engine's declarations as they are and that
   the latency gets shorter; that needs a machine with an NVIDIA GPU.
 

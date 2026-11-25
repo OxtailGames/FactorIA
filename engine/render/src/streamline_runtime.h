@@ -63,6 +63,8 @@ inline constexpr Result kWarnOutOfVram = 39;
 inline constexpr std::uint32_t kFeatureDlss = 0, kFeatureReflex = 3, kFeaturePcl = 4, kFeatureDlssG = 1000;
 // sl::kFeatureDLSS_RR (sl_core_types.h, Streamline 2.14.16): DLSS Ray Reconstruction, the plugin sl.dlss_d.dll
 inline constexpr std::uint32_t kFeatureDlssRr = 1001;
+// Not one feature: a result of the runtime itself (slInit, the device), or a call that serves several features.
+inline constexpr std::uint32_t kFeatureAny = 0xFFFFFFFFu;
 // sl::RenderAPI
 inline constexpr std::uint32_t kRenderApiD3d11 = 0, kRenderApiD3d12 = 1, kRenderApiVulkan = 2;
 // sl::PreferenceFlags (64-bit)
@@ -447,8 +449,10 @@ std::string streamline_load_api(VendorLibrary& lib, gpu::Backend backend, Stream
 // "ok", "driver out of date", ... for a sl::Result, then what to do about it where the cause is known. "result 99" for a code this build
 // does not know.
 std::string streamline_result_text(sl_abi::Result result);
-// The sentence of a refusal of `feature` ("DLSS") with Streamline's own result: `what` answered "<text>" (<code>) and how to fix it.
-std::string streamline_refusal(const char* what, sl_abi::Result result);
+// The sentence of a refusal with Streamline's own result: `what` answered "<text>" (<code>) and how to fix it. `feature` (an sl::Feature id: the
+// kFeature* above) is the feature the call was about, so "feature not supported" says what that feature needs (DLSS: an RTX GPU, Reflex: a
+// GeForce GTX 900 series or newer) and not the other's; kFeatureAny (the default) says both.
+std::string streamline_refusal(const char* what, sl_abi::Result result, std::uint32_t feature = sl_abi::kFeatureAny);
 
 // The Vulkan feature structs Streamline asks for by member name (slGetFeatureRequirements::vkFeatures12 / vkFeatures13), as the bytes of a
 // whole VkPhysicalDeviceVulkan12Features / VkPhysicalDeviceVulkan13Features with VK_TRUE in the named members (gpu::VulkanDeviceRequest::

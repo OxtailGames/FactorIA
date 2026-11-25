@@ -6,6 +6,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <memory>
+#include <thread>
 #include <type_traits>
 
 #include "fa/core/log.h"
@@ -56,8 +57,11 @@ private:
     std::uint32_t mode_ = abi::kReflexOff, frameLimitUs_ = 0;  // the last options sent
     void* token_ = nullptr;                                    // the token of tokenFrame_
     std::uint64_t tokenFrame_ = 0;
-    bool warnedSleep_ = false, warnedMarker_ = false, warnedOptions_ = false, warnedToken_ = false;
-    std::unique_ptr<abi::ReflexState> state_;  // 12.8 KB: kept for the report
+    bool warnedSleep_ = false, warnedMarker_ = false, warnedOptions_ = false, warnedToken_ = false,
+         warnedReportThread_ = false;
+    std::unique_ptr<abi::ReflexState> state_;  // 12.8 KB, made once by start(): kept for the report
+    std::thread::id
+        owner_;  // the thread that started the provider (the one that draws): the only one that may ask the SDK
 };
 
 VendorProbe ReflexProvider::probe(const VendorEnv& env) {
@@ -116,7 +120,7 @@ VendorProbe ReflexProvider::probe(const VendorEnv& env) {
     auto state = std::make_unique<abi::ReflexState>();
     abi::init_reflex_state(*state);
     if (const abi::Result r = api.getState(state.get()); r != abi::kOk) {
-        p.reason = streamline_refusal("slReflexGetState", r);
+        p.reason = streamline_refusal("slReflexGetState", r, abi::kFeatureReflex);
         return p;
     }
     if (!state->lowLatencyAvailable) {
@@ -149,13 +153,20 @@ std::string ReflexProvider::start(gpu::Device& device) {
     if (!sl) return "NVIDIA Streamline is not running on this device";
     ReflexApi api;
     // The PC latency markers ride on the PCL plugin; without it Reflex still sleeps, only the driver gets no markers.
-    const bool withPcl = runtime.feature_reason(abi::kFeaturePcl).empty();
+    const std::string pclReason = runtime.feature_reason(abi::kFeaturePcl);
+    const bool withPcl = pclReason.empty();
     if (std::string why = reflex_load_api(*sl, withPcl, api); !why.empty()) return why;
+    if (!api.setMarker)
+        FA_WARN("render",
+                "Reflex: the PC latency plugin of Streamline (sl.pcl) is not usable ({}): Reflex still sleeps before "
+                "the input, but no frame "
+                "marker reaches the driver, so its latency report is empty and DLSS frame generation cannot run. {}",
+                withPcl ? std::string("slPCLSetMarker is missing") : pclReason, kSetupHint);
 
     auto state = std::make_unique<abi::ReflexState>();
     abi::init_reflex_state(*state);
     if (const abi::Result r = api.getState(state.get()); r != abi::kOk)
-        return streamline_refusal("slReflexGetState", r);
+        return streamline_refusal("slReflexGetState", r, abi::kFeatureReflex);
     if (!state->lowLatencyAvailable)
         return "the NVIDIA driver says Reflex Low Latency is not available on this GPU (update the NVIDIA graphics "
                "driver)";
@@ -163,6 +174,7 @@ std::string ReflexProvider::start(gpu::Device& device) {
     api_ = api;
     state_ = std::move(state);
     device_ = &device;
+    owner_ = std::this_thread::get_id();
     generation_ = generation;
     // slReflexSetOptions has to be called once even when Reflex is off: the options start at off.
     send_options(abi::kReflexOff, 0);
@@ -178,7 +190,8 @@ void ReflexProvider::send_options(std::uint32_t mode, std::uint32_t frameLimitUs
     options.useMarkersToOptimize = false;  // Streamline: for specific scenarios only
     const abi::Result r = api_.setOptions(&options);
     if (r != abi::kOk) {
-        if (!warnedOptions_) FA_WARN("render", "Reflex: {}", streamline_refusal("slReflexSetOptions", r));
+        if (!warnedOptions_)
+            FA_WARN("render", "Reflex: {}", streamline_refusal("slReflexSetOptions", r, abi::kFeatureReflex));
         warnedOptions_ = true;
         return;
     }
@@ -219,7 +232,7 @@ void ReflexProvider::sleep(std::uint64_t frameId) {
     // Streamline wants the call every frame, even with Reflex off (the options say what it does).
     if (const abi::Result r = api_.sleep(token); r != abi::kOk && !warnedSleep_) {
         warnedSleep_ = true;
-        FA_WARN("render", "Reflex: {}", streamline_refusal("slReflexSleep", r));
+        FA_WARN("render", "Reflex: {}", streamline_refusal("slReflexSleep", r, abi::kFeatureReflex));
     }
 }
 
@@ -231,7 +244,7 @@ void ReflexProvider::marker(LatencyMarker m, std::uint64_t frameId) {
     if (!token) return;
     if (const abi::Result r = api_.setMarker(std::uint32_t(pcl), token); r != abi::kOk && !warnedMarker_) {
         warnedMarker_ = true;
-        FA_WARN("render", "Reflex: {}", streamline_refusal("slPCLSetMarker", r));
+        FA_WARN("render", "Reflex: {}", streamline_refusal("slPCLSetMarker", r, abi::kFeaturePcl));
     }
 }
 
@@ -239,7 +252,14 @@ void ReflexProvider::marker(LatencyMarker m, std::uint64_t frameId) {
 // the same fields XeLL gives, and the GPU's frame time.
 Json ReflexProvider::vendor_report() {
     if (!live(streamline_runtime()) || !api_.getState || !state_ || mode_ == abi::kReflexOff) return Json();
-    abi::init_reflex_state(*state_);
+    // slReflexGetState is not thread safe: only the thread that draws reads it (the report of another thread is empty, not a race). The state
+    // was initialised by start() and the SDK fills every report each call, so it is not cleared again here (12.8 KB).
+    if (std::this_thread::get_id() != owner_) {
+        if (!warnedReportThread_)
+            FA_WARN("render", "Reflex: the report was asked from a thread that does not draw: left empty");
+        warnedReportThread_ = true;
+        return Json();
+    }
     if (api_.getState(state_.get()) != abi::kOk || !state_->latencyReportAvailable) return Json();
     double sum = 0, newestMs = 0, gpuSum = 0;
     std::uint64_t newestId = 0;
@@ -279,7 +299,8 @@ void ReflexProvider::forget() {
     frameLimitUs_ = 0;
     token_ = nullptr;
     tokenFrame_ = 0;
-    warnedSleep_ = warnedMarker_ = warnedOptions_ = warnedToken_ = false;
+    warnedSleep_ = warnedMarker_ = warnedOptions_ = warnedToken_ = warnedReportThread_ = false;
+    owner_ = std::thread::id();
     state_.reset();
 }
 
@@ -304,7 +325,7 @@ std::string reflex_load_api(const StreamlineApi& sl, bool withPcl, ReflexApi& ap
         const abi::Result r = sl.getFeatureFunction(feature, name, &address);
         if (r != abi::kOk || !address)
             return streamline_refusal((std::string("slGetFeatureFunction(") + name + ")").c_str(),
-                                      r == abi::kOk ? abi::kErrorFeatureMissing : r);
+                                      r == abi::kOk ? abi::kErrorFeatureMissing : r, feature);
         fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(address);  // NOLINT: the function's address
         return {};
     };

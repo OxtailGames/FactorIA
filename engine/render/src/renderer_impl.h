@@ -318,12 +318,10 @@ struct Renderer::Impl {
     FrameGenCamera fgCamera;
     std::vector<const char*>
         outputPassLog;  // the output passes run by the last frame, in order (tests: RendererTestAccess::output_passes)
-    void
-    sync_framegen_latency();  // XeSS frame generation running => the latency controller runs XeLL (render_framegen_xess.h)
+    // The running frame-generation provider's required low-latency SDK (DLSS: Reflex, XeSS: XeLL) => the latency controller runs it
+    // (FrameGenProvider::requires_reflex, the XeSS slot; LatencyController::require_driver).
+    void sync_framegen_latency();
     void set_framegen_env(render::FeatureEnv& env);  // render.supports: the three frame-generation providers' answers
-    // Turns NVIDIA Reflex on (or lets the player's latency mode decide again) as the running frame-generation provider needs it
-    // (FrameGenProvider::requires_reflex: DLSS frame generation reads Reflex's markers of every frame).
-    void sync_reflex_for_framegen();
     // outTarget into hudlessTarget: a copy, or (`grade` set) drawn through the colour filter, as the picture shown is.
     void framegen_hudless_copy(const PassContext& c, const PostPlan* grade);
     // The provider's dispatch; `filtered`: the picture shown is outFilterTarget (the colour filter ran), else outTarget.

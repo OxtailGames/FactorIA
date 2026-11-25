@@ -128,3 +128,23 @@ TEST_CASE("project: a render.latency start value is the setting the engine start
     CHECK(r.result["mode"] == "antilag2");
     CHECK(r.result["driver"] == "none");
 }
+
+TEST_CASE("profile_latency: the answer follows the setting even though the status is cached between frames") {
+    TempProject p("profile");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    std::string driver, why;
+    e.profile_latency(&driver, &why);
+    CHECK(driver == "none");
+    CHECK(why.find("render.latency is off") != std::string::npos);
+    e.profile_latency(&driver, &why);  // the cached answer is the same one
+    CHECK(why.find("render.latency is off") != std::string::npos);
+    // A setting that changed is never answered from the cache (headless: remembered, nothing paced).
+    auto r = e.commands().call("render.latency", Json::parse(R"({"mode":"auto"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    e.profile_latency(&driver, &why);
+    CHECK(driver == "none");
+    CHECK(why.find("render.latency is off") == std::string::npos);
+    CHECK(why.find("headless") != std::string::npos);
+}
