@@ -17,7 +17,8 @@
 // its own pinned SHA-256 after unpacking and again, by verify_installed_vendor_sdk, before an export copies it. Any host can
 // install them (a Windows export made on a Mac copies them); off Windows the component is "unsupported" in the status,
 // installed only when asked for by name. The folders of OLDER pinned versions (a folder named like a version, lower than this
-// one) are removed once the new one is in place; anything else under tools/<id>/ (a newer version a newer factoria installed
+// one) and the `<version>.old-<pid>-<n>` leftovers of replaced installs (of a version up to this one) are removed once the new
+// one is in place; anything else under tools/<id>/ (a newer version a newer factoria installed
 // side by side, a folder somebody made) stays. The DLLs are never loaded by FactorIA, so no running editor keeps one open.
 #include <algorithm>
 #include <filesystem>
@@ -246,15 +247,34 @@ std::vector<long> version_numbers(const std::string& name) {
     return out;
 }
 
-// Is the folder `name` of tools/<id>/ an older pinned version than `current`, which an install may remove?
-bool is_older_version_folder(const std::string& name, const std::string& current) {
-    std::vector<long> a = version_numbers(name);
+// "2.14.16.old-4242-3" -> "2.14.16" (the folder replace_dir moves a replaced install to and could not delete: a program had a
+// file of it open); "" when `name` is not of that form (the pid and the counter are digits).
+std::string aside_base_name(const std::string& name) {
+    const std::size_t at = name.rfind(".old-");
+    if (at == std::string::npos || at == 0) return {};
+    const std::string rest = name.substr(at + 5);
+    const std::size_t dash = rest.find('-');
+    if (dash == std::string::npos || dash == 0 || dash + 1 >= rest.size()) return {};
+    for (std::size_t i = 0; i < rest.size(); ++i)
+        if (i != dash && (rest[i] < '0' || rest[i] > '9')) return {};
+    return name.substr(0, at);
+}
+
+// Is the folder `name` of tools/<id>/ one an install of `current` may remove? A folder named like an OLDER pinned version, and
+// the leftover `<v>.old-<pid>-<n>` of a replaced install of a version that is not newer than `current` (a replaced install
+// that could not be deleted on Windows stays aside; the next install sweeps it). A newer version, a name that is no version
+// and a folder somebody else made stay.
+bool is_removable_version_folder(const std::string& name, const std::string& current) {
     std::vector<long> b = version_numbers(current);
-    if (a.empty() || b.empty()) return false;
+    if (b.empty()) return false;
+    std::vector<long> a = version_numbers(name);
+    const bool aside = a.empty();
+    if (aside) a = version_numbers(aside_base_name(name));
+    if (a.empty()) return false;
     const std::size_t n = std::max(a.size(), b.size());
     a.resize(n, 0);
     b.resize(n, 0);
-    return a < b;
+    return aside ? a <= b : a < b;
 }
 
 // What a failed download, unpack or copy adds to its hint: how much free disk space the install needs.
@@ -420,7 +440,7 @@ SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOption
     // named like a version and lower than this one: a newer one belongs to a newer factoria that shares this home, and
     // whatever else is there was not made by this setup.
     for (stdfs::directory_iterator it(dir.parent_path(), ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_directory() && is_older_version_folder(fs::path_to_utf8(it->path().filename()), sdk.version)) {
+        if (it->is_directory() && is_removable_version_folder(fs::path_to_utf8(it->path().filename()), sdk.version)) {
             std::error_code rm;
             fs::remove_tree(it->path(), rm);
         }

@@ -362,7 +362,7 @@ std::optional<Fail> download_file(const SetupContext& ctx, const std::string& ur
     if (!r.ok) return Fail{r.cancelled || is_cancelled(ctx.cancel) ? "cancelled" : "network", r.error};
     if (bytes) {
         std::error_code ec;
-        *bytes = stdfs::file_size(destination, ec);
+        *bytes = stdfs::file_size(fs::os_path(destination), ec);
         if (ec) *bytes = 0;
     }
     return std::nullopt;
@@ -413,7 +413,8 @@ std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& 
 std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination,
                                     const std::vector<std::string>& only) {
     std::error_code ec;
-    stdfs::create_directories(destination, ec);
+    stdfs::create_directories(fs::os_path(destination),
+                              ec);  // `\\?\` form on Windows: a long home folder may pass MAX_PATH
     const std::string archiveName = fs::path_to_utf8(archive.filename());
     const std::string name = to_lower(archiveName);
     const bool zip = ends_with(name, ".zip");
@@ -423,7 +424,9 @@ std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& 
                     make_error("Cannot unpack " + archiveName + ": only .zip and .tar.gz archives are supported.",
                                "This is a bug in FactorIA; please report it.")};
     const std::string os = ctx.host_os();
-    // run_process takes UTF-8 arguments; path::string() is the ANSI code page on Windows and mangles accents.
+    // run_process takes UTF-8 arguments (it converts them to UTF-16 for CreateProcessW), so the paths are handed over as UTF-8,
+    // never as path::string(), which is the ANSI code page on Windows. What tar.exe then does with a name outside that code
+    // page is up to the tool (it is bsdtar): a failure names the program, its exit code and its first message line.
     const std::string archiveArg = fs::path_to_utf8(archive);
     const std::string destinationArg = fs::path_to_utf8(destination);
     ProcessOptions po;
