@@ -803,10 +803,11 @@ TEST_CASE("d3d12: the upload ring wraps, and an upload that does not fit takes a
     list2.write_buffer(w);
     submit_and_finish(*dev, list2);
     CHECK(dev->counters().dedicatedUploads == 2);
+    // Before the read: read_buffer's own copy list holds the buffer until the open frame ends.
+    CHECK(dev->counters().pendingReleases == 0);  // the dedicated upload buffers went with their frames
     r = dev->read_buffer(b, 0, big.size(), out);
     REQUIRE(r);
     CHECK(out == big);
-    CHECK(dev->counters().pendingReleases == 0);  // the dedicated upload buffers went with their frames
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));

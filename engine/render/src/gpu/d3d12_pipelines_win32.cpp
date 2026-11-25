@@ -55,9 +55,11 @@ int stage_index(ShaderStage stage, bool compute) {
 // D3DCompile, loaded at runtime like sokol does (no import library).
 using PD3DCompile = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR, const D3D_SHADER_MACRO*, ID3DInclude*, LPCSTR, LPCSTR,
                                      UINT, UINT, ID3DBlob**, ID3DBlob**);
-// The engine's flags (shader_cache.cpp uses the same ones, so a stage it cached and one compiled here are the same).
-constexpr UINT kCompileFlags =
-    D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_PREFER_FLOW_CONTROL;
+// The engine's flags (shader_cache.cpp uses the same ones, so a stage it cached and one compiled here are the same),
+// plus D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES: shader model 5.1 refuses an unsized array such as the bindless
+// table (`Texture2D table[] : register(t0, space1)`, error X3596) without it.
+constexpr UINT kCompileFlags = D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_OPTIMIZATION_LEVEL3 |
+                               D3DCOMPILE_PREFER_FLOW_CONTROL | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES;
 
 bool compile_hlsl(const ShaderFunction& fn, const char* target, const char* stage, std::vector<std::uint8_t>& out,
                   std::string& error) {
