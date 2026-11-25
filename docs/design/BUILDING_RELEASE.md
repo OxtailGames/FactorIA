@@ -242,7 +242,10 @@ that adds it. [EXPORTING.md](../exporting/EXPORTING_CONTENTS.md#size-of-the-play
   than the app). The player measured carries what the shipped one carries: the renderer's SPIR-V (`FA_RENDER_VULKAN`,
   about 3.4 MB) is in the Windows player (D3D11, D3D12 and Vulkan in one binary; its budget was raised for it in
   M77-P9b) and in a Linux, Android or macOS tree only when it builds the tests, so the macOS job, whose tree builds them,
-  configures with `-DFA_RENDER_VULKAN=OFF`; the Linux and Android jobs that measure build no tests.
+  configures with `-DFA_RENDER_VULKAN=OFF`; the Linux and Android jobs that measure build no tests. The Vulkan player of
+  Linux and Android (`factoria_player_vulkan`, `libfactoria_player_vulkan.so`: the SPIR-V and the Vulkan backend) has
+  budget entries of its own (`linux-x64-vulkan`, `android-<abi>-vulkan`), measured next to the OpenGL player's in the same
+  jobs (artifact `player-size-<key>`); their `maxBytes` stay `null` until a CI measurement sets the baseline.
 - **Where.** `scripts/player-size.sh measure --platform <key>` after the build: `ci.yml` jobs `Linux (Steam Runtime sniper)`
   (`linux-x64`, the build that ships), `macOS` (`macos-arm64`), `Windows` (`windows-x64`, shard 1), `Web` (`web-wasm`) and
   `Android` (`android-arm64-v8a`; this job builds Release since a Debug size is meaningless), and `release.yml`: the Android

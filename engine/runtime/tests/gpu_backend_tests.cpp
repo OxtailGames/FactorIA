@@ -272,6 +272,34 @@ GpuBackend an_own_backend() {
 }
 }  // namespace
 
+TEST_CASE("gpu backend: start_gpu_backend tells the host about the failure before the in-process fallback") {
+    // The Vulkan player starts the OpenGL player there (EngineConfig::gpuBackendFailed): the fallback must not run first.
+    std::vector<std::string> events;
+    const GpuBackendStart start = [&events](GpuBackend b) {
+        events.push_back(std::string("start ") + gpu_backend_name(b));
+        return b == GpuBackend::Default ? std::string() : std::string("no Vulkan driver");
+    };
+    GpuBackendStartResult r =
+        start_gpu_backend(GpuBackend::Vulkan, start, "glcore", true,
+                          [&events](const std::string& why) { events.push_back("failed: " + why); });
+    CHECK(r.ok);  // the host returned: the fallback went on
+    REQUIRE(events.size() == 3);
+    CHECK(events[0] == "start vulkan");
+    CHECK(events[1] == "failed: no Vulkan driver");
+    CHECK(events[2] == "start auto");
+    // Not called when the backend starts, nor for the build's own backend.
+    events.clear();
+    r = start_gpu_backend(
+        GpuBackend::Vulkan, [](GpuBackend) { return std::string(); }, "glcore", true,
+        [&events](const std::string& why) { events.push_back(why); });
+    CHECK(events.empty());
+    r = start_gpu_backend(
+        GpuBackend::Default, [](GpuBackend) { return std::string("sg_setup failed"); }, "glcore", true,
+        [&events](const std::string& why) { events.push_back(why); });
+    CHECK_FALSE(r.ok);
+    CHECK(events.empty());
+}
+
 TEST_CASE("gpu backend: a backend that cannot start falls back in process and the report says why") {
     TempProject proj("fallback");
     ScopedEnv env("FA_GPU_BACKEND", nullptr);

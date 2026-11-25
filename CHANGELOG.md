@@ -12,6 +12,24 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
 
 ### Rendering
 
+- **Two players on Linux and Android (M77-P9e2):** next to the OpenGL player, `factoria_player_vulkan`
+  (`libfactoria_player_vulkan.so` on Android, CMake option `FA_PLAYER_VULKAN`, on by default there) carries the engine's Vulkan
+  backend and the built-in shaders' SPIR-V, and its `auto` is Vulkan. It starts first and, before the window, checks that Vulkan can
+  start: where it cannot, or when the game's choice is `gl`/`gles3`, it hands the game to the OpenGL player with the marker
+  `FA_GPU_FALLBACK_FROM=vulkan` and the reason (Linux: `execv` of `<exe>-gl` next to it; Android: it starts `factoria.engine.GlActivity`,
+  process `:gl`, with the same two as intent extras, and finishes). The OpenGL player records them as `gpu.fallbackFrom` and
+  `fallbackReason` in the startup report and never hands back. On Linux a Vulkan start that fails in the window (today always, as the window of
+  these platforms is an OpenGL one: `EngineConfig::gpuBackendFailed`) reaches the player before the in-process fallback of the game
+  window (M77-P9e1), so the OpenGL player takes over; the in-process fallback is the last resort when it is not there. A hand-over
+  because the window cannot take the swapchain says so (`the window path is not available on this platform yet`), not that a driver
+  update would bring Vulkan back. A windowed game is still drawn with OpenGL in the end. Linux and Android exports ship both players (`<exe>` and `<exe>-gl`; the APK's two libraries
+  and GlActivity); `export.linux.vulkanPlayer` / `export.android.vulkanPlayer: false` ship the OpenGL player only, and so do
+  players or prebuilt libraries without the Vulkan one. `factoria setup players` copies the Linux Vulkan player of a release that has
+  it. The new command `graphics.backend` reads which backend draws, what was asked and from where, the fallback that started this
+  player and the stored choice, and with `{"name"}` stores the backend for the next start in the game's save folder
+  (`graphics_backend.json`), which the start reads after `FA_GPU_BACKEND` and before `factoria.json`. CI and the release measure
+  both players (`linux-x64-vulkan`, `android-<abi>-vulkan`, no budget yet) and the Android emulator smoke follows the game into the
+  `:gl` process when the handover happens. docs/RENDERING.md, "Two players on Linux and Android".
 - Vulkan backend leftovers (M77 polish): a window surface that lacks the device's default 8-bit colour order (Android offers only RGBA)
   gives the swapchain the other one and the device's default colour format follows it, or fails with a hint naming
   `DeviceInit::environment.defaults.colorFormat` when pipelines made with the old default exist; `acquire_swapchain` waits 100 ms and the

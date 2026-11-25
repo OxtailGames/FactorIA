@@ -30,6 +30,15 @@
 #include "fa/core/pack.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
+#if defined(FA_PLAYER_VULKAN_VARIANT)
+// The Vulkan player of Linux and Android (player/CMakeLists.txt, docs/RENDERING.md "Two players on Linux and Android").
+#include <cstdlib>
+#include <vector>
+
+#include "fa/render/gpu_probe.h"
+#include "fa/runtime/gpu_backend_choice.h"
+#include "fa/runtime/gpu_launch.h"
+#endif
 
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -39,6 +48,35 @@
 #endif
 
 namespace stdfs = std::filesystem;
+
+#if defined(FA_PLAYER_VULKAN_VARIANT)
+namespace {
+
+// What the Vulkan player does at start: draw the game itself (Vulkan, or its own sokol backend when the OpenGL player is
+// not there), or hand over to the OpenGL player because the game asks for OpenGL or Vulkan cannot start. The same order
+// of choices as the engine's (fa/runtime/gpu_backend_choice.h); `glPlayerPresent` says whether the OpenGL player is there.
+// A Vulkan device is tried (and dropped) only when this process would draw with Vulkan and could hand over.
+fa::GpuLaunchDecision vulkan_player_decision(const fa::EngineConfig& cfg, const fa::ProjectSettings& project,
+                                             bool glPlayerPresent, bool checkRun, std::string* vulkanFailure) {
+    fa::GpuBackendInputs in = fa::make_gpu_backend_inputs(cfg.gpuBackend, !cfg.memoryStorage,
+                                                          checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan,
+                                                          project.renderBackend, nullptr);
+    fa::GpuLaunchInput li;
+    li.vulkanPlayer = true;
+    li.glPlayerPresent = glPlayerPresent;
+    auto choice = fa::choose_gpu_backend(in);
+    if (!choice.ok()) return fa::GpuLaunchDecision{};  // the engine reports the bad name when it starts
+    li.backend = choice.value().backend;
+    li.fallbackFrom = choice.value().fallbackFrom;
+    if (li.backend == fa::GpuBackend::Vulkan && li.fallbackFrom.empty() && glPlayerPresent)
+        if (auto probe = fa::probe_gpu_backend(fa::GpuBackend::Vulkan); !probe.ok())
+            li.vulkanFailure = probe.error().message;
+    if (vulkanFailure) *vulkanFailure = li.vulkanFailure;
+    return fa::decide_gpu_launch(li);
+}
+
+}  // namespace
+#endif
 
 #if defined(__EMSCRIPTEN__)
 // ------------------------------------------------------------------------------------------------
@@ -434,6 +472,33 @@ int main(int argc, char** argv) {
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
+#if defined(FA_PLAYER_VULKAN_VARIANT)
+        // Before log.txt is started: the OpenGL player that takes over starts it again (its warning names the reason).
+        cfg.memoryStorage = checkRun && !persistStorage;
+        // A check run (--input, --dump-state, --screenshot) in "auto" draws like `factoria run --headless`, with the
+        // OpenGL backend, so its state and pixels match that run byte for byte; FA_GPU_BACKEND=vulkan (or the game's
+        // renderBackend) still checks the Vulkan path.
+        cfg.gpuBackendAuto = checkRun ? fa::GpuBackend::Default : fa::GpuBackend::Vulkan;
+        const stdfs::path glPlayer = fa::gl_player_path();
+        const std::vector<std::string> args(argv, argv + argc);
+        std::string vulkanFailure;
+        const fa::GpuLaunchDecision launch =
+            vulkan_player_decision(cfg, *proj, !glPlayer.empty(), checkRun, &vulkanFailure);
+        if (launch.action != fa::GpuLaunchAction::Stay) {
+            const bool fallback = launch.action == fa::GpuLaunchAction::FallBackToGl;
+            auto r = fa::exec_gl_player(glPlayer, args, fallback ? "vulkan" : "", vulkanFailure);
+            // Only back here when the exec failed: this player draws with its own sokol backend.
+            std::fprintf(stderr, "warning: %s (%s)\n", r.error().message.c_str(), launch.reason.c_str());
+        }
+        // A window that cannot draw with Vulkan (its surface or swapchain): the OpenGL player takes over, once.
+        if (!glPlayer.empty() && !std::getenv(fa::kGpuFallbackFromEnv)) {
+            cfg.gpuBackendFailed = [glPlayer, args](const std::string& backend, const std::string& why) {
+                if (backend != "vulkan") return;
+                auto r = fa::exec_gl_player(glPlayer, args, backend, why);
+                FA_WARN("player", "{}; this player draws with its own sokol backend", r.error().message);
+            };
+        }
+#endif
         log_to_file(fa::fs::user_dir());
         report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
@@ -492,6 +557,8 @@ int main(int argc, char** argv) {
 
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
+
+#include "fa/runtime/gpu_launch.h"
 #else
 // Implemented in ios_bundle.mm.
 std::string fa_player_ios_game_dir();       // <bundle resource path>/game
@@ -522,6 +589,19 @@ void error_init() {
 void error_frame() { fa::Renderer::present_clear(fa::app_gfx_swapchain(), fa::Color{0.55f, 0.08f, 0.08f, 1.0f}); }
 void error_cleanup() { fa::Renderer::close_context(); }
 
+#if defined(__ANDROID__) && defined(FA_PLAYER_VULKAN_VARIANT)
+// The Vulkan activity handed over to the OpenGL one and finishes: a black frame until it is gone.
+void handover_frame() { fa::Renderer::present_clear(fa::app_gfx_swapchain(), fa::Color{0.0f, 0.0f, 0.0f, 1.0f}); }
+sapp_desc handover_desc() {
+    sapp_desc s{};
+    s.init_cb = error_init;
+    s.frame_cb = handover_frame;
+    s.cleanup_cb = error_cleanup;
+    s.window_title = "FactorIA";
+    return s;
+}
+#endif
+
 sapp_desc error_desc(const std::string& message) {
     g_errorMessage = message;
     FA_ERROR("player", "{}", g_errorMessage);
@@ -548,8 +628,12 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     cfg.exportedPlayer = true;      // no read checks on the script API objects, errors may blame an old player
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
 #if defined(__ANDROID__)
-    const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
+    auto* activity = static_cast<ANativeActivity*>(const_cast<void*>(sapp_android_get_native_activity()));
     if (!activity) return error_desc("Android: sapp_android_get_native_activity() returned null.");
+#if !defined(FA_PLAYER_VULKAN_VARIANT)
+    // Started by the Vulkan activity in its place: the intent's extras carry why (FA_GPU_FALLBACK_FROM, ..._REASON).
+    fa::android_take_gpu_fallback_extras(activity);
+#endif
     fa::fs::set_android_asset_manager(activity->assetManager);
     if (activity->internalDataPath) {
         fa::fs::set_user_dir(activity->internalDataPath);
@@ -561,6 +645,24 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     if (!fa::fs::exists(fa::kProjectFileName))
         return error_desc("No factoria.json in the APK assets. Export with `factoria export --platform android` "
                           "(files must end up in app/src/main/assets/).");
+#if defined(FA_PLAYER_VULKAN_VARIANT)
+    // The Vulkan activity (the launcher of an export with both players, docs/EXPORTING_MOBILE.md): the OpenGL activity
+    // draws the game when it asks for OpenGL or when Vulkan cannot start. A failure later, in the window, falls back in
+    // this process (this library carries the GLES3 backend too).
+    cfg.gpuBackendAuto = fa::GpuBackend::Vulkan;
+    if (auto proj = fa::load_project(""); proj.ok()) {
+        std::string vulkanFailure;
+        const fa::GpuLaunchDecision launch =
+            vulkan_player_decision(cfg, *proj, true, /*checkRun=*/false, &vulkanFailure);
+        if (launch.action != fa::GpuLaunchAction::Stay) {
+            const bool fallback = launch.action == fa::GpuLaunchAction::FallBackToGl;
+            FA_INFO("player", "{}", launch.reason);
+            auto r = fa::android_start_gl_activity(activity, fallback ? "vulkan" : "", vulkanFailure);
+            if (r.ok()) return handover_desc();
+            FA_WARN("player", "{}", r.error().to_string());
+        }
+    }
+#endif
 #else
     cfg.projectDir = fa_player_ios_game_dir();
     fa::fs::set_user_dir(fa_player_ios_documents_dir());

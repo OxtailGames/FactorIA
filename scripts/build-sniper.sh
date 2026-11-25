@@ -9,13 +9,13 @@
 #   ./scripts/build-sniper.sh [build|check|smoke|all] [-- <cmake configure arguments>]
 #
 #   build   Configures and builds the preset `linux-sniper` (Release, no tests) in the SDK container into
-#           build/linux-sniper: factoria (CLI + editor) and factoria_player. Arguments after `--` go to `cmake --preset`,
+#           build/linux-sniper: factoria (CLI + editor), factoria_player and factoria_player_vulkan. Arguments after `--` go to `cmake --preset`,
 #           e.g. `-- -DFA_UPDATE_REPO=OxtailGames/FactorIA` (the release does that).
-#   check   In the SDK container: fails when factoria or factoria_player imports a glibc, GLIBCXX, CXXABI or GCC symbol
+#   check   In the SDK container: fails when factoria or a player imports a glibc, GLIBCXX, CXXABI or GCC symbol
 #           version newer than the sniper runtime provides (objdump -T; the limits are read from the container's own
 #           libc.so.6, libstdc++.so.6 and libgcc_s.so.1, which are the runtime's).
 #   smoke   In the sniper RUNTIME container (the `platform` image, the one games run in): ldd finds every library,
-#           `factoria_player --version`, `factoria version`, `factoria new --template 2d-empty` and one headless frame
+#           `factoria_player --version` (and factoria_player_vulkan's), `factoria version`, `factoria new --template 2d-empty` and one headless frame
 #           (`factoria run --headless --frames 1`, on Mesa's software renderer). Nothing else is installed there.
 #   all     build, check and smoke (the default).
 #
@@ -35,7 +35,9 @@ SDK_IMAGE="$SNIPER_REGISTRY/sdk:$SNIPER_TAG"
 PLATFORM_IMAGE="$SNIPER_REGISTRY/platform:$SNIPER_TAG"
 PRESET=linux-sniper
 OUT="build/$PRESET"
-PROGRAMS=("$OUT/tools/cli/factoria" "$OUT/player/factoria_player")
+# factoria_player_vulkan: the Vulkan variant of the player (FA_PLAYER_VULKAN, on by default on Linux), which runs
+# factoria_player where Vulkan cannot start.
+PROGRAMS=("$OUT/tools/cli/factoria" "$OUT/player/factoria_player" "$OUT/player/factoria_player_vulkan")
 # The SDK image has GCC 10 by default, which has no std::format; GCC 14 is installed next to it.
 CC_NAME=gcc-14
 CXX_NAME=g++-14
@@ -123,10 +125,10 @@ inside_check() {
 
 inside_smoke() {
     cd "$ROOT"
-    local fa="$ROOT/${PROGRAMS[0]}" player="$ROOT/${PROGRAMS[1]}"
-    local f missing tmp out version player_version
+    local fa="$ROOT/${PROGRAMS[0]}" player="$ROOT/${PROGRAMS[1]}" vulkan="$ROOT/${PROGRAMS[2]}"
+    local f missing tmp out version player_version vulkan_version
     echo "==> $(. /etc/os-release && echo "$PRETTY_NAME $BUILD_ID"), glibc $(ldd --version | head -n 1 | sed 's/.* //')"
-    for f in "$fa" "$player"; do
+    for f in "$fa" "$player" "$vulkan"; do
         [[ -x "$f" ]] || die "$f does not exist: run ./scripts/build-sniper.sh build first"
         missing="$(ldd "$f" | grep 'not found' || true)"
         if [[ -n "$missing" ]]; then
@@ -148,6 +150,11 @@ inside_smoke() {
     echo "$player_version"
     [[ "${player_version#factoria_player }" == "${version#factoria }" ]] ||
         { fail_msg "'$player_version' and '$version' are different versions"; exit 1; }
+    # --version prints before any GPU is touched: the variant answers it itself, without handing over to the GL player.
+    vulkan_version="$("$vulkan" --version)"
+    echo "$vulkan_version"
+    [[ "$vulkan_version" == "$player_version" ]] ||
+        { fail_msg "factoria_player_vulkan says '$vulkan_version', factoria_player '$player_version'"; exit 1; }
 
     "$fa" new "$tmp/game" --template 2d-empty
     # The run succeeds without a GPU too when no frame is drawn, so the screenshot proves a GPU context worked.
