@@ -131,6 +131,7 @@ bool Renderer::Impl::run_upscale_prep(const UpscaleInput& in, const PassContext&
     ++stats.drawCalls;
     prepSerial =
         upscaleTaa.serial;  // the frame generation of this frame reads these two images and need not make them again
+    prepReversed = reversedNear > 0.0f;
     return true;
 }
 

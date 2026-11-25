@@ -288,11 +288,23 @@ struct Renderer::Impl {
     Target hudlessTarget;
     int hudlessIdleFrames = 0;  // frames in a row the copy was not needed: it is freed at kOutputIdleFrames
     std::uint64_t prepSerial = ~std::uint64_t(0);
+    bool prepReversed =
+        false;  // ... and whether they were made with the reversed infinite depth (the provider that wants it, run_upscale_prep)
+    // The camera of the frame the temporal upscaler is made for, as frame generation tells it to its provider.
+    struct FrameGenCamera {
+        bool perspective = true;
+        float nearPlane = 0.1f, farPlane = 1000.0f;
+        Vec3 position{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+        Mat4 view;
+    };
+    FrameGenCamera fgCamera;
     std::vector<const char*>
         outputPassLog;  // the output passes run by the last frame, in order (tests: RendererTestAccess::output_passes)
-    void set_framegen_env(render::FeatureEnv& env);    // render.supports: the three frame-generation providers' answers
-    void framegen_hudless_copy(const PassContext& c);  // outTarget into hudlessTarget
-    void framegen_pass(const render::FrameGenPassPlan& plan, const PassContext& c);  // the provider's dispatch
+    void set_framegen_env(render::FeatureEnv& env);  // render.supports: the three frame-generation providers' answers
+    // outTarget into hudlessTarget: a copy, or (`grade` set) drawn through the colour filter, as the picture shown is.
+    void framegen_hudless_copy(const PassContext& c, const PostPlan* grade);
+    // The provider's dispatch; `filtered`: the picture shown is outFilterTarget (the colour filter ran), else outTarget.
+    void framegen_pass(const render::FrameGenPassPlan& plan, bool filtered, const PassContext& c);
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();

@@ -78,15 +78,19 @@ text, debug overlay) they are drawn after the upscaler, so the output stage is:
 1. `upscale`: the temporal upscaler fills the output picture;
 2. `framegen-hudless`: a copy of that picture (the one the SDK generates from);
 3. `hud-over-upscale`: the items are drawn over it, at the output size;
-4. `framegen`: the provider gets the frame: the picture before the items (`hudless`), the picture with them (`presented`, and
-   `hudDrawn` true so the SDK composites the items on its own frames), the render-sized depth and motion of the temporal upscaler, the
-   unjittered projection, the matrix from this frame's view to the previous clip space, the jitter, the vertical field of view and the
-   frame time;
-5. the colour filter, when there is one, after that.
+4. `output-color-filter`, when the camera has a colour filter (colour-blindness and the like): the picture with the items, filtered, is the
+   picture the window shows. The copy of step 2 is drawn through the same filter, so both pictures the SDK gets are graded alike (a generated
+   frame between two graded ones is graded too: no colour flicker);
+5. `framegen`: the provider gets the frame: the picture before the items (`hudless`), the picture the window shows (`presented`: with
+   the items, filtered when there is a filter, and `hudDrawn` true so the SDK composites the items on its own frames), the render-sized depth and
+   motion of the temporal upscaler, the camera (unjittered projection, near and far planes, field of view, position and axes, view matrix,
+   the matrix from this frame's view to the previous clip space, the jitter), the colour description (format, output encoding, HDR headroom) and
+   the frame time.
 
-A frame without items has no copy: the picture is its own hudless one. The copy is made only while generation is on and is freed a few
-frames after. Known limits: the colour filter (`post` colour-blindness and similar) is applied to the picture with the items and not to the
-hudless source; and a frame the provider refuses is reported (`reason`), and the next frame carries a reset so the SDK drops its history.
+A frame without items has no copy (and no filter pass: the filter is part of the render-sized picture then): the picture is its own
+hudless one. The copy is made only while generation is on and is freed a few frames after. A frame the provider refuses is reported
+(`reason`), and the next frame carries a reset so the SDK drops its history; so does a camera cut, a change of the output size, a new or
+resized window swapchain and the end of a pause.
 
 ## The readout
 

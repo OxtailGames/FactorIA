@@ -594,10 +594,11 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
             if (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan) register_streamline_runtime();
             // Anti-Lag 2 asks a Vulkan device for its extension (Windows; render_latency_antilag2.h).
             render::register_latency_device_hooks();
-            // Frame generation makes (or wraps) the window's swapchain: its providers' hooks too, before the device exists (M78).
+            // Frame generation makes (or wraps) the window's swapchain: its providers' hooks go to THIS device only (M78; not registered for the
+            // process, so a renderer that did not ask for frame generation makes a device none of them sees).
             if (desc.frameGeneration && !desc.headless &&
                 (backend == gpu::Backend::D3d12 || backend == gpu::Backend::Vulkan))
-                render::register_framegen_device_hooks();
+                for (auto& hook : render::framegen_device_hooks()) init.hooks.push_back(std::move(hook));
             auto made = gpu::make_device(backend, init);
             if (!made) {
                 if (error) *error = "Failed to create the GPU device: " + made.error().to_string();
@@ -1492,6 +1493,19 @@ void RendererTestAccess::framegen_assume_hooked(Renderer& r) {
 bool RendererTestAccess::hudless_target_alive(Renderer& r) {
     return r.impl_ && r.impl_->gpu.has_device() && r.impl_->hudlessTarget.valid(r.impl_->gpu.device());
 }
+gpu::Image RendererTestAccess::filtered_output_image(Renderer& r) {
+    return r.impl_ ? r.impl_->outFilterTarget.texture_image() : gpu::Image{};
+}
+gpu::Image RendererTestAccess::hudless_image(Renderer& r) {
+    return r.impl_ ? r.impl_->hudlessTarget.texture_image() : gpu::Image{};
+}
+bool RendererTestAccess::read_hudless(Renderer& r, std::vector<std::uint8_t>& rgba, int& w, int& h) {
+    if (!r.impl_ || !r.impl_->gpu.has_device() || !r.impl_->hudlessTarget.valid(r.impl_->gpu.device())) return false;
+    const Target& t = r.impl_->hudlessTarget;
+    w = t.w;
+    h = t.h;
+    return r.impl_->read_rgba8(t.texture_image(), t.texView, t.w, t.h, rgba, nullptr, false, true);
+}
 bool RendererTestAccess::mfx_failed(Renderer& r) { return r.impl_ && r.impl_->mfxFailed; }
 bool RendererTestAccess::vendor_failed(Renderer& r, int index) {
     return r.impl_ && index >= 0 && index < render::kVendorUpscalerCount && r.impl_->vendorFailed[index];
@@ -1786,7 +1800,7 @@ void Renderer::Impl::render(World& world, float dt) {
     // Frame generation (M78, render_framegen.h): this frame's inputs and its place in the base frame rate. The engine clock of the latency seam
     // (a test's fake) is the one the rate is measured with; mode off is one branch.
     framegen.set_inputs(upscale_active(), temporalFrame);
-    framegen.begin_frame(render::latency_clock().now_ms(), false);
+    framegen.begin_frame(render::latency_clock().now_ms());
     refresh_logic_cameras(world);
     occlusionPrev = std::move(
         occlusionShown);  // the debug view of the occlusion draws the frame before's boxes (gather_meshes fills this one)
@@ -2191,6 +2205,7 @@ void Renderer::set_native_window(const void* window) {
         im.gpu.device().destroy_swapchain();
         im.windowDesc.nativeWindow = nullptr;
         FA_INFO("render", "Renderer: the window went; its swapchain is destroyed until the next one");
+        im.framegen.set_swapchain(render::FrameGenSwapchain{im.gpu.device().backend(), 0, 0, im.windowDesc.vsync});
         return;
     }
     if (window != im.windowDesc.nativeWindow) im.gpu.device().destroy_swapchain();  // none on a new window yet

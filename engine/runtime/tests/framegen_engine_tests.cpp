@@ -79,7 +79,8 @@ TEST_CASE("project: render.frameGeneration loads, round-trips, defaults to off a
     CHECK(r.error().message.find("/render/frameGeneration/minBaseFps") != std::string::npos);
 }
 
-TEST_CASE("render.frame_generation: reads, sets, and refuses without changing anything (headless: remembered, nothing generated)") {
+TEST_CASE("render.frame_generation: reads, sets, and refuses without changing anything (headless: remembered, nothing "
+          "generated)") {
     TempProject p("command");
     Engine e;
     std::string err;

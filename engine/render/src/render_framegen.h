@@ -6,6 +6,8 @@
 // (libxess_fg). Each takes part in making the window's swapchain (it makes it itself or wraps it: DeviceHook::d3d12_create_swapchain /
 // vulkan_create_swapchain, then the present hooks), so its hook is registered before the device exists (register_framegen_device_hooks, called
 // by Renderer::init when RendererDesc::frameGeneration is on) and the controller starts the provider on that device and swapchain.
+// The hooks are handed to the device of THAT renderer only (gpu::DeviceInit::hooks, framegen_device_hooks), never registered process-wide:
+// a second renderer in the same process that did not ask for frame generation makes its device and swapchain untouched.
 //
 // What a frame hands the provider (FrameGenFrame): the picture BEFORE the screen-space items ("hudless": generation sees the game, not the
 // menus, whose text would smear between two frames), the finished picture with the items, the depth and the motion the temporal upscaler
@@ -30,6 +32,7 @@
 
 #include "gpu/device.h"
 #include "gpu/device_hooks.h"
+#include "hdr_encode.h"
 #include "render_upscale_vendor.h"
 
 namespace fa::render {
@@ -48,41 +51,80 @@ struct FrameGenSwapchain {
 struct FrameGenFrame {
     gpu::Device* device = nullptr;
     gpu::CommandList* list = nullptr;
-    gpu::Image hudless{};      // the output-sized picture before the screen-space items (the same image as `presented` when there are none)
-    gpu::Image presented{};    // the output-sized picture the swapchain shows (with the items when `hudDrawn`)
-    bool hudDrawn = false;     // the screen-space items were drawn over `final` (the provider composites them on its generated frames)
-    gpu::Image depth{}, motion{};  // the render-sized depth (0..1, growing with the distance) and the motion (UV units, previous - current)
+    gpu::Image
+        hudless{};  // the output-sized picture before the screen-space items (the same image as `presented` when there are none)
+    gpu::Image presented{};  // the output-sized picture the swapchain shows (with the items when `hudDrawn`)
+    bool hudDrawn =
+        false;  // the screen-space items were drawn over `final` (the provider composites them on its generated frames)
+    // The render-sized depth and motion (the images the temporal upscaler's preparation pass makes, shaders/upscale_mfx.glsl).
+    //  depth: depthReversed false: d / (d + 1) of the linear view depth d in world units (0..1 growing with the distance, 1 for the sky and
+    //    every pixel no mesh wrote); depthReversed true (the provider asked for it, wants_reversed_depth) with depthInfinite true: near / d (1 at
+    //    the near plane, towards 0, 0 for the sky), the depth of an infinite far plane that FSR and the other SDKs read with their "inverted" and
+    //    "infinite" flags. cameraNear and cameraFar are the camera's own planes for the SDK's constants (an orthographic camera: -1000 and 1000, the
+    //    planes of its matrix, and a nominal field of view).
+    //  motion: two channels, in fractions of the picture (u of its width, v of its height, v down), pointing from a pixel to where its surface
+    //    was on the frame before (previous - current), without the jitter; motionScaleX / Y turn those values into the units an SDK asks for
+    //    (1, 1: they are fractions already; an SDK of pixel units takes renderW and renderH).
+    gpu::Image depth{}, motion{};
+    bool depthReversed = false, depthInfinite = false;
+    float motionScaleX = 1.0f, motionScaleY = 1.0f;
+    bool motionJittered = false;  // false: the vectors are of the unjittered picture
     gpu::PixelFormat colorFormat = gpu::PixelFormat::None;
     int renderW = 0, renderH = 0, outW = 0, outH = 0;
     // The camera: the unjittered projection (P00, P11, P02, P12, P03, P13, P32, P33, as TaaPlan::proj), the matrix from a view-space position
     // of this frame to the clip position it had on the frame before, the jitter this frame was drawn with (render pixels, x right, y down), the
-    // near plane the depth is made with, the vertical field of view (radians) and the seconds the frame took.
+    // planes, the vertical field of view (radians), the camera's place (the world position and the right, up and forward axes of its view,
+    // viewFromWorld the view matrix itself) and the milliseconds the frame took.
     float proj[8]{};
     Mat4 prevFromView;
     float jitterX = 0, jitterY = 0;
-    float cameraNear = 0.1f, cameraFovY = 1.0f;
+    float cameraNear = 0.1f, cameraFar = 1000.0f, cameraFovY = 1.0f;
+    bool cameraPerspective = true;
+    Vec3 cameraPosition{0, 0, 0}, cameraRight{1, 0, 0}, cameraUp{0, 1, 0}, cameraForward{0, 0, -1};
+    Mat4 viewFromWorld;
     float frameTimeMs = 0;
-    std::uint64_t frameId = 0;  // the game frame (Renderer's postSerial); a number that goes up by one per rendered frame
-    bool reset = false;         // the history is not valid (a cut, a resize, the first frame, a pause that just ended): forget the frame before
-    std::string error;          // set by a provider that returns false
+    // The colour: the pictures are display-referred (the post stack's final pass tonemapped and exposed them: `exposure` is 1, an SDK that wants a
+    // pre-exposure gets that). They are display-linear in `colorFormat`; the present pass encodes them for the window as `outputEncode` says
+    // (sRGB, scRGB, HDR10 or EDR linear), with `hdrHeadroom` times paper white of room above 1.0 (1: within paper white) and paper white at
+    // `paperWhiteNits`.
+    float exposure = 1.0f;
+    OutputEncode outputEncode = OutputEncode::Sdr;
+    float hdrHeadroom = 1.0f, paperWhiteNits = 200.0f;
+    std::uint64_t frameId =
+        0;  // the game frame (Renderer's postSerial); a number that goes up by one per rendered frame
+    // The history is not valid: the first frame, a camera cut (the temporal upscaler's own: a scene change, a floating-origin rebase, a
+    // camera that did not draw the frame before), a change of the output size or of the swapchain, a pause that just ended, a frame the
+    // provider refused: forget the frame before.
+    bool reset = false;
+    std::string error;  // set by a provider that returns false
 };
 
 // One frame-generation SDK. A provider is a process-wide object that serves the device that started it last (the way VendorUpscaler does).
 class FrameGenProvider {
 public:
     virtual ~FrameGenProvider() = default;
-    virtual std::string_view name() const = 0;      // "DLSS frame generation", "FSR 3 frame generation", "XeSS frame generation"
-    virtual FrameGenSlot slot() const = 0;          // the slot it fills: Dlss, Fsr or Xess
-    virtual std::string_view setup_id() const = 0;  // "streamline", "fidelityfx", "xess": what `factoria setup <id>` installs
-    virtual unsigned backends() const = 0;          // the bits (1 << gpu::Backend) it can run on
+    virtual std::string_view
+    name() const = 0;  // "DLSS frame generation", "FSR 3 frame generation", "XeSS frame generation"
+    virtual FrameGenSlot slot() const = 0;  // the slot it fills: Dlss, Fsr or Xess
+    virtual std::string_view
+    setup_id() const = 0;                   // "streamline", "fidelityfx", "xess": what `factoria setup <id>` installs
+    virtual unsigned backends() const = 0;  // the bits (1 << gpu::Backend) it can run on
     // Whether this provider can run on `env`: the backend (vendor_environment_problem), the GPU's maker, the SDK installed (the sentence names
     // `factoria setup <setup_id()>`), the generation hardware. Asked once per renderer, never per frame.
     virtual VendorProbe probe(const VendorEnv& env) = 0;
-    // The hook that makes the window's swapchain (or wraps it) and counts the presents, registered before the device is made; null when the
-    // provider needs none. It does nothing until start() ran. The controller never calls it: Renderer::init registers it.
+    // The hook that makes the window's swapchain (or wraps it) and counts the presents; null when the provider needs none. Renderer::init
+    // hands it to the device of a renderer that asked for frame generation (RendererDesc::frameGeneration, a window on D3D12 or Vulkan),
+    // before that device exists, through gpu::DeviceInit::hooks and nowhere else (framegen_device_hooks): it is never registered for the
+    // process, so a renderer that did not ask is not seen by it. The same object serves each such device; it passes everything through once
+    // stop() ran. The controller never calls it.
     virtual std::shared_ptr<gpu::DeviceHook> device_hook() { return nullptr; }
     // Makes the SDK's context on `device`'s swapchain; "" or the SDK's reason (the controller then stays off this provider, "fail once").
     virtual std::string start(gpu::Device& device, const FrameGenSwapchain& swapchain) = 0;
+    // Whether the depth image is to be the reversed infinite one (near / d) instead of d / (d + 1) (FrameGenFrame::depthReversed).
+    virtual bool wants_reversed_depth() const { return false; }
+    // The window's swapchain was made again, resized or lost (width and height 0): what start() was told is out of date. Called on the render
+    // thread, between two frames; the next frame carries `reset`. The default does nothing.
+    virtual void swapchain_changed(gpu::Device& /*device*/, const FrameGenSwapchain& /*swapchain*/) {}
     // Generation on or off for the frames that follow (the controller turns it off below minBaseFps and when the frame has no motion): off
     // is the SDK asleep, the swapchain presents the rendered frames only.
     virtual void configure(bool enabled) = 0;
@@ -114,15 +156,17 @@ const char* framegen_slot_setup_id(FrameGenSlot slot);
 // The sentence of a provider refused by `env`'s backend or system ("" when none refuses it): what a provider's probe starts with.
 std::string framegen_environment_problem(const FrameGenProvider& provider, const VendorEnv& env);
 
-// Registers the device hook of every provider that has one (Renderer::init, before the device is made, when frame generation is on). Once per
-// hook for the life of the process.
-void register_framegen_device_hooks();
+// The device hook of every provider that has one, each once (Renderer::init puts them in DeviceInit::hooks of the device it is about to make,
+// when frame generation is on and the device has a window of D3D12 or Vulkan). Nothing is registered process-wide: a device made without
+// them, by this or another renderer, calls none of them.
+std::vector<std::shared_ptr<gpu::DeviceHook>> framegen_device_hooks();
 
 // ---- the passes of the output ------------------------------------------------------------------------------------------------------
 
 // What the output stage of a frame adds for generation (renderer_draw.cpp, finish_output). `dispatch`: the provider gets this frame. `copyHudless`:
 // the picture is copied before the screen-space items are drawn over it, because they are drawn into the same image. Without items the
-// picture is its own hudless one.
+// picture is its own hudless one. With the colour filter on, the copy is drawn through the same filter as the picture shown (both images the
+// provider gets are graded alike, `presented` is the filtered image the swapchain shows), and the dispatch comes after the filter pass.
 struct FrameGenPassPlan {
     bool dispatch = false;
     bool copyHudless = false;
@@ -134,15 +178,15 @@ inline constexpr const char* kPassFrameGenHudless = "framegen-hudless";
 inline constexpr const char* kPassHudOverUpscale = "hud-over-upscale";
 inline constexpr const char* kPassFrameGen = "framegen";
 inline constexpr const char* kPassOutputColorFilter = "output-color-filter";
-// The passes finish_output adds, in the order they run (what the tests read): upscale, [framegen-hudless], [hud-over-upscale], [framegen],
-// [output-color-filter]. The hudless copy is before the screen-space items; the dispatch after them.
-std::vector<std::string_view> framegen_output_pass_order(bool hudOverUpscale, bool dispatchWanted, bool colorFilter);
+// The passes finish_output adds, in the order they run (RendererTestAccess::output_passes reads what a frame ran): upscale,
+// [framegen-hudless], [hud-over-upscale], [output-color-filter], [framegen]. The hudless copy is before the screen-space items; the dispatch
+// after them and after the colour filter.
 
 // ---- the controller ---------------------------------------------------------------------------------------------------------------
 
 enum class FrameGenState : std::int32_t {
-    Off,        // the mode is off
-    Refused,    // the mode is on but nothing can run (missing provider, setup, backend, GPU, the temporal upscaler ...): `reason` says what
+    Off,      // the mode is off
+    Refused,  // the mode is on but nothing can run (missing provider, setup, backend, GPU, the temporal upscaler ...): `reason` says what
     Measuring,  // a provider is ready and the frame rate has not been measured over a full window yet
     Paused,     // the base frame rate is below minBaseFps: generation is off until it recovers
     Active      // generation is on
@@ -154,8 +198,8 @@ struct FrameGenReport {
     FrameGenSlot provider = FrameGenSlot::None;  // the provider started (None when off or refused)
     FrameGenState state = FrameGenState::Off;
     bool generating = false;
-    double baseFps = 0;       // frames the game renders per second over the last window (0 until measured)
-    double presentedFps = 0;  // the same plus the frames the SDK generated in that window
+    double baseFps = 0;                 // frames the game renders per second over the last window (0 until measured)
+    double presentedFps = 0;            // the same plus the frames the SDK generated in that window
     std::uint64_t renderedFrames = 0;   // since the controller started or was reset
     std::uint64_t generatedFrames = 0;  // the SDK's, since the same
     std::string reason;                 // why nothing runs, or why generation is paused; "" while active
@@ -187,14 +231,20 @@ public:
     // What the machine can run, asking each provider once; the slot of the mode that runs (None when off or refused).
     FrameGenCaps caps();
     std::string provider_reason(FrameGenSlot slot);  // "" when `slot`'s provider is usable here, else why not
-    void reset_probes();                              // the device changed: the answers are asked again
+    void reset_probes();                             // the device changed: the answers are asked again
     FrameGenSlot provider() const { return running_ ? runningSlot_ : FrameGenSlot::None; }
 
     // One rendered frame of the game, at `nowMs` (the engine clock: Renderer passes latency_clock().now_ms()): measures the base rate and
-    // decides whether generation is on. `reset`: the camera cut or the scene changed (the provider gets a reset frame).
-    void begin_frame(double nowMs, bool reset);
+    // decides whether generation is on. A camera cut is not told here: the frame itself says it (FrameGenFrame::reset, the temporal upscaler's
+    // history), and so does a change of the output size (dispatch compares it with the last frame's).
+    void begin_frame(double nowMs);
+    // The window's swapchain was made again, resized or lost (width and height 0): the provider is told (swapchain_changed) and the next frame
+    // carries `reset`. The same size again does nothing.
+    void set_swapchain(const FrameGenSwapchain& swapchain);
     // True while the provider is to be given this frame (started, nothing refuses, the rate allows).
     bool wants_dispatch() const { return running_ && generating_ && refusal_.empty(); }
+    // Whether the started provider asks for the reversed infinite depth (FrameGenProvider::wants_reversed_depth).
+    bool wants_reversed_depth() const { return running_ && running_->wants_reversed_depth(); }
     // Hands the frame to the provider (when wants_dispatch()); false when the provider refused it (its reason is then the report's).
     bool dispatch(FrameGenFrame& frame);
     // A frame the renderer could not hand over (the depth and motion images could not be made): the report says why, the next frame resets.
@@ -215,7 +265,7 @@ private:
     };
     Slot& slot(FrameGenSlot s);
     void stop_provider();
-    void apply();          // decides provider and refusal from the settings, the inputs and the probes
+    void apply();  // decides provider and refusal from the settings, the inputs and the probes
     void set_generating(bool on);
 
     gpu::Device* device_ = nullptr;
@@ -239,10 +289,11 @@ private:
     int count_ = 0, head_ = 0;
     double baseFps_ = 0, presentedFps_ = 0;
     std::uint64_t rendered_ = 0;
-    std::uint64_t generatedBase_ = 0;  // generatedNow_ when the stats were reset
-    std::uint64_t generatedNow_ = 0;   // the frames the SDK generated over all its starts
+    std::uint64_t generatedBase_ = 0;      // generatedNow_ when the stats were reset
+    std::uint64_t generatedNow_ = 0;       // the frames the SDK generated over all its starts
     std::uint64_t lastProviderCount_ = 0;  // the SDK's own counter at the last frame
-    std::string dispatchError_;  // the last frame the provider refused
+    std::string dispatchError_;            // the last frame the provider refused
+    int lastOutW_ = 0, lastOutH_ = 0;      // the output size of the last frame handed over (a change resets)
 };
 
 }  // namespace fa::render
