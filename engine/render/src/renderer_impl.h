@@ -104,7 +104,9 @@ struct Renderer::Impl {
     bool scaleStepOnly = false;
     float renderBaseScale =
         1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
-    bool gpuFrameWanted = false;     // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    bool gpuFrameWanted = false;  // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    bool dynResSeen =
+        false;  // the render scale has moved under renderBaseScale at least once (kept: the SDKs' contexts keep their flags)
     std::vector<double> gpuFrameMs;  // the GPU frame times it has not taken yet
     int physW = 0, physH = 0;        // size of the GPU images
     Gpu gpu;

@@ -922,7 +922,11 @@ TEST_CASE("render.upscaler: a vendor mode with no SDK usable reports the mode as
         CHECK(r.result["mode"] == mode);
         // The SDKs are not installed on a test machine (and are Windows only): the mode is not the effective one.
         CHECK_MESSAGE(r.result["effectiveMode"] != mode, mode);
-        CHECK_MESSAGE(r.result["effectiveMode"] != "stretch", mode);  // the next best, never a bare stretch
+        // The next best: the temporal upscaler where the renderer can run it (its TAA history, which a software GL or a small CI GPU may
+        // lack, then the spatial one), MetalFX on a Mac that has it; never a bare stretch, and always what the renderer itself reports.
+        const std::string drawn = r.result["effectiveMode"].get<std::string>();
+        CHECK_MESSAGE((drawn == "metalfx" || drawn == "temporal" || drawn == "spatial"), mode, ": ", drawn);
+        CHECK_MESSAGE(drawn == render::upscaler_mode_name(e.renderer()->effective_upscaler_mode()), mode);
         CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
         auto s = c.call("render.supports", Json::parse(std::string("{\"feature\":\"") + mode + "\"}"));
         REQUIRE_MESSAGE(s.ok, s.error.dump());

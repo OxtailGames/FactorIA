@@ -485,6 +485,8 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     render::VendorUpscaler& provider = render::vendor_provider(index);
     in.cameraNear = 0.1f;  // any near plane serves: the provider is told the one the reversed depth is made with
     in.dynamicResolution = renderScale != renderBaseScale;
+    if (in.dynamicResolution) dynResSeen = true;
+    in.dynamicResolutionEnabled = gpuFrameWanted || dynResSeen;
     if (!run_upscale_prep(in, c, prepass, velocity, histValid, provider.wants_reversed_depth() ? in.cameraNear : 0.0f))
         return vendor_fail(index, "the depth and motion images of the render size could not be made.");
     scaler_history_note(config);
@@ -643,8 +645,11 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // temporal upscaler, which the jittered frame suits, then to the spatial one.
     if (render::vendor_impl_index(upscaleImpl) >= 0 && !vendor_upscale(upscaleImpl, in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
-    if (mode != render::UpscalerMode::MetalFx && render::vendor_impl_index(vendorFrameImpl) < 0 &&
-        !framegen.wants_dispatch())  // frame generation reads the two images after this pass: it keeps them
+    // A provider that failed for good draws no more frames: its preparation images are not kept either (frame generation apart, which reads
+    // the two images after this pass).
+    const int keptVendor = render::vendor_impl_index(vendorFrameImpl);
+    const bool vendorDrawing = keptVendor >= 0 && !vendorFailed[keptVendor];
+    if (mode != render::UpscalerMode::MetalFx && !vendorDrawing && !framegen.wants_dispatch())
         free_mfx_images();  // another mode: the two images of its preparation pass are not kept (the vendor SDKs use them too)
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
         upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially

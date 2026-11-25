@@ -92,6 +92,9 @@ struct UpscaleInput {
     UpscalerQuality quality = UpscalerQuality::Native;  // the quality the game asked for (UpscalerSettings::quality)
     int maxRenderW = 0, maxRenderH = 0;  // the largest render size the game can draw at (its base scale); >= renderW/H
     bool dynamicResolution = false;      // the render size moves under the game's base scale (the dynamic resolution)
+    // The dynamic resolution is on for the run (the controller times the frames, or the size has moved under the base scale once): the
+    // flag an SDK makes its context with, so a step of the render size does not make the context again (FSR's kEnableDynamicResolution).
+    bool dynamicResolutionEnabled = false;
     float frameTimeMs =
         0.0f;  // the time this frame stands for, in milliseconds: the engine clock's dt (not the wall clock)
     float cameraNear =
