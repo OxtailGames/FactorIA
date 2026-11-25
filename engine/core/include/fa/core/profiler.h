@@ -130,7 +130,8 @@ public:
     void add_system(ProfSystem s, double ms) { cur_.systemMs[std::size_t(s)] += ms; }
     void add_behaviour(const std::string& className, const std::string& path, double ms);
     // Main thread only. Charges `ms` to the zone `name` (a frame-graph pass of the renderer). The zone's time is also part of
-    // the system that ran it (Render), so zones are not added to the systems.
+    // the system that ran it (Render), so zones are not added to the systems. The exception is a zone added outside any ProfSystemScope
+    // (the engine's "Latency" wait before the input is sampled): its time belongs to no system, only to the zone.
     void add_zone(std::string_view name, double ms);
     // Main thread only. The input-to-present time of the frame being measured (ProfFrame::latencyMs); a negative value means none.
     void set_latency_ms(double ms) { cur_.latencyMs = ms >= 0 ? ms : -1; }

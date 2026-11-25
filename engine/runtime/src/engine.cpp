@@ -2350,6 +2350,8 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
 
 void Engine::profile_latency(std::string* driver, std::string* reason) {
     // The status is a JSON object with every provider's answer: rebuilt when what it depends on changed, not on every frame of a session.
+    // The keys are the mode, the boost, the driver that runs and the frame's 64-frame bucket, so a provider that became usable (a library
+    // installed, a device lost) with none of the others changed is seen up to 64 frames late (about a second at 60 fps), which the profiler's panel does not mind.
     Impl::LatencyProfileCache& cache = impl_->latencyProfileCache;
     const render::LatencyDriver running =
         impl_->renderer ? impl_->renderer->effective_latency() : render::LatencyDriver::None;
@@ -2381,9 +2383,25 @@ Json Engine::profile_frame_generation() {
         !(j.value("state", std::string()) == "off" && j.value("reason", std::string()).empty()))
         return j;
     // The profiler asks for this every frame: with the setting off nothing is asked of the providers (frame_generation_status probes each SDK,
-    // which loads its libraries), so a game that never turns frame generation on never loads one because a profiler is open.
-    const Json st =
-        impl_->frameGeneration.mode == render::FrameGenMode::Off ? Json::object() : frame_generation_status();
+    // which loads its libraries), so a game that never turns frame generation on never loads one because a profiler is open. With it on and no
+    // report yet (the SDK is not running: a reason is the answer), the status is read again after a second of the simulation clock.
+    Impl::FrameGenProfileCache& cache = impl_->frameGenProfileCache;
+    const double now = impl_->world.time();
+    if (impl_->frameGeneration.mode == render::FrameGenMode::Off) {
+        cache.valid = false;
+    } else if (!cache.valid || cache.mode != impl_->frameGeneration.mode || now < cache.atS || now >= cache.atS + 1.0) {
+        const Json read = frame_generation_status();
+        cache.valid = true;
+        cache.mode = impl_->frameGeneration.mode;
+        cache.atS = now;
+        cache.state = read.value("state", std::string("off"));
+        cache.reason = read.value("reason", std::string());
+    }
+    Json st = Json::object();
+    if (cache.valid) {
+        st["state"] = cache.state;
+        st["reason"] = cache.reason;
+    }
     j = Json::object();
     j["provider"] = "none";
     j["state"] = st.value("state", std::string("off"));
