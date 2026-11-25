@@ -87,8 +87,7 @@ bool array_at(const std::vector<std::string>& lines, std::size_t i, const Dialec
 }
 
 // One dialect of one header: the texts, their frame, and the rewritten lines (`lines` is replaced).
-bool pack_dialect(const std::string& path, const std::string& base, const Dialect& d, std::vector<std::string>& lines,
-                  bool stats) {
+bool pack_dialect(const std::string& path, const std::string& base, const Dialect& d, std::vector<std::string>& lines) {
     std::vector<Text> texts;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         Text t;
@@ -177,7 +176,6 @@ bool pack_dialect(const std::string& path, const std::string& base, const Dialec
     out << "};\nstatic const fa::shader_text::Texts " << pack << "_texts = {\"" << base << "." << d.name << "\", &"
         << pack << ", " << pack << "_entries, sizeof(" << pack << "_entries) / sizeof(" << pack
         << "_entries[0])};\n#endif\n";
-    (void)stats;
     std::vector<std::string> next;
     std::istringstream split(out.str());
     for (std::string line; std::getline(split, line);) next.push_back(std::move(line));
@@ -200,7 +198,7 @@ bool process(const std::string& path, bool stats) {
     for (const std::string& line : lines)
         if (line.find("fa::shader_text::") != std::string::npos) return true;  // already packed
     for (const Dialect& d : kDialects)
-        if (!pack_dialect(path, base, d, lines, stats)) return false;
+        if (!pack_dialect(path, base, d, lines)) return false;
     if (stats) return true;
     const std::string tmp = path + ".pack";
     {

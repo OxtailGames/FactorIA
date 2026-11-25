@@ -23,6 +23,8 @@
 # ones of tools/common/include/fa/tooling/setup.h (a test keeps them equal); the generated code must match
 # external/sokol/sokol_gfx.h, so a sokol update moves the pin, the committed headers and that header together.
 set -euo pipefail
+# Glob order (and so the order of the generated index) must not depend on the locale.
+export LC_ALL=C
 
 SHDC_COMMIT=b975d5642093d62e76a1e088bdae945d6d8b8ff2
 SHDC_SHA256_win32=43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb
@@ -79,8 +81,14 @@ PACK_DIR="$ROOT/.cache/shader-pack"
 build_packer() {
     local gen=()
     command -v ninja >/dev/null 2>&1 && gen=(-G Ninja)
-    cmake -S "$ROOT/tools/shaders/shader_pack" -B "$PACK_DIR" ${gen[@]+"${gen[@]}"} -DCMAKE_BUILD_TYPE=Release >/dev/null
-    cmake --build "$PACK_DIR" --config Release >/dev/null
+    local log="$PACK_DIR.log"
+    mkdir -p "$(dirname "$PACK_DIR")"
+    if ! { cmake -S "$ROOT/tools/shaders/shader_pack" -B "$PACK_DIR" ${gen[@]+"${gen[@]}"} -DCMAKE_BUILD_TYPE=Release &&
+           cmake --build "$PACK_DIR" --config Release; } >"$log" 2>&1; then
+        cat "$log" >&2
+        echo "error: building the shader packer failed (log above, also in $log)" >&2
+        exit 1
+    fi
     for exe in "$PACK_DIR/fa_shader_pack" "$PACK_DIR/Release/fa_shader_pack.exe" "$PACK_DIR/fa_shader_pack.exe"; do
         if [ -x "$exe" ]; then PACK="$exe"; return; fi
     done

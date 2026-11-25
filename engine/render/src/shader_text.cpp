@@ -2,7 +2,7 @@
 
 #include <memory>
 #include <mutex>
-#include <string_view>
+#include <string>
 #include <unordered_map>
 
 #include "fa/core/compress.h"
@@ -14,8 +14,8 @@ namespace {
 
 struct Cache {
     std::mutex mutex;
-    // Keys view the frame bytes of the generated header that asked first: static arrays, alive until the process ends.
-    std::unordered_map<std::string_view, std::unique_ptr<char[]>> packs;
+    // Keys are copies of the frame bytes (and the text size), so a caller's frame may go away: the same bytes are one pack.
+    std::unordered_map<std::string, std::unique_ptr<char[]>> packs;
     std::size_t decoded = 0;
 };
 
@@ -29,7 +29,8 @@ Cache& cache() {
 const char* decoded(const Pack& pack) {
     if (!pack.frame || pack.frameSize == 0 || pack.textSize == 0) return nullptr;
     Cache& c = cache();
-    const std::string_view key(reinterpret_cast<const char*>(pack.frame), pack.frameSize);
+    std::string key(reinterpret_cast<const char*>(pack.frame), pack.frameSize);
+    key.append(reinterpret_cast<const char*>(&pack.textSize), sizeof(pack.textSize));
     std::lock_guard lock(c.mutex);
     if (auto it = c.packs.find(key); it != c.packs.end()) return it->second.get();
     // One byte more than the texts: a string for the driver even when the frame lacked its last NUL.
