@@ -56,6 +56,15 @@ const char* get(const Pack& pack, std::size_t offset);
 // The whole decoded text of a pack (the tests compare it with the hashes of the table), or null when the frame is damaged.
 const char* decoded(const Pack& pack);
 
+// What the tests reach into (the cache's two hashes of a frame; not for the renderer).
+namespace detail {
+// The lookup key (FNV-1a) and the check (a second, independent hash) of `size` bytes.
+void hash_frame(const std::uint8_t* bytes, std::size_t size, std::uint64_t& key, std::uint64_t& check);
+// While true every pack gets the same lookup key: two packs then share one bucket, as a collision of the first hash would make them, and
+// only the check, the sizes and the second hash tell them apart.
+void set_same_key_for_test(bool same);
+}  // namespace detail
+
 // How many packs have been decoded so far (tests: the cache is reused).
 std::size_t decoded_count();
 

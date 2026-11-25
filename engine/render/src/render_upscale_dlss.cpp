@@ -221,9 +221,15 @@ VendorProbe DlssProvider::probe_ray_reconstruction(const VendorEnv& env) {
     if (runtime.status().ready && !runtime.feature_asked(kFeatureDlssRr)) {
         // The plugin is loaded with Streamline, before the device: only a project that asks for it at start gets it.
         p.available = false;
-        p.reason = "DLSS Ray Reconstruction is not available in this run: its plugin is loaded when the game starts, "
-                   "and the project did "
-                   "not ask for it. Set render.upscaler.rayReconstruction to true in factoria.json and restart.";
+        const std::string skipped = runtime.feature_skipped_reason(kFeatureDlssRr);
+        if (!skipped.empty()) {
+            p.reason = skipped;  // the project asked for it, but not the mode: the hint says which setting to change
+        } else {
+            p.reason =
+                "DLSS Ray Reconstruction is not available in this run: its plugin is loaded when the game starts, "
+                "and the project did not ask for it. Set render.upscaler.rayReconstruction to true in factoria.json "
+                "and restart.";
+        }
     } else if (const std::string why = runtime.feature_reason(kFeatureDlssRr); !why.empty()) {
         p.available = false;
         p.reason = "DLSS Ray Reconstruction is not available on this machine: " + why;
@@ -677,6 +683,20 @@ const char* dlss_mode_name(std::uint32_t mode) {
     for (const ModeRow& m : kModes)
         if (m.mode == mode) return m.name;
     return "unknown";
+}
+
+void streamline_ask_upscaler_features(StreamlineRuntime& runtime, bool rayReconstruction,
+                                      bool rayReconstructionNeedsMode) {
+    if (rayReconstruction) runtime.add_feature(kFeatureDlssRr);
+    runtime.set_feature_skipped_reason(
+        kFeatureDlssRr,
+        rayReconstructionNeedsMode
+            ? "DLSS Ray Reconstruction is not available in this run: the project asked for it "
+              "(render.upscaler.rayReconstruction is true), "
+              "but its plugin is loaded only when the game starts in a mode that can draw with DLSS, and "
+              "render.upscaler.mode is not "
+              "\"dlss\" or \"auto\". Set render.upscaler.mode to \"dlss\" or \"auto\" in factoria.json and restart."
+            : "");
 }
 
 std::unique_ptr<VendorUpscaler> make_dlss_provider() { return std::make_unique<DlssProvider>(); }

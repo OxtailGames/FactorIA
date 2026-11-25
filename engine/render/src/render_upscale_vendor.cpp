@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cwctype>
 #include <mutex>
 #include <set>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -160,10 +162,13 @@ private:
 // does not call SetDefaultDllDirectories (it would change the search order of the whole process). UPSCALING_VENDORS.md, check item 5.
 void add_dll_directory(const stdfs::path& folder) {
     static std::mutex mutex;
-    static std::set<stdfs::path> added;
+    static std::set<std::wstring> added;
     if (folder.empty()) return;
+    // Windows paths are not case-sensitive: the key is the folder in lower case.
+    std::wstring key = folder.native();
+    std::transform(key.begin(), key.end(), key.begin(), [](wchar_t c) { return wchar_t(::towlower(c)); });
     std::lock_guard<std::mutex> lock(mutex);
-    if (!added.insert(folder).second) return;
+    if (!added.insert(std::move(key)).second) return;
     if (!AddDllDirectory(folder.c_str())) {
         const DWORD error = GetLastError();  // before anything that allocates can change it
         FA_WARN("render",
