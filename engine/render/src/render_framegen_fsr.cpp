@@ -17,7 +17,9 @@
 #include "fa/core/types.h"
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -153,6 +155,20 @@ std::string call_failed(const char* function, std::uint32_t code) {
     return text;
 }
 
+// Gives back one reference of a COM object (the proxy swapchain FidelityFX made for a create that then failed). IUnknown::Release on Windows;
+// elsewhere there is no COM, so nothing (a test's fake swapchain is a plain pointer: it puts its own function in).
+void default_com_release(void* object) {
+#if defined(_WIN32)
+    if (object) static_cast<IUnknown*>(object)->Release();
+#else
+    (void)object;
+#endif
+}
+std::atomic<FsrComReleaseFn> g_comRelease{&default_com_release};
+void com_release(void* object) {
+    if (object) g_comRelease.load()(object);
+}
+
 abi::Resource make_resource(void* handle, std::uint32_t format, int w, int h, bool storage) {
     abi::Resource r{};
     r.resource = handle;
@@ -178,8 +194,19 @@ enum class Retired : std::uint8_t {
     Destroy  // its context is gone, the proxy is not: the engine's destroy goes to FidelityFX's destroy function
 };
 
+// ---- threads ----------------------------------------------------------------------------------------------------------------------------
+// Two kinds of thread meet in this file.
+//  - The game's render thread (the one that makes the device, the window and the frames) makes every call of the provider (probe may also come
+//    from the editor's thread: it only takes Core::mutex), every call of the hook (device events, swapchain create and destroy) and the destroy
+//    function of the Vulkan swapchain (vk_destroy_swapchain). All of them run under Core::mutex.
+//  - FidelityFX's own present thread calls fg_dispatch_callback, at present time. It must never wait for Core::mutex: the render thread holds
+//    that mutex while it waits for the presents in flight (Core::wait_presents), which wait for the callback, so the callback would deadlock
+//    with it. It reads only what Core::fgMutex guards (the frame generation context and the function that dispatches on it), and the render
+//    thread takes fgMutex for the instant it writes the context (Core::set_fg_context), never across a call into FidelityFX.
 struct Core {
     std::mutex mutex;
+    std::mutex
+        fgMutex;  // guards fgCtx and api.dispatch for fg_dispatch_callback (see "threads" above); lock order: mutex, then fgMutex
     // the library
     std::unique_ptr<VendorLibrary> lib;
     FsrFgApi api{};
@@ -203,7 +230,7 @@ struct Core {
     std::uint64_t retiredHandle = 0;
     Retired retired = Retired::None;
     // the frame generation context
-    abi::Context fgCtx = nullptr;
+    abi::Context fgCtx = nullptr;  // written under mutex AND fgMutex; the render thread reads it under mutex alone
     abi::CreateFrameGenerationDesc fgKey{};
     std::uint32_t fgHudlessFormat = abi::kFormatUnknown;
     std::string fgFailedKey,
@@ -212,16 +239,40 @@ struct Core {
     bool started = false;
     bool enabled = false;
     bool needReset = true;
+    std::uint64_t lastFrameId =
+        0;  // the frame number of the last dispatched frame: configure() between two frames repeats it
     std::atomic<std::uint64_t> generated{0};
     std::uint64_t generatedAtStart = 0;
 
     bool accepts() const { return (armedMode == FrameGenMode::Fsr || armedMode == FrameGenMode::Auto) && vendorOk; }
+    // The window's swapchain is the engine's to present on: its context is there and the engine has not given it up. On Direct3D 12 the context
+    // outlives the engine's reference (swapchain_destroying), so the context alone does not say.
+    bool swap_alive() const { return swapCtx != nullptr && swapHandle != 0; }
+    // Publishes (or clears) the frame generation context for the present thread's callback.
+    void set_fg_context(abi::Context ctx) {
+        std::lock_guard<std::mutex> lock(fgMutex);
+        fgCtx = ctx;
+    }
+    // mode auto only: on a GPU that FSR would take part on, whether the library is not there. "" when it is (or the mode names fsr); else why.
+    // The hook then asks for no queue and makes no swapchain, quietly: the probe is what tells the user (a game that named `fsr` gets the error).
+    std::string auto_without_library(gpu::Backend backend) {
+        if (armedMode != FrameGenMode::Auto) return {};
+        return ensure_library(backend);
+    }
     // Finds, loads and binds the library of `backend` (a library a live context uses stays). "" or the sentence of what is missing.
     std::string ensure_library(gpu::Backend backend);
     // Tells the swapchain's frame generation context how the next frames go (and which callbacks). "" or the sentence of what failed.
     std::string configure_fg(bool enabled, const abi::Resource* hudless, int outW, int outH, std::uint64_t frameId);
     void teardown_fg(gpu::Device* device);
     void teardown_swapchain();
+    // The swapchain context of a swapchain the engine gave up on Direct3D 12 (swapchain_destroying) or one that is still the engine's.
+    void release_swapchain() {
+        if (!swapCtx) return;
+        if (swapHandle != 0)
+            teardown_all();  // the swapchain is still presenting: the SDK's whole order
+        else
+            teardown_swapchain();  // its generation context is gone and the engine released the proxy already
+    }
     void wait_presents();
     // Vulkan: "" when the family of the present queue can present to `surface`, else why FidelityFX's swapchain cannot be made.
     std::string check_present_support(std::uint64_t surface) const;
@@ -265,9 +316,15 @@ std::string Core::ensure_library(gpu::Backend backend) {
 }
 
 // The dispatch callback the swapchain calls to interpolate: it forwards the descriptor to the frame generation context. `user` is the Core.
+// Runs on FidelityFX's present thread: it takes fgMutex only, never Core::mutex (see "threads" above). The render thread clears the context
+// under the same fgMutex before it destroys it, and a present that is already inside this function finishes first, so the context a callback
+// dispatches on is never one that is being destroyed.
 abi::ReturnCode fg_dispatch_callback(void* params, void* user) {
     auto* core = static_cast<Core*>(user);
-    if (!core || !params || !core->api.dispatch || !core->fgCtx) return abi::kError;
+    if (!core || !params) return abi::kError;
+    std::lock_guard<std::mutex> lock(core->fgMutex);
+    if (!core->fgCtx || !core->api.dispatch)
+        return abi::kError;  // (the library is never changed while a context lives)
     const abi::ReturnCode rc = core->api.dispatch(&core->fgCtx, static_cast<const abi::Header*>(params));
     if (rc == abi::kOk) core->generated.fetch_add(1, std::memory_order_relaxed);
     return rc;
@@ -316,11 +373,14 @@ void Core::teardown_fg(gpu::Device* device) {
         if (const Result<void> idle = device->wait_idle(); !idle)
             FA_WARN("render", "FSR frame generation: {}", idle.error().message);
     }
+    // The context is taken out under fgMutex first, so a callback that comes later finds none; the destroy itself runs with no lock held
+    // (the SDK may wait for its present thread there, and that thread may be waiting for fgMutex).
+    abi::Context doomed = fgCtx;
+    set_fg_context(nullptr);
     if (api.destroyContext) {
-        if (const abi::ReturnCode rc = api.destroyContext(&fgCtx, nullptr); rc != abi::kOk)
+        if (const abi::ReturnCode rc = api.destroyContext(&doomed, nullptr); rc != abi::kOk)
             FA_WARN("render", "FSR frame generation: {}", call_failed("ffxDestroyContext", rc));
     }
-    fgCtx = nullptr;
     fgKey = abi::CreateFrameGenerationDesc{};
     fgFailedKey.clear();
     fgFailure.clear();
@@ -369,10 +429,11 @@ void Core::destroy_swapchain_proxy(std::uint64_t handle) const {
 
 // The functions of the swapchain are plain function pointers the device calls without a context: the one that needs the hook's state
 // reaches it through this (the Core of the swapchain that was made last; the process makes one window's swapchain with FSR at a time).
+// A weak reference: vk_destroy_swapchain takes the Core's own mutex after it let go of g_active_mutex, and the provider may be gone by then.
 std::mutex g_active_mutex;
-Core* g_active = nullptr;
+std::weak_ptr<Core> g_active;
 
-void set_active(Core* core) {
+void set_active(const std::shared_ptr<Core>& core) {
     std::lock_guard<std::mutex> lock(g_active_mutex);
     g_active = core;
 }
@@ -380,11 +441,17 @@ void set_active(Core* core) {
 // vkDestroySwapchainKHR of a swapchain FidelityFX made: its own destroy function, after the context is gone (the SDK's order), with no context.
 void vk_destroy_swapchain(void* device, void* swapchain, const void* allocator) {
     using DestroyFn = void (*)(void*, void*, const void*, void*);
-    void* fn = nullptr;
+    std::shared_ptr<Core> core;
     {
         std::lock_guard<std::mutex> lock(g_active_mutex);
-        Core* core = g_active;
-        if (!core) return;
+        core = g_active.lock();
+    }
+    if (!core) return;
+    void* fn = nullptr;
+    {
+        // The retired flag and the handle are written by the hook under Core::mutex (the render thread, which is also the caller here), so they
+        // are read under it too. The engine calls this after the hook returned: the mutex is not held by this thread.
+        std::lock_guard<std::mutex> lock(core->mutex);
         const auto handle = std::uint64_t(reinterpret_cast<std::uintptr_t>(swapchain));  // NOLINT
         if (core->retired != Retired::None && core->retiredHandle == handle) {
             const bool skip = core->retired == Retired::Skip;
@@ -422,6 +489,13 @@ public:
         c.vendorOk =
             c.armedMode == FrameGenMode::Fsr || (c.armedMode == FrameGenMode::Auto && pd.vendorId == kPciVendorAmd);
         if (!c.vendorOk) return;
+        // mode auto and no FidelityFX installed: ask for no queue (the device has no use for three it would never be given work on) and make no
+        // swapchain; the probe already tells the user to run `factoria setup fidelityfx`, and start() says it again, once.
+        if (std::string why = c.auto_without_library(gpu::Backend::Vulkan); !why.empty()) {
+            c.vendorOk = false;
+            c.hookReason = std::move(why);
+            return;
+        }
         // FidelityFX's swapchain wants a queue of its own for the interpolation (compute: its family needs the compute bit), the present (a
         // family that can present to the window: present_queue_flags) and the image acquire (any: it only submits semaphores). The SDK
         // refuses two roles on one queue (FrameInterpolationSwapchainVK.cpp, init()), and the engine grants each request its own queue.
@@ -518,11 +592,28 @@ public:
         c.backFormat = fsr_fg_vulkan_format(ci.imageFormat);
         abi::SwapchainFunctionsVk fns{};
         fns.header.type = abi::kQuerySwapchainFunctionsVk;
-        if (const abi::ReturnCode rc = c.api.query(&c.swapCtx, &fns.header); rc != abi::kOk) {
+        abi::ReturnCode queryRc = c.api.query(&c.swapCtx, &fns.header);
+        if (queryRc != abi::kOk) {  // asked once more: it costs nothing, and the answer is what ends the proxy cleanly
+            fns = abi::SwapchainFunctionsVk{};
+            fns.header.type = abi::kQuerySwapchainFunctionsVk;
+            queryRc = c.api.query(&c.swapCtx, &fns.header);
+        }
+        if (queryRc != abi::kOk) {
+            const std::uint64_t proxy = c.swapHandle;
             c.teardown_swapchain();
             c.swapHandle = 0;
+            // The proxy FidelityFX made is a swapchain object of the SDK's, ended by its own destroy function (no context), which only this
+            // query returns. An earlier swapchain of this library gave it already (vkDestroyFn): then the proxy goes (after its context, the
+            // SDK's order). Otherwise there is no way to end it from here: it stays, one small SDK object, and the message says so.
+            std::string leak;
+            if (c.vkDestroyFn)
+                c.destroy_swapchain_proxy(proxy);
+            else
+                leak = " The swapchain object FidelityFX made could not be ended (its destroy function comes from this "
+                       "query): it stays until "
+                       "the process ends.";
             return fail("FSR frame generation could not get its Vulkan swapchain functions: " +
-                        call_failed("ffxQuery(swapchain functions)", rc) + ".");
+                        call_failed("ffxQuery(swapchain functions)", queryRc) + "." + leak);
         }
         const char* absent = !fns.destroySwapchain     ? "vkDestroySwapchainKHR"
                              : !fns.getSwapchainImages ? "vkGetSwapchainImagesKHR"
@@ -532,17 +623,18 @@ public:
         if (absent) {
             // The swapchain FidelityFX made holds the window's surface: it goes first (with its own destroy, when the library gave one), so
             // the engine's own swapchain can be made on the surface.
+            const std::uint64_t proxy = c.swapHandle;
+            c.teardown_swapchain();  // the SDK's order: the context, then the proxy through its own destroy function
             if (fns.destroySwapchain) {
                 c.vkDestroyFn = fns.destroySwapchain;
-                c.destroy_swapchain_proxy(c.swapHandle);
+                c.destroy_swapchain_proxy(proxy);
             }
-            c.teardown_swapchain();
             c.swapHandle = 0;
             return fail(std::string("FSR frame generation's Vulkan swapchain has no replacement for ") + absent +
                         " (the library is not the version FactorIA was tested with): run `factoria setup fidelityfx`.");
         }
         c.vkDestroyFn = fns.destroySwapchain;
-        set_active(&c);
+        set_active(core_);
         // The engine creates the swapchain through the hook (this call) and calls the rest through the replacements. Its destroy goes
         // through ours, which drops the context argument the SDK's function takes (the SDK says it is unused).
         sc.functions.destroySwapchain = reinterpret_cast<gpu::HookProcAddr>(&vk_destroy_swapchain);
@@ -561,6 +653,13 @@ public:
         std::lock_guard<std::mutex> lock(c.mutex);
         c.vendorOk = c.armedMode == FrameGenMode::Fsr ||
                      (c.armedMode == FrameGenMode::Auto && adapter_vendor(made.adapter) == kPciVendorAmd);
+        // mode auto and no FidelityFX installed: no swapchain, no error (the probe tells the user; see vulkan_device_request).
+        if (c.vendorOk) {
+            if (std::string why = c.auto_without_library(gpu::Backend::D3d12); !why.empty()) {
+                c.vendorOk = false;
+                c.hookReason = std::move(why);
+            }
+        }
     }
 
     bool d3d12_create_swapchain(gpu::D3d12SwapchainCreate& sc) override {
@@ -574,7 +673,7 @@ public:
             return false;
         };
         if (std::string why = c.ensure_library(gpu::Backend::D3d12); !why.empty()) return fail(std::move(why));
-        if (c.swapCtx) c.teardown_all();  // a second swapchain on the same hook: the first one's contexts go
+        c.release_swapchain();  // a second swapchain on the same hook (or the last one's context, kept past its release): they go
         DxgiDesc1Head head{};
         if (sc.desc) std::memcpy(&head, sc.desc, sizeof(head));
         void* proxy = nullptr;
@@ -593,6 +692,9 @@ public:
         abi::Context ctx = nullptr;
         if (const abi::ReturnCode rc = c.api.createContext(&ctx, &desc.header, nullptr);
             rc != abi::kOk || !ctx || !proxy) {
+            // A proxy the library handed over with a failing result (or with no context to go with it) is ours to give back: the engine never
+            // sees it. The SDK's order is the app's reference first, then the context.
+            com_release(proxy);
             if (ctx && c.api.destroyContext) c.api.destroyContext(&ctx, nullptr);
             return fail("FSR frame generation could not make its Direct3D 12 swapchain " + std::to_string(head.width) +
                         "x" + std::to_string(head.height) + ": " + call_failed("ffxCreateContext(swapchain)", rc) +
@@ -609,20 +711,27 @@ public:
     void swapchain_destroying(const gpu::SwapchainEvent& e) override {
         Core& c = *core_;
         std::lock_guard<std::mutex> lock(c.mutex);
-        if (!c.swapCtx) return;
+        if (!c.swap_alive()) return;
         const std::uint64_t handle = e.backend == gpu::Backend::Vulkan
                                          ? e.vkSwapchain
                                          : std::uint64_t(reinterpret_cast<std::uintptr_t>(e.swapchain));  // NOLINT
         // The swapchain a new one replaced (Vulkan): its context is gone already and its handle is retired.
         if (c.retired != Retired::None && handle == c.retiredHandle) return;
         if (handle != c.swapHandle) return;
-        c.teardown_all();
         if (e.backend == gpu::Backend::Vulkan) {
+            c.teardown_all();
             // The engine destroys the proxy next, through vk_destroy_swapchain: the SDK's destroy function with no context.
             c.retiredHandle = handle;
             c.retired = Retired::Destroy;
+        } else {
+            // Direct3D 12 (FidelityFX's own sample releases the application's reference to the proxy before ffxDestroyContext): the generation
+            // context goes and the presents in flight finish now, while the proxy is still there; the swapchain's context is kept until the
+            // engine has released the proxy (this call comes first), and goes with the next swapchain, device_destroying or the provider.
+            // Not verified against the real library: the order is the sample's, the only one known to be right.
+            const bool waited = c.fgCtx != nullptr;  // teardown_fg waits for the presents itself
+            c.teardown_fg(nullptr);
+            if (!waited) c.wait_presents();
         }
-        // Direct3D 12: the proxy is the engine's reference; the engine's release of it frees it (the context is gone).
         c.swapHandle = 0;
         c.started = false;
     }
@@ -651,7 +760,7 @@ public:
         std::lock_guard<std::mutex> lock(core_->mutex);
         {
             std::lock_guard<std::mutex> active(g_active_mutex);
-            if (g_active == core_.get()) g_active = nullptr;
+            if (g_active.lock() == core_) g_active.reset();
         }
         core_->teardown_fg(nullptr);
         core_->teardown_swapchain();
@@ -733,12 +842,13 @@ std::string FsrFrameGenProvider::start(gpu::Device& device, const FrameGenSwapch
     Core& c = *core_;
     std::lock_guard<std::mutex> lock(c.mutex);
     if (!c.lib || !c.api.createContext)
-        return "FSR frame generation was not found by its probe (its library is not loaded).";
+        return "FSR frame generation was not found by its probe (its library is not loaded)." +
+               (c.hookReason.empty() ? std::string() : " " + c.hookReason);
     if (device.backend() != c.apiBackend) {
         return "FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) +
                " and this device is " + vendor_backend_label(device.backend()) + ".";
     }
-    if (!c.swapCtx) {
+    if (!c.swap_alive()) {
         if (!c.hookReason.empty()) return "FSR frame generation could not take the window's swapchain: " + c.hookReason;
         if (!c.accepts() && c.armedMode == FrameGenMode::Auto)
             return "mode auto uses FSR frame generation on an AMD GPU only; this device's maker is not AMD. Name the "
@@ -758,6 +868,7 @@ std::string FsrFrameGenProvider::start(gpu::Device& device, const FrameGenSwapch
     c.enabled = false;
     c.needReset = true;
     c.generatedAtStart = c.generated.load(std::memory_order_relaxed);
+    c.lastFrameId = 0;  // a new start numbers its frames anew
     (void)swapchain;
     return {};
 }
@@ -775,10 +886,11 @@ void FsrFrameGenProvider::configure(bool enabled) {
     Core& c = *core_;
     std::lock_guard<std::mutex> lock(c.mutex);
     c.enabled = enabled;
-    if (!c.fgCtx || !c.swapCtx || !c.api.configure) return;
-    // Generation on or off between two frames: the swapchain is told now (the next dispatch describes the frame in full).
+    if (!c.fgCtx || !c.swap_alive() || !c.api.configure) return;
+    // Generation on or off between two frames: the swapchain is told now (the next dispatch describes the frame in full), with the number of
+    // the last frame it was given (a 0 would hand the SDK a frame number that goes backwards).
     const int w = int(c.fgKey.displaySize.width), h = int(c.fgKey.displaySize.height);
-    if (const std::string why = c.configure_fg(enabled, nullptr, w, h, 0); !why.empty())
+    if (const std::string why = c.configure_fg(enabled, nullptr, w, h, c.lastFrameId); !why.empty())
         FA_WARN("render", "FSR frame generation: {}", why);
 }
 
@@ -835,7 +947,7 @@ std::string FsrFrameGenProvider::ensure_context(gpu::Device& device, const Frame
                       std::to_string(frame.outH) + ": " + call_failed("ffxCreateContext", rc) + ".";
         return c.fgFailure;
     }
-    c.fgCtx = ctx;
+    c.set_fg_context(ctx);
     d.header.next = nullptr;
     c.fgKey = d;
     c.fgKey.header.next = nullptr;
@@ -862,7 +974,7 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
     if (device.backend() != c.apiBackend)
         return fail("FSR frame generation was loaded for " + std::string(vendor_backend_label(c.apiBackend)) +
                     " and this device is " + vendor_backend_label(device.backend()) + ".");
-    if (!c.swapCtx)
+    if (!c.swap_alive())
         return fail("FSR frame generation has no swapchain: it was destroyed or never made (the window's swapchain is "
                     "made again with the "
                     "next frame generation start).");
@@ -971,6 +1083,7 @@ bool FsrFrameGenProvider::dispatch(FrameGenFrame& frame) {
         return fail("FSR frame generation prepared a frame, but its native command section could not be closed: " +
                     closed.error().message);
     c.needReset = false;
+    c.lastFrameId = frame.frameId;
     return true;
 }
 
@@ -1037,5 +1150,7 @@ std::uint32_t fsr_fg_vulkan_format(std::uint32_t f) {
 }
 
 std::shared_ptr<FrameGenProvider> make_fsr_framegen_provider() { return std::make_shared<FsrFrameGenProvider>(); }
+
+void set_fsr_com_release_for_test(FsrComReleaseFn fn) { g_comRelease = fn ? fn : &default_com_release; }
 
 }  // namespace fa::render

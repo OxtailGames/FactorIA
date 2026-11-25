@@ -161,4 +161,9 @@ std::uint32_t fsr_fg_vulkan_format(std::uint32_t vkFormat);
 // The FSR 3 frame generation provider (slot Fsr), registered by the provider table (render_framegen.cpp).
 std::shared_ptr<FrameGenProvider> make_fsr_framegen_provider();
 
+// Test seam: the call that gives back one reference of a COM object the provider holds (the proxy swapchain of a failed create): IUnknown::Release
+// on Windows, nothing elsewhere (no COM there). A test puts its own in to see which pointer is released; nullptr puts the default back.
+using FsrComReleaseFn = void (*)(void* object);
+void set_fsr_com_release_for_test(FsrComReleaseFn fn);
+
 }  // namespace fa::render
