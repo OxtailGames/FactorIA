@@ -489,7 +489,8 @@ swapchain resolved into the acquired image, an acquire that times out (injected 
 window image the surface made without `TRANSFER_SRC` (refused), the format fallback succeeding where the asked format is
 hidden (the device made with `Rgba8` as its default, the surface's `Rgba8` hidden) and a swapchain that fails
 (`fail_next_swapchain_for_tests`) leaving the default format as it was, a swapchain lost with its surface kept
-(`lose_swapchain_keep_surface_for_tests`) made again by `create_swapchain` without a leak, and `swapchain_format_supported` called from a
+(`lose_swapchain_keep_surface_for_tests`) made again by `create_swapchain` without a leak, and
+`swapchain_format_supported` called from a
 second thread while the swapchain is made again. The timer case with `hide_timer_results_for_tests` checks the frame
 dropped after 120 polls, and the queue-misuse case a transfer list that begins a render or a compute pass. A machine
 with no window or no window path skips them with a MESSAGE; under `FA_VULKAN_REQUIRE=1` (lavapipe's X11 WSI under xvfb)

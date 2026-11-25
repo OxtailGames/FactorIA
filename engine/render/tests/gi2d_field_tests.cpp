@@ -56,8 +56,8 @@ struct Own {
         g.gpu.end_frame();
     }
     // RGBA16F render targets that blend and filter. GLCORE, D3D11 and Metal always have them: a CI machine that lacks
-    // them is a bug to see, not a test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may lack
-    // them, and say what is missing.
+    // them is a bug to see, not a test to skip silently. Only GLES3-class GPUs (and the headless dummy backend) may
+    // lack them, and say what is missing.
     bool gi_ready() {
         REQUIRE(renderer_gpu(r)->has_device());
         const gpu::Device& dev = renderer_gpu(r)->device();
