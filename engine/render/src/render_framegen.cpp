@@ -1,6 +1,7 @@
 // The frame-generation seam of M78 (render_framegen.h): the provider table, the hook registration, the plan of the output passes and the
 // controller (provider choice, refusals, the minimum base frame rate).
 #include "render_framegen.h"
+#include "render_framegen_xess.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,10 +28,14 @@ int slot_index(FrameGenSlot s) {
 
 struct ProviderTable {
     std::mutex mutex;
-    std::shared_ptr<FrameGenProvider>
-        registered[3];  // dlss, fsr, xess: a slot is empty until its package registers a provider
+    // Each slot is empty until its package registers a provider (the Dlss and Xess slots' are made here: render_framegen_dlss.h,
+    // render_framegen_xess.h).
+    std::shared_ptr<FrameGenProvider> registered[3];
     FrameGenProvider* fake[3] = {};
-    ProviderTable() { registered[0] = make_dlss_framegen_provider(); }
+    ProviderTable() {
+        registered[0] = make_dlss_framegen_provider();
+        registered[2] = make_xess_framegen_provider();
+    }
 };
 
 // Never destroyed (the reason the vendor table gives, render_upscale_vendor.cpp): a renderer shut down during the static destruction of the
@@ -83,9 +88,7 @@ const char* framegen_absent_reason(FrameGenSlot slot) {
         case FrameGenSlot::Fsr:
             return "FSR 3 frame generation arrives with the FidelityFX frame generation provider; this build has no "
                    "provider for it yet.";
-        case FrameGenSlot::Xess:
-            return "XeSS frame generation arrives with the XeSS frame generation provider; this build has no provider "
-                   "for it yet.";
+        case FrameGenSlot::Xess: return "XeSS frame generation has no provider in this build.";
         case FrameGenSlot::None: break;
     }
     return "no provider for this mode.";
@@ -207,6 +210,10 @@ std::string FrameGenController::provider_reason(FrameGenSlot s) {
     if (slot_index(s) < 0) return {};
     Slot& sl = slot(s);
     if (sl.failed) return sl.failure;
+    if (FrameGenProvider* p = framegen_provider(s)) {
+        if (std::string failure = p->failure(); !failure.empty())
+            return failure;  // failed while it ran: off for the run
+    }
     return sl.probe.available ? std::string()
                               : (sl.probe.reason.empty() ? std::string("unavailable") : sl.probe.reason);
 }
@@ -398,6 +405,8 @@ bool FrameGenController::dispatch(FrameGenFrame& frame) {
     }
     resetNext_ = true;
     dispatchError_ = frame.error.empty() ? std::string("the provider refused the frame") : frame.error;
+    // A provider that failed for good (FrameGenProvider::failure) is left: apply() stops it and the reason is the refusal.
+    if (!running_->failure().empty()) apply();
     return false;
 }
 

@@ -195,6 +195,8 @@ LatencySettings LatencyController::effective_settings() const {
         s.mode = LatencyMode::Reflex;
         s.boost = false;
     }
+    // A feature that cannot run without XeLL (XeSS frame generation) puts it on the same way, even over `off`.
+    if (required_ == LatencyDriver::Xell) s.mode = LatencyMode::Xell;
     return s;
 }
 
@@ -205,6 +207,12 @@ bool LatencyController::reflex_forced() const {
 void LatencyController::require_reflex(bool required) {
     if (required == reflexRequired_) return;
     reflexRequired_ = required;
+    apply();
+}
+
+void LatencyController::require_driver(LatencyDriver d) {
+    if (d == required_) return;
+    required_ = d;
     apply();
 }
 
