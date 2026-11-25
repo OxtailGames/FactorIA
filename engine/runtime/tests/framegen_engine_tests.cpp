@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/internal/engine_impl.h"
 #include "fa/runtime/project.h"
 
 using namespace fa;
@@ -144,4 +145,47 @@ TEST_CASE("project: a render.frameGeneration start value is the setting the engi
     REQUIRE(r.ok);
     CHECK(r.result["mode"] == "xess");
     CHECK(r.result["provider"] == "none");
+}
+
+TEST_CASE("profile_frame_generation: the status is read again after a second of simulation time, 60 frames, or a clock "
+          "that went back") {
+    TempProject p("cache");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.commands().call("render.frame_generation", Json::parse(R"({"mode":"auto"})")).ok);
+    Engine::Impl& I = e.runtime_impl();
+    // atS / atFrame are what the last read stamped: they only move when the provider is asked again.
+    e.profile_frame_generation();
+    const auto& cache = I.frameGenProfileCache;
+    REQUIRE(cache.valid);
+    const double t0 = cache.atS;
+    const std::uint64_t f0 = cache.atFrame;
+    e.step(10);  // 10 frames of simulation time (well under a second)
+    REQUIRE(I.world.time() > t0);
+    REQUIRE(I.world.time() < t0 + 1.0);
+    e.profile_frame_generation();
+    CHECK(cache.atS == t0);
+    CHECK(cache.atFrame == f0);
+    // Past a second of the simulation clock.
+    e.step(70);
+    REQUIRE(I.world.time() >= t0 + 1.0);
+    e.profile_frame_generation();
+    CHECK(cache.atS > t0);
+    // Frames alone (a paused simulation: the clock does not move) refresh it after 60 rendered frames.
+    const double t1 = cache.atS;
+    I.frame = cache.atFrame + 59;
+    e.profile_frame_generation();
+    CHECK(cache.atS == t1);
+    CHECK(cache.atFrame + 59 == I.frame);
+    I.frame = cache.atFrame + 60;
+    e.profile_frame_generation();
+    CHECK(cache.atFrame == I.frame);
+    // A time that goes backwards (a scene reload) invalidates it.
+    I.world.reset_clock();
+    I.frame = 0;
+    I.world.advance_clock(0.1);
+    e.profile_frame_generation();
+    CHECK(cache.atS == doctest::Approx(0.1));
+    e.shutdown();
 }

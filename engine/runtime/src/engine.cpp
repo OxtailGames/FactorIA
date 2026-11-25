@@ -2385,16 +2385,20 @@ Json Engine::profile_frame_generation() {
         return j;
     // The profiler asks for this every frame: with the setting off nothing is asked of the providers (frame_generation_status probes each SDK,
     // which loads its libraries), so a game that never turns frame generation on never loads one because a profiler is open. With it on and no
-    // report yet (the SDK is not running: a reason is the answer), the status is read again after a second of the simulation clock.
+    // report yet (the SDK is not running: a reason is the answer), the status is read again after a second of the simulation clock, or after 60
+    // rendered frames when the simulation is paused or stepped and its clock does not move (like profile_latency, which also keys on frames).
+    // A clock or frame counter that went backwards (a scene reload) reads it again.
     Impl::FrameGenProfileCache& cache = impl_->frameGenProfileCache;
     const double now = impl_->world.time();
     if (impl_->frameGeneration.mode == render::FrameGenMode::Off) {
         cache.valid = false;
-    } else if (!cache.valid || cache.mode != impl_->frameGeneration.mode || now < cache.atS || now >= cache.atS + 1.0) {
+    } else if (!cache.valid || cache.mode != impl_->frameGeneration.mode || now < cache.atS || now >= cache.atS + 1.0 ||
+               impl_->frame < cache.atFrame || impl_->frame >= cache.atFrame + 60) {
         const Json read = frame_generation_status();
         cache.valid = true;
         cache.mode = impl_->frameGeneration.mode;
         cache.atS = now;
+        cache.atFrame = impl_->frame;
         cache.state = read.value("state", std::string("off"));
         cache.reason = read.value("reason", std::string());
     }
