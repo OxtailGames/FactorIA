@@ -68,6 +68,13 @@ const LATENCY_FEATURE = { reflex: "reflex", antilag2: "antilag2", xell: "xell" }
 /** The modes that have a boost switch (the SDKs that keep the GPU clocks up while the game waits; auto may pick one of them). */
 const LATENCY_BOOST = ["auto", "reflex", "xell"];
 
+/** The modes of the "Frame generation" row (render.frameGeneration, docs/FRAME_GENERATION.md), and the render.supports feature that tells whether this machine can run each SDK ("off" and "auto" always work: auto runs nothing where no SDK can). */
+export const FRAMEGEN_MODES = ["off", "auto", "dlss", "fsr", "xess"];
+const FRAMEGEN_FEATURE = { dlss: "dlssFrameGen", fsr: "fsrFrameGen", xess: "xessFrameGen" };
+/** The range of the "Minimum base fps" slider (the engine takes 0 to 1000): the frame rate the game renders at, below which generation switches off. */
+export const FRAMEGEN_MIN_FPS_MAX = 240;
+export const FRAMEGEN_DEFAULT_MIN_FPS = 60;
+
 /** The range window.renderScale accepts (a third of the window to all of it). */
 export const RENDER_SCALE_MIN = 0.33;
 export const RENDER_SCALE_MAX = 1;
@@ -144,8 +151,9 @@ function defaults() {
     // detected is the pick of game.graphics.detect() ("auto" asks once, here), null until it ran; upscaler holds only the keys of window.upscaler the player
     // set (mode, quality, sharpness: they win over what a preset writes); renderScale is null (full size) or window.renderScale;
     // dynamicResolution is null (the game's own: window.dynamicResolution, off by default) or one of DYNAMIC_CHOICES;
-    // latency holds only the keys of render.latency the player set (mode, boost), like upscaler: {} keeps the game's own (factoria.json render.latency, off by default).
-    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null, latency: {} },
+    // latency holds only the keys of render.latency the player set (mode, boost), like upscaler: {} keeps the game's own (factoria.json render.latency, off by default);
+    // frameGeneration the same for render.frameGeneration (mode, minBaseFps).
+    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null, latency: {}, frameGeneration: {} },
   };
 }
 
@@ -160,7 +168,7 @@ export function load() {
     volume: { ...base.volume, ...saved.volume },
     bindings: { ...saved.bindings },
     playerBindings: { ...saved.playerBindings },
-    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects }, upscaler: { ...saved.graphics?.upscaler }, latency: { ...saved.graphics?.latency } },
+    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects }, upscaler: { ...saved.graphics?.upscaler }, latency: { ...saved.graphics?.latency }, frameGeneration: { ...saved.graphics?.frameGeneration } },
   };
 }
 
@@ -336,6 +344,29 @@ export function setLatency(keys) {
   fa.call("render.latency", keys);
 }
 
+/** Whether this renderer can run the frame-generation `mode`: "off" and "auto" always, the SDKs by render.supports (false without a renderer to ask). */
+export function frameGenModeSupported(mode) {
+  return FRAMEGEN_FEATURE[mode] === undefined || renderSupports(FRAMEGEN_FEATURE[mode]);
+}
+
+/**
+ * The frame-generation setting in force and what runs: { mode, minBaseFps, provider, state, baseFps, presentedFps } (render.frame_generation; state is
+ * off, refused, measuring, paused or active; "off" with nothing running when the command cannot answer).
+ */
+export function frameGenState() {
+  try {
+    const r = fa.call("render.frame_generation");
+    return { mode: r.mode, minBaseFps: r.minBaseFps, provider: r.provider, state: r.state, baseFps: r.report?.baseFps ?? 0, presentedFps: r.report?.presentedFps ?? 0 };
+  } catch {
+    return { mode: "off", minBaseFps: FRAMEGEN_DEFAULT_MIN_FPS, provider: "none", state: "off", baseFps: 0, presentedFps: 0 };
+  }
+}
+
+/** Sets the keys of render.frame_generation (mode, minBaseFps) in the engine; throws what the command refuses with. A provider needs the start of the run: a game that started with frame generation off answers `refused` (state), the setting itself is kept. */
+export function setFrameGeneration(keys) {
+  fa.call("render.frame_generation", keys);
+}
+
 /** The preset that is in force for the player's choice: "auto" is the pick of game.graphics.detect() (null while it has not run), null when the player never chose. */
 export function presetInForce(s = load()) {
   const choice = s.graphics.preset;
@@ -360,7 +391,7 @@ export function detectPreset(s = load()) {
 }
 
 /**
- * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, the low-latency mode, then the render
+ * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, the low-latency mode, the frame generation, then the render
  * scale and the dynamic resolution. Nothing the player never chose is touched, so a save of an older kit changes nothing; a value the engine rejects is logged and skipped.
  * Settings outlive scene loads and so does the engine's state: apply() calls this once per run, and a row of the page calls it after each change.
  */
@@ -379,6 +410,7 @@ export function applyRenderSettings(s = load()) {
   }
   if (Object.keys(g.upscaler).length) tryApply("the upscaler", () => (window.upscaler = g.upscaler));
   if (Object.keys(g.latency).length) tryApply("the low-latency mode", () => setLatency(g.latency));
+  if (Object.keys(g.frameGeneration).length) tryApply("the frame generation", () => setFrameGeneration(g.frameGeneration));
   if (DYNAMIC_CHOICES.includes(g.dynamicResolution)) tryApply("the dynamic resolution", () => applyDynamicChoice(g.dynamicResolution));
   if (g.renderScale !== null) tryApply("the render scale", () => (window.renderScale = Math.min(RENDER_SCALE_MAX, Math.max(RENDER_SCALE_MIN, g.renderScale))));
 }
