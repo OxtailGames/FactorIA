@@ -80,7 +80,7 @@ struct AppState {
     bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
     // Who makes the window's swapchain (window_presenter_step): the platform's, or a GPU device that claimed the
     // window.
-    WindowPresenter presenter = WindowPresenter::None;
+    WindowPresenter presenter = WindowPresenter::Unclaimed;
     std::string deviceBackend;            // the backend that claimed the window ("" when none did)
     bool presenterRefusalLogged = false;  // app_gfx_environment() while a device has the window: said once
     bool vsyncRefusalLogged = false;      // app_set_vsync() while a device has the window: said once
@@ -326,7 +326,7 @@ void on_cleanup() {
     app_set_native_window_listener({});
     fa_sapp_gl_surface_discard();
 #endif
-    g.presenter = WindowPresenter::None;
+    g.presenter = WindowPresenter::Unclaimed;
     g.deviceBackend.clear();
     g.active = false;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE

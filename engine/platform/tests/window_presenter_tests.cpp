@@ -16,13 +16,13 @@ WindowPresenterStep step(WindowPresenter now, WindowPresenterEvent event, bool i
 }  // namespace
 
 TEST_CASE("window presenter: names") {
-    CHECK(std::string(window_presenter_name(WindowPresenter::None)) == "none");
+    CHECK(std::string(window_presenter_name(WindowPresenter::Unclaimed)) == "none");
     CHECK(std::string(window_presenter_name(WindowPresenter::Platform)) == "platform");
     CHECK(std::string(window_presenter_name(WindowPresenter::Device)) == "device");
 }
 
 TEST_CASE("window presenter: the platform's swapchain is marked on the first ask") {
-    const WindowPresenterStep first = step(WindowPresenter::None, WindowPresenterEvent::PlatformAsked);
+    const WindowPresenterStep first = step(WindowPresenter::Unclaimed, WindowPresenterEvent::PlatformAsked);
     CHECK(first.error.empty());
     CHECK_FALSE(first.releasePlatform);
     CHECK(first.next == WindowPresenter::Platform);
@@ -32,7 +32,7 @@ TEST_CASE("window presenter: the platform's swapchain is marked on the first ask
 }
 
 TEST_CASE("window presenter: a device claims an unused window and the platform's swapchain goes first") {
-    const WindowPresenterStep fromNone = step(WindowPresenter::None, WindowPresenterEvent::DeviceClaim);
+    const WindowPresenterStep fromNone = step(WindowPresenter::Unclaimed, WindowPresenterEvent::DeviceClaim);
     CHECK(fromNone.error.empty());
     CHECK_FALSE(fromNone.releasePlatform);  // nothing made yet: nothing to release
     CHECK(fromNone.next == WindowPresenter::Device);
@@ -50,8 +50,8 @@ TEST_CASE("window presenter: refused claims change nothing and say why") {
     CHECK(inUse.error.find("close_context") != std::string::npos);
     // The window has a graphics API of its own (an OpenGL window): the busy reason is the error.
     const std::string busy = "sokol_app made an OpenGL context on this window";
-    const WindowPresenterStep gl = step(WindowPresenter::None, WindowPresenterEvent::DeviceClaim, false, busy);
-    CHECK(gl.next == WindowPresenter::None);
+    const WindowPresenterStep gl = step(WindowPresenter::Unclaimed, WindowPresenterEvent::DeviceClaim, false, busy);
+    CHECK(gl.next == WindowPresenter::Unclaimed);
     CHECK(gl.error == busy);
     // A device has it already.
     const WindowPresenterStep twice = step(WindowPresenter::Device, WindowPresenterEvent::DeviceClaim);
@@ -64,7 +64,7 @@ TEST_CASE("window presenter: refused claims change nothing and say why") {
 }
 
 TEST_CASE("window presenter: the fallback path, claim, release, then the platform's swapchain again") {
-    WindowPresenter now = WindowPresenter::None;
+    WindowPresenter now = WindowPresenter::Unclaimed;
     WindowPresenterStep s = step(now, WindowPresenterEvent::DeviceClaim);
     REQUIRE(s.error.empty());
     now = s.next;
@@ -72,13 +72,13 @@ TEST_CASE("window presenter: the fallback path, claim, release, then the platfor
     s = step(now, WindowPresenterEvent::DeviceRelease);
     CHECK(s.error.empty());
     now = s.next;
-    CHECK(now == WindowPresenter::None);
+    CHECK(now == WindowPresenter::Unclaimed);
     // The build's sokol backend asks for the window's device: the platform makes its swapchain anew.
     s = step(now, WindowPresenterEvent::PlatformAsked);
     CHECK(s.next == WindowPresenter::Platform);
     // A release without a device changes nothing.
     CHECK(step(WindowPresenter::Platform, WindowPresenterEvent::DeviceRelease).next == WindowPresenter::Platform);
-    CHECK(step(WindowPresenter::None, WindowPresenterEvent::DeviceRelease).next == WindowPresenter::None);
+    CHECK(step(WindowPresenter::Unclaimed, WindowPresenterEvent::DeviceRelease).next == WindowPresenter::Unclaimed);
 }
 
 TEST_CASE("window presenter: without a window nothing is handed, claimed or presented") {
@@ -91,9 +91,9 @@ TEST_CASE("window presenter: without a window nothing is handed, claimed or pres
     REQUIRE_FALSE(claim.ok());
     CHECK(claim.error().message.find("vulkan") != std::string::npos);
     CHECK(claim.error().message.find("hint") != std::string::npos);
-    CHECK(app_window_presenter() == WindowPresenter::None);
+    CHECK(app_window_presenter() == WindowPresenter::Unclaimed);
     CHECK(app_window_device_backend().empty());
     app_release_native_window();  // nothing claimed: nothing changes
-    CHECK(app_window_presenter() == WindowPresenter::None);
+    CHECK(app_window_presenter() == WindowPresenter::Unclaimed);
     CHECK_FALSE(app_read_window_back_buffer(4, 4, nullptr));
 }

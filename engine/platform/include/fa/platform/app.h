@@ -123,7 +123,7 @@ bool app_read_window_back_buffer(int width, int height, std::uint8_t* rgba);
 // app_gfx_environment()), or a GPU device that makes its own (D3D12, Vulkan) claims the window's native handles first
 // (app_claim_native_window).
 enum class WindowPresenter : std::uint8_t {
-    None,      // nothing made yet (Windows before the first app_gfx_environment(); after a device let the window go)
+    Unclaimed, // nothing made yet (Windows before the first app_gfx_environment(); after a device let the window go)
     Platform,  // the platform's swapchain presents the frames
     Device,    // a GPU device made (or is making) its own swapchain on the native window
 };
@@ -135,7 +135,7 @@ enum class WindowPresenterEvent : std::uint8_t {
 };
 // What one event does. app.cpp acts on it; the rule itself is pure, so every platform's tests check it.
 struct WindowPresenterStep {
-    WindowPresenter next = WindowPresenter::None;
+    WindowPresenter next = WindowPresenter::Unclaimed;
     bool releasePlatform = false;  // destroy the platform's swapchain before the device makes its own on the window
     std::string error;             // "" = done; else why the event is refused (the state stays `now`)
 };

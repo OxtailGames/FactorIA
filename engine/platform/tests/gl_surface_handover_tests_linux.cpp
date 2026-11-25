@@ -73,7 +73,7 @@ void step_frame(double) {
     }
     if (s.frame == 20) {
         s.releaseOk = app_release_native_window();
-        s.released = app_window_presenter() == WindowPresenter::None && app_window_device_backend().empty();
+        s.released = app_window_presenter() == WindowPresenter::Unclaimed && app_window_device_backend().empty();
         s.surfaceBack = fa_sapp_gl_surface_state() == 0;
         sg_desc desc{};
         desc.environment = sg_env(app_gfx_environment());
