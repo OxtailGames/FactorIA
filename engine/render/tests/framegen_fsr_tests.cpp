@@ -44,7 +44,8 @@ struct Fk {
         querySwapFnsCalls = 0;    // the swapchain functions query fails this many times, then answers
     bool noSwapFn = false;        // the swapchain functions query leaves the present function null
     bool noProxy = false;         // the DX12 create says ok and gives no swapchain
-    bool proxyOnFailure = false;  // the DX12 create fails (createSwapRc) and has made a proxy all the same
+    bool proxyOnFailure = false;  // the DX12 create fails (createSwapRc) and has written a proxy all the same
+    bool noContext = false;       // the DX12 create says ok, gives a proxy and no context
     std::function<void()>
         onWait;  // runs inside the swapchain's wait dispatch: the render thread, with the provider's mutex held
     std::vector<std::string>
@@ -96,7 +97,7 @@ abi::ReturnCode fake_create(abi::Context* context, abi::Header* desc, const void
             if (fk.proxyOnFailure) *fk.dx12Swap.swapchain = &fk.dxToken;
             return fk.createSwapRc;
         }
-        *context = swap_ctx();
+        if (!fk.noContext) *context = swap_ctx();
         if (!fk.noProxy) *fk.dx12Swap.swapchain = &fk.dxToken;
         return 0;
     }
@@ -1597,22 +1598,29 @@ struct ReleaseGuard {
 };
 }  // namespace
 
-TEST_CASE("fsr frame generation hook, D3D12: the proxy of a create that failed is released, one that worked is the "
-          "engine's") {
+TEST_CASE("fsr frame generation hook, D3D12: a proxy of an ok create that gave no context is released, one that worked "
+          "is the engine's") {
     Rig r(gpu::Backend::D3d12);
     ReleaseGuard guard;
     REQUIRE(r.fsr->probe(r.env()).available);
     REQUIRE(r.arm(FrameGenMode::Fsr));
     r.dx_device();
-    // FidelityFX answered with an error and had made a swapchain: the engine never sees it, so the hook gives it back.
-    fk.createSwapRc = abi::kNoProvider;
-    fk.proxyOnFailure = true;
+    // Ok, a swapchain and no context: the reference came through the out parameter and nothing can use it, so the hook gives it back.
+    fk.noContext = true;
     CHECK_FALSE(r.dx_swapchain());
     REQUIRE(g_released.size() == 1);
     CHECK(g_released[0] == &fk.dxToken);
     CHECK(r.dxSc.swapchain == nullptr);
-    // An error with no swapchain has nothing to give back.
+    CHECK(has(r.dxSc.error, "gave no swapchain"));
+    fk.noContext = false;
     g_released.clear();
+    // An error result hands over no reference (an out parameter of a failed call, by COM's convention): nothing is released, even if the
+    // fake wrote a pointer there.
+    fk.createSwapRc = abi::kNoProvider;
+    fk.proxyOnFailure = true;
+    CHECK_FALSE(r.dx_swapchain());
+    CHECK(g_released.empty());
+    CHECK(r.dxSc.swapchain == nullptr);
     fk.proxyOnFailure = false;
     CHECK_FALSE(r.dx_swapchain());
     CHECK(g_released.empty());
@@ -1652,7 +1660,7 @@ TEST_CASE("fsr frame generation: configure between two frames repeats the last f
     CHECK_FALSE(r.draw());
     fk.dispatchRc = 0;
     r.fsr->configure(true);
-    CHECK(fk.configure.frameId >= 42);
+    CHECK(fk.configure.frameId == 42);
 }
 
 TEST_CASE("fsr frame generation hook, Vulkan: mode auto on an AMD GPU asks for no queue when FidelityFX is not "
@@ -1670,6 +1678,16 @@ TEST_CASE("fsr frame generation hook, Vulkan: mode auto on an AMD GPU asks for n
         CHECK(has(why, "factoria setup fidelityfx"));  // the one place that says it, once per start
         // The library is asked for once by the hook: not again for the swapchain, which has no vendor to serve.
         CHECK(r.loader.askedFiles.size() == 1);
+    }
+    {  // the reason of a device is not the next device's: with the library there now, the old sentence is gone
+        Rig r(gpu::Backend::Vulkan);
+        r.loader.installed = false;
+        REQUIRE(r.arm(FrameGenMode::Auto));
+        CHECK(r.vk_device(0x1002).queues.empty());
+        CHECK(has(r.fsr->start(r.dev, r.swapchain()), "factoria setup fidelityfx"));
+        r.loader.installed = true;
+        CHECK(r.vk_device(0x1002).queues.size() == 3);
+        CHECK_FALSE(has(r.fsr->start(r.dev, r.swapchain()), "factoria setup fidelityfx"));
     }
     {
         Rig r(gpu::Backend::Vulkan);

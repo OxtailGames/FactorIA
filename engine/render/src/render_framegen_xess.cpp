@@ -43,18 +43,11 @@ static_assert(sizeof(abi::D3d12ResourceData) == 40, "xefg_swapchain_d3d12_resour
 #endif
 static_assert(sizeof(abi::Guid) == 16, "GUID");
 
-// The values of the SDK's enumerations the engine passes (xefg_swapchain.h, xefg_swapchain_d3d12.h): a change in the header of this build's
-// constants is a change of what the library is told, so the build says so.
-static_assert(abi::kResultSuccess == 0, "XEFG_SWAPCHAIN_RESULT_SUCCESS");
-static_assert(abi::kResourceDepth == 1, "XEFG_SWAPCHAIN_RES_DEPTH");
-static_assert(abi::kResourceMotionVector == 2, "XEFG_SWAPCHAIN_RES_MOTION_VECTOR");
-static_assert(abi::kValidityOnlyNow == 1, "XEFG_SWAPCHAIN_RV_ONLY_NOW");
-static_assert(abi::kUiModeNone == 1, "XEFG_SWAPCHAIN_UI_MODE_NONE");
+// The one constant of the ABI that is a Direct3D 12 value: the state a tagged resource is handed over in. Where the Windows headers are there,
+// the build checks it against them (the others are the SDK's own enumerations, which no header of this build holds).
 #if defined(_WIN32)
 static_assert(abi::kStateCopySource == std::uint32_t(D3D12_RESOURCE_STATE_COPY_SOURCE),
-              "the state a tagged resource is handed over in");
-#else
-static_assert(abi::kStateCopySource == 0x800, "D3D12_RESOURCE_STATE_COPY_SOURCE");
+              "D3D12_RESOURCE_STATE_COPY_SOURCE");
 #endif
 
 constexpr unsigned bit(gpu::Backend b) { return 1u << unsigned(b); }
@@ -202,7 +195,7 @@ private:
     bool wantEnabled_ = false;  // what the controller last asked (configure): put back on a swapchain made again
     // Negative results of the swapchain's present status in a row (fewer than kStatusFailures are tolerated: a resize or a device hiccup).
     int statusFailures_ = 0;
-    std::uint32_t lastPresentId_ = 0;  // the highest present id given to the SDK (ids only grow: see next_present_id)
+    std::uint32_t lastPresentId_ = 0;  // the id of the last tagged frame (see next_present_id)
     std::uint32_t taggedId_ = 0;       // the present id the last dispatch tagged (0: none since the last present)
     std::uint64_t presents_ = 0;       // PresentEvent::frame of the last present begun
     std::atomic<std::uint64_t> generated_{0};
@@ -422,12 +415,16 @@ std::uint32_t XessFrameGenProvider::next_present_id(bool consume) {
     // the presents this device made, plus one.
     std::uint32_t id = share_ ? share_->frame_id() : 0u;
     if (id == 0) id = std::uint32_t(presents_ + 1);
-    // Present ids only grow, whatever the sources do: XeLL's frame id and the count of presents restart with a new device or context, and a
-    // paused present is named by the count where a generating one is named by XeLL's id. An id that is not above the last one is the last plus
-    // one. (A 32-bit id wraps after four billion presents; XeSS-FG compares them for equality.)
-    if (id <= lastPresentId_) id = lastPresentId_ + 1;
+    // A present that tags nothing (generation off, or before the first frame) only reads the source: it must not move lastPresentId_, or the
+    // ids of the presents XeLL no longer counts would run ahead of XeLL's own, and the tag, the present id and XeLL's marker id (the three
+    // XeSS-FG needs to be the same) would never meet again.
+    if (!consume) return id;
+    // A tagged frame takes the source's id as it is, also when it went back (XeLL's context was made again, or the count of presents
+    // restarted: the sequence is followed, not outrun). The one guard: an id the SDK was just given is not given twice for another frame
+    // (two dispatches before XeLL's next sleep), so it becomes the last plus one.
+    if (id == lastPresentId_) id = lastPresentId_ + 1;
     lastPresentId_ = id;
-    if (consume) taggedId_ = id;
+    taggedId_ = id;
     return id;
 }
 
