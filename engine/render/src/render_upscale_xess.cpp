@@ -36,11 +36,16 @@ struct QualityRow {
     float ratio;
 };
 constexpr QualityRow kQualities[] = {
-    {abi::kQualityAa, 1.0f},          {abi::kQualityUltraQualityPlus, 1.3f}, {abi::kQualityUltraQuality, 1.5f},
-    {abi::kQualityQuality, 1.7f},     {abi::kQualityBalanced, 2.0f},         {abi::kQualityPerformance, 2.3f},
+    {abi::kQualityAa, 1.0f},
+    {abi::kQualityUltraQualityPlus, 1.3f},
+    {abi::kQualityUltraQuality, 1.5f},
+    {abi::kQualityQuality, 1.7f},
+    {abi::kQualityBalanced, 2.0f},
+    {abi::kQualityPerformance, 2.3f},
     {abi::kQualityUltraPerformance, 3.0f},
 };
-constexpr float kQualityHysteresis = 0.15f;  // the settings are 0.2 apart: a band of 0.15 leaves 0.05 either side of a boundary
+constexpr float kQualityHysteresis =
+    0.15f;  // the settings are 0.2 apart: a band of 0.15 leaves 0.05 either side of a boundary
 
 std::string version_text(const abi::Version& v) {
     return std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch);
@@ -73,7 +78,8 @@ std::string vulkan_version_text(std::uint32_t v) {
 
 // What the library said to a call that went wrong, as the sentence of an error.
 std::string call_failed(const char* function, std::int32_t result) {
-    std::string text = std::string(function) + " answered \"" + xess_result_text(result) + "\" (" + std::to_string(result) + ")";
+    std::string text =
+        std::string(function) + " answered \"" + xess_result_text(result) + "\" (" + std::to_string(result) + ")";
     if (result == -1)
         text += ": this GPU cannot run XeSS (it needs Shader Model 6.4)";
     else if (result == -2)
@@ -88,7 +94,9 @@ public:
     std::string_view name() const override { return "XeSS"; }
     std::string_view mode() const override { return "xess"; }
     std::string_view setup_id() const override { return "xess"; }
-    unsigned backends() const override { return bit(gpu::Backend::D3d12) | bit(gpu::Backend::Vulkan) | bit(gpu::Backend::D3d11); }
+    unsigned backends() const override {
+        return bit(gpu::Backend::D3d12) | bit(gpu::Backend::Vulkan) | bit(gpu::Backend::D3d11);
+    }
     // XeSS writes the output image from a compute shader.
     bool needs_output_storage() const override { return true; }
 
@@ -135,7 +143,8 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
     p.reason = vendor_environment_problem(*this, env);
     if (p.reason.empty() && sizeof(void*) != 8) p.reason = "XeSS's libraries are 64-bit; this build is not.";
     if (p.reason.empty() && env.backend == gpu::Backend::D3d11 && env.vendor != GpuVendor::Intel)
-        p.reason = "XeSS on Direct3D 11 runs on Intel Arc GPUs only (its Direct3D 11 library needs the Intel driver); this GPU is " +
+        p.reason = "XeSS on Direct3D 11 runs on Intel Arc GPUs only (its Direct3D 11 library needs the Intel driver); "
+                   "this GPU is " +
                    vendor_describe_gpu(env.vendor) +
                    ". Run the game on Direct3D 12 or Vulkan, where XeSS runs on any GPU.";
     if (!p.reason.empty()) return p;
@@ -156,18 +165,21 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
     XessApi api;
     if (const std::string missing = xess_load_api(*lib, env.backend, api); !missing.empty()) {
         p.reason = "XeSS's library " + lib->path() + " has no export " + missing +
-                   " (it is not XeSS 3.x for this backend): run `factoria setup xess` to install the version FactorIA was tested with.";
+                   " (it is not XeSS 3.x for this backend): run `factoria setup xess` to install the version FactorIA "
+                   "was tested with.";
         return p;
     }
     abi::Version version{};
     if (const std::int32_t rc = api.getVersion(&version); rc < 0) {
-        p.reason = "XeSS's library " + lib->path() + " did not answer its version: " + call_failed("xessGetVersion", rc) +
+        p.reason = "XeSS's library " + lib->path() +
+                   " did not answer its version: " + call_failed("xessGetVersion", rc) +
                    ". Run `factoria setup xess` to install it again.";
         return p;
     }
     if (version.major < 3) {
         p.reason = "XeSS " + version_text(version) + " (" + lib->path() +
-                   ") is too old: FactorIA needs XeSS 3.0 or newer (the scale factors and the API of 3.x). Run `factoria setup xess`.";
+                   ") is too old: FactorIA needs XeSS 3.0 or newer (the scale factors and the API of 3.x). Run "
+                   "`factoria setup xess`.";
         return p;
     }
     if (env.backend == gpu::Backend::Vulkan) {
@@ -185,13 +197,15 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
         for (const std::string& e : req->deviceExtensions)
             if (!contains(env.vulkanDeviceExtensions, e)) missing.push_back(e + " (device)");
         if (!missing.empty()) {
-            p.reason = "XeSS on Vulkan needs these extensions enabled, and the engine's Vulkan device does not enable them: " + join(missing) +
-                       ". Run the game on Direct3D 12, where XeSS needs none.";
+            p.reason =
+                "XeSS on Vulkan needs these extensions enabled, and the engine's Vulkan device does not enable them: " +
+                join(missing) + ". Run the game on Direct3D 12, where XeSS needs none.";
             return p;
         }
         if (nd.apiVersion != 0 && req->minApiVersion != 0 && nd.apiVersion < req->minApiVersion) {
-            p.reason = "XeSS on Vulkan needs Vulkan " + vulkan_version_text(req->minApiVersion) + " or newer; the device runs " +
-                       vulkan_version_text(nd.apiVersion) + ". Update the GPU driver, or run the game on Direct3D 12.";
+            p.reason = "XeSS on Vulkan needs Vulkan " + vulkan_version_text(req->minApiVersion) +
+                       " or newer; the device runs " + vulkan_version_text(nd.apiVersion) +
+                       ". Update the GPU driver, or run the game on Direct3D 12.";
             return p;
         }
     }
@@ -209,7 +223,8 @@ VendorProbe XessProvider::probe(const VendorEnv& env) {
 }
 
 // Makes (or keeps) the context of `device` for this frame's sizes, quality and flags. "" or the sentence of what failed.
-std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput& in, std::int32_t quality, std::uint32_t flags) {
+std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput& in, std::int32_t quality,
+                                         std::uint32_t flags) {
     const gpu::Backend backend = device.backend();
     if (ctx_.handle && ctx_.device != &device) {
         // A context of another device: that device was destroyed without release(), and the context with it.
@@ -229,10 +244,12 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
                 break;
             case gpu::Backend::Vulkan:
                 fn = "xessVKCreateContext";
-                rc = api_.vkCreate(const_cast<void*>(nd.instance), const_cast<void*>(nd.physicalDevice), const_cast<void*>(nd.device),
-                                   &handle);
+                rc = api_.vkCreate(const_cast<void*>(nd.instance), const_cast<void*>(nd.physicalDevice),
+                                   const_cast<void*>(nd.device), &handle);
                 break;
-            default: return "XeSS runs on D3D12, Vulkan and D3D11; this device is " + std::string(vendor_backend_label(backend)) + ".";
+            default:
+                return "XeSS runs on D3D12, Vulkan and D3D11; this device is " +
+                       std::string(vendor_backend_label(backend)) + ".";
         }
         if (rc < 0 || !handle) return "XeSS could not make its context: " + call_failed(fn, rc) + ".";
         ctx_ = Context{};
@@ -241,12 +258,13 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
         ctx_.backend = backend;
         if (rc == abi::kResultWarningOldDriver) {
             ctx_.warnedDriver = true;
-            FA_WARN("render", "XeSS: the installed GPU driver is older than XeSS likes: the picture may be slower or worse than it can be. "
+            FA_WARN("render", "XeSS: the installed GPU driver is older than XeSS likes: the picture may be slower or "
+                              "worse than it can be. "
                               "Hint: update the GPU driver.");
         }
     }
-    const bool same = ctx_.initialized && ctx_.renderW == in.renderW && ctx_.renderH == in.renderH && ctx_.outW == in.outW &&
-                      ctx_.outH == in.outH && ctx_.quality == quality && ctx_.flags == flags;
+    const bool same = ctx_.initialized && ctx_.renderW == in.renderW && ctx_.renderH == in.renderH &&
+                      ctx_.outW == in.outW && ctx_.outH == in.outH && ctx_.quality == quality && ctx_.flags == flags;
     if (same) return {};
     // The GPU must be done with the context before it is initialised again (the frames in flight use its resources).
     if (ctx_.initialized) {
@@ -286,12 +304,13 @@ std::string XessProvider::ensure_context(gpu::Device& device, const UpscaleInput
     }
     if (rc < 0) {
         ctx_.initialized = false;
-        return "XeSS could not initialise for " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) + " -> " +
-               std::to_string(in.outW) + "x" + std::to_string(in.outH) + ": " + call_failed(fn, rc) + ".";
+        return "XeSS could not initialise for " + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) +
+               " -> " + std::to_string(in.outW) + "x" + std::to_string(in.outH) + ": " + call_failed(fn, rc) + ".";
     }
     if (rc == abi::kResultWarningOldDriver && !ctx_.warnedDriver) {
         ctx_.warnedDriver = true;
-        FA_WARN("render", "XeSS: the installed GPU driver is older than XeSS likes: the picture may be slower or worse than it can be. "
+        FA_WARN("render", "XeSS: the installed GPU driver is older than XeSS likes: the picture may be slower or worse "
+                          "than it can be. "
                           "Hint: update the GPU driver.");
     }
     // The motion image is in UV units (the picture is 1 wide): XeSS reads pixels.
@@ -325,7 +344,8 @@ std::string XessProvider::ensure_helpers(gpu::Device& device, const VendorFrame&
             return "the GPU could not make the empty responsive mask image XeSS reads on a frame without one.";
         }
     }
-    if (device.backend() != gpu::Backend::Vulkan) return {};  // D3D12 and D3D11 take the resources; XeSS makes its own descriptors
+    if (device.backend() != gpu::Backend::Vulkan)
+        return {};  // D3D12 and D3D11 take the resources; XeSS makes its own descriptors
     if (!frame.reactive.valid() && !ctx_.emptyMaskView.valid()) {
         gpu::ViewDesc v;
         v.texture.image = ctx_.emptyMask;
@@ -344,7 +364,8 @@ std::string XessProvider::ensure_helpers(gpu::Device& device, const VendorFrame&
         ctx_.outputView = device.make_view(v);
         ctx_.outputImage = frame.output;
         if (!ctx_.outputView.valid())
-            return "the GPU could not make the storage view of the output image (the image was not made with storage usage).";
+            return "the GPU could not make the storage view of the output image (the image was not made with storage "
+                   "usage).";
     }
     return {};
 }
@@ -386,8 +407,9 @@ bool XessProvider::upscale(const UpscaleInput& in, VendorFrame& frame) {
         return false;
     }
     if (in.renderW <= 0 || in.renderH <= 0 || in.outW <= 0 || in.outH <= 0) {
-        frame.error = "XeSS was given an empty picture (" + std::to_string(in.renderW) + "x" + std::to_string(in.renderH) + " -> " +
-                      std::to_string(in.outW) + "x" + std::to_string(in.outH) + ").";
+        frame.error = "XeSS was given an empty picture (" + std::to_string(in.renderW) + "x" +
+                      std::to_string(in.renderH) + " -> " + std::to_string(in.outW) + "x" + std::to_string(in.outH) +
+                      ").";
         return false;
     }
     const float ratio = std::max(float(in.outW) / float(in.renderW), float(in.outH) / float(in.renderH));
@@ -429,9 +451,11 @@ bool XessProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFr
     abi::D3d11ExecuteParams d3d11{};
     abi::VkExecuteParams vk{};
     if (backend == gpu::Backend::Vulkan) {
-        const auto info = [&](gpu::View view, int w, int h, abi::VkImageViewInfo& out, const char* what) -> std::string {
+        const auto info = [&](gpu::View view, int w, int h, abi::VkImageViewInfo& out,
+                              const char* what) -> std::string {
             const gpu::NativeView nv = device.native_view(view);
-            if (!nv.vkImageView) return std::string("the Vulkan image view of the ") + what + " image is not known to the device.";
+            if (!nv.vkImageView)
+                return std::string("the Vulkan image view of the ") + what + " image is not known to the device.";
             const gpu::NativeImage ni = device.native_image(nv.image);
             out.imageView = nv.vkImageView;
             out.image = ni.vkImage;
@@ -448,7 +472,9 @@ bool XessProvider::execute(gpu::Device& device, const UpscaleInput& in, VendorFr
         std::string e = info(in.color, in.renderW, in.renderH, vk.color, "colour");
         if (e.empty()) e = info(in.depth, in.renderW, in.renderH, vk.depth, "depth");
         if (e.empty()) e = info(in.velocity, in.renderW, in.renderH, vk.velocity, "velocity");
-        if (e.empty()) e = info(in.reactive.valid() ? in.reactive : ctx_.emptyMaskView, in.renderW, in.renderH, vk.responsiveMask, "mask");
+        if (e.empty())
+            e = info(in.reactive.valid() ? in.reactive : ctx_.emptyMaskView, in.renderW, in.renderH, vk.responsiveMask,
+                     "mask");
         if (e.empty()) e = info(ctx_.outputView, in.outW, in.outH, vk.output, "output");
         if (!e.empty()) {
             frame.error = "XeSS: " + e;
@@ -582,13 +608,15 @@ std::string xess_load_api(VendorLibrary& lib, gpu::Backend backend, XessApi& api
 
 Result<XessVulkanRequirements> xess_vulkan_requirements(const XessApi& api, void* instance, void* physicalDevice) {
     if (!api.vkInstanceExtensions || !api.vkDeviceExtensions)
-        return make_error("XeSS's Vulkan functions are not loaded", "load the library for the Vulkan backend (xess_load_api)");
+        return make_error("XeSS's Vulkan functions are not loaded",
+                          "load the library for the Vulkan backend (xess_load_api)");
     constexpr std::uint32_t kMaxNames = 256;  // a sanity bound: a library that answers more is not XeSS
     XessVulkanRequirements out;
     std::uint32_t count = 0;
     const char* const* names = nullptr;
     if (const std::int32_t rc = api.vkInstanceExtensions(&count, &names, &out.minApiVersion); rc < 0)
-        return make_error(call_failed("xessVKGetRequiredInstanceExtensions", rc), "run `factoria setup xess` to install the library again");
+        return make_error(call_failed("xessVKGetRequiredInstanceExtensions", rc),
+                          "run `factoria setup xess` to install the library again");
     for (std::uint32_t i = 0; names && i < std::min(count, kMaxNames); ++i)
         if (names[i]) out.instanceExtensions.emplace_back(names[i]);
     if (instance && physicalDevice) {
@@ -608,7 +636,9 @@ Result<XessVulkanRequirements> xess_vulkan_requirements(void* instance, void* ph
     const std::filesystem::path found = vendor_loader().find(xess_library_spec(gpu::Backend::Vulkan), &why);
     if (found.empty()) return make_error("XeSS is not installed (" + why + ")", "run `factoria setup xess`");
     std::unique_ptr<VendorLibrary> lib = vendor_loader().load(found, &why);
-    if (!lib) return make_error("XeSS's library " + fa::fs::path_to_utf8(found) + " could not be loaded: " + why, "run `factoria setup xess`");
+    if (!lib)
+        return make_error("XeSS's library " + fa::fs::path_to_utf8(found) + " could not be loaded: " + why,
+                          "run `factoria setup xess`");
     XessApi api;
     if (const std::string missing = xess_load_api(*lib, gpu::Backend::Vulkan, api); !missing.empty())
         return make_error("XeSS's library " + lib->path() + " has no export " + missing, "run `factoria setup xess`");
@@ -623,7 +653,8 @@ float xess_quality_ratio(std::int32_t setting) {
 
 std::int32_t xess_quality_for_ratio(float ratio, std::int32_t current) {
     if (!std::isfinite(ratio) || ratio <= 1.0f) return abi::kQualityAa;
-    if (const float held = xess_quality_ratio(current); held > 0.0f && std::fabs(ratio - held) <= kQualityHysteresis) return current;
+    if (const float held = xess_quality_ratio(current); held > 0.0f && std::fabs(ratio - held) <= kQualityHysteresis)
+        return current;
     std::int32_t best = kQualities[0].setting;
     float bestDistance = std::fabs(ratio - kQualities[0].ratio);
     for (const QualityRow& row : kQualities) {

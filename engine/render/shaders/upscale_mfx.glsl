@@ -1,7 +1,8 @@
-// shdc-slang: metal_macos:metal_ios:metal_sim:hlsl5:spirv_vk
+// shdc-slang: glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk
 // FactorIA temporal-upscaler input preparation (M76-P5b, M78): one fragment pass at the render resolution that turns what the depth prepass wrote
-// into what the MetalFX temporal scaler and the vendor SDKs (XeSS, DLSS, FSR) read. Only the dialects of the backends that run those are
-// compiled: Metal, D3D11 and D3D12 (hlsl5), Vulkan. Every one of them has a top-down texture space, so the uv below needs no flip.
+// into what the MetalFX temporal scaler and the vendor SDKs (XeSS, DLSS, FSR) read. The vendor SDKs run on Metal, D3D11 and D3D12 (hlsl5) and
+// Vulkan, whose texture space is top-down, so the uv below needs no flip. The GL and WebGPU dialects are compiled too so that the pass (and the
+// provider hand-off tests with a fake provider) runs on every backend; no SDK reads its result on OpenGL, where the uv is not flipped.
 //
 //   in   tex_p  the prepass: r = the linear view depth in world units (a = 1 where a mesh was drawn, else 0)
 //        tex_v  the velocity: rg = uvPrev - uvCurr (unjittered, y down), 1024 where no object wrote one (VelocityRef::kNone)

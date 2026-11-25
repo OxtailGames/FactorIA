@@ -199,9 +199,9 @@ struct LoaderGuard {
 // which image reached XeSS) and counts the times the GPU was waited for.
 class XDevice : public gpu::RecordingDevice {
 public:
-    explicit XDevice(gpu::Backend backend, std::uint32_t pciVendor = 0x8086) : backend_(backend) {
+    explicit XDevice(gpu::Backend deviceBackend, std::uint32_t pciVendor = 0x8086) : backend_(deviceBackend) {
         info_ = gpu::RecordingDevice::info();
-        info_.backend = backend;
+        info_.backend = deviceBackend;
         info_.gpu.vendorId = pciVendor;
         info_.gpu.vendor = gpu::gpu_vendor_from_pci(pciVendor);
     }
@@ -215,19 +215,19 @@ public:
         n.apiVersion = apiVersion;
         return n;
     }
-    gpu::NativeImage native_image(gpu::Image image) const override {
+    gpu::NativeImage native_image(gpu::Image img) const override {
         gpu::NativeImage n;
-        if (!image.valid()) return n;
-        n.resource = reinterpret_cast<const void*>(std::uintptr_t(image.id) * 16);
-        n.vkImage = std::uint64_t(image.id) * 16;
+        if (!img.valid()) return n;
+        n.resource = reinterpret_cast<const void*>(std::uintptr_t(img.id) * 16);
+        n.vkImage = std::uint64_t(img.id) * 16;
         return n;
     }
-    gpu::NativeView native_view(gpu::View view) const override {
+    gpu::NativeView native_view(gpu::View v) const override {
         gpu::NativeView n;
-        if (!view.valid()) return n;
-        n.vkImageView = std::uint64_t(view.id) * 256;
+        if (!v.valid()) return n;
+        n.vkImageView = std::uint64_t(v.id) * 256;
         n.nativeFormat = 37;  // VK_FORMAT_R8G8B8A8_UNORM
-        n.image = viewImage.count(view.id) ? viewImage.at(view.id) : gpu::Image{};
+        n.image = viewImage.count(v.id) ? viewImage.at(v.id) : gpu::Image{};
         return n;
     }
     Result<void> wait_idle() override {
@@ -249,10 +249,10 @@ public:
         d.label = "xess-test";
         return make_image(d);
     }
-    gpu::View view(gpu::Image image) {
-        gpu::ViewDesc v;
-        v.texture.image = image;
-        return make_view(v);
+    gpu::View view(gpu::Image img) {
+        gpu::ViewDesc vd;
+        vd.texture.image = img;
+        return make_view(vd);
     }
     // Remembers the image of every view (the provider's own storage views too), so native_view can name it.
     gpu::View make_view(const gpu::ViewDesc& desc) override {
@@ -374,7 +374,8 @@ struct Rig {
 
 // ---- the pure parts ---------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("xess: the quality setting follows the upscale ratio, M76's five names land exactly, and a wobble near a boundary does not flip it") {
+TEST_CASE("xess: the quality setting follows the upscale ratio, M76's five names land exactly, and a wobble near a "
+          "boundary does not flip it") {
     CHECK(render::xess_quality_for_ratio(1.0f) == abi::kQualityAa);
     CHECK(render::xess_quality_for_ratio(0.5f) == abi::kQualityAa);  // never an upscale below 1
     CHECK(render::xess_quality_for_ratio(1.5f) == abi::kQualityUltraQuality);
@@ -388,7 +389,8 @@ TEST_CASE("xess: the quality setting follows the upscale ratio, M76's five names
     // The setting in use is kept while the ratio is within 0.15 of it.
     CHECK(render::xess_quality_for_ratio(1.62f) == abi::kQualityQuality);
     CHECK(render::xess_quality_for_ratio(1.62f, abi::kQualityUltraQuality) == abi::kQualityUltraQuality);
-    CHECK(render::xess_quality_for_ratio(1.62f, abi::kQualityBalanced) == abi::kQualityQuality);  // too far from Balanced's 2.0
+    CHECK(render::xess_quality_for_ratio(1.62f, abi::kQualityBalanced) ==
+          abi::kQualityQuality);  // too far from Balanced's 2.0
     CHECK(render::xess_quality_ratio(abi::kQualityPerformance) == doctest::Approx(2.3f));
     CHECK(render::xess_quality_ratio(0) == 0.0f);
     CHECK(render::xess_result_text(-1) == "unsupported device");
@@ -487,7 +489,8 @@ TEST_CASE("xess probe: a missing, unloadable, incomplete or too old library is r
     CHECK(p.reason.find("device error") != std::string::npos);
 }
 
-TEST_CASE("xess probe: on Vulkan the extensions XeSS asks for must be enabled, and the API version must reach what it needs") {
+TEST_CASE("xess probe: on Vulkan the extensions XeSS asks for must be enabled, and the API version must reach what it "
+          "needs") {
     Rig r(gpu::Backend::Vulkan, 0x10DE);
     fx.instanceExtensions = {"VK_KHR_get_physical_device_properties2"};
     fx.deviceExtensions = {"VK_KHR_driver_properties", "VK_EXT_subgroup_size_control"};
@@ -520,8 +523,8 @@ TEST_CASE("xess probe: on Vulkan the extensions XeSS asks for must be enabled, a
     CHECK(req->instanceExtensions == fx.instanceExtensions);
     CHECK(req->deviceExtensions.empty());  // no physical device given: only the instance's list
     CHECK(req->minApiVersion == fx.minApiVersion);
-    const Result<render::XessVulkanRequirements> full =
-        render::xess_vulkan_requirements(reinterpret_cast<void*>(std::uintptr_t(0x2000)), reinterpret_cast<void*>(std::uintptr_t(0x3000)));
+    const Result<render::XessVulkanRequirements> full = render::xess_vulkan_requirements(
+        reinterpret_cast<void*>(std::uintptr_t(0x2000)), reinterpret_cast<void*>(std::uintptr_t(0x3000)));
     REQUIRE(full.ok());
     CHECK(full->deviceExtensions == fx.deviceExtensions);
     r.loader.installed = false;
@@ -531,7 +534,8 @@ TEST_CASE("xess probe: on Vulkan the extensions XeSS asks for must be enabled, a
 
 // ---- the frames -------------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("xess D3D12: one context for many frames, init again only when the size, quality or flags change, destroy on release") {
+TEST_CASE("xess D3D12: one context for many frames, init again only when the size, quality or flags change, destroy on "
+          "release") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
     CHECK(r.xess->needs_output_storage());
@@ -604,7 +608,8 @@ TEST_CASE("xess D3D12: one context for many frames, init again only when the siz
     CHECK(r.dev.errors().empty());
 }
 
-TEST_CASE("xess D3D12: a frame passes the jitter, exposure, sizes and the right resources inside a native section with every state declared") {
+TEST_CASE("xess D3D12: a frame passes the jitter, exposure, sizes and the right resources inside a native section with "
+          "every state declared") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.xess->probe(r.env(GpuVendor::Amd)).available);  // any GPU
     r.in.exposure = 2.5f;
@@ -656,7 +661,8 @@ TEST_CASE("xess D3D12: a frame passes the jitter, exposure, sizes and the right 
     CHECK(r.dev.errors().empty());
 }
 
-TEST_CASE("xess: a failure returns false with the reason, restarts the history, and never leaves a native section open") {
+TEST_CASE(
+    "xess: a failure returns false with the reason, restarts the history, and never leaves a native section open") {
     Rig r(gpu::Backend::D3d12);
     REQUIRE(r.xess->probe(r.env(GpuVendor::Intel)).available);
     REQUIRE(r.draw());
@@ -722,7 +728,8 @@ TEST_CASE("xess: a context that cannot be made or initialised says why, and the 
     CHECK(fx.destroys == 0);
 }
 
-TEST_CASE("xess Vulkan: the images go as image views with their formats, sizes and ranges, and the output gets a storage view") {
+TEST_CASE("xess Vulkan: the images go as image views with their formats, sizes and ranges, and the output gets a "
+          "storage view") {
     Rig r(gpu::Backend::Vulkan, 0x1002);
     fx.instanceExtensions = {"VK_KHR_get_physical_device_properties2"};
     render::VendorEnv e = r.env(GpuVendor::Amd);
@@ -803,10 +810,12 @@ TEST_CASE("xess: auto picks it on an Intel GPU, an explicit xess runs on any GPU
     CHECK(render::effective_upscaler_mode(s, caps) == UpscalerMode::Temporal);
     s.mode = UpscalerMode::Xess;  // chosen explicitly: any GPU
     for (const GpuVendor v : {GpuVendor::Intel, GpuVendor::Nvidia, GpuVendor::Amd, GpuVendor::Other})
-        CHECK_MESSAGE((caps.gpuVendor = v, render::effective_upscaler_mode(s, caps) == UpscalerMode::Xess), render::gpu_vendor_name(v));
+        CHECK_MESSAGE((caps.gpuVendor = v, render::effective_upscaler_mode(s, caps) == UpscalerMode::Xess),
+                      render::gpu_vendor_name(v));
     caps.xess = false;
     CHECK(render::effective_upscaler_mode(s, caps) == UpscalerMode::Temporal);
-    caps.temporal = false;  // a vendor SDK reads the jittered frame: without the temporal upscaler it falls to the spatial one
+    caps.temporal =
+        false;  // a vendor SDK reads the jittered frame: without the temporal upscaler it falls to the spatial one
     caps.xess = true;
     CHECK(render::effective_upscaler_mode(s, caps) != UpscalerMode::Xess);
 }
