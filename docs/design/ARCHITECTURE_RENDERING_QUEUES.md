@@ -49,10 +49,14 @@ replays run on the render thread one after the other: the same lists.
 ## The depth pyramid on the compute queue
 
 Which work: the `hiz-reduce` pass of GPU occlusion (`Renderer::Impl::hiz_reduce_pass`, renderer_hiz.cpp;
-[ARCHITECTURE_RENDERING_BIGWORLDS.md](ARCHITECTURE_RENDERING_BIGWORLDS.md), "Occlusion"). It is the frame's only compute
+[ARCHITECTURE_RENDERING_BIGWORLDS.md](ARCHITECTURE_RENDERING_BIGWORLDS.md), "Occlusion culling on the GPU, the depth pyramid (M75.2b)"). It is the frame's only compute
 pass (scripts' `compute.dispatch` runs outside the frame graph), it reads the prepass and writes a buffer of its own
 (the cells), and nothing in the same frame reads that buffer: it is read back after the commit and used the next frame.
 Its result does not depend on which queue ran it.
+
+The feature table (render_features.cpp) has no D3D12 or Vulkan column yet (`feature_backend_of` maps both to Headless),
+so `hiz_resolve` asks those two devices directly (`Features::compute`). GPU occlusion runs on them since M77-P10d;
+`render.supports {"feature": "occlusionGpu"}` still answers from the table there until their columns land.
 
 How (`Gpu::begin_async_compute`, `end_async_compute`):
 

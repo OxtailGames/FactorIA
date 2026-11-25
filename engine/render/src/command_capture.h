@@ -1,6 +1,6 @@
 // A command list that runs nothing: it keeps every call (and a copy of the bytes each call points at) so that replay()
 // can record the same calls on a real list later, on another thread (M77-P10d, the parallel recording of the shadow
-// views; docs/design/ARCHITECTURE_RENDERING_QUEUES.md, "Parallel recording").
+// views; docs/design/ARCHITECTURE_RENDERING_QUEUES.md, "Shadow views on job threads").
 //
 // Why a capture and not the draw loop itself on a job: the loop that decides a shadow view's draws reads and writes the
 // renderer's own state (the pipeline cache makes pipelines, which is render-thread work on every device; the asset caches;
@@ -79,9 +79,10 @@ private:
     };
     struct Call {
         Op op = Op::EndPass;
-        std::uint32_t index = 0;  // into passes_, bindings_, writes_, imageWrites_, bufferCopies_, imageCopies_ or labels_
-        int i[5]{};               // the integer arguments (the slot of set_uniforms, the bool of a viewport as 0/1)
-        float f[4]{};             // set_viewport_f
+        std::uint32_t index =
+            0;         // into passes_, bindings_, writes_, imageWrites_, bufferCopies_, imageCopies_ or labels_
+        int i[5]{};    // the integer arguments (the slot of set_uniforms, the bool of a viewport as 0/1)
+        float f[4]{};  // set_viewport_f
         std::size_t offset = 0, size = 0;  // the bytes of set_uniforms / a write in bytes_
         std::uint32_t id = 0;              // set_pipeline's pipeline
     };

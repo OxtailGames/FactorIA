@@ -38,7 +38,9 @@ Older versions, one file per minor version with its patch releases: [0.35](chang
   waiting at the first pass that reads the prepass. The picture and the draws are the same as on one thread and one queue (a test
   compares them on Vulkan and D3D12 WARP); the sokol backends are untouched. `"render": {"asyncCompute": false}` and
   `{"multiThreadRecording": false}` in `factoria.json` (`RendererDesc::asyncCompute`, `multiThreadRecording`) turn each off, and the
-  startup report says whether each is in use (docs/RENDERING.md, "Async compute and multi-thread recording").
+  startup report says whether each is in use (docs/RENDERING.md, "Async compute and multi-thread recording"). GPU occlusion culling
+  (the depth pyramid) now runs on D3D12 and Vulkan devices with compute shaders, and the light data upload names its rectangle
+  (RecordingDevice reported an empty one).
 - The D3D12 backend keeps its PSOs on disk (M77-P7b): an `ID3D12PipelineLibrary` in `<cache dir>/shaders/d3d12-pipelines.bin`, loaded
   when the device starts and written atomically when it ends or on `save_pipeline_cache()`; a file from another GPU or driver, or a damaged
   one, is thrown away with one warning (deleting the file clears the cache). The shader cache report has a `pipelineCache` object. The

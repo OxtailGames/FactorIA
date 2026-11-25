@@ -174,11 +174,12 @@ bool cannot_run_vulkan_here(const std::string& e) {
            has(e, "VK_ERROR_INITIALIZATION_FAILED");
 }
 
-// A Vulkan device with validation and a compute queue wherever the machine has a second queue family (MoltenVK), for
-// the next Renderer::init on Vulkan.
+// A Vulkan device with validation (synchronization validation too: a missing barrier or queue transfer is an error)
+// and a compute queue wherever the machine has a second queue family (MoltenVK), for the next Renderer::init on Vulkan.
 Result<std::unique_ptr<gpu::Device>> make_queue_vulkan_device() {
     gpu::VulkanOptions o;
     o.validation = true;
+    o.synchronizationValidation = true;
     o.queues = gpu::VulkanOptions::Queues::OtherFamilies;
     o.init.environment.defaults = gpu::environment_defaults_of(gfx().gpu.environment());
     return gpu::make_vulkan_device(o);
@@ -273,7 +274,8 @@ TEST_CASE("render queues: a CommandCapture replays every call as the direct reco
 
 TEST_CASE("render queues: async compute hands its resources to the compute queue and back, and graphics waits") {
     if (!gfx().ok) {
-        MESSAGE("no GPU here (" << gfx().error << "): skipped (the built-in shaders follow the open context's dialect)");
+        MESSAGE("no GPU here (" << gfx().error
+                                << "): skipped (the built-in shaders follow the open context's dialect)");
         return;
     }
     RecordedGpu rg;
@@ -327,7 +329,7 @@ TEST_CASE("render queues: async compute hands its resources to the compute queue
             default: break;
         }
     }
-    const std::vector<std::string> want = {"graphics handoff", "graphics handoff", "graphics signal",
+    const std::vector<std::string> want = {"graphics handoff",  "graphics handoff", "graphics signal",
                                            "compute wait_list", "compute work",     "compute handoff",
                                            "compute handoff",   "compute signal",   "graphics wait_queue"};
     CHECK(order == want);
@@ -355,7 +357,8 @@ TEST_CASE("render queues: async compute hands its resources to the compute queue
 
 TEST_CASE("render queues: the shadow lists recorded on job threads hold the commands of the single list") {
     if (!gfx().ok) {
-        MESSAGE("no GPU here (" << gfx().error << "): skipped (the built-in shaders follow the open context's dialect)");
+        MESSAGE("no GPU here (" << gfx().error
+                                << "): skipped (the built-in shaders follow the open context's dialect)");
         return;
     }
     QueueScene s;
@@ -368,10 +371,9 @@ TEST_CASE("render queues: the shadow lists recorded on job threads hold the comm
         draw_frame(rec.renderer, s.world);
         dev->clear_commands();
         draw_frame(rec.renderer, s.world);
-        lists.clear();
-        std::string last;
+        lists.clear();  // the list of each shadow pass
         for (const gpu::RecordedCommand& c : dev->commands())
-            if (c.list != last && c.kind != gpu::CommandKind::Commit) lists.push_back(last = c.list);
+            if (c.kind == gpu::CommandKind::BeginPass && has(c.text, "'shadow'")) lists.push_back(c.list);
         INFO(joined(dev->errors()));
         CHECK(dev->errors().empty());
         return shadow_commands(*dev);
@@ -379,7 +381,7 @@ TEST_CASE("render queues: the shadow lists recorded on job threads hold the comm
     std::vector<std::string> singleLists, parallelLists;
     const std::vector<std::string> single = frame_of(false, singleLists);
     REQUIRE(single.size() > 10);
-    CHECK(std::count(singleLists.begin(), singleLists.end(), "shadow") == 0);
+    CHECK(singleLists == std::vector<std::string>{"frame"});  // one pass on the frame's list
 
     struct Mode {
         const char* name;
@@ -400,12 +402,8 @@ TEST_CASE("render queues: the shadow lists recorded on job threads hold the comm
         const std::vector<std::string> parallel = frame_of(true, parallelLists);
         if (m.start) jobs::stop();
         CHECK(parallel == single);
-        // Five views in four groups: four lists in a row, after the frame's list that came before them.
-        const auto first = std::find(parallelLists.begin(), parallelLists.end(), "shadow");
-        REQUIRE(first != parallelLists.end());
-        CHECK(std::count(parallelLists.begin(), parallelLists.end(), "shadow") == 4);
-        REQUIRE(parallelLists.end() - first >= 4);
-        CHECK(std::count(first, first + 4, "shadow") == 4);
+        // Five views in four groups: one pass on each of four lists of their own.
+        CHECK(parallelLists == std::vector<std::string>(4, "shadow"));
     }
 }
 
