@@ -115,6 +115,32 @@ TEST_CASE("gpu backend: render.backend loads, round-trips and teaches when wrong
     CHECK_FALSE(load_project(number.path()).ok());
 }
 
+TEST_CASE("gpu backend: render.asyncCompute and render.multiThreadRecording load, round-trip and teach when wrong") {
+    TempProject plain("queues-plain");
+    auto s = load_project(plain.path());
+    REQUIRE(s.ok());
+    CHECK(s->renderAsyncCompute);
+    CHECK(s->renderMultiThreadRecording);
+
+    TempProject off("queues-off", R"(, "render": { "asyncCompute": false, "multiThreadRecording": false })");
+    auto t = load_project(off.path());
+    REQUIRE_MESSAGE(t.ok(), t.error().message);
+    CHECK_FALSE(t->renderAsyncCompute);
+    CHECK_FALSE(t->renderMultiThreadRecording);
+    const Json written = t->to_json();
+    CHECK(written["render"]["asyncCompute"] == false);
+    CHECK(written["render"]["multiThreadRecording"] == false);
+    t->renderAsyncCompute = true;
+    CHECK_FALSE(t->to_json()["render"].contains("asyncCompute"));
+    t->renderMultiThreadRecording = true;
+    CHECK_FALSE(t->to_json().contains("render"));  // both back on: the defaults are not written
+
+    TempProject bad("queues-bad", R"(, "render": { "asyncCompute": "no" })");
+    auto b = load_project(bad.path());
+    REQUIRE_FALSE(b.ok());
+    CHECK((b.error().message + " " + b.error().hint).find("/render/asyncCompute") != std::string::npos);
+}
+
 TEST_CASE(
     "gpu backend: choose_gpu_backend orders EngineConfig, the variable and the project, and warns for a missing one") {
     // Nothing asked: auto, no warning.
