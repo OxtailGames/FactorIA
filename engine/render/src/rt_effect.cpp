@@ -11,6 +11,7 @@ namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
     {"rt_shadow", false, false},
+    {"rt_ao", false, false},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {

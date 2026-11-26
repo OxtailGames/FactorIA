@@ -10,6 +10,7 @@
 #include <span>
 #include <string_view>
 
+#include "shaders/rt/rt_ao.rt.h"
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_shadow.rt.h"
 
@@ -33,6 +34,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_shadow", kRtShadowDxil, kRtShadowSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtShadowMsl), sizeof(kRtShadowMsl) - 1), kRtShadowDxcVersion,
          kRtShadowHlslSha256, kRtShadowMslSha256},
+        {"rt_ao", kRtAoDxil, kRtAoSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtAoMsl), sizeof(kRtAoMsl) - 1), kRtAoDxcVersion,
+         kRtAoHlslSha256, kRtAoMslSha256},
     };
     return kernels;
 }
