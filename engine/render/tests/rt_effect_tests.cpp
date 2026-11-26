@@ -83,8 +83,8 @@ CameraGeometry make_camera(bool perspective, bool zeroToOne) {
 }
 
 // The world position the kernels rebuild for pixel (x, y) at linear view depth `depth` (the formula of RtEffectParams).
-Vec3 rebuild(const float* o0, const float* ox, const float* oy, const float* d0, const float* dx, const float* dy, int w, int h, int x,
-             int y, float depth) {
+Vec3 rebuild(const float* o0, const float* ox, const float* oy, const float* d0, const float* dx, const float* dy,
+             int w, int h, int x, int y, float depth) {
     const double nx = (double(x) + 0.5) * 2.0 / w - 1.0, ny = 1.0 - (double(y) + 0.5) * 2.0 / h;
     Vec3 p;
     p.x = float(o0[0] + nx * ox[0] + ny * oy[0] + (d0[0] + nx * dx[0] + ny * dy[0]) * depth);
@@ -93,8 +93,8 @@ Vec3 rebuild(const float* o0, const float* ox, const float* oy, const float* d0,
     return p;
 }
 
-void check_rays(const CameraGeometry& cam, const Mat4& viewProj, const float* o0, const float* ox, const float* oy, const float* d0,
-                const float* dx, const float* dy, int w, int h, bool zeroToOne) {
+void check_rays(const CameraGeometry& cam, const Mat4& viewProj, const float* o0, const float* ox, const float* oy,
+                const float* d0, const float* dx, const float* dy, int w, int h, bool zeroToOne) {
     const int xs[] = {0, w - 1, w / 2, w / 3, 5};
     const int ys[] = {0, h - 1, h / 2, h / 4, 70};
     for (int i = 0; i < 5; ++i) {
@@ -120,7 +120,8 @@ void check_rays(const CameraGeometry& cam, const Mat4& viewProj, const float* o0
 
 }  // namespace
 
-TEST_CASE("rt effect: the rays rebuild a pixel's world position from the linear depth, perspective and orthographic, both depth ranges") {
+TEST_CASE("rt effect: the rays rebuild a pixel's world position from the linear depth, perspective and orthographic, "
+          "both depth ranges") {
     for (bool perspective : {true, false}) {
         for (bool zeroToOne : {false, true}) {
             INFO("perspective " << perspective << " zeroToOne " << zeroToOne);
@@ -134,7 +135,8 @@ TEST_CASE("rt effect: the rays rebuild a pixel's world position from the linear 
             CHECK(p.image[2] == doctest::Approx(1.0f / 160.0f));
             CHECK(p.image[3] == doctest::Approx(1.0f / 96.0f));
             check_rays(cam, cam.viewProj, p.rayO0, p.rayOX, p.rayOY, p.rayD0, p.rayDX, p.rayDY, 160, 96, zeroToOne);
-            check_rays(cam, cam.viewProj, p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX, p.uRayDY, 160, 96, zeroToOne);
+            check_rays(cam, cam.viewProj, p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX, p.uRayDY, 160, 96,
+                       zeroToOne);
             // The view's axes: a view-space normal (x, y, z) is right x + up y + back z.
             CHECK(p.viewBack[0] == doctest::Approx(-cam.forward.x));
             CHECK(p.viewRight[1] == doctest::Approx(cam.right.y));
@@ -146,7 +148,8 @@ TEST_CASE("rt effect: the rays rebuild a pixel's world position from the linear 
     }
 }
 
-TEST_CASE("rt effect: a jittered camera's rays follow the matrix the prepass was drawn with; the unjittered ones stay") {
+TEST_CASE(
+    "rt effect: a jittered camera's rays follow the matrix the prepass was drawn with; the unjittered ones stay") {
     for (bool zeroToOne : {false, true}) {
         CameraGeometry cam = make_camera(true, zeroToOne);
         cam.apply_jitter({0.31f, -0.22f}, 160.0f, 96.0f);
@@ -156,7 +159,8 @@ TEST_CASE("rt effect: a jittered camera's rays follow the matrix the prepass was
         check_rays(cam, cam.viewProj, p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX, p.uRayDY, 160, 96, zeroToOne);
         // The two differ (the jitter moved the image by a third of a pixel).
         CHECK(std::fabs(p.rayD0[0] - p.uRayD0[0]) + std::fabs(p.rayD0[1] - p.uRayD0[1]) +
-                  std::fabs(p.rayD0[2] - p.uRayD0[2]) > 1e-6f);
+                  std::fabs(p.rayD0[2] - p.uRayD0[2]) >
+              1e-6f);
     }
 }
 
@@ -200,7 +204,8 @@ std::vector<std::string> struct_fields(const std::string& source) {
 }  // namespace
 
 TEST_CASE("rt effect: RtEffectParams is the same struct in C++, HLSL and MSL") {
-    const std::vector<std::string> expected(std::begin(fa::render::kRtEffectParamNames), std::end(fa::render::kRtEffectParamNames));
+    const std::vector<std::string> expected(std::begin(fa::render::kRtEffectParamNames),
+                                            std::end(fa::render::kRtEffectParamNames));
     REQUIRE(expected.size() == 25);
     const std::string hlsl = read_repo_file("engine/render/shaders/rt/rt_shadow.hlsl");
     REQUIRE_FALSE(hlsl.empty());
@@ -238,7 +243,8 @@ TEST_CASE("rt effect: the shader of a kernel declares the bindings of the contra
     const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_shadow");
     REQUIRE(k != nullptr);
     const fa::render::RtEffectKernelSpec all{"rt_shadow", true, true};
-    for (gpu::Backend backend : {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
         INFO("backend " << int(backend));
         const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, all, backend);
         REQUIRE(d.compute());
@@ -439,7 +445,8 @@ TEST_CASE("rt effect: with the shadows setting off nothing is declared, made or 
     CHECK(r.effects().kernel_count() == 0);
 }
 
-TEST_CASE("rt effect: hard shadows declare one compute pass after the TLAS and the prepass, with the bindings of the contract") {
+TEST_CASE("rt effect: hard shadows declare one compute pass after the TLAS and the prepass, with the bindings of the "
+          "contract") {
     Rig r;
     r.rays(render::RtShadows::Hard);
     World w;

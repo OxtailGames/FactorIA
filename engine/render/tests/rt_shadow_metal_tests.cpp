@@ -105,7 +105,8 @@ Mesh make_quad() {
 Mesh make_box() {  // [-1, 1] x [0, 2] x [-1, 1]
     Mesh m;
     m.vertices = {{-1, 0, -1}, {1, 0, -1}, {1, 2, -1}, {-1, 2, -1}, {-1, 0, 1}, {1, 0, 1}, {1, 2, 1}, {-1, 2, 1}};
-    m.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5, 3, 7, 6, 3, 6, 2, 0, 1, 5, 0, 5, 4};
+    m.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 4, 7, 0, 7, 3,
+                 1, 2, 6, 1, 6, 5, 3, 7, 6, 3, 6, 2, 0, 1, 5, 0, 5, 4};
     return m;
 }
 
@@ -227,7 +228,8 @@ struct Rig {
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
     }
 
-    std::vector<float> trace(AccelStructure tlas, const fa::render::RtEffectParams& params, CommandList* builds = nullptr) {
+    std::vector<float> trace(AccelStructure tlas, const fa::render::RtEffectParams& params,
+                             CommandList* builds = nullptr) {
         CommandList& cl = builds ? *builds : dev->begin_commands("rt shadow frame");
         cl.begin_compute_pass("rt shadow");
         cl.set_pipeline(pipeline);
@@ -274,7 +276,8 @@ CameraGeometry make_camera() {
 
 }  // namespace
 
-TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray caster, casters only, and is the same every frame") {
+TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray caster, casters only, and is the same "
+          "every frame") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -298,7 +301,8 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     std::vector<Tri> tris;
     for (const Place& p : places) {
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, p.mask});
     }
 
@@ -323,14 +327,16 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
     REQUIRE_MESSAGE(ts.ok(), ts.error().message);
     const AccelStructure tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt shadow tlas");
-    const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt shadow tlas scratch");
+    const Buffer tlasScratch =
+        rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt shadow tlas scratch");
 
     // The camera, the prepass the kernel reads (made from the camera's own rays on the CPU) and the constants.
     const CameraGeometry cam = make_camera();
     const Vec3 sun = normalize(Vec3{-0.5f, 0.7f, -0.45f});
     const Vec2 targetSize{float(kW), float(kH)};
     std::vector<float> prepass(std::size_t(kW) * kH * 4, 0.0f);
-    std::vector<int> primary(std::size_t(kW) * kH, -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
+    std::vector<int> primary(std::size_t(kW) * kH,
+                             -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
     std::vector<float> depths(std::size_t(kW) * kH, 0.0f);
     std::vector<Vec3> positions(std::size_t(kW) * kH);
     std::vector<Vec3> normals(std::size_t(kW) * kH);
@@ -376,8 +382,8 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     params.frame[0] = 12;
     params.frame[1] = fa::render::rt_effect_seed(12);
     params.frame[2] = 1;
-    params.user0[0] = 0.02f;   // normal offset (metres)
-    params.user0[1] = 0.004f;  // more of it per metre of view depth
+    params.user0[0] = 0.02f;    // normal offset (metres)
+    params.user0[1] = 0.004f;   // more of it per metre of view depth
     params.user0[2] = 0.0005f;  // TMin
     params.user0[3] = 1000.0f;  // TMax
 
@@ -437,10 +443,11 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     MESSAGE("compared " << compared << ", shadowed " << shadowed << ", lit ground " << litGround << ", sky " << sky
                         << ", pixels the non-casting box would have shadowed " << castersOnlyMatters);
     CHECK(compared > kW * kH / 2);
-    CHECK(shadowed > 100);        // the boxes' shadows and their own dark sides
-    CHECK(litGround > 300);       // and the open ground
+    CHECK(shadowed > 100);   // the boxes' shadows and their own dark sides
+    CHECK(litGround > 300);  // and the open ground
     CHECK(sky > 50);
-    CHECK(castersOnlyMatters > 10);  // the mask is exercised: the instance with mask 0x01 sits in the sun's way to some pixels
+    CHECK(castersOnlyMatters >
+          10);  // the mask is exercised: the instance with mask 0x01 sits in the sun's way to some pixels
 
     // The same frame twice gives the same mask, bit for bit; a new frame serial (a new seed) does not change a hard shadow.
     CHECK(rig.trace(tlas, params) == first);

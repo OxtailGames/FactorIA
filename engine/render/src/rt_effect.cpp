@@ -39,8 +39,8 @@ Pt unproject(const Mat4& inv, double nx, double ny, double nz) {
 // The origin and the direction of the pixel rays of `inv` (an inverse view-projection matrix) as affine functions of the pixel's ndc: both are
 // affine because the depth of a point of a clip-space plane z = const is the same everywhere on it (a perspective's w and an orthographic
 // camera's z depend on z only), so two planes give the direction scaled to a view depth of 1 and the origin at the view depth 0.
-void ray_basis(const Mat4& inv, const Vec3& pos, const Vec3& fwd, bool zeroToOne, float* o0, float* ox, float* oy, float* d0,
-               float* dx, float* dy) {
+void ray_basis(const Mat4& inv, const Vec3& pos, const Vec3& fwd, bool zeroToOne, float* o0, float* ox, float* oy,
+               float* d0, float* dx, float* dy) {
     const double zA = zeroToOne ? 0.5 : 0.0, zB = zeroToOne ? 0.9 : 0.8;
     const double corners[3][2] = {{0, 0}, {1, 0}, {0, 1}};
     Pt o[3], d[3];
@@ -74,7 +74,8 @@ const RtEffectKernelSpec* find_rt_effect_spec(std::string_view kernel) {
     return nullptr;
 }
 
-gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const RtEffectKernelSpec& spec, gpu::Backend backend) {
+gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const RtEffectKernelSpec& spec,
+                                      gpu::Backend backend) {
     using namespace gpu;
     ShaderDesc d;
     d.label = kernel.name.data();  // the table's names are string literals
@@ -133,7 +134,7 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         t.binding.spirvBinding = std::uint8_t(vk);
     };
     texture(RtEffectBindings::kViewPrepass, 1, 1, 3);  // t1 / binding 3 / texture(1)
-    if (spec.usesRecords) {  // t2 / binding 4 / buffer(2)
+    if (spec.usesRecords) {                            // t2 / binding 4 / buffer(2)
         ShaderStorageBufferView& r = d.views[RtEffectBindings::kViewRecords].storageBuffer;
         r.stage = ShaderStage::Compute;
         r.readonly = true;
@@ -163,14 +164,18 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     return d;
 }
 
-bool rt_effect_needs_sampler(gpu::Backend backend) { return backend == gpu::Backend::Metal || backend == gpu::Backend::Recording; }
+bool rt_effect_needs_sampler(gpu::Backend backend) {
+    return backend == gpu::Backend::Metal || backend == gpu::Backend::Recording;
+}
 
 void fill_rt_effect_camera(RtEffectParams& p, const CameraGeometry& cam, int w, int h, bool zeroToOne) {
     const double fw = double(std::max(w, 1)), fh = double(std::max(h, 1));
     set4(p.camera, cam.position.x, cam.position.y, cam.position.z, cam.perspective ? 0.0 : 1.0);
     set4(p.image, fw, fh, 1.0 / fw, 1.0 / fh);
-    ray_basis(cam.drawInvViewProj, cam.position, cam.forward, zeroToOne, p.rayO0, p.rayOX, p.rayOY, p.rayD0, p.rayDX, p.rayDY);
-    ray_basis(cam.invViewProj, cam.position, cam.forward, zeroToOne, p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX, p.uRayDY);
+    ray_basis(cam.drawInvViewProj, cam.position, cam.forward, zeroToOne, p.rayO0, p.rayOX, p.rayOY, p.rayD0, p.rayDX,
+              p.rayDY);
+    ray_basis(cam.invViewProj, cam.position, cam.forward, zeroToOne, p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX,
+              p.uRayDY);
     set4(p.viewRight, cam.right.x, cam.right.y, cam.right.z, 0);
     set4(p.viewUp, cam.up.x, cam.up.y, cam.up.z, 0);
     set4(p.viewBack, -cam.forward.x, -cam.forward.y, -cam.forward.z, 0);
@@ -187,7 +192,8 @@ std::uint32_t rt_effect_seed(std::uint64_t frameSerial) {
     return std::uint32_t(z >> 32);
 }
 
-RtEffects::Kernel* RtEffects::kernel_for(Gpu& gpu, const rt_kernels::RtKernel& k, const RtEffectKernelSpec& spec, std::string* why) {
+RtEffects::Kernel* RtEffects::kernel_for(Gpu& gpu, const rt_kernels::RtKernel& k, const RtEffectKernelSpec& spec,
+                                         std::string* why) {
     Kernel& kn = kernels_[std::string(k.name)];
     if (kn.state == 0) {
         gpu::Device& device = gpu.device();
@@ -300,8 +306,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             if (img.texture.id) device.destroy_view(img.texture);
             if (img.image.id) device.destroy_image(img.image);
             images_.erase(key);
-            result.why = "this device could not make the " + std::to_string(req.width) + " x " + std::to_string(req.height) +
-                         " image of the effect";
+            result.why = "this device could not make the " + std::to_string(req.width) + " x " +
+                         std::to_string(req.height) + " image of the effect";
             return result;
         }
         img.width = req.width;
@@ -346,12 +352,13 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     const gpu::Shader shader = kn->shader;
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
-    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, usesRecords, usesGbuffer, needsSampler, params,
-                    name = pass.name](const PassContext& c) {
+    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, usesRecords, usesGbuffer,
+                    needsSampler, params, name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;
-        const gpu::AccelStructure tlas = scene->tlas();  // none while the scene has no instance: the lit pass keeps its own shadows
+        const gpu::AccelStructure tlas =
+            scene->tlas();  // none while the scene has no instance: the lit pass keeps its own shadows
         if (!tlas.valid()) return;
         const Target* pre = prepass.target(c);
         if (!pre || !pre->texView.id || pre->w != out->width || pre->h != out->height) return;
