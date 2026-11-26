@@ -404,6 +404,7 @@ TEST_CASE("menus fixture at 1024x642: the preset and upscaling page fits in Engl
         const std::vector<float> fbox = rect_of(st, "framegen_section"), fnote = rect_of(st, "framegen_note"),
                                  nav = rect_of(st, "gfx_fg_nav"), lat = rect_of(st, "gfx_fg_back"),
                                  rt = rect_of(st, "gfx_rt_page"), froot = rect_of(st, "options");
+        for (const std::vector<float>* r : {&fbox, &fnote, &nav, &lat, &rt, &froot}) REQUIRE(r->size() == 4);
         for (const std::vector<float>& r : {nav, lat, rt}) {
             CHECK(r[0] >= fbox[0] - 0.5f);
             CHECK(r[0] + r[2] <= fbox[0] + fbox[2] + 0.5f);

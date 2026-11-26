@@ -661,14 +661,12 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         if (auto problems = check_graphics_settings(s); !problems.empty())
             throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
                                "Fix the value; nothing was written.");
-        // Only the keys the call names are written.
+        // Only the blocks the call names are written, and in each only the keys that differ from the defaults (block_op).
         const GraphicsSettings def;
         KeyOp presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp, rayTracingOp, pathTracerOp;
         if (args.is_object() && args.contains("preset") && !args["preset"].is_null())
             presetOp = set_or_remove(s.preset == "custom", Json(s.preset));
-        if (object_arg("upscaler"))
-            upscalerOp = set_or_remove(s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness,
-                                       upscaler_json(s));
+        if (object_arg("upscaler")) upscalerOp = block_op(upscaler_json(s), upscaler_json(def));
         if (const Json* dyn = object_arg("dynamicResolution")) {
             Json value = dynamic_json(s);
             for (const char* key : {"enabled", "targetMs", "minScale", "maxScale"}) {
@@ -677,17 +675,13 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
                 else if (rawDynamic.contains(key))
                     value[key] = rawDynamic[key];
             }
-            dynamicOp = set_or_remove(s.dynamic == def.dynamic, value);
+            dynamicOp =
+                block_op(value, dynamic_json(def));  // the caller's literal numbers, the same rule as the window
         }
-        if (object_arg("latency"))
-            latencyOp =
-                set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s));
-        if (object_arg("frameGeneration"))
-            frameGenOp =
-                set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
-                              frame_gen_json(s));
-        if (object_arg("rayTracing")) rayTracingOp = set_or_remove(s.rayTracing == def.rayTracing, ray_tracing_json(s));
-        if (object_arg("pathTracer")) pathTracerOp = set_or_remove(s.pathTracer == def.pathTracer, path_tracer_json(s));
+        if (object_arg("latency")) latencyOp = block_op(latency_json(s), latency_json(def));
+        if (object_arg("frameGeneration")) frameGenOp = block_op(frame_gen_json(s), frame_gen_json(def));
+        if (object_arg("rayTracing")) rayTracingOp = block_op(ray_tracing_json(s), ray_tracing_json(def));
+        if (object_arg("pathTracer")) pathTracerOp = block_op(path_tracer_json(s), path_tracer_json(def));
         bool changed = false;
         if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch || frameGenOp.touch ||
             rayTracingOp.touch || pathTracerOp.touch) {
