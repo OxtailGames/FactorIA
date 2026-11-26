@@ -113,6 +113,9 @@ public:
     // with weight `blend` (1 replaces it: a probe's first capture; 1 - hysteresis afterwards).
     void filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolution, float blend, float maxDistance,
                    int* drawCalls);
+    // Block `block` of the band from the RGBA16F image `band` (the ray traced probes' kernel wrote it, rt_gi.h): the block's texels at
+    // (block origin x, block origin y - kProbeAtlasSize) blended into the atlas, each with the weight its own alpha holds.
+    void blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, int block, int* drawCalls);
 
     void release();
 
@@ -131,7 +134,8 @@ private:
         GiDepth,
         GiMeta,
         ShBlend,
-        All  // the ones gi_ready() makes (ShBlend: the Sh program that blends)
+        BlitBlend,
+        All  // the ones gi_ready() makes (ShBlend, BlitBlend: the Sh and Blit programs that blend)
     };
     struct DistImage {
         gpu::Image image{};
@@ -217,6 +221,8 @@ struct GiGrid {
         false;  // a capture failed and no capture has succeeded since: state "failed" and `message` stay visible
     std::uint64_t failFrame = 0,
                   lastCaptureFrame = 0;  // the gi frames of the last failure and of the last finished capture
+    int lastFrameRtUpdates = 0;          // probes the rays updated in the last gi frame (M79-P4a)
+    bool rtMode = false;                 // the last update was by rays
 };
 
 // The realtime GI of a renderer: every grid's state, the blocks of the band, this frame's capture jobs.
@@ -235,6 +241,21 @@ struct GiSystem {
         gpu::View picture{};
     };
     std::vector<Job> jobs;
+    // M79-P4a: the probes this frame's ray traced update covers (gi_plan fills it when it declared the `gi-probes` pass, gi_finish blends the
+    // pass's image into their blocks). `prevLast` and `prevSerial` put the grid's order back when the pass did not run.
+    struct RtJob {
+        std::uint64_t grid = 0;
+        int probe = 0, block = 0;
+        bool first = false;
+        std::uint64_t prevLast = 0;
+    };
+    std::vector<RtJob> rtJobs;
+    std::map<std::uint64_t, std::uint64_t> rtPrevSerial;  // by grid: its `serial` before this frame's picks
+    std::string
+        rtReason;  // why the ray traced mode did not update the grids this frame (empty: it did, or it is not wanted)
+    bool rtWanted = false;         // this frame: render.rayTracing.gi is "probes" and a grid exists
+    int rtBudget = 0;              // this frame: the probes the grids may have updated, all together
+    std::uint64_t rtTotal = 0;     // probes updated by rays since the grids began
     std::deque<GiFacePlan> plans;  // one per job: a JobPlan keeps a pointer
     std::deque<Frame> frames;      // a job keeps a reference to its Frame
     std::vector<int> perFrame;     // probes captured in each of the last frames (newest last, up to kHistory)

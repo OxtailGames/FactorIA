@@ -1251,6 +1251,10 @@ struct RealtimeGI {
         30.0f;  // metres 1..1000: the farthest surface a probe sees; the depth moments are clamped to it
     float backfaceTolerance =
         0.25f;  // 0.02..0.9: a probe whose rays hit this fraction of back faces first is inside geometry
+    std::int32_t raysPerProbe =
+        64;  // M79: rays a probe traces in an update when render.rayTracing.gi is "probes", 16..256
+    std::int32_t rtProbesPerFrame =
+        16;  // M79: probes of this grid updated by rays a frame when render.rayTracing.gi is "probes", 1..64
     Json showTags = Json::array();  // culling mask like Camera.showTags
     Json hideTags = Json::array();  // like Camera.hideTags: what is not in the captures (the player, particles...)
 };

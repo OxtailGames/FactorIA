@@ -2195,13 +2195,31 @@ Json Engine::ray_tracing_status() {
     int localCandidates = 0, localTraced = 0;
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
     const bool translucencyOn = impl_->rayTracing.translucency;
+    const bool giProbesOn = impl_->rayTracing.gi == render::RtGi::Probes;
+    render::RtGiStatus giStatus;
+    if (impl_->renderer) giStatus = impl_->renderer->ray_tracing_gi_status();
     const bool active = impl_->rayTracing.enabled && supported &&
-                        (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
+                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn) && failure.empty();
     j["active"] = active;
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
                                       {"candidates", shadowsOn && active ? localCandidates : 0},
                                       {"traced", shadowsOn && active ? localTraced : 0}});
+    // M79-P4a: the realtime GI probes updated by rays (gi "probes"), as of the last whole frame. `active` is true when that frame updated probes.
+    {
+        const bool giActive = impl_->rayTracing.enabled && supported && giProbesOn && giStatus.active;
+        std::string giReason;
+        if (giProbesOn && impl_->rayTracing.enabled && !giActive)
+            giReason = !supported ? std::string("this device cannot trace rays")
+                       : giStatus.reason.empty()
+                           ? std::string("no frame has been drawn yet with a RealtimeGI component in the scene")
+                           : giStatus.reason;
+        j["giProbes"] = Json::object({{"active", giActive},
+                                      {"reason", giReason},
+                                      {"grids", giActive ? giStatus.grids : 0},
+                                      {"probesPerFrame", giActive ? giStatus.probesPerFrame : 0},
+                                      {"budget", giActive ? giStatus.budget : 0}});
+    }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)
@@ -2234,10 +2252,18 @@ Json Engine::ray_tracing_status() {
         if (translucencyOn)
             add("the refraction through glass and liquids (a ray bent at every interface, up to six, tinted by the "
                 "volume; where it cannot trace a pixel the screen-space refraction stays)");
-        j["reason"] = "Traced: " + what + ". The other effects (gi) are not made yet.";
+        if (giProbesOn)
+            add(std::string("the realtime GI probes of the RealtimeGI components (rays update ") +
+                (giStatus.active ? std::to_string(giStatus.probesPerFrame) + " probes in the last frame"
+                                 : std::string("no probe yet: ") + giStatus.reason) +
+                "; the lit meshes read the grids as they always did)");
+        j["reason"] =
+            "Traced: " + what + "." +
+            (impl_->rayTracing.gi == render::RtGi::PerPixel ? " gi \"perPixel\" is not made yet and draws nothing."
+                                                            : std::string());
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
-                      "reflections and translucency are made so far).";
+                      "reflections, translucency and gi \"probes\" are made so far).";
     return j;
 }
 

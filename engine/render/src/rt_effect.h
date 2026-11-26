@@ -145,6 +145,9 @@ struct RtEffectKernelSpec {
         false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
     bool usesLocal =
         false;  // RtEffectRequest::local (RtLocalParams) at b1 / binding 7 / buffer(3), like usesHit; not with usesHit or usesAux
+    // M79-P4a (rt_gi.h): a kernel with its own constants block (the size in bytes at b0; 0 = RtEffectParams) and an RGBA16F output image.
+    std::uint32_t paramsSize = 0;
+    bool outHalf = false;
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the

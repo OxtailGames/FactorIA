@@ -56,11 +56,10 @@ bool ProbeGpu::gi_ready() {
             Prog prog;
             gpu::Shader shader;
             bool blend;
-        } pipes[] = {{Prog::FaceGi, shaders_[int(Prog::FaceGi)], false},
-                     {Prog::GiDist, shaders_[int(Prog::GiDist)], false},
-                     {Prog::GiDepth, shaders_[int(Prog::GiDepth)], true},
-                     {Prog::GiMeta, shaders_[int(Prog::GiMeta)], true},
-                     {Prog::ShBlend, shaders_[int(Prog::Sh)], true}};
+        } pipes[] = {
+            {Prog::FaceGi, shaders_[int(Prog::FaceGi)], false},  {Prog::GiDist, shaders_[int(Prog::GiDist)], false},
+            {Prog::GiDepth, shaders_[int(Prog::GiDepth)], true}, {Prog::GiMeta, shaders_[int(Prog::GiMeta)], true},
+            {Prog::ShBlend, shaders_[int(Prog::Sh)], true},      {Prog::BlitBlend, shaders_[int(Prog::Blit)], true}};
         for (const auto& p : pipes) {
             gpu::PipelineDesc d{};
             d.shader = p.shader;
@@ -112,10 +111,11 @@ void ProbeGpu::release_gi() {
     dist_.clear();
     nearest_ = {};
     // The programs and pipelines of the GI are in the arrays release() empties; a failed gi_ready() leaves the half it made in them.
-    for (Prog p : {Prog::FaceGi, Prog::GiDist, Prog::GiDepth, Prog::GiMeta, Prog::ShBlend}) {
+    for (Prog p : {Prog::FaceGi, Prog::GiDist, Prog::GiDepth, Prog::GiMeta, Prog::ShBlend, Prog::BlitBlend}) {
         if (device && pipelines_[int(p)].id) device->destroy_pipeline(pipelines_[int(p)]);
         pipelines_[int(p)] = {};
-        if (device && p != Prog::ShBlend && shaders_[int(p)].id) gpu_->destroy_shader(shaders_[int(p)]);
+        if (device && p != Prog::ShBlend && p != Prog::BlitBlend && shaders_[int(p)].id)
+            gpu_->destroy_shader(shaders_[int(p)]);
         shaders_[int(p)] = {};
     }
     giState_ = 0;
@@ -268,6 +268,15 @@ void ProbeGpu::filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolu
         pass_rect(gpu, atlas, Prog::GiMeta, o.x + kGiMetaX, o.y + kGiShRow, 1, 1, s.tex[0], nearest_, region, p, q,
                   nullptr, drawCalls);
     }
+}
+
+void ProbeGpu::blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, int block, int* drawCalls) {
+    if (!band.id || giState_ != 1) return;
+    const GiTexel o = gi_block_origin(block);
+    const float none[4] = {};
+    const float blit[4] = {float(o.x), float(o.y - kProbeAtlasSize), float(kGiBlockH), 0.0f};
+    pass_rect(gpu, atlas, Prog::BlitBlend, o.x, o.y, kGiBlockW, kGiBlockH, band, sampler_, none, none, none, blit,
+              drawCalls);
 }
 
 }  // namespace fa::render

@@ -289,7 +289,7 @@ void ProbeGpu::pass_rect(Gpu& gpu, Atlas& atlas, Prog prog, int x, int y, int w,
     b.views[VIEW_probe_probe_cube] = source;  // a cube, or the 2D image of Blit: slot 0 either way
     b.samplers[SMP_probe_probe_smp] = sampler;
     cmd.set_bindings(b);
-    if (prog == Prog::Blit) {
+    if (prog == Prog::Blit || prog == Prog::BlitBlend) {
         probe_probe_blit_params_t u{};
         u.dst[0] = float(x);
         u.dst[1] = float(y);
