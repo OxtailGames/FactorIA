@@ -17,6 +17,10 @@ const RtEffectKernelSpec kSpecs[] = {
     {"rt_shadow_pack", false, false, false, false, true},
     {"rt_ao", false, false, false, true, false},
     {"rt_reflect", true, true, true, true, false},
+    // M79-P2a-3: the shadows of up to three point, spot and area lights (one visibility per channel), and the pack that puts them in the image the
+    // lit pass reads next to the sun's.
+    {"rt_shadow_local", false, false, false, true, false, true},
+    {"rt_shadow_local_pack", false, false, false, false, true, false},
     {"rt_refract", true, false, true, true, false},
 };
 
@@ -157,10 +161,10 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         texture(RtEffectBindings::kViewMaterial, 4, 3, 6);  // t4 / binding 6 / texture(3)
     }
     if (spec.usesAux) texture(RtEffectBindings::kViewAux, 5, 4, 7);  // t5 / binding 7 / texture(4)
-    if (spec.usesHit) {                                              // b1 / binding 7 / buffer(3)
+    if (spec.usesHit || spec.usesLocal) {                            // b1 / binding 7 / buffer(3)
         ShaderUniformBlock& h = d.uniformBlocks[RtEffectBindings::kUniformHit];
         h.stage = ShaderStage::Compute;
-        h.size = std::uint32_t(sizeof(RtHitParams));
+        h.size = std::uint32_t(spec.usesLocal ? sizeof(RtLocalParams) : sizeof(RtHitParams));
         h.binding.hlslRegister = 1;
         h.binding.mslIndex = 3;
         h.binding.spirvSet = 0;
@@ -268,10 +272,12 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         return result;
     }
     const bool fromImage = req.srcImage != nullptr;
+    const bool auxFromImage = req.auxImage != nullptr;
     if (!req.camera || !req.scene || !(fromImage ? req.srcRes.valid() : req.prepass.valid()) || req.width < 1 ||
         req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
+        (spec->usesLocal && (spec->usesHit || spec->usesAux)) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
-        (spec->usesAux && !req.aux.valid())) {
+        (spec->usesAux && !(auxFromImage ? req.auxRes.valid() : req.aux.valid()))) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
         return result;
     }
@@ -361,7 +367,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     GraphPass pass;
     pass.name = req.job + "/rt-" + req.effect;
     pass.reads.push_back(fromImage ? req.srcRes : req.prepass.res);
-    if (spec->usesAux) pass.reads.push_back(req.aux.res);
+    if (spec->usesAux) pass.reads.push_back(auxFromImage ? req.auxRes : req.aux.res);
     if (spec->usesGbuffer) {
         pass.reads.push_back(req.gbufferAlbedo.res);
         pass.reads.push_back(req.gbufferMaterial.res);
@@ -369,9 +375,11 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     pass.writes.push_back(result.res);
     if (!req.after.empty()) pass.after.push_back(req.after);
     const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer, usesHit = spec->usesHit,
-               usesTlas = spec->usesTlas, usesAux = spec->usesAux;
+               usesTlas = spec->usesTlas, usesAux = spec->usesAux, usesLocal = spec->usesLocal;
     const RtHitParams hit = req.hit;
+    const RtLocalParams local = req.local;
     const RtEffectImage* srcImage = req.srcImage;
+    const RtEffectImage* auxImage = req.auxImage;
     const PrepassRef aux = req.aux;
     const bool needsSampler = rt_effect_needs_sampler(gpu.device().backend());
     const PrepassRef prepass = req.prepass, albedo = req.gbufferAlbedo, material = req.gbufferMaterial;
@@ -380,9 +388,9 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     const gpu::Shader shader = kn->shader;
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
-    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, usesRecords,
-                    usesGbuffer, usesHit, usesTlas, usesAux, needsSampler, params, hit, key,
-                    name = pass.name](const PassContext& c) {
+    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, auxImage,
+                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, needsSampler, params, hit, local,
+                    key, name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;
@@ -410,7 +418,11 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             inView = pre->texView;
         }
         gpu::View auxView{};
-        if (usesAux) {
+        if (usesAux && auxImage) {
+            // The image of another effect (the local shadows' trace, when it is not denoised): nothing to do when it did not run this frame.
+            if (!auxImage->ran || auxImage->width != out->width || auxImage->height != out->height) return;
+            auxView = auxImage->texture;
+        } else if (usesAux) {
             const Target* a = aux.target(c);
             if (!a || !a->texView.id) return;
             auxView = a->texView;
@@ -444,6 +456,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         list->set_bindings(b);
         list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&params, sizeof params});
         if (usesHit) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&hit, sizeof hit});
+        if (usesLocal) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&local, sizeof local});
         list->dispatch((out->width + 7) / 8, (out->height + 7) / 8, 1);
         list->end_pass();
         if (drawCalls) ++*drawCalls;

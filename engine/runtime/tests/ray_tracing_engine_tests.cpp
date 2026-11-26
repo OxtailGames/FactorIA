@@ -109,6 +109,11 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["active"] == false);
     CHECK(r.result["changed"] == false);
     CHECK(r.result["reason"] == "");  // off: nothing to explain
+    // M79-P2a-3: the traced point, spot and area lights; the cap is the engine's, nothing is traced while the effect is off.
+    REQUIRE(r.result["localShadows"].is_object());
+    CHECK(r.result["localShadows"]["cap"] == render::kRtLocalShadowMaxLights);
+    CHECK(r.result["localShadows"]["candidates"] == 0);
+    CHECK(r.result["localShadows"]["traced"] == 0);
 
     r = c.call("render.ray_tracing", Json::parse(R"({"enabled":true,"shadows":"hard","raysPerPixel":4})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -120,6 +125,9 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK_FALSE(r.result["reason"].get<std::string>().empty());  // the device's reason, or what is traced
     // A device that cannot trace says why (its own reason, never an empty string).
     if (!r.result["supported"].get<bool>()) CHECK(r.result["reason"].get<std::string>().size() > 10);
+    CHECK(r.result["localShadows"]["cap"] == 3);
+    if (r.result["active"].get<bool>())
+        CHECK(contains(r.result["reason"].get<std::string>(), "point, spot and area lights"));
     CHECK(e.ray_tracing().shadows == render::RtShadows::Hard);
 
     // The same value again changes nothing, and a key that is not given is kept; numbers are clamped.

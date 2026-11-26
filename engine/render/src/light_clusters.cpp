@@ -266,7 +266,7 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
     // The region also carries the contact shadow length of each light (y of its texel, M73.2c): it is there when a light has one even
     // when no light has a shadow map (every x is then -1).
     bool anyContact = false;
-    for (const LightData& l : lights) anyContact = anyContact || l.contactLength > 0.0f;
+    for (const LightData& l : lights) anyContact = anyContact || l.contactLength > 0.0f || l.rtSlot > 0;
     if (shadowTexels == 0 && anyContact) shadowTexels = lights.size();
     out.shadowBase = shadowTexels > 0 ? static_cast<long long>(lightTexels + clusterTexels + indexTexels) : -1;
     // One cursor, in a fixed order: lights | clusters | light indices | shadows | decals (header, records, decal indices).
@@ -306,8 +306,11 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
             for (std::size_t i = 0; i < lights.size(); ++i)
                 t[(std::size_t(out.shadowBase) + i) * 4] = -1.0f;  // no shadow map
         }
-        for (std::size_t i = 0; i < lights.size(); ++i)
+        for (std::size_t i = 0; i < lights.size(); ++i) {
             t[(std::size_t(out.shadowBase) + i) * 4 + 1] = std::max(lights[i].contactLength, 0.0f);
+            t[(std::size_t(out.shadowBase) + i) * 4 + 2] =
+                float(std::clamp(lights[i].rtSlot, 0, 3));  // M79-P2a-3: the traced slot
+        }
     }
     if (giCount > 0) {
         float* r = t + std::size_t(out.giBase) * 4;
