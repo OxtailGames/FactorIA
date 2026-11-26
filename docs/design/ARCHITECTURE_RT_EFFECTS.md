@@ -365,22 +365,48 @@ kernel reads, call `rt_trace_surface` and `rt_shade_hit`; write the `.metal` twi
 ### What the reflections do
 
 `render.rayTracing.reflections` runs `rt_reflect` after the TLAS, the prepass and the G-buffer (`<job>/rt-reflections`). It reads the G-buffer's
-roughness (material `r`), metalness (`g`) and albedo, and the prepass's depth and normal. A pixel whose roughness is under `user0.z = 0.25`
-casts one ray from `pos + n (user0.x + user0.y d)` along `reflect(view, n)` with `TMax = user0.w = 10000`. Output: `a = 0` where nothing was
-traced (the sky, no G-buffer texel, a rougher surface), `a > 0` the hit distance (at least 1e-4; the denoiser's hook), `a = -1` a miss; `rgb`
-is the shaded hit (or the environment, for a miss) times `lerp(1, albedo, metalness)`. The request needs the G-buffer: a frame that draws none
-(a GPU that cannot make its images) keeps the old reflections and warns once (`rtWarnedReflectGbuffer`), a device that refuses the kernel or
-the image warns once (`rtWarnedReflect`); both are re-armed when ray tracing goes off.
+roughness (material `r`), metalness (`g`) and albedo, and the prepass's depth and normal. Constants: `user0` = (ray offset along the normal in
+metres, more of it per metre of view depth, the sharp cutoff 0.25, TMax 10000), `user1.x` = the glossy limit 0.65 (`kRtReflectLimit`,
+`renderer_ssr.h`), `frame.z` = rays per pixel. Output (RGBA32F): `a = 0` where nothing was traced (the sky, no G-buffer texel, a surface at the
+limit or rougher), `a > 0` the mean hit distance (at least 1e-4), `a = -1` where every ray left the scene (rgb is 0 then); `rgb` is the mean of
+the rays that hit, each shaded and times `lerp(1, albedo, metalness)`. The request needs the G-buffer: a frame that draws none keeps the old
+reflections and warns once (`rtWarnedReflectGbuffer`), a device that refuses the kernel or the image warns once (`rtWarnedReflect`); both are
+re-armed when ray tracing goes off.
 
-**The composite** is the screen-space reflections' trace pass (`renderer_ssr.cpp`): it samples the image (`tex_r`, `b.w` = 1). Where `rt.a > 0`
-the reflection colour is `rt.rgb` mixed into the lit colour by the same Fresnel weight, capped at the same `SSR_MAX_MIX`, and the pixel returns
-without the march; where `rt.a < 0` the picture is not changed (the lit pass already holds the environment's reflection); everywhere else the march
-runs as before, so the probes and the screen-space reflections serve the rough surfaces. A camera whose stack has no screen-space reflections gets
-the same pass with intensity 0 (`make_ssr_rt_plan`), which only changes the traced pixels.
+**Rays (M79-P3a-2).** Under the cutoff a pixel gets ONE ray along `reflect(view, n)`, as in P3a-1 (a sharp pixel's bits do not change; the Metal
+test compares them with the frame without glossy). From the cutoff to the limit it gets `clamp(frame.z, 1, 16)` rays (`raysPerPixel` of the
+settings): the directions are GGX visible-normal samples (Heitz 2018, `ggx_vndf_reflect`) with alpha = roughness squared, in the tangent basis of
+Duff et al., drawn from a PCG chain seeded by `rt_effect_seed(frameSerial)` and the pixel, with `u1` stratified over the pixel's rays; a sample
+that points under the surface takes the mirror direction. Integer hashing and the same sequence of draws make the same frame the same image on
+every GPU and on the CPU (the Metal test ports it). Why 0.65: the screen-space march and the probes blur like a rough lobe at little cost, a
+few noisy rays do not, and the rays cost the most where the lobe is widest; the traced share is faded out from 0.5 (`kRtReflectFade`).
 
-**Tests.** `rt_effect_tests.cpp` ("rt reflect: ...", the RecordingDevice, every host): the G-buffer request and the pass when on, nothing when off,
-the fallback on a device that cannot trace, the shader description (the bindings of the table above in HLSL, Vulkan and Metal numbering, including
-the `RtHitParams` block) and the `RtHitParams` fields against the HLSL and the MSL. `rt_reflect_metal_tests.cpp` (macOS, a real GPU): a mirror floor
-under a red and a green box and the sky, every traced pixel against a CPU port of the kernel (the same ray caster and shading) and a rough floor
-that is not traced. D3D12 and Vulkan did not run this kernel (their DXIL and SPIR-V are built with DXC on the Windows PC and checked for the
-contract by the tests above).
+**The denoiser.** After the kernel the renderer declares two signals of the camera with `RtDenoiser` (ids `kRtReflectSignalId` 3, `Specular`,
+and `kRtReflectCoverageSignalId` 4, `Coverage`), both on the kernel's image, the prepass and the G-buffer's roughness. `Specular` is the
+radiance, with the hit distance in `a`; `Coverage` reads `a > 0` as 1, else 0 (so the kernel's rgb, a mean of the hits, is averaged over time
+as the share of frames that had a hit and the coverage is that share: radiance / coverage is the hit colour). A reflection does not move with
+its surface, so both reproject with the virtual position (the point `hit` further along the view ray, behind the mirror) first and with the
+surface's motion only where no history pixel passes there, and the a-trous filter weighs pixels by the roughness difference
+(docs/design/ARCHITECTURE_DENOISE.md). History resets are the denoiser's (first frame, resize, a gap, another scene, an origin shift, a cut, a
+changed kind or settings). If the denoiser cannot run, both are invalid and the composite reads the raw image for every traced pixel.
+
+**The composite** is the screen-space reflections' trace pass (`renderer_ssr.cpp`, `ssr.glsl`): `SsrRtGlossy` carries the denoised images and
+the roughness; `b.w` says what is bound (0 none, 1 the raw image only, 2 the denoised ones too). A pixel under the sharp cutoff reads the raw
+image (no history: it would lag a reflection that moves unlike its surface); a rougher one reads the denoised radiance and coverage, faded out
+between 0.5 and 0.65. The mix is `here * (1 - k * cover) + radiance * k` with the Fresnel weight `k` (capped at `SSR_MAX_MIX`); the rest of the
+pixel (`1 - cover`: rays that left the scene, the fade, a pixel not traced) goes to the screen-space march with its mix scaled by `1 - cover`,
+and then stays what the lit pass drew (the probes). So there is no seam at either end and no pixel loses its reflection when the traced one is
+absent. A sharp ray that misses used to leave the picture alone; it now lets the march look too (when the stack has reflections). A camera
+whose stack has no screen-space reflections gets the same pass with intensity 0 (`make_ssr_rt_plan`), which only changes the traced pixels.
+
+**Tests.** `rt_effect_tests.cpp` ("rt reflect: ...", the RecordingDevice, every host): the G-buffer request and the pass when on, nothing when
+off, the two denoise signals between the kernel and the composite (and their history freed when off), the fallback on a device that cannot trace
+(no kernel, no denoiser), the shader description (the bindings of the table above in HLSL, Vulkan and Metal numbering, including the `RtHitParams`
+block) and the `RtHitParams` fields against the HLSL and the MSL. `rt_denoise_tests.cpp` / `rt_denoise_plan_tests.cpp`: the `Coverage` kind
+converges to the share of hits, a reflection follows the virtual position when the camera moves, the kind changes the config key (a reset).
+`rt_reflect_metal_tests.cpp` (macOS, a real GPU): a mirror floor under a red and a green box and the sky, every traced pixel against a CPU port
+of the kernel; the glossy floor (roughness 0.45, 8 rays) and the green box (0.3) against a CPU port of the PCG chain and the VNDF sampler (mean
+error under 1% of the mean radiance; measured 4e-6), the same frame twice bit for bit, another seed other rays, the mirror floor unchanged and
+the red box (0.8) not traced. D3D12 and Vulkan did not run this kernel (their DXIL and SPIR-V are built with DXC on the Windows PC and checked
+for the contract by the tests above); the number of rays is not seen by the RecordingDevice (it does not keep the constants), only by the Metal
+test.

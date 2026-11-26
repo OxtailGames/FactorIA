@@ -36,10 +36,12 @@ enum class DenoiseKind : std::uint8_t {
     Visibility,  // a shadow: 0 .. 1 in r (one channel); the result is in r, g and b alike
     Occlusion,   // ambient occlusion: 0 .. 1 in r (one channel); the result is in r, g and b alike
     Diffuse,     // diffuse radiance: rgb, linear; a firefly clamp applies
-    Specular  // specular radiance: rgb + the hit distance in a (world units, negative = the ray missed); the filter follows the lobe
+    Specular,  // specular radiance: rgb + the hit distance in a (world units, negative = the ray missed); the filter follows the lobe
+    Coverage  // M79-P3a-2: where the specular signal's rays ended on a surface: one channel, 1 where the alpha of the input is > 0 (a hit distance),
+    // else 0. The input is the specular signal's own image; its hit distance steers the reprojection the same way
 };
 const char* denoise_kind_name(DenoiseKind k);
-// 1 for a shadow and an occlusion, 3 for the radiance kinds.
+// 1 for a shadow, an occlusion and a coverage, 3 for the radiance kinds.
 int denoise_channels(DenoiseKind k);
 
 // The numbers of one signal. sanitize_denoise_settings clamps them (a number that is not finite takes its default).
@@ -156,7 +158,7 @@ struct DenoisePlan {
     int transients =
         0;  // the frame's images the graph makes (the accumulation, the two a-trous buffers, the debug picture)
     int historyImages = 0;     // the persistent images of the signal (two of the colour, two of the moments)
-    bool hitDistance = false;  // the signal carries a hit distance (specular)
+    bool hitDistance = false;  // the signal carries a hit distance (specular, and the coverage of one)
     std::uint64_t configKey = 0;
     std::uint64_t historyBytes = 0;  // of the signal's history images (saturated)
     std::uint64_t guideBytes = 0;    // of the camera's guide history (saturated)
