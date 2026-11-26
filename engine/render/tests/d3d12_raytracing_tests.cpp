@@ -290,12 +290,13 @@ WarpLoad load_nuget_warp() {
     return out;
 }
 
-// A WARP device with the debug layer, or null (with a MESSAGE) where this Windows has no WARP.
+// A WARP device with the debug layer, or null (with a MESSAGE) where this Windows has no WARP. FA_D3D12_RT_HARDWARE=1
+// (by hand, never in CI) asks for the machine's hardware adapter instead, to run the same tracing case on a GPU.
 std::unique_ptr<D3d12Device> make_warp(WarpLoad& load) {
     load = load_nuget_warp();
     MESSAGE("d3d12 ray tracing: " << load.what);
     D3d12Options o;
-    o.warp = true;
+    o.warp = !env_is_1(L"FA_D3D12_RT_HARDWARE");
     o.debugLayer = true;
     auto d = D3d12Device::create(o);
     if (!d) {
