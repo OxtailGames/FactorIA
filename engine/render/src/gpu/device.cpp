@@ -41,8 +41,8 @@ std::string accel_unavailable_reason(Backend backend) {
                    " backend cannot trace rays: ray tracing needs the d3d12 or vulkan backend (Windows, Linux, "
                    "Android) or Metal on Apple";
         case Backend::D3d12:
-            return "the d3d12 backend does not build acceleration structures yet (DXR 1.1 inline ray query is package "
-                   "P1d of milestone 79)";
+            return "the d3d12 device has no DXR tier 1.1 with shader model 6.5, which inline ray query needs (update "
+                   "the GPU driver, or run on a DirectX 12 Ultimate GPU; WARP has tier 1.1 on Windows 11)";
         case Backend::Vulkan:
             return "the vulkan backend does not build acceleration structures yet (VK_KHR_acceleration_structure and "
                    "VK_KHR_ray_query are package P1v of milestone 79)";

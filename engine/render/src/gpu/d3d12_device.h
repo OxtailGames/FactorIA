@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "fa/core/types.h"
+#include "gpu/d3d12_accel.h"
 #include "gpu/device.h"
 
 namespace fa::gpu {
@@ -308,6 +309,10 @@ struct TrackedResource {
     // A buffer: the queue decays it to COMMON at the end of every ExecuteCommandLists and its first use in a list
     // promotes it implicitly, so it never needs a fix-up barrier (states[0] is COMMON between lists).
     bool buffer = false;
+    // A buffer that holds acceleration structures (M79, usage accelStorage or the device's own memory of one): made in
+    // D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, which it never leaves (D3D12 allows no transition in or
+    // out), so require() takes it in that state only and the order of its builds and traces is kept by UAV barriers.
+    bool accel = false;
     // The queue that owns it (a new resource: Graphics; a QueueHandoff at submit_token moves it) and the token the
     // owner's next list must wait for before it touches it (invalid once a list of the owner waited for it). `states`
     // is the owner queue's view. Under queueMutex_.
@@ -501,8 +506,9 @@ struct ShaderInfo {
     bool viewWritable[kMaxViews]{};                  // bound as a UAV (storage image, writable storage buffer)
     std::string semName[kMaxVertexAttributes];       // the vertex attribute's HLSL semantic; empty = none
     std::uint8_t semIndex[kMaxVertexAttributes]{};
-    std::vector<std::uint8_t> vs, fs, cs;  // DXBC
+    std::vector<std::uint8_t> vs, fs, cs;  // DXBC (shader model 5.1), or DXIL for a compute shader (shader model 6)
     std::string codeKey;                   // the SHA-256 of the bytecode (the PSO cache key's part)
+    bool accelDeclared[kMaxAccelStructureBindings]{};  // a TLAS slot the kernel traces against (M79)
 };
 
 // A root signature and where each slot of a shader sits in it (cached per layout: every shader with the same
@@ -522,6 +528,8 @@ struct RootLayout {
     std::uint32_t samplerOffset[kMaxSamplers]{};
     std::uint32_t samplerUsed = 0;  // bit per sampler slot
     int bindlessTable = -1;         // the unbounded SRV table at t0, space1; -1 = none
+    // A root SRV per acceleration structure slot (the TLAS's GPU virtual address, M79); -1 = the slot is unused.
+    int accelParam[kMaxAccelStructureBindings] = {-1, -1, -1, -1};
 };
 
 // A pipeline as a command list sets it: the PSO and what set_pipeline, set_bindings and the draws need.
@@ -578,6 +586,11 @@ public:
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
     Result<void> end_native(std::span<const NativeUse> leftIn) override;
     using CommandList::end_native;
+    // Ray tracing (M79, d3d12_raytracing_win32.cpp): DXR 1.1 builds on ID3D12GraphicsCommandList4.
+    Result<void> build_blas(const BlasBuild& build) override;
+    Result<void> build_tlas(const TlasBuild& build) override;
+    Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) override;
+    Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) override;
 
     // ---- the backend's side -----------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
@@ -620,6 +633,16 @@ private:
     void uav_barrier_if_written(const std::shared_ptr<TrackedResource>& t);
     // Records the end timestamp of the timed scope still open (end_timed_scope, and submit for a scope left open).
     void close_scope();
+    // How a command touches an acceleration structure buffer (M79): the UAV barrier accel_access() derives.
+    enum class AccelAccess : std::uint8_t { None, Read, Write };
+    // The next command reads or writes the acceleration structures in `t`: a UAV barrier goes before it when an earlier
+    // command of this list wrote them (read or write after write) or read them (write after read: a TLAS rebuilt while
+    // a dispatch of the same list traced it). Keeps `t` alive with the list. Lists run in order on their queue, and
+    // ExecuteCommandLists finishes one list's work before the next one's starts, so only this list's commands count.
+    void accel_access(const std::shared_ptr<TrackedResource>& t, AccelAccess access);
+    // A ray tracing call that cannot run on this list: outside a pass, a Transfer list, no ID3D12GraphicsCommandList4.
+    // "" when it can.
+    std::string accel_list_problem() const;
     // Reports an error of CommandList::`what` in this list.
     void fail(const char* what, const std::string& error);
     // The checks every draw and dispatch makes: false (reported) when it cannot run.
@@ -647,6 +670,8 @@ private:
     QueueKind kind_ = QueueKind::Graphics;  // the queue its allocator and list are made for
     Com<ID3D12CommandAllocator> allocator_;
     Com<ID3D12GraphicsCommandList> list_;
+    // The same list as an ID3D12GraphicsCommandList4 (the DXR calls), queried when the device traces rays (M79).
+    Com<ID3D12GraphicsCommandList4> list4_;
     Com<ID3D12CommandAllocator> fixupAllocator_;  // the fix-up list submit() records before this one
     Com<ID3D12GraphicsCommandList> fixup_;
     // The tokens of other queues its work waits for (Device::wait_list; reset by open()), mapped to real queues.
@@ -685,6 +710,10 @@ private:
     // UAV barrier on each (its writes must be visible to the next command).
     std::vector<std::shared_ptr<TrackedResource>> boundUavs_;
     bool uavsWritten_ = false;
+    // The acceleration structure buffers the bindings bind (the TLASes a dispatch traces: read by each dispatch), and
+    // what this list's last command did with each acceleration structure buffer it touched (reset by open()).
+    std::vector<std::shared_ptr<TrackedResource>> boundAccels_;
+    std::unordered_map<TrackedResource*, AccelAccess> accelLast_;
     // The timed scopes recorded in this list (reset by open()); the last one is still open when scopeOpen_.
     std::vector<ScopeRef> scopes_;
     bool scopeOpen_ = false;
@@ -822,6 +851,15 @@ public:
     ResourceState state(Sampler sampler) const override;
     ResourceState state(Shader shader) const override;
     ResourceState state(Pipeline pipeline) const override;
+    // Ray tracing (M79, d3d12_raytracing_win32.cpp): DXR 1.1 inline ray query on a device with
+    // D3D12_RAYTRACING_TIER_1_1 and shader model 6.5 (init_caps); every call refuses with ray_tracing_status's reason
+    // on one without.
+    bool ray_tracing_status(std::string* why) const override;
+    Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags) override;
+    Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) override;
+    Result<AccelStructure> make_accel_structure(const AccelStructureDesc& desc) override;
+    void destroy_accel_structure(AccelStructure accel) override;
+    ResourceState accel_structure_state(AccelStructure accel) const override;
     // The root signature layout of a valid shader (tests check where each slot sits); null for a failed or unknown one.
     std::shared_ptr<const RootLayout> shader_root_layout(Shader shader) const;
 
@@ -1031,6 +1069,23 @@ private:
     struct PipelineRecord {
         std::shared_ptr<const PipelineState> state;  // null when the creation failed
     };
+    // An acceleration structure (M79): `size` bytes at `offset` of `tracked` (the caller's accelStorage buffer, or a
+    // buffer of its own), and what its last recorded build left in it (the checks of the next build, copy and bind).
+    struct AccelRecord {
+        AccelKind kind = AccelKind::Blas;
+        std::uint64_t size = 0;
+        std::shared_ptr<TrackedResource> tracked;
+        std::uint64_t offset = 0;
+        std::uint64_t address = 0;  // its GPU virtual address (the buffer's + offset)
+        bool built = false;
+        bool allowUpdate = false;
+        bool allowCompaction = false;
+        AccelBuildFlags flags{};  // the flags of the last build (a refit must give the same)
+        std::uint32_t geometries = 0;
+        std::uint64_t primitives = 0;
+        std::uint32_t instances = 0;
+        std::string label;
+    };
     // Something destroyed while the GPU may still use it: released once `frame` was committed and the GPU finished it.
     struct Deferred {
         std::uint64_t frame = 0;
@@ -1053,6 +1108,12 @@ private:
     Result<void> init(const D3d12Options& options);
     Result<void> init_adapter(const D3d12Options& options);
     void init_caps();
+    // The ray tracing tier and shader model, ID3D12Device5, and the Features, Limits and reason they give (init_caps).
+    void init_ray_tracing();
+    // The refusal of a ray tracing call on a device without it: "gpu d3d12: <call>: <rtWhy_>" (and errors()).
+    Error accel_unavailable(const char* call) const;
+    // The prebuild info of `inputs` (a D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS), rounded (round_sizes).
+    AccelSizes prebuild_sizes(const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS& inputs, bool allowUpdate);
     // The compute and copy queues (init, D3d12Options::asyncQueues); none when D3D12 cannot make them (logged).
     void init_side_queues(bool wanted);
     // A free command list for `kind` (a mapped queue), open for recording, from the pool or new; null with errors()
@@ -1221,6 +1282,7 @@ private:
     Pool<SamplerRecord> samplers_;
     Pool<ShaderRecord> shaders_;
     Pool<PipelineRecord> pipelines_;
+    Pool<AccelRecord> accels_;  // M79: the acceleration structures (DeviceInit::bufferPoolSize of them)
     std::array<CpuDescriptorHeap, kHeapCount> cpuHeaps_;
 
     // The root signature and PSO caches (cacheMutex_; taken inside libraryMutex_ by pso(), never the other way round,
@@ -1233,6 +1295,11 @@ private:
     int bindingTier_ = 0;                    // D3D12_OPTIONS.ResourceBindingTier (1, 2 or 3)
     D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;  // the device's
     bool typedUavLoadAdditional_ = false;                      // D3D12_OPTIONS.TypedUAVLoadAdditionalFormats
+    // Ray tracing (M79, init_ray_tracing): the tier, the shader model and the adapter found, ID3D12Device5 when the
+    // device traces rays, and the reason when it does not (Device::ray_tracing_status).
+    RtCaps rtCaps_{};
+    Com<ID3D12Device5> device5_;
+    std::string rtWhy_;
 
     // The on-disk PSO cache (libraryMutex_; held with cacheMutex_ inside it, or with the message one). libraryBlob_, the
     // bytes the library was made from, is declared above the pools so it outlives library_ and every PSO loaded

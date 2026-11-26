@@ -218,6 +218,8 @@ Result<void> D3d12Device::read_buffer(Buffer buffer, std::size_t offset, std::si
         return make_error("gpu d3d12: read_buffer: buffer " + std::to_string(buffer.id) +
                               " is not a live buffer (destroyed, failed, or another device's)",
                           "read a buffer this device made, before destroy_buffer()");
+    if (t->accel)
+        return make_error("gpu d3d12: read_buffer: " + accel_storage_copy_error(label), kAccelStorageCopyHint);
     if (offset > size || bytes > size - offset)
         return make_error("gpu d3d12: read_buffer of buffer '" + label + "': " + std::to_string(bytes) +
                               " bytes from offset " + std::to_string(offset) + " go past its " + std::to_string(size) +
@@ -319,6 +321,8 @@ Result<ReadTicket> D3d12Device::request_buffer_read(Buffer buffer, std::size_t o
         return make_error("gpu d3d12: request_buffer_read: buffer " + std::to_string(buffer.id) +
                               " is not a live buffer (destroyed, failed, or another device's)",
                           "read a buffer this device made, before destroy_buffer()");
+    if (t->accel)
+        return make_error("gpu d3d12: request_buffer_read: " + accel_storage_copy_error(label), kAccelStorageCopyHint);
     if (bytes == 0 || offset > size || bytes > size - offset)
         return make_error("gpu d3d12: request_buffer_read of buffer '" + label + "': " + std::to_string(bytes) +
                               " bytes from offset " + std::to_string(offset) +
