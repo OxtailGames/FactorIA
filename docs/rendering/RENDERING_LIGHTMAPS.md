@@ -88,10 +88,13 @@ cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRa
 CPU takes seconds (on an Apple M5 a Cornell room of 98,000 texels and 64 samples took 5.2 s on the CPU and 45 ms on the GPU). The light is the CPU's up to the
 GPU's own rounding (a tiny difference, never a different look) and the same on every run of one GPU and driver, but it is **not** byte for byte the CPU's, so
 the default stays `"cpu"`: use the GPU while you place lights and walls, and bake the final one on the CPU. `"auto"` uses the GPU when this machine has one that
-traces rays (not a software one such as WARP or lavapipe, which `"gpu"` still accepts) and the CPU otherwise. The result's `device` says which one baked (`{requested, used, name, note}`; `note` is why it was the CPU). The GPU needs
-ray tracing (Metal on Apple silicon, D3D12 or Vulkan with ray queries elsewhere, [Ray tracing](../RAY_TRACING.md)); on a Mac it cannot run inside the editor or
-a `factoria call` that has graphics, which already hold the only Metal context of the process: run `factoria call --no-graphics lightmap.bake '{"device":"gpu"}'`
-(`auto` falls back to the CPU there and says so). Light probes are always baked on the CPU.
+traces rays (not a software one such as WARP or lavapipe, which `"gpu"` still accepts) and the CPU otherwise. The result's `device` says which one baked (`{requested, used, name, note, process}`; `note` is why it was the CPU, `process` is `"here"` or `"helper"`). The GPU needs
+ray tracing (Metal on Apple silicon, D3D12 or Vulkan with ray queries elsewhere, [Ray tracing](../RAY_TRACING.md)). It works from the editor (Lightmap panel, Device), MCP and a
+`factoria call` with graphics too: a Mac process that already holds the only Metal context of the process (the editor, a window) runs the bake in a child
+`factoria session --no-graphics` (`process` is `"helper"`; the progress and Cancel work the same). It needs the `factoria` program next to the editor (or `FA_FACTORIA_EXE`);
+if it is missing, or the child crashes or the GPU resets, the editor is not affected: `"gpu"` fails with the reason, `"auto"` bakes on the CPU and says why in `device.note`.
+`FA_LIGHTMAP_HELPER=always|never` forces the choice. `samples`, `bounces` and `shadowSamples` have the CPU's ranges on the GPU too: outside them the bake is refused, never clamped.
+Light probes are always baked on the CPU (a scene with no lightmap texels and only probes says so in `device.note`).
 
 ## Light probes and mixed lights (M73.4d)
 

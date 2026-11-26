@@ -2,8 +2,11 @@
 // there is a GPU the same engine draws the baked scene (a batch: bake, then game.screenshot) and the shadow of the box is in the picture.
 #include <doctest.h>
 
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <sstream>
+#include <thread>
 
 #include "common.h"  // tools/cli/src: Session
 #include "fa/cli/cli.h"
@@ -11,8 +14,21 @@
 #include "fa/core/image.h"
 #include "fa/core/image_float.h"
 #include "fa/core/json.h"
+#include "fa/core/process.h"
 #include "fa/scene/lightmap_manifest.h"
 #include "fa/tooling/scaffold.h"
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace stdfs = std::filesystem;
 
@@ -172,6 +188,185 @@ TEST_CASE(
         CHECK(used == "cpu");
         CHECK(result["device"]["note"].get<std::string>().find("baked on the CPU") != std::string::npos);
     }
+
+    fa::fs::set_project_root(oldRoot);
+    std::error_code ec;
+    stdfs::remove_all(tmp, ec);
+}
+
+// ---- the GPU bake in a helper process (M79-P5c) ----------------------------------------------------------------------------------------------------
+// A process that already has a graphics context (the editor, a window, `factoria call` with graphics) cannot open the GPU tracer's own context on a
+// Mac, so it runs the bake in a child `factoria session --no-graphics`. FA_LIGHTMAP_HELPER=always makes any process do so, which is how these cases
+// run the helper path on a machine that does not need it. They need the real `factoria` (ctest gives it in FA_FACTORIA_EXE).
+
+namespace {
+
+void set_env(const char* name, const char* value) {
+#if defined(_WIN32)
+    _putenv_s(name, value ? value : "");
+#else
+    if (value)
+        setenv(name, value, 1);
+    else
+        unsetenv(name);
+#endif
+}
+
+struct EnvScope {
+    const char* name;
+    explicit EnvScope(const char* n, const char* value) : name(n) { set_env(name, value); }
+    ~EnvScope() { set_env(name, nullptr); }
+};
+
+// The processes this test process started that still run (a leftover helper would be one).
+std::size_t child_processes() {
+#if defined(_WIN32)
+    const long long self = static_cast<long long>(GetCurrentProcessId());
+#else
+    const long long self = static_cast<long long>(getpid());
+#endif
+    const std::vector<fa::ProcessEntry> tree = fa::process_tree(self);
+    return tree.empty() ? 0 : tree.size() - 1;
+}
+
+bool no_children_soon() {
+    for (int i = 0; i < 200; ++i) {
+        if (child_processes() == 0) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
+}
+
+bool have_factoria() {
+    const char* exe = std::getenv("FA_FACTORIA_EXE");
+    return exe != nullptr && *exe != 0;
+}
+
+}  // namespace
+
+TEST_CASE("factoria call lightmap.bake device: the GPU bake in a helper process gives the same device report and "
+          "leaves no process behind") {
+    if (!have_factoria()) {
+        MESSAGE("FA_FACTORIA_EXE is not set (run this through ctest): the helper process cases are skipped");
+        return;
+    }
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_helper").value();
+    const std::string project = (tmp / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(project, "3d-empty", opt).ok());
+    REQUIRE(fa::fs::write_text((tmp / "game" / "scenes" / "main.scene.json").generic_string(), kScene).ok());
+    const EnvScope helper("FA_LIGHTMAP_HELPER", "always");
+
+    const std::string args = R"({"texelsPerMeter":8,"samples":16,"shadowSamples":4,"maxPageSize":512)";
+    const CliResult cpu = run({"call", "lightmap.bake", args + "}", "--project", project, "--no-graphics"});
+    REQUIRE_MESSAGE(cpu.code == 0, cpu.err << cpu.out);
+    const fa::Json cpuResult = fa::Json::parse(cpu.out);
+    CHECK(cpuResult["device"]["process"] == "here");  // the CPU never asks for a helper
+    const double cpuSum = pages_sum(tmp / "game");
+
+    // auto: the helper's own choice (a GPU where one traces rays, else the CPU with its reason); the pages are valid either way.
+    const CliResult autoRun =
+        run({"call", "lightmap.bake", args + R"(,"device":"auto"})", "--project", project, "--no-graphics"});
+    REQUIRE_MESSAGE(autoRun.code == 0, autoRun.err << autoRun.out);
+    const fa::Json result = fa::Json::parse(autoRun.out);
+    MESSAGE("auto in a helper: " << result["device"].dump());
+    CHECK(result["device"]["requested"] == "auto");
+    CHECK(result["device"]["process"] == "helper");
+    const std::string used = result["device"]["used"].get<std::string>();
+    if (used == "gpu") {
+        CHECK(result["device"]["name"].get<std::string>().size() > 0);
+        CHECK(pages_sum(tmp / "game") == doctest::Approx(cpuSum).epsilon(0.01));
+    } else {
+        CHECK(used == "cpu");
+        CHECK(result["device"]["note"].get<std::string>().find("baked on the CPU") != std::string::npos);
+        CHECK(pages_sum(tmp / "game") == cpuSum);  // the CPU baked: the same bytes as the direct bake
+    }
+    CHECK(result["pages"].size() >= 1);
+    CHECK(no_children_soon());
+
+    // gpu by name: a GPU result, or the error with the helper's own reason (no GPU that traces rays here).
+    const CliResult gpu =
+        run({"call", "lightmap.bake", args + R"(,"device":"gpu"})", "--project", project, "--no-graphics"});
+    if (gpu.code == 0) {
+        const fa::Json r = fa::Json::parse(gpu.out);
+        CHECK(r["device"]["used"] == "gpu");
+        CHECK(r["device"]["process"] == "helper");
+    } else {
+        CHECK(gpu.code == 1);
+        CHECK(gpu.err.find("device \"gpu\"") != std::string::npos);
+    }
+    CHECK(no_children_soon());
+
+    // A mistake in the arguments is refused by this process, before any helper starts.
+    const CliResult bad =
+        run({"call", "lightmap.bake", args + R"(,"device":"gpu","samples":0})", "--project", project, "--no-graphics"});
+    CHECK(bad.code == 1);
+    CHECK(bad.err.find("/samples") != std::string::npos);
+
+    fa::fs::set_project_root(oldRoot);
+    std::error_code ec;
+    stdfs::remove_all(tmp, ec);
+}
+
+TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process reports progress, is cancelled, and "
+          "the helper ends") {
+    if (!have_factoria()) {
+        MESSAGE("FA_FACTORIA_EXE is not set (run this through ctest): the helper process cases are skipped");
+        return;
+    }
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_helper_cancel").value();
+    const std::string project = (tmp / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(project, "3d-empty", opt).ok());
+    REQUIRE(fa::fs::write_text((tmp / "game" / "scenes" / "main.scene.json").generic_string(), kScene).ok());
+    const EnvScope helper("FA_LIGHTMAP_HELPER", "always");
+
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::None;
+    {
+        auto session = fa::cli::Session::open(project, so);
+        fa::CommandRegistry& reg = session->registry();
+        // A bake that takes a long time on any machine, so the cancel lands while the helper traces.
+        auto start = reg.call("lightmap.bake_start", fa::Json::object({{"device", "auto"},
+                                                                       {"texelsPerMeter", 48},
+                                                                       {"samples", 16384},
+                                                                       {"shadowSamples", 64},
+                                                                       {"maxPageSize", 1024},
+                                                                       {"apply", false}}));
+        REQUIRE_MESSAGE(start.ok, start.error.dump());
+        const std::string job = start.result["job"].get<std::string>();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+        fa::Json seen;
+        for (;;) {
+            auto s = reg.call("lightmap.bake_status", fa::Json::object({{"job", job}}));
+            REQUIRE_MESSAGE(s.ok, s.error.dump());
+            seen = s.result;
+            if (seen["state"] != "running" || seen["phase"] == "trace") break;
+            REQUIRE(std::chrono::steady_clock::now() < deadline);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        MESSAGE("seen before the cancel: " << seen.dump());
+        auto cancel = reg.call("lightmap.bake_cancel", fa::Json::object({{"job", job}}));
+        REQUIRE_MESSAGE(cancel.ok, cancel.error.dump());
+        fa::Json end;
+        for (;;) {
+            auto s = reg.call("lightmap.bake_status", fa::Json::object({{"job", job}}));
+            REQUIRE_MESSAGE(s.ok, s.error.dump());
+            end = s.result;
+            if (end["state"] != "running") break;
+            REQUIRE(std::chrono::steady_clock::now() < deadline + std::chrono::seconds(180));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        // Cancelled; a machine fast enough to finish before the cancel got there ends done, and then the pages are whole.
+        MESSAGE("ended: " << end["state"].get<std::string>());
+        CHECK((end["state"] == "cancelled" || end["state"] == "done"));
+        if (end["state"] == "cancelled") CHECK_FALSE(stdfs::exists(tmp / "game" / "scenes" / "main.lightmap.json"));
+    }
+    CHECK(no_children_soon());
 
     fa::fs::set_project_root(oldRoot);
     std::error_code ec;
