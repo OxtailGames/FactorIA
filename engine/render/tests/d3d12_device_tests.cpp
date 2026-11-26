@@ -1517,7 +1517,7 @@ TEST_CASE("d3d12: make_shader and make_pipeline say what is wrong with a desc") 
     const char spirv[8] = {0x03, 0x02, 0x23, 0x07, 0, 0, 1, 0};
     sd.vertexFunc.source = nullptr;
     sd.vertexFunc.bytecode = Range{spirv, sizeof spirv};
-    CHECK(contains(shader_error(sd), "the vertex stage's bytecode is not DXBC"));
+    CHECK(contains(shader_error(sd), "the vertex stage's bytecode is neither DXBC nor DXIL"));
     sd = fill_shader_desc();
     sd.fragmentFunc.source = "float4 main() : SV_Target0 { return undeclared; }";
     std::string e = shader_error(sd);
@@ -1643,7 +1643,8 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     list.set_uniforms(0, Range{blitParams.data(), sizeof blitParams});
     list.set_uniforms(1, Range{blitParams.data(), sizeof blitParams});
     list.draw(0, 3);
-    CHECK(contains(last_error(*dev), "reads buffers, views or samplers and set_bindings was not called since"));
+    CHECK(contains(last_error(*dev),
+                   "reads buffers, views, samplers or acceleration structures and set_bindings was not called since"));
     Bindings b;
     list.set_bindings(b);
     CHECK(contains(last_error(*dev), "vertex buffer slot 0 is empty and pipeline 'test-pipeline' reads it"));

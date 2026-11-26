@@ -290,12 +290,13 @@ WarpLoad load_nuget_warp() {
     return out;
 }
 
-// A WARP device with the debug layer, or null (with a MESSAGE) where this Windows has no WARP.
+// A WARP device with the debug layer, or null (with a MESSAGE) where this Windows has no WARP. FA_D3D12_RT_HARDWARE=1
+// (by hand, never in CI) asks for the machine's hardware adapter instead, to run the same tracing case on a GPU.
 std::unique_ptr<D3d12Device> make_warp(WarpLoad& load) {
     load = load_nuget_warp();
     MESSAGE("d3d12 ray tracing: " << load.what);
     D3d12Options o;
-    o.warp = true;
+    o.warp = !env_is_1(L"FA_D3D12_RT_HARDWARE");
     o.debugLayer = true;
     auto d = D3d12Device::create(o);
     if (!d) {
@@ -487,7 +488,8 @@ TEST_CASE(
     auto tlasSizes = dev->tlas_sizes(2, tlasFlags);
     REQUIRE_MESSAGE(tlasSizes, tlasSizes.error().to_string());
     CHECK(blasSizes.value().structure % kAccelAlignment == 0);
-    CHECK(blasSizes.value().updateScratch > 0);
+    // WARP answers 0 bytes of update scratch for a two-triangle structure: a refit then needs no scratch at all.
+    CHECK(blasSizes.value().updateScratch % kAccelAlignment == 0);
     AccelStructureDesc ad;
     ad.kind = AccelKind::Blas;
     ad.size = blasSizes.value().structure;
