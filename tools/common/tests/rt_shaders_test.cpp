@@ -61,8 +61,9 @@ Blob blob(const std::string& text, const std::string& label) {
     return b;
 }
 
-const char* kFix = " (regenerate: tools/shaders/compile_rt_shaders.sh; on a computer without DXC the Linux CI job does it and "
-                   "uploads the headers as the artifact rt-shader-headers)";
+const char* kFix =
+    " (regenerate: tools/shaders/compile_rt_shaders.sh; on a computer without DXC the Linux CI job does it and "
+    "uploads the headers as the artifact rt-shader-headers)";
 
 }  // namespace
 
@@ -86,17 +87,19 @@ TEST_CASE("rt shaders: every kernel has an HLSL, a Metal twin and a header that 
         CHECK_MESSAGE(registry.find("shaders/rt/" + name + ".rt.h") != std::string::npos,
                       "engine/render/src/rt_kernels.h does not include the header of " << name);
 
-        CHECK_MESSAGE(meta(header, "msl-sha256") == sha256_hex(msl), name << ".metal changed since its header was made" << kFix);
+        CHECK_MESSAGE(meta(header, "msl-sha256") == sha256_hex(msl),
+                      name << ".metal changed since its header was made" << kFix);
         CHECK_MESSAGE(meta(header, "hlsl-sha256") == sha256_hex(hlsl),
                       name << ".hlsl changed since the DXIL and SPIR-V of its header were made" << kFix);
         CHECK_MESSAGE(meta(header, "dxc-version") == kSetupDxcVersion,
-                      "the blobs of " << name << ".rt.h come from DXC " << meta(header, "dxc-version") << ", the pin of setup.h is "
-                                      << kSetupDxcVersion << kFix);
+                      "the blobs of " << name << ".rt.h come from DXC " << meta(header, "dxc-version")
+                                      << ", the pin of setup.h is " << kSetupDxcVersion << kFix);
 
         for (const char* label : {"dxil", "spirv", "msl"}) {
             CAPTURE(label);
             const Blob b = blob(header, label);
-            REQUIRE_MESSAGE(b.found, "no `// BEGIN " << label << "` ... `// END " << label << "` in " << name << ".rt.h");
+            REQUIRE_MESSAGE(b.found,
+                            "no `// BEGIN " << label << "` ... `// END " << label << "` in " << name << ".rt.h");
             if (std::string(label) == "msl") {
                 REQUIRE(!b.data.empty());
                 CHECK(b.data.back() == '\0');
@@ -106,8 +109,11 @@ TEST_CASE("rt shaders: every kernel has an HLSL, a Metal twin and a header that 
             } else {
                 CHECK(b.bytes == b.data.size());
             }
-            if (std::string(label) != "msl") CHECK_MESSAGE(sha256_hex(b.data) == b.sha256, label << " blob of " << name << ".rt.h was edited by hand" << kFix);
-            else CHECK(b.sha256 == meta(header, "msl-sha256"));
+            if (std::string(label) != "msl")
+                CHECK_MESSAGE(sha256_hex(b.data) == b.sha256,
+                              label << " blob of " << name << ".rt.h was edited by hand" << kFix);
+            else
+                CHECK(b.sha256 == meta(header, "msl-sha256"));
         }
         const Blob dxil = blob(header, "dxil"), spirv = blob(header, "spirv");
         CHECK(dxil.data.rfind("DXBC", 0) == 0);
@@ -119,13 +125,15 @@ TEST_CASE("rt shaders: every kernel has an HLSL, a Metal twin and a header that 
     CHECK(kernels >= 1);  // rt_probe: the kernel P0b commits
 }
 
-TEST_CASE("rt shaders: compile_rt_shaders.sh reads the DXC version from setup.h and the CI job caches the pinned build") {
+TEST_CASE(
+    "rt shaders: compile_rt_shaders.sh reads the DXC version from setup.h and the CI job caches the pinned build") {
     const stdfs::path root = stdfs::path(FA_REPO_ROOT);
     const std::string script = testing::read_all(root / "tools" / "shaders" / "compile_rt_shaders.sh");
     REQUIRE(!script.empty());
     const std::string setupH = testing::read_all(root / "tools" / "common" / "include" / "fa" / "tooling" / "setup.h");
     // The script cuts the version out of this line with sed.
-    CHECK(setupH.find(std::string("inline constexpr const char* kSetupDxcVersion = \"") + kSetupDxcVersion + "\";") != std::string::npos);
+    CHECK(setupH.find(std::string("inline constexpr const char* kSetupDxcVersion = \"") + kSetupDxcVersion + "\";") !=
+          std::string::npos);
     CHECK(script.find("kSetupDxcVersion") != std::string::npos);
     const std::string ci = testing::read_all(root / ".github" / "workflows" / "ci.yml");
     REQUIRE(!ci.empty());

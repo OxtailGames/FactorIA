@@ -54,8 +54,8 @@ namespace fa::setup_detail {
 namespace {
 
 std::string dxc_url(const DxcBuild& b) {
-    return std::string("https://github.com/microsoft/DirectXShaderCompiler/releases/download/") + kSetupDxcRelease + "/" +
-           b.asset;
+    return std::string("https://github.com/microsoft/DirectXShaderCompiler/releases/download/") + kSetupDxcRelease +
+           "/" + b.asset;
 }
 
 std::string dxc_archive_name(const DxcBuild& b) {
@@ -68,9 +68,11 @@ Error unsupported_error(const SetupContext& ctx) {
         "DXC has no build for " + ctx.host_os() + "-" + ctx.host_architecture() +
             ": Microsoft publishes the DirectX Shader Compiler for Windows (x64, arm64) and Linux x86_64 only.",
         "The engine's DXIL is generated ahead of time and committed: when you change a ray tracing kernel "
-        "(engine/render/shaders/rt/*.hlsl) on this computer, commit the change and the Linux CI job regenerates the DXIL "
+        "(engine/render/shaders/rt/*.hlsl) on this computer, commit the change and the Linux CI job regenerates the "
+        "DXIL "
         "and SPIR-V headers, fails with the diff and uploads them as the artifact `rt-shader-headers` to commit "
-        "(docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, \"DXC and DXIL\"). To run DXC here anyway, build it "
+        "(docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, \"DXC and DXIL\"). To run DXC here anyway, build "
+        "it "
         "and set FA_DXC_DIR to its folder.");
 }
 
@@ -102,7 +104,8 @@ SetupComponent dxc_status(const SetupContext& ctx) {
         c.state = "installed";
         c.canInstall = build != nullptr;
         c.paths.emplace_back("dxc", found);
-        c.details = std::string("DXC ") + (envDir.empty() ? kSetupDxcVersion : "(named by $FA_DXC_DIR)") + " found: " + found +
+        c.details = std::string("DXC ") + (envDir.empty() ? kSetupDxcVersion : "(named by $FA_DXC_DIR)") +
+                    " found: " + found +
                     ". tools/shaders/compile_rt_shaders.sh compiles the ray tracing kernels with it.";
         return c;
     }
@@ -114,11 +117,13 @@ SetupComponent dxc_status(const SetupContext& ctx) {
     c.canInstall = true;
     c.state = "missing";
     c.installSizeMb = build->sizeMb;
-    c.details = std::string("The install downloads DXC ") + kSetupDxcVersion + " (" + build->asset +
-                " of github.com/microsoft/DirectXShaderCompiler, SHA-256 checked, licence: LLVM and Microsoft's, in the "
-                "folder) into " + dxc_install_dir(ctx) +
-                ". Only a contributor who edits a ray tracing kernel needs it: the generated DXIL is committed and a game "
-                "never ships DXC.";
+    c.details =
+        std::string("The install downloads DXC ") + kSetupDxcVersion + " (" + build->asset +
+        " of github.com/microsoft/DirectXShaderCompiler, SHA-256 checked, licence: LLVM and Microsoft's, in the "
+        "folder) into " +
+        dxc_install_dir(ctx) +
+        ". Only a contributor who edits a ray tracing kernel needs it: the generated DXIL is committed and a game "
+        "never ships DXC.";
     if (!envDir.empty())
         c.problems.push_back("$FA_DXC_DIR names " + envDir + ", which holds no bin/dxc" + exe_suffix(ctx.host_os()) +
                              ": fix the path or unset the variable.");
