@@ -1091,6 +1091,8 @@ void SokolCommandList::end_pass() {
     sg_end_pass();
 }
 
+Backend SokolCommandList::backend() const { return device_.backend(); }
+
 PassState SokolCommandList::pass_state() const {
     device_.check_thread("CommandList::pass_state");
     return from_sg(sg_query_pass_state());

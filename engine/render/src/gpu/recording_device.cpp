@@ -38,6 +38,10 @@ const char* command_kind_name(CommandKind kind) {
         case CommandKind::WaitList: return "wait_list";
         case CommandKind::WaitQueue: return "wait_queue";
         case CommandKind::Handoff: return "handoff";
+        case CommandKind::BuildBlas: return "build_blas";
+        case CommandKind::BuildTlas: return "build_tlas";
+        case CommandKind::QueryCompactedSize: return "query_compacted_size";
+        case CommandKind::CopyAccelStructure: return "copy_accel_structure";
     }
     return "?";
 }
@@ -119,6 +123,17 @@ Features desktop_features() {
     return f;
 }
 
+// What DeviceInit::recordingRayTracing adds: a desktop GPU with DXR 1.1 / VK_KHR_ray_query. The limits are the order of
+// magnitude of today's GPUs, and far from anything a test builds.
+void add_ray_tracing(Features& f, Limits& l) {
+    f.rayQuery = true;
+    f.accelerationStructure = true;
+    f.bufferDeviceAddress = true;
+    l.maxAccelInstances = 1u << 20;
+    l.maxAccelGeometries = 4096;
+    l.maxAccelPrimitives = std::uint64_t(1) << 28;
+}
+
 Limits desktop_limits() {
     Limits l;
     l.maxImageSize2d = 16384;
@@ -180,6 +195,20 @@ struct ShaderInfo {
     bool samplerDeclared[kMaxSamplers]{};
     SamplerType samplerType[kMaxSamplers]{};
     bool attrDeclared[kMaxVertexAttributes]{};
+    bool accelDeclared[kMaxAccelStructureBindings]{};  // a TLAS slot the kernel traces against
+    bool usesRayQuery = false;
+};
+
+// An acceleration structure (M79): what the build and bind checks need.
+struct AccelInfo {
+    AccelKind kind = AccelKind::Blas;
+    std::uint64_t size = 0;  // bytes it was made with
+    bool built = false;
+    bool allowUpdate = false;  // the flags of the build that wrote it
+    bool allowCompaction = false;
+    std::uint32_t geometries = 0;  // BLAS: what the build had (a refit must match)
+    std::uint64_t primitives = 0;
+    std::uint32_t instances = 0;  // TLAS
 };
 
 struct PipelineInfo {
@@ -299,6 +328,7 @@ struct RecordingDevice::State {
     Pool<SamplerInfo> samplers;
     Pool<ShaderInfo> shaders;
     Pool<PipelineInfo> pipelines;
+    Pool<AccelInfo> accels;
     std::vector<RecordedCommand> stream;
     std::vector<std::string> errors;
     std::vector<std::pair<void (*)(void*), void*>> listeners;
@@ -319,6 +349,7 @@ RecordingDevice::RecordingDevice(const DeviceInit& init) : state_(std::make_uniq
     info_.name = backend_name(Backend::Recording);
     features_ = init.recordingDefaultCaps ? desktop_features() : init.recordingFeatures;
     limits_ = init.recordingDefaultCaps ? desktop_limits() : init.recordingLimits;
+    if (init.recordingDefaultCaps && init.recordingRayTracing) add_ray_tracing(features_, limits_);
     defaults_ = init.environment.defaults;
     if (defaults_.colorFormat == PixelFormat::Default) defaults_.colorFormat = PixelFormat::Rgba8;
     if (defaults_.depthFormat == PixelFormat::Default) defaults_.depthFormat = PixelFormat::DepthStencil;
@@ -330,6 +361,8 @@ RecordingDevice::RecordingDevice(const DeviceInit& init) : state_(std::make_uniq
     s.samplers.kind = "sampler";
     s.shaders.kind = "shader";
     s.pipelines.kind = "pipeline";
+    s.accels.kind = "acceleration structure";
+    s.accels.capacity = clamp_pool(init.bufferPoolSize);
     s.buffers.capacity = clamp_pool(init.bufferPoolSize);
     s.images.capacity = clamp_pool(init.imagePoolSize);
     s.views.capacity = clamp_pool(init.viewPoolSize);
@@ -412,6 +445,15 @@ Buffer RecordingDevice::make_buffer(const BufferDesc& d) {
     if (kinds > 1 && features_.separateBufferTypes)
         add(what, "more than one of vertexBuffer/indexBuffer/storageBuffer/staging on a device with separate buffer "
                   "types (WebGL2)");
+    if (d.usage.accelBuildInput || d.usage.accelStorage || d.usage.accelScratch) {
+        if (!features_.accelerationStructure)
+            add(what, "usage.accelBuildInput, accelStorage or accelScratch on a device without acceleration structures "
+                      "(Features::accelerationStructure is false: " +
+                          accel_unavailable_reason(Backend::Recording) + ")");
+        else if (!features_.bufferDeviceAddress)
+            add(what, "usage.accelBuildInput, accelStorage or accelScratch on a device without buffer device addresses "
+                      "(Features::bufferDeviceAddress is false)");
+    }
     BufferInfo info{d.size, d.usage};
     const ResourceState st = what.empty() ? ResourceState::Valid : ResourceState::Failed;
     if (!what.empty())
@@ -638,6 +680,27 @@ Shader RecordingDevice::make_shader(const ShaderDesc& d) {
     }
     for (int i = 0; i < kMaxVertexAttributes; ++i)
         info.attrDeclared[i] = d.attrs[i].baseType != ShaderAttrBaseType::Undefined;
+    if (d.usesRayQuery) {
+        info.usesRayQuery = true;
+        if (!info.compute)
+            add(what, "usesRayQuery on a render shader: ray queries run in compute shaders (a kernel keeps "
+                      "ShaderStage::Compute; there are no ray tracing pipelines)");
+        if (!features_.rayQuery)
+            add(what, "usesRayQuery on a device without ray query (Features::rayQuery is false: " +
+                          accel_unavailable_reason(Backend::Recording) + ")");
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const ShaderAccelStructure& a = d.accelStructures[i];
+        if (a.stage == ShaderStage::None) continue;
+        const std::string where = "accelStructures[" + std::to_string(i) + "]";
+        if (a.stage != ShaderStage::Compute)
+            add(what, where + " has a stage other than Compute: only a compute shader traces rays");
+        if (!d.usesRayQuery) add(what, where + " is declared but usesRayQuery is false: set it on a ray-query kernel");
+        if (!features_.accelerationStructure)
+            add(what,
+                where + " on a device without acceleration structures (Features::accelerationStructure is false)");
+        info.accelDeclared[i] = true;
+    }
     const ResourceState st = what.empty() ? ResourceState::Valid : ResourceState::Failed;
     if (!what.empty())
         fail_locked("make_shader", d.label, what,
@@ -673,6 +736,7 @@ Pipeline RecordingDevice::make_pipeline(const PipelineDesc& d) {
     bool anyBinding = false;
     for (int i = 0; i < kMaxViews; ++i) anyBinding |= info.reflection.views[i] != ViewType::Invalid;
     for (int i = 0; i < kMaxSamplers; ++i) anyBinding |= info.reflection.samplerDeclared[i];
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) anyBinding |= info.reflection.accelDeclared[i];
     if (!d.compute) {
         for (int i = 0; i < kMaxVertexAttributes; ++i) {
             const VertexAttr& a = d.layout.attrs[i];
@@ -1753,6 +1817,30 @@ void RecordingCommandList::set_bindings(const Bindings& b) {
             fail(cmd, slot + ": sampler " + quoted(e->label) + " filters linearly in a non-filtering slot",
                  "use Filter::Nearest for every filter of a sampler in a non-filtering slot");
     }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const std::uint32_t id = b.accelStructures[i].id;
+        const std::string slot = "accelStructures[" + std::to_string(i) + "]";
+        if (!r.accelDeclared[i]) {
+            if (id)
+                fail(cmd,
+                     slot + " is bound but shader " + quoted(pi.shaderLabel) +
+                         " declares no acceleration structure there",
+                     "leave the acceleration structure slots the shader does not declare empty");
+            continue;
+        }
+        const auto* e = s.accels.live(id);
+        if (!e || e->state != ResourceState::Valid) {
+            fail(cmd, slot + " (shader " + quoted(pi.shaderLabel) + ") is " + s.accels.describe(id),
+                 "bind a live, built TLAS in every acceleration structure slot the shader declares");
+        } else if (e->info.kind != AccelKind::Tlas) {
+            fail(cmd, slot + " is the BLAS " + quoted(e->label) + ", but a ray query traces against a TLAS",
+                 "build a TLAS over it with build_tlas (one instance with the identity transform will do) and bind "
+                 "that");
+        } else if (!e->info.built) {
+            fail(cmd, slot + " is the TLAS " + quoted(e->label) + ", which build_tlas has not built yet",
+                 "record build_tlas on the structure before the dispatch that traces it");
+        }
+    }
 }
 
 void RecordingCommandList::set_uniforms(int slot, Range data) {
@@ -2012,6 +2100,519 @@ void RecordingCommandList::end_timed_scope() {
     const bool ignored = queue_ == QueueKind::Transfer;
     record(CommandKind::EndTimedScope, 0, {ignored ? 1 : 0},
            ignored ? "end_timed_scope (ignored: the transfer queue has no timestamps)" : "end_timed_scope");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Ray tracing (M79): sizes, acceleration structures, builds
+// ---------------------------------------------------------------------------------------------------------------------
+namespace {
+
+constexpr std::uint64_t kAccelAlign = 256;  // the alignment accel_alignment() and accel_scratch_alignment() answer
+constexpr std::uint32_t kMaxCustomIndex = 0xFFFFFFu;
+constexpr int kMaxReportedProblems = 4;  // a build of 100k bad instances reports the first few, not 100k lines
+
+std::uint64_t round_up_accel(std::uint64_t v) { return (v + kAccelAlign - 1) / kAccelAlign * kAccelAlign; }
+
+// The RecordingDevice's own sizes: deterministic functions of the counts, so a test can compute them (not a real GPU's).
+AccelSizes model_blas_sizes(std::uint32_t geometries, std::uint64_t primitives, const AccelBuildFlags& f) {
+    AccelSizes s;
+    s.structure = round_up_accel(4096 + 64 * primitives + 128 * std::uint64_t(geometries) +
+                                 (f.allowUpdate ? 16 * primitives : 0));
+    s.buildScratch = round_up_accel(1024 + 32 * primitives);
+    s.updateScratch = f.allowUpdate ? round_up_accel(512 + 16 * primitives) : 0;
+    return s;
+}
+
+AccelSizes model_tlas_sizes(std::uint32_t instances, const AccelBuildFlags& f) {
+    AccelSizes s;
+    s.structure =
+        round_up_accel(4096 + 128 * std::uint64_t(instances) + (f.allowUpdate ? 32 * std::uint64_t(instances) : 0));
+    s.buildScratch = round_up_accel(1024 + 64 * std::uint64_t(instances));
+    s.updateScratch = f.allowUpdate ? round_up_accel(512 + 32 * std::uint64_t(instances)) : 0;
+    return s;
+}
+
+std::string geometry_name(std::size_t i) { return "geometries[" + std::to_string(i) + "]"; }
+
+// The checks of the geometry list that need no buffer (sizes and builds). Adds the problems to `what`.
+void check_geometry_list(std::string& what, std::span<const AccelTriangles> geometries, const Limits& limits,
+                         std::uint64_t& primitives) {
+    primitives = 0;
+    if (geometries.empty()) {
+        add(what, "no geometries: a BLAS needs at least one triangle geometry");
+        return;
+    }
+    if (limits.maxAccelGeometries > 0 && geometries.size() > limits.maxAccelGeometries)
+        add(what, std::to_string(geometries.size()) + " geometries are more than this device's limit " +
+                      std::to_string(limits.maxAccelGeometries) +
+                      " (Limits::maxAccelGeometries): merge meshes into fewer geometries, or build several BLASes");
+    int problems = 0;
+    for (std::size_t i = 0; i < geometries.size(); ++i) {
+        const AccelTriangles& g = geometries[i];
+        primitives += g.primitive_count();
+        if (problems >= kMaxReportedProblems) continue;
+        const std::string n = geometry_name(i);
+        const std::size_t before = what.size();
+        if (g.vertexFormat != VertexFormat::Float3)
+            add(what,
+                n + ".vertexFormat is not Float3: three 32-bit floats are the one position format every backend takes");
+        if (g.vertexStride < 12 || g.vertexStride % 4 != 0)
+            add(what, n + ".vertexStride " + std::to_string(g.vertexStride) +
+                          " is not a multiple of 4 that is at least 12 (the size of a Float3 position)");
+        if (g.indexBuffer.valid()) {
+            if (g.indexType != IndexType::Uint16 && g.indexType != IndexType::Uint32)
+                add(what, n + " has an index buffer but indexType is not Uint16 or Uint32");
+            if (g.indexCount % 3 != 0)
+                add(what, n + ".indexCount " + std::to_string(g.indexCount) + " is not a multiple of 3");
+        } else {
+            if (g.indexType == IndexType::Uint16 || g.indexType == IndexType::Uint32)
+                add(what, n + " names an indexType but no index buffer");
+            if (g.vertexCount % 3 != 0)
+                add(what, n + ".vertexCount " + std::to_string(g.vertexCount) +
+                              " is not a multiple of 3 (a triangle list without an index buffer)");
+        }
+        if (g.primitive_count() == 0) add(what, n + " has no triangles");
+        if (what.size() != before) ++problems;
+    }
+    if (limits.maxAccelPrimitives > 0 && primitives > limits.maxAccelPrimitives)
+        add(what, std::to_string(primitives) + " triangles are more than this device's limit " +
+                      std::to_string(limits.maxAccelPrimitives) + " (Limits::maxAccelPrimitives)");
+}
+
+}  // namespace
+
+Result<AccelSizes> RecordingDevice::blas_sizes(std::span<const AccelTriangles> geometries,
+                                               const AccelBuildFlags& flags) {
+    if (!features_.accelerationStructure) return accel_refusal(Backend::Recording, "Device::blas_sizes");
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string what;
+    std::uint64_t primitives = 0;
+    check_geometry_list(what, geometries, limits_, primitives);
+    if (!what.empty()) {
+        const std::string fix = "give 1 to Limits::maxAccelGeometries triangle geometries (Float3 positions, a "
+                                "multiple of 3 indices) with at most Limits::maxAccelPrimitives triangles in all";
+        fail_locked("blas_sizes", nullptr, what, fix);
+        return make_error("gpu: blas_sizes: " + what, fix);
+    }
+    return model_blas_sizes(std::uint32_t(geometries.size()), primitives, flags);
+}
+
+Result<AccelSizes> RecordingDevice::tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) {
+    if (!features_.accelerationStructure) return accel_refusal(Backend::Recording, "Device::tlas_sizes");
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string what;
+    if (instanceCount == 0) add(what, "0 instances: skip the TLAS build when the scene has no instances");
+    if (limits_.maxAccelInstances > 0 && instanceCount > limits_.maxAccelInstances)
+        add(what, std::to_string(instanceCount) + " instances are more than this device's limit " +
+                      std::to_string(limits_.maxAccelInstances) +
+                      " (Limits::maxAccelInstances): trace fewer instances (render.rayTracing.maxInstances)");
+    if (!what.empty()) {
+        const std::string fix = "ask for 1 to Limits::maxAccelInstances instances";
+        fail_locked("tlas_sizes", nullptr, what, fix);
+        return make_error("gpu: tlas_sizes: " + what, fix);
+    }
+    return model_tlas_sizes(instanceCount, flags);
+}
+
+Result<AccelStructure> RecordingDevice::make_accel_structure(const AccelStructureDesc& d) {
+    if (!features_.accelerationStructure) return accel_refusal(Backend::Recording, "Device::make_accel_structure");
+    std::lock_guard<std::mutex> lock(mutex_);
+    State& s = *state_;
+    std::string what;
+    if (d.size == 0) add(what, "AccelStructureDesc::size is 0: take it from blas_sizes() / tlas_sizes()");
+    if (d.storage.valid()) {
+        const auto* e = s.buffers.live(d.storage.id);
+        if (!e || e->state != ResourceState::Valid) {
+            add(what, "storage is " + s.buffers.describe(d.storage.id));
+        } else {
+            if (!e->info.usage.accelStorage)
+                add(what, "storage buffer " + quoted(e->label) + " was not made with usage.accelStorage");
+            if (d.storageOffset % kAccelAlign != 0)
+                add(what, "storageOffset " + std::to_string(d.storageOffset) + " is not a multiple of " +
+                              std::to_string(kAccelAlign) + " (Device::accel_alignment())");
+            if (!fits(d.storageOffset, std::size_t(d.size), e->info.size))
+                add(what, std::to_string(d.size) + " bytes at offset " + std::to_string(d.storageOffset) +
+                              " do not fit in buffer " + quoted(e->label) + " (" + std::to_string(e->info.size) +
+                              " bytes)");
+        }
+    } else if (d.storageOffset != 0) {
+        add(what, "storageOffset is set but storage is not");
+    }
+    if (!what.empty()) {
+        const std::string fix = "size the structure from blas_sizes() / tlas_sizes(), and place it in a live buffer "
+                                "with usage.accelStorage (or leave storage empty)";
+        fail_locked("make_accel_structure", d.label, what, fix);
+        return make_error("gpu: make_accel_structure: " + what, fix);
+    }
+    AccelInfo info;
+    info.kind = d.kind;
+    info.size = d.size;
+    const std::uint32_t id = s.accels.add(d.label, ResourceState::Valid, info);
+    if (!id) {
+        const std::string msg = "the acceleration structure pool is full (" + std::to_string(s.accels.capacity) + ")";
+        const std::string fix = "destroy structures no longer used, or raise DeviceInit::bufferPoolSize";
+        fail_locked("make_accel_structure", d.label, msg, fix);
+        return make_error("gpu: make_accel_structure: " + msg, fix);
+    }
+    return AccelStructure{id};
+}
+
+void RecordingDevice::destroy_accel_structure(AccelStructure a) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    destroy_in(*this, state_->accels, a.id, "destroy_accel_structure", &RecordingDevice::fail_locked);
+}
+
+ResourceState RecordingDevice::accel_structure_state(AccelStructure a) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_->accels.state(a.id);
+}
+
+// ---- the list's calls -----------------------------------------------------------------------------------------------
+
+Error RecordingCommandList::reject(const char* command, const std::string& what, const std::string& fix) {
+    fail(command, what, fix);
+    return make_error(std::string("gpu: ") + command + ": " + what, fix);
+}
+
+namespace {
+
+// "acceleration structure 'rock'" for a live one with the kind; used in the messages of the builds.
+std::string accel_label(const std::string& label, AccelKind kind) {
+    return std::string(kind == AccelKind::Tlas ? "TLAS " : "BLAS ") + quoted(label);
+}
+
+}  // namespace
+
+Result<void> RecordingCommandList::build_blas(const BlasBuild& b) {
+    const char* cmd = "build_blas";
+    if (!device_.features_.accelerationStructure) return accel_refusal(Backend::Recording, "CommandList::build_blas");
+    std::lock_guard<std::mutex> lock(device_.mutex_);
+    auto& s = *device_.state_;
+    if (passState_ != PassState::None)
+        return reject(cmd, std::string("called ") + pass_state_name(passState_) + "; it goes outside a pass",
+                      "end_pass() first, or record the build before begin_pass()");
+    if (queue_ == QueueKind::Transfer)
+        return reject(cmd, "called on a Transfer list, which takes copies, writes and markers only",
+                      "record builds on a Graphics or Compute list");
+    std::string what;
+    const auto* dst = s.accels.live(b.dst.id);
+    if (!dst || dst->state != ResourceState::Valid)
+        add(what, "dst is " + s.accels.describe(b.dst.id));
+    else if (dst->info.kind != AccelKind::Blas)
+        add(what, "dst " + accel_label(dst->label, dst->info.kind) +
+                      " is a TLAS: build_blas writes a BLAS (build_tlas "
+                      "builds a TLAS)");
+    std::uint64_t primitives = 0;
+    check_geometry_list(what, b.geometries, device_.limits_, primitives);
+    int problems = 0;
+    for (std::size_t i = 0; i < b.geometries.size() && problems < kMaxReportedProblems; ++i) {
+        const AccelTriangles& g = b.geometries[i];
+        const std::string n = geometry_name(i);
+        const std::size_t before = what.size();
+        const auto* vb = s.buffers.live(g.vertexBuffer.id);
+        if (!vb || vb->state != ResourceState::Valid) {
+            add(what, n + ".vertexBuffer is " + s.buffers.describe(g.vertexBuffer.id));
+        } else {
+            if (!vb->info.usage.accelBuildInput)
+                add(what, n + ".vertexBuffer " + quoted(vb->label) + " was not made with usage.accelBuildInput");
+            const std::uint64_t need = g.vertexCount == 0 ? 0
+                                                          : std::uint64_t(g.vertexOffset) +
+                                                                std::uint64_t(g.vertexCount - 1) * g.vertexStride + 12;
+            if (need > vb->info.size)
+                add(what, n + " reads " + std::to_string(g.vertexCount) + " vertices up to byte " +
+                              std::to_string(need) + ", but vertex buffer " + quoted(vb->label) + " has " +
+                              std::to_string(vb->info.size) + " bytes");
+        }
+        if (g.indexBuffer.valid()) {
+            const auto* ib = s.buffers.live(g.indexBuffer.id);
+            if (!ib || ib->state != ResourceState::Valid) {
+                add(what, n + ".indexBuffer is " + s.buffers.describe(g.indexBuffer.id));
+            } else {
+                if (!ib->info.usage.accelBuildInput)
+                    add(what, n + ".indexBuffer " + quoted(ib->label) + " was not made with usage.accelBuildInput");
+                const std::uint64_t width = g.indexType == IndexType::Uint16 ? 2 : 4;
+                const std::uint64_t need = std::uint64_t(g.indexOffset) + std::uint64_t(g.indexCount) * width;
+                if (need > ib->info.size)
+                    add(what, n + " reads " + std::to_string(g.indexCount) + " indices up to byte " +
+                                  std::to_string(need) + ", but index buffer " + quoted(ib->label) + " has " +
+                                  std::to_string(ib->info.size) + " bytes");
+            }
+        }
+        if (what.size() != before) ++problems;
+    }
+    const AccelSizes need = model_blas_sizes(std::uint32_t(b.geometries.size()), primitives, b.flags);
+    if (dst && dst->state == ResourceState::Valid && dst->info.kind == AccelKind::Blas &&
+        dst->info.size < need.structure)
+        add(what, "dst " + accel_label(dst->label, AccelKind::Blas) + " has " + std::to_string(dst->info.size) +
+                      " bytes but these geometries need " + std::to_string(need.structure) +
+                      " (AccelSizes::structure of blas_sizes with the same flags)");
+    const std::uint64_t scratchNeed = b.update ? need.updateScratch : need.buildScratch;
+    if (b.update) {
+        const AccelStructure srcHandle = b.src.valid() ? b.src : b.dst;
+        const auto* src = s.accels.live(srcHandle.id);
+        if (!src || src->state != ResourceState::Valid) {
+            add(what, "src is " + s.accels.describe(srcHandle.id));
+        } else if (src->info.kind != AccelKind::Blas) {
+            add(what, "src " + accel_label(src->label, src->info.kind) + " is a TLAS: a BLAS refits from a BLAS");
+        } else if (!src->info.built) {
+            add(what, "update of " + accel_label(src->label, AccelKind::Blas) + ", which was never built");
+        } else if (!src->info.allowUpdate) {
+            add(what, "update of " + accel_label(src->label, AccelKind::Blas) +
+                          ", which was built without flags.allowUpdate");
+        } else if (src->info.geometries != b.geometries.size() || src->info.primitives != primitives) {
+            add(what, "update with " + std::to_string(b.geometries.size()) + " geometries and " +
+                          std::to_string(primitives) + " triangles, but " + accel_label(src->label, AccelKind::Blas) +
+                          " was built with " + std::to_string(src->info.geometries) + " and " +
+                          std::to_string(src->info.primitives) + ": a refit keeps the topology");
+        }
+        if (!b.flags.allowUpdate)
+            add(what, "update with flags.allowUpdate false (pass the flags the BLAS was built with)");
+    }
+    const auto* scratch = s.buffers.live(b.scratch.id);
+    if (!scratch || scratch->state != ResourceState::Valid) {
+        add(what, "scratch is " + s.buffers.describe(b.scratch.id));
+    } else {
+        if (!scratch->info.usage.accelScratch)
+            add(what, "scratch buffer " + quoted(scratch->label) + " was not made with usage.accelScratch");
+        if (b.scratchOffset % kAccelAlign != 0)
+            add(what, "scratchOffset " + std::to_string(b.scratchOffset) + " is not a multiple of " +
+                          std::to_string(kAccelAlign) + " (Device::accel_scratch_alignment())");
+        if (b.scratchOffset > scratch->info.size || scratch->info.size - b.scratchOffset < scratchNeed)
+            add(what,
+                "scratch buffer " + quoted(scratch->label) + " has " +
+                    std::to_string(scratch->info.size > b.scratchOffset ? scratch->info.size - b.scratchOffset : 0) +
+                    " bytes from scratchOffset " + std::to_string(b.scratchOffset) + ", but this " +
+                    (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
+                    " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
+    }
+    if (!what.empty())
+        return reject(cmd, what,
+                      "size the BLAS and the scratch buffer from blas_sizes() with the flags of the build, give "
+                      "every geometry live buffers with usage.accelBuildInput, and refit only what was built with "
+                      "allowUpdate");
+    for (const AccelTriangles& g : b.geometries) {
+        use_buffer(g.vertexBuffer);
+        use_buffer(g.indexBuffer);
+    }
+    use_buffer(b.scratch);
+    auto* d = s.accels.live(b.dst.id);
+    d->info.built = true;
+    d->info.allowUpdate = b.flags.allowUpdate;
+    d->info.allowCompaction = b.flags.allowCompaction;
+    d->info.geometries = std::uint32_t(b.geometries.size());
+    d->info.primitives = primitives;
+    record(CommandKind::BuildBlas, b.dst.id,
+           {clamp_int(b.geometries.size()), clamp_int(std::size_t(primitives)), clamp_int(std::size_t(scratchNeed)),
+            b.update ? 1 : 0},
+           std::string("build_blas ") + accel_label(d->label, AccelKind::Blas) +
+               " geometries=" + std::to_string(b.geometries.size()) + " triangles=" + std::to_string(primitives) +
+               (b.update ? " update" : "") + " scratch=" + std::to_string(scratchNeed) + "B");
+    return {};
+}
+
+Result<void> RecordingCommandList::build_tlas(const TlasBuild& b) {
+    const char* cmd = "build_tlas";
+    if (!device_.features_.accelerationStructure) return accel_refusal(Backend::Recording, "CommandList::build_tlas");
+    std::lock_guard<std::mutex> lock(device_.mutex_);
+    auto& s = *device_.state_;
+    if (passState_ != PassState::None)
+        return reject(cmd, std::string("called ") + pass_state_name(passState_) + "; it goes outside a pass",
+                      "end_pass() first, or record the build before begin_pass()");
+    if (queue_ == QueueKind::Transfer)
+        return reject(cmd, "called on a Transfer list, which takes copies, writes and markers only",
+                      "record builds on a Graphics or Compute list");
+    std::string what;
+    const auto* dst = s.accels.live(b.dst.id);
+    if (!dst || dst->state != ResourceState::Valid)
+        add(what, "dst is " + s.accels.describe(b.dst.id));
+    else if (dst->info.kind != AccelKind::Tlas)
+        add(what, "dst " + accel_label(dst->label, dst->info.kind) +
+                      " is a BLAS: build_tlas writes a TLAS (build_blas "
+                      "builds a BLAS)");
+    const std::size_t n = b.instances.size();
+    if (n == 0) add(what, "no instances: skip the TLAS build when the scene has none");
+    if (device_.limits_.maxAccelInstances > 0 && n > device_.limits_.maxAccelInstances)
+        add(what, std::to_string(n) + " instances are more than this device's limit " +
+                      std::to_string(device_.limits_.maxAccelInstances) +
+                      " (Limits::maxAccelInstances): trace fewer instances (render.rayTracing.maxInstances)");
+    int problems = 0;
+    for (std::size_t i = 0; i < n && problems < kMaxReportedProblems; ++i) {
+        const AccelInstance& in = b.instances[i];
+        const std::string name = "instances[" + std::to_string(i) + "]";
+        const std::size_t before = what.size();
+        const auto* blas = s.accels.live(in.blas.id);
+        if (!blas || blas->state != ResourceState::Valid)
+            add(what, name + ".blas is " + s.accels.describe(in.blas.id) +
+                          ": destroy a BLAS only after the TLAS that names it is no longer built");
+        else if (blas->info.kind != AccelKind::Blas)
+            add(what, name + ".blas is the " + accel_label(blas->label, blas->info.kind) +
+                          ": an instance names a BLAS (a TLAS cannot nest)");
+        else if (!blas->info.built)
+            add(what, name + ".blas " + accel_label(blas->label, AccelKind::Blas) +
+                          " was never built: record build_blas before build_tlas");
+        if (in.customIndex > kMaxCustomIndex)
+            add(what, name + ".customIndex " + std::to_string(in.customIndex) + " does not fit in 24 bits (at most " +
+                          std::to_string(kMaxCustomIndex) + ")");
+        for (float v : in.transform)
+            if (!std::isfinite(v)) {
+                add(what, name + ".transform has a NaN or infinite value");
+                break;
+            }
+        if (what.size() != before) ++problems;
+    }
+    const AccelSizes need = model_tlas_sizes(std::uint32_t(std::min<std::size_t>(n, 0xFFFFFFFFu)), b.flags);
+    if (dst && dst->state == ResourceState::Valid && dst->info.kind == AccelKind::Tlas &&
+        dst->info.size < need.structure)
+        add(what, "dst " + accel_label(dst->label, AccelKind::Tlas) + " has " + std::to_string(dst->info.size) +
+                      " bytes but " + std::to_string(n) + " instances need " + std::to_string(need.structure) +
+                      " (AccelSizes::structure of tlas_sizes with the same flags)");
+    const std::uint64_t scratchNeed = b.update ? need.updateScratch : need.buildScratch;
+    if (b.update) {
+        const AccelStructure srcHandle = b.src.valid() ? b.src : b.dst;
+        const auto* src = s.accels.live(srcHandle.id);
+        if (!src || src->state != ResourceState::Valid) {
+            add(what, "src is " + s.accels.describe(srcHandle.id));
+        } else if (src->info.kind != AccelKind::Tlas) {
+            add(what, "src " + accel_label(src->label, src->info.kind) + " is a BLAS: a TLAS refits from a TLAS");
+        } else if (!src->info.built) {
+            add(what, "update of " + accel_label(src->label, AccelKind::Tlas) + ", which was never built");
+        } else if (!src->info.allowUpdate) {
+            add(what, "update of " + accel_label(src->label, AccelKind::Tlas) +
+                          ", which was built without flags.allowUpdate");
+        } else if (src->info.instances != n) {
+            add(what, "update with " + std::to_string(n) + " instances, but " +
+                          accel_label(src->label, AccelKind::Tlas) + " was built with " +
+                          std::to_string(src->info.instances) + ": a refit keeps the count");
+        }
+        if (!b.flags.allowUpdate)
+            add(what, "update with flags.allowUpdate false (pass the flags the TLAS was built with)");
+    }
+    const auto* scratch = s.buffers.live(b.scratch.id);
+    if (!scratch || scratch->state != ResourceState::Valid) {
+        add(what, "scratch is " + s.buffers.describe(b.scratch.id));
+    } else {
+        if (!scratch->info.usage.accelScratch)
+            add(what, "scratch buffer " + quoted(scratch->label) + " was not made with usage.accelScratch");
+        if (b.scratchOffset % kAccelAlign != 0)
+            add(what, "scratchOffset " + std::to_string(b.scratchOffset) + " is not a multiple of " +
+                          std::to_string(kAccelAlign) + " (Device::accel_scratch_alignment())");
+        if (b.scratchOffset > scratch->info.size || scratch->info.size - b.scratchOffset < scratchNeed)
+            add(what,
+                "scratch buffer " + quoted(scratch->label) + " has " +
+                    std::to_string(scratch->info.size > b.scratchOffset ? scratch->info.size - b.scratchOffset : 0) +
+                    " bytes from scratchOffset " + std::to_string(b.scratchOffset) + ", but this " +
+                    (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
+                    " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
+    }
+    if (!what.empty())
+        return reject(cmd, what,
+                      "build every BLAS the instances name first (and keep it alive), size the TLAS and the scratch "
+                      "buffer from tlas_sizes() with the flags of the build, and keep the instance count within "
+                      "Limits::maxAccelInstances");
+    use_buffer(b.scratch);
+    auto* d = s.accels.live(b.dst.id);
+    d->info.built = true;
+    d->info.allowUpdate = b.flags.allowUpdate;
+    d->info.instances = std::uint32_t(n);
+    record(CommandKind::BuildTlas, b.dst.id, {clamp_int(n), clamp_int(std::size_t(scratchNeed)), b.update ? 1 : 0},
+           std::string("build_tlas ") + accel_label(d->label, AccelKind::Tlas) + " instances=" + std::to_string(n) +
+               (b.update ? " update" : "") + " scratch=" + std::to_string(scratchNeed) + "B");
+    return {};
+}
+
+Result<void> RecordingCommandList::query_compacted_size(AccelStructure blas, Buffer dstBuffer, std::size_t dstOffset) {
+    const char* cmd = "query_compacted_size";
+    if (!device_.features_.accelerationStructure)
+        return accel_refusal(Backend::Recording, "CommandList::query_compacted_size");
+    std::lock_guard<std::mutex> lock(device_.mutex_);
+    auto& s = *device_.state_;
+    if (passState_ != PassState::None)
+        return reject(cmd, std::string("called ") + pass_state_name(passState_) + "; it goes outside a pass",
+                      "end_pass() first");
+    if (queue_ == QueueKind::Transfer)
+        return reject(cmd, "called on a Transfer list", "record it on a Graphics or Compute list");
+    std::string what;
+    const auto* a = s.accels.live(blas.id);
+    if (!a || a->state != ResourceState::Valid)
+        add(what, "blas is " + s.accels.describe(blas.id));
+    else if (a->info.kind != AccelKind::Blas)
+        add(what, accel_label(a->label, a->info.kind) + " is a TLAS: only a BLAS is compacted");
+    else if (!a->info.built)
+        add(what, accel_label(a->label, AccelKind::Blas) + " was never built");
+    else if (!a->info.allowCompaction)
+        add(what, accel_label(a->label, AccelKind::Blas) + " was built without flags.allowCompaction");
+    const auto* d = s.buffers.live(dstBuffer.id);
+    if (!d || d->state != ResourceState::Valid) {
+        add(what, "dst is " + s.buffers.describe(dstBuffer.id));
+    } else {
+        if (!d->info.usage.storageBuffer)
+            add(what, "dst buffer " + quoted(d->label) + " was not made with usage.storageBuffer");
+        if (dstOffset % 8 != 0) add(what, "dstOffset " + std::to_string(dstOffset) + " is not a multiple of 8");
+        if (!fits(dstOffset, 8, d->info.size))
+            add(what, "8 bytes at offset " + std::to_string(dstOffset) + " do not fit in buffer " + quoted(d->label) +
+                          " (" + std::to_string(d->info.size) + " bytes)");
+    }
+    if (!what.empty())
+        return reject(cmd, what,
+                      "build the BLAS with flags.allowCompaction, and give a storage buffer with 8 bytes free at an "
+                      "8-byte aligned offset");
+    use_buffer(dstBuffer);
+    record(CommandKind::QueryCompactedSize, blas.id, {clamp_int(dstOffset)},
+           "query_compacted_size " + accel_label(a->label, AccelKind::Blas) + " -> " +
+               s.buffers.describe(dstBuffer.id) + " @" + std::to_string(dstOffset));
+    return {};
+}
+
+Result<void> RecordingCommandList::copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) {
+    const char* cmd = "copy_accel_structure";
+    if (!device_.features_.accelerationStructure)
+        return accel_refusal(Backend::Recording, "CommandList::copy_accel_structure");
+    std::lock_guard<std::mutex> lock(device_.mutex_);
+    auto& s = *device_.state_;
+    if (passState_ != PassState::None)
+        return reject(cmd, std::string("called ") + pass_state_name(passState_) + "; it goes outside a pass",
+                      "end_pass() first");
+    if (queue_ == QueueKind::Transfer)
+        return reject(cmd, "called on a Transfer list", "record it on a Graphics or Compute list");
+    std::string what;
+    const auto* a = s.accels.live(src.id);
+    const auto* b = s.accels.live(dst.id);
+    if (!a || a->state != ResourceState::Valid) add(what, "src is " + s.accels.describe(src.id));
+    if (!b || b->state != ResourceState::Valid) add(what, "dst is " + s.accels.describe(dst.id));
+    if (a && b && a->state == ResourceState::Valid && b->state == ResourceState::Valid) {
+        if (a->info.kind != b->info.kind)
+            add(what, "src is a " + std::string(accel_kind_name(a->info.kind)) + " and dst a " +
+                          accel_kind_name(b->info.kind));
+        if (!a->info.built) add(what, accel_label(a->label, a->info.kind) + " was never built");
+        if (mode == AccelCopyMode::Compact) {
+            if (!a->info.allowCompaction)
+                add(what, "Compact needs " + accel_label(a->label, a->info.kind) +
+                              " built with flags.allowCompaction (it was not)");
+            if (b->info.size > a->info.size)
+                add(what, "Compact into " + accel_label(b->label, b->info.kind) + " of " +
+                              std::to_string(b->info.size) + " bytes, larger than the source's " +
+                              std::to_string(a->info.size) +
+                              ": make the target with the size query_compacted_size answered");
+        } else if (b->info.size < a->info.size) {
+            add(what, "Clone into " + accel_label(b->label, b->info.kind) + " of " + std::to_string(b->info.size) +
+                          " bytes, smaller than the source's " + std::to_string(a->info.size));
+        }
+    }
+    if (!what.empty())
+        return reject(cmd, what,
+                      "copy a built structure into one of the same kind: Compact into a smaller one made with the "
+                      "queried size (source built with allowCompaction), Clone into one at least as large");
+    auto* d = s.accels.live(dst.id);
+    d->info.built = true;
+    d->info.allowUpdate = a->info.allowUpdate;
+    d->info.allowCompaction = false;  // a compacted structure is not compacted again
+    d->info.geometries = a->info.geometries;
+    d->info.primitives = a->info.primitives;
+    d->info.instances = a->info.instances;
+    record(CommandKind::CopyAccelStructure, dst.id, {mode == AccelCopyMode::Compact ? 1 : 0},
+           std::string("copy_accel_structure ") + accel_label(a->label, a->info.kind) + " -> " +
+               accel_label(d->label, d->info.kind) + (mode == AccelCopyMode::Compact ? " compact" : " clone"));
+    return {};
 }
 
 }  // namespace fa::gpu

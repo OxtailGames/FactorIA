@@ -27,6 +27,74 @@ bool Device::storage_image_loadable(PixelFormat format, std::string* why) const 
     return false;
 }
 
+// ---- ray tracing: the answer of a backend that has none (yet) -------------------------------------------------------
+
+const char* accel_kind_name(AccelKind kind) { return kind == AccelKind::Tlas ? "TLAS" : "BLAS"; }
+
+std::string accel_unavailable_reason(Backend backend) {
+    switch (backend) {
+        case Backend::Gl:
+        case Backend::Gles3:
+        case Backend::WebGl2:
+        case Backend::D3d11:
+            return std::string("the ") + backend_name(backend) +
+                   " backend cannot trace rays: ray tracing needs the d3d12 or vulkan backend (Windows, Linux, "
+                   "Android) or Metal on Apple";
+        case Backend::D3d12:
+            return "the d3d12 backend does not build acceleration structures yet (DXR 1.1 inline ray query is package "
+                   "P1d of milestone 79)";
+        case Backend::Vulkan:
+            return "the vulkan backend does not build acceleration structures yet (VK_KHR_acceleration_structure and "
+                   "VK_KHR_ray_query are package P1v of milestone 79)";
+        case Backend::Metal:
+            return "the metal backend does not build acceleration structures yet (Metal ray tracing inside the sokol "
+                   "device is package P1m of milestone 79)";
+        case Backend::Recording:
+            return "this RecordingDevice was made without ray tracing: set DeviceInit::recordingRayTracing (or "
+                   "recordingFeatures rayQuery, accelerationStructure and bufferDeviceAddress with recordingLimits "
+                   "maxAccelInstances, maxAccelGeometries and maxAccelPrimitives, with recordingDefaultCaps false)";
+    }
+    return "this backend has no ray tracing";
+}
+
+Error accel_refusal(Backend backend, const char* call) {
+    return Error{std::string("gpu: ") + call + ": " + accel_unavailable_reason(backend),
+                 "check Device::features().accelerationStructure && rayQuery before building acceleration structures "
+                 "(renderer.supports(\"raytracing\") says it with a reason), and draw without ray tracing when it is "
+                 "false"};
+}
+
+namespace {
+
+Error no_ray_tracing(Backend backend, const char* call) { return accel_refusal(backend, call); }
+
+}  // namespace
+
+Result<void> CommandList::build_blas(const BlasBuild&) { return no_ray_tracing(backend(), "CommandList::build_blas"); }
+Result<void> CommandList::build_tlas(const TlasBuild&) { return no_ray_tracing(backend(), "CommandList::build_tlas"); }
+Result<void> CommandList::query_compacted_size(AccelStructure, Buffer, std::size_t) {
+    return no_ray_tracing(backend(), "CommandList::query_compacted_size");
+}
+Result<void> CommandList::copy_accel_structure(AccelStructure, AccelStructure, AccelCopyMode) {
+    return no_ray_tracing(backend(), "CommandList::copy_accel_structure");
+}
+Result<AccelSizes> Device::blas_sizes(std::span<const AccelTriangles>, const AccelBuildFlags&) {
+    return no_ray_tracing(backend(), "Device::blas_sizes");
+}
+Result<AccelSizes> Device::tlas_sizes(std::uint32_t, const AccelBuildFlags&) {
+    return no_ray_tracing(backend(), "Device::tlas_sizes");
+}
+Result<AccelStructure> Device::make_accel_structure(const AccelStructureDesc&) {
+    return no_ray_tracing(backend(), "Device::make_accel_structure");
+}
+bool Device::ray_tracing_status(std::string* why) const {
+    const bool ok = features().rayQuery && features().accelerationStructure;
+    if (!ok && why) *why = accel_unavailable_reason(backend());
+    return ok;
+}
+void Device::destroy_accel_structure(AccelStructure) {}
+ResourceState Device::accel_structure_state(AccelStructure) const { return ResourceState::Invalid; }
+
 // ---- the window: the answer of a backend without a window path ------------------------------------------------------
 
 namespace {

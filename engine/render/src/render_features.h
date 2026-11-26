@@ -66,7 +66,18 @@ struct FeatureEnv {
     // The frame-generation providers dlss, fsr and xess (M78, render_framegen.h): what each answered for this GPU, and whether they were asked.
     std::array<VendorProbe, 3> framegen;
     bool framegenAsked = false;
+    // Ray tracing (M79): the API behind the device (FeatureBackend folds D3D12 and Vulkan into Headless, so the ray tracing rows read this
+    // one; Recording = no GPU, what a FeatureEnv made by hand says), whether it traces rays (Features::rayQuery and accelerationStructure;
+    // set_ray_tracing_env), whether its GPU has RT pipelines (Features::rayTracingPipeline: reported only, the engine never uses them) and
+    // why it does not trace (Device::ray_tracing_status; empty = the generic reason of the backend).
+    gpu::Backend gpuBackend = gpu::Backend::Recording;
+    bool rayTracing = false;
+    bool rayTracingPipeline = false;
+    std::string rayTracingWhy;
 };
+// Puts what the device reports about ray tracing into `env`: `features` (rayQuery and accelerationStructure both needed) and `why`, the
+// device's own sentence for a device that does not trace (Device::ray_tracing_status).
+void set_ray_tracing_env(FeatureEnv& env, const gpu::Features& features, const std::string& why);
 // Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) and DLSS's Ray Reconstruction answer into `env`.
 void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers,
                               const VendorProbe& rayReconstruction = {});
@@ -115,7 +126,8 @@ int find_feature(std::string_view name);
 // backend or the missing GPU capability, or "planned (<milestone>)" for a feature the engine does not draw.
 bool feature_supported(const FeatureEnv& env, int index, std::string* why = nullptr);
 
-// The row of a device backend: D3D12 and Vulkan answer Headless until they get their own rows (M77.2, M77.3).
+// The row of a device backend: D3D12 and Vulkan answer Headless until they get their own rows (M77.2, M77.3); the ray tracing rows read
+// FeatureEnv::gpuBackend instead.
 FeatureBackend feature_backend_of(gpu::Backend backend);
 
 // The environment of a backend from what its GPU reports: `caps` answers per pixel format; `metalDevice` (the id<MTLDevice>

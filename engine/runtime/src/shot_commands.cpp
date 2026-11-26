@@ -1327,6 +1327,51 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.ray_tracing", "Reads or changes the ray tracing setting: which effects the renderer traces with rays.",
+         "The ray tracing seam of M79 (docs/RAY_TRACING.md): `enabled` (the master switch, default false), `shadows` "
+         "(off, hard, soft), `ao`, `reflections`, `translucency` (booleans), `gi` (off, probes, perPixel), "
+         "`raysPerPixel` "
+         "(a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns "
+         "the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, "
+         "reason, changed}: `supported` is renderer.supports(\"raytracing\") of this device, `active` whether any "
+         "effect "
+         "is traced, `reason` says why not. Example: render.ray_tracing "
+         "{\"enabled\":true,\"shadows\":\"soft\"}" FA_COMMAND_DETAILS
+         "Ray tracing is off by default and free when off. This version has the shared interface only (acceleration "
+         "structures, ray queries in compute shaders, the supports rows): no backend traces rays yet and no effect "
+         "draws with the setting, so `active` is false and `reason` names that. A wrong name or type fails with "
+         "`invalid_argument`, a JSON pointer and a \"did you mean\", and changes nothing. The start value is "
+         "factoria.json \"render\": {\"rayTracing\": {...}}. Works with graphics=false too (the value is only "
+         "remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","description":"The master switch. Default false."},
+               "shadows":{"type":"string","enum":["off","hard","soft"],"description":"off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off."},
+               "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
+               "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
+               "translucency":{"type":"boolean","description":"Light through glass and thin surfaces. Default false."},
+               "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes updated with rays, or a bounce per pixel. Default off."},
+               "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame, clamped to 1..16. Default 1."},
+               "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds, clamped to 1..1048576. Default 65536."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(
+                a, {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"},
+                "render.ray_tracing");
+            const render::RayTracingSettings before = I.self->ray_tracing();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_ray_tracing(a, "render.ray_tracing");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.ray_tracing with no argument to read the setting.");
+                changed = I.self->ray_tracing() != before;
+            }
+            Json out = I.self->ray_tracing_status();
+            out["changed"] = changed;
+            return out;
+        });
+
+    I.commands.add(
         {"render.dynamic_resolution",
          "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
@@ -1658,6 +1703,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.upscaler", capability_sets::changes_state()},
                                                  {"render.latency", capability_sets::changes_state()},
                                                  {"render.frame_generation", capability_sets::changes_state()},
+                                                 {"render.ray_tracing", capability_sets::changes_state()},
                                                  {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},
