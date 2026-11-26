@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "rt_gi.h"
 #include "rt_scene.h"
 
 namespace fa::render {
@@ -22,6 +23,8 @@ const RtEffectKernelSpec kSpecs[] = {
     {"rt_shadow_local", false, false, false, true, false, true},
     {"rt_shadow_local_pack", false, false, false, false, true, false},
     {"rt_refract", true, false, true, true, false},
+    // M79-P4a: the GI probes updated by rays (rt_gi.h): its own constants block, an RGBA16F band image, the atlas in the prepass slot.
+    {"rt_gi", true, false, true, true, false, false, std::uint32_t(sizeof(RtGiParams)), true},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
@@ -121,7 +124,8 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     }
     // The constants: b0 / binding 2 / buffer(1).
     d.uniformBlocks[RtEffectBindings::kUniformParams].stage = ShaderStage::Compute;
-    d.uniformBlocks[RtEffectBindings::kUniformParams].size = std::uint32_t(sizeof(RtEffectParams));
+    d.uniformBlocks[RtEffectBindings::kUniformParams].size =
+        spec.paramsSize ? spec.paramsSize : std::uint32_t(sizeof(RtEffectParams));
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.hlslRegister = 0;
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.mslIndex = 1;
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.spirvSet = 0;
@@ -130,7 +134,7 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     ShaderStorageImageView& out = d.views[RtEffectBindings::kViewOut].storageImage;
     out.stage = ShaderStage::Compute;
     out.imageType = ImageType::Tex2d;
-    out.accessFormat = PixelFormat::Rgba32F;
+    out.accessFormat = spec.outHalf ? PixelFormat::Rgba16F : PixelFormat::Rgba32F;
     out.writeonly = true;
     out.binding.hlslRegister = 0;
     out.binding.mslIndex = 0;

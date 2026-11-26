@@ -70,10 +70,13 @@ struct RtSurface {
     bool unlit;
     float t;      // the distance from the ray's origin
     uint record;  // the instance's index in g_records
+    bool front;   // the hardware's front-face flag of the hit triangle (the realtime GI probes count the back faces they see)
 };
 
 // The closest committed triangle of `mask` along the ray: its distance, the instance's custom index (the record) and the triangle.
-bool rt_closest_hit(float3 origin, float3 dir, float tmin, float tmax, uint mask, out float t, out uint record, out uint prim) {
+// `front`: the query's front-face flag of the committed triangle (false when nothing was hit). rt_closest_hit below is the same call without it.
+bool rt_closest_hit_ff(float3 origin, float3 dir, float tmin, float tmax, uint mask, out float t, out uint record, out uint prim,
+                       out bool front) {
     RayDesc ray;
     ray.Origin = origin;
     ray.TMin = tmin;
@@ -85,11 +88,18 @@ bool rt_closest_hit(float3 origin, float3 dir, float tmin, float tmax, uint mask
     t = 0.0;
     record = 0;
     prim = 0;
+    front = false;
     if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
     t = q.CommittedRayT();
     record = q.CommittedInstanceID();
     prim = q.CommittedPrimitiveIndex();
+    front = q.CommittedTriangleFrontFace();
     return true;
+}
+
+bool rt_closest_hit(float3 origin, float3 dir, float tmin, float tmax, uint mask, out float t, out uint record, out uint prim) {
+    bool front;
+    return rt_closest_hit_ff(origin, dir, tmin, tmax, mask, t, record, prim, front);
 }
 
 // Is there something that casts a shadow between `p` and the sun? (any hit ends the search)
@@ -111,11 +121,13 @@ bool rt_trace_surface_mask(float3 origin, float3 dir, float tmin, float tmax, ui
     s = (RtSurface)0;
     float t0;
     uint rec0, prim0;
-    if (!rt_closest_hit(origin, dir, tmin, tmax, mask, t0, rec0, prim0)) return false;
+    bool front0;
+    if (!rt_closest_hit_ff(origin, dir, tmin, tmax, mask, t0, rec0, prim0, front0)) return false;
     const RtInstanceRecord r = g_records[rec0];
     s.position = origin + dir * t0;
     s.t = t0;
     s.record = rec0;
+    s.front = front0;
     s.albedo = r.albedo.rgb;
     s.roughness = saturate(r.roughness);
     s.metalness = saturate(r.metalness);

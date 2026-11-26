@@ -51,10 +51,12 @@ struct RtSurface {
     bool unlit;
     float t;
     uint record;
+    bool front;  // the hardware's front-face flag of the hit triangle (the realtime GI probes count the back faces they see)
 };
 
-bool rt_closest_hit(instance_acceleration_structure tlas, float3 origin, float3 dir, float tmin, float tmax, uint mask, bool anyHit,
-                    thread float& t, thread uint& record, thread uint& prim) {
+// `front`: the query's front-face flag of the committed triangle (false when nothing was hit). rt_closest_hit below is the same call without it.
+bool rt_closest_hit_ff(instance_acceleration_structure tlas, float3 origin, float3 dir, float tmin, float tmax, uint mask, bool anyHit,
+                       thread float& t, thread uint& record, thread uint& prim, thread bool& front) {
     ray r;
     r.origin = origin;
     r.min_distance = tmin;
@@ -70,11 +72,19 @@ bool rt_closest_hit(instance_acceleration_structure tlas, float3 origin, float3 
     t = 0.0;
     record = 0;
     prim = 0;
+    front = false;
     if (q.get_committed_intersection_type() != intersection_type::triangle) return false;
     t = q.get_committed_distance();
     record = q.get_committed_user_instance_id();
     prim = q.get_committed_primitive_id();
+    front = q.is_committed_triangle_front_facing();
     return true;
+}
+
+bool rt_closest_hit(instance_acceleration_structure tlas, float3 origin, float3 dir, float tmin, float tmax, uint mask, bool anyHit,
+                    thread float& t, thread uint& record, thread uint& prim) {
+    bool front;
+    return rt_closest_hit_ff(tlas, origin, dir, tmin, tmax, mask, anyHit, t, record, prim, front);
 }
 
 float rt_sun_visibility(instance_acceleration_structure tlas, constant RtHitParams& hit, float3 p, float3 n, float rayLength) {
@@ -91,11 +101,13 @@ bool rt_trace_surface_mask(instance_acceleration_structure tlas, const device Rt
     s = RtSurface();
     float t0;
     uint rec0, prim0;
-    if (!rt_closest_hit(tlas, origin, dir, tmin, tmax, mask, false, t0, rec0, prim0)) return false;
+    bool front0;
+    if (!rt_closest_hit_ff(tlas, origin, dir, tmin, tmax, mask, false, t0, rec0, prim0, front0)) return false;
     const device RtInstanceRecord& r = records[rec0];
     s.position = origin + dir * t0;
     s.t = t0;
     s.record = rec0;
+    s.front = front0;
     s.albedo = r.albedo.rgb;
     s.roughness = saturate(r.roughness);
     s.metalness = saturate(r.metalness);

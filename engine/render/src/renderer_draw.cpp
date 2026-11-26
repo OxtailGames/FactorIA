@@ -5279,6 +5279,14 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (gpu::CommandList* list = c.commands()) rtScene.record(*list);
             },
             true);
+    // The GI probes updated by rays (renderer_gi.cpp, gi_plan, after the jobs) order their pass after this one and shade a hit with this job's sun.
+    if (ctx.rtCollected && rtSettings.gi == render::RtGi::Probes) {
+        RtEffectRequest hitOnly;
+        fill_rt_hit_request(ctx, hitOnly);
+        rtGiHit = hitOnly.hit;
+        rtGiHitValid = true;
+        rtAccelPass = plan.name + "/rt-accel";
+    }
     // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
     auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
         if (slot.valid())

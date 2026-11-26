@@ -58,6 +58,9 @@ struct GiLayout {
     int resolution = 16;  // texels per side of a capture face
     float maxDistance = 30.0f, nearPlane = 0.1f;
     float intensity = 1.0f, bounce = 1.0f, hysteresis = 0.9f, backfaceTolerance = 0.25f;
+    // The ray traced mode (render.rayTracing.gi "probes"): rays a probe traces in an update and probes updated a frame. Not part of `key`: a
+    // change of them does not capture the probes again.
+    int raysPerProbe = 64, rtProbesPerFrame = 16;
     // The part of the layout that decides what the probes are (spacing, counts, resolution, distances, tags; NOT the origin: see
     // gi_layout_moved): when it changes every probe is captured again.
     std::uint64_t key = 0;
