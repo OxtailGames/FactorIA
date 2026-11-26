@@ -726,6 +726,9 @@ enum MaterialProgramId : int {
     kProgShadowSkin,
     kProgPrepass,  // the depth and normal prepass (mesh_common.glsl prepass_vs / prepass_fs)
     kProgPrepassSkin,
+    // The thin G-buffer's program (M79-P0c, mesh_common.glsl fa_prepass_fs_main with FA_GBUFFER): made by the engine for its own terrain and impostor
+    // materials only, on first use; a material of the tooling has none (its twin has no such program), so the engine's gbuffer program draws it.
+    kProgGbuffer,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
 // A full-shader mesh material (mode "full") keeps the programs of pass p >= 1 after kProgCount: pass p is
@@ -1718,6 +1721,19 @@ public:
     // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
     bool velocity_ready();
     bool prepass_ready();
+    // The thin G-buffer (M79-P0c; docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): two RGBA8 images drawn together by one pass over a depth buffer of
+    // its own: colour 0 = the albedo (rgb) and a = 1 where a mesh was drawn, colour 1 = the roughness (r), the metalness (g), 0 (b) and a = 1 where a
+    // mesh was drawn. RGBA8 renders and samples everywhere; two colour attachments are what the subsurface pass already needs, so every backend that
+    // draws the prepass draws this. gbuffer_ready() makes the engine's programs on first use (the meshes' and the skinned meshes') and is false
+    // (one log line, once) when the prepass is, or a program does not compile. The programs use the prepass's vertex stage, so the pipelines are
+    // the prepass's with this target format and `gbuffer_shader()` (prepass_pipeline).
+    static gpu::PixelFormat gbuffer_format() { return gpu::PixelFormat::Rgba8; }
+    static TargetFormat gbuffer_target_format() {
+        return {gbuffer_format(), gpu::PixelFormat::Depth, 1, gbuffer_format()};
+    }
+    bool gbuffer_ready();
+    gpu::Shader gbuffer_shader(bool skinned) const { return skinned ? gbufferSkinShader_ : gbufferShader_; }
+    const MaterialProgram& gbuffer_program(bool skinned) const { return gbufferProgram_[skinned ? 1 : 0]; }
     // The slots (uniform blocks, views, samplers) the built-in prepass program declares, for a draw that binds only those; after prepass_ready().
     const MaterialProgram& prepass_program(bool skinned) const { return prepassProgram_[skinned ? 1 : 0]; }
     // `shader` = a program of a custom material (its prepass or prepass_skin), default = the built-in one. The vertex layout is the
@@ -1725,11 +1741,14 @@ public:
     // shader cannot be made.
     // `cullFront`: the BACK faces are drawn instead of the front ones, double-sided or not (the realtime GI's distance pictures: a probe
     // whose first hit is a back face is inside geometry).
+    // `gbuffer`: the pipeline of the thin G-buffer pass (gbuffer_target_format()): the built-in program (no `shader`) is the G-buffer's
+    // (mesh_gbuffer / mesh_gbuffer_skin, never the dither variant: the program tests the prepass's depth, which the dither already cut), a
+    // `shader` is the G-buffer program of a terrain or an impostor; the vertex layout is the prepass's.
     // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
     // the prepass with the dither); it declares the slots of prepass_program().
     gpu::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
                                    gpu::Shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
-                                   bool lod = false);
+                                   bool lod = false, bool gbuffer = false);
     gpu::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::Shader shader = {},
                                    MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
@@ -1990,6 +2009,7 @@ public:
     gpu::Shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
     gpu::Shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
     gpu::Shader sssShader_{}, sssSkinShader_{};
+    gpu::Shader gbufferShader_{}, gbufferSkinShader_{};
     gpu::Shader light_shader_{};
 
 private:
@@ -2035,6 +2055,8 @@ private:
     int ssaoState_ = 0;         // same meaning as bloomState_
     MaterialProgram prepassProgram_[2];
     MaterialProgram sssProgram_[2];
+    MaterialProgram gbufferProgram_[2];
+    int gbufferState_ = 0;      // same meaning as sssState_ (the built-in G-buffer programs)
     int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)

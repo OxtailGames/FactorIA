@@ -236,6 +236,8 @@ struct Renderer::Impl {
     TaaPlan upscaleTaa;
     PrepassRef upscalePrepass;
     VelocityRef upscaleVelocity;
+    PrepassRef upscaleGbufAlbedo,
+        upscaleGbufMaterial;  // the thin G-buffer of that camera while DLSS Ray Reconstruction asks for it (M79-P0c); invalid: none
     PrepassRef upscaleReactive;  // the reactive mask of the camera the upscaler resolves (M76-P1d); invalid: none
     bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     // M76-P5b, MetalFX (renderer_metalfx.cpp). mfxFrame: this frame's jittered picture goes to MetalFX's temporal scaler (render() decides it
@@ -295,7 +297,8 @@ struct Renderer::Impl {
     bool rrWarnedUnavailable = false, rrWarnedFrame = false;
     bool rrLastUsed = false;
     const render::VendorProbe& rr_probe();  // asked once; a refused frame says so
-    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass);
+    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
+                       const Target* gbAlbedo, const Target* gbMaterial);
     void free_rr_images();
     // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
     // at init and detached before the device goes.
@@ -375,7 +378,16 @@ struct Renderer::Impl {
     Target velocityProbe;
     // The same for the reactive mask (R8; the copy holds r in the first channel): RendererTestAccess::read_reactive.
     Target reactiveProbe;
-    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label);
+    // `mode`: prepass_view.glsl's mode of the copy: 4 the velocity's two channels (the default), 7 the four channels as they are.
+    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label, float mode = 4.0f);
+    // M79-P0c, the thin G-buffer (renderer_draw.cpp, plan_prepass and gbuffer_pass; docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): `forceGbuffer`
+    // (RendererTestAccess::force_gbuffer) asks every camera for the two images and keeps a copy of the last camera's in gbufferProbe (RGBA16F,
+    // the four channels as they are), which read_gbuffer gives back. gbufferWarned: the one warning of images the GPU refused.
+    bool forceGbuffer = false;
+    bool gbufferWarned = false;
+    Target gbufferProbe[2];
+    bool read_gbuffer(int which, std::vector<float>& out, int& w, int& h, std::string* error);
+    void gbuffer_pass(DrawContext& ctx, const Target& albedo, const Target& material, const Target& pre);
     bool read_velocity(std::vector<float>& out, int& w, int& h, std::string* error);
     bool read_reactive(std::vector<float>& out, int& w, int& h, std::string* error);
     struct PrevModel {

@@ -25,3 +25,7 @@ void surface(in SurfaceInput i, inout Surface s) {}
 @program prepass_skin prepass_vs_skin prepass_fs
 @program prepass_lod prepass_vs prepass_fs_lod
 @program prepass_skin_lod prepass_vs_skin prepass_fs_lod
+// The thin G-buffer (M79-P0c): the albedo and the roughness / metalness of what the prepass kept, in two RGBA8 images, drawn only when something
+// asks for them (docs/design/ARCHITECTURE_RENDERING_GBUFFER.md). The vertex stage is the prepass's.
+@program gbuffer prepass_vs gbuffer_fs
+@program gbuffer_skin prepass_vs_skin gbuffer_fs

@@ -23,6 +23,13 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `--check`); macOS and Linux Arm are `unsupported` and the install says where the DXIL comes from. The Linux CI job regenerates the
   headers and fails with the regenerated files as an artifact when they are stale; CI also reports lavapipe's and WARP's ray tracing
   support. Design: `docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md`.
+- **Thin G-buffer (M79-P0c):** the renderer can draw two RGBA8 images of what the camera sees after the depth prepass, the albedo (linear
+  colour, alpha 1 where an opaque mesh was drawn) and the material (red roughness, green metalness), for meshes, alpha-tested cutouts, skinned
+  meshes, instances and foliage, LOD levels, terrain and impostors; a custom or layered material writes its mesh renderer's own colour,
+  roughness and metallic. They exist only while something reads them (no pass, image or shader when nothing does, and the same picture):
+  DLSS Ray Reconstruction now takes its roughness and its diffuse and specular albedo guides from them instead of constants, and
+  `render.debug_view` has two new views, `albedo` and `material` (`FA_RENDER_DEBUG_VIEW` too). The fixtures of the render tests were made again
+  for the new mesh template. docs/design/ARCHITECTURE_RENDERING_GBUFFER.md.
 
 ## 0.38.0
 
