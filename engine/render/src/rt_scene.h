@@ -125,6 +125,11 @@ public:
     gpu::Buffer records_buffer() const { return tlasBuilt_ ? recordsBuffer_ : gpu::Buffer{}; }
     std::uint32_t instance_count() const { return tlasBuilt_ ? tlasInstances_ : 0; }
     const RtSceneStats& stats() const { return stats_; }
+    // M79-P5a: what the path tracer asks to know whether the picture it accumulates is still the scene's: a hash of the instances of the last
+    // record() (their transforms, masks, BLAS ids and records; a frame with a skinned instance never repeats). It is only computed while
+    // `set_track_changes(true)` (the cost is one pass over the frame's instances, so the scene is free of it otherwise); 0 without instances.
+    void set_track_changes(bool on) { trackChanges_ = on; }
+    std::uint64_t content_hash() const { return contentHash_; }
 
     // The compute pipeline of the skinning kernel (rt_skin.glsl: slots in rt_skin.h), asked for in every frame that skins (the handle is never
     // kept: the renderer's pipeline cache destroys an idle one). The renderer makes it on first use; without it (or without compute shaders) the skinned instances are not traced.
@@ -294,6 +299,9 @@ private:
     std::vector<Item> items_;
     std::vector<FrameInstance> frame_;
     std::vector<RtInstanceRecord> previous_;
+    bool trackChanges_ = false;
+    std::uint64_t contentHash_ = 0;
+    std::uint64_t skinSerial_ = 0;
     gpu::AccelStructure tlas_{};
     std::uint32_t tlasCapacity_ = 0;  // instances the TLAS memory was sized for
     bool tlasBuilt_ = false;

@@ -79,4 +79,53 @@ Json ray_tracing_to_json(const RayTracingSettings& s);
 Result<RayTracingSettings> parse_ray_tracing_settings(const Json& j, std::string_view where,
                                                       const RayTracingSettings& base);
 
+// ---- The path tracer (M79-P5a, docs/design/ARCHITECTURE_RT_PATHTRACER.md) ----------------------------------------------------------------
+
+// The limits of the path tracer's numbers (a value outside is clamped, never an error).
+inline constexpr int kPtDefaultMaxBounces = 4;
+inline constexpr int kPtMinMaxBounces = 1;
+inline constexpr int kPtMaxMaxBounces = 32;
+inline constexpr int kPtDefaultSamplesPerFrame = 1;
+inline constexpr int kPtMinSamplesPerFrame = 1;
+inline constexpr int kPtMaxSamplesPerFrame = 64;
+inline constexpr int kPtMaxMaxSamples = 1 << 24;  // 0 = no limit
+inline constexpr int kPtMaxSeed = 1 << 30;
+
+// The reference mode: instead of the raster's lit colour the main camera shows a progressive unidirectional path trace of the same scene (the same
+// BRDF, the sun and the analytic lights sampled directly, the sky as the environment), accumulated over frames while nothing changes. Meant for a
+// converged picture to compare the raster against, not for play. OFF by default and free when off: no kernel, no image, no pass. It needs a device that
+// traces rays (render.supports raytracing); it asks for the scene's acceleration structures by itself (render.rayTracing needs no effect on).
+struct PathTracerSettings {
+    bool enabled = false;
+    int maxBounces =
+        kPtDefaultMaxBounces;  // path length: 1 = direct light only, up to 32 (Russian roulette ends a dark path sooner)
+    int samplesPerFrame = kPtDefaultSamplesPerFrame;  // paths per pixel each frame adds to the accumulation (1 to 64)
+    int maxSamples = 0;  // the accumulation stops (the picture is kept) after this many samples per pixel; 0 = never
+    float fireflyClamp =
+        0.0f;  // clamps the radiance of one path to this value (0 = off): trades a little energy for fewer white dots
+    bool lights =
+        true;  // direct light from the point and spot lights (at most kPtMaxLights of the frame); the sun is always sampled
+    int seed = 0;  // changes the noise pattern (the same seed gives the same picture on a device); never the wall clock
+    bool operator==(const PathTracerSettings&) const = default;
+};
+
+// The most point and spot lights one frame's kernel samples (the strongest in view, by the renderer's own light order).
+inline constexpr int kPtMaxLights = 8;
+
+// {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"} (every key always present).
+Json path_tracer_to_json(const PathTracerSettings& s);
+// Reads the keys of `j` that are present over `base` (the errors of parse_ray_tracing_settings: a JSON pointer, what is wrong, did you mean).
+Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string_view where,
+                                                      const PathTracerSettings& base);
+
+// What the path tracer did, for render.ray_tracing and render.pathtrace.
+struct PathTracerStatus {
+    bool active = false;        // the kernel ran in the last frame that was drawn
+    std::uint32_t samples = 0;  // samples per pixel accumulated so far (0 after a reset)
+    int width = 0, height = 0;  // the accumulation image's size
+    std::uint32_t resets = 0;   // how many times the accumulation restarted since the path tracer went on
+    std::string lastReset;      // why the last restart: "start", "image" (resized), "camera", "scene" or "settings"
+    std::string failure;        // why the kernel could not run (the device refused it...), or empty
+};
+
 }  // namespace fa::render
