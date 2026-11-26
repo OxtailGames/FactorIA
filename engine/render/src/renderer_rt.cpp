@@ -64,6 +64,11 @@ render::PathTracerStatus Renderer::path_tracer_status() const {
 
 std::string Renderer::ray_tracing_failure() const { return impl_ ? impl_->rtEffects.failure() : std::string(); }
 
+void Renderer::ray_tracing_local_shadows(int& candidates, int& traced) const {
+    candidates = impl_ ? impl_->rtLocalCandidatesShown.load() : 0;
+    traced = impl_ ? impl_->rtLocalTracedShown.load() : 0;
+}
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -73,6 +78,9 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
     rtShadowDraws = {};
+    rtLocalCandidatesShown = rtLocalFrame.candidates;
+    rtLocalTracedShown = rtLocalFrame.traced;
+    rtLocalFrame = {};
     // The path tracer asks for the scene as the effects do (it is its own setting, render.pathTracer): either on is enough.
     const bool wantsScene = render::rt_any_effect(rtSettings) || ptSettings.enabled;
     const bool wanted = wantsScene && gpu.has_device();
@@ -98,6 +106,7 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedEffect = false;
         rtWarnedReflect = rtWarnedReflectGbuffer = false;
         rtWarnedAo = false;
+        rtWarnedLocal = false;
         rtWarnedTranslucency = false;
     }
     if (!wanted || !ptSettings.enabled) {
@@ -107,6 +116,7 @@ void Renderer::Impl::rt_begin_frame() {
     rtScene.set_track_changes(ptSettings.enabled);
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
+        rtLocalSlots.clear();
         if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
         if (gpu.has_device() && (rtDenoiser.shaders_made() || rtDenoiser.history_image_count() > 0))
             rtDenoiser.release();
