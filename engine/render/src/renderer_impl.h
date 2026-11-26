@@ -53,6 +53,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "hiz.h"
+#include "rt_denoise.h"
 #include "rt_effect.h"
 #include "rt_scene.h"
 #include "occlusion.h"
@@ -631,10 +632,15 @@ struct Renderer::Impl {
     render::RayTracingSettings rtSettings;
     RtScene rtScene;
     bool rtWarnedUnsupported = false;
-    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time messages (a device that traces but cannot run an effect; "soft"
-    // shadows, which are the hard ones for now).
+    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time message (a device that traces but cannot run an effect).
     RtEffects rtEffects;
-    bool rtWarnedEffect = false, rtInformedSoft = false;
+    // Tests (RendererTestAccess::rt_shadow_draws): the draws of the frame that took the sun's shadow from the ray traced mask, and those of
+    // them that also took the cascades' (the scene had casters the rays do not see). Reset by rt_begin_frame.
+    struct RtShadowDraws {
+        int mask = 0, withCascades = 0;
+    } rtShadowDraws;
+    RtDenoiser rtDenoiser;  // the soft sun shadow's signal (rt_denoise.h): its history is per camera
+    bool rtWarnedEffect = false;
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).

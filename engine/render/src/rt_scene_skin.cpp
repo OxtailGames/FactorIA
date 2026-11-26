@@ -234,6 +234,7 @@ void RtScene::prepare_skinned(const Vec3&) {
             if (next > kMaxSkinnedVertices || count >= kMaxSkinnedInstances) {
                 keep[i] = 0;
                 ++dropped;
+                if (items_[i].instance.mask & kRtMaskCastsShadow) ++stats_.untracedCasters;
                 warn_skin_budget(items_[i].mesh->key, items_[i].vertexCount);
                 continue;
             }

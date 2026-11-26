@@ -485,7 +485,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_a;               // x = 1 when this draw takes contact shadows (an opaque mesh that receives shadows, view 28 holds the prepass),
                                 // y = 1 when images are bottom-up (OpenGL), zw = the prepass's size in pixels
     vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half); y = 1 when view 28 holds
-                                // the image of the ray traced shadows kernel and the sun's shadow of this draw is read from it (fa_shadow_factor)
+                                // the image of the ray traced shadows kernel and the sun's shadow of this draw is read from it (fa_shadow_factor);
+                                // z = 1 when the scene has casters the rays do not see: the sun's shadow is then the darker of the mask and the cascades
     vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
     vec4 fa_ct_vpy;             // row 1: clip y
     vec4 fa_ct_vpw;             // row 3: clip w
@@ -852,8 +853,15 @@ const float FA_PI = 3.14159265;
 // shadow is the kernel's visibility of this pixel (docs/design/ARCHITECTURE_RT_EFFECTS.md): the texel the fragment's world position projects to, read
 // when it holds the same surface (its depth, in g, is the fragment's within what a pixel covers). Where it does not (the edge of a silhouette, a
 // pixel the camera's jitter moved) the cascades answer, as they do for every draw that takes no mask.
+// M79-P2a-2: casters the rays do not see (terrain, impostors, GPU-driven meshes, cutouts, instances over the cap...) are only in the cascades, so
+// when the scene has any (fa_ct_b.z = 1) the shadow is the darker of the two: nothing loses its shadow, and a traced caster is shadowed by both
+// with the cascades' resolution at its edge (the trade-off of "No caster loses its shadow").
 float fa_shadow_factor(vec3 n, vec3 l) {
     if (fa_ct_b.y > 0.5 && fa_pbr.z > 0.5) {
+        // What a pixel covers of depth along this surface: a surface seen at a grazing angle changes depth fast from one pixel to the next, and
+        // the sample of a multisampled fragment or of the jittered camera sits up to a pixel from the texel read, so the tolerance grows with it.
+        float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;
+        float slope = min(1.5 * fwidth(d), 0.1 * d);
         vec4 pv = vec4(fa_world_pos, 1.0);
         float w = dot(fa_ct_vpw, pv);
         if (w > 1e-4) {
@@ -862,8 +870,9 @@ float fa_shadow_factor(vec3 n, vec3 l) {
             if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
                 ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
                 vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
-                float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;
-                if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01) { return rt.g; }
+                if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01 + slope) {
+                    return fa_ct_b.z > 0.5 ? min(rt.g, fa_shadow_sun(fa_world_pos, n, l)) : rt.g;
+                }
             }
         }
     }

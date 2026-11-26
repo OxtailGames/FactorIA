@@ -432,6 +432,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
     stats_.candidates = stats_.instances = stats_.droppedOverCap = 0;
     stats_.skippedSkinned = stats_.skippedImpostor = stats_.skippedTerrain = stats_.skippedFading = 0;
     stats_.skippedGpuDriven = stats_.skippedUntraceable = stats_.skippedNoBlas = 0;
+    stats_.untracedCasters = 0;
     stats_.skinnedInstances = 0;
     stats_.cap = cap_;
     if (!device_) return;
@@ -442,12 +443,15 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         for (const MeshItem& mi : isBlended ? blended : opaque) {
             ++stats_.candidates;
             if (!mi.mesh || !mi.mr) continue;
+            const bool casts = mi.mr->castShadows;
             if (mi.terrain) {
                 ++stats_.skippedTerrain;
+                if (casts) ++stats_.untracedCasters;
                 continue;
             }
             if (mi.impostor) {
                 ++stats_.skippedImpostor;
+                if (casts) ++stats_.untracedCasters;
                 continue;
             }
             if (mi.lodFade < 0.0f &&
@@ -457,11 +461,13 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
             }
             if (mi.material && !mi.material->buffers.empty()) {
                 ++stats_.skippedGpuDriven;
+                if (casts) ++stats_.untracedCasters;
                 continue;
             }
             const MeshAsset& mesh = *mi.mesh;
             if (mesh.placeholder || mesh.parts.empty()) {
                 ++stats_.skippedUntraceable;
+                if (casts) ++stats_.untracedCasters;
                 continue;
             }
             const MeshRenderer& mr = *mi.mr;
@@ -479,10 +485,12 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 const bool skinnedPart = mi.anim && part.skinVb.id;
                 if (!traceable_part(part)) {
                     ++stats_.skippedUntraceable;
+                    if (casts) ++stats_.untracedCasters;
                     continue;
                 }
                 if (skinnedPart && std::uint32_t(part.vertexCount) > kRtSkinMaxPartVertices) {
                     ++stats_.skippedSkinned;
+                    if (casts) ++stats_.untracedCasters;
                     warn_skin_budget(mesh.key, std::uint32_t(part.vertexCount));
                     continue;
                 }
@@ -530,6 +538,8 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 if (unlit) flags |= kRtFlagUnlit;
                 if (mi.foliage) flags |= kRtFlagFoliage;
                 if (mr.castShadows) flags |= kRtFlagCastsShadow;
+                if (cutout && mr.castShadows)
+                    ++stats_.untracedCasters;  // in the TLAS, but the shadow kernel cannot test its alpha
                 if (matOk) flags |= kRtFlagCustomMaterial;
                 if (skinnedPart) flags |= kRtFlagSkinned;
                 rec.flags = flags;
@@ -554,6 +564,9 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         });
         std::vector<char> keep(items_.size(), 0);
         for (std::uint32_t i = 0; i < cap_; ++i) keep[order[i]] = 1;
+        for (std::size_t i = cap_; i < order.size();
+             ++i)  // the farthest leave: those that cast keep their cascade shadow
+            if (items_[order[i]].instance.mask & kRtMaskCastsShadow) ++stats_.untracedCasters;
         std::size_t out = 0;
         for (std::size_t i = 0; i < items_.size(); ++i)
             if (keep[i]) {
@@ -611,6 +624,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         }
         if (!id) {
             ++stats_.skippedUntraceable;
+            if (it.instance.mask & kRtMaskCastsShadow) ++stats_.untracedCasters;
             continue;
         }
         it.blasId = id;
@@ -620,6 +634,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
     }
     items_.resize(out);
     prepare_skinned(camera);
+    untracedCollected_ = stats_.untracedCasters;  // record_frame adds the instances whose BLAS is not ready
     stats_.blasLive = std::uint32_t(blas_.size());
 }
 
@@ -708,7 +723,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
     };
     std::vector<const Item*> kept;
     kept.reserve(items_.size());
-    std::uint32_t waiting = 0;
+    std::uint32_t waiting = 0, waitingCasters = 0;
     stats_.skinnedInstances = 0;
     for (const Item& it : items_) {
         if (it.skinned) {
@@ -717,21 +732,25 @@ void RtScene::record_frame(gpu::CommandList& list) {
                 ++stats_.skinnedInstances;
             } else {
                 ++waiting;
+                waitingCasters += (it.instance.mask & kRtMaskCastsShadow) ? 1 : 0;
             }
             continue;
         }
         auto b = blas_.find(it.blasId);
         if (b == blas_.end() || b->second.state == State::Failed) {
             ++waiting;
+            waitingCasters += (it.instance.mask & kRtMaskCastsShadow) ? 1 : 0;
             continue;
         }
         if (b->second.state == State::Pending && !is_building(it.blasId)) {
             ++waiting;
+            waitingCasters += (it.instance.mask & kRtMaskCastsShadow) ? 1 : 0;
             continue;
         }
         kept.push_back(&it);
     }
     stats_.skippedNoBlas = waiting;
+    stats_.untracedCasters = untracedCollected_ + waitingCasters;
     const std::uint32_t n = std::uint32_t(kept.size());
     // Memory first (it may make buffers), then the work.
     std::uint64_t scratchNeed = skinScratch;
@@ -824,10 +843,12 @@ void RtScene::record_frame(gpu::CommandList& list) {
                                   const auto b = blas_.find(it->blasId);
                                   const bool failed = b == blas_.end() || b->second.state == State::Failed;
                                   waiting += failed ? 1 : 0;
+                                  waitingCasters += (failed && (it->instance.mask & kRtMaskCastsShadow)) ? 1 : 0;
                                   return failed;
                               }),
                kept.end());
     stats_.skippedNoBlas = waiting;
+    stats_.untracedCasters = untracedCollected_ + waitingCasters;
     stats_.skinnedInstances =
         std::uint32_t(std::count_if(kept.begin(), kept.end(), [](const Item* it) { return it->skinned; }));
     const std::uint32_t count = std::uint32_t(kept.size());

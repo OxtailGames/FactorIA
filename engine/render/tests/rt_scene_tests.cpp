@@ -402,6 +402,9 @@ TEST_CASE("rt scene: the records and the instances (transform, mask, customIndex
     CHECK((c.record.flags & render::kRtFlagOpaque) == 0);
     CHECK((c.record.flags & render::kRtFlagTwoSided) != 0);
     CHECK((c.record.flags & render::kRtFlagCustomMaterial) != 0);
+    // The alpha-tested caster is in the TLAS but the sun's shadow kernel has no alpha texture to test: it is the one untraced caster here (the
+    // lit pass takes the cascades' shadow too, which cut the leaf's holes).
+    CHECK(rig.scene.stats().untracedCasters == 1);
     // a material that is not alpha-tested: opaque; no shadow caster, unlit.
     const auto& u = fi[2];
     CHECK(u.instance.opaque);
@@ -462,11 +465,16 @@ TEST_CASE("rt scene: what is not traced, and why") {
     driven.material = &gpuDriven;
     items.push_back(driven);
     items.push_back(rig.item(ph, {8, 0, 0}, 9));  // a placeholder (the mesh is still loading)
+    // A terrain node that casts no shadow is not a lost shadow: only the casters the rays do not see are counted.
+    render::MeshItem terrainNoCast = rig.item(m, {9, 0, 0}, 10);
+    terrainNoCast.terrain = &node;
+    rig.renderers.back().castShadows = false;
+    items.push_back(terrainNoCast);
 
     rig.frame(items);
     rig.frame(items);
     const render::RtSceneStats& st = rig.scene.stats();
-    CHECK(st.candidates == 9);
+    CHECK(st.candidates == 10);
     CHECK(rig.scene.instance_count() == 4);
     std::set<std::uint32_t> traced;
     for (const auto& f : rig.scene.frame_instances()) traced.insert(f.entityId);
@@ -474,10 +482,13 @@ TEST_CASE("rt scene: what is not traced, and why") {
     CHECK(st.skippedSkinned == 0);
     CHECK(st.skinnedInstances == 1);
     CHECK(st.skippedImpostor == 1);
-    CHECK(st.skippedTerrain == 1);
+    CHECK(st.skippedTerrain == 2);  // both nodes, the one that casts and the one that does not
     CHECK(st.skippedFading == 1);
     CHECK(st.skippedGpuDriven == 1);
     CHECK(st.skippedUntraceable == 1);
+    // M79-P2a-2: the casters the sun's rays cannot see (the lit pass then takes the cascades' shadow too): the impostor, the terrain, the
+    // GPU-driven mesh and the placeholder; the node that casts nothing, the fading-out level (its replacement is traced) and the traced ones are not.
+    CHECK(st.untracedCasters == 4);
     CHECK(log.count("skinned meshes") == 0);  // nothing to say: they are traced now
     INFO(joined(rig.dev->errors()));
     CHECK(rig.dev->errors().empty());
@@ -496,6 +507,7 @@ TEST_CASE("rt scene: over the cap the nearest to the main camera stay, and the w
     rig.frame(items);
     CHECK(rig.scene.instance_count() == 4);
     CHECK(rig.scene.stats().droppedOverCap == 6);
+    CHECK(rig.scene.stats().untracedCasters == 6);  // the ones over the cap cast too: the cascades keep their shadow
     CHECK(rig.scene.stats().cap == 4);
     std::set<std::uint32_t> kept;
     for (const auto& f : rig.scene.frame_instances()) kept.insert(f.entityId);
@@ -509,6 +521,7 @@ TEST_CASE("rt scene: over the cap the nearest to the main camera stay, and the w
     rig.frame(items);
     CHECK(rig.scene.instance_count() == 10);
     CHECK(rig.scene.stats().droppedOverCap == 0);
+    CHECK(rig.scene.stats().untracedCasters == 0);
     CHECK(rig.dev->errors().empty());
 }
 

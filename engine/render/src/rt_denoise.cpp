@@ -613,7 +613,7 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         ++declared;
     };
     auto push_if = [](std::vector<ResourceId>& v, const DenoiseImage& im) {
-        if (im.targets && im.res.valid()) v.push_back(im.res);
+        if (im.res.valid()) v.push_back(im.res);  // a persistent image (no `targets`) is ordered by its resource too
     };
 
     RtDenoiser* self = this;
