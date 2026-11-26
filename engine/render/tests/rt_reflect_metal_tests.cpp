@@ -153,7 +153,8 @@ Vec2 env_brdf(float rough, float ndv) {
 Vec3 reflect_dir(Vec3 i, Vec3 n) { return i - n * (2.0f * dot(n, i)); }
 
 // rt_shade_hit: `p` the hit, `n` the unit normal toward the ray, `toViewer` the unit vector back along the ray, `t` the hit distance.
-Vec3 shade_hit(const Scene& sc, const std::vector<Tri>& tris, const Material& m, Vec3 p, Vec3 n, Vec3 toViewer, float t) {
+Vec3 shade_hit(const Scene& sc, const std::vector<Tri>& tris, const Material& m, Vec3 p, Vec3 n, Vec3 toViewer,
+               float t) {
     const Vec3 v = toViewer;
     const float roughness = clamp(m.roughness, 0.05f, 1.0f);
     const Vec3 diffuse = m.albedo * (1.0f - m.metalness);
@@ -175,8 +176,8 @@ Vec3 shade_hit(const Scene& sc, const std::vector<Tri>& tris, const Material& m,
             const float vdh = saturate(dot(v, h));
             const float dd = ndh * ndh * (a2 - 1.0f) + 1.0f;
             const float d = a2 / (3.14159265358979f * dd * dd);
-            const float vis = 0.5f / (ndl * std::sqrt(ndv * ndv * (1.0f - a2) + a2) +
-                                      ndv * std::sqrt(ndl * ndl * (1.0f - a2) + a2));
+            const float vis =
+                0.5f / (ndl * std::sqrt(ndv * ndv * (1.0f - a2) + a2) + ndv * std::sqrt(ndl * ndl * (1.0f - a2) + a2));
             const float fw = std::pow(1.0f - vdh, 5.0f);
             const Vec3 f = f0 + (Vec3{1, 1, 1} - f0) * fw;
             color += (diffuse + f * (d * vis)) * sc.sunColor * ndl;
@@ -312,7 +313,8 @@ CameraGeometry make_camera() {
 
 }  // namespace
 
-TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as a CPU ray caster computes them, and a rough floor is left "
+TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as a CPU ray caster computes them, and a "
+          "rough floor is left "
           "to the old path") {
     Rig rig;
     std::string skip;
@@ -341,7 +343,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
     for (std::size_t pi = 0; pi < places.size(); ++pi) {
         const Place& p = places[pi];
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, kMask, int(pi)});
     }
 
@@ -380,7 +383,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
     auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
     REQUIRE_MESSAGE(ts.ok(), ts.error().message);
     const AccelStructure tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt reflect tlas");
-    const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt reflect tlas scratch");
+    const Buffer tlasScratch =
+        rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt reflect tlas scratch");
     BufferDesc rbd;
     rbd.size = records.size() * sizeof(fa::render::RtInstanceRecord);
     rbd.usage.storageBuffer = true;
@@ -472,9 +476,9 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
     params.frame[0] = 12;
     params.frame[1] = fa::render::rt_effect_seed(12);
     params.frame[2] = 1;
-    params.user0[0] = 0.02f;    // the mirror ray's offset along the normal (metres)
-    params.user0[1] = 0.002f;   // more of it per metre of view depth
-    params.user0[2] = 0.25f;    // the roughness cutoff
+    params.user0[0] = 0.02f;     // the mirror ray's offset along the normal (metres)
+    params.user0[1] = 0.002f;    // more of it per metre of view depth
+    params.user0[2] = 0.25f;     // the roughness cutoff
     params.user0[3] = 10000.0f;  // TMax
     fa::render::RtHitParams hit{};
     hit.sunDir[0] = sc.sunDir.x;
@@ -567,7 +571,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
             const Nearest big = nearest(tris, o, r, 1e-3f, 0.0f, 10000.0f, 0x07);
             const Nearest small = nearest(tris, o, r, -1e-3f, 0.0f, 10000.0f, 0x07);
             if (big.tri != small.tri) continue;  // on an edge of the box
-            const Vec3 tint = lerp(Vec3{1, 1, 1}, Vec3{0.5f, 0.5f, 0.5f}, 0.5f);  // the floor: albedo 0.5, metalness 0.5
+            const Vec3 tint =
+                lerp(Vec3{1, 1, 1}, Vec3{0.5f, 0.5f, 0.5f}, 0.5f);  // the floor: albedo 0.5, metalness 0.5
             if (small.tri < 0) {
                 ++compared;
                 ++misses;
@@ -590,7 +595,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
             Vec3 hn = normalize(cross(ht.b - ht.a, ht.c - ht.a));
             if (dot(hn, r) > 0.0f) hn = hn * -1.0f;
             const Vec3 p = o + r * small.t;
-            const Vec3 expect = shade_hit(sc, tris, places[std::size_t(ht.instance)].material, p, hn, r * -1.0f, small.t) * tint;
+            const Vec3 expect =
+                shade_hit(sc, tris, places[std::size_t(ht.instance)].material, p, hn, r * -1.0f, small.t) * tint;
             // A pixel whose sun shadow ray grazes an edge may differ: skip when a slightly bigger and smaller triangle disagree.
             const float off = sc.shadowOffset + sc.shadowOffsetPerMetre * small.t;
             const bool sb = nearest(tris, p + hn * off, sc.sunDir, 1e-3f, 0.0f, 10000.0f, 0x08).tri >= 0;
@@ -604,12 +610,12 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
             }
         }
     }
-    MESSAGE("compared " << compared << ", shaded " << shaded << ", hit the red box " << hitsRed << ", the green box " << hitsGreen
-                        << ", the floor " << hitsFloor << ", missed " << misses << ", not traced " << notTraced
-                        << ", worst colour error " << worst);
+    MESSAGE("compared " << compared << ", shaded " << shaded << ", hit the red box " << hitsRed << ", the green box "
+                        << hitsGreen << ", the floor " << hitsFloor << ", missed " << misses << ", not traced "
+                        << notTraced << ", worst colour error " << worst);
     CHECK(compared > 400);
-    CHECK(hitsRed > 40);   // the mirror floor shows the red box
-    CHECK(misses > 40);    // and the sky
+    CHECK(hitsRed > 40);  // the mirror floor shows the red box
+    CHECK(misses > 40);   // and the sky
     CHECK(shaded > 40);
     CHECK(notTraced > 200);
 
