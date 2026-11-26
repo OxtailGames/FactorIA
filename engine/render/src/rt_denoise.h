@@ -36,7 +36,7 @@ enum class DenoiseKind : std::uint8_t {
     Visibility,  // a shadow: 0 .. 1 in r (one channel); the result is in r, g and b alike
     Occlusion,   // ambient occlusion: 0 .. 1 in r (one channel); the result is in r, g and b alike
     Diffuse,     // diffuse radiance: rgb, linear; a firefly clamp applies
-    Specular     // specular radiance: rgb + the hit distance in a (world units, negative = the ray missed); the filter follows the lobe
+    Specular  // specular radiance: rgb + the hit distance in a (world units, negative = the ray missed); the filter follows the lobe
 };
 const char* denoise_kind_name(DenoiseKind k);
 // 1 for a shadow and an occlusion, 3 for the radiance kinds.
@@ -44,13 +44,16 @@ int denoise_channels(DenoiseKind k);
 
 // The numbers of one signal. sanitize_denoise_settings clamps them (a number that is not finite takes its default).
 struct DenoiseSettings {
-    int iterations = 5;            // 2 .. 6 a-trous iterations; the result of the first is the history, so there are at least two
-    float maxHistory = 32.0f;      // 1 .. 255 frames the temporal accumulation averages over (then an exponential mean)
-    float fireflyClamp = 8.0f;     // 0 .. 64: a radiance sample brighter than this times its neighbours' mean is brought down to that (0 = off)
-    float depthTolerance = 0.02f;  // 0.001 .. 0.5: the share of a pixel's depth another pixel may be off the plane and still count (both stages)
-    float normalPower = 64.0f;     // 1 .. 256: the exponent of the cosine between two normals in the filter's weight
-    float lumaSigma = 4.0f;        // 0.5 .. 16: how many standard deviations of the variance two luminances may differ by (the filter)
-    float roughness = 0.5f;        // 0 .. 1: the roughness of a specular pixel when no roughness image is given
+    int iterations = 5;  // 2 .. 6 a-trous iterations; the result of the first is the history, so there are at least two
+    float maxHistory = 32.0f;  // 1 .. 255 frames the temporal accumulation averages over (then an exponential mean)
+    float fireflyClamp =
+        8.0f;  // 0 .. 64: a radiance sample brighter than this times its neighbours' mean is brought down to that (0 = off)
+    float depthTolerance =
+        0.02f;  // 0.001 .. 0.5: the share of a pixel's depth another pixel may be off the plane and still count (both stages)
+    float normalPower = 64.0f;  // 1 .. 256: the exponent of the cosine between two normals in the filter's weight
+    float lumaSigma =
+        4.0f;  // 0.5 .. 16: how many standard deviations of the variance two luminances may differ by (the filter)
+    float roughness = 0.5f;  // 0 .. 1: the roughness of a specular pixel when no roughness image is given
 };
 DenoiseSettings sanitize_denoise_settings(const DenoiseSettings& s);
 
@@ -60,7 +63,8 @@ enum class DenoiseDebug : std::uint8_t { None, HistoryLength, Variance };
 // One signal of one camera. `id` names it in the history (a camera may denoise several: its own number for shadows, AO, ...); `name` is part of
 // the pass names (empty: the kind's).
 struct DenoiseSignal {
-    bool enabled = true;  // false: nothing is drawn and the history of this signal is freed now (a vendor denoiser takes the signal)
+    bool enabled =
+        true;  // false: nothing is drawn and the history of this signal is freed now (a vendor denoiser takes the signal)
     DenoiseKind kind = DenoiseKind::Diffuse;
     std::uint32_t id = 0;
     std::string name;
@@ -70,19 +74,24 @@ struct DenoiseSignal {
 
 // What the denoiser needs of the camera and the frame (the history is keyed by camKey; the rules of TaaPlan decide when it holds).
 struct DenoiseCamera {
-    Mat4 view;          // world -> camera view (the unjittered matrix of the frame)
-    Mat4 prevFromView;  // a view-space position of this frame -> the clip position it had on the frame before (unjittered)
-    float proj[8]{};    // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
-    float halfX = 1.0f, halfY = 1.0f;  // what a unit of normalised device coordinates is in view space at depth 1 (an orthographic camera: at any depth)
+    Mat4 view;  // world -> camera view (the unjittered matrix of the frame)
+    Mat4
+        prevFromView;  // a view-space position of this frame -> the clip position it had on the frame before (unjittered)
+    float proj[8]{};  // P00, P11, P02, P12, P03, P13, P32, P33 of the unjittered projection
+    float
+        halfX = 1.0f,
+        halfY =
+            1.0f;  // what a unit of normalised device coordinates is in view space at depth 1 (an orthographic camera: at any depth)
     bool ortho = false;
-    bool prevValid = false;  // the camera drew the frame before and no cut happened since (PostPlan::prevValid)
+    bool prevValid = false;          // the camera drew the frame before and no cut happened since (PostPlan::prevValid)
     std::uint64_t camKey = 0;        // the camera's entity
     std::uint64_t serial = 0;        // the game frame (Renderer::Impl::postSerial)
     std::uint64_t sceneKey = 0;      // the scene's identity: another one drops the history
     std::uint64_t originShifts = 0;  // the floating-origin rebases so far: another number drops the history
 };
-DenoiseCamera make_denoise_camera(const CameraInfo& cam, std::uint64_t camKey, std::uint64_t serial, std::uint64_t sceneKey,
-                                  std::uint64_t originShifts, const Mat4& prevViewProj, bool prevValid);
+DenoiseCamera make_denoise_camera(const CameraInfo& cam, std::uint64_t camKey, std::uint64_t serial,
+                                  std::uint64_t sceneKey, std::uint64_t originShifts, const Mat4& prevViewProj,
+                                  bool prevValid);
 
 // An image the denoiser reads: a transient of the frame graph (res + targets: its pass declares it in its reads and takes the view when it
 // runs) or any texture view the caller keeps (a persistent image: `res` not valid, `targets` null).
@@ -101,9 +110,12 @@ struct DenoiseImage {
 
 // One call of add_passes. Every image is the size of the camera's rectangle (`width` x `height`, the prepass's size).
 struct DenoiseInputs {
-    DenoiseImage noisy;      // the signal, one sample set per pixel (Rgba16F or Rgba32F; the kind says what its channels are)
-    DenoiseImage prepass;    // the camera's prepass: r = linear view depth, gb = octahedral view-space normal, a = 1 where a mesh was drawn
-    DenoiseImage velocity;   // optional: rg = uvPrev - uvCurr of the moved objects (VelocityRef), the sentinel 1024 where none moved
+    DenoiseImage
+        noisy;  // the signal, one sample set per pixel (Rgba16F or Rgba32F; the kind says what its channels are)
+    DenoiseImage
+        prepass;  // the camera's prepass: r = linear view depth, gb = octahedral view-space normal, a = 1 where a mesh was drawn
+    DenoiseImage
+        velocity;  // optional: rg = uvPrev - uvCurr of the moved objects (VelocityRef), the sentinel 1024 where none moved
     DenoiseImage roughness;  // optional, specular: r = the roughness of the surface (0 .. 1)
     int width = 0, height = 0;
 };
@@ -138,9 +150,11 @@ struct DenoisePlan {
     int channels = 0;
     DenoiseSettings settings;
     int width = 0, height = 0;
-    int signalPasses = 0;      // the signal's own passes: the temporal one, the iterations and the debug view
-    int guidePasses = 0;       // the camera's shared pass (1 when this call is the camera's first this frame and the guide is needed)
-    int transients = 0;        // the frame's images the graph makes (the accumulation, the two a-trous buffers, the debug picture)
+    int signalPasses = 0;  // the signal's own passes: the temporal one, the iterations and the debug view
+    int guidePasses =
+        0;  // the camera's shared pass (1 when this call is the camera's first this frame and the guide is needed)
+    int transients =
+        0;  // the frame's images the graph makes (the accumulation, the two a-trous buffers, the debug picture)
     int historyImages = 0;     // the persistent images of the signal (two of the colour, two of the moments)
     bool hitDistance = false;  // the signal carries a hit distance (specular)
     std::uint64_t configKey = 0;
@@ -153,12 +167,14 @@ DenoisePlan make_denoise_plan(const DenoiseSignal& signal, int width, int height
 // What add_passes returns.
 struct DenoiseOutput {
     bool valid = false;  // the passes were declared; `res` is the denoised image
-    ResourceId res;      // transient: r, g, b = the signal (a one-channel signal in all three), a = the variance of the estimate
-    ResourceId debug;    // transient, valid when DenoiseSignal::debug asked for a view: a grey picture
+    ResourceId
+        res;  // transient: r, g, b = the signal (a one-channel signal in all three), a = the variance of the estimate
+    ResourceId debug;  // transient, valid when DenoiseSignal::debug asked for a view: a grey picture
     int width = 0, height = 0;
-    int passes = 0;      // passes declared by this call (the guide pass included when this call made it)
-    DenoiseReset reset = DenoiseReset::Fresh;  // why the frame started a new history (None: it blends with the one of the frame before)
-    std::string why;     // when !valid: what stopped it
+    int passes = 0;  // passes declared by this call (the guide pass included when this call made it)
+    DenoiseReset reset =
+        DenoiseReset::Fresh;  // why the frame started a new history (None: it blends with the one of the frame before)
+    std::string why;          // when !valid: what stopped it
     // The image inside a pass that declared `res` (or `debug`) in its reads; null when it is gone.
     const Target* target(const PassContext& c, const TransientTargets& t) const { return t.get(c.handle(res)); }
     const Target* debug_target(const PassContext& c, const TransientTargets& t) const { return t.get(c.handle(debug)); }
@@ -175,7 +191,8 @@ public:
     // `job` prefixes the pass names. Not valid (nothing declared; `why` says): the signal is disabled, an input is missing, the shaders did not
     // compile, the history is over the budget, or the signal was already declared for this camera in this graph.
     DenoiseOutput add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const DenoiseCamera& cam,
-                             const DenoiseSignal& signal, const DenoiseInputs& in, int* drawCalls, const std::string& job);
+                             const DenoiseSignal& signal, const DenoiseInputs& in, int* drawCalls,
+                             const std::string& job);
 
     // Compiles the shaders on the first call; false (and unavailable()) when they did not compile. add_passes calls it.
     bool ready(gpu::Device& device);
