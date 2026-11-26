@@ -142,6 +142,10 @@ struct ProjectSettings {
     // docs/RAY_TRACING.md): the ray traced effects a run asks for. Off (the default) is the renderer of every earlier version and costs
     // nothing. In this version the renderer does not read these settings yet: only the interface and the Metal device exist.
     render::RayTracingSettings rayTracing;
+    // "render": {"pathTracer": {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"}} (M79,
+    // docs/design/ARCHITECTURE_RT_PATHTRACER.md): the path-traced reference picture that replaces the lit colour of the main camera.
+    // Off (the default) costs nothing; the command render.path_tracer changes it at run time, render.pathtrace writes a converged image.
+    render::PathTracerSettings pathTracer;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.
     render::DynamicResolutionSettings dynamicResolution;

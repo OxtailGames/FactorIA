@@ -714,6 +714,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
     tlasBuilt_ = false;
     tlasInstances_ = 0;
     frame_.clear();
+    contentHash_ = 0;
     stats_.instances = stats_.blasBuilt = stats_.blasCompacted = 0;
     if (!device_ || !collected_) return;
     // The builds of the frame: the first kMaxBuildsPerFrame BLASes waiting (creation order). An instance of one that waits joins the TLAS
@@ -905,6 +906,25 @@ void RtScene::record_frame(gpu::CommandList& list) {
     tlasBuilt_ = true;
     tlasInstances_ = count;
     stats_.instances = count;
+    if (trackChanges_) {
+        std::uint64_t h = 0xCBF29CE484222325ull;  // FNV-1a over the bytes the rays see
+        auto mix = [&h](const void* data, std::size_t size) {
+            const auto* p = static_cast<const unsigned char*>(data);
+            for (std::size_t i = 0; i < size; ++i) h = (h ^ p[i]) * 0x100000001B3ull;
+        };
+        for (const FrameInstance& f : frame_) {
+            mix(f.instance.transform, sizeof f.instance.transform);
+            mix(&f.instance.mask, sizeof f.instance.mask);
+            mix(&f.blasId, sizeof f.blasId);
+            mix(&f.record, sizeof f.record);
+        }
+        mix(&count, sizeof count);
+        if (stats_.skinnedInstances > 0) {
+            ++skinSerial_;  // a skinned mesh moves its vertices: the frame is never the one before
+            mix(&skinSerial_, sizeof skinSerial_);
+        }
+        contentHash_ = h ? h : 1;
+    }
     previous_ = std::move(records);
 }
 

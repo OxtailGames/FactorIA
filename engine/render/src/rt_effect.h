@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -83,6 +84,20 @@ struct RtHitParams {
 static_assert(sizeof(RtHitParams) == 6 * 16, "RtHitParams is 6 float4 (rt_hit.hlsli and rt_hit.msli say the same)");
 inline constexpr std::string_view kRtHitParamNames[] = {"sunDir", "sunColor", "ambient", "sky", "horizon", "limits"};
 
+// The third constants block, of the path tracer (rt_pathtrace.hlsl / .metal, between `// BEGIN RtLightParams` and `// END RtLightParams`): the
+// point and spot lights it samples, 33 float4, 528 bytes, at uniform slot RtEffectBindings::kUniformLights by a request that carries it
+// (RtEffectKernelSpec::usesLights). `count` is the number of the first lights that are filled (0 .. kRtMaxLights).
+inline constexpr int kRtMaxLights = 8;
+struct RtLightParams {
+    std::uint32_t count[4];  // x: the number of lights
+    float pos[kRtMaxLights][4];    // xyz: the position (the renderer's space), w: the range
+    float color[kRtMaxLights][4];  // rgb: colour * intensity, w: the type (1 point, 2 spot; an area light is a point light at its centre)
+    float dir[kRtMaxLights][4];    // xyz: a spot's axis, w: cos(outer angle)
+    float extra[kRtMaxLights][4];  // x: cos(inner angle) of a spot (above 1.5: the lit pass's default fade)
+};
+static_assert(sizeof(RtLightParams) == 33 * 16, "RtLightParams is 33 float4 (rt_pathtrace.hlsl and .metal say the same)");
+inline constexpr std::string_view kRtLightParamNames[] = {"count", "pos", "color", "dir", "extra"};
+
 // The binding numbers of every effect kernel in each backend's own numbering (the contract the .hlsl and .metal files repeat in their header
 // comments). A kernel declares only the resources it reads; the numbers never change. The view slots are the engine's slots (Bindings::views).
 struct RtEffectBindings {
@@ -93,6 +108,8 @@ struct RtEffectBindings {
     static constexpr int kUniformParams = 0;  // set_uniforms(0, RtEffectParams)
     static constexpr int kUniformHit =
         1;  // set_uniforms(1, RtHitParams): the kernels that use rt_hit.hlsli (RtEffectKernelSpec::usesHit)
+    static constexpr int kUniformLights =
+        2;  // set_uniforms(2, RtLightParams): b2 / binding 8 / buffer(4) (RtEffectKernelSpec::usesLights)
     static constexpr int kSampler =
         0;  // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
     // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material, t5 aux.
@@ -116,6 +133,10 @@ struct RtEffectKernelSpec {
         true;  // the TLAS (t0 / binding 0 / buffer(0)); false: a kernel that only moves pixels, no ray query
     bool usesAux =
         false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
+    // M79-P5a (the path tracer): the kernel reads the image it writes (a running mean over the frames: the output is a read and write storage
+    // image, which needs a device that reads RGBA32F storage images) and the RtLightParams block of the request.
+    bool readsOut = false;
+    bool usesLights = false;
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the
@@ -146,6 +167,10 @@ void fill_rt_effect_camera(RtEffectParams& p, const CameraGeometry& cam, int w, 
 // The seed of a frame: a hash of the frame serial (no wall clock, no rand: the same serial gives the same seed on every machine).
 std::uint32_t rt_effect_seed(std::uint64_t frameSerial);
 
+// What a pass does after RtEffectRequest::prepare: Dispatch the kernel, Hold the image as it is (it counts as drawn: `ran` is true) or Skip
+// (`ran` stays false, nothing is drawn from it this frame).
+enum class RtPrepare { Dispatch, Hold, Skip };
+
 // What one effect of one camera needs this frame.
 struct RtEffectRequest {
     std::string kernel;         // "rt_shadow"
@@ -168,6 +193,11 @@ struct RtEffectRequest {
     float lightDir[3] = {0, 1, 0};  // toward the light
     float user0[4] = {}, user1[4] = {};
     RtHitParams hit{};  // set at kUniformHit when the kernel's spec has usesHit
+    RtLightParams lights{};  // set at kUniformLights when the kernel's spec has usesLights
+    // What the pass does with its image this frame, decided when the pass runs (the TLAS and the prepass are known to be there): the path tracer
+    // counts its samples here (rt_pathtrace.h). It may change the constants (`params`: the sample counters) and says what to do. Called on the
+    // thread that runs the graph, once per pass that runs, after the checks that could skip the pass and before the dispatch.
+    std::function<RtPrepare(RtEffectParams& params, const RtEffectImage& image)> prepare;
     RtScene* scene = nullptr;
     int* drawCalls = nullptr;  // each dispatch adds one when it runs (may be null)
 };
@@ -181,6 +211,7 @@ struct RtEffectImage {
     int width = 0, height = 0;
     bool ran = false;
     std::uint64_t lastUsed = 0;
+    std::uint64_t serial = 0;  // the same while this image lives: a made-again image has another (the path tracer's accumulation starts over)
 };
 
 struct RtEffectOutput {
@@ -235,6 +266,7 @@ private:
     std::set<std::string> warned_;                 // key + reason, said once
     std::map<std::string, Kernel> kernels_;
     std::map<std::string, std::unique_ptr<RtEffectImage>> images_;  // by "<job>/<effect>"
+    std::uint64_t imageSerial_ = 0;
     gpu::Buffer recordsBuffer_{};  // the buffer recordsView_ is a view of (the scene reallocates it when it grows)
     gpu::View recordsView_{};
 };
