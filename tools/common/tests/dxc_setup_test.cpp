@@ -36,7 +36,7 @@ bool has_text(const std::string& haystack, const std::string& needle) {
 #if defined(_WIN32)
 constexpr const char* kHost = "windows";
 constexpr const char* kExe = ".exe";
-constexpr const char* kSignerRel = "bin/dxil.dll";  // where the install leaves it
+constexpr const char* kSignerRel = "bin/dxil.dll";      // where the install leaves it
 constexpr const char* kSignerSrc = "bin/x64/dxil.dll";  // where the asset has it
 constexpr const char* kLibDir = "";
 constexpr const char* kBinDir = "bin/x64";
@@ -89,12 +89,9 @@ struct Lab {
     std::string asset(const std::string& tag, const std::string& binDir, const std::string& libDir,
                       const std::string& signerSrc, bool withSigner = true) {
         std::vector<std::pair<std::string, std::string>> entries = {
-            {binDir + "/dxc" + kExe, "dxc " + tag},
-            {binDir + "/dxv" + kExe, "dxv " + tag},
-            {"include/dxc/dxcapi.h", "// header"},
-            {"LICENSE-LLVM.txt", "llvm licence " + tag},
-            {"LICENSE-MS.txt", "ms licence " + tag},
-            {"ReleaseNotes.md", "notes " + tag},
+            {binDir + "/dxc" + kExe, "dxc " + tag},  {binDir + "/dxv" + kExe, "dxv " + tag},
+            {"include/dxc/dxcapi.h", "// header"},   {"LICENSE-LLVM.txt", "llvm licence " + tag},
+            {"LICENSE-MS.txt", "ms licence " + tag}, {"ReleaseNotes.md", "notes " + tag},
         };
         if (!libDir.empty()) entries.emplace_back(libDir + "/libdxcompiler.so", "compiler " + tag);
         if (withSigner) entries.emplace_back(signerSrc, "signer " + tag);

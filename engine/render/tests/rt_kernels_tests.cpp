@@ -17,14 +17,16 @@ TEST_CASE("rt kernels: every kernel has DXIL, SPIR-V with ray query and MSL") {
     for (const RtKernel& k : all_rt_kernels()) {
         CAPTURE(std::string(k.name));
         REQUIRE(k.dxil.size() > 64);
-        CHECK(std::memcmp(k.dxil.data(), "DXBC", 4) == 0);  // the container DXC wraps DXIL in (with the signature the driver checks)
+        CHECK(std::memcmp(k.dxil.data(), "DXBC", 4) ==
+              0);  // the container DXC wraps DXIL in (with the signature the driver checks)
         const std::string dxilText(reinterpret_cast<const char*>(k.dxil.data()), k.dxil.size());
         CHECK(dxilText.find("DXIL") != std::string::npos);
 
         REQUIRE(k.spirv.size() > 20);
         CHECK(k.spirv.size() % 4 == 0);
         std::uint32_t magic = 0;
-        std::memcpy(&magic, k.spirv.data(), 4);  // SPIR-V words are little endian in the blob; every host the engine runs on is too
+        std::memcpy(&magic, k.spirv.data(),
+                    4);  // SPIR-V words are little endian in the blob; every host the engine runs on is too
         CHECK(magic == 0x07230203u);
         // OpCapability (opcode 17, two words) RayQueryKHR (4472): the kernel is a ray query one.
         bool rayQuery = false;

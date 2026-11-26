@@ -26,8 +26,9 @@ struct RtKernel {
 
 inline std::span<const RtKernel> all_rt_kernels() {
     static const RtKernel kernels[] = {
-        {"rt_probe", kRtProbeDxil, kRtProbeSpirv, std::string_view(reinterpret_cast<const char*>(kRtProbeMsl), sizeof(kRtProbeMsl) - 1),
-         kRtProbeDxcVersion, kRtProbeHlslSha256, kRtProbeMslSha256},
+        {"rt_probe", kRtProbeDxil, kRtProbeSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtProbeMsl), sizeof(kRtProbeMsl) - 1), kRtProbeDxcVersion,
+         kRtProbeHlslSha256, kRtProbeMslSha256},
     };
     return kernels;
 }

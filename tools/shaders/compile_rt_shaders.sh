@@ -79,7 +79,8 @@ emit_blob() {
     local label="$1" file="$2" nul="$3" cname="$4"
     printf '// BEGIN %s sha256=%s bytes=%s\n' "$label" "$(sha256_of "$file")" "$(wc -c <"$file" | tr -d ' ')"
     printf 'inline constexpr std::uint8_t %s[] = {\n' "$cname"
-    od -An -v -tx1 "$file" | sed -e 's/ \([0-9a-f][0-9a-f]\)/ 0x\1,/g' -e 's/^ /    /' -e 's/ *$//'
+    # awk rebuilds each line from od's fields: BSD od pads the bytes, GNU od does not, the header must not depend on it.
+    od -An -v -tx1 "$file" | awk 'NF { line = "   "; for (i = 1; i <= NF; i++) line = line " 0x" $i ","; print line }'
     [ "$nul" = 1 ] && printf '    0x00,  // the text is NUL-terminated\n'
     printf '};\n// END %s\n' "$label"
 }
