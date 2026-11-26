@@ -65,6 +65,15 @@ TaaPlan build_taa_plan(const CameraInfo& cam, const PostProcess& f, std::uint64_
     p.sharpen = std::clamp(finite_or(f.temporalAASharpen, 0.25f), 0.0f, 1.0f);
     p.reactiveScale = std::clamp(finite_or(f.temporalAAReactiveScale, 1.0f), 0.0f, 4.0f);
     p.jitterPx = cam.jitterPx;
+    p.view = cam.view;
+    p.projection = cam.proj;
+    p.position = cam.position;
+    p.right = cam.right;
+    p.up = cam.up;
+    p.forward = cam.forward;
+    p.nearPlane = cam.nearPlane;
+    p.farPlane = cam.farPlane;
+    p.perspective = cam.perspective;
     p.camKey = camKey;
     p.serial = serial;
     p.sceneKey = sceneKey;

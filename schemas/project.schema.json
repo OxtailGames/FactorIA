@@ -188,13 +188,28 @@
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "enum": [
+                "stretch",
+                "spatial",
+                "temporal",
+                "metalfx",
+                "dlss",
+                "xess",
+                "fsr",
+                "auto"
+              ],
               "default": "stretch",
-              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
+              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); dlss = NVIDIA DLSS (an RTX GPU, Windows, `factoria setup streamline`); xess = Intel XeSS (Windows, `factoria setup xess`); fsr = AMD FSR 3.1 (Windows, D3D12 or Vulkan, `factoria setup fidelityfx`); auto = the GPU maker's own SDK when it is installed, else the best this GPU can draw. A mode that cannot run draws as the next best (effectiveMode says which). Default stretch."
             },
             "quality": {
               "type": "string",
-              "enum": ["native", "quality", "balanced", "performance", "ultraPerformance"],
+              "enum": [
+                "native",
+                "quality",
+                "balanced",
+                "performance",
+                "ultraPerformance"
+              ],
               "default": "native",
               "description": "How much smaller than the output the frame is drawn: native 1, quality 1/1.5, balanced 1/1.7, performance 1/2, ultraPerformance 1/3 of the output's width and height. Default native."
             },
@@ -204,6 +219,61 @@
               "maximum": 1,
               "default": 0.5,
               "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            },
+            "rayReconstruction": {
+              "type": "boolean",
+              "default": false,
+              "description": "With mode \"dlss\", or \"auto\" where it picks DLSS: draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of Super Resolution, on an NVIDIA RTX GPU on D3D12 or Vulkan with the Streamline SDK and its Ray Reconstruction plugin installed (`factoria setup streamline`) and a linear frame without a final pass; where it cannot run (render.supports \"dlssRayReconstruction\" says why) or the SDK refuses it, the frame draws with Super Resolution and the log says why once. An opt-in preview: the renderer has no ray-traced signals to denoise yet (M79) and its guides are approximations (docs/UPSCALING_VENDORS.md, \"DLSS Ray Reconstruction\"). Its plugin is loaded when the game starts, and only when the project's mode is dlss or auto, so the project setting (not a later window.upscaler change) is what makes it available. Ignored by every other mode. Default false."
+            }
+          }
+        },
+        "latency": {
+          "type": "object",
+          "description": "Low latency (M78, docs/LATENCY.md): the loop waits before it reads the player's input so the frame that shows a press is as new as possible. A game-wide setting that the command render.latency changes at run time. Off by default (the loop of every earlier version). The profiler reports the measured input-to-present time (profile.latency) while it is on.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "off",
+                "auto",
+                "reflex",
+                "antilag2",
+                "xell"
+              ],
+              "default": "off",
+              "description": "off = no pacing; auto = the SDK of the GPU's maker when it is usable (AMD: Anti-Lag 2, Intel: XeLL, NVIDIA: Reflex), else the engine's own pacing; reflex = NVIDIA Reflex (Windows, D3D12 or Vulkan on an NVIDIA GPU, Streamline: `factoria setup streamline`); antilag2 = AMD Anti-Lag 2 (Windows, D3D12 or Vulkan on a Radeon GPU, in the driver); xell = Intel XeSS Low Latency (Windows, D3D12, `factoria setup xess`). A mode whose SDK cannot run uses the engine's own pacing, which needs a window and the display's vsync (render.latency says why). Default off."
+            },
+            "boost": {
+              "type": "boolean",
+              "default": false,
+              "description": "The vendor's boost: the GPU clocks stay up while the game waits, for less latency at more power (Reflex boost, XeLL). Anti-Lag 2 and the engine's own pacing have no such switch and ignore it. Default false."
+            }
+          }
+        },
+        "frameGeneration": {
+          "type": "object",
+          "description": "Frame generation (M78, docs/FRAME_GENERATION.md): a vendor SDK puts a generated frame between two rendered ones, so the display shows more frames than the game renders. A game-wide setting that the command render.frame_generation reads and changes at run time. Off by default (the swapchain of every earlier version). It needs a game window on D3D12 or Vulkan, the temporal upscaler (render.upscaler, a render scale below 1) and the provider's SDK (`factoria setup`); render.frame_generation says why a mode does not run. The profiler reports the base and presented frame rates and the generated frames (profile.frameGeneration).",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "off",
+                "auto",
+                "dlss",
+                "fsr",
+                "xess"
+              ],
+              "default": "off",
+              "description": "off = no frame generation; auto = the SDK of the GPU's maker (NVIDIA: dlss, AMD: fsr, Intel: xess); dlss = NVIDIA DLSS frame generation (Windows, D3D12 or Vulkan, an RTX GPU, through Streamline); fsr = AMD FSR 3 frame generation (Windows, D3D12 or Vulkan, any GPU, FidelityFX); xess = Intel XeSS frame generation (Windows, D3D12, an Arc GPU). A mode whose SDK cannot run draws the rendered frames only, and render.frame_generation says why. Turning a provider on needs the start of the run (it owns the swapchain). Default off."
+            },
+            "minBaseFps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 60,
+              "description": "The frame rate the game renders at (generated frames not counted) below which generation is switched off: a generated frame between two slow ones adds delay and shows artefacts. It turns on again at 10% above it. 0 = never switch off. Default 60."
             }
           }
         },
@@ -218,7 +288,10 @@
               "description": "true turns the controller on. false (default) draws at the fixed render scale."
             },
             "targetMs": {
-              "type": ["number", "null"],
+              "type": [
+                "number",
+                "null"
+              ],
               "minimum": 0,
               "maximum": 100,
               "default": 0,
@@ -242,7 +315,16 @@
         },
         "backend": {
           "type": "string",
-          "enum": ["auto", "d3d11", "d3d12", "vulkan", "metal", "gl", "gles3", "webgl2"],
+          "enum": [
+            "auto",
+            "d3d11",
+            "d3d12",
+            "vulkan",
+            "metal",
+            "gl",
+            "gles3",
+            "webgl2"
+          ],
           "default": "auto",
           "description": "The GPU backend the game draws with (M77-P9a, docs/RENDERING.md, \"Choosing the GPU backend\"). \"auto\" (the default) is the backend this build of the engine uses today (OpenGL on Linux, Direct3D 11 on Windows, Metal on Apple, OpenGL ES 3 on Android, WebGL 2 on the web); later M77 work lets it pick the best one. On Linux and Android the exported game runs the Vulkan variant of the player first (factoria_player_vulkan, export.linux.vulkanPlayer / export.android.vulkanPlayer): auto there means Vulkan, and where Vulkan cannot start that player hands over to the GL one, a second process whose startup report names gpu.fallbackFrom and gpu.fallbackReason. A name the platform or this binary does not have (metal on Windows, d3d12 off Windows, vulkan in a build without it) starts with a warning and uses auto. d3d12 and vulkan draw into the game window with a swapchain of their own (Windows; Linux and Android, where the window's OpenGL surface waits off screen; vulkan on macOS through MoltenVK in a build that has it) and headless runs draw offscreen on them; when the one asked for cannot start, the engine warns once with its first error and draws with auto in the same process (gpu.backendFallback), after the Vulkan player of Linux and Android has tried to hand over to the GL player. The player's user setting (the graphics.backend command, stored in the user folder) overrides this key, the FA_GPU_BACKEND environment variable (same names) overrides both, and EngineConfig.gpuBackend overrides everything."
         },
@@ -258,7 +340,13 @@
         },
         "graphicsPreset": {
           "type": "string",
-          "enum": ["low", "medium", "high", "ultra", "custom"],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "ultra",
+            "custom"
+          ],
           "default": "custom",
           "description": "The graphics preset a run starts with (M76, docs/UPSCALING.md, \"Graphics presets\"): a quality layer the renderer applies on top of what the scene asks for (shadow cascades and sizes, ambient occlusion, reflections, depth of field, motion blur, volumetric fog, level-of-detail distances, foliage and terrain detail, 2D lighting, global illumination) and the upscaler. low, medium, high and ultra lower the settings of the scene, never raise them; custom (the default) is no layer: the game looks as its author made it. It writes nothing into the scenes. While a preset other than custom is on, render.upscaler is what custom brings back, not what is drawn. Scripts and the commands graphics.preset and graphics.detect change it at run time; the engine does not save the player's choice."
         }
@@ -411,7 +499,29 @@
             },
             "step": {
               "type": "integer",
-              "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576],
+              "enum": [
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64,
+                128,
+                256,
+                512,
+                1024,
+                2048,
+                4096,
+                8192,
+                16384,
+                32768,
+                65536,
+                131072,
+                262144,
+                524288,
+                1048576
+              ],
               "default": 256,
               "description": "Metres: the origin only moves in multiples of this. An integer power of two (1, 2, 4 ... 1048576), so a move is exact in a float at any distance, and at most `threshold`. Default 256, or the largest power of two at most `threshold` when `threshold` is below 256."
             },
@@ -1173,6 +1283,31 @@
               "type": "boolean",
               "default": true,
               "description": "true (default): the files go into the pack in the order the game first read them in play sessions (the editor's Play, factoria run, play.auto record it per scene in .factoria/cache/load-order.json): the main scene's files first, then each scene's in the order the scenes first loaded, then the files no session read, by path. Reading a pack front to back is what disks and SSDs do fastest. false, or no session recorded yet: by path. The export says which order it used and how many files it covered."
+            },
+            "vendorSdks": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "none"
+                  ]
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "streamline",
+                      "xess",
+                      "fidelityfx"
+                    ]
+                  },
+                  "uniqueItems": true
+                }
+              ],
+              "default": "auto",
+              "description": "Which vendor SDKs a Windows export copies next to the game, with their license texts in licenses/<id>/: \"auto\" (default) ships each one that is installed (`factoria setup streamline | xess | fidelityfx`) and that the project's render settings can use (render.upscaler.mode and render.frameGeneration.mode auto, dlss, xess or fsr; render.latency.mode auto, reflex or xell), and says in the export report when one is not installed; \"none\" ships none; an array of ids ships exactly those and fails when one is not installed. streamline is NVIDIA Streamline (DLSS, Frame Generation, Reflex), xess Intel XeSS, fidelityfx the AMD FidelityFX SDK. Each SDK's license is accepted when it is installed; NVIDIA's asks you to notify NVIDIA before a commercial release (the export report repeats it). Other platforms ship nothing."
             }
           }
         },

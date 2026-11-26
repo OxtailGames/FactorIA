@@ -4,14 +4,17 @@
 // ctest runs, holds exactly the kit's files (one source of truth: the template).
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "common.h"  // tools/cli/src: Session, run_project_tests
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/tooling/graphics_settings.h"
 #include "fa/tooling/menu_kit.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/validate.h"
@@ -587,5 +590,37 @@ TEST_CASE("the menus fixture holds exactly the kit's files") {
             REQUIRE(f.contains(it.key()));
             CHECK(f[it.key()] == *it);
         }
+    }
+}
+
+// The low-latency modes that have a boost switch are listed in C++ (the editor's Graphics window and the project reader: latency_mode_has_boost) and in
+// the kit's JS (settings.js LATENCY_BOOST, with LATENCY_MODES): one list must not drift from the other.
+TEST_CASE("the kit's low-latency boost modes are the editor's") {
+    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "templates" / "menus" / "scripts" / "settings.js");
+    const auto list_of = [&](const std::string& name) {
+        const size_t at = text.find("const " + name + " = [");
+        REQUIRE_MESSAGE(at != std::string::npos, name << " is in settings.js");
+        const size_t begin = text.find('[', at), end = text.find(']', begin);
+        std::vector<std::string> out;
+        std::string word;
+        bool in = false;
+        for (size_t i = begin + 1; i < end; ++i) {
+            if (text[i] == '"') {
+                if (in) out.push_back(word);
+                word.clear();
+                in = !in;
+            } else if (in) {
+                word += text[i];
+            }
+        }
+        return out;
+    };
+    const std::vector<std::string> boost = list_of("LATENCY_BOOST");
+    CHECK(!boost.empty());
+    CHECK(list_of("LATENCY_MODES") == fa::latency_modes());  // the same modes in the same order as the combo
+    for (const std::string& mode : fa::latency_modes()) {
+        CAPTURE(mode);
+        const bool inJs = std::find(boost.begin(), boost.end(), mode) != boost.end();
+        CHECK(inJs == fa::latency_mode_has_boost(mode));
     }
 }

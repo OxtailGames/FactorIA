@@ -143,6 +143,21 @@ TEST_CASE("profiler: run_headless reports systems, behaviour classes, gpu and me
     else
         CHECK(prof["gpu"]["avgMs"].get<double>() >= 0.0);
 
+    // Latency (M78): a headless run is not paced and measures no input-to-present time: null with the driver and the reason.
+    REQUIRE(prof.contains("latency"));
+    CHECK(prof["latency"]["driver"] == "none");
+    CHECK(prof["latency"]["avgMs"].is_null());
+    CHECK(prof["latency"]["samples"] == 0);
+    CHECK(prof["latency"]["reason"].is_string());
+
+    // Frame generation (M78): a headless run generates nothing; the block is there with the state and why (never missing, never invented).
+    REQUIRE(prof.contains("frameGeneration"));
+    CHECK(prof["frameGeneration"]["state"] == "off");
+    CHECK(prof["frameGeneration"]["provider"] == "none");
+    CHECK(prof["frameGeneration"]["generatedFrames"] == 0);
+    CHECK(prof["frameGeneration"]["reason"].is_string());
+    CHECK_FALSE(prof["frameGeneration"]["reason"].get<std::string>().empty());
+
     REQUIRE(prof["memory"].contains("start"));
     CHECK(prof["memory"]["end"]["entities"].get<int>() >= 4);
     CHECK(prof["memory"]["peak"]["processMB"].get<double>() > 0.0);

@@ -1018,7 +1018,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "big-world rows of M75: lodCrossFade, hlod, "
          "impostors, occlusionCpu, occlusionPortals, occlusionGpu, terrain, foliage, and the upscaling rows of M76, "
          "drawn: motionVectors, spatialUpscaler, temporalUpscaler, dynamicResolution, metalfx (Metal only: the reason "
-         "says when this OS or GPU lacks it); "
+         "says when this OS or GPU lacks it), and the vendor upscalers of M78: dlss, xess, fsr (the reason says what "
+         "is missing: the GPU, the backend, or the SDK to install with `factoria setup`); "
          "temporalAA is the effect row of the same name) or effect "
          "(one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
          "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
@@ -1184,18 +1185,31 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"render.upscaler",
          "Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen.",
-         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, auto), "
-         "`quality` (native, quality, balanced, performance, ultraPerformance) and `sharpness` (0 to 1). With no "
-         "argument it returns the setting; with any of the three it changes those and keeps the rest. Returns "
-         "{mode, quality, sharpness, effectiveMode, scale, changed}: effectiveMode is the mode the renderer really "
+         "The engine-wide upscaler of M76 (docs/UPSCALING.md): `mode` (stretch, spatial, temporal, metalfx, dlss, "
+         "xess, fsr, auto), "
+         "`quality` (native, quality, balanced, performance, ultraPerformance), `sharpness` (0 to 1) and "
+         "`rayReconstruction` (true draws mode \"dlss\" with DLSS Ray Reconstruction where this machine can, an opt-in "
+         "preview: render.supports \"dlssRayReconstruction\" says why not and the frame draws with Super Resolution "
+         "then; the plugin loads when the game starts, so a project turns it on in factoria.json and restarts). With "
+         "no "
+         "argument it returns the setting; with any of the four it changes those and keeps the rest. Returns "
+         "{mode, quality, sharpness, rayReconstruction, effectiveMode, scale, changed}: effectiveMode is the mode the "
+         "renderer really "
          "draws with and scale the share of the output's width and height the quality draws. Example: render.upscaler "
          "{\"mode\":\"auto\",\"quality\":\"balanced\"}" FA_COMMAND_DETAILS
          "The renderer draws \"stretch\", \"spatial\" (an edge-adaptive upscale and a contrast-adaptive sharpen), "
          "\"temporal\" (the camera is jittered and the frames accumulate in an output-size history) and \"metalfx\" "
          "(Apple's MetalFX on the Metal backend, its temporal scaler on a jittered frame of one camera, its spatial "
-         "scaler where the GPU has only that one); \"auto\" picks the best of those. "
+         "scaler where the GPU has only that one) and, from M78, \"dlss\" (NVIDIA DLSS through Streamline, an RTX "
+         "GPU), "
+         "\"xess\" (Intel XeSS) and \"fsr\" (AMD FSR 3.1): Windows only (D3D12, Vulkan; D3D11 too for XeSS, not for "
+         "DLSS), "
+         "each needs its SDK installed (`factoria setup streamline`, `xess`, `fidelityfx`; `render.supports` with "
+         "the mode's name says what is missing, and the log says it once). \"auto\" picks the SDK of the GPU's maker "
+         "(NVIDIA dlss, Intel xess, AMD fsr) when it is installed and usable, else the best of the others. "
          "temporal draws as spatial on a frame of several cameras and where its history cannot be made, metalfx "
          "draws as temporal (then spatial) where this OS or GPU has no MetalFX or it failed (one warning in the log), "
+         "as do dlss, xess and fsr where their SDK is missing, the GPU or backend does not suit it or a frame failed, "
          "and a pixel-perfect "
          "display (display.scaleMode) always draws stretch, so effectiveMode says what is on the screen. The game is "
          "drawn at window.renderScale times `scale` (never below 0.25) and brought up to the window's size, the HUD "
@@ -1206,12 +1220,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "fails with `invalid_argument`, the valid values and a \"did you mean\", and changes nothing. Works with "
          "graphics=false too (the value is only remembered).",
          parse_schema(R"({"type":"object","properties":{
-               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), auto (the best this GPU can draw)."},
+               "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","dlss","xess","fsr","auto"],"description":"stretch (the plain blit), spatial (edge-adaptive upscale + sharpen), temporal (jittered frames accumulated), metalfx (Apple, Metal only), dlss (NVIDIA DLSS, an RTX GPU, Windows, `factoria setup streamline`), xess (Intel XeSS, Windows, `factoria setup xess`), fsr (AMD FSR 3.1, Windows, `factoria setup fidelityfx`), auto (the GPU maker's own SDK when installed, else the best this GPU can draw)."},
                "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"],"description":"How much smaller than the output the frame is drawn: 1, 1/1.5, 1/1.7, 1/2, 1/3 of its width and height."},
-               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."}}})"),
+               "sharpness":{"type":"number","minimum":0,"maximum":1,"description":"Contrast-adaptive sharpen strength of the spatial and temporal modes, 0..1."},
+               "rayReconstruction":{"type":"boolean","description":"With mode dlss, or auto where it picks DLSS: draw with NVIDIA DLSS Ray Reconstruction instead of Super Resolution where this machine can (render.supports dlssRayReconstruction says why not; the frame then draws with Super Resolution). An opt-in preview. Default false."}}})"),
          false, "game"},
         [&I](const Json& a) {
-            check_args_known(a, {"mode", "quality", "sharpness"}, "render.upscaler");
+            check_args_known(a, {"mode", "quality", "sharpness", "rayReconstruction"}, "render.upscaler");
             const render::UpscalerSettings before = I.self->upscaler();
             bool changed = false;
             if (a.is_object() && !a.empty()) {
@@ -1226,6 +1241,88 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             out["effectiveMode"] = std::string(render::upscaler_mode_name(I.self->effective_upscaler_mode()));
             out["scale"] = std::round(double(render::upscaler_quality_scale(now.quality)) * 1000.0) / 1000.0;
             out["changed"] = changed;
+            return out;
+        });
+
+    I.commands.add(
+        {"render.latency",
+         "Reads or changes the low-latency setting: how the game shortens the time from an input to the frame it "
+         "shows.",
+         "The low-latency seam of M78 (docs/LATENCY.md): `mode` (off, auto, reflex, antilag2, xell) and `boost` (true "
+         "keeps the GPU clocks high, where the SDK has such a mode). With no argument it returns the setting; with any "
+         "key it changes those and keeps the rest. Returns {mode, boost, driver, reason, modes, changed, report}: "
+         "`driver` is what runs (none, pacing, reflex, antilag2, xell), `reason` says why it is not the one the mode "
+         "names, `modes` says per vendor SDK whether it is usable here and why not, `report` the measured "
+         "input-to-present time of the last frames. Example: render.latency {\"mode\":\"auto\"}" FA_COMMAND_DETAILS
+         "`auto` picks the SDK of the GPU's maker (AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex) and the engine's own "
+         "pacing where there is none. The vendor SDKs are Windows only and need their "
+         "files (`factoria setup xess` for XeLL, `factoria setup streamline` for Reflex); a mode that cannot run falls "
+         "back to the engine's own pacing and "
+         "`reason` says why. The engine's own pacing sleeps before the input is read so the frame is presented just "
+         "before the display's next refresh: it needs vsync on, no window.frameCap and a game window (not the editor, "
+         "not a headless run). Off does nothing: no call, no sleep. A wrong name fails with `invalid_argument` and a "
+         "\"did you mean\" and changes nothing. The start value is factoria.json \"render\": {\"latency\": {...}}. "
+         "Works with graphics=false too (the value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["off","auto","reflex","antilag2","xell"],"description":"off (nothing runs), auto (the GPU maker's SDK, else the engine's own pacing), reflex (NVIDIA Reflex, Windows, D3D12 and Vulkan on an NVIDIA GPU, `factoria setup streamline`), antilag2 (AMD Anti-Lag 2, Windows, D3D12 and Vulkan), xell (Intel XeLL, Windows, D3D12, `factoria setup xess`)."},
+               "boost":{"type":"boolean","description":"Keep the GPU clocks high while the game is waiting on it, where the SDK has a boost mode (XeLL and Reflex; Anti-Lag 2 has none)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "boost"}, "render.latency");
+            const render::LatencySettings before = I.self->latency();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_latency(a, "render.latency");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.latency with no argument to read the setting.");
+                changed = I.self->latency() != before;
+            }
+            Json out = I.self->latency_status();
+            out["changed"] = changed;
+            out["report"] = I.self->latency_report();
+            return out;
+        });
+
+    I.commands.add(
+        {"render.frame_generation",
+         "Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered "
+         "ones.",
+         "The frame generation seam of M78 (docs/FRAME_GENERATION.md): `mode` (off, auto, dlss, fsr, xess) and "
+         "`minBaseFps` (a whole number of 0 to 1000: below this rendered frame rate generation switches off, and it "
+         "switches on again at 10% above it; 0 never switches off). With no argument it returns the setting; with any "
+         "key it changes those and keeps the rest. Returns {mode, minBaseFps, provider, state, reason, modes, changed, "
+         "report}: `provider` is what runs (none, dlss, fsr, xess), `state` is off, refused, measuring, paused or "
+         "active, `reason` says why it is not the one the mode names, `modes` says per provider whether it is usable "
+         "here and why not, `report` the base and presented frame rates and the generated frames of the last frames. "
+         "Example: render.frame_generation {\"mode\":\"auto\"}" FA_COMMAND_DETAILS
+         "`auto` picks the SDK of the GPU's maker (NVIDIA dlss, AMD fsr, Intel xess). A provider needs a game window "
+         "on D3D12 or Vulkan (not the editor, not a headless run), the temporal upscaler (render.upscaler with a "
+         "render "
+         "scale below 1) and its SDK files (`factoria setup`); a provider owns the swapchain, so a game that starts "
+         "with mode off must be restarted to turn one on (`reason` says so), while a run that started with a provider "
+         "can switch it off and on. This build has the seam and no vendor provider yet: `modes` names the package "
+         "that adds each. A wrong name fails with `invalid_argument` and a \"did you mean\" and changes nothing. The "
+         "start value is factoria.json \"render\": {\"frameGeneration\": {...}}. Works with graphics=false too (the "
+         "value is only remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"],"description":"off (nothing runs), auto (the GPU maker's SDK), dlss (NVIDIA DLSS frame generation, Windows, D3D12 or Vulkan, RTX), fsr (AMD FSR 3 frame generation, Windows, D3D12 or Vulkan), xess (Intel XeSS frame generation, Windows, D3D12, Arc)."},
+               "minBaseFps":{"type":"integer","minimum":0,"maximum":1000,"description":"The rendered frame rate below which generation switches off (it resumes at 10% above). 0 never switches off. Default 60."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"mode", "minBaseFps"}, "render.frame_generation");
+            const render::FrameGenSettings before = I.self->frame_generation();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_frame_generation(a, "render.frame_generation");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.frame_generation with no argument to read the setting.");
+                changed = I.self->frame_generation() != before;
+            }
+            Json out = I.self->frame_generation_status();
+            out["changed"] = changed;
+            out["report"] = I.self->frame_generation_report();
             return out;
         });
 
@@ -1559,6 +1656,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.reset_post_history", capability_sets::changes_state()},
                                                  {"render.supports", capability_sets::reads()},
                                                  {"render.upscaler", capability_sets::changes_state()},
+                                                 {"render.latency", capability_sets::changes_state()},
+                                                 {"render.frame_generation", capability_sets::changes_state()},
                                                  {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},

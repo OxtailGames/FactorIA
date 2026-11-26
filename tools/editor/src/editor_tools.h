@@ -74,6 +74,13 @@ struct ProfilerView {
     std::string gpuReason = "no GPU time yet";
     double gpuMs = 0;  // smoothed; valid when haveGpu
     bool haveGpu = false;
+    // The input-to-present time of the engine's low-latency measurement (M78): smoothed; valid when haveLatency. The editor draws in
+    // its own loop, which has none, so the row says why.
+    double latencyMs = 0;
+    bool haveLatency = false;
+    std::string latencyDriver = "none", latencyReason = "no frame presented yet";
+    // The frame generation readout (M78, Engine::profile_frame_generation): provider, state, baseFps, presentedFps, generatedFrames, reason.
+    Json frameGeneration;
     ProfMemory memory;
     bool haveMemory = false;
     // The post-processing passes of the last sampled frame (fa::post_pass_times): CPU time to record each, GPU time where the

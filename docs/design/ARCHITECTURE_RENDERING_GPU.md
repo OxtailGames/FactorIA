@@ -42,7 +42,9 @@ RecordingDevice (recording_device.h/.cpp)     no GPU: validates every call and r
 - capabilities: `backend()`, `info()` (backend, Metal target, name), `features()`, `limits()`,
   `pixel_format_caps(format)`, `environment_defaults()` (what `PixelFormat::Default` and sample count 0 mean);
 - the natives: `native()`, `native_image()`, `native_buffer()` (the platform glue and the screenshots
-  need the `id<MTLDevice>`, the `ID3D11Device` or a GL texture name);
+  need the `id<MTLDevice>`, the `ID3D11Device` or a GL texture name); M78 adds `native_view()`, `info().gpu` and
+  `CommandList::begin_native` / `end_native` for vendor SDKs (ARCHITECTURE_RENDERING_VULKAN.md and _D3D12.md, "Native
+  access for vendor SDKs");
 - resources: `make_*` / `destroy_*` / `state()` for buffers, images, views, samplers, shaders and pipelines;
 - the frame: `begin_commands(label)`, `submit(list)`, `commit()`, `frame_index()`, commit listeners,
   `reset_state_cache()`;
@@ -661,3 +663,9 @@ The engine's own Direct3D 12 device (M77-P7, M77-P9) has a page of its own:
 
 The engine's own Vulkan device (M77-P8a, M77-P8c) has a page of its own:
 [ARCHITECTURE_RENDERING_VULKAN.md](ARCHITECTURE_RENDERING_VULKAN.md).
+
+## Device hooks for vendor SDKs
+
+`DeviceInit::hooks` and `register_device_hook` (M78-P2b) let an SDK take part in making the D3D12 and Vulkan devices and
+their swapchains; the other backends mark each hook unavailable with the reason:
+[ARCHITECTURE_RENDERING_HOOKS.md](ARCHITECTURE_RENDERING_HOOKS.md).

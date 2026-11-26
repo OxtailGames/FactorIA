@@ -87,6 +87,8 @@ export default class Options extends Behaviour {
       world.find(`tab_${tab}`).get("Button").color = tab === name ? TAB_SELECTED : TAB_COLOR;
     }
     world.find("quality_section").active = false; // the Graphics tab always opens on its first page
+    world.find("latency_section").active = false;
+    world.find("framegen_section").active = false;
   }
 
   // ------------------------------------------------------------------------------------------------------------ video
@@ -273,15 +275,35 @@ export default class Options extends Behaviour {
    * the render scale (window.renderScale). Every choice is applied at once and saved in settings.graphics (scripts/settings.js).
    * The preset drives the "Effects quality" row: picking a preset sets that quality and clears the effect switches and the upscaler keys the player
    * set, so the rows always show what the preset does; a row touched afterwards is the player's own fine adjustment and wins over the preset.
+   * The "Low latency" rows are the third page (latency_section, opened by gfx_latency_page; render.latency, docs/LATENCY.md): gfx_latency_<mode> picks off, auto, reflex, antilag2 or xell (a mode this machine cannot run is greyed
+   * out and named in the note, like an upscaler mode), gfx_latency_boost is the boost switch of the modes that have one; saved in settings.graphics.latency.
+   * The "Frame generation" rows are a fourth page (framegen_section, opened by gfx_fg_page from the low-latency page; render.frameGeneration, docs/FRAME_GENERATION.md): gfx_fg_<mode> picks off, auto, dlss, fsr or xess
+   * (an SDK this machine cannot run is greyed out and named in the note), gfx_fg_minfps is the frame rate the game must render at for it to stay on; saved in settings.graphics.frameGeneration. The note says
+   * what runs now (the engine's own state), and recommends a low-latency mode while there is none. A game that started with frame generation off cannot turn a provider on while it runs: the note says so.
    * gfx_dynamic (in gfx_dynamic_slot) cycles the dynamic resolution: off, 30 fps, 60 fps, the display's refresh (window.dynamicResolution); an old save has none
    * (null) and the row shows what the game set.
    */
   setupQuality() {
     const g = this.s.graphics;
-    ui.on("click", "gfx_page", () => this.showGraphicsPage(true));
-    ui.on("click", "gfx_page_back", () => this.showGraphicsPage(false));
+    ui.on("click", "gfx_page", () => this.showGraphicsPage("quality"));
+    ui.on("click", "gfx_page_back", () => this.showGraphicsPage("effects"));
+    ui.on("click", "gfx_latency_page", () => this.showGraphicsPage("latency"));
+    ui.on("click", "gfx_latency_back", () => this.showGraphicsPage("quality"));
+    ui.on("click", "gfx_fg_page", () => this.showGraphicsPage("framegen"));
+    ui.on("click", "gfx_fg_back", () => this.showGraphicsPage("latency"));
+    for (const mode of settings.FRAMEGEN_MODES) ui.on("click", `gfx_fg_${mode}`, () => this.chooseFrameGen({ mode }));
+    ui.on("change", "gfx_fg_minfps", (e) => {
+      const value = Math.round(Math.min(settings.FRAMEGEN_MIN_FPS_MAX, Math.max(0, e.value)));
+      if (this.syncing || value === settings.frameGenState().minBaseFps) return;
+      this.chooseFrameGen({ minBaseFps: value });
+    });
     for (const name of settings.GRAPHICS_PRESETS) ui.on("click", `gfx_preset_${name}`, () => this.choosePreset(name));
     for (const mode of settings.UPSCALER_MODES) ui.on("click", `gfx_mode_${mode}`, () => this.chooseUpscaler({ mode }));
+    for (const mode of settings.LATENCY_MODES) ui.on("click", `gfx_latency_${mode}`, () => this.chooseLatency({ mode }));
+    ui.on("change", "gfx_latency_boost", (e) => {
+      if (this.syncing || e.value === settings.latencyState().boost) return;
+      this.chooseLatency({ boost: e.value });
+    });
     ui.on("click", "gfx_uq", () => {
       const all = settings.UPSCALER_QUALITIES;
       this.chooseUpscaler({ quality: all[(all.indexOf(window.upscaler.quality) + 1) % all.length] });
@@ -289,14 +311,18 @@ export default class Options extends Behaviour {
     ui.on("click", "gfx_dynamic", () => {
       const all = settings.DYNAMIC_CHOICES;
       const next = all[(all.indexOf(settings.dynamicChoice(this.s)) + 1) % all.length]; // "custom" is not in the list: -1 + 1 = off
-      g.dynamicResolution = next;
-      this.applyQuality(() => settings.applyDynamicChoice(next));
+      this.applyQuality(
+        () => settings.applyDynamicChoice(next),
+        () => (g.dynamicResolution = next),
+      );
     });
     ui.on("change", "gfx_render_scale", (e) => {
       const value = Math.round(Math.min(settings.RENDER_SCALE_MAX, Math.max(settings.RENDER_SCALE_MIN, e.value)) * 100) / 100;
       if (this.syncing || value === (g.renderScale ?? window.renderScale)) return;
-      g.renderScale = value;
-      this.applyQuality(() => (window.renderScale = value));
+      this.applyQuality(
+        () => (window.renderScale = value),
+        () => (g.renderScale = value),
+      );
     });
     ui.on("change", "gfx_sharpness", (e) => {
       const value = Math.round(Math.min(1, Math.max(0, e.value)) * 100) / 100;
@@ -305,22 +331,32 @@ export default class Options extends Behaviour {
     });
   }
 
-  /** Shows the first (effects) or the second (preset and upscaling) page of the Graphics tab, with the focus on the page's first row. */
-  showGraphicsPage(quality) {
-    world.find("graphics_section").active = !quality;
-    world.find("quality_section").active = quality;
-    if (quality) this.refreshQuality();
-    ui.focus(world.find(quality ? "gfx_preset_auto" : "gfx_page"));
+  /** Shows a page of the Graphics tab ("effects", "quality" for preset and upscaling, "latency", "framegen"), with the focus on the page's first row. */
+  showGraphicsPage(page) {
+    world.find("graphics_section").active = page === "effects";
+    world.find("quality_section").active = page === "quality";
+    world.find("latency_section").active = page === "latency";
+    world.find("framegen_section").active = page === "framegen";
+    if (page !== "effects") this.refreshQuality();
+    ui.focus(world.find({ effects: "gfx_page", quality: "gfx_preset_auto", latency: "gfx_latency_auto", framegen: "gfx_fg_auto" }[page]));
   }
 
-  /** Runs `change` (an engine call), saves and shows the result; a call the engine refuses is logged and the page shows what is in force. */
-  applyQuality(change) {
+  /**
+   * Runs `change` (an engine call) and, only when the engine accepted it, `record` (what puts the choice in the settings), then saves and shows the result.
+   * A call the engine refuses is logged: nothing is recorded or saved, and the page shows what is in force.
+   */
+  applyQuality(change, record) {
+    let applied = true;
     try {
       change();
     } catch (e) {
+      applied = false;
       console.warn(`options: the graphics choice was not applied: ${e.message}`);
     }
-    settings.save(this.s);
+    if (applied) {
+      record?.();
+      settings.save(this.s);
+    }
     this.refreshQuality();
   }
 
@@ -349,8 +385,27 @@ export default class Options extends Behaviour {
 
   /** An upscaler mode, quality or sharpness: it applies at once and wins over what the preset wrote. */
   chooseUpscaler(keys) {
-    Object.assign(this.s.graphics.upscaler, keys);
-    this.applyQuality(() => (window.upscaler = keys));
+    this.applyQuality(
+      () => (window.upscaler = keys),
+      () => Object.assign(this.s.graphics.upscaler, keys),
+    );
+  }
+
+  /** A low-latency mode or its boost: it applies at once and is saved. A mode with no boost switch drops the boost. */
+  chooseLatency(keys) {
+    const chosen = keys.mode !== undefined && !settings.latencyHasBoost(keys.mode) ? { ...keys, boost: false } : keys;
+    this.applyQuality(
+      () => settings.setLatency(chosen),
+      () => Object.assign(this.s.graphics.latency, chosen),
+    );
+  }
+
+  /** A frame-generation mode or its minimum base frame rate: it applies at once and is saved (a game that started with it off answers `refused`: the note says so). */
+  chooseFrameGen(keys) {
+    this.applyQuality(
+      () => settings.setFrameGeneration(keys),
+      () => Object.assign(this.s.graphics.frameGeneration, keys),
+    );
   }
 
   /** What the page shows: the preset and the upscaler in force, the modes this GPU cannot draw greyed out, and the notes that say why. */
@@ -360,6 +415,8 @@ export default class Options extends Behaviour {
     const t = (key, args) => i18n.t(key, args);
     const preset = g.preset ?? game.graphics.preset().preset; // never chose: the engine's own (the project's render.graphicsPreset, else custom)
     const pick = settings.presetInForce(this.s);
+    const sep = t("options.gfx.listSep"); // between the modes that share a reason, and between the reasons ("، " and "؛ " in Arabic)
+    const groupSep = t("options.gfx.groupSep");
     const mark = (id, on) => (world.find(id).get("Button").color = on ? TAB_SELECTED : TAB_COLOR);
     this.syncing = true;
     try {
@@ -375,14 +432,66 @@ export default class Options extends Behaviour {
       world.find("gfx_mode_label").get("Text").text = t("options.gfx.modeLabel", {
         mode: up.effectiveMode === up.mode ? mode : t("options.gfx.modeDrawn", { mode, drawn: t(`options.gfx.um.${up.effectiveMode}`) }),
       });
-      const unsupported = [];
+      const reasons = new Map(); // reason -> the modes that share it ("DLSS, XeSS, FSR: ..."), so the note stays short
       for (const name of settings.UPSCALER_MODES) {
         const ok = settings.upscalerModeSupported(name);
         const widget = world.find(`gfx_mode_${name}`).get("Button");
         widget.interactable = ok;
         mark(`gfx_mode_${name}`, name === up.mode);
-        if (!ok) unsupported.push(`${t(`options.gfx.um.${name}`)}: ${t(`options.gfx.unsup.${name}`)}`);
+        if (ok) continue;
+        const reason = t(`options.gfx.unsup.${name}`);
+        reasons.set(reason, [...(reasons.get(reason) ?? []), t(`options.gfx.um.${name}`)]);
       }
+      const lat = settings.latencyState();
+      const latReasons = new Map(); // the same, for the low-latency modes (their own page)
+      world.find("gfx_latency_label").get("Text").text = t("options.gfx.latLabel", {
+        mode: lat.mode === "off" || lat.driver === lat.mode ? t(`options.gfx.latm.${lat.mode}`) : t("options.gfx.latDrawn", { mode: t(`options.gfx.latm.${lat.mode}`), drawn: t(`options.gfx.latd.${lat.driver}`) }),
+      });
+      for (const name of settings.LATENCY_MODES) {
+        const ok = settings.latencyModeSupported(name);
+        const widget = world.find(`gfx_latency_${name}`).get("Button");
+        widget.interactable = ok;
+        widget.text = t(`options.gfx.latm.${name}`);
+        mark(`gfx_latency_${name}`, name === lat.mode);
+        if (ok) continue;
+        const reason = t(`options.gfx.latunsup.${name}`);
+        latReasons.set(reason, [...(latReasons.get(reason) ?? []), t(`options.gfx.latm.${name}`)]);
+      }
+      const boost = world.find("gfx_latency_boost");
+      boost.active = settings.latencyHasBoost(lat.mode);
+      boost.get("Toggle").value = lat.boost;
+      const fg = settings.frameGenState();
+      const fgReasons = new Map(); // the same, for the frame-generation modes (their own page)
+      world.find("gfx_fg_label").get("Text").text = t("options.gfx.fgLabel", { mode: t(`options.gfx.fgm.${fg.mode}`) });
+      for (const name of settings.FRAMEGEN_MODES) {
+        const ok = settings.frameGenModeSupported(name);
+        const widget = world.find(`gfx_fg_${name}`).get("Button");
+        widget.interactable = ok;
+        widget.text = t(`options.gfx.fgm.${name}`);
+        mark(`gfx_fg_${name}`, name === fg.mode);
+        if (ok) continue;
+        const reason = t(`options.gfx.fgunsup.${name}`);
+        fgReasons.set(reason, [...(fgReasons.get(reason) ?? []), t(`options.gfx.fgm.${name}`)]);
+      }
+      const minFps = world.find("gfx_fg_minfps");
+      minFps.active = fg.mode !== "off";
+      const minSlider = minFps.get("Slider");
+      if (Math.abs(minSlider.value - fg.minBaseFps) > 0.5) minSlider.value = Math.min(fg.minBaseFps, settings.FRAMEGEN_MIN_FPS_MAX);
+      minSlider.label = fg.minBaseFps === 0 ? t("options.gfx.fgMinFpsNever") : t("options.gfx.fgMinFps", { fps: fg.minBaseFps });
+      const fgLines = [];
+      const fgUnsupported = [...fgReasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
+      if (fgUnsupported.length) fgLines.push(t("options.gfx.unsupNote", { modes: fgUnsupported.join(groupSep) }));
+      if (fg.mode !== "off") {
+        // What runs now: the engine's own state (docs/FRAME_GENERATION.md, "The command"); "refused" covers a game that started with frame generation off.
+        const fgState = { measuring: "fgMeasuring", paused: "fgPaused", active: "fgActive" }[fg.state] ?? "fgRefused";
+        fgLines.push(t(`options.gfx.${fgState}`, { min: fg.minBaseFps, base: Math.round(fg.baseFps), presented: Math.round(fg.presentedFps) }));
+        // Frame generation adds delay: a low-latency mode is recommended; DLSS forces NVIDIA Reflex on itself, so that case says so.
+        if (lat.mode === "off") fgLines.push(t(fg.mode === "dlss" ? "options.gfx.fgHintDlss" : "options.gfx.fgHint"));
+      }
+      const fgNote = world.find("framegen_note");
+      fgNote.active = fgLines.length > 0;
+      fgNote.get("Text").text = fgLines.join(" ");
+      const unsupported = [...reasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
       world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");
       world.find("gfx_dynamic").get("Button").text = t("options.gfx.dynLabel", { choice: t(`options.gfx.dyn.${settings.dynamicChoice(this.s)}`) });
@@ -396,8 +505,12 @@ export default class Options extends Behaviour {
       const shownSharpness = round2(up.sharpness); // the engine keeps a float: the slider and its label show hundredths
       if (Math.abs(sharpness.value - shownSharpness) > 0.004) sharpness.value = shownSharpness;
       sharpness.label = t("options.gfx.sharpness", { percent: Math.round(shownSharpness * 100) });
+      const latUnsupported = [...latReasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
+      const latNote = world.find("latency_note");
+      latNote.active = latUnsupported.length > 0;
+      latNote.get("Text").text = latUnsupported.length ? t("options.gfx.unsupNote", { modes: latUnsupported.join(groupSep) }) : "";
       const lines = [];
-      if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join("; ") }));
+      if (unsupported.length) lines.push(t("options.gfx.unsupNote", { modes: unsupported.join(groupSep) }));
       if (up.effectiveMode === "stretch" && up.mode !== "stretch") lines.push(t("options.gfx.stretchNote"));
       const note = world.find("quality_note");
       note.active = lines.length > 0;

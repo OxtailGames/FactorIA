@@ -174,6 +174,7 @@ double ProfileSummary::Acc::p95() const {
 void ProfileSummary::add_frame(const ProfFrame& f) {
     ++frames_;
     frame_.add(f.totalMs);
+    if (f.latencyMs >= 0) latency_.add(f.latencyMs);
     for (int i = 0; i < kProfSystemCount; ++i) systems_[std::size_t(i)].add(f.systemMs[std::size_t(i)]);
     for (const ProfClassSample& c : f.classes) {
         ClassAcc& a = classes_[c.path + "\n" + c.className];
@@ -215,6 +216,13 @@ void ProfileSummary::add_frame(const ProfFrame& f) {
 }
 
 void ProfileSummary::add_gpu_ms(double ms) { gpu_.add(ms); }
+
+void ProfileSummary::set_latency_status(const std::string& driver, const std::string& reason) {
+    latencyDriver_ = driver;
+    latencyReason_ = reason;
+}
+
+void ProfileSummary::set_frame_generation(const Json& readout) { frameGeneration_ = readout; }
 
 void ProfileSummary::set_gpu_status(bool supported, const std::string& reason) {
     gpuSupported_ = supported;
@@ -341,6 +349,38 @@ Json ProfileSummary::to_json() const {
                 : gpuReason_;
     }
     out["gpu"] = gpu;
+    // The input-to-present time (M78, docs/LATENCY.md): the span from the input sample to the end of the present call, per frame.
+    Json latency = Json::object();
+    latency["driver"] = latencyDriver_;
+    if (latency_.n > 0) {
+        latency["avgMs"] = r3(latency_.sum / double(latency_.n));
+        latency["p95Ms"] = r3(latency_.p95());
+        latency["maxMs"] = r3(latency_.max);
+        latency["samples"] = latency_.n;
+        latency["reason"] = nullptr;
+    } else {
+        latency["avgMs"] = nullptr;
+        latency["p95Ms"] = nullptr;
+        latency["maxMs"] = nullptr;
+        latency["samples"] = 0;
+        latency["reason"] = latencyReason_;
+    }
+    out["latency"] = latency;
+    // Frame generation (M78, docs/FRAME_GENERATION.md): what the provider did while this was measured.
+    if (frameGeneration_.is_object()) {
+        out["frameGeneration"] = frameGeneration_;
+    } else {
+        Json fg = Json::object();
+        fg["provider"] = "none";
+        fg["state"] = "off";
+        fg["generating"] = false;
+        fg["baseFps"] = 0.0;
+        fg["presentedFps"] = 0.0;
+        fg["renderedFrames"] = 0;
+        fg["generatedFrames"] = 0;
+        fg["reason"] = "the frame generation was not measured";
+        out["frameGeneration"] = fg;
+    }
     Json mem = Json::object();
     if (haveMemory_) {
         mem["start"] = mem_json(memStart_);

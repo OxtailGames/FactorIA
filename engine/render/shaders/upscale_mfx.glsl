@@ -1,17 +1,21 @@
-// shdc-slang: metal_macos:metal_ios:metal_sim
-// FactorIA MetalFX input preparation (M76-P5b): one fragment pass at the render resolution that turns what the depth prepass wrote into what the
-// MetalFX temporal scaler reads. Metal only (MetalFX is), so only the Metal dialects are compiled.
+// shdc-slang: glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk
+// FactorIA temporal-upscaler input preparation (M76-P5b, M78): one fragment pass at the render resolution that turns what the depth prepass wrote
+// into what the MetalFX temporal scaler and the vendor SDKs (XeSS, DLSS, FSR) read. The vendor SDKs run on Metal, D3D11 and D3D12 (hlsl5) and
+// Vulkan, whose texture space is top-down, so the uv below needs no flip. The GL and WebGPU dialects are compiled too so that the pass (and the
+// provider hand-off tests with a fake provider) runs on every backend; no SDK reads its result on OpenGL, where the uv is not flipped.
 //
 //   in   tex_p  the prepass: r = the linear view depth in world units (a = 1 where a mesh was drawn, else 0)
 //        tex_v  the velocity: rg = uvPrev - uvCurr (unjittered, y down), 1024 where no object wrote one (VelocityRef::kNone)
-//   out  location 0 (R32F)  the depth in 0..1 (d / (d + 1): increasing with the distance, 1 for the sky and every pixel no mesh wrote)
+//   out  location 0 (R32F)  the depth in 0..1 (d / (d + 1): increasing with the distance, 1 for the sky and every pixel no mesh wrote). Kind 1
+//                           (FSR, `d.x` = 1): the reversed depth of an infinite far plane, near / max(d, near): 1 at the near plane, towards 0 with
+//                           the distance, 0 for the sky and every pixel no mesh wrote (the depth FSR reads with its inverted and infinite flags).
 //        location 1 (RG16F) the motion in UV units of the picture (y down), pointing from the pixel to where its surface was on the frame
 //                           before: the velocity when an object wrote one, else the camera's own movement reprojected from the depth with the
 //                           matrix `m`, as the temporal resolve does (taa_shared.glsl); the sentinel never reaches MetalFX. The caller sets
 //                           MetalFX's motion scale to the render size (the unit of the image is the picture's width and height).
 //
-// Why not hand MetalFX the prepass as it is: its depth is in world units up to 60000 (MetalFX reads a 0..1 depth), and where no object wrote a
-// velocity the image holds 1024, which MetalFX would take for a motion of a thousand pictures.
+// Why not hand MetalFX the prepass as it is: its depth is in world units up to 60000 (the scalers read a 0..1 depth), and where no object wrote a
+// velocity the image holds 1024, which a scaler would take for a motion of a thousand pictures.
 @module upscale_mfx
 
 @vs vs
@@ -36,6 +40,7 @@ layout(binding=0) uniform mfx_params {
     vec4 pa;    // the projection of the camera: P00, P11, P02, P12
     vec4 pb;    // P03, P13, P32, P33
     mat4 m;     // previous (unjittered) view-projection * inverse view: a view-space position of this frame -> the clip position it had on the frame before
+    vec4 d;     // x = the depth kind (0: d / (d + 1), 1: the reversed infinite depth near / d), y = the near plane of kind 1
 };
 in vec2 uv;
 layout(location=0) out vec4 out_depth;
@@ -47,7 +52,8 @@ void main() {
     vec4 pre = textureLod(sampler2D(tex_p, smp_pt), uv, 0.0);
     bool drawn = j.w > 0.5 && pre.a > 0.5;
     float depth = drawn ? pre.r : FAR;
-    out_depth = vec4(drawn ? depth / (depth + 1.0) : 1.0, 0.0, 0.0, 1.0);
+    float outDepth = d.x > 0.5 ? (drawn ? d.y / max(depth, d.y) : 0.0) : (drawn ? depth / (depth + 1.0) : 1.0);
+    out_depth = vec4(outDepth, 0.0, 0.0, 1.0);
 
     vec2 mv = vec2(0.0);
     bool known = false;

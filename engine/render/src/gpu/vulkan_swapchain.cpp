@@ -9,9 +9,11 @@
 #if defined(FA_VULKAN_BACKEND)
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -442,11 +444,30 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     ci.clipped = VK_TRUE;
     ci.oldSwapchain = old;
     VkSwapchainKHR made = VK_NULL_HANDLE;
-    r = fn_.vkCreateSwapchainKHR(device_, &ci, nullptr, &made);
-    if (old) {
-        fn_.vkDestroySwapchainKHR(device_, old, nullptr);
+    // The device hooks may change the create info, make the swapchain themselves or hand the functions it is called
+    // with (gpu/device_hooks.h). The old swapchain goes with the functions it was made with.
+    const SwapFunctions oldFns = swapFns_;
+    SwapFunctions fns = engine_swap_functions();
+    bool byHook = false, hookFailed = false, oldGone = false;
+    if (!hooks_.empty()) {
+        byHook = hooks_make_swapchain(ci, fns, made, hookFailed);
+        if (!byHook && hookFailed && old) {
+            // A hook that failed may have retired the old swapchain already, or not: the old one goes first, and the
+            // engine's is made without it.
+            hooks_swapchain_destroying(old);
+            oldFns.destroy(device_, old, nullptr);
+            ++swapRecreations_;
+            ci.oldSwapchain = VK_NULL_HANDLE;
+            oldGone = true;
+        }
+    }
+    r = byHook ? VK_SUCCESS : fns.create(device_, &ci, nullptr, &made);
+    if (old && !oldGone) {
+        if (!hooks_.empty()) hooks_swapchain_destroying(old);
+        oldFns.destroy(device_, old, nullptr);
         ++swapRecreations_;
     }
+    swapFns_ = fns;
     swapchain_ = r == VK_SUCCESS ? made : VK_NULL_HANDLE;
     if (!swapchain_)
         return vk_fail(where, "vkCreateSwapchainKHR", r,
@@ -457,10 +478,10 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
     // Not on Android: there the swapchain is the platform loader's object (libvulkan.so implements VK_KHR_swapchain over
     // the driver), and vkSetDebugUtilsObjectNameEXT reaches the driver with a handle that is not its own: Mesa's
     // vk_common_SetDebugUtilsObjectNameEXT (the emulator's driver) frees a name it reads from it and aborts the process.
-    // Its images are the driver's own and keep their names below.
-    set_name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, handle_bits(swapchain_), swapLabel_.c_str());
+    // Its images are the driver's own and keep their names below. Nor a swapchain a hook made (a proxy's handle).
+    if (!byHook) set_name(VK_OBJECT_TYPE_SWAPCHAIN_KHR, handle_bits(swapchain_), swapLabel_.c_str());
 #endif
-    swapUsage_ = usage;
+    swapUsage_ = ci.imageUsage;  // what the hooks added included (usage is the engine's)
     swapStale_ = false;
     {
         std::lock_guard<std::mutex> lock(swapMutex_);
@@ -479,7 +500,7 @@ Result<void> VulkanDevice::make_swapchain(const std::string& where, bool windowS
 // range the engine's HDR10 output is tone mapped to. A device without the extension, and the other colour spaces
 // (scRGB carries its own scale), set nothing.
 void VulkanDevice::set_hdr_metadata() {
-    if (!fn_.vkSetHdrMetadataEXT || swapColorSpace_ != VK_COLOR_SPACE_HDR10_ST2084_EXT || !swapchain_) return;
+    if (!swapFns_.setHdrMetadata || swapColorSpace_ != VK_COLOR_SPACE_HDR10_ST2084_EXT || !swapchain_) return;
     VkHdrMetadataEXT m{};
     m.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
     m.displayPrimaryRed = {0.708f, 0.292f};
@@ -490,16 +511,16 @@ void VulkanDevice::set_hdr_metadata() {
     m.minLuminance = 0.001f;
     m.maxContentLightLevel = 1000.0f;
     m.maxFrameAverageLightLevel = 400.0f;
-    fn_.vkSetHdrMetadataEXT(device_, 1, &swapchain_, &m);
+    swapFns_.setHdrMetadata(device_, 1, &swapchain_, &m);
 }
 
 Result<void> VulkanDevice::make_swap_images(const std::string& where) {
     std::uint32_t count = 0;
     std::vector<VkImage> handles;
-    VkResult r = fn_.vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
+    VkResult r = swapFns_.getImages(device_, swapchain_, &count, nullptr);
     if (r == VK_SUCCESS && count > 0) {
         handles.resize(count);
-        r = fn_.vkGetSwapchainImagesKHR(device_, swapchain_, &count, handles.data());
+        r = swapFns_.getImages(device_, swapchain_, &count, handles.data());
         handles.resize(count);
     }
     if (r < VK_SUCCESS || handles.empty())
@@ -526,6 +547,8 @@ Result<void> VulkanDevice::make_swap_images(const std::string& where) {
         t->image = handles[i];
         t->external = true;  // the swapchain's: vkDestroySwapchainKHR frees it
         t->aspects = VK_IMAGE_ASPECT_COLOR_BIT;
+        t->usage = swapUsage_;  // NativeImage::vkUsage and nativeFormat of the backbuffer (begin_native)
+        t->format = swapVkFormat_;
         t->states.assign(1, SubState{});
         ImageRecord rec;
         rec.tracked = t;
@@ -752,7 +775,7 @@ Result<Swapchain> VulkanDevice::acquire_swapchain(const Swapchain&) {
             --injectedAcquires_;
             r = injectedAcquire_;
         } else {
-            r = fn_.vkAcquireNextImageKHR(device_, swapchain_, kAcquireTimeoutNs, semaphore, VK_NULL_HANDLE, &index);
+            r = swapFns_.acquire(device_, swapchain_, kAcquireTimeoutNs, semaphore, VK_NULL_HANDLE, &index);
         }
         if (r == VK_ERROR_OUT_OF_DATE_KHR) {  // nothing was signalled: made again, then one more try
             swapStale_ = true;
@@ -880,7 +903,15 @@ Result<void> VulkanDevice::present() {
             pi.swapchainCount = 1;
             pi.pSwapchains = &swapchain_;
             pi.pImageIndices = &index;
-            r = fn_.vkQueuePresentKHR(queues_[int(QueueKind::Graphics)].queue, &pi);
+            const VkQueue queue = queues_[int(QueueKind::Graphics)].queue;
+            if (hooks_.empty()) {
+                r = swapFns_.present(queue, &pi);
+            } else {  // the hooks see each present (Reflex markers, frame generation's pacing)
+                ++presents_;
+                hooks_present(true, queue, index, VK_SUCCESS);
+                r = swapFns_.present(queue, &pi);
+                hooks_present(false, queue, index, r);
+            }
         }
     }
     {
@@ -917,7 +948,10 @@ Result<void> VulkanDevice::present() {
 void VulkanDevice::destroy_swapchain() {
     if (!swapchain_ && !surface_) return;
     release_swap_images();
-    if (swapchain_) fn_.vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    if (swapchain_) {
+        if (!hooks_.empty()) hooks_swapchain_destroying(swapchain_);
+        swapFns_.destroy(device_, swapchain_, nullptr);
+    }
     swapchain_ = VK_NULL_HANDLE;
     if (surface_) fn_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
     surface_ = VK_NULL_HANDLE;
@@ -978,8 +1012,112 @@ bool VulkanDevice::suboptimal_only_by_rotation() {
 void VulkanDevice::lose_swapchain_keep_surface_for_tests() {
     if (!swapchain_) return;
     release_swap_images();
-    fn_.vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    if (!hooks_.empty()) hooks_swapchain_destroying(swapchain_);
+    swapFns_.destroy(device_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
+}
+
+// ---- device hooks (gpu/device_hooks.h) ----
+
+VulkanDevice::SwapFunctions VulkanDevice::engine_swap_functions() const {
+    SwapFunctions f;
+    f.create = fn_.vkCreateSwapchainKHR;
+    f.destroy = fn_.vkDestroySwapchainKHR;
+    f.getImages = fn_.vkGetSwapchainImagesKHR;
+    f.acquire = fn_.vkAcquireNextImageKHR;
+    f.present = fn_.vkQueuePresentKHR;
+    f.setHdrMetadata = fn_.vkSetHdrMetadataEXT;
+    return f;
+}
+
+namespace {
+
+VulkanSwapchainFunctions to_hook(const VkSwapFunctions& f) {
+    VulkanSwapchainFunctions h;
+    h.createSwapchain = reinterpret_cast<HookProcAddr>(f.create);
+    h.destroySwapchain = reinterpret_cast<HookProcAddr>(f.destroy);
+    h.getSwapchainImages = reinterpret_cast<HookProcAddr>(f.getImages);
+    h.acquireNextImage = reinterpret_cast<HookProcAddr>(f.acquire);
+    h.queuePresent = reinterpret_cast<HookProcAddr>(f.present);
+    h.setHdrMetadata = reinterpret_cast<HookProcAddr>(f.setHdrMetadata);
+    return h;
+}
+
+// The hooks' table over `base`: a null entry keeps base's.
+VkSwapFunctions from_hook(const VulkanSwapchainFunctions& h, const VkSwapFunctions& base) {
+    VkSwapFunctions f = base;
+    if (h.createSwapchain) f.create = reinterpret_cast<PFN_vkCreateSwapchainKHR>(h.createSwapchain);
+    if (h.destroySwapchain) f.destroy = reinterpret_cast<PFN_vkDestroySwapchainKHR>(h.destroySwapchain);
+    if (h.getSwapchainImages) f.getImages = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(h.getSwapchainImages);
+    if (h.acquireNextImage) f.acquire = reinterpret_cast<PFN_vkAcquireNextImageKHR>(h.acquireNextImage);
+    if (h.queuePresent) f.present = reinterpret_cast<PFN_vkQueuePresentKHR>(h.queuePresent);
+    if (h.setHdrMetadata) f.setHdrMetadata = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(h.setHdrMetadata);
+    return f;
+}
+
+}  // namespace
+
+bool VulkanDevice::hooks_make_swapchain(VkSwapchainCreateInfoKHR& ci, SwapFunctions& fns, VkSwapchainKHR& made,
+                                        bool& failed) {
+    VulkanSwapchainCreate sc;
+    sc.device = device_;
+    sc.queue = queues_[int(QueueKind::Graphics)].queue;
+    sc.createInfo = &ci;
+    sc.functions = to_hook(fns);
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        const VkSwapchainCreateInfoKHR before = ci;
+        const VulkanSwapchainFunctions saved = sc.functions;
+        sc.swapchain = 0;
+        sc.result = 0;
+        sc.error.clear();
+        const bool byHook = h->vulkan_create_swapchain(sc);
+        std::string error = sc.error;
+        if (error.empty() && byHook && (sc.swapchain == 0 || sc.result != VK_SUCCESS))
+            error =
+                "it said it made the swapchain, but gave " +
+                (sc.swapchain ? "the result " + result_text(VkResult(sc.result)) : std::string("no VkSwapchainKHR"));
+        if (!error.empty()) {
+            ci = before;
+            sc.functions = saved;
+            failed = true;
+            hook_unavailable(*h, "making the swapchain '" + swapLabel_ + "' failed: " + error +
+                                     "; the engine made its own swapchain without the hook");
+            continue;
+        }
+        if (byHook) {
+            made = handle_from_bits<VkSwapchainKHR>(sc.swapchain);
+            fns = from_hook(sc.functions, fns);
+            return true;
+        }
+    }
+    fns = from_hook(sc.functions, fns);
+    return false;
+}
+
+void VulkanDevice::hooks_swapchain_destroying(VkSwapchainKHR swapchain) {
+    SwapchainEvent e;
+    e.backend = Backend::Vulkan;
+    e.vkSwapchain = handle_bits(swapchain);
+    for (const auto& h : hooks_)
+        if (h->available()) h->swapchain_destroying(e);
+}
+
+void VulkanDevice::hooks_present(bool begin, VkQueue queue, std::uint32_t image, VkResult result) {
+    PresentEvent e;
+    e.backend = Backend::Vulkan;
+    e.frame = presents_;
+    e.vkSwapchain = handle_bits(swapchain_);
+    e.queue = queue;
+    e.imageIndex = image;
+    e.result = std::int32_t(result);
+    for (const auto& h : hooks_) {
+        if (!h->available()) continue;
+        if (begin)
+            h->present_begin(e);
+        else
+            h->present_end(e);
+    }
 }
 void VulkanDevice::mark_swapchain_out_of_date_for_tests() { swapStale_ = true; }
 

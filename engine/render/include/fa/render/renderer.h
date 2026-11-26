@@ -42,6 +42,8 @@
 #include "fa/render/gpu_info.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/ui_painter.h"
+#include "fa/render/framegen.h"
+#include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -171,6 +173,22 @@ struct RendererDesc {
     // D3d12 and Vulkan without `headless`: the present mode of their swapchain (true: FIFO / sync interval 1). The
     // sokol backends follow the platform's (app_set_vsync).
     bool vsync = true;
+    // M78 (factoria.json render.frameGeneration; docs/FRAME_GENERATION.md): the game asks for frame generation, so the providers' device hooks are
+    // handed to the device this renderer makes (gpu::DeviceInit::hooks; never registered for the process, so another renderer's device does not
+    // see them). They take part in making the swapchain, which cannot be changed later. False: the mode can be
+    // set at run time, but a provider never starts and the reason says to restart with the setting on. Only D3d12 and Vulkan in a window use it.
+    bool frameGeneration = false;
+    // The mode the game asked for (render.frameGeneration.mode; the renderer's frame generation settings can change it later, a provider that
+    // makes the swapchain cannot): each provider's hook decides from it whether it takes part (an FSR swapchain under mode "dlss" would be wrong).
+    render::FrameGenMode frameGenerationMode = render::FrameGenMode::Auto;
+    // M78 (factoria.json render.upscaler.rayReconstruction): the game asks for DLSS Ray Reconstruction, so NVIDIA Streamline is told to load
+    // its plugin (sl.dlss_d) before the Direct3D 12 or Vulkan device is made. False: the setting can still be set at run time, but the plugin
+    // is not loaded and render.supports "dlssRayReconstruction" says to restart with the project setting on (a game that never uses it is not
+    // asked for the plugin's load time and memory).
+    bool rayReconstruction = false;
+    // The project asked for Ray Reconstruction (the flag is true) but starts in a mode that never draws with DLSS, so `rayReconstruction` is
+    // false: the answer of render.supports says to set render.upscaler.mode to "dlss" or "auto" and restart, not to set the flag.
+    bool rayReconstructionNeedsMode = false;
 };
 
 // What one drawn frame cost. With several cameras (Camera.viewport) every number adds up over the cameras: drawCalls, sprites,
@@ -360,6 +378,8 @@ public:
     bool init(const RendererDesc& desc, const GfxEnvironment& env, std::string* error);
     void shutdown();
     bool initialized() const;
+    // The description init() was given (a default one before). What the engine decided from the project, for tests and tools to check.
+    const RendererDesc& desc() const;
 
     // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/design/ARCHITECTURE_RENDERING.md "Start-up order and the shader cache") ----------------------------------
     // A window player opens the graphics context FIRST (open_context), presents one cleared frame (present_clear) and only
@@ -442,6 +462,37 @@ public:
     // `preset` as this GPU draws it: its table of limits and upscaler with every knob the GPU cannot honour lowered or switched off, and the
     // reason of each (render.supports' status). Changes nothing; needs no frame.
     render::QualityResolved resolve_graphics_preset(render::GraphicsPreset preset) const;
+    // The engine-wide low-latency setting (fa/render/latency.h, M78; docs/LATENCY.md). The path that runs is effective_latency(): the mode's
+    // SDK where it is usable, else the engine's own pacing (a renderer that presents to a window), else none. Needs an initialised renderer (before init() the
+    // calls do nothing; the engine sets it right after init). Off (the default) costs nothing: the calls below return at the first branch.
+    void set_latency(const render::LatencySettings& settings);
+    const render::LatencySettings& latency() const;
+    render::LatencyDriver effective_latency() const;
+    // What the setting is and why: {"mode", "boost", "driver", "reason" (why the mode runs another path, or ""), "modes": {name: {"available",
+    // "reason"}} for reflex, antilag2 and xell}. Asks each SDK once.
+    Json latency_status();
+    // The frame's markers (src/render_latency.h). The engine calls latency_frame_begin once per frame before it samples the player's input
+    // (it sleeps there, when the path paces: `refreshHz` is the display's refresh rate while the loop runs at it, else 0), and
+    // latency_mark for InputSample and SimulationEnd; the renderer marks the rest itself (begin_frame, present).
+    void latency_frame_begin(double refreshHz);
+    void latency_mark(render::LatencyMarker marker);
+    // Input to the end of the present call of the last frame measured, in ms, once; negative when no frame was measured since the last call.
+    double take_latency_ms();
+    // The readout: {"driver", "lastMs", "avgMs", "p95Ms", "maxMs", "samples", "vendor"} (vendor: the SDK's own report, or null).
+    Json latency_report();
+    // The engine-wide frame-generation setting (fa/render/framegen.h, M78; docs/FRAME_GENERATION.md). The provider that runs is
+    // effective_frame_generation(): the mode's SDK when it is usable here, else none (the reason is in frame_generation_status). Whether it
+    // generates this frame is the controller's: it needs the temporal upscaler's frame and a base frame rate of at least minBaseFps. Needs an
+    // initialised renderer (before init() the calls do nothing). Off (the default) costs nothing.
+    void set_frame_generation(const render::FrameGenSettings& settings);
+    const render::FrameGenSettings& frame_generation() const;
+    render::FrameGenSlot effective_frame_generation() const;
+    // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:
+    // {"available", "reason"}} for dlss, fsr and xess}. Asks each SDK once.
+    Json frame_generation_status();
+    // The readout: {"provider", "state", "generating", "baseFps", "presentedFps", "renderedFrames", "generatedFrames", "reason"} (the rates over
+    // the last 30 rendered frames; "reason" says why nothing runs or why generation is paused).
+    Json frame_generation_report();
     render::UpscalerCaps upscaler_caps() const;  // what this backend and display can draw (the input of the next line)
     render::UpscalerMode
     effective_upscaler_mode() const;  // the mode that draws now; "stretch" while the renderer is not initialised

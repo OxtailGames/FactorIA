@@ -88,6 +88,9 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
                 im.swapH = sd.height;
                 im.resizeFailed = false;
                 im.presentFailed = false;
+                // A new swapchain object, whatever its size: what a provider holds of the old one (views, sizes) is out of date.
+                im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), sd.width, sd.height, sd.vsync},
+                                          true);
                 FA_INFO("render", "Renderer::present: the window's swapchain was made again ({}x{})", sd.width,
                         sd.height);
             }
@@ -109,13 +112,19 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
             im.resizeFailed = false;
             im.swapW = fbW;
             im.swapH = fbH;
+            im.framegen.set_swapchain(render::FrameGenSwapchain{device.backend(), fbW, fbH, im.windowDesc.vsync});
         }
     }
+    // The frame's work is done and what follows only waits: the acquire blocks on the display (D3D12 waits for the swapchain's frame-latency
+    // object), so PresentStart is marked before it, or the engine's own pacing and the SDK would count that wait as work.
+    im.latency.mark(render::LatencyMarker::PresentStart);
     // The image of the window to draw into: on the sokol devices the frame's surface as sokol_app gave it.
     auto acquired = device.acquire_swapchain(gpu::swapchain_of(swapchain));
     if (!acquired) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", acquired.error().to_string());
         im.presentFailed = true;  // said once
+        // PresentStart was sent: the frame ends here, or the id of this frame (the present counter + 1) would stay open for the next one.
+        im.latency.mark(render::LatencyMarker::PresentEnd);
         im.inFrame = false;
         return;
     }
@@ -149,10 +158,12 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     list.end_pass();
     im.gpu.commit_frame();
     im.gpu.note_commit();
+    im.latency.mark(render::LatencyMarker::RenderSubmitEnd);
     if (auto shown = device.present(); !shown) {
         if (!im.presentFailed) FA_ERROR("render", "Renderer::present: {}", shown.error().to_string());
         im.presentFailed = true;
     }
+    im.latency.mark(render::LatencyMarker::PresentEnd);
     im.inFrame = false;
 }
 

@@ -446,10 +446,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.debug_view`](commands/game.md#renderdebug_view-modifies-state): Show the depth or the normals of the depth and normal prepass, the ambient occlusion, the cascades of the sun's shadow or the occlusion culling, instead of the game picture, or report which view is on. _Since 0.31.0._
 - [`render.dynamic_resolution`](commands/game.md#renderdynamic_resolution-modifies-state): Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target. _Since 0.36.0._
+- [`render.frame_generation`](commands/game.md#renderframe_generation-modifies-state): Reads or changes the frame generation setting: a vendor SDK puts a generated frame between two rendered ones. _Since 0.38.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.gi2d_field`](commands/game.md#rendergi2d_field-modifies-state): The 2D global illumination field of the last frame: its size, texel size and world rectangle, what fills it and its cascades; optionally the images as PNGs. _Since 0.34.0._
 - [`render.gi_grid`](commands/game.md#rendergi_grid): The realtime GI's probe grids: probe count, update progress, memory and the probes that are inside geometry. _Since 0.33.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
+- [`render.latency`](commands/game.md#renderlatency-modifies-state): Reads or changes the low-latency setting: how the game shortens the time from an input to the frame it shows. _Since 0.38.0._
 - [`render.light_probes`](commands/game.md#renderlight_probes): The baked light probes of the scene and the light a MeshRenderer receives from them. _Since 0.33.0._
 - [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Since 0.33.0._
 - [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG. _Since 0.35.0._
@@ -542,7 +544,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Since 0.30.0._
 - [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Since 0.30.0._
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
-- [`project.graphics`](commands/project.md#projectgraphics-modifies-state): Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in factoria.json. _Since 0.36.0._
+- [`project.graphics`](commands/project.md#projectgraphics-modifies-state): Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode and the frame generation a game starts with, in factoria.json. _Since 0.36.0._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._
@@ -639,8 +641,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [setup](commands/setup.md)
 
-- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher, the DirectStorage DLLs (or open Xcode's App Store page). _Since 0.1.4._
-- [`setup.status`](commands/setup.md#setupstatus-modifies-state): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher, the DirectStorage DLLs of Windows games. _Since 0.1.4._
+- [`setup.install`](commands/setup.md#setupinstall-modifies-state): Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher, the DirectStorage DLLs, the NVIDIA Streamline, Intel XeSS and AMD FidelityFX DLLs (or open Xcode's App Store page). _Since 0.1.4._
+- [`setup.status`](commands/setup.md#setupstatus-modifies-state): Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the FactorIA app launcher, the DirectStorage DLLs of Windows games, the vendor SDKs (NVIDIA Streamline, Intel XeSS, AMD FidelityFX) a Windows game ships with. _Since 0.1.4._
 
 ### [shader](commands/shader.md)
 

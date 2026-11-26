@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <optional>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/render/dynamic_resolution.h"
+#include "fa/render/framegen.h"
 #include "fa/render/graphics_preset.h"
+#include "fa/render/latency.h"
 #include "fa/render/upscaler.h"
 #include "fa/tooling/json_patch.h"
 
@@ -31,7 +35,133 @@ Json upscaler_json(const GraphicsSettings& s) {
 
 Json dynamic_json(const GraphicsSettings& s) { return render::dynamic_resolution_to_json(s.dynamic); }
 
+Json latency_json(const GraphicsSettings& s) {
+    Json j = Json::object();
+    j["mode"] = s.latencyMode;
+    j["boost"] = s.latencyBoost;
+    return j;
+}
+
+Json frame_gen_json(const GraphicsSettings& s) {
+    Json j = Json::object();
+    j["mode"] = s.frameGenMode;
+    j["minBaseFps"] = s.frameGenMinBaseFps;
+    return j;
+}
+
+// The render.supports row (feature name) of a frame-generation SDK mode, or null for off and auto.
+const char* frame_gen_row_name(const std::string& mode) {
+    return mode == "dlss" ? "dlssFrameGen" : mode == "fsr" ? "fsrFrameGen" : mode == "xess" ? "xessFrameGen" : nullptr;
+}
+
+std::string fixed1(double v) {
+    char buf[48];
+    std::snprintf(buf, sizeof buf, "%.1f", std::isfinite(v) ? v : 0.0);
+    return buf;
+}
+
 }  // namespace
+
+const std::vector<std::string>& frame_gen_modes() {
+    static const std::vector<std::string> v(render::kFrameGenModeNames.begin(), render::kFrameGenModeNames.end());
+    return v;
+}
+
+FrameGenModeSupport frame_gen_mode_support(const Json& supportsReport, const std::string& mode) {
+    FrameGenModeSupport r;
+    const char* row = frame_gen_row_name(mode);
+    if (!row) return r;
+    const auto features = supportsReport.is_object() ? supportsReport.find("features") : supportsReport.end();
+    if (features == supportsReport.end() || !features->is_array()) {
+        r.usable = false;
+        r.why = "The editor has no GPU to ask whether this mode can run here.";
+        return r;
+    }
+    for (const Json& f : *features) {
+        if (!f.is_object() || f.value("name", std::string()) != row) continue;
+        r.usable = f.value("supported", false);
+        if (!r.usable) r.why = f.value("status", std::string("not available here"));
+        return r;
+    }
+    return r;
+}
+
+namespace {
+
+// The frames per second at which generation comes back after it was switched off for a low rate: 10% above minBaseFps.
+int resume_fps(int minBaseFps) { return int(std::lround(double(minBaseFps) * 1.1)); }
+
+}  // namespace
+
+std::string frame_gen_describe(const GraphicsSettings& s, const Json& supportsReport) {
+    const std::string& mode = s.frameGenMode;
+    if (mode == "off")
+        return "Off: no SDK is loaded and the swapchain is the engine's own; the display shows the frames the game "
+               "renders.";
+    std::string head;
+    if (mode == "auto") {
+        std::string usable;
+        for (const char* sdk : {"dlss", "fsr", "xess"})
+            if (frame_gen_mode_support(supportsReport, sdk).usable)
+                usable += (usable.empty() ? "" : ", ") + std::string(sdk);
+        if (usable.empty())
+            return "Auto: no SDK can run on this machine, so a run shows the rendered frames only (NVIDIA dlss, AMD "
+                   "fsr and Intel xess each need their SDK and a game window on Direct3D 12 or Vulkan).";
+        head = "Auto: the SDK of the GPU's maker when it can run (usable on this machine: " + usable +
+               "), else the rendered frames only.";
+    } else {
+        const FrameGenModeSupport row = frame_gen_mode_support(supportsReport, mode);
+        if (!row.usable)
+            return "Not usable on this machine: " + row.why + " A run of the game shows the rendered frames only.";
+        head = "Usable on this machine: a run of the game with a window on Direct3D 12 or Vulkan uses " + mode +
+               " frame generation while the temporal upscaler runs.";
+    }
+    if (s.frameGenMinBaseFps > 0)
+        head += " It switches off while the game renders fewer than " + std::to_string(s.frameGenMinBaseFps) +
+                " frames per second, and on again above " + std::to_string(resume_fps(s.frameGenMinBaseFps)) + ".";
+    else
+        head += " It never switches off for a low frame rate (minBaseFps 0).";
+    return head;
+}
+
+std::string frame_gen_latency_hint(const GraphicsSettings& s) {
+    if (s.frameGenMode == "off" || s.latencyMode != "off") return {};
+    std::string hint =
+        "Frame generation adds about one frame of delay to the input. A low-latency mode (Low latency, above) is "
+        "recommended with it.";
+    if (s.frameGenMode == "dlss")
+        hint += " DLSS frame generation turns NVIDIA Reflex on by itself while it runs, whatever Low latency says.";
+    else if (s.frameGenMode == "auto")
+        hint += " On an NVIDIA GPU the SDK is DLSS, which turns NVIDIA Reflex on by itself while it runs.";
+    return hint;
+}
+
+std::string frame_gen_state_line(const Json& readout, int minBaseFps) {
+    if (!readout.is_object() || readout.empty()) return "Off: nothing is generated.";
+    // A key that is null or of another type (a readout from an older or broken engine) falls back to its default: value() would throw.
+    const auto text = [&](const char* key, const char* fallback) {
+        const auto it = readout.find(key);
+        return it != readout.end() && it->is_string() ? it->get<std::string>() : std::string(fallback);
+    };
+    const auto number = [&](const char* key) {
+        const auto it = readout.find(key);
+        return it != readout.end() && it->is_number() ? it->get<double>() : 0.0;
+    };
+    const std::string state = text("state", "off");
+    const std::string provider = text("provider", "none");
+    const std::string why = text("reason", "");
+    const double generated = number("generatedFrames");
+    const std::string rates =
+        "base " + fixed1(number("baseFps")) + " fps, presented " + fixed1(number("presentedFps")) + " fps, " +
+        std::to_string(generated >= 0.0 && generated < 1.8e19 ? static_cast<std::uint64_t>(generated) : 0) +
+        " generated";
+    if (state == "active") return "Active (" + provider + "): " + rates + ".";
+    if (state == "measuring") return "Measuring the base frame rate (" + provider + "): " + rates + ".";
+    if (state == "paused")
+        return "Switched off, the base frame rate is below the minimum of " + std::to_string(minBaseFps) + " fps (" +
+               provider + "): " + rates + ". It comes back above " + std::to_string(resume_fps(minBaseFps)) + " fps.";
+    return (state == "refused" ? "Refused: " : "Off: ") + (why.empty() ? std::string("nothing is generated.") : why);
+}
 
 const std::vector<std::string>& graphics_presets() {
     static const std::vector<std::string> v(render::kGraphicsPresetNames.begin(), render::kGraphicsPresetNames.end());
@@ -41,6 +171,11 @@ const std::vector<std::string>& upscaler_modes() {
     static const std::vector<std::string> v(render::kUpscalerModeNames.begin(), render::kUpscalerModeNames.end());
     return v;
 }
+const std::vector<std::string>& latency_modes() {
+    static const std::vector<std::string> v(render::kLatencyModeNames.begin(), render::kLatencyModeNames.end());
+    return v;
+}
+bool latency_mode_has_boost(const std::string& mode) { return mode == "auto" || mode == "reflex" || mode == "xell"; }
 const std::vector<std::string>& upscaler_qualities() {
     static const std::vector<std::string> v(render::kUpscalerQualityNames.begin(), render::kUpscalerQualityNames.end());
     return v;
@@ -80,6 +215,21 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
     if (!rangeBad) {
         auto r = render::parse_dynamic_resolution_settings(dyn, where, {});
         if (!r.ok()) out.push_back({"/render/dynamicResolution/minScale", r.error().message + " " + r.error().hint});
+    }
+    // The low-latency setting, one key at a time like the upscaler.
+    for (const char* key : {"mode", "boost"}) {
+        Json one = Json::object();
+        one[key] = latency_json(s)[key];
+        auto r = render::parse_latency_settings(one, std::string(kFile) + "#/render/latency", {});
+        if (!r.ok()) out.push_back({std::string("/render/latency/") + key, r.error().message + " " + r.error().hint});
+    }
+    // The frame generation, one key at a time as well.
+    for (const char* key : {"mode", "minBaseFps"}) {
+        Json one = Json::object();
+        one[key] = frame_gen_json(s)[key];
+        auto r = render::parse_frame_gen_settings(one, std::string(kFile) + "#/render/frameGeneration", {});
+        if (!r.ok())
+            out.push_back({std::string("/render/frameGeneration/") + key, r.error().message + " " + r.error().hint});
     }
     return out;
 }
@@ -123,6 +273,18 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
             s.dynamic.targetMs = std::round(s.dynamic.targetMs * 10.0) / 10.0;
         }
     }
+    if (auto lat = render->find("latency"); lat != render->end() && !lat->is_null()) {
+        auto parsed = render::parse_latency_settings(*lat, file + "#/render/latency", {});
+        if (!parsed.ok()) return parsed.error();
+        s.latencyMode = std::string(render::latency_mode_name(parsed->mode));
+        s.latencyBoost = parsed->boost;
+    }
+    if (auto fg = render->find("frameGeneration"); fg != render->end() && !fg->is_null()) {
+        auto parsed = render::parse_frame_gen_settings(*fg, file + "#/render/frameGeneration", {});
+        if (!parsed.ok()) return parsed.error();
+        s.frameGenMode = std::string(render::frame_gen_mode_name(parsed->mode));
+        s.frameGenMinBaseFps = parsed->minBaseFps;
+    }
     return s;
 }
 
@@ -146,9 +308,9 @@ struct KeyOp {
 };
 
 // Patches the keys `ops` name into <projectDir>/factoria.json (the others, the order and the formatting stay) and
-// answers whether the file changed. `preset`, `upscaler` and `dynamic` are the three keys of `render`.
+// answers whether the file changed. `preset`, `upscaler`, `dynamic`, `latency` and `frameGen` are the five keys of `render`.
 Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& preset, const KeyOp& upscaler,
-                               const KeyOp& dynamic) {
+                               const KeyOp& dynamic, const KeyOp& latency, const KeyOp& frameGen) {
     const std::string path = project_file_path(projectDir);
     // The raw bytes, so a UTF-8 BOM the file starts with is written back (read_text drops it).
     auto bytes = fs::read_bytes(path);
@@ -182,6 +344,8 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
     apply("upscaler", upscaler);
     apply("graphicsPreset", preset);
     apply("dynamicResolution", dynamic);
+    apply("latency", latency);
+    apply("frameGeneration", frameGen);
     if (render.empty()) {
         // Would `render` be empty afterwards? Then the key goes too.
         if (hasRender) ops.push_back({{"render"}, std::nullopt});
@@ -194,6 +358,8 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
         push("upscaler", upscaler);
         push("graphicsPreset", preset);
         push("dynamicResolution", dynamic);
+        push("latency", latency);
+        push("frameGeneration", frameGen);
     }
     auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();
@@ -219,9 +385,12 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
                           "Fix the field before saving; nothing was written.");
     const GraphicsSettings def;
     const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
-    auto r = patch_render_keys(projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
-                               set_or_remove(upscalerDefault, upscaler_json(s)),
-                               set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)));
+    auto r = patch_render_keys(
+        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
+        set_or_remove(upscalerDefault, upscaler_json(s)), set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)),
+        set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s)),
+        set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
+                      frame_gen_json(s)));
     if (!r.ok()) return r.error();
     return {};
 }
@@ -232,22 +401,31 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
     info.category = "project";
     info.readOnly = false;
     info.summary =
-        "Reads or writes the graphics preset, the upscaler and the dynamic resolution a game starts with, in "
-        "factoria.json.";
+        "Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode and the frame "
+        "generation a game starts with, in factoria.json.";
     info.description =
-        "Edits the keys `render.graphicsPreset`, `render.upscaler` and `render.dynamicResolution` of factoria.json "
-        "(docs/UPSCALING.md, \"Graphics presets\"): the settings the run starts with, the ones the editor's View > "
+        "Edits the keys `render.graphicsPreset`, `render.upscaler`, `render.dynamicResolution`, `render.latency` and "
+        "`render.frameGeneration` of factoria.json (docs/UPSCALING.md, \"Graphics presets\"; docs/LATENCY.md; "
+        "docs/FRAME_GENERATION.md): the settings the run starts with, "
+        "the ones the editor's View > "
         "Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, "
         "ultra "
         "or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, "
-        "maxScale}: the keys you give replace those of the file, the others stay. A value at its default removes its "
-        "key (a `render` object left empty is removed), and every other key and the formatting of the file stay as "
+        "maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or xell) and `frameGeneration` is "
+        "{mode, "
+        "minBaseFps} (mode: off, auto, dlss, fsr or xess; minBaseFps a whole number of 0 to 1000): the keys you give "
+        "replace those of the file, the others stay. A value at its default removes its key (a `render` object left "
+        "empty is "
+        "removed), and every other key and the formatting of the file stay as "
         "they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON "
         "pointer and a \"did you mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
         "{\"upscaler\":{\"mode\":\"auto\",\"quality\":\"balanced\"}}." FA_COMMAND_DETAILS
-        "It does not change a running game: graphics.preset, render.upscaler and render.dynamic_resolution do that, "
+        "It does not change a running game: graphics.preset, render.upscaler, render.dynamic_resolution, "
+        "render.latency and render.frame_generation do that, "
         "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
-        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, written}; `written` is false when "
+        "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, latency: {mode, boost}, "
+        "frameGeneration: {mode, minBaseFps}, written}; "
+        "`written` is false when "
         "the file's bytes did not change (a read, or the same values written the same way; a key given at its "
         "default that the file spelled out is removed, so that counts as a write). Errors: `invalid_argument` (unknown "
         "key or wrong value), "
@@ -255,24 +433,29 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
     info.inputSchema = Json::parse(R"({"type":"object","properties":{
         "preset":{"type":"string","enum":["low","medium","high","ultra","custom"],"description":"render.graphicsPreset: the preset a run starts with (custom removes the key)."},
         "upscaler":{"type":"object","description":"render.upscaler: the keys given replace the file's.","properties":{
-            "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","auto"]},
+            "mode":{"type":"string","enum":["stretch","spatial","temporal","metalfx","dlss","xess","fsr","auto"]},
             "quality":{"type":"string","enum":["native","quality","balanced","performance","ultraPerformance"]},
             "sharpness":{"type":"number","minimum":0,"maximum":1}}},
         "dynamicResolution":{"type":"object","description":"render.dynamicResolution: the keys given replace the file's.","properties":{
             "enabled":{"type":"boolean"},"targetMs":{"type":"number","minimum":0},
-            "minScale":{"type":"number","minimum":0.1,"maximum":1},"maxScale":{"type":"number","minimum":0.1,"maximum":1}}}}})");
+            "minScale":{"type":"number","minimum":0.1,"maximum":1},"maxScale":{"type":"number","minimum":0.1,"maximum":1}}},
+        "latency":{"type":"object","description":"render.latency (docs/LATENCY.md): the keys given replace the file's.","properties":{
+            "mode":{"type":"string","enum":["off","auto","reflex","antilag2","xell"]},"boost":{"type":"boolean"}}},
+        "frameGeneration":{"type":"object","description":"render.frameGeneration (docs/FRAME_GENERATION.md): the keys given replace the file's.","properties":{
+            "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"]},"minBaseFps":{"type":"integer","minimum":0,"maximum":1000}}}}})");
     registry.add(info, [projectDir](const Json& args) {
         if (!args.is_null() && !args.is_object())
             throw CommandError("invalid_argument",
                                "project.graphics takes an object, got " + std::string(args.type_name()) + ".",
                                "Example: {\"preset\":\"medium\"}, or {} to read.");
-        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution"};
+        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution", "latency", "frameGeneration"};
         if (args.is_object())
             for (auto it = args.begin(); it != args.end(); ++it)
                 if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
                     throw CommandError("invalid_argument",
                                        "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
-                                       "project.graphics takes `preset`, `upscaler` and `dynamicResolution`.");
+                                       "project.graphics takes `preset`, `upscaler`, `dynamicResolution`, `latency` "
+                                       "and `frameGeneration`.");
         // The numbers of the file as they are (no rounding of the editor's sliders): a key this call does not name is
         // not written, and one it names keeps what the caller wrote.
         auto current = read_graphics_settings(projectDir, false);
@@ -317,12 +500,32 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
             s.dynamic = *parsed;
         }
+        if (const Json* lat = object_arg("latency")) {
+            auto parsed = render::parse_latency_settings(*lat, "project.graphics latency", {});
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            Json merged = latency_json(s);  // the file's keys, replaced by the ones given
+            for (auto it = lat->begin(); it != lat->end(); ++it) merged[it.key()] = it.value();
+            auto both = render::parse_latency_settings(merged, "project.graphics latency", {});
+            if (!both.ok()) throw CommandError("invalid_argument", both.error().message, both.error().hint);
+            s.latencyMode = std::string(render::latency_mode_name(both->mode));
+            s.latencyBoost = both->boost;
+        }
+        if (const Json* fg = object_arg("frameGeneration")) {
+            // The file's keys, replaced by the ones given (an unknown or wrong one is the parser's error, with its place).
+            auto base =
+                render::parse_frame_gen_settings(frame_gen_json(s), "factoria.json#/render/frameGeneration", {});
+            if (!base.ok()) throw CommandError("failed", base.error().message, base.error().hint);
+            auto parsed = render::parse_frame_gen_settings(*fg, "project.graphics frameGeneration", *base);
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            s.frameGenMode = std::string(render::frame_gen_mode_name(parsed->mode));
+            s.frameGenMinBaseFps = parsed->minBaseFps;
+        }
         if (auto problems = check_graphics_settings(s); !problems.empty())
             throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
                                "Fix the value; nothing was written.");
         // Only the keys the call names are written.
         const GraphicsSettings def;
-        KeyOp presetOp, upscalerOp, dynamicOp;
+        KeyOp presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp;
         if (args.is_object() && args.contains("preset") && !args["preset"].is_null())
             presetOp = set_or_remove(s.preset == "custom", Json(s.preset));
         if (object_arg("upscaler"))
@@ -338,9 +541,16 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             }
             dynamicOp = set_or_remove(s.dynamic == def.dynamic, value);
         }
+        if (object_arg("latency"))
+            latencyOp =
+                set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s));
+        if (object_arg("frameGeneration"))
+            frameGenOp =
+                set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
+                              frame_gen_json(s));
         bool changed = false;
-        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch) {
-            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp);
+        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch || frameGenOp.touch) {
+            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp);
             if (!written.ok()) throw CommandError("failed", written.error().message, written.error().hint);
             changed = *written;
         }
@@ -349,6 +559,8 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         out["preset"] = s.preset;
         out["upscaler"] = upscaler_json(s);
         out["dynamicResolution"] = dynamic_json(s);
+        out["latency"] = latency_json(s);
+        out["frameGeneration"] = frame_gen_json(s);
         out["written"] = changed;
         return out;
     });

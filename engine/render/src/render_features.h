@@ -9,6 +9,7 @@
 // renderer cannot do.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -18,6 +19,7 @@
 #include "fa/core/json.h"
 #include "fa/platform/hdr_output.h"
 #include "gpu/device.h"
+#include "render_upscale_vendor.h"
 
 namespace fa::render {
 
@@ -50,7 +52,28 @@ struct FeatureEnv {
     // feature_env_from_device on Metal only; a FeatureEnv made by hand says no.
     bool metalfx = false;
     std::string metalfxWhy;
+    // The vendor upscalers dlss, xess and fsr (M78): what each provider answered for this GPU (render_upscale_vendor.h), and whether it was
+    // asked at all. Renderer::supports asks (feature_env_from_device does not: it would read the disk for the libraries each time); an
+    // env made by hand says "not asked".
+    std::array<VendorProbe, kVendorUpscalerCount> vendorUpscalers;
+    bool vendorAsked = false;
+    // The "dlssRayReconstruction" row (M78-P4c): what DlssProvider::probe_ray_reconstruction answered (the machine of "dlss" plus the Ray
+    // Reconstruction plugin, and the renderer's guides), asked with the others.
+    VendorProbe dlssRayReconstruction;
+    // The low-latency providers reflex, antilag2 and xell (M78, render_latency.h): what each answered for this GPU, and whether they were asked.
+    std::array<VendorProbe, 3> latency;
+    bool latencyAsked = false;
+    // The frame-generation providers dlss, fsr and xess (M78, render_framegen.h): what each answered for this GPU, and whether they were asked.
+    std::array<VendorProbe, 3> framegen;
+    bool framegenAsked = false;
 };
+// Puts the providers' answers (index 0 dlss, 1 xess, 2 fsr) and DLSS's Ray Reconstruction answer into `env`.
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers,
+                              const VendorProbe& rayReconstruction = {});
+// Puts the low-latency providers' answers (index 0 reflex, 1 antilag2, 2 xell) into `env`.
+void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers);
+// Puts the frame-generation providers' answers (index 0 dlss, 1 fsr, 2 xess) into `env`.
+void set_framegen_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers);
 
 // The HDR encodings the present pass writes on `b` (hdr_encoding_bit; the encodes are in hdr_encode.h): EDR on Metal (extended
 // linear sRGB), scRGB and HDR10 on D3D11. Every other backend: none (GL, GLES3 and WebGL2 have no HDR swapchain in sokol).

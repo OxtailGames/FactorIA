@@ -8,6 +8,8 @@
 #include "fa/scene/postprocess.h"
 
 #include "metalfx.h"
+#include "render_framegen.h"
+#include "render_latency.h"
 
 namespace fa::render {
 
@@ -102,6 +104,11 @@ std::uint32_t post_drawn_mask() {
 }
 
 namespace {
+
+// 0 dlssFrameGen, 1 fsrFrameGen, 2 xessFrameGen: the frame-generation rows (slot = index + 1); -1 any other.
+int framegen_row_index(std::string_view name) {
+    return name == "dlssFrameGen" ? 0 : name == "fsrFrameGen" ? 1 : name == "xessFrameGen" ? 2 : -1;
+}
 
 std::vector<FeatureDef> build_table() {
     std::vector<FeatureDef> t;
@@ -420,6 +427,109 @@ std::vector<FeatureDef> build_table() {
          "draws as "
          "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M76-P5b).",
          nullptr},
+        // The vendor upscalers of M78 (docs/UPSCALING.md): the answer is the provider's (render_upscale_vendor.h), asked of the device and the
+        // installed library; the table's backend columns hold no D3D12 or Vulkan (feature_backend_of: dlss and fsr have none), and the
+        // report adds the "D3D12" and "Vulkan" keys of these rows from the provider's own backends (feature_report).
+        {"dlss", "",
+         "NVIDIA DLSS Super Resolution through Streamline (render.upscaler mode \"dlss\", also picked by \"auto\" on "
+         "an NVIDIA GPU): "
+         "the jittered picture, the depth and the motion of the prepass, upscaled by NVIDIA's network. Windows with an "
+         "NVIDIA RTX GPU on "
+         "D3D12 or Vulkan, and the Streamline SDK installed (`factoria setup streamline`; the game developer "
+         "accepts NVIDIA's "
+         "terms there). Where it is missing the mode draws as \"temporal\" or \"spatial\"; the reason is in "
+         "render.supports and in the "
+         "log (M78).",
+         nullptr},
+        {"dlssRayReconstruction", "",
+         "NVIDIA DLSS Ray Reconstruction through Streamline (render.upscaler rayReconstruction, with mode \"dlss\" or "
+         "\"auto\" where it picks DLSS): "
+         "the "
+         "denoiser-upscaler of DLSS 3.5 in place of Super Resolution, fed by the guides the renderer makes (normal, "
+         "roughness, albedo) "
+         "next to the jittered picture, the depth and the motion. The same machine as \"dlss\" plus the Ray "
+         "Reconstruction plugin of the "
+         "Streamline SDK (`factoria setup streamline` installs it). Today it is an opt-in preview: the renderer has no "
+         "ray-traced signals "
+         "to denoise yet (M79) and its guides are approximations. Where it is missing or refused the mode draws as "
+         "Super Resolution; the "
+         "reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"xess", "",
+         "Intel XeSS Super Resolution (render.upscaler mode \"xess\", also picked by \"auto\" on an Intel GPU): the "
+         "jittered picture, "
+         "the depth and the motion of the prepass, upscaled by Intel's network (XMX on Intel Arc, a DP4a fallback on "
+         "other GPUs). Windows "
+         "on D3D12 and Vulkan (any GPU) or D3D11 (Intel Arc only), and the XeSS 3.x SDK installed (`factoria setup "
+         "xess`). Where it is missing the mode "
+         "draws as "
+         "\"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"fsr", "",
+         "AMD FidelityFX Super Resolution 3.1 (render.upscaler mode \"fsr\", also picked by \"auto\" on an AMD GPU): "
+         "the jittered "
+         "picture, the depth and the motion of the prepass, upscaled by AMD's temporal upscaler on any GPU. Windows on "
+         "D3D12 or Vulkan (never D3D11), and the FidelityFX SDK installed (`factoria setup fidelityfx`). "
+         "Where it is missing "
+         "the mode draws as \"temporal\" or \"spatial\"; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        // The low-latency modes of M78 (docs/LATENCY.md; render.latency): the answer is the provider's (render_latency.h), like the vendor
+        // upscalers'. The renderer's own pacing needs no row: it runs wherever a window is presented to.
+        {"reflex", "",
+         "NVIDIA Reflex low latency (render.latency mode \"reflex\", also picked by \"auto\" on an NVIDIA GPU): the "
+         "loop sleeps before the "
+         "input is read so the frame the player sees is as new as possible. Windows with an NVIDIA GeForce GTX 900 "
+         "series or newer on "
+         "D3D12 or Vulkan, and the Streamline SDK installed (`factoria setup streamline`). Where it is missing the "
+         "mode "
+         "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"antilag2", "",
+         "AMD Anti-Lag 2 low latency (render.latency mode \"antilag2\", also picked by \"auto\" on an AMD GPU): the "
+         "driver's own delay "
+         "before the input is read. Windows with a recent Radeon driver on D3D12 or Vulkan (the driver has it; nothing "
+         "to install). Where "
+         "it is missing the mode runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        {"xell", "",
+         "Intel XeSS Low Latency (render.latency mode \"xell\", also picked by \"auto\" on an Intel GPU): XeLL's sleep "
+         "before the input is "
+         "read, with the frame markers. Windows on D3D12, and the XeSS SDK installed (`factoria setup xess`). Where it "
+         "is missing the mode "
+         "runs the engine's own pacing; the reason is in render.supports and in the log (M78).",
+         nullptr},
+        // The frame-generation providers of M78 (docs/FRAME_GENERATION.md; render.frameGeneration): the answer is the provider's (render_framegen.h).
+        // The three providers are in the build (render_framegen_{dlss,fsr,xess}.h); a row is false where its provider cannot run.
+        {"dlssFrameGen", "",
+         "NVIDIA DLSS frame generation (render.frameGeneration mode \"dlss\", also picked by \"auto\" on an NVIDIA "
+         "GPU): a generated "
+         "frame between two rendered ones, made from the picture before the HUD, the depth and the motion of the "
+         "temporal upscaler. "
+         "Windows on D3D12 or Vulkan with an RTX GPU, through Streamline (`factoria setup streamline`); it cannot run "
+         "without NVIDIA Reflex, so Reflex runs with it whatever render.latency says. The row is false where it cannot "
+         "run, with the reason in render.supports.",
+         nullptr},
+        {"fsrFrameGen", "",
+         "AMD FSR 3 frame generation (render.frameGeneration mode \"fsr\", also picked by \"auto\" on an AMD GPU): a "
+         "generated frame "
+         "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
+         "upscaler, on any GPU. "
+         "Windows on D3D12 or Vulkan with the FidelityFX SDK installed (`factoria setup fidelityfx`); the row is false "
+         "where it cannot run, with the reason in render.supports.",
+         nullptr},
+        {"xessFrameGen", "",
+         "Intel XeSS frame generation (render.frameGeneration mode \"xess\", also picked by \"auto\" on an Intel GPU): "
+         "a generated frame "
+         "between two rendered ones, from the picture before the HUD, the depth and the motion of the temporal "
+         "upscaler. Windows on "
+         "D3D12 with an Intel Arc GPU and the XeSS SDK installed (`factoria setup xess`: libxess_fg.dll and "
+         "libxell.dll). "
+         "XeSS frame generation cannot run without Intel XeLL, so XeLL runs with it whatever render.latency says. The "
+         "game must start with the mode set (the XeSS swapchain is made when the window opens). render.supports "
+         "gives the reason when it is false: the SDK is not installed, the backend or GPU does not suit it, XeLL is "
+         "missing, or it failed earlier in this run (it then stays off until the game restarts). Not tested on "
+         "hardware in this build.",
+         nullptr},
         {"dynamicResolution", "",
          "Dynamic resolution (render.dynamic_resolution, factoria.json render.dynamicResolution, "
          "window.dynamicResolution): "
@@ -436,14 +546,33 @@ std::vector<FeatureDef> build_table() {
          "GPU backend (M76-P6c).",
          nullptr}};
     for (const Planned& p : kLighting) {
-        const bool appleOnly = std::string_view(p.name) == "metalfx";
-        t.push_back({p.name, FeatureKind::Engine, appleOnly ? bit(FeatureBackend::Metal) : kEveryGpu, p.needs,
-                     p.planned, p.doc});
+        const std::string_view row = p.name;
+        // metalfx: Metal only. xess: D3D11 is the one backend of this table it runs on (its D3D12 and Vulkan runs are not a column of it
+        // yet; XeSS on D3D11 needs an Intel GPU, which only the probe knows); dlss, fsr and the latency SDKs (reflex, antilag2, xell) run on
+        // D3D12 and Vulkan only, so no column is set. The row's answer always comes from the provider's probe, whatever this column says.
+        const unsigned backends = row == "metalfx" ? bit(FeatureBackend::Metal)
+                                  : row == "xess"  ? bit(FeatureBackend::D3d11)
+                                  : row == "dlss" || row == "dlssRayReconstruction" || row == "fsr" ||
+                                          row == "reflex" || row == "antilag2" || row == "xell" ||
+                                          framegen_row_index(row) >= 0
+                                      ? 0u
+                                      : kEveryGpu;
+        t.push_back({p.name, FeatureKind::Engine, backends, p.needs, p.planned, p.doc});
     }
     for (int i = 0; i < kPostEffectCount; ++i)
         t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
                      effect_drawn(PostEffect(i)) ? nullptr : effect_planned_in(PostEffect(i)), kEffectRows[i].doc});
     return t;
+}
+
+// 0 dlss, 1 xess, 2 fsr: the vendor rows; -1 any other.
+int vendor_row_index(std::string_view name) {
+    return name == "dlss" || name == "dlssRayReconstruction" ? 0 : name == "xess" ? 1 : name == "fsr" ? 2 : -1;
+}
+
+// 0 reflex, 1 antilag2, 2 xell: the low-latency rows; -1 any other.
+int latency_row_index(std::string_view name) {
+    return name == "reflex" ? 0 : name == "antilag2" ? 1 : name == "xell" ? 2 : -1;
 }
 
 bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
@@ -510,6 +639,46 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
         return false;
     }
     const FeatureDef& f = t[std::size_t(index)];
+    // The vendor upscalers are the providers' answer (their backends, GPU maker and installed library), not the table's columns.
+    if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
+        if (!env.vendorAsked) {
+            if (why)
+                *why = "the vendor upscalers are asked of the open GPU (Renderer::supports), and no GPU has been asked "
+                       "here";
+            return false;
+        }
+        const VendorProbe& p = f.name == std::string_view("dlssRayReconstruction")
+                                   ? env.dlssRayReconstruction
+                                   : env.vendorUpscalers[std::size_t(vendor)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this upscaler is not available here") : p.reason;
+        return p.available;
+    }
+    if (const int fg = framegen_row_index(f.name); fg >= 0) {
+        if (!env.framegenAsked) {
+            if (why)
+                *why = "the frame generation providers are asked of the open GPU (Renderer::supports), and no GPU has "
+                       "been "
+                       "asked here";
+            return false;
+        }
+        const VendorProbe& p = env.framegen[std::size_t(fg)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this frame generation provider is not available here") : p.reason;
+        return p.available;
+    }
+    if (const int lat = latency_row_index(f.name); lat >= 0) {
+        if (!env.latencyAsked) {
+            if (why)
+                *why = "the low-latency modes are asked of the open GPU (Renderer::supports), and no GPU has been "
+                       "asked here";
+            return false;
+        }
+        const VendorProbe& p = env.latency[std::size_t(lat)];
+        if (!p.available && why)
+            *why = p.reason.empty() ? std::string("this latency mode is not available here") : p.reason;
+        return p.available;
+    }
     if (env.backend == FeatureBackend::Headless) {
         if (why) *why = "there is no GPU (the headless backend draws nothing)";
         return false;
@@ -607,6 +776,23 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
     return env;
 }
 
+void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers) {
+    env.latency = answers;
+    env.latencyAsked = true;
+}
+
+void set_framegen_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers) {
+    env.framegen = answers;
+    env.framegenAsked = true;
+}
+
+void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVendorUpscalerCount>& answers,
+                              const VendorProbe& rayReconstruction) {
+    env.vendorUpscalers = answers;
+    env.dlssRayReconstruction = rayReconstruction;
+    env.vendorAsked = true;
+}
+
 FeatureEnv feature_env_from_device(const gpu::Device& device) {
     return feature_env_from_queries(
         device.backend(), device.limits(), device.features().compute,
@@ -634,6 +820,21 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         Json backends = Json::object();
         for (int b = 0; b < kFeatureBackendCount; ++b)
             backends[feature_backend_label(FeatureBackend(b))] = (f.backends & bit(FeatureBackend(b))) != 0;
+        // D3D12 and Vulkan are no column of the table, and every row says what it does there (a game or an AI reads one shape): the
+        // engine's own rows are offered on neither yet (feature_backend_of answers Headless for them), the SDK rows say it by their
+        // provider's backends.
+        unsigned sdkRuns = 0;
+        if (const int vendor = vendor_row_index(f.name); vendor >= 0) {
+            sdkRuns = vendor_provider(vendor).backends();
+        } else if (const int fg = framegen_row_index(f.name); fg >= 0) {
+            // XeSS frame generation: D3D12 only; whatever provider is registered, the slot's SDK says.
+            sdkRuns = framegen_slot_backends(FrameGenSlot(fg + 1));
+        } else if (const int lat = latency_row_index(f.name); lat >= 0) {
+            const LatencyProvider* provider = latency_provider(LatencyDriver(int(LatencyDriver::Reflex) + lat));
+            sdkRuns = provider ? provider->backends() : 0u;
+        }
+        backends["D3D12"] = (sdkRuns & (1u << unsigned(gpu::Backend::D3d12))) != 0;
+        backends["Vulkan"] = (sdkRuns & (1u << unsigned(gpu::Backend::Vulkan))) != 0;
         row["backends"] = backends;
         list.push_back(row);
     }

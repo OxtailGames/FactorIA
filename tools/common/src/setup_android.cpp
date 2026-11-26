@@ -52,7 +52,7 @@ Result<AndroidPlan> plan_android(const SetupContext& ctx) {
     if (sdk_looks_ok(p.toolchain.sdk) && p.toolchain.sdkFrom != "Unity Hub")
         p.sdkDir = p.toolchain.sdk;
     else
-        p.sdkDir = stdfs::path(ctx.home_dir()) / "android" / "sdk";
+        p.sdkDir = fs::path_from_utf8(ctx.home_dir()) / "android" / "sdk";
     p.sdkFound = sdk_looks_ok(p.sdkDir.string());
     p.sdkmanager = find_sdkmanager(p.sdkDir);
     p.licensesAccepted = sdk_license_accepted(p.sdkDir);
@@ -100,7 +100,7 @@ Result<ProcessResult> run_sdkmanager(const SetupContext& ctx, const stdfs::path&
     // The pinned classic tools keep little in $ANDROID_USER_HOME (default ~/.android), but the Android CLI that revision 23+ and an
     // SDK found on the computer may have unpacks a ~250 MB copy of itself there. Keep it inside the FactorIA folder either way,
     // like everything else we install.
-    po.env["ANDROID_USER_HOME"] = (stdfs::path(ctx.home_dir()) / "android" / "user").string();
+    po.env["ANDROID_USER_HOME"] = fs::path_to_utf8(fs::path_from_utf8(ctx.home_dir()) / "android" / "user");
     po.stdinText = stdinText;
     po.timeoutSeconds = 3600;
     if (forwardOutput) {

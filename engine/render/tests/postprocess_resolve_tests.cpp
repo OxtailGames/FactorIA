@@ -587,8 +587,8 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 TEST_CASE("features: the table has the capabilities, the engine features and every post effect once") {
     const std::vector<std::string> names = feature_names();
-    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the 5 planned rows of M76 + the effects
-    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + 5 + std::size_t(kPostEffectCount));
+    // 4 capabilities + 3 engine features + the 21 lighting rows of M73 + the 10 rows of M74 + the 8 rows of M75 + the 5 planned rows of M76 + the 3 vendor upscaler rows of M78 + the 3 low-latency rows of M78 + the 3 frame generation rows of M78 + the DLSS Ray Reconstruction row of M78 + the effects
+    CHECK(names.size() == 4 + 1 + 3 + 21 + 10 + 8 + 5 + 3 + 3 + 3 + 1 + std::size_t(kPostEffectCount));
     CHECK(std::set<std::string>(names.begin(), names.end()).size() == names.size());
     for (const char* n : {"floatTargets", "r11g11b10", "linearColor", "hdrOutput", "sampledDepth", "computeShaders",
                           "postMaterials", "float32Targets"})
@@ -1059,7 +1059,15 @@ TEST_CASE("features: the report lists every feature with a status and the backen
     CHECK(first["kind"] == "capability");
     CHECK(first["supported"] == true);
     CHECK(first["status"] == "supported");
-    CHECK(first["backends"].size() == std::size_t(kFeatureBackendCount));
+    CHECK(first["backends"].size() == std::size_t(kFeatureBackendCount) + 2);  // the table's columns, D3D12 and Vulkan
+    // Every row says what it does on D3D12 and Vulkan (the SDK rows by their providers, the engine's own rows: not offered there yet).
+    for (const Json& f : r["features"]) {
+        INFO("row " << f["name"].get<std::string>());
+        REQUIRE(f["backends"].contains("D3D12"));
+        REQUIRE(f["backends"].contains("Vulkan"));
+        CHECK(f["backends"]["D3D12"].is_boolean());
+        CHECK(f["backends"]["Vulkan"].is_boolean());
+    }
     CHECK(first["backends"]["Headless"] == false);  // no feature ever runs on the backend without a GPU
     CHECK(first["backends"]["Metal"] == true);
     for (const Json& f : r["features"])

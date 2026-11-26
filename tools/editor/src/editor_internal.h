@@ -749,8 +749,8 @@ public:
     bool scene_settings_reset(const std::string& field, std::string* error = nullptr);
     bool showSceneSettings_ = false;
 
-    // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset and
-    // render.upscaler {mode, quality, sharpness} in factoria.json, a working copy with Save and Revert, checked by the
+    // Graphics settings window (graphics_settings_panel.cpp; View > Graphics): the project's render.graphicsPreset,
+    // render.upscaler {mode, quality, sharpness}, render.dynamicResolution, render.latency {mode, boost} and render.frameGeneration {mode, minBaseFps} in factoria.json, a working copy with Save and Revert, checked by the
     // engine's own parsers (fa/tooling/graphics_settings.h). The autotest drives the same functions and widgets.
     void draw_graphics_settings_panel();
     void graphics_settings_reload();                            // reads factoria.json again (opening, Revert)
@@ -759,6 +759,15 @@ public:
     GraphicsSettings graphicsWork_, graphicsSaved_;
     std::string graphicsDir_;  // the project the working copy was read for
     std::string graphicsLoadError_, graphicsMessage_;
+    // The low-latency and frame-generation groups: the renderer's render.supports table (asked when the window opens, on Revert and at most every 10 s,
+    // because a vendor probe behind it may touch the disk; the autotest pins a fixed table with graphicsSupportPinned_ so what is usable does not depend
+    // on this machine's GPU) and the lines the groups last showed (the sentence of the chosen mode, the latency advice of the frame generation and the
+    // engine's readout).
+    Json graphicsSupport_;
+    double graphicsSupportAt_ = 0.0;
+    bool graphicsSupportStale_ = true;
+    bool graphicsSupportPinned_ = false;
+    std::string graphicsLatencyLine_, graphicsFrameGenLine_, graphicsFrameGenHint_, graphicsFrameGenState_;
 
     // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
     // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a
@@ -2019,7 +2028,7 @@ public:
     std::atomic<bool> atWatchdogStop_{false};
     std::thread atWatchdog_;
     int atFrameBudget_ =
-        4000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
+        8000;  // the autotest must be done by this frame: a safety net far above a ctest entry (about 4500 frames); a real download, in the manual check, needs more
     float atLayoutWidth_ = 0;  // section U: the width of the Hierarchy after the user's change
     int atReopenIn_ = 0;       // section U: frames on the welcome screen before the project is opened again
     std::string atReopenDir_;

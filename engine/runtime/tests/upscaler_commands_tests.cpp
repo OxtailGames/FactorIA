@@ -136,6 +136,68 @@ TEST_CASE("render.upscaler: reports, sets, and refuses without changing anything
     e.shutdown();
 }
 
+TEST_CASE("rayReconstruction: only a project that starts in dlss or auto asks for the plugin, and one that asked in "
+          "another mode is told") {
+    struct Row {
+        const char* mode;
+        bool flag;
+        bool asks;
+        bool needsMode;
+    };
+    const Row rows[] = {{"temporal", true, false, true},   {"stretch", true, false, true},
+                        {"dlss", true, true, false},       {"auto", true, true, false},
+                        {"temporal", false, false, false}, {"dlss", false, false, false}};
+    for (const Row& row : rows) {
+        INFO("mode " << row.mode << ", rayReconstruction " << row.flag);
+        TempProject p("rrstart", std::string(R"(, "render": { "upscaler": { "mode": ")") + row.mode +
+                                     R"(", "rayReconstruction": )" + (row.flag ? "true" : "false") + " } }");
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+        REQUIRE(e.renderer() != nullptr);
+        CHECK(e.renderer()->desc().rayReconstruction == row.asks);
+        CHECK(e.renderer()->desc().rayReconstructionNeedsMode == row.needsMode);
+        e.shutdown();
+    }
+}
+
+TEST_CASE("rayReconstruction: the project's key, the command, the script and render.supports agree") {
+    TempProject p("rr", R"(, "render": { "upscaler": { "mode": "dlss", "rayReconstruction": true } })");
+    auto s = load_project(p.path());
+    REQUIRE_MESSAGE(s.ok(), s.error().message);
+    CHECK(s->upscaler.rayReconstruction);
+    CHECK(s->to_json()["render"]["upscaler"]["rayReconstruction"] == true);
+    TempProject bad("rrbad", R"(, "render": { "upscaler": { "rayReconstruction": "yes" } })");
+    auto b = load_project(bad.path());
+    REQUIRE_FALSE(b.ok());
+    CHECK(b.error().message.find("/render/upscaler/rayReconstruction") != std::string::npos);
+
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("render.upscaler", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["rayReconstruction"] == true);
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);
+    r = c.call("render.upscaler", Json::parse(R"({"rayReconstruction":false})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["rayReconstruction"] == false);
+    CHECK(r.result["mode"] == "dlss");
+    eval(e, "window.upscaler = { rayReconstruction: true }; 0");
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);
+    r = c.call("render.upscaler", Json::parse(R"({"rayReconstruction":"on"})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("rayReconstruction") != std::string::npos);
+    CHECK(eval(e, "window.upscaler.rayReconstruction") == true);  // the refusal changed nothing
+    // The support row exists, and on this machine (no NVIDIA RTX, no Streamline) it says why it is not there.
+    auto sup = c.call("render.supports", Json::parse(R"({"feature":"dlssRayReconstruction"})"));
+    REQUIRE_MESSAGE(sup.ok, sup.error.dump());
+    CHECK(sup.result["supported"] == false);
+    CHECK(sup.result["status"].get<std::string>().find("Ray Reconstruction") != std::string::npos);
+    e.shutdown();
+}
+
 TEST_CASE("window.upscaler reads and sets the same settings from a script") {
     TempProject p("js");
     Engine e;
@@ -838,4 +900,90 @@ TEST_CASE("graphics.preset: the upscaler it reports is the effective mode of the
     CHECK(r.result["upscaler"]["mode"] == "auto");
     CHECK(r.result["upscaler"]["effectiveMode"] == "stretch");
     e.shutdown();
+}
+
+// ---- M78-P1: the vendor modes (dlss, xess, fsr) --------------------------------------------------------------------------------------
+
+TEST_CASE("render.upscaler: dlss, xess and fsr load from the project, round-trip, and are documented") {
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        TempProject p(std::string("vendor_load_") + mode, std::string(R"(, "render": { "upscaler": { "mode": ")") +
+                                                              mode + R"(", "quality": "quality" } })");
+        auto s = load_project(p.path());
+        REQUIRE_MESSAGE(s.ok(), s.error().message);
+        CHECK(std::string(render::upscaler_mode_name(s->upscaler.mode)) == mode);
+        CHECK(s->to_json()["render"]["upscaler"]["mode"] == mode);
+    }
+    TempProject bad("vendor_bad", R"(, "render": { "upscaler": { "mode": "dlls" } })");
+    auto b = load_project(bad.path());
+    REQUIRE_FALSE(b.ok());
+    const std::string badText = b.error().message + " " + b.error().hint;
+    CHECK(badText.find("dlss") != std::string::npos);
+
+    TempProject p("vendor_doc");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("render.upscaler");
+    REQUIRE(info != nullptr);
+    const std::string doc = info->description + " " + info->details + " " + info->inputSchema.dump();
+    for (const char* word : {"dlss", "xess", "fsr", "factoria setup"})
+        CHECK_MESSAGE(doc.find(word) != std::string::npos, word);
+    CHECK(info->description.size() < 1500);
+    e.shutdown();
+}
+
+TEST_CASE("render.upscaler: a vendor mode with no SDK usable reports the mode asked and draws as the next best; "
+          "render.supports says why") {
+    TempProject p("vendor_cmd", "", "fit");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    auto& c = e.commands();
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        auto r = c.call("render.upscaler",
+                        Json::parse(std::string("{\"mode\":\"") + mode + "\",\"quality\":\"performance\"}"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["mode"] == mode);
+        // The SDKs are not installed on a test machine (and are Windows only): the mode is not the effective one.
+        CHECK_MESSAGE(r.result["effectiveMode"] != mode, mode);
+        // The next best: the temporal upscaler where the renderer can run it (its TAA history, which a software GL or a small CI GPU may
+        // lack, then the spatial one), MetalFX on a Mac that has it; never a bare stretch, and always what the renderer itself reports.
+        const std::string drawn = r.result["effectiveMode"].get<std::string>();
+        CHECK_MESSAGE((drawn == "metalfx" || drawn == "temporal" || drawn == "spatial"), mode, ": ", drawn);
+        CHECK_MESSAGE(drawn == render::upscaler_mode_name(e.renderer()->effective_upscaler_mode()), mode);
+        CHECK(r.result["scale"].get<double>() == doctest::Approx(0.5));
+        auto s = c.call("render.supports", Json::parse(std::string("{\"feature\":\"") + mode + "\"}"));
+        REQUIRE_MESSAGE(s.ok, s.error.dump());
+        const std::string text = s.result.dump();
+        CHECK_MESSAGE(text.find("\"supported\":false") != std::string::npos, text);
+        const bool teaches = text.find("factoria setup") != std::string::npos ||
+                             text.find("Windows") != std::string::npos || text.find("NVIDIA") != std::string::npos ||
+                             text.find("needs") != std::string::npos;
+        CHECK_MESSAGE(teaches, text);
+    }
+    e.shutdown();
+}
+
+TEST_CASE("render.upscaler without a renderer: a vendor mode is what the next best would draw") {
+    TempProject p("vendor_nogpu", R"(, "render": { "upscaler": { "mode": "dlss" } })", "fit");
+    EngineConfig cf = cfg(p);
+    cf.graphics = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cf, nullptr, &err), err);
+    REQUIRE(e.renderer() == nullptr);
+    const std::string best = render::metalfx_available_here().available ? "metalfx" : "temporal";
+    for (const char* mode : {"dlss", "xess", "fsr"}) {
+        auto r = e.commands().call("render.upscaler", Json::parse(std::string("{\"mode\":\"") + mode + "\"}"));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK_MESSAGE(r.result["mode"] == mode, mode);
+        CHECK_MESSAGE(r.result["effectiveMode"] == best, mode);
+    }
+    TempProject art("vendor_nogpu_art", R"(, "render": { "upscaler": { "mode": "fsr" } })", "pixelPerfect");
+    EngineConfig ca = cfg(art);
+    ca.graphics = false;
+    Engine a;
+    REQUIRE_MESSAGE(a.init(ca, nullptr, &err), err);
+    CHECK(a.commands().call("render.upscaler", Json::object()).result["effectiveMode"] == "stretch");
 }

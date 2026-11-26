@@ -211,6 +211,12 @@ void CommandCapture::end_timed_scope() {
     calls_.push_back(c);
 }
 
+Result<gpu::NativeCommands> CommandCapture::begin_native(std::span<const gpu::NativeUse>) {
+    return make_error("gpu: CommandList::begin_native on a CommandCapture: a capture records no native commands",
+                      "it is replayed later on a job thread: open the native section on the real list (the one "
+                      "replay() records on), outside the capture");
+}
+
 void CommandCapture::replay(gpu::CommandList& list) const {
     for (const Call& c : calls_) {
         switch (c.op) {

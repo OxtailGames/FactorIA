@@ -55,6 +55,7 @@
 #include <vector>
 
 #include "fa/core/types.h"
+#include "gpu/device_hooks.h"
 #include "gpu/types.h"
 
 namespace fa::gpu {
@@ -124,7 +125,76 @@ public:
     // so) is accepted and ignored: it records nothing and measures nothing. The default is the graphics queue (a backend
     // with one queue).
     virtual QueueKind queue() const { return QueueKind::Graphics; }
+
+    // ---- native commands (M78: vendor SDKs; docs/design/ARCHITECTURE_RENDERING_D3D12.md and _VULKAN.md, "Native
+    // access for vendor SDKs") ---------------------------------------------------------------------------------------
+    // Opens a native section: records the barriers that put each resource of `uses` in its state (NativeState) and
+    // hands out the backend's own command list, where the caller records with the raw API until end_native(). Outside
+    // a pass, on a Graphics or Compute list (RenderTarget and the depth states on a Graphics list only), one section
+    // at a time. The resources the native commands touch must all be in `uses`; the engine records nothing else on the
+    // list before end_native() (begin_pass refuses: D3D12 and Vulkan fail the pass, D3D11 closes the section; both
+    // report it; D3D12 and Vulkan also report and skip write_buffer, write_image, copy_buffer_to_buffer and
+    // copy_buffer_to_image), and the native commands may not end or reset the list. A list that is not recording (a
+    // submitted one) answers an error.
+    // D3D12 and Vulkan; D3D11 gives its immediate context (it tracks no state: `uses` is only checked); GL, Metal and
+    // the RecordingDevice answer an error. An error records nothing and opens nothing; a resource or a range that does
+    // not exist, a state its usage does not allow, two states for one subresource, all name the entry (uses[i]).
+    virtual Result<NativeCommands> begin_native(std::span<const NativeUse> uses);
+    // Closes the native section. `leftIn` names the subresources the native commands left in another state than the
+    // one begin_native declared (each in a range begin_native declared); the others are as declared. The engine's
+    // tracking takes these states and waits for the native commands' writes before its next use of any declared
+    // resource, then binds again (pipelines, descriptor heaps and sets the native commands may have changed). D3D12: a
+    // resource declared Common that a native command used is promoted implicitly: name the promoted state here. An
+    // error changes nothing and leaves the section open (call it again with a correct list); submitting a list whose
+    // section is still open reports it and closes it as declared.
+    virtual Result<void> end_native(std::span<const NativeUse> leftIn);
+    // The same with every resource left as declared.
+    Result<void> end_native() { return end_native(std::span<const NativeUse>{}); }
 };
+
+// What a backend knows of the resource a NativeUse names (check_native_use).
+struct NativeTarget {
+    bool buffer = false;
+    const char* label = "";  // the resource's label, for the errors
+    ImageUsage imageUsage{};
+    BufferUsage bufferUsage{};
+    PixelFormat format = PixelFormat::None;
+    int mips = 1;
+    int layers = 1;  // array layers or cube faces (1 for a 3D image)
+};
+// The mips and layers a NativeUse covers once its 0 counts are resolved (a buffer: 0, 1, 0, 1).
+struct NativeRange {
+    int mip = 0, mipCount = 1, layer = 0, layerCount = 1;
+};
+// The backend-neutral checks of begin_native / end_native (gpu/device.cpp): whether `use` names one resource only, its
+// range lies in it, its state suits its usage and format, and the list's queue takes that state. "" when it is fine
+// (`range` then holds the resolved range); the error otherwise, without a prefix.
+std::string check_native_use(const NativeUse& use, const NativeTarget& target, QueueKind queue, NativeRange& range);
+// Two uses of one resource whose ranges overlap with different states: the error naming both ("" when none). `ranges`
+// are check_native_use's answers, one per use.
+std::string check_native_overlaps(std::span<const NativeUse> uses, std::span<const NativeRange> ranges);
+// Every check of a list of uses, in order: one handle each, `lookup(use, target)` finds the live resource (false: none),
+// check_native_use, then check_native_overlaps (when `overlaps`). "" and one range per use, or the first error with
+// its entry ("uses[2]: ..."); `name` is "uses" or "leftIn".
+template <class Lookup>
+std::string check_native_uses(std::span<const NativeUse> uses, QueueKind queue, const char* name, bool overlaps,
+                              std::vector<NativeRange>& ranges, Lookup&& lookup) {
+    ranges.assign(uses.size(), NativeRange{});
+    for (std::size_t i = 0; i < uses.size(); ++i) {
+        const NativeUse& use = uses[i];
+        const std::string at = std::string(name) + "[" + std::to_string(i) + "]: ";
+        if (bool(use.image.id) == bool(use.buffer.id))
+            return at + (use.image.id ? "names an image and a buffer (hint: one resource per entry)"
+                                      : "names no resource (hint: set image or buffer)");
+        NativeTarget target;
+        if (!lookup(use, target))
+            return at + (use.image.id ? "the image" : "the buffer") +
+                   " is not alive (destroyed, failed, or never made)";
+        std::string error = check_native_use(use, target, queue, ranges[i]);
+        if (!error.empty()) return at + error;
+    }
+    return overlaps ? check_native_overlaps(uses, ranges) : std::string();
+}
 
 // The command buffer of a Metal device, for code that orders its own Metal work against the frame (MetalFX,
 // metalfx_apple.mm). Only the Metal backend has one (Device::native_metal() is null elsewhere): the objects are
@@ -161,6 +231,10 @@ struct DeviceInit {
     Features recordingFeatures{};
     Limits recordingLimits{};
     bool recordingDefaultCaps = true;
+    // Vendor SDKs' part in making the device and its swapchain (gpu/device_hooks.h): called by the D3D12 and Vulkan
+    // backends only; make_device() adds the registered hooks (register_device_hook) and marks every hook unavailable
+    // on a backend that calls none.
+    DeviceHooks hooks;
 };
 
 // ---- the window: swapchain and present (Device::create_swapchain and the calls after it) --------------------------
@@ -188,6 +262,10 @@ class Device {
 public:
     virtual ~Device() = default;
 
+    // A number no other device of this process has had (from 1, never reused): a provider that keeps an SDK context for "the device that
+    // drew last" compares this and not the address, because a device made after another was destroyed can get the same address.
+    std::uint64_t generation() const { return generation_; }
+
     // ---- who it is, what it can do --------------------------------------------------------------------------------
     virtual Backend backend() const = 0;
     virtual const DeviceInfo& info() const = 0;
@@ -202,6 +280,11 @@ public:
     virtual NativeDevice native() const = 0;
     virtual NativeImage native_image(Image image) const = 0;
     virtual NativeBuffer native_buffer(Buffer buffer) const = 0;
+    // The native view handle and format (M78: D3D12 and Vulkan; empty elsewhere and for a dead view).
+    virtual NativeView native_view(View view) const;
+    // Waits until the GPU finished everything submitted (D3D12 and Vulkan: every queue). The default does nothing: a device whose
+    // driver orders the work itself (D3D11, GL, Metal) needs no wait before a vendor SDK's context is made again or destroyed.
+    virtual Result<void> wait_idle();
     // The Metal command-buffer access (MetalFX); null on every backend that is not Metal. The MTLTexture of an image is
     // native_image(image).texture.
     virtual MetalNative* native_metal() = 0;
@@ -441,6 +524,8 @@ protected:
     SyncToken issue_token(QueueKind queue);
 
 private:
+    static std::uint64_t next_generation();
+    const std::uint64_t generation_ = next_generation();
     std::atomic<std::uint64_t> issued_[kQueueKinds]{};
 };
 

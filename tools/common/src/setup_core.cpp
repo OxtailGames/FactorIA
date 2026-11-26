@@ -125,7 +125,7 @@ Downloader curl_downloader(ProcessRunner run) {
             const char* root = std::getenv("SystemRoot");
             const stdfs::path candidate = stdfs::path(root ? root : "C:\\Windows") / "System32" / "curl.exe";
             std::error_code ec;
-            if (stdfs::is_regular_file(candidate, ec)) curl = candidate.string();
+            if (stdfs::is_regular_file(candidate, ec)) curl = fs::path_to_utf8(candidate);
         }
 #endif
         if (curl.empty())
@@ -147,7 +147,8 @@ Downloader curl_downloader(ProcessRunner run) {
             po.argv.push_back("-H");
             po.argv.push_back(h);
         }
-        po.argv.insert(po.argv.end(), {"-o", part.string(), rq.url});
+        // run_process takes UTF-8 arguments: path::string() is the ANSI code page on Windows and breaks on accented user names.
+        po.argv.insert(po.argv.end(), {"-o", fs::path_to_utf8(part), rq.url});
         po.captureStdout = false;
         po.cancel = rq.cancel;
 
@@ -187,14 +188,15 @@ Downloader curl_downloader(ProcessRunner run) {
             return fail(std::move(e));
         }
         if (!stdfs::is_regular_file(part, ec))
-            return fail(make_error("Downloading " + what + " finished but curl wrote no file at " + part.string() + ".",
+            return fail(make_error("Downloading " + what + " finished but curl wrote no file at " +
+                                       fs::path_to_utf8(part) + ".",
                                    "Check that the folder is writable."));
         stdfs::remove(dest, ec);
         stdfs::rename(part, dest, ec);
         if (ec)
-            return fail(
-                make_error("Cannot move the downloaded file into place (" + dest.string() + "): " + ec.message(),
-                           "Check the free disk space and that the folder is writable."));
+            return fail(make_error("Cannot move the downloaded file into place (" + fs::path_to_utf8(dest) +
+                                       "): " + ec.message(),
+                                   "Check the free disk space and that the folder is writable."));
         return out;
     };
 }
@@ -275,7 +277,7 @@ bool is_dir(const stdfs::path& p) {
 // ---- the install bookkeeping ---------------------------------------------------------------------------------------
 
 Installer::Installer(const SetupContext& context, std::string component)
-    : ctx(context), staging_(stdfs::path(context.home_dir()) / "staging" / component),
+    : ctx(context), staging_(fs::path_from_utf8(context.home_dir()) / "staging" / component),
       start_(std::chrono::steady_clock::now()) {
     report.component = std::move(component);
 }
@@ -341,7 +343,7 @@ std::optional<Fail> download_file(const SetupContext& ctx, const std::string& ur
                                   const std::vector<std::string>& headers) {
     DownloadRequest rq;
     rq.url = url;
-    rq.destination = destination.string();
+    rq.destination = fs::path_to_utf8(destination);  // UTF-8, not the ANSI path::string() of Windows
     rq.headers = headers;
     rq.expectedBytes = expectedBytes;
     rq.what = what;
@@ -360,7 +362,7 @@ std::optional<Fail> download_file(const SetupContext& ctx, const std::string& ur
     if (!r.ok) return Fail{r.cancelled || is_cancelled(ctx.cancel) ? "cancelled" : "network", r.error};
     if (bytes) {
         std::error_code ec;
-        *bytes = stdfs::file_size(destination, ec);
+        *bytes = stdfs::file_size(fs::os_path(destination), ec);
         if (ec) *bytes = 0;
     }
     return std::nullopt;
@@ -374,7 +376,7 @@ std::optional<Fail> fetch_text(const SetupContext& ctx, const std::string& url, 
         scratch / ("fetch-" + std::to_string(process_id()) + "-" + std::to_string(++counter) + ".txt");
     DownloadRequest rq;
     rq.url = url;
-    rq.destination = file.string();
+    rq.destination = fs::path_to_utf8(file);
     rq.headers = headers;
     rq.what = what;
     const DownloadResult r = ctx.fetch(rq);
@@ -408,18 +410,25 @@ std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& 
 
 // ---- files ----------------------------------------------------------------------------------------------------------
 
-std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive,
-                                    const stdfs::path& destination) {
+std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination,
+                                    const std::vector<std::string>& only) {
     std::error_code ec;
-    stdfs::create_directories(destination, ec);
-    const std::string name = to_lower(archive.filename().string());
+    stdfs::create_directories(fs::os_path(destination),
+                              ec);  // `\\?\` form on Windows: a long home folder may pass MAX_PATH
+    const std::string archiveName = fs::path_to_utf8(archive.filename());
+    const std::string name = to_lower(archiveName);
     const bool zip = ends_with(name, ".zip");
     const bool tarball = ends_with(name, ".tar.gz") || ends_with(name, ".tgz");
     if (!zip && !tarball)
-        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() +
-                                             ": only .zip and .tar.gz archives are supported.",
-                                         "This is a bug in FactorIA; please report it.")};
+        return Fail{"failed",
+                    make_error("Cannot unpack " + archiveName + ": only .zip and .tar.gz archives are supported.",
+                               "This is a bug in FactorIA; please report it.")};
     const std::string os = ctx.host_os();
+    // run_process takes UTF-8 arguments (it converts them to UTF-16 for CreateProcessW), so the paths are handed over as UTF-8,
+    // never as path::string(), which is the ANSI code page on Windows. What tar.exe then does with a name outside that code
+    // page is up to the tool (it is bsdtar): a failure names the program, its exit code and its first message line.
+    const std::string archiveArg = fs::path_to_utf8(archive);
+    const std::string destinationArg = fs::path_to_utf8(destination);
     ProcessOptions po;
     if (os == "linux") {
         if (zip) {
@@ -427,39 +436,47 @@ std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& 
             if (unzip.empty())
                 return Fail{
                     "failed",
-                    make_error("Cannot unpack " + archive.filename().string() + ": the 'unzip' program is missing.",
+                    make_error("Cannot unpack " + archiveName + ": the 'unzip' program is missing.",
                                "Install it (sudo apt install unzip, sudo dnf install unzip) and run the setup again.")};
-            po.argv = {unzip, "-q", "-o", archive.string(), "-d", destination.string()};
+            po.argv = {unzip, "-q", "-o", archiveArg};
+            po.argv.insert(po.argv.end(), only.begin(), only.end());  // the entry list goes before -d
+            po.argv.insert(po.argv.end(), {"-d", destinationArg});
         } else {
-            po.argv = {"tar", "--no-same-owner", "-xzf", archive.string(), "-C", destination.string()};
+            po.argv = {"tar", "--no-same-owner", "-xzf", archiveArg, "-C", destinationArg};
+            po.argv.insert(po.argv.end(), only.begin(), only.end());
         }
     } else if (os == "macos") {
         // bsdtar reads .zip and .tar.gz alike; the system one, not whatever tar a PATH has first.
-        po.argv = {is_file("/usr/bin/tar") ? "/usr/bin/tar" : "tar", "-xf", archive.string(), "-C",
-                   destination.string()};
+        po.argv = {is_file("/usr/bin/tar") ? "/usr/bin/tar" : "tar", "-xf", archiveArg, "-C", destinationArg};
+        po.argv.insert(po.argv.end(), only.begin(), only.end());
     } else {
         const char* root = std::getenv("SystemRoot");
         stdfs::path tar = stdfs::path(root ? root : "C:\\Windows") / "System32" / "tar.exe";
-        po.argv = {is_file(tar) ? tar.string() : std::string("tar"), "-xf", archive.string(), "-C",
-                   destination.string()};
+        po.argv = {is_file(tar) ? fs::path_to_utf8(tar) : std::string("tar"), "-xf", archiveArg, "-C", destinationArg};
+        po.argv.insert(po.argv.end(), only.begin(), only.end());
     }
-    ctx.say("Unpacking " + archive.filename().string() + "...");
+    ctx.say("Unpacking " + archiveName + "...");
     auto r = ctx.run_process_with(po);
     if (!r.ok())
-        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": " + r.error().message,
+        return Fail{"failed", make_error("Cannot unpack " + archiveName + ": " + r.error().message,
                                          r.error().hint.empty() ? "Check that the archive tool of this system works."
                                                                 : r.error().hint)};
     if (r->cancelled || is_cancelled(ctx.cancel))
-        return Fail{"cancelled", make_error("Unpacking " + archive.filename().string() + " was cancelled.")};
+        return Fail{"cancelled", make_error("Unpacking " + archiveName + " was cancelled.")};
     if (r->exitCode != 0) {
         std::string detail = first_line(r->stderrText);
-        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": " + po.argv[0] +
-                                             " exited with code " + std::to_string(r->exitCode) +
-                                             (detail.empty() ? "." : ": " + detail),
-                                         "The download may be damaged, or the disk is full: run it again.")};
+        std::string hint = "The download may be damaged, or the disk is full: run it again.";
+        if (!only.empty())
+            hint += " If the message names an entry the archive does not hold, the release changed its layout: update "
+                    "FactorIA.";
+        return Fail{"failed", make_error("Cannot unpack " + archiveName + ": " + po.argv[0] + " exited with code " +
+                                             std::to_string(r->exitCode) + (detail.empty() ? "." : ": " + detail),
+                                         hint)};
     }
     return std::nullopt;
 }
+
+int current_process_id() { return process_id(); }
 
 std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to) {
     static std::atomic<int> counter{0};
@@ -473,15 +490,16 @@ std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to) 
         if (ec)
             return Fail{
                 "failed",
-                make_error("Cannot replace " + to.string() + ": " + ec.message(),
+                make_error("Cannot replace " + fs::path_to_utf8(to) + ": " + ec.message(),
                            "Close the programs that use files in that folder (a build, an editor) and run it again.")};
     }
     stdfs::rename(from, to, ec);
     if (ec) {
         const std::string message = ec.message();
         if (!aside.empty()) stdfs::rename(aside, to, ec);
-        return Fail{"failed", make_error("Cannot move " + from.string() + " to " + to.string() + ": " + message,
-                                         "Check the free disk space and that the folder is writable.")};
+        return Fail{"failed",
+                    make_error("Cannot move " + fs::path_to_utf8(from) + " to " + fs::path_to_utf8(to) + ": " + message,
+                               "Check the free disk space and that the folder is writable.")};
     }
     if (!aside.empty()) fs::remove_tree(aside, ec);
     return std::nullopt;

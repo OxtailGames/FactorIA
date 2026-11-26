@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 
 #include "fa/core/compress.h"
 #include "fa/core/fs.h"
@@ -594,4 +595,188 @@ TEST_CASE(
     forLinux.setup = &setup;
     REQUIRE(export_project(forLinux).ok());
     CHECK_FALSE(stdfs::exists(tmp.path / "out" / "pack-test-linux" / "dstorage.dll"));
+}
+
+namespace {
+
+// Puts every file of vendor SDK `id` where `setup <id>` would, with fake content (the DLLs and the license texts).
+void fake_install_vendor_sdk(const SetupContext& setup, const std::string& id) {
+    const VendorSdk* sdk = find_vendor_sdk(id);
+    REQUIRE(sdk != nullptr);
+    const stdfs::path dir = fs::path_from_utf8(vendor_sdk_install_dir(setup, *sdk));
+    for (int i = 0; i < sdk->fileCount; ++i) {
+        const std::string name = vendor_sdk_file_name(sdk->files[i]);
+        testing::write_all(dir / fs::path_from_utf8(name), "fake " + name);
+    }
+    REQUIRE_FALSE(installed_vendor_sdk_dir(setup, *sdk).empty());
+}
+
+void set_factoria_json(const std::string& proj, const std::function<void(Json&)>& edit) {
+    const stdfs::path file = stdfs::path(proj) / "factoria.json";
+    auto j = parse_json(testing::read_all(file), "factoria.json");
+    REQUIRE(j.ok());
+    edit(*j);
+    testing::write_all(file, j->dump(2));
+}
+
+bool mentions(const std::vector<std::string>& lines, const std::string& text) {
+    return std::any_of(lines.begin(), lines.end(),
+                       [&](const std::string& l) { return l.find(text) != std::string::npos; });
+}
+
+}  // namespace
+
+TEST_CASE(
+    "export for Windows with export.pack.vendorSdks: auto ships the installed SDKs the project uses, with licenses") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    set_factoria_json(proj, [](Json& j) { j["render"]["upscaler"]["mode"] = "dlss"; });
+    SetupContext setup;
+    setup.home = tmp.sub("fhome");
+    setup.verifyVendorSdkFiles = false;  // the DLLs here are fake: their hashes are not the pinned ones (tested below)
+    const stdfs::path out = tmp.path / "out" / "pack-test-windows";
+    ExportOptions o = options_for(tmp, proj, "windows", true);
+    o.setup = &setup;
+
+    // The project asks for DLSS and nothing is installed: the export works, says which SDK it left out and how to get it.
+    auto missing = export_project(o);
+    REQUIRE_MESSAGE(missing.ok(), (missing.ok() ? "" : missing.error().to_string()));
+    CHECK_FALSE(stdfs::exists(out / "sl.interposer.dll"));
+    CHECK_FALSE(stdfs::exists(out / "licenses"));
+    CHECK(mentions(missing->nextSteps, "factoria setup streamline"));
+    CHECK_FALSE(mentions(missing->warnings, "streamline"));  // an info line, not a warning
+
+    // Installed: the DLLs sit next to the executable, the license texts in licenses/streamline/, NVIDIA's obligations are
+    // in the next steps. XeSS is installed too, but the project does not use it: not shipped.
+    fake_install_vendor_sdk(setup, "streamline");
+    fake_install_vendor_sdk(setup, "xess");
+    auto shipped = export_project(o);
+    REQUIRE_MESSAGE(shipped.ok(), (shipped.ok() ? "" : shipped.error().to_string()));
+    CHECK(testing::read_all(out / "sl.interposer.dll") == "fake sl.interposer.dll");
+    CHECK(testing::read_all(out / "nvngx_dlss.dll") == "fake nvngx_dlss.dll");
+    CHECK(stdfs::exists(out / "licenses" / "streamline" / "sl.license.txt"));
+    CHECK_FALSE(stdfs::exists(out / "sl.license.txt"));  // licenses stay out of the executable's folder
+    CHECK_FALSE(stdfs::exists(out / "sl_nvperf.dll"));
+    CHECK_FALSE(stdfs::exists(out / "libxess.dll"));
+    CHECK_FALSE(stdfs::exists(out / "licenses" / "xess"));
+    CHECK(mentions(shipped->nextSteps, "notify NVIDIA"));
+    CHECK(mentions(shipped->nextSteps, "licenses/streamline"));
+    CHECK_FALSE(mentions(shipped->nextSteps, "Not shipped"));
+    CHECK(has(shipped->files, "licenses/streamline/sl.license.txt"));
+    CHECK(has(shipped->files, "sl.interposer.dll"));
+
+    // A folder export (no --release) ships them too: they are the game's libraries, not part of the pack.
+    ExportOptions folder = options_for(tmp, proj, "windows", false);
+    folder.outDir = tmp.sub("out-folder");
+    folder.setup = &setup;
+    REQUIRE(export_project(folder).ok());
+    CHECK(stdfs::exists(tmp.path / "out-folder" / "pack-test-windows" / "sl.interposer.dll"));
+
+    // Another platform ships nothing, whatever the project asks for.
+    ExportOptions forLinux = options_for(tmp, proj, "linux", true);
+    forLinux.setup = &setup;
+    auto linux = export_project(forLinux);
+    REQUIRE(linux.ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out" / "pack-test-linux" / "sl.interposer.dll"));
+    CHECK_FALSE(stdfs::exists(tmp.path / "out" / "pack-test-linux" / "licenses"));
+    CHECK_FALSE(mentions(linux->nextSteps, "NVIDIA"));
+
+    // A project that asks for nothing ships nothing: no render settings, or "off".
+    set_factoria_json(proj, [](Json& j) { j.erase("render"); });
+    ExportOptions plain = options_for(tmp, proj, "windows", true);
+    plain.outDir = tmp.sub("out-plain");
+    plain.setup = &setup;
+    REQUIRE(export_project(plain).ok());
+    CHECK_FALSE(stdfs::exists(tmp.path / "out-plain" / "pack-test-windows" / "sl.interposer.dll"));
+}
+
+TEST_CASE("export for Windows with export.pack.vendorSdks: none ships nothing, a list ships exactly those and checks "
+          "them first") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    SetupContext setup;
+    setup.home = tmp.sub("fhome");
+    setup.verifyVendorSdkFiles = false;  // fake DLLs
+    fake_install_vendor_sdk(setup, "streamline");
+    fake_install_vendor_sdk(setup, "xess");
+    set_factoria_json(proj, [](Json& j) {
+        j["render"]["upscaler"]["mode"] = "auto";
+        j["export"]["pack"]["vendorSdks"] = "none";
+    });
+    ExportOptions o = options_for(tmp, proj, "windows", true);
+    o.setup = &setup;
+    const stdfs::path out = tmp.path / "out" / "pack-test-windows";
+
+    auto none = export_project(o);
+    REQUIRE_MESSAGE(none.ok(), (none.ok() ? "" : none.error().to_string()));
+    CHECK_FALSE(stdfs::exists(out / "sl.interposer.dll"));
+    CHECK_FALSE(stdfs::exists(out / "libxess.dll"));
+    CHECK_FALSE(stdfs::exists(out / "licenses"));
+    CHECK_FALSE(mentions(none->nextSteps, "factoria setup"));  // not even a hint about the SDKs left out
+
+    // A list: exactly the ids, even when the project's render settings do not ask for them.
+    set_factoria_json(proj, [](Json& j) {
+        j.erase("render");
+        j["export"]["pack"]["vendorSdks"] = Json::array({"xess"});
+    });
+    auto listed = export_project(o);
+    REQUIRE_MESSAGE(listed.ok(), (listed.ok() ? "" : listed.error().to_string()));
+    CHECK(stdfs::exists(out / "libxess.dll"));
+    CHECK(stdfs::exists(out / "licenses" / "xess" / "LICENSE.txt"));
+    CHECK_FALSE(stdfs::exists(out / "sl.interposer.dll"));
+    CHECK_FALSE(mentions(listed->nextSteps, "notify NVIDIA"));
+
+    // An id that is not installed is an error that names the command, before anything is written.
+    set_factoria_json(proj, [](Json& j) { j["export"]["pack"]["vendorSdks"] = Json::array({"xess", "fidelityfx"}); });
+    ExportOptions fresh = options_for(tmp, proj, "windows", true);
+    fresh.outDir = tmp.sub("out-missing");
+    fresh.setup = &setup;
+    auto failed = export_project(fresh);
+    REQUIRE_FALSE(failed.ok());
+    CHECK(failed.error().message.find("fidelityfx") != std::string::npos);
+    CHECK(failed.error().message.find("vendorSdks") != std::string::npos);
+    CHECK(failed.error().hint.find("factoria setup fidelityfx") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(tmp.path / "out-missing" / "pack-test-windows"));
+
+    // The same project exported for Linux: the list means nothing there, no error.
+    ExportOptions forLinux = options_for(tmp, proj, "linux", true);
+    forLinux.outDir = tmp.sub("out-linux");
+    forLinux.setup = &setup;
+    REQUIRE_MESSAGE(export_project(forLinux).ok(), "a Windows-only setting must not fail another platform");
+    CHECK_FALSE(stdfs::exists(tmp.path / "out-linux" / "pack-test-linux" / "libxess.dll"));
+}
+
+TEST_CASE(
+    "export for Windows: an installed vendor SDK whose files are not the pinned ones fails before any work, naming "
+    "the fix") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    SetupContext setup;  // verifyVendorSdkFiles stays true: the fake DLLs do not hash to what FactorIA pinned
+    setup.home = tmp.sub("fhome");
+    fake_install_vendor_sdk(setup, "streamline");
+    for (const char* mode : {"dlss", "list"}) {
+        CAPTURE(mode);
+        set_factoria_json(proj, [&](Json& j) {
+            if (std::string(mode) == "dlss")
+                j["render"]["upscaler"]["mode"] = "dlss";
+            else
+                j["export"]["pack"]["vendorSdks"] = Json::array({"streamline"});
+        });
+        ExportOptions o = options_for(tmp, proj, "windows", true);
+        o.outDir = tmp.sub(std::string("out-damaged-") + mode);
+        o.setup = &setup;
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("streamline") != std::string::npos);
+        CHECK(r.error().message.find("sl.") != std::string::npos);  // names the file
+        CHECK(r.error().message.find("pinned") != std::string::npos);
+        CHECK(r.error().hint.find("factoria setup streamline --force") != std::string::npos);
+        CHECK(r.error().hint.find("--accept-licenses") != std::string::npos);  // --force asks for the license again
+        CHECK_FALSE(
+            stdfs::exists(tmp.path / ("out-damaged-" + std::string(mode)) / "pack-test-windows"));  // nothing exported
+        set_factoria_json(proj, [](Json& j) {
+            j.erase("render");
+            if (j.contains("export")) j["export"].erase("pack");
+        });
+    }
 }

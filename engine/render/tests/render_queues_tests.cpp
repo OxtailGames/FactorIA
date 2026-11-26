@@ -270,6 +270,13 @@ TEST_CASE("render queues: a CommandCapture replays every call as the direct reco
     CHECK(a == b);
     capture.clear();
     CHECK(capture.size() == 0);
+
+    // Native commands cannot be captured: the answer names the capture, not "this device".
+    const auto native = capture.begin_native({});
+    REQUIRE(!native);
+    CHECK(native.error().message.find("on a CommandCapture") != std::string::npos);
+    CHECK(native.error().message.find("this device") == std::string::npos);
+    CHECK(capture.size() == 0);
 }
 
 TEST_CASE("render queues: async compute hands its resources to the compute queue and back, and graphics waits") {

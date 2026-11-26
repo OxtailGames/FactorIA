@@ -11,6 +11,7 @@
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
 //   setup_directstorage.cpp the DirectStorage DLLs a Windows export puts next to the game
+//   setup_vendor_sdks.cpp  the DLLs of NVIDIA Streamline, Intel XeSS and AMD FidelityFX a Windows export ships (and what a project can use)
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
 //   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
 #pragma once
@@ -115,13 +116,19 @@ std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& 
 // ---- files ----------------------------------------------------------------------------------------------------------
 
 // Unpacks a .zip, .tar.gz or .tgz into `destination` (created). macOS and Windows use the system bsdtar
-// (/usr/bin/tar, %SystemRoot%\System32\tar.exe), Linux `tar` and `unzip`.
-std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive,
-                                    const stdfs::path& destination);
+// (/usr/bin/tar, %SystemRoot%\System32\tar.exe), Linux `tar` and `unzip`. `only`, when not empty, lists the archive entries
+// to unpack (exact names, no wildcards: the tools read `*`, `?` and `[` in them as patterns); nothing else is written, so a
+// release with hundreds of files, some nested deeper than Windows' MAX_PATH, unpacks only what the caller keeps. An entry
+// the archive does not hold fails the unpack and the Error says so.
+std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination,
+                                    const std::vector<std::string>& only = {});
 
 // Moves `from` to `to`, replacing what is there: the old folder is renamed aside first and removed once the new one is in
 // place; when the move fails the old one is put back.
 std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to);
+
+// The id of this process (the `.old-<pid>-<n>` folder replace_dir makes belongs to the process that made it, for as long as it runs).
+int current_process_id();
 
 // The folder that holds the one top-level folder of an unpacked archive (cmake-3.31.6-.../, FactorIA/...): `root` itself
 // when it holds several entries or none.
@@ -171,6 +178,13 @@ SetupResult directstorage_install(const SetupContext& ctx, const SetupInstallOpt
 // The install of one given package (tests pass one whose hash matches their fake download, and its `url`; "" = NuGet's).
 SetupResult directstorage_install_package(const SetupContext& ctx, const SetupInstallOptions& options,
                                           const DirectStoragePackage& package, const std::string& url);
+
+// streamline, xess and fidelityfx (fa/tooling/setup.h, VendorSdk). The install of one given SDK (tests pass one whose hashes
+// match their fake downloads).
+SetupComponent vendor_sdk_status(const SetupContext& ctx, const VendorSdk& sdk, bool fetchLicenses);
+SetupResult vendor_sdk_install(const SetupContext& ctx, const SetupInstallOptions& options, const VendorSdk& sdk);
+SetupComponent vendor_sdk_status_by_id(const SetupContext& ctx, const std::string& id, bool fetchLicenses);
+SetupResult vendor_sdk_install_by_id(const SetupContext& ctx, const SetupInstallOptions& options);
 
 SetupComponent vscode_status(const SetupContext& ctx);
 SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& options);

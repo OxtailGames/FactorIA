@@ -9,7 +9,8 @@ renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU i
 [rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md) and its D3D12 backend on
 [rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md). How the renderer uses several queues and threads on
 those two (the shadow views recorded on job threads, the depth pyramid on the async compute queue) is on the page
-[rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md).
+[rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md). How a vendor SDK takes part in making those
+two devices and their swapchains is on the page [rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md).
 
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
@@ -62,6 +63,21 @@ the limits count frames, never time. `pipelines`, `pipelineHits`,
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). The script also asks for `spirv_vk` (M77: the SPIR-V of the
 Vulkan backend): the arrays and the `SG_BACKEND_VULKAN` description sit behind `#if defined(SOKOL_VULKAN)`, so a player without that backend
 links none of it, and `spirv_shader_tests.cpp` defines `SOKOL_VULKAN` for itself to check the module headers and the set and binding numbers.
+
+**Embedded shader text (M78):** the GLSL ES 3.00 and GLSL 4.30 texts of the generated headers are spirv-cross output, 0.9 MB of repeating
+code per dialect in the web, Android and Linux players, so `compile_shaders.sh` builds `tools/shaders/shader_pack` (its own small cmake project: the
+codec files of `engine/core` and nothing else, under `.cache/shader-pack`) and runs it on every header after sokol-shdc. Per header and
+dialect the tool writes the texts the programs use (one after the other, a NUL after each) as ONE zstd frame made with the engine's own encoder
+(level 19; one frame is about half the size of one frame per text, because the variants of a program share most of their code) and puts
+`fa::shader_text::get(<header>_<dialect>_pack, offset)` where sokol-shdc had `(const char*)<array>`. `src/shader_text.{h,cpp}` decodes a pack
+the first time one of its texts is asked for (in the `*_shader_desc()` the header caches, so once per shader and translation unit) into a
+cache keyed by the frame's content (two 64-bit hashes and the sizes, no copy of the bytes), thread-safe, that lives as long as the
+process: the cached `sg_shader_desc` keeps a pointer into it. The driver receives the bytes sokol-shdc wrote. A text no program reads (a variant of a template that no program calls) is dropped. Sizes at M78,
+the texts the players link: GLSL ES 941,595 -> 158,753 bytes, GLSL 4.30 889,035 -> 157,544 bytes. The other dialects keep their arrays (Metal
+and HLSL sources are not in the web, Android or Linux players). Behind `FA_SHADER_TEXT_CHECK` each header also has a table with the FNV-1a hash
+of every original text, and `compile_shaders.sh` writes `tests/shader_text_index.h`, which lists them all with every shader_desc function:
+`shader_text_tests.cpp` decodes every text, compares the hashes, and checks that the GLES3 and GLCORE descs hand the driver exactly those texts.
+
 Custom materials get the same dialect on request (docs/design/CUSTOM_SHADERS.md, "Dialects per target"). Every mesh program (`mesh`,
 `mesh_skin`, `prepass`, `prepass_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
@@ -483,3 +499,32 @@ the HUD is drawn after it, so text stays sharp (`src/renderer_upscale.cpp`, `src
   pipelines for the output formats are created the first time the stage draws, so the first frame after turning it on can hitch once.
   If the output image cannot be created the stage is skipped for that frame (error logged): the picture is shown at the render
   resolution and the HUD stays in it, drawn as it is without the stage.
+- **Vendor providers (M78-P1, `UpscaleImpl::Dlss`, `Xess`, `Fsr`).** `src/render_upscale_vendor.h` is what DLSS (Streamline), XeSS and
+  FSR 3.1 plug into; no vendor header or binary is in the repository. `VendorUpscaler` has `probe(VendorEnv)` (backend, GPU maker,
+  system, then the library: `vendor_environment_problem` is the shared part, and the reason says the setup command) and
+  `upscale(UpscaleInput, VendorFrame)` (the frame's images and the pass's command list; false and `error` when it cannot). The libraries
+  come from `VendorLoader` (`find_vendor_library`: `$FA_*_DIR`, then the executable's folder, then the newest
+  `<factoria home>/tools/<id>/<version>/`; `LoadLibraryExW` on Windows, "Windows only" elsewhere), and each SDK package reads its function
+  table from `VendorLibrary::symbol`. A test puts a fake in with `set_vendor_loader_for_test` / `set_vendor_provider_for_test`.
+  `Impl::upscaler_caps()` asks a provider only when the setting wants it (that mode, or `auto` on that maker's GPU), once per renderer
+  (`vendor_probe`), and `caps.dlss/xess/fsr` and `caps.gpuVendor` feed `effective_upscaler_mode`, which keeps one rule: a vendor mode
+  needs `caps.temporal` and one camera, else the chain is `metalfx`, `temporal`, `spatial`. `render()` jitters the frame for the vendor
+  mode like for the temporal one (`vendorFrameImpl`), and `run_upscale` calls `vendor_upscale` (it fills `UpscaleInput::depth`,
+  `velocity`, `reactive`, `exposure`; the prepass and velocity are read by the `upscale` pass as for MetalFX); a provider that returns
+  false is off for the run (`vendor_fail`, "fail once, stay off") and the frame draws as `Temporal`. `render.supports` rows `dlss`, `xess`, `fsr`
+  are answered from the probes (`set_vendor_upscalers_env`), before the backend check, because that table has no D3D12 or Vulkan
+  column. The GPU maker is `gpu_vendor_of(device)`: Apple on Metal, none on the recording device, else `DeviceInfo::gpu` through
+  `gpu_vendor_from_identity` (Other for an id that is not NVIDIA, AMD, Intel or Apple). `needs_output_storage()` makes the renderer ask
+  for a storage output image (XeSS; `outStorage`), `release(Device&)` is called from `Renderer::shutdown` before the device goes.
+  The depth and motion SDKs read come from the preparation pass of MetalFX, which `run_upscale_prep` (renderer_metalfx.cpp) runs on every
+  non-GL backend, with the same history rule (`scaler_history_valid`).
+- **XeSS (M78-P4a, `src/render_upscale_xess.*`).** The engine's own declarations of XeSS's C ABI (`xess_abi`, sizes checked by
+  `static_assert`) and `XessApi`, the function table `xess_load_api` takes from `VendorLibrary::symbol`. `probe` checks backend, system,
+  D3D11 on Intel, library, exports, `xessGetVersion` >= 3.0 and, on Vulkan, the extensions of `xess_vulkan_requirements` against
+  `VendorEnv::vulkan*Extensions`. `upscale` keeps one context per device (`ensure_context`: create once, `Init` again after
+  `Device::wait_idle` when size, quality (`xess_quality_for_ratio`) or flags change), runs `Execute` inside `begin_native` /
+  `end_native` with colour, depth, velocity and mask `ShaderRead` and the output `UnorderedAccess`, and a failed call is `frame.error`
+  with `needReset` for the next frame. `xess_upscale_tests.cpp` drives it with a fake library and a RecordingDevice.
+- **FSR 3.1 (M78-P4a, `src/render_upscale_fsr.*`).** `ffx_abi` (our declarations, sizes checked) and `FsrApi` (`ffxCreateContext`,
+  `ffxDestroyContext`, `ffxQuery`, `ffxDispatch`); one context per device keyed by max render size, output size, quality and flags;
+  `wants_reversed_depth()` makes `run_upscale_prep` write `near / max(depth, near)` (shader `d` uniform). `fsr_upscale_tests.cpp`.

@@ -91,6 +91,7 @@ Json ProjectSettings::to_json() const {
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
+        latency != render::LatencySettings{} || frameGeneration != render::FrameGenSettings{} ||
         dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
         renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
@@ -106,6 +107,14 @@ Json ProjectSettings::to_json() const {
             render["upscaler"] = render::upscaler_to_json(upscaler);
         else
             render.erase("upscaler");
+        if (latency != render::LatencySettings{})
+            render["latency"] = render::latency_to_json(latency);
+        else
+            render.erase("latency");
+        if (frameGeneration != render::FrameGenSettings{})
+            render["frameGeneration"] = render::frame_gen_to_json(frameGeneration);
+        else
+            render.erase("frameGeneration");
         if (dynamicResolution != render::DynamicResolutionSettings{})
             render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
         else
@@ -131,6 +140,8 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("interpolation");
         j["render"].erase("interpolationSnapDistance");
         j["render"].erase("upscaler");
+        j["render"].erase("latency");
+        j["render"].erase("frameGeneration");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
@@ -686,6 +697,18 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!upscalerSet.ok()) return upscalerSet.error();
             s.upscaler = upscalerSet.value();
         }
+        if (auto lat = it->find("latency"); lat != it->end() && !lat->is_null()) {
+            Result<render::LatencySettings> latencySet =
+                render::parse_latency_settings(*lat, at("/render/latency"), render::LatencySettings{});
+            if (!latencySet.ok()) return latencySet.error();
+            s.latency = latencySet.value();
+        }
+        if (auto fg = it->find("frameGeneration"); fg != it->end() && !fg->is_null()) {
+            Result<render::FrameGenSettings> frameGenSet =
+                render::parse_frame_gen_settings(*fg, at("/render/frameGeneration"), render::FrameGenSettings{});
+            if (!frameGenSet.ok()) return frameGenSet.error();
+            s.frameGeneration = frameGenSet.value();
+        }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
             Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
                 *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
@@ -1099,9 +1122,9 @@ constexpr const char* kSchemaText =
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["stretch", "spatial", "temporal", "metalfx", "auto"],
+              "enum": ["stretch", "spatial", "temporal", "metalfx", "dlss", "xess", "fsr", "auto"],
               "default": "stretch",
-              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); auto = the best this GPU can draw. Default stretch."
+              "description": "stretch = the plain blit of today; spatial = edge-adaptive upscale plus sharpen of one frame; temporal = jittered frames accumulated at the output size; metalfx = Apple's MetalFX (Metal only); dlss = NVIDIA DLSS (an RTX GPU, Windows, `factoria setup streamline`); xess = Intel XeSS (Windows, `factoria setup xess`); fsr = AMD FSR 3.1 (Windows, D3D12 or Vulkan, `factoria setup fidelityfx`); auto = the GPU maker's own SDK when it is installed, else the best this GPU can draw. A mode that cannot run draws as the next best (effectiveMode says which). Default stretch."
             },
             "quality": {
               "type": "string",
@@ -1115,10 +1138,55 @@ constexpr const char* kSchemaText =
               "maximum": 1,
               "default": 0.5,
               "description": "Strength of the contrast-adaptive sharpen of the spatial and temporal modes, from 0 (none) to 1. Default 0.5."
+            },
+            "rayReconstruction": {
+              "type": "boolean",
+              "default": false,
+              "description": "With mode \"dlss\", or \"auto\" where it picks DLSS: draw with NVIDIA DLSS Ray Reconstruction (the denoiser-upscaler of DLSS 3.5, through Streamline) instead of Super Resolution, on an NVIDIA RTX GPU on D3D12 or Vulkan with the Streamline SDK and its Ray Reconstruction plugin installed (`factoria setup streamline`) and a linear frame without a final pass; where it cannot run (render.supports \"dlssRayReconstruction\" says why) or the SDK refuses it, the frame draws with Super Resolution and the log says why once. An opt-in preview: the renderer has no ray-traced signals to denoise yet (M79) and its guides are approximations (docs/UPSCALING_VENDORS.md, \"DLSS Ray Reconstruction\"). Its plugin is loaded when the game starts, and only when the project's mode is dlss or auto, so the project setting (not a later window.upscaler change) is what makes it available. Ignored by every other mode. Default false."
             }
           }
         },
-        "dynamicResolution": {
+)JSON"
+    R"JSON(        "latency": {
+          "type": "object",
+          "description": "Low latency (M78, docs/LATENCY.md): the loop waits before it reads the player's input so the frame that shows a press is as new as possible. A game-wide setting that the command render.latency changes at run time. Off by default (the loop of every earlier version). The profiler reports the measured input-to-present time (profile.latency) while it is on.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "auto", "reflex", "antilag2", "xell"],
+              "default": "off",
+              "description": "off = no pacing; auto = the SDK of the GPU's maker when it is usable (AMD: Anti-Lag 2, Intel: XeLL, NVIDIA: Reflex), else the engine's own pacing; reflex = NVIDIA Reflex (Windows, D3D12 or Vulkan on an NVIDIA GPU, Streamline: `factoria setup streamline`); antilag2 = AMD Anti-Lag 2 (Windows, D3D12 or Vulkan on a Radeon GPU, in the driver); xell = Intel XeSS Low Latency (Windows, D3D12, `factoria setup xess`). A mode whose SDK cannot run uses the engine's own pacing, which needs a window and the display's vsync (render.latency says why). Default off."
+            },
+            "boost": {
+              "type": "boolean",
+              "default": false,
+              "description": "The vendor's boost: the GPU clocks stay up while the game waits, for less latency at more power (Reflex boost, XeLL). Anti-Lag 2 and the engine's own pacing have no such switch and ignore it. Default false."
+            }
+          }
+        },
+        "frameGeneration": {
+          "type": "object",
+          "description": "Frame generation (M78, docs/FRAME_GENERATION.md): a vendor SDK puts a generated frame between two rendered ones, so the display shows more frames than the game renders. A game-wide setting that the command render.frame_generation reads and changes at run time. Off by default (the swapchain of every earlier version). It needs a game window on D3D12 or Vulkan, the temporal upscaler (render.upscaler, a render scale below 1) and the provider's SDK (`factoria setup`); render.frame_generation says why a mode does not run. The profiler reports the base and presented frame rates and the generated frames (profile.frameGeneration).",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "auto", "dlss", "fsr", "xess"],
+              "default": "off",
+              "description": "off = no frame generation; auto = the SDK of the GPU's maker (NVIDIA: dlss, AMD: fsr, Intel: xess); dlss = NVIDIA DLSS frame generation (Windows, D3D12 or Vulkan, an RTX GPU, through Streamline); fsr = AMD FSR 3 frame generation (Windows, D3D12 or Vulkan, any GPU, FidelityFX); xess = Intel XeSS frame generation (Windows, D3D12, an Arc GPU). A mode whose SDK cannot run draws the rendered frames only, and render.frame_generation says why. Turning a provider on needs the start of the run (it owns the swapchain). Default off."
+            },
+            "minBaseFps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "default": 60,
+              "description": "The frame rate the game renders at (generated frames not counted) below which generation is switched off: a generated frame between two slow ones adds delay and shows artefacts. It turns on again at 10% above it. 0 = never switch off. Default 60."
+            }
+          }
+        },
+)JSON"
+    R"JSON(        "dynamicResolution": {
           "type": "object",
           "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",
           "additionalProperties": false,
@@ -1976,6 +2044,14 @@ constexpr const char* kSchemaText =
               "type": "boolean",
               "default": true,
               "description": "true (default): the files go into the pack in the order the game first read them in play sessions (the editor's Play, factoria run, play.auto record it per scene in .factoria/cache/load-order.json): the main scene's files first, then each scene's in the order the scenes first loaded, then the files no session read, by path. Reading a pack front to back is what disks and SSDs do fastest. false, or no session recorded yet: by path. The export says which order it used and how many files it covered."
+            },
+            "vendorSdks": {
+              "oneOf": [
+                {"type": "string", "enum": ["auto", "none"]},
+                {"type": "array", "items": {"type": "string", "enum": ["streamline", "xess", "fidelityfx"]}, "uniqueItems": true}
+              ],
+              "default": "auto",
+              "description": "Which vendor SDKs a Windows export copies next to the game, with their license texts in licenses/<id>/: \"auto\" (default) ships each one that is installed (`factoria setup streamline | xess | fidelityfx`) and that the project's render settings can use (render.upscaler.mode and render.frameGeneration.mode auto, dlss, xess or fsr; render.latency.mode auto, reflex or xell), and says in the export report when one is not installed; \"none\" ships none; an array of ids ships exactly those and fails when one is not installed. streamline is NVIDIA Streamline (DLSS, Frame Generation, Reflex), xess Intel XeSS, fidelityfx the AMD FidelityFX SDK. Each SDK's license is accepted when it is installed; NVIDIA's asks you to notify NVIDIA before a commercial release (the export report repeats it). Other platforms ship nothing."
             }
           }
         },

@@ -1,6 +1,7 @@
 // make_device(): the factory of the GPU interface (gpu/device.h), and the defaults of Device's non-pure virtuals.
 #include "gpu/device.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -12,6 +13,11 @@
 #include "gpu/vulkan_device.h"
 
 namespace fa::gpu {
+
+std::uint64_t Device::next_generation() {
+    static std::atomic<std::uint64_t> last{0};
+    return last.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 bool Device::storage_image_loadable(PixelFormat format, std::string* why) const {
     if (why)
@@ -69,6 +75,92 @@ void Device::wait_queue(QueueKind, SyncToken) {}
 
 std::uint32_t Device::bindless_index(View) const { return kNoBindlessIndex; }
 
+NativeView Device::native_view(View) const { return {}; }
+
+Result<void> Device::wait_idle() { return {}; }
+
+// ---- native commands: the answer of a backend without them, and the shared checks -----------------------------------
+
+Result<NativeCommands> CommandList::begin_native(std::span<const NativeUse>) {
+    return make_error("gpu: CommandList::begin_native: this command list records no native commands",
+                      "native command recording is for D3D12, Vulkan and D3D11 (the RecordingDevice, GL and Metal "
+                      "have none): check Device::backend() before asking for it");
+}
+
+Result<void> CommandList::end_native(std::span<const NativeUse>) {
+    return make_error("gpu: CommandList::end_native without begin_native",
+                      "call end_native once after each begin_native that succeeded");
+}
+
+std::string check_native_use(const NativeUse& use, const NativeTarget& target, QueueKind queue, NativeRange& range) {
+    const NativeState s = use.state;
+    if (std::size_t(s) >= std::size_t(NativeState::Count))
+        return "the state " + std::to_string(int(s)) + " is not a NativeState";
+    const std::string what = target.label && *target.label
+                                 ? std::string(target.buffer ? "buffer '" : "image '") + target.label + "'"
+                                 : std::string(target.buffer ? "an unnamed buffer" : "an unnamed image");
+    const std::string state = native_state_name(s);
+    const bool graphicsOnly =
+        s == NativeState::RenderTarget || s == NativeState::DepthWrite || s == NativeState::DepthRead;
+    if (graphicsOnly && queue != QueueKind::Graphics)
+        return state + " on a " + queue_name(queue) +
+               " list (hint: attachment states need a list of the graphics queue, begin_commands(label, "
+               "QueueKind::Graphics))";
+    if (target.buffer) {
+        if (use.mip != 0 || use.mipCount != 0 || use.layer != 0 || use.layerCount != 0)
+            return what + " has a mip or layer range (hint: a buffer is always whole: leave mip, mipCount, layer and "
+                          "layerCount 0)";
+        if (graphicsOnly)
+            return what + " cannot be in " + state +
+                   " (hint: a buffer takes Common, ShaderRead, UnorderedAccess, CopySource or CopyDest)";
+        if (s == NativeState::UnorderedAccess && !target.bufferUsage.storageBuffer)
+            return what + " was not made with BufferUsage::storageBuffer, so it cannot be in UnorderedAccess";
+        range = NativeRange{0, 1, 0, 1};
+        return {};
+    }
+    const int mipCount = use.mipCount == 0 ? target.mips - use.mip : use.mipCount;
+    const int layerCount = use.layerCount == 0 ? target.layers - use.layer : use.layerCount;
+    if (use.mip < 0 || use.mip >= target.mips || use.mipCount < 0 || mipCount < 1 || mipCount > target.mips - use.mip)
+        return "mips " + std::to_string(use.mip) + " + " + std::to_string(use.mipCount) + " are not inside the " +
+               std::to_string(target.mips) + " mip(s) of " + what + " (hint: mipCount 0 = up to the last mip)";
+    if (use.layer < 0 || use.layer >= target.layers || use.layerCount < 0 || layerCount < 1 ||
+        layerCount > target.layers - use.layer)
+        return "layers " + std::to_string(use.layer) + " + " + std::to_string(use.layerCount) + " are not inside the " +
+               std::to_string(target.layers) + " layer(s) of " + what +
+               " (hint: layerCount 0 = up to the last layer; a 3D image has one)";
+    const bool depth = pixel_format_depth(target.format);
+    const ImageUsage& u = target.imageUsage;
+    if (s == NativeState::RenderTarget && (depth || !(u.colorAttachment || u.resolveAttachment)))
+        return what + (depth ? " has a depth format, so it cannot be in RenderTarget (hint: DepthWrite or DepthRead)"
+                             : " was not made with ImageUsage::colorAttachment, so it cannot be in RenderTarget");
+    if ((s == NativeState::DepthWrite || s == NativeState::DepthRead) && (!depth || !u.depthStencilAttachment))
+        return what + " is not a depth image made with ImageUsage::depthStencilAttachment, so it cannot be in " + state;
+    if (s == NativeState::UnorderedAccess && !u.storageImage)
+        return what + " was not made with ImageUsage::storageImage, so it cannot be in UnorderedAccess";
+    range = NativeRange{use.mip, mipCount, use.layer, layerCount};
+    return {};
+}
+
+std::string check_native_overlaps(std::span<const NativeUse> uses, std::span<const NativeRange> ranges) {
+    auto overlap = [](int a, int an, int b, int bn) { return a < b + bn && b < a + an; };
+    for (std::size_t i = 0; i < uses.size() && i < ranges.size(); ++i)
+        for (std::size_t j = i + 1; j < uses.size() && j < ranges.size(); ++j) {
+            const NativeUse& a = uses[i];
+            const NativeUse& b = uses[j];
+            const bool same = a.image.id ? a.image.id == b.image.id : (a.buffer.id && a.buffer.id == b.buffer.id);
+            if (!same || a.state == b.state) continue;
+            const NativeRange& ra = ranges[i];
+            const NativeRange& rb = ranges[j];
+            if (overlap(ra.mip, ra.mipCount, rb.mip, rb.mipCount) &&
+                overlap(ra.layer, ra.layerCount, rb.layer, rb.layerCount))
+                return "uses[" + std::to_string(i) + "] (" + native_state_name(a.state) + ") and uses[" +
+                       std::to_string(j) + "] (" + native_state_name(b.state) +
+                       ") put the same subresource in two states (hint: split the mip or layer ranges, or pick one "
+                       "state)";
+        }
+    return {};
+}
+
 // ---- make_device -----------------------------------------------------------------------------------------------------
 
 bool device_backend_compiled(Backend backend) {
@@ -90,7 +182,11 @@ bool device_backend_compiled(Backend backend) {
     }
 }
 
-Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& init) {
+Result<std::unique_ptr<Device>> make_device(Backend backend, const DeviceInit& initIn) {
+    // The registered hooks take part in every device; a backend that calls none says so in each hook's reason.
+    DeviceInit init = initIn;
+    init.hooks = with_registered_hooks(initIn.hooks);
+    if (backend != Backend::D3d12 && backend != Backend::Vulkan) mark_hooks_unsupported(init.hooks, backend);
     if (backend == Backend::Recording) return std::unique_ptr<Device>(std::make_unique<RecordingDevice>(init));
     const Backend built = built_sokol_backend();
     if (backend == Backend::D3d12) {

@@ -192,6 +192,36 @@ struct Engine::Impl {
     int gpuMissFrames = 0;
     std::optional<render::DynamicResolutionSettings>
         appliedProjectDynRes;  // the project's render.dynamicResolution last applied
+    // The low-latency setting (M78, docs/LATENCY.md): the project's render.latency, or what render.latency / Engine::set_latency last
+    // set. The renderer holds the same value once it exists; the engine passes the display's refresh rate to it every frame.
+    render::LatencySettings latency;
+    std::optional<render::LatencySettings> appliedProjectLatency;  // the project's render.latency last applied
+    // Engine::profile_latency is asked every frame the profiler is on; the status it reads is built (JSON, every provider's reason) only when
+    // the setting, the driver that runs or the 64-frame bucket changed.
+    struct LatencyProfileCache {
+        bool valid = false;
+        render::LatencyMode mode = render::LatencyMode::Off;
+        bool boost = false;
+        render::LatencyDriver driver = render::LatencyDriver::None;
+        std::uint64_t bucket = 0;
+        std::string name, reason;  // the status' "driver" and "reason"
+    } latencyProfileCache;
+    // Engine::profile_frame_generation, while the report is empty and the setting is not off: the status it reads probes every SDK, so it is asked
+    // again after a second of the simulation clock (World::time(), which a scene load puts back to 0), not on every frame.
+    struct FrameGenProfileCache {
+        bool valid = false;
+        render::FrameGenMode mode = render::FrameGenMode::Off;
+        double atS = 0.0;           // World::time() when the status was read
+        std::uint64_t atFrame = 0;  // Impl::frame (rendered frames) when it was read
+        std::string state, reason;
+    } frameGenProfileCache;
+    // The frame generation setting (M78, docs/FRAME_GENERATION.md): the project's render.frameGeneration, or what render.frame_generation /
+    // Engine::set_frame_generation last set. The renderer holds the same value once it exists.
+    render::FrameGenSettings frameGeneration;
+    std::optional<render::FrameGenSettings>
+        appliedProjectFrameGen;  // the project's render.frameGeneration last applied
+    // The refresh rate the engine's own pacing aligns to: the display's while vsync paces a windowed game, else 0 (no pacing).
+    double latency_pacing_hz() const;
     float dynamic_factor() const;
     void sync_dynamic_resolution();  // settings -> controller and the renderer's GPU timing, then apply_render_scale
     void dynamic_resolution_tick(double dt);  // one frame of the controller (the start of run_frame)
