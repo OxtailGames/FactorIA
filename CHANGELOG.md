@@ -19,6 +19,9 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
   (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
   docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
+
+- **GPU bake helper (M79 review leftovers):** a Cancel now ends the wait for the helper's answer to a large plan in a fraction of a second, a system with no thread left for the plan's write is an error with a hint, and the hints say to run `factoria session --no-graphics --no-scene`.
+
 - **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
   main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
   query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the
