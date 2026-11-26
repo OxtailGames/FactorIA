@@ -357,6 +357,11 @@ struct LightData {
     // Light.contactShadowLength (M73.2c) in metres when SceneSettings.contactShadows is on and the frame draws contact shadows; 0 = none.
     // Packed in the y of the light's texel of the shadow region of the light data texture (shaders/light_data.glsl).
     float contactLength = 0.0f;
+    // M79-P2a-3: the light's entity (Entity::bits()), what the ray traced local shadows keep a slot of the denoiser's history by; and the slot
+    // the frame traces its shadow in (0 = not traced, 1 .. 3 = the lights of RtLocalParams). Packed in the z of the light's texel of the
+    // shadow region (shaders/light_data.glsl).
+    std::uint64_t id = 0;
+    int rtSlot = 0;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by

@@ -55,6 +55,7 @@
 #include "hiz.h"
 #include "rt_denoise.h"
 #include "rt_effect.h"
+#include "rt_local_shadows.h"
 #include "rt_scene.h"
 #include "occlusion.h"
 #include "render_scene.h"
@@ -637,8 +638,18 @@ struct Renderer::Impl {
     // Tests (RendererTestAccess::rt_shadow_draws): the draws of the frame that took the sun's shadow from the ray traced mask, and those of
     // them that also took the cascades' (the scene had casters the rays do not see). Reset by rt_begin_frame.
     struct RtShadowDraws {
-        int mask = 0, withCascades = 0;
+        int mask = 0, withCascades = 0, local = 0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
     } rtShadowDraws;
+    // M79-P2a-3 (rt_local_shadows.h): which light holds each of the kRtLocalMaxLights slots of a camera (by camera entity bits), kept from frame to
+    // frame so a light keeps its slot and the denoiser its history; what the frame did for `render.ray_tracing` (the lights that asked, the lights
+    // traced; the highest over the frame's cameras, reset by rt_begin_frame) and the one-time message of a pipeline the device refused.
+    std::map<std::uint64_t, RtLocalSlots> rtLocalSlots;
+    struct RtLocalFrame {
+        int candidates = 0, traced = 0;
+    } rtLocalFrame;
+    std::atomic<int> rtLocalCandidatesShown{0}, rtLocalTracedShown{0};  // rtLocalFrame of the last whole frame (Renderer::ray_tracing_local_shadows)
+    bool rtWarnedLocal = false;
+    static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
     bool rtWarnedEffect = false;
     bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
     // The denoiser of the ray traced effects (rt_denoise.h), empty and free until an effect asks: the soft sun shadow (P2a-2, signal id 1) and the
