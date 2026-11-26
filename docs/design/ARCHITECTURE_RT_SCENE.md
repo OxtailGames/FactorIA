@@ -114,15 +114,17 @@ One mesh with several submeshes counts one instance per submesh (each is an inst
 | 0x08 | `kRtMaskCastsShadow` | `MeshRenderer.castShadows`; a shadow ray uses this bit |
 | 0x10 | `kRtMaskFoliage` | an instance of a `Foliage` |
 | 0x20 | `kRtMaskEmissive` | emissive colour times strength above 0 |
-| 0x40, 0x80 | reserved | the effects of later packages; a kernel never sets or tests them |
+| 0x40 | `kRtMaskRefractive` | a glass the translucency kernel bends rays at (blended, lit, no full shader, transmission above 0; M79-P3b) |
+| 0x80 | reserved | the effects of later packages; a kernel never sets or tests it |
 
 Every instance has exactly one of the first three. `kRtMaskSurfaces` (0x07) is what a ray that wants every visible surface uses.
 The instance's `opaque` is true except for a cutout; `cullDisable` is true for a double-sided mesh or material.
 
 ### The record buffer
 
-`RtInstanceRecord` (`rt_records.h`, 96 bytes, std430-compatible: three float4 rows of the object-to-world 3x4, albedo, emissive, then
-roughness, metalness, flags, blasId; `static_assert`s on every offset) is written for every instance into one storage buffer, and the
+`RtInstanceRecord` (`rt_records.h`, 128 bytes, std430-compatible: three float4 rows of the object-to-world 3x4, albedo, emissive, then
+roughness, metalness, flags, blasId, then `volume` (ior, thickness, attenuationDistance, transmission) and `attenuation` (the tint colour), the
+last two rows added by the translucency, M79-P3b; `static_assert`s on every offset) is written for every instance into one storage buffer, and the
 instance's **`customIndex` is its record's position**: a kernel that commits a hit reads `records[CommittedRayQueryInstanceCustomIndex()]`.
 The HLSL twin is `engine/render/shaders/rt/rt_records.hlsli` (the Metal kernels declare the same struct); a test compares the flag and
 mask values, the member order and the sizes of the two files.
@@ -134,7 +136,9 @@ record has the `MeshRenderer`'s constants and the `CustomMaterial` flag, so the 
 (`unlit`, a material with `lighting: "unlit"`, or a material that failed to compile) has the `Unlit` flag.
 
 The flags (`kRtFlag*`, the same values in `rt_records.hlsli`): `Opaque` 1<<0, `Cutout` 1<<1, `TwoSided` 1<<2, `Blended` 1<<3, `Unlit` 1<<4,
-`Foliage` 1<<5, `CastsShadow` 1<<6, `CustomMaterial` 1<<7, `Skinned` 1<<8 (the BLAS is the instance's own and holds the pose of this frame).
+`Foliage` 1<<5, `CastsShadow` 1<<6, `CustomMaterial` 1<<7, `Skinned` 1<<8 (the BLAS is the instance's own and holds the pose of this frame), `Refractive` 1<<9 (the mask's 0x40 bit; the
+`volume` row is meaningful: ior, thickness, tint distance, transmission). A glass instance is traced from both sides (`cullDisable`), so its back faces
+are what shadow and reflection rays hit too: it casts a solid shadow and is a solid in a reflection. Details: [ARCHITECTURE_RT_TRANSLUCENCY.md](ARCHITECTURE_RT_TRANSLUCENCY.md).
 
 Buffers: the records buffer (`storageBuffer` + `writeTransient`, grown by powers of two, at least 256 records) is written with one
 `write_buffer` before the TLAS build; the TLAS is made again when its capacity grows; the scratch buffer (`accelScratch`) is the larger of
