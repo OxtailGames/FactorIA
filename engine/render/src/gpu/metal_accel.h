@@ -45,6 +45,13 @@ public:
     MetalAccel(const MetalAccel&) = delete;
     MetalAccel& operator=(const MetalAccel&) = delete;
 
+    // Waits until the GPU has finished every command buffer committed so far (an empty one queued behind them, on the
+    // queue the first build used; nothing to wait for when it never built). SokolDevice calls it before the structures
+    // are released: sokol's command buffers retain nothing, so freeing a structure a frame still traces would free it
+    // under the GPU. The caller commits the open frame's buffer first (an enqueued, uncommitted buffer is ahead of the
+    // empty one in the queue and would hold it back). Does not call sokol.
+    void wait_idle();
+
     // The limits the device answers (Limits::maxAccel*).
     Limits limits() const;
 

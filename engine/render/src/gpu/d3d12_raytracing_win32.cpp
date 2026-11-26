@@ -327,6 +327,7 @@ void D3d12CommandList::accel_access(const std::shared_ptr<TrackedResource>& t, A
         pending_.push_back(b);
     }
     last = access;
+    if (access == AccelAccess::Write) accelWritten_ = true;
 }
 
 Result<void> D3d12CommandList::build_blas(const BlasBuild& b) {

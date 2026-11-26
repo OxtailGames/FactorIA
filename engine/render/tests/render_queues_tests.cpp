@@ -15,6 +15,7 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -276,6 +277,20 @@ TEST_CASE("render queues: a CommandCapture replays every call as the direct reco
     REQUIRE(!native);
     CHECK(native.error().message.find("on a CommandCapture") != std::string::npos);
     CHECK(native.error().message.find("this device") == std::string::npos);
+    CHECK(capture.size() == 0);
+
+    // The acceleration structure calls have their own refusal: not the Recording device's "made without ray tracing".
+    const gpu::BlasBuild blasBuild{};
+    const gpu::TlasBuild tlasBuild{};
+    const std::array<Result<void>, 4> accel = {capture.build_blas(blasBuild), capture.build_tlas(tlasBuild),
+                                               capture.query_compacted_size({}, {}, 0),
+                                               capture.copy_accel_structure({}, {}, gpu::AccelCopyMode::Clone)};
+    for (const Result<void>& r : accel) {
+        REQUIRE(!r);
+        CHECK(r.error().message.find("on a CommandCapture") != std::string::npos);
+        CHECK(r.error().message.find("recordingRayTracing") == std::string::npos);
+        CHECK(r.error().hint.find("replay()") != std::string::npos);
+    }
     CHECK(capture.size() == 0);
 }
 

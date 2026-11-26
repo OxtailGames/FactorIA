@@ -11,8 +11,6 @@
 // SHA-256 kept in setup.h. Microsoft ships no macOS build and no Linux Arm build: there the status is "unsupported" and the
 // install refuses with where the DXIL comes from instead (the Linux CI job). $FA_DXC_DIR points at a DXC folder of your own.
 // Folders of older versions are removed once the new one is in place.
-#include <algorithm>
-
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "setup_internal.h"
@@ -177,6 +175,11 @@ SetupResult dxc_install_build(const SetupContext& ctx, const SetupInstallOptions
         if (it->is_regular_file() && (name.rfind("licen", 0) == 0 || name == "releasenotes.md")) {
             std::error_code cp;
             stdfs::copy_file(it->path(), ready / it->path().filename(), stdfs::copy_options::overwrite_existing, cp);
+            // The compiler works without them, but a licence that did not travel with it is said, not dropped.
+            if (cp)
+                in.report.warnings.push_back("Cannot copy the licence file " + fs::path_to_utf8(it->path().filename()) +
+                                             " of " + what + " into " + fs::path_to_utf8(ready) + ": " + cp.message() +
+                                             ". DXC itself is installed; copy the file from the release by hand.");
         }
     }
     if (!is_file(ready / fs::path_from_utf8(build->signer)))
