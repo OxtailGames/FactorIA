@@ -9,9 +9,10 @@ default, and free when off.
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
 > The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
-> **Three effects draw with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below), **`ao`** (ambient
-> occlusion, "Ambient occlusion", below) and **`reflections`** (mirror and glossy reflections, "Reflections", below). The other settings
-> (`translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
+> **Four effects draw with rays so far: `shadows`** (the sun's shadow, hard or soft, "Shadows", below), **`ao`** (ambient
+> occlusion, "Ambient occlusion", below), **`reflections`** (mirror and glossy reflections, "Reflections", below) and **`translucency`**
+> (refraction through glass and liquids, "Translucency", below). The other setting
+> (`gi`) changes nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
 > sections below say what each part will do and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
@@ -33,7 +34,7 @@ default) writes nothing to `factoria.json`.
 | `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = `raysPerPixel` rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; "Soft shadows", below). |
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel; one from 0.25 to 0.65 gets `raysPerPixel` rays spread by its roughness, denoised, and fades into the screen-space reflections and the probes towards 0.65 ("Reflections" below). Rougher surfaces keep the old reflections. |
-| `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
+| `translucency` | `true`, `false` | `false` | Refraction through glass and liquids traced with rays: a ray bent at every interface of the closed mesh, tinted by the volume, instead of the screen-space refraction ("Translucency", below). Coloured shadows are not made. |
 | `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
 | `raysPerPixel` | whole number, 1 to 16 | `1` | Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside the range is **clamped**, not an error. |
 | `maxInstances` | whole number, 1 to 1048576 | `65536` | The most instances the top-level acceleration structure holds; when a scene has more, the nearest to the camera come first. Clamped like `raysPerPixel`. |
@@ -216,13 +217,50 @@ now lets the screen-space march look for the reflection (before, the pixel kept 
 three more rays at a hit: two parallel rays for the normal and one shadow ray), one image (RGBA32F, the camera's size), the denoiser's history
 for two signals (four images each), plus the acceleration structures.
 
+## Translucency
+
+`"translucency": true` traces the light that goes **through** glass and liquids, instead of the screen-space refraction that bends the picture
+behind them. It needs a device that traces rays and a camera that draws a transmissive mesh (a `MeshRenderer` with `transmission` above 0,
+or a glTF part with `KHR_materials_transmission`); with no glass in view nothing is asked for.
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"translucency":true}'
+```
+
+What the renderer does each frame, for a camera that draws glass:
+
+1. One compute pass, `rt-translucency`, casts for every pixel one ray along the view ray as far as the opaque picture (the nearest surface of the
+   scene that is not glass). If it meets a glass first, the ray is **bent by Snell's law** with the material's `ior` where it enters, goes through
+   the **closed volume** and is bent again where it leaves (a total internal reflection stays inside), up to **six interfaces**. Inside, the light is
+   tinted by **Beer-Lambert absorption** with `attenuationColor` and `attenuationDistance`; a surface with `thickness` 0 is a thin sheet that the ray
+   passes straight through, unbent and untinted.
+2. Where the ray ends on a surface, it takes that surface's colour from the picture the camera already drew, if the picture shows the same surface
+   at the point (textures, lights and shadows included); otherwise the kernel shades the hit (the flat colour, the sun with one shadow ray, the
+   ambient and the environment). A ray that leaves the scene sees the sky gradient.
+3. A **rough** glass (`roughness` above 0) widens the bent ray into a cone, once, at the first interface: one sample per pixel and frame from a
+   sequence that depends on the frame and the pixel only, so the same frame draws the same image. The glass's own shader averages a few neighbours
+   (a box of up to 5 x 5 pixels, wider with the roughness): there is no denoiser for this effect.
+
+Glass **casts a solid shadow** when `castShadows` is on (as the shadow map has always done) and a traced reflection sees glass as a solid surface
+with its flat colour; the ambient occlusion ignores it. Coloured shadows are not made.
+
+**Falls back, per pixel, to the screen-space refraction** (then the probes or the sky) where the kernel traced nothing: a device that cannot trace,
+a pixel whose ray meets no glass, a camera that cannot make the refraction images, a mesh left out of the traced scene (terrain, impostors,
+meshes over `maxInstances`, a mesh whose structure is not built yet). The engine warns once when the device refuses the kernel.
+
+Limits of this version: the pixel shows the **nearest** glass surface along its ray (a second pane behind it is the screen-space blend over it);
+two volumes inside one another are not nested; a shell thinner than 2 cm (the offset a ray starts at after an interface) is not refracted
+correctly; where the ray meets an edge or a silhouette of the glass it passes unbent; a ray sees the flat colour, a faceted normal and the sun
+only. **Cost:** off, nothing. On: one compute dispatch (a ray per pixel, and a few more per glass interface), one image (RGBA32F, the camera's
+size) and the acceleration structures.
+
 ## Where it will run
 
 | backend | traces rays | what stands in the way today |
 |---|---|---|
 | Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
 | Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, lists them from Mesa 24.1 according to its release notes, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The shadows (`shadows: "hard"`, `"soft"`), the ambient occlusion (`ao`) and the reflections (`reflections`) trace; no other effect does yet |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The shadows (`shadows: "hard"`, `"soft"`), the ambient occlusion (`ao`) and the reflections (`reflections`) and the translucency trace; the global illumination does not yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 

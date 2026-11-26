@@ -14,6 +14,7 @@
 #include "shaders/rt/rt_bake.rt.h"
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_reflect.rt.h"
+#include "shaders/rt/rt_refract.rt.h"
 #include "shaders/rt/rt_shadow.rt.h"
 #include "shaders/rt/rt_shadow_pack.rt.h"
 
@@ -49,6 +50,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_bake", kRtBakeDxil, kRtBakeSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtBakeMsl), sizeof(kRtBakeMsl) - 1), kRtBakeDxcVersion,
          kRtBakeHlslSha256, kRtBakeMslSha256},
+        {"rt_refract", kRtRefractDxil, kRtRefractSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtRefractMsl), sizeof(kRtRefractMsl) - 1),
+         kRtRefractDxcVersion, kRtRefractHlslSha256, kRtRefractMslSha256},
     };
     return kernels;
 }

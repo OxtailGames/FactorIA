@@ -686,7 +686,7 @@ Capabilities: read, state
 
 The ray tracing seam of M79 (docs/RAY_TRACING.md): `enabled` (the master switch, default false), `shadows` (off, hard, soft), `ao`, `reflections`, `translucency` (booleans), `gi` (off, probes, perPixel), `raysPerPixel` (a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, reason, changed}: `supported` is renderer.supports("raytracing") of this device, `active` whether any effect is traced, `reason` says why not. Example: render.ray_tracing {"enabled":true,"shadows":"soft"}
 
-Ray tracing is off by default and free when off. This version has the shared interface (acceleration structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a device that builds and traces them; so far `shadows` (the sun's hard shadow), `ao` (ambient occlusion) and `reflections` (sharp mirror reflections) draw with rays, so `active` is true when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or type fails with `invalid_argument`, a JSON pointer and a "did you mean", and changes nothing. The start value is factoria.json "render": {"rayTracing": {...}}. Works with graphics=false too (the value is only remembered).
+Ray tracing is off by default and free when off. This version has the shared interface (acceleration structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a device that builds and traces them; so far `shadows` (the sun's shadow), `ao` (ambient occlusion), `reflections` (sharp mirror reflections) and `translucency` (refraction through glass) draw with rays, so `active` is true when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or type fails with `invalid_argument`, a JSON pointer and a "did you mean", and changes nothing. The start value is factoria.json "render": {"rayTracing": {...}}. Works with graphics=false too (the value is only remembered).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -694,7 +694,7 @@ Ray tracing is off by default and free when off. This version has the shared int
 | `shadows` | string ["off","hard","soft"] | no | off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off. |
 | `ao` | boolean | no | Ambient occlusion with rays. Default false. |
 | `reflections` | boolean | no | Reflections with rays. Default false. |
-| `translucency` | boolean | no | Light through glass and thin surfaces. Default false. |
+| `translucency` | boolean | no | Refraction through glass and liquids traced with rays (a ray bent at every interface, tinted by the volume), instead of the screen-space refraction. Default false. |
 | `gi` | string ["off","probes","perPixel"] | no | Global illumination: off, probes updated with rays, or a bounce per pixel. Default off. |
 | `raysPerPixel` | integer | no | Rays of each effect per pixel and frame, clamped to 1..16. Default 1. |
 | `maxInstances` | integer | no | The most instances the top-level structure holds, clamped to 1..1048576. Default 65536. |

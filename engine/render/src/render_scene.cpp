@@ -10,6 +10,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "color_space.h"
 #include "render_jobs.h"
 
 namespace fa::render {
@@ -51,6 +52,25 @@ bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const M
     for (const SubMesh& p : mesh.parts)
         if (p.layers.transmission > 0.0f) return true;
     return false;
+}
+
+PartTransmission resolve_part_transmission(const MeshRenderer& mr, const SubMesh& part, bool linear) {
+    auto num = [](float v, float fallback) { return std::isfinite(v) ? v : fallback; };
+    static const MeshRenderer defaults;
+    const MaterialLayers& g = part.layers;
+    auto pick = [&](float m, float def, float fromModel) { return (num(m, def) != def) ? num(m, def) : fromModel; };
+    PartTransmission t;
+    t.ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
+    t.transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
+    t.thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
+    t.attenuationDistance =
+        std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance), 0.0f, 100000.0f);
+    const Color ac = to_scene(mr.attenuationColor, linear);
+    const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
+    t.attenuationColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
+    t.attenuationColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
+    t.attenuationColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
+    return t;
 }
 
 bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material) {
