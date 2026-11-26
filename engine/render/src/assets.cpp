@@ -199,23 +199,25 @@ void compute_bounds(const std::vector<MeshVertex>& v, Vec3& bmin, Vec3& bmax) {
 }
 
 // A buffer of immutable contents: a vertex buffer, or an index buffer when `index`.
+// `accel` (ray tracing is on: Assets::set_accel_input) also lets an acceleration structure build read it.
 gpu::Buffer make_data_buffer(gpu::Device& device, const void* data, std::size_t bytes, const char* label,
-                             bool index = false) {
+                             bool index = false, bool accel = false) {
     gpu::BufferDesc d;
     d.size = bytes;
     d.usage.vertexBuffer =
         !index;  // said, not implied: a backend that checks the usage of a bound buffer reads the flag
     d.usage.indexBuffer = index;
+    d.usage.accelBuildInput = accel;
     d.data = gpu::Range{data, bytes};
     d.label = label;
     return device.make_buffer(d);
 }
 
 SubMesh upload_submesh(gpu::Device& device, const std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx,
-                       const char* label) {
+                       const char* label, bool accel = false) {
     SubMesh m;
-    m.vb = make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label);
-    m.ib = make_data_buffer(device, idx.data(), idx.size() * sizeof(std::uint32_t), label, true);
+    m.vb = make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label, false, accel);
+    m.ib = make_data_buffer(device, idx.data(), idx.size() * sizeof(std::uint32_t), label, true, accel);
     m.vertexCount = int(v.size());
     m.indexCount = int(idx.size());
     compute_bounds(v, m.bmin, m.bmax);
@@ -616,7 +618,7 @@ public:
         for (const std::string& w : p.warnings) FA_WARN("render", "{}", w);
         std::uint64_t bytes = 0;
         for (PreparedPart& part : p.parts) {
-            SubMesh sm = upload_submesh(assets_.gpu_.device(), part.verts, part.idx, path.c_str());
+            SubMesh sm = upload_submesh(assets_.gpu_.device(), part.verts, part.idx, path.c_str(), assets_.accelInput_);
             bytes += part.verts.size() * sizeof(MeshVertex) + part.idx.size() * sizeof(std::uint32_t);
             const SubMesh& m = part.material;
             sm.materialName = m.materialName;
@@ -758,7 +760,29 @@ void Assets::destroy_mesh_lightmap(MeshAsset& m) {
     m.lightmap.reset();
 }
 
+void Assets::set_accel_input(bool on) {
+    if (on == accelInput_) return;
+    accelInput_ = on;
+    if (!on) return;  // the buffers made so far keep their usage; the next ones are made without it
+    // The meshes uploaded before the switch were made without accelBuildInput and cannot be read by a build: load them again in place (a
+    // placeholder shares the buffers of the missing-mesh cube, which are made without it too and are never traced).
+    std::vector<std::string> keys;
+    for (const auto& [k, m] : meshes_)
+        if (!m->placeholder) keys.push_back(k);
+    std::sort(keys.begin(), keys.end());  // meshes_ is unordered: the same order on every platform
+    for (const std::string& k : keys) load_mesh(k);
+    for (auto& [id, pm] : procedural_) {
+        destroy_procedural(pm);
+        if (pm.asset) {
+            pm.asset->parts.clear();  // procedural_mesh() uploads it again on its next use
+            ++pm.asset->geometryVersion;
+        }
+        pm.version = 0;
+    }
+}
+
 void Assets::destroy_mesh(MeshAsset& m) {
+    if (meshRelease_) meshRelease_(&m);
     destroy_mesh_lightmap(m);
     for (auto& p : m.parts) {
         gpu_.device().destroy_buffer(p.vb);
@@ -1599,12 +1623,13 @@ MeshAsset* Assets::load_mesh(const std::string& name) {
     if (!slot) slot = std::make_unique<MeshAsset>();
     MeshAsset& m = *slot;
     destroy_mesh(m);
+    ++m.geometryVersion;
     m.key = name;
     m.placeholder = false;
     std::vector<MeshVertex> v;
     std::vector<std::uint32_t> idx;
     if (build_primitive(name, v, idx)) {
-        SubMesh sm = upload_submesh(gpu_.device(), v, idx, name.c_str());
+        SubMesh sm = upload_submesh(gpu_.device(), v, idx, name.c_str(), accelInput_);
         m.bmin = sm.bmin;
         m.bmax = sm.bmax;
         m.parts.push_back(sm);
@@ -1947,6 +1972,7 @@ gpu::Buffer Assets::zero_uv1(std::size_t vertices) {
 // Procedural meshes
 // ---------------------------------------------------------------------------
 void Assets::destroy_procedural(ProceduralMesh& pm) {
+    if (pm.asset && meshRelease_) meshRelease_(pm.asset.get());
     for (gpu::Buffer* b : {&pm.vb, &pm.ib, &pm.vbStage, &pm.ibStage}) {
         if (b->id) gpu_.device().destroy_buffer(*b);
         *b = {};
@@ -2050,12 +2076,14 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
             bd.size = vbCap;
             bd.usage.vertexBuffer = true;
             bd.usage.copyDst = true;
+            bd.usage.accelBuildInput = accelInput_;
             bd.label = "procedural-vb";
             pm.vb = gpu_.device().make_buffer(bd);
             bd = {};
             bd.size = ibCap;
             bd.usage.indexBuffer = true;
             bd.usage.copyDst = true;
+            bd.usage.accelBuildInput = accelInput_;
             bd.label = "procedural-ib";
             pm.ib = gpu_.device().make_buffer(bd);
             bd = {};
@@ -2094,13 +2122,14 @@ void Assets::upload_procedural(ProceduralMesh& pm, const MeshStore::Entry& e) {
         pm.stagedFrame = frameTag;
     } else {
         destroy_procedural(pm);
-        pm.vb = make_data_buffer(gpu_.device(), verts.data(), vbBytes, "procedural-vb");
-        pm.ib = make_data_buffer(gpu_.device(), d.indices.data(), ibBytes, "procedural-ib", true);
+        pm.vb = make_data_buffer(gpu_.device(), verts.data(), vbBytes, "procedural-vb", false, accelInput_);
+        pm.ib = make_data_buffer(gpu_.device(), d.indices.data(), ibBytes, "procedural-ib", true, accelInput_);
         pm.vbCap = vbBytes;
         pm.ibCap = ibBytes;
     }
 
     MeshAsset& a = *pm.asset;
+    ++a.geometryVersion;  // the vertices (or the buffers) changed: the BLAS of the asset is built again (rt_scene.h)
     a.parts.clear();
     a.placeholder = false;
     a.bmin = d.bmin;

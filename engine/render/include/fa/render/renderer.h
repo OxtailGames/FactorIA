@@ -44,6 +44,7 @@
 #include "fa/render/ui_painter.h"
 #include "fa/render/framegen.h"
 #include "fa/render/latency.h"
+#include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -487,6 +488,11 @@ public:
     // generates this frame is the controller's: it needs the temporal upscaler's frame and a base frame rate of at least minBaseFps. Needs an
     // initialised renderer (before init() the calls do nothing). Off (the default) costs nothing.
     void set_frame_generation(const render::FrameGenSettings& settings);
+    // The ray tracing setting (fa/render/raytracing.h, M79; docs/RAY_TRACING.md). With an effect on and a device that can trace, the renderer
+    // keeps the scene's acceleration structures (a BLAS per mesh, a TLAS every frame; docs/design/ARCHITECTURE_RT_SCENE.md); off, or on a device
+    // that cannot, it makes no buffer and does no work (a device that cannot says why once in the log). Applied at the start of the next frame.
+    void set_ray_tracing(const render::RayTracingSettings& settings);
+    const render::RayTracingSettings& ray_tracing() const;
     const render::FrameGenSettings& frame_generation() const;
     render::FrameGenSlot effective_frame_generation() const;
     // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:
