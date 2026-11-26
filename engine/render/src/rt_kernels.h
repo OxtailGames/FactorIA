@@ -15,6 +15,7 @@
 #include "shaders/rt/rt_reflect.rt.h"
 #include "shaders/rt/rt_refract.rt.h"
 #include "shaders/rt/rt_shadow.rt.h"
+#include "shaders/rt/rt_shadow_pack.rt.h"
 
 namespace fa::rt_kernels {
 
@@ -39,6 +40,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_shadow", kRtShadowDxil, kRtShadowSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtShadowMsl), sizeof(kRtShadowMsl) - 1), kRtShadowDxcVersion,
          kRtShadowHlslSha256, kRtShadowMslSha256},
+        {"rt_shadow_pack", kRtShadowPackDxil, kRtShadowPackSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtShadowPackMsl), sizeof(kRtShadowPackMsl) - 1),
+         kRtShadowPackDxcVersion, kRtShadowPackHlslSha256, kRtShadowPackMslSha256},
         {"rt_ao", kRtAoDxil, kRtAoSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtAoMsl), sizeof(kRtAoMsl) - 1), kRtAoDxcVersion,
          kRtAoHlslSha256, kRtAoMslSha256},

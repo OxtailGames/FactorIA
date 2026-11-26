@@ -4684,9 +4684,12 @@ void register_builtin_components(TypeRegistry& r) {
             "slowly). Without a directional light the sun stands overhead. A skyMaterial takes the place of the "
             "physical sky. render.supports {\"feature\": \"physicalSky\"} says whether the GPU can (it needs RGBA16F "
             "render targets); where it cannot, the gradient is drawn.")
-        .field("skySunSize", &SceneSettings::skySunSize,
-               "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
-               "a larger disc is easier to see in a small window. Only used with skyModel physical.")
+        .field(
+            "skySunSize", &SceneSettings::skySunSize,
+            "Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; "
+            "a larger disc is easier to see in a small window. Only used with skyModel physical. It is also the sun's "
+            "size for the penumbra of the ray traced soft shadows (render.rayTracing shadows soft), whatever the "
+            "skyModel.")
         .range(0.1f, 10)
         .field("skyTurbidity", &SceneSettings::skyTurbidity,
                "Physical sky: how much dust and haze (aerosols) the air holds, 1..10. 1 is very clean air with a deep "

@@ -30,7 +30,7 @@ default) writes nothing to `factoria.json`.
 | key | values | default | meaning |
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
-| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = rays towards a point of the light's disc (the edge softens with the distance to the caster): **not made yet, it draws the hard shadow** and the log says so once. |
+| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = `raysPerPixel` rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; "Soft shadows", below). |
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Sharp reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel instead of the screen-space reflections and the probes ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
@@ -103,25 +103,43 @@ What the renderer does each frame, for the main camera:
 
 The cascaded shadow maps are still drawn: fog and light shafts, subsurface scattering and the local lights share the same atlas. So this
 version does not save the cost of the cascades; it replaces what the sun's shadow looks like (no cascade seams, no map resolution) at the
-cost of one ray per pixel and one image (RGBA32F, the size of the camera: 16 bytes a pixel, 3 MB at 960 x 540).
+cost of one ray per pixel and one image (RGBA32F, the size of the camera: 16 bytes a pixel, about 8.3 MB at 960 x 540).
 
-What casts: every traced mesh whose `MeshRenderer.castShadows` is on (the scene's acceleration structures, "Which objects are traced"). Two limits
-of this version, both planned for the next package:
+What casts: every traced mesh whose `MeshRenderer.castShadows` is on (the scene's acceleration structures, "Which objects are traced"). A **blended**
+(translucent) mesh casts a solid shadow, as it does in the shadow map. No caster loses its shadow ("Soft shadows", below).
 
-- **A cutout (alpha clip) casts no ray-traced shadow**: its triangles are never accepted as a hit, so a leaf card or a fence lets the sun through.
-  The sun's shadow map still shows it where the cascades answer (a silhouette), but a surface in the cutout's shadow is lit.
-- A **blended** (translucent) mesh casts a solid shadow, as it does in the shadow map.
+### Soft shadows
+
+`"shadows": "soft"` casts `raysPerPixel` rays (1 to 16) per pixel toward random points of the sun's disc, and a denoiser (a temporal accumulation
+and a wavelet filter) makes the visibility smooth. The size of the disc is the scene setting `skySunSize` (the sun's angular diameter in degrees,
+0.53 by default, the real sun, whatever the `skyModel`): the penumbra grows with the distance between the caster and the surface, so a real sun
+gives a sharp shadow near the caster and a soft one far from it, and a bigger `skySunSize` gives a wider penumbra. Where a pixel is fully in the
+shadow of the disc, the shadow is the hard one. The noise is deterministic: the same frame (same serial) gives the same image. The cost on top of
+the hard shadow: `raysPerPixel` rays, a second image of the camera's size plus the denoiser's history images, and about eight small full-screen
+passes. Hard shadows stay one ray and no denoiser.
+
+**No caster loses its shadow.** The rays see the instances of the scene's acceleration structure. When a frame has a caster they cannot see or
+test, the lit pass takes the darker of the ray traced shadow and the cascaded shadow map for the whole frame (the shadow maps are still drawn),
+so that caster keeps its shadow; with none, the shadow is the ray traced one alone. The casters that count: terrain, impostors (a far tree drawn
+as a card), meshes drawn from compute buffers, meshes left out by the instance cap, the skinning budget or a missing vertex buffer, meshes whose
+acceleration structure is not built yet, and **cutouts** (alpha clip). A cutout is in the structure but the ray kernel cannot read its texture, so
+its rays pass through it: its shadow is the cascade's, with the shadow map's resolution and edge, never a hole. The price of the rule is that in
+such a frame the soft edge of every ray traced shadow is cut where the cascade is darker; to keep the full softness, avoid those casters or turn
+their `castShadows` off.
+
+**Lights other than the sun.** Point, spot and area lights keep their raster shadow maps in every mode; the rays are for the directional light.
 
 **Without ray tracing.** On a device that cannot trace rays (OpenGL, OpenGL ES 3, WebGL2, Direct3D 11, or a GPU or OS without ray queries)
 the setting changes nothing: the renderer logs **one** message that names the reason (the same one for every effect) and draws the shadow maps,
-the frame it would draw with ray tracing off. If the device traces but cannot make the kernel or the image, one more message says so.
+the frame it would draw with ray tracing off. If the device traces but cannot make the kernel or the image (or a driver rejects the compute pipeline), one more message says so, the sun keeps the
+shadow maps, and `render.ray_tracing` answers `active: false` with that reason.
 `render.supports {"feature":"raytracing"}` tells you before you turn it on.
 
 **Cost.** Off: nothing, no pass, no image, no kernel. On: one compute dispatch of one ray per pixel, one image, plus what the acceleration
 structures cost (P1s: every frame's TLAS build). The `drawCalls` of the stats count the dispatch.
 
-Hard shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the frame serial and the seed the
-kernels receive are for the effects that sample).
+Ray traced shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the soft one draws its points from
+the frame serial and the pixel, never a clock).
 
 ## Ambient occlusion
 
