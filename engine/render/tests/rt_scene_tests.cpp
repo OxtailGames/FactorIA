@@ -18,13 +18,18 @@
 #include <vector>
 
 #include "fa/core/log.h"
+#include "fa/scene/components.h"
 #include "fa/scene/foliage.h"
+#include "fa/scene/animation.h"
 #include "gpu/recording_device.h"
+#include "gpu/sokol_shaders.h"
 #include "render_internal.h"
 #include "renderer_impostor.h"
 #include "renderer_terrain.h"
 #include "renderer_test_access.h"
 #include "rt_scene.h"
+#include "rt_skin.h"
+#include "shaders/rt_skin.glsl.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -180,6 +185,53 @@ struct Rig {
         }
         meshes.push_back(std::move(m));
         return meshes.back().get();
+    }
+
+    // A skinned mesh asset: the parts of mesh() whose vertices and influences a compute shader can read (what Assets makes when ray tracing is on).
+    render::MeshAsset* skinned_mesh(const char* key, int parts = 1) {
+        render::MeshAsset* m = mesh(key, parts);
+        for (render::SubMesh& sm : m->parts) {
+            gpu::BufferDesc vb;
+            vb.size = 4 * sizeof(render::MeshVertex);
+            vb.usage.vertexBuffer = true;
+            vb.usage.storageBuffer = true;
+            vb.usage.accelBuildInput = true;
+            vb.usage.copyDst = true;
+            vb.label = "rig skinned vertices";
+            dev->destroy_buffer(sm.vb);
+            sm.vb = dev->make_buffer(vb);
+            gpu::BufferDesc sk;
+            sk.size = 4 * sizeof(render::SkinVertex);
+            sk.usage.vertexBuffer = true;
+            sk.usage.storageBuffer = true;
+            sk.usage.copyDst = true;
+            sk.label = "rig influences";
+            sm.skinVb = dev->make_buffer(sk);
+            sm.skin = 0;
+            sm.bmin = {-1, -1, -1};
+            sm.bmax = {1, 1, 1};
+        }
+        return m;
+    }
+
+    // The skinning kernel as the renderer makes it: the generated program of this device, one compute pipeline.
+    gpu::Pipeline kernel;
+    void use_kernel() {
+        gpu::PipelineDesc pd;
+        pd.compute = true;
+        pd.shader = dev->make_shader(gpu::generated_shader_desc(*dev, &rt_skin_rt_skin_shader_desc));
+        REQUIRE(dev->state(pd.shader) == gpu::ResourceState::Valid);
+        pd.label = "rt skin";
+        kernel = dev->make_pipeline(pd);
+        REQUIRE(dev->state(kernel) == gpu::ResourceState::Valid);
+        scene.skinKernel = [this] { return kernel; };
+    }
+
+    // A skinned item of `m` posed by `anim` (a palette of two joints is enough for the scene: the kernel's maths is the CPU twin's business).
+    render::MeshItem skinned_item(render::MeshAsset* m, const Animator* anim, Vec3 at, std::uint32_t entityIndex) {
+        render::MeshItem mi = item(m, at, entityIndex);
+        mi.anim = anim;
+        return mi;
     }
 
     render::MeshItem item(render::MeshAsset* m, Vec3 at, std::uint32_t entityIndex = 0) {
@@ -386,9 +438,10 @@ TEST_CASE("rt scene: what is not traced, and why") {
 
     std::vector<render::MeshItem> items;
     items.push_back(rig.item(m, {0, 0, 0}, 1));  // traced
-    render::MeshItem skinned = rig.item(m, {1, 0, 0}, 2);
-    skinned.anim = &animator;
-    items.push_back(skinned);
+    animator.palette = {Mat4::identity(), Mat4::translate({0, 1, 0})};
+    rig.use_kernel();
+    render::MeshAsset* sk = rig.skinned_mesh("sk");
+    items.push_back(rig.skinned_item(sk, &animator, {1, 0, 0}, 2));  // traced: its own BLAS, skinned by the kernel
     render::MeshItem impostor = rig.item(m, {2, 0, 0}, 3);
     impostor.impostor = &card;
     items.push_back(impostor);
@@ -410,25 +463,23 @@ TEST_CASE("rt scene: what is not traced, and why") {
     items.push_back(driven);
     items.push_back(rig.item(ph, {8, 0, 0}, 9));  // a placeholder (the mesh is still loading)
 
-    int skinnedSeen = 0;
-    rig.scene.onSkinned = [&](const render::MeshItem& mi) { skinnedSeen += mi.anim == &animator ? 1 : 0; };
     rig.frame(items);
     rig.frame(items);
     const render::RtSceneStats& st = rig.scene.stats();
     CHECK(st.candidates == 9);
-    CHECK(rig.scene.instance_count() == 3);
+    CHECK(rig.scene.instance_count() == 4);
     std::set<std::uint32_t> traced;
     for (const auto& f : rig.scene.frame_instances()) traced.insert(f.entityId);
-    CHECK(traced == std::set<std::uint32_t>{1, 6, 7});
-    CHECK(st.skippedSkinned == 1);
+    CHECK(traced == std::set<std::uint32_t>{1, 2, 6, 7});
+    CHECK(st.skippedSkinned == 0);
+    CHECK(st.skinnedInstances == 1);
     CHECK(st.skippedImpostor == 1);
     CHECK(st.skippedTerrain == 1);
     CHECK(st.skippedFading == 1);
     CHECK(st.skippedGpuDriven == 1);
     CHECK(st.skippedUntraceable == 1);
-    CHECK(skinnedSeen == 2);  // once per skinned item per frame
-    // One line about the skinned meshes, once (not one a frame).
-    CHECK(log.count("skinned meshes") == 1);
+    CHECK(log.count("skinned meshes") == 0);  // nothing to say: they are traced now
+    INFO(joined(rig.dev->errors()));
     CHECK(rig.dev->errors().empty());
 }
 
@@ -764,6 +815,7 @@ TEST_CASE("rt records: the HLSL twin has the same fields, flags and masks as the
     CHECK(value_of("kRtFlagFoliage") == long(render::kRtFlagFoliage));
     CHECK(value_of("kRtFlagCastsShadow") == long(render::kRtFlagCastsShadow));
     CHECK(value_of("kRtFlagCustomMaterial") == long(render::kRtFlagCustomMaterial));
+    CHECK(value_of("kRtFlagSkinned") == long(render::kRtFlagSkinned));
     CHECK(value_of("kRtMaskOpaque") == long(render::kRtMaskOpaque));
     CHECK(value_of("kRtMaskCutout") == long(render::kRtMaskCutout));
     CHECK(value_of("kRtMaskBlended") == long(render::kRtMaskBlended));
@@ -1129,6 +1181,422 @@ TEST_CASE("rt renderer: the same scene records the same calls on two renderers")
     const std::vector<std::string> second = run();
     REQUIRE(first.size() > 50);
     CHECK(first == second);
+}
+
+// ---- skinned meshes (M79 P1k) ------------------------------------------------------------------------------------------------------
+
+std::vector<gpu::RecordedCommand> commands_of(const gpu::RecordingDevice& dev, gpu::CommandKind kind) {
+    std::vector<gpu::RecordedCommand> out;
+    for (const gpu::RecordedCommand& c : dev.commands())
+        if (c.kind == kind) out.push_back(c);
+    return out;
+}
+
+Animator posed(float lift) {
+    Animator a;
+    a.palette = {Mat4::identity(), Mat4::translate({0, lift, 0})};
+    return a;
+}
+
+TEST_CASE("rt skin: a skinned item is skinned once a frame, built with update in the first, refitted until the Nth and "
+          "rebuilt there") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator anim = posed(1.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &anim, {0, 0, -3}, 1)};
+    constexpr int N = int(RtScene::kSkinRebuildFrames);
+
+    rig.dev->clear_commands();
+    rig.frame(items);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 1);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::BeginComputePass) == 1);
+    const auto first = commands_of(*rig.dev, gpu::CommandKind::BuildBlas);
+    REQUIRE(first.size() == 1);
+    CHECK(first[0].args[3] ==
+          0);  // built from scratch: with allowUpdate (the refits below are refused by the device otherwise)
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::QueryCompactedSize) == 0);  // never compacted
+    CHECK(rig.scene.stats().skinnedBuilds == 1);
+    CHECK(rig.scene.stats().skinnedDispatches == 1);
+    CHECK(rig.scene.stats().skinnedVertices == 4);
+    CHECK(rig.scene.instance_count() == 1);
+    CHECK((rig.scene.frame_instances()[0].record.flags & render::kRtFlagSkinned) != 0);
+    const std::uint32_t id = rig.scene.frame_instances()[0].blasId;
+    CHECK(rig.scene.blas_state(id) == "built");
+    // The dispatch is before the build in the stream: the build reads what the kernel wrote.
+    {
+        const std::vector<std::string> lines = lines_of(*rig.dev);
+        int dispatchAt = -1, buildAt = -1;
+        for (int i = 0; i < int(lines.size()); ++i) {
+            if (dispatchAt < 0 && lines[std::size_t(i)].find("dispatch") != std::string::npos) dispatchAt = i;
+            if (buildAt < 0 && lines[std::size_t(i)].find("build_blas") != std::string::npos) buildAt = i;
+        }
+        CHECK(dispatchAt >= 0);
+        CHECK(dispatchAt < buildAt);
+    }
+
+    for (int f = 2; f <= N; ++f) {
+        rig.dev->clear_commands();
+        rig.frame(items);
+        CAPTURE(f);
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 1);
+        const auto b = commands_of(*rig.dev, gpu::CommandKind::BuildBlas);
+        REQUIRE(b.size() == 1);
+        CHECK(b[0].args[3] == 1);  // a refit
+        CHECK(rig.scene.stats().skinnedRefits == 1);
+        CHECK(rig.scene.stats().skinnedBuilds == 0);
+        CHECK(rig.scene.frame_instances()[0].blasId == id);  // the same BLAS all along
+    }
+    // From frame N + 1 on, the rebuild waits for its phase (the BLAS id mod kSkinRebuildSpread): exactly one full build in the next
+    // kSkinRebuildSpread frames, at the frame whose number plus the id is a multiple of the spread, refits in the others.
+    int rebuilds = 0;
+    for (int f = N + 1; f <= N + int(RtScene::kSkinRebuildSpread); ++f) {
+        rig.dev->clear_commands();
+        rig.frame(items);
+        CAPTURE(f);
+        const auto b = commands_of(*rig.dev, gpu::CommandKind::BuildBlas);
+        REQUIRE(b.size() == 1);
+        const bool phase = (std::uint32_t(f) + id) % RtScene::kSkinRebuildSpread == 0;
+        CHECK((b[0].args[3] == 0) == phase);
+        CHECK(rig.scene.stats().skinnedBuilds == (phase ? 1u : 0u));
+        rebuilds += phase ? 1 : 0;
+    }
+    CHECK(rebuilds == 1);
+    rig.dev->clear_commands();
+    rig.frame(items);  // and refits again
+    CHECK(commands_of(*rig.dev, gpu::CommandKind::BuildBlas)[0].args[3] == 1);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt skin: the kernel is asked for in every frame that skins, so a pipeline the cache destroyed in between is "
+          "not used") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    int asked = 0;
+    rig.scene.skinKernel = [&] {
+        ++asked;
+        return rig.kernel;
+    };
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1)};
+    rig.frame(items);
+    CHECK(asked > 0);
+    // No animated character for longer than the cache keeps an idle pipeline: the kernel is destroyed, a new one is made when asked for.
+    for (int f = 0; f < 3; ++f) rig.frame({});
+    rig.dev->destroy_pipeline(rig.kernel);
+    const gpu::Pipeline stale = rig.kernel;
+    gpu::PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = rig.dev->make_shader(gpu::generated_shader_desc(*rig.dev, &rt_skin_rt_skin_shader_desc));
+    pd.label = "rt skin again";
+    rig.kernel = rig.dev->make_pipeline(pd);
+    REQUIRE(rig.dev->state(rig.kernel) == gpu::ResourceState::Valid);
+    CHECK(rig.kernel.id != stale.id);
+    const int before = asked;
+    rig.dev->clear_commands();
+    rig.frame(items);
+    CHECK(asked > before);  // asked again, not remembered
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 1);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+    rig.frame(items);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt skin: the bones' box jumping rebuilds the BLAS at once, a small move is a refit") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator anim = posed(0.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &anim, {0, 0, -3}, 1)};
+    rig.frame(items);
+    const auto last_is_update = [&](bool expectUpdate) {
+        const auto b = commands_of(*rig.dev, gpu::CommandKind::BuildBlas);
+        REQUIRE(b.size() == 1);
+        CHECK((b[0].args[3] == 1) == expectUpdate);
+    };
+    anim.palette[1] = Mat4::translate({0, 0.2f, 0});  // 0.2 of a 2-wide box: under kSkinExtentJump
+    rig.dev->clear_commands();
+    rig.frame(items);
+    last_is_update(true);
+    anim.palette[1] = Mat4::translate({0, 5.0f, 0});  // a bone teleported
+    rig.dev->clear_commands();
+    rig.frame(items);
+    last_is_update(false);
+    CHECK(rig.scene.stats().skinnedBuilds == 1);
+    rig.dev->clear_commands();
+    rig.frame(items);  // the new box is the one built for: back to refits
+    last_is_update(true);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE(
+    "rt skin: two skinned instances of one asset get two BLASes, a static one a third, and the records say which") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f), b = posed(2.0f);
+    std::vector<render::MeshItem> items{
+        rig.skinned_item(m, &a, {0, 0, -3}, 1), rig.skinned_item(m, &b, {2, 0, -3}, 2),
+        rig.item(m, {4, 0, -3}, 3)};  // the third is drawn in its bind pose (no palette)
+    rig.frame(items);
+    CHECK(rig.dev->errors().empty());
+    CHECK(rig.scene.instance_count() == 3);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 2);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildBlas) == 3);  // 2 skinned + 1 static
+    std::map<std::uint32_t, std::uint32_t> blasOf;
+    std::map<std::uint32_t, std::uint32_t> flagsOf;
+    for (const auto& f : rig.scene.frame_instances()) {
+        blasOf[f.entityId] = f.blasId;
+        flagsOf[f.entityId] = f.record.flags;
+    }
+    REQUIRE(blasOf.size() == 3);
+    CHECK(blasOf[1] != blasOf[2]);
+    CHECK(blasOf[1] != blasOf[3]);
+    CHECK(blasOf[2] != blasOf[3]);
+    CHECK((flagsOf[1] & render::kRtFlagSkinned) != 0);
+    CHECK((flagsOf[2] & render::kRtFlagSkinned) != 0);
+    CHECK((flagsOf[3] & render::kRtFlagSkinned) == 0);
+    CHECK(rig.scene.skinned_positions_of(blasOf[1]).id != rig.scene.skinned_positions_of(blasOf[2]).id);
+    CHECK(rig.scene.skinned_positions_of(blasOf[3]).id == 0);
+    // The palettes of two Animators are two palettes; two items of one Animator share one.
+    rig.dev->clear_commands();
+    items[1].anim = &a;
+    rig.frame(items);
+    const auto writes = commands_of(*rig.dev, gpu::CommandKind::WriteBuffer);
+    std::size_t paletteBytes = 0;
+    for (const auto& w : writes)
+        if (w.args[0] > 0 && w.args[0] % int(render::kRtSkinPaletteFloats * sizeof(float)) == 0)
+            paletteBytes = std::size_t(w.args[0]);
+    CHECK(paletteBytes == render::kRtSkinPaletteFloats * sizeof(float));  // one palette
+}
+
+TEST_CASE("rt skin: an instance that leaves frees its BLAS after the frames in flight and its buffer at once") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f), b = posed(2.0f);
+    const std::vector<render::MeshItem> both{rig.skinned_item(m, &a, {0, 0, -3}, 1),
+                                             rig.skinned_item(m, &b, {2, 0, -3}, 2)};
+    rig.frame(both);
+    rig.frame(both);
+    REQUIRE(rig.scene.instance_count() == 2);
+    std::map<std::uint32_t, std::uint32_t> blasOf;
+    std::map<std::uint32_t, gpu::AccelStructure> structOf;
+    for (const auto& f : rig.scene.frame_instances()) {
+        blasOf[f.entityId] = f.blasId;
+        structOf[f.entityId] = f.instance.blas;
+    }
+    const gpu::Buffer leaving = rig.scene.skinned_positions_of(blasOf[2]);
+    REQUIRE(leaving.valid());
+    CHECK(rig.dev->state(leaving) == gpu::ResourceState::Valid);
+    const std::vector<render::MeshItem> one{both[0]};
+    rig.frame(one);  // entity 2 is gone from the frame
+    CHECK(rig.scene.blas_state(blasOf[2]) == "gone");
+    CHECK(rig.scene.blas_state(blasOf[1]) == "built");
+    CHECK(rig.dev->state(leaving) == gpu::ResourceState::Invalid);  // a stale handle is Invalid
+    // The structure is kept while a TLAS of a frame in flight can still name it, then destroyed.
+    CHECK(rig.dev->accel_structure_state(structOf[2]) == gpu::ResourceState::Valid);
+    for (std::uint64_t f = 0; f < std::uint64_t(gpu::kInflightFrames) + 1; ++f) rig.frame(one);
+    CHECK(rig.dev->accel_structure_state(structOf[2]) == gpu::ResourceState::Invalid);
+    CHECK(rig.dev->accel_structure_state(structOf[1]) == gpu::ResourceState::Valid);
+    // The same entity coming back gets a new BLAS, built from scratch.
+    rig.dev->clear_commands();
+    rig.frame(both);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildBlas) == 2);  // the new one (full) and entity 1's refit
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+    // The asset going away frees its skinned BLASes with the rest.
+    rig.scene.forget(m);
+    CHECK(rig.scene.blas_state(blasOf[1]) == "gone");
+}
+
+TEST_CASE("rt skin: with the scene off nothing is allocated and nothing is dispatched") {
+    Rig rig;
+    REQUIRE_FALSE(rig.scene.configure(rig.dev, false, 1000));
+    rig.use_kernel();
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1)};
+    rig.dev->clear_commands();
+    rig.frame(items);
+    rig.frame(items);
+    for (const auto& c : rig.dev->commands()) {
+        CAPTURE(c.text);
+        CHECK(c.kind != gpu::CommandKind::Dispatch);
+        CHECK(c.kind != gpu::CommandKind::BuildBlas);
+        CHECK(c.kind != gpu::CommandKind::BuildTlas);
+        CHECK(c.kind != gpu::CommandKind::WriteBuffer);
+    }
+    CHECK(rig.scene.instance_count() == 0);
+    CHECK(rig.scene.stats().skinnedDispatches == 0);
+    CHECK(rig.scene.stats().blasLive == 0);
+    // Turned on, then off again: everything goes.
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.frame(items);
+    CHECK(rig.scene.instance_count() == 1);
+    const gpu::Buffer positions = rig.scene.skinned_positions_of(rig.scene.frame_instances()[0].blasId);
+    REQUIRE(positions.valid());
+    rig.scene.configure(rig.dev, false, 1000);
+    CHECK(rig.dev->state(positions) == gpu::ResourceState::Invalid);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE(
+    "rt skin: without the program, or past the budget, the skinned instances are left out with one teaching warning") {
+    Warnings log;
+    SUBCASE("no program") {
+        Rig rig;
+        REQUIRE(rig.scene.configure(rig.dev, true, 1000));  // no use_kernel(): no pipeline
+        render::MeshAsset* m = rig.skinned_mesh("rig");
+        Animator a = posed(1.0f);
+        const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1), rig.item(m, {1, 0, -3}, 2)};
+        rig.frame(items);
+        rig.frame(items);
+        CHECK(rig.scene.instance_count() == 1);  // the static one
+        CHECK(rig.scene.stats().skippedSkinned == 1);
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 0);
+        CHECK(log.count("skinning program is not available") == 1);
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("a mesh over the budget of a part") {
+        Rig rig;
+        REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+        rig.use_kernel();
+        render::MeshAsset* m = rig.skinned_mesh("big");
+        m->parts[0].vertexCount = int(render::kRtSkinMaxPartVertices) + 1;
+        Animator a = posed(1.0f);
+        const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1)};
+        rig.frame(items);
+        rig.frame(items);
+        CHECK(rig.scene.instance_count() == 0);
+        CHECK(rig.scene.stats().skippedSkinned == 1);
+        CHECK(log.count("over the budget") == 1);
+        CHECK(log.count("Hint:") == 1);
+    }
+}
+
+TEST_CASE("rt skin: the same skinned scene records the same calls twice") {
+    auto run = [] {
+        Rig rig;
+        REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+        rig.use_kernel();
+        render::MeshAsset* m = rig.skinned_mesh("rig", 2);
+        Animator a = posed(1.0f), b = posed(3.0f);
+        std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1),
+                                            rig.skinned_item(m, &b, {2, 0, -5}, 2),
+                                            rig.item(rig.mesh("s"), {1, 0, -2}, 3)};
+        for (int f = 0; f < 8; ++f) {
+            b.palette[1] = Mat4::translate({0, f == 5 ? 9.0f : 1.0f + 0.01f * float(f), 0});
+            rig.frame(items);
+        }
+        CHECK(rig.dev->errors().empty());
+        return lines_of(*rig.dev);
+    };
+    const std::vector<std::string> first = run();
+    const std::vector<std::string> second = run();
+    REQUIRE(first.size() > 40);
+    CHECK(first == second);
+}
+
+TEST_CASE("rt skin: the CPU twin of the kernel is the vertex shader's blend of four joints") {
+    std::vector<Mat4> palette(3, Mat4::identity());
+    palette[1] = Mat4::translate({0, 2, 0});
+    palette[2] = Mat4::translate({1, 0, 0}) * Mat4::rotate_z_deg(90.0f);
+    std::vector<float> rows(render::kRtSkinPaletteFloats);
+    render::rt_skin_pack_palette(palette, rows.data());
+    CHECK(rows[0] == 1.0f);                     // joint 0, row 0 = (1, 0, 0, 0)
+    CHECK(rows[(1 * 3 + 1) * 4 + 3] == 2.0f);   // joint 1, row 1: the lift
+    CHECK(rows[(63 * 3 + 2) * 4 + 2] == 1.0f);  // a joint past the palette is the identity
+    render::MeshVertex v{};
+    v.px = 1.0f;
+    v.py = 0.5f;
+    v.pz = -1.0f;
+    render::SkinVertex s{};
+    s.joints[0] = 1;
+    s.weights[0] = 1.0f;
+    Vec3 p = render::rt_skin_position(v, s, rows.data());
+    CHECK(p.x == doctest::Approx(1.0f));
+    CHECK(p.y == doctest::Approx(2.5f));
+    CHECK(p.z == doctest::Approx(-1.0f));
+    s.joints[1] = 0;
+    s.weights[0] = 0.25f;
+    s.weights[1] = 0.75f;  // 0.25 of the lift
+    p = render::rt_skin_position(v, s, rows.data());
+    CHECK(p.y == doctest::Approx(0.5f + 0.5f));
+    s.joints[2] = 2;
+    s.weights[0] = s.weights[1] = 0.0f;
+    s.weights[2] = 1.0f;  // the rotated and moved joint: the engine's own matrix is the reference
+    p = render::rt_skin_position(v, s, rows.data());
+    const Vec3 want = palette[2].transform_point({1.0f, 0.5f, -1.0f});
+    CHECK(p.x == doctest::Approx(want.x).epsilon(1e-5));
+    CHECK(p.y == doctest::Approx(want.y).epsilon(1e-5));
+    CHECK(p.z == doctest::Approx(want.z).epsilon(1e-5));
+    s.joints[2] =
+        255;  // a byte past the palette is clamped to the last joint, like the kernel (never a read out of range)
+    p = render::rt_skin_position(v, s, rows.data());
+    CHECK(p.x == doctest::Approx(1.0f));
+}
+
+void install_rig_file(const char* repoRelative, const char* projectPath) {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/" + repoRelative, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(!text.empty());
+    REQUIRE(fs::write_text(projectPath, text).ok());
+}
+
+TEST_CASE("rt renderer: a skinned glTF is skinned and traced from its own BLAS, and with ray tracing off nothing of it "
+          "is recorded") {
+    install_rig_file("engine/render/tests/data/skinned_two_bone.gltf", "assets/rig.gltf");
+    auto scene = [](RtRenderer& r, World& w) {
+        add_camera(w, {0, 1, 8});
+        Entity rig = make(w, "rig", {0, 0, 0});
+        w.add<MeshRenderer>(rig).mesh = "assets/rig.gltf";
+        w.add<Animator>(rig).clip = "Slide";
+        update_animators(w, 0.0f);
+        r.frame(w);
+        update_animators(w, 0.3f);
+        r.frame(w);
+        return rig;
+    };
+    {
+        RtRenderer r;
+        r.rays();
+        World w;
+        const Entity rig = scene(r, w);
+        INFO(joined(r.dev->errors()));
+        CHECK(r.dev->errors().empty());
+        REQUIRE(r.scene().active());
+        CHECK(r.scene().stats().skinnedInstances == 1);
+        CHECK(r.scene().stats().skinnedDispatches == 1);
+        CHECK(r.scene().stats().skinnedRefits == 1);
+        bool found = false;
+        for (const auto& f : r.scene().frame_instances())
+            if (f.entityId == std::uint32_t(rig.index)) {
+                found = true;
+                CHECK((f.record.flags & render::kRtFlagSkinned) != 0);
+            }
+        CHECK(found);
+        CHECK(r.dev->stream_text().find("rt-skin") != std::string::npos);
+    }
+    {
+        RtRenderer r(
+            true);  // the device traces, the setting is off: not one call of the skinning, not one buffer for it
+        World w;
+        scene(r, w);
+        CHECK(r.dev->errors().empty());
+        CHECK_FALSE(r.scene().active());
+        CHECK(count_kind(*r.dev, gpu::CommandKind::Dispatch) == 0);
+        CHECK(r.dev->stream_text().find("rt-skin") == std::string::npos);
+        CHECK(r.dev->stream_text().find("build_blas") == std::string::npos);
+    }
 }
 
 }  // namespace

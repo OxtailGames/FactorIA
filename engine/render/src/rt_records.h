@@ -30,6 +30,8 @@ inline constexpr std::uint32_t kRtFlagCastsShadow = 1u << 6;  // MeshRenderer.ca
 inline constexpr std::uint32_t kRtFlagCustomMaterial =
     1u << 7;  // drawn with a material: albedo, roughness and metalness are the MeshRenderer's
               // constants, not what the material's shader makes of them
+inline constexpr std::uint32_t kRtFlagSkinned =
+    1u << 8;  // a skinned mesh: its BLAS is the instance's own, refitted every frame
 
 // The instance mask bits of the TLAS (AccelInstance::mask): a ray hits an instance when (ray mask & instance mask) != 0. Every instance
 // has at least one of the first three. 0x40 and 0x80 are reserved for the effects of later packages: a kernel never sets or tests them.

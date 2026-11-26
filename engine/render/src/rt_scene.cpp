@@ -12,6 +12,8 @@
 #include "fa/core/log.h"
 #include "render_internal.h"
 #include "render_jobs.h"
+#include "render_scene.h"
+#include "rt_skin.h"
 
 namespace fa::render {
 
@@ -62,6 +64,7 @@ std::uint64_t mesh_signature(const MeshAsset& m) {
     mix(m.parts.size());
     for (const SubMesh& p : m.parts) {
         mix(p.vb.id);
+        mix(p.skinVb.id);
         mix(p.ib.id);
         mix(std::uint64_t(std::uint32_t(p.ibOffset)));
         mix(std::uint64_t(std::uint32_t(p.vertexCount)));
@@ -139,6 +142,14 @@ void RtScene::free_blas(std::uint32_t id) {
     auto it = blas_.find(id);
     if (it == blas_.end()) return;
     Blas& b = it->second;
+    if (b.skinned) {  // its own buffer and view go with it; the structure waits for the frames in flight
+        skinned_.erase(SkinKey{b.entity, b.mesh, b.part});
+        if (b.outView.id) device_->destroy_view(b.outView);
+        if (b.positions.id) device_->destroy_buffer(b.positions);
+        if (b.structure.id) retire_blas(b.structure);
+        blas_.erase(it);
+        return;
+    }
     if (b.slot >= 0 && b.state == State::Queried)
         freeSlots_.push_back(b.slot);  // a Reading one frees its slot when the answer comes
     retire_blas(b.structure);
@@ -155,10 +166,20 @@ void RtScene::free_mesh_entry(MeshEntry& e) {
     for (std::uint32_t id : e.blas)
         if (id) free_blas(id);
     e.blas.clear();
+    for (SkinSource& s : e.sources) {
+        if (s.vbView.id) device_->destroy_view(s.vbView);
+        if (s.skinView.id) device_->destroy_view(s.skinView);
+    }
+    e.sources.clear();
 }
 
 void RtScene::forget(const MeshAsset* mesh) {
     if (!device_) return;
+    std::vector<std::uint32_t>
+        mine;  // the skinned instances of the asset (their entities may live on: they are made again if it comes back)
+    for (const auto& [id, b] : blas_)
+        if (b.skinned && b.mesh == mesh) mine.push_back(id);
+    for (std::uint32_t id : mine) free_blas(id);
     auto it = meshes_.find(mesh);
     if (it == meshes_.end()) return;
     free_mesh_entry(it->second);
@@ -174,6 +195,7 @@ void RtScene::release() {
                 "render",
                 "Ray tracing scene: the GPU could not be waited for before the acceleration structures are freed: {}",
                 idle.error().message);
+        release_skin();
         if (readTicket_.valid()) device_->release_buffer_read(readTicket_);
         for (auto& [id, b] : blas_) {
             if (b.structure.id) device_->destroy_accel_structure(b.structure);
@@ -212,7 +234,7 @@ void RtScene::release() {
     maxInstances_ = 0;
     stats_ = {};
     warnedCap_ = warnedSkinned_ = warnedBlasMake_ = warnedBlasBuild_ = warnedTlasMake_ = warnedTlasBuild_ =
-        warnedBuffers_ = warnedRead_ = false;
+        warnedBuffers_ = warnedRead_ = warnedSkinKernel_ = false;
     graveyard_.clear();
 }
 
@@ -410,8 +432,10 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
     stats_.candidates = stats_.instances = stats_.droppedOverCap = 0;
     stats_.skippedSkinned = stats_.skippedImpostor = stats_.skippedTerrain = stats_.skippedFading = 0;
     stats_.skippedGpuDriven = stats_.skippedUntraceable = stats_.skippedNoBlas = 0;
+    stats_.skinnedInstances = 0;
     stats_.cap = cap_;
     if (!device_) return;
+    paletteCount_ = 0;
     items_.reserve(opaque.size() + blended.size());
     for (int list = 0; list < 2; ++list) {
         const bool isBlended = list == 1;
@@ -424,21 +448,6 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
             }
             if (mi.impostor) {
                 ++stats_.skippedImpostor;
-                continue;
-            }
-            if (mi.anim) {
-                ++stats_.skippedSkinned;
-                if (onSkinned) onSkinned(mi);
-                if (!warnedSkinned_) {
-                    warnedSkinned_ = true;
-                    FA_INFO("render",
-                            "Ray tracing scene: skinned meshes (e.g. entity '{}') are not traced yet: the acceleration "
-                            "structure "
-                            "is built from the bind pose, which a skinned draw never shows, so they are left out of "
-                            "it. Hint: "
-                            "nothing to change; a later version skins them on the GPU and refits their structure.",
-                            mi.mesh->key);
-                }
                 continue;
             }
             if (mi.lodFade < 0.0f &&
@@ -466,13 +475,26 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
             const float dist = length(mi.model.translation() - camera);
             for (std::size_t p = 0; p < mesh.parts.size(); ++p) {
                 const SubMesh& part = mesh.parts[p];
+                // A part the Animator's palette deforms (the draw's own test): traced from its own BLAS, made after the cap (prepare_skinned).
+                const bool skinnedPart = mi.anim && part.skinVb.id;
                 if (!traceable_part(part)) {
                     ++stats_.skippedUntraceable;
+                    continue;
+                }
+                if (skinnedPart && std::uint32_t(part.vertexCount) > kRtSkinMaxPartVertices) {
+                    ++stats_.skippedSkinned;
+                    warn_skin_budget(mesh.key, std::uint32_t(part.vertexCount));
                     continue;
                 }
                 Item it;
                 it.mesh = mi.mesh;
                 it.part = std::uint32_t(p);
+                if (skinnedPart) {
+                    it.skinned = true;
+                    it.entity = mi.entity.bits();
+                    it.palette = &palette_of(*mi.anim, part.skin);
+                    it.vertexCount = std::uint32_t(part.vertexCount);
+                }
                 it.entityId = std::uint32_t(mi.entity.bits());
                 it.dist = dist;
                 // The transform: row-major 3x4 from the column-major matrix.
@@ -509,6 +531,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 if (mi.foliage) flags |= kRtFlagFoliage;
                 if (mr.castShadows) flags |= kRtFlagCastsShadow;
                 if (matOk) flags |= kRtFlagCustomMaterial;
+                if (skinnedPart) flags |= kRtFlagSkinned;
                 rec.flags = flags;
                 std::uint8_t mask = isBlended ? kRtMaskBlended : (cutout ? kRtMaskCutout : kRtMaskOpaque);
                 if (mr.castShadows) mask |= kRtMaskCastsShadow;
@@ -575,6 +598,11 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 e.untraceable.assign(mesh.parts.size(), 0);
             }
         }
+        if (it.skinned) {  // its BLAS is the instance's own (prepare_skinned); a static one only if an item draws the part unskinned
+            if (out != i) items_[out] = std::move(items_[i]);
+            ++out;
+            continue;
+        }
         std::uint32_t& id = e.blas[it.part];
         if (!id && !e.untraceable[it.part]) {
             bool bad = false;
@@ -591,6 +619,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         ++out;
     }
     items_.resize(out);
+    prepare_skinned(camera);
     stats_.blasLive = std::uint32_t(blas_.size());
 }
 
@@ -668,10 +697,29 @@ void RtScene::record_frame(gpu::CommandList& list) {
     }
     const auto is_building = [&](std::uint32_t id) { return std::binary_search(building.begin(), building.end(), id); };
     // pending_ is in creation order = increasing id, so `building` is sorted.
+    // The skinned BLASes this frame builds or refits (the skinning dispatches come first), in id order.
+    std::vector<SkinWork> skinWork;
+    std::uint64_t skinScratch = 0;
+    plan_skin(skinWork, std::uint32_t(kMaxBuildsPerFrame - building.size()), skinScratch);
+    const auto skin_ready = [&](std::uint32_t id) {
+        const auto at = std::lower_bound(skinWork.begin(), skinWork.end(), id,
+                                         [](const SkinWork& w, std::uint32_t v) { return w.id < v; });
+        return at != skinWork.end() && at->id == id;
+    };
     std::vector<const Item*> kept;
     kept.reserve(items_.size());
     std::uint32_t waiting = 0;
+    stats_.skinnedInstances = 0;
     for (const Item& it : items_) {
+        if (it.skinned) {
+            if (skin_ready(it.blasId)) {
+                kept.push_back(&it);
+                ++stats_.skinnedInstances;
+            } else {
+                ++waiting;
+            }
+            continue;
+        }
         auto b = blas_.find(it.blasId);
         if (b == blas_.end() || b->second.state == State::Failed) {
             ++waiting;
@@ -686,7 +734,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
     stats_.skippedNoBlas = waiting;
     const std::uint32_t n = std::uint32_t(kept.size());
     // Memory first (it may make buffers), then the work.
-    std::uint64_t scratchNeed = 0;
+    std::uint64_t scratchNeed = skinScratch;
     for (std::uint32_t id : building) scratchNeed = std::max(scratchNeed, blas_.at(id).buildScratch);
     std::uint32_t capacity = tlasCapacity_;
     if (n > 0 && (n > tlasCapacity_ || !tlas_.id))
@@ -720,6 +768,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
         tlasCapacity_ = capacity;
         stats_.tlasBytes = tsizes.structure;
     }
+    record_skin_dispatches(list, skinWork);
     // Build the new BLASes, ask for their compacted size.
     std::uint32_t built = 0;
     for (std::uint32_t id : building) {
@@ -749,6 +798,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
             }
         }
     }
+    record_skin_builds(list, skinWork);
     // Copy the BLASes whose compacted size came back: the TLAS built below still names the original, the next frame swaps.
     std::uint32_t compacted = 0;
     for (std::uint32_t id : copyPending_) {
@@ -778,6 +828,8 @@ void RtScene::record_frame(gpu::CommandList& list) {
                               }),
                kept.end());
     stats_.skippedNoBlas = waiting;
+    stats_.skinnedInstances =
+        std::uint32_t(std::count_if(kept.begin(), kept.end(), [](const Item* it) { return it->skinned; }));
     const std::uint32_t count = std::uint32_t(kept.size());
     if (count == 0) {
         previous_.clear();

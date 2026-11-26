@@ -99,11 +99,13 @@ game that turns ray tracing on still looks right on a GPU that cannot do it; onl
 When rays are asked for (see above) on a device that traces, the renderer builds one bottom-level structure per **submesh** of every mesh
 the main camera draws (once per mesh asset, shared by all its instances, compacted a frame or two later, freed when the mesh goes) and
 rebuilds the top-level structure every frame with one instance per drawn submesh. Meshes you draw with `MeshRenderer`, instanced
-batches and the instances of a `Foliage` are traced, one level of detail per instance (the level the main camera sees). Not traced:
+batches and the instances of a `Foliage` are traced, one level of detail per instance (the level the main camera sees). **Skinned meshes**
+(an `Animator`) are traced in the pose they are drawn in: a compute pass skins each one into its own structure, which is refitted every frame
+and rebuilt every 60 frames or when a bone jumps (the scene skins at most 4096 instances and 4194304 vertices a frame, the nearest to the
+main camera first; the log says once what was left out and how to fix it). Not traced:
 
 - **terrain** (`Terrain` nodes);
 - **impostors**: while a far tree is drawn as a card it is left out (it casts no ray-traced shadow and is not in a reflection);
-- **skinned meshes** (an `Animator`): not yet, a later package skins them on the GPU; the log says so once;
 - the level of a LOD cross-fade that is fading out, and meshes drawn from compute buffers (a material with GPU buffers);
 - meshes that are still loading (the placeholder).
 
