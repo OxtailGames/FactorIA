@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- Internal piece of M79: the renderer's own spatio-temporal denoiser for the ray traced signals (shadows, occlusion, diffuse and specular radiance): temporal accumulation with reprojection and variance-guided a-trous iterations, with its history, debug views and tests; no ray pass uses it yet (docs/design/ARCHITECTURE_DENOISE.md).
+
 ## 0.38.0
 
 Vendor upscaling, frame generation and low latency (M78): `render.upscaler` modes `dlss` (NVIDIA DLSS Super Resolution through
