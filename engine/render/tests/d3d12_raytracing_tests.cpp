@@ -3,8 +3,9 @@
 // flags, the size rounding, the geometry checks and the DXIL test. On Windows a WARP device builds a BLAS and a TLAS of
 // two instances, traces the engine's rt_probe kernel against them and checks every pixel against the same rays on the
 // CPU, then refits, compacts and rebuilds on the frames after. A WARP without DXR tier 1.1 says so (MESSAGE) and passes,
-// unless FA_D3D12_REQUIRE_RT=1 (the Windows CI job) makes it a failure that names the tier, the shader model and the
-// d3d10warp.dll loaded. FA_D3D12_REQUIRE alone does not (it asks for a D3D12 device, not for its ray tracing tier).
+// unless FA_D3D12_REQUIRE_RT=1 (CMake sets it on the ctest render_d3d12_raytracing alone with -DFA_D3D12_REQUIRE_RT=ON,
+// which the Windows CI job passes) makes it a failure that names the tier, the shader model and the d3d10warp.dll
+// loaded. FA_D3D12_REQUIRE alone does not (it asks for a D3D12 device, not for its ray tracing tier).
 #include <doctest.h>
 
 #include <algorithm>
@@ -386,8 +387,8 @@ Buffer input_buffer(D3d12Device& dev, const void* data, std::size_t bytes, const
 
 TEST_CASE(
     "d3d12 ray tracing: WARP traces rt_probe against a TLAS of two instances, then refits, compacts and rebuilds") {
-    // FA_D3D12_REQUIRE_RT=1 (the Windows CI job): a WARP that cannot trace rays fails the case instead of skipping it.
-    // Not in the whole-suite run where an earlier case loaded another WARP: render_d3d12_raytracing runs it alone.
+    // FA_D3D12_REQUIRE_RT=1 (only the ctest render_d3d12_raytracing has it in CI, which runs this file alone): a WARP
+    // that cannot trace rays fails the case instead of skipping it.
     const bool requireRt = env_is_1(L"FA_D3D12_REQUIRE_RT");
     WarpLoad load;
     auto dev = make_warp(load);
@@ -409,12 +410,15 @@ TEST_CASE(
         bd.label = "no-rt";
         CHECK(dev->state(dev->make_buffer(bd)) == ResourceState::Failed);
         const std::string which = "the d3d10warp.dll loaded: " + loaded_warp() + " (" + load.what + ")";
-        if (requireRt && !load.defeated)
+        if (requireRt)
+            // The dedicated ctest (render_d3d12_raytracing) runs this file alone, so `defeated` (an earlier device of
+            // the process loaded another WARP first) is a failure there too: nothing ran before this case.
             FAIL_CHECK("FA_D3D12_REQUIRE_RT=1 and this WARP cannot trace rays: "
                        << why << "; " << which
-                       << " (hint: point FA_WARP_DIR at the "
-                          "d3d10warp.dll of the NuGet package "
-                          "Microsoft.Direct3D.WARP)");
+                       << (load.defeated ? " (an earlier case of this process had loaded another WARP: run this file "
+                                           "alone, as the render_d3d12_raytracing test does)"
+                                         : " (hint: point FA_WARP_DIR at the d3d10warp.dll of the NuGet package "
+                                           "Microsoft.Direct3D.WARP)"));
         else
             MESSAGE("d3d12 ray tracing: skipped, this WARP cannot trace rays: " << why << "; " << which);
         return;

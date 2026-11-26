@@ -147,6 +147,24 @@ SetupAction directstorage_action(const SetupComponent& c, const std::string& hom
     return a;
 }
 
+// `setup dxc`: DXC compiles the engine's ray tracing kernels, which only a contributor to the engine edits (the generated
+// DXIL is committed and a game never ships it), so the window offers it without asking for it. Windows and Linux x86_64
+// only: elsewhere the component is "unsupported".
+SetupAction dxc_action(const SetupComponent& c, const std::string& home, bool reinstall) {
+    SetupAction a;
+    a.component = "dxc";
+    a.key = "dxc";
+    a.force = reinstall;
+    a.label = reinstall ? "Reinstall" : "Install";
+    a.tooltip = std::string(reinstall ? "Downloads it again: " : "Downloads ") +
+                "Microsoft's DirectX Shader Compiler " + kSetupDxcVersion + " (SHA-256 checked) into " +
+                join_path(join_path(home, "tools"), "dxc") +
+                ". Only needed to edit the engine's ray tracing kernels (tools/shaders/compile_rt_shaders.sh); a game "
+                "never needs it." +
+                size_sentence(c.installSizeMb);
+    return a;
+}
+
 // `setup streamline | xess | fidelityfx`: shown on Windows only (elsewhere the component is "unsupported"). The license
 // dialog comes first, like the Android SDK's.
 SetupAction vendor_sdk_action(const SetupComponent& c, const VendorSdk& sdk, const std::string& home, bool reinstall) {
@@ -200,6 +218,7 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "vscode") return "the VS Code debugger";
     if (component == "launcher") return "the app launcher";
     if (component == "directstorage") return "the DirectStorage runtime";
+    if (component == "dxc") return "DXC (the shader compiler for the ray tracing kernels)";
     if (const VendorSdk* sdk = find_vendor_sdk(component)) {
         std::string title = sdk->title;  // "NVIDIA Streamline (DLSS, ...)" -> "NVIDIA Streamline"
         if (const size_t paren = title.find(" ("); paren != std::string::npos) title.resize(paren);
@@ -281,6 +300,7 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
     if (c.id == "vscode") return vscode_action(c, installed);
     if (c.id == "launcher") return launcher_action(c, installed);
     if (c.id == "directstorage") return directstorage_action(c, home, installed);
+    if (c.id == "dxc") return dxc_action(c, home, installed);
     if (const VendorSdk* sdk = find_vendor_sdk(c.id)) return vendor_sdk_action(c, *sdk, home, installed);
     return std::nullopt;
 }

@@ -597,9 +597,11 @@ public:
     static constexpr std::uint32_t kAllSubresources = 0xFFFFFFFFu;
     // The resource state a NativeState maps to on a list of `queue` (shader reads: NON_PIXEL only on compute lists).
     static D3D12_RESOURCE_STATES native_state(NativeState state, QueueKind queue);
-    void require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
+    // Returns false, after reporting, when the resource cannot be put in `state` (an acceleration structure buffer never
+    // leaves its state): the caller must not record the command that wanted it. A null resource is true (nothing to do).
+    bool require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
     // The same for mips [mip, mip + mipCount) of layers [layer, layer + layerCount), every plane.
-    void require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount,
+    bool require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount,
                        std::uint32_t layer, std::uint32_t layerCount, D3D12_RESOURCE_STATES state);
     // Records the barriers require() collected (before every command that needs them).
     void flush_barriers();
@@ -714,6 +716,10 @@ private:
     // what this list's last command did with each acceleration structure buffer it touched (reset by open()).
     std::vector<std::shared_ptr<TrackedResource>> boundAccels_;
     std::unordered_map<TrackedResource*, AccelAccess> accelLast_;
+    // Some acceleration structure was written (built, refit, copied) since the last dispatch that traces: that dispatch
+    // starts with a barrier over every UAV, because the BLASes a bound TLAS points at are not bound themselves (a BLAS
+    // refit after the TLAS build is a write the per-TLAS barrier does not see). Reset by open().
+    bool accelWritten_ = false;
     // The timed scopes recorded in this list (reset by open()); the last one is still open when scopeOpen_.
     std::vector<ScopeRef> scopes_;
     bool scopeOpen_ = false;

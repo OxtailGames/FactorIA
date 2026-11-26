@@ -85,8 +85,8 @@ is the only writer of the headers; `scripts/ci-preflight.sh` reminds you when a 
   queries need), the highest shader model and the version of the `d3d10warp.dll` D3D12 loaded. When the OS's WARP reports less than
   11, the step downloads the NuGet package **Microsoft.Direct3D.WARP 1.0.22** (pinned by SHA-256 in the step, cached), copies its x64
   `d3d10warp.dll` beside the probe (D3D12 loads the WARP DLL from the program's folder), prints the tier it gives, and exports
-  `FA_WARP_DIR` for `render_d3d12_raytracing`, which the Test step's `FA_D3D12_REQUIRE_RT=1` fails when its WARP has no tier
-  1.1 (scripts/ctest_shard.py may put that test on any shard). The package's licence permits testing only and forbids
+  `FA_WARP_DIR` for `render_d3d12_raytracing`, which `FA_D3D12_REQUIRE_RT=1` (set by CMake on that ctest alone, `-DFA_D3D12_REQUIRE_RT=ON` in the Configure step) fails when its
+  WARP has no tier 1.1 (scripts/ctest_shard.py may put that test on any shard). The package's licence permits testing only and forbids
   redistribution: it is CI-only and nothing in a game, the editor or a release ever carries it. Measured on the Windows 11 development PC: the OS's WARP reports tier 11;
   the NuGet WARP 1.0.22 reports tier 12. The `windows-2022` runner's own tier is the number this step adds to every run.
   By hand (never in CI), `FA_D3D12_RT_HARDWARE=1 FA_D3D12_REQUIRE_RT=1` makes `render_d3d12_raytracing` trace on the machine's hardware adapter instead of WARP.
