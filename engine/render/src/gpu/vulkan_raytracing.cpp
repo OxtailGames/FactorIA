@@ -484,7 +484,9 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                               std::to_string(need) + ", but vertex buffer " + quoted(vb->label) + " has " +
                               std::to_string(vb->size) + " bytes");
             uses.add(vb->tracked, kBuildStage, VK_ACCESS_2_SHADER_READ_BIT);
-            vertex = device_.buffer_address(vb->tracked->buffer) + g.vertexOffset;
+            // Only a buffer made with usage.accelBuildInput has a device address (VUID-VkBufferDeviceAddressInfo-
+            // buffer-02601); one without is reported above and the build never runs.
+            if (vb->usage.accelBuildInput) vertex = device_.buffer_address(vb->tracked->buffer) + g.vertexOffset;
         }
         if (g.indexBuffer.valid()) {
             const VulkanDevice::BufferRecord* ib = device_.buffers_.get(g.indexBuffer.id);
@@ -501,7 +503,7 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                                   std::to_string(need) + ", but index buffer " + quoted(ib->label) + " has " +
                                   std::to_string(ib->size) + " bytes");
                 uses.add(ib->tracked, kBuildStage, VK_ACCESS_2_SHADER_READ_BIT);
-                index = device_.buffer_address(ib->tracked->buffer) + g.indexOffset;
+                if (ib->usage.accelBuildInput) index = device_.buffer_address(ib->tracked->buffer) + g.indexOffset;
             }
         }
         geos.push_back(triangles_geometry(g, vertex, index));
@@ -566,7 +568,8 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                           (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
                           " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
         uses.add(scratch->tracked, kBuildStage, kAccelRead | kAccelWrite);
-        scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
+        if (scratch->usage.accelScratch)  // no device address without it: reported above, the build never runs
+            scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
     }
     if (!what.empty()) {
         lock.unlock();
@@ -725,7 +728,8 @@ Result<void> VulkanCommandList::build_tlas(const TlasBuild& b) {
                           (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
                           " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
         uses.add(scratch->tracked, kBuildStage, kAccelRead | kAccelWrite);
-        scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
+        if (scratch->usage.accelScratch)  // no device address without it: reported above, the build never runs
+            scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
     }
     const std::string buildFix = "build every BLAS the instances name first (and keep it alive), size the TLAS and the "
                                  "scratch buffer from tlas_sizes() with the flags of the build, and keep the instance "
