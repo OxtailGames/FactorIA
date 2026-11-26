@@ -70,6 +70,7 @@ WINDOWS_SECONDS = {
     "example_tidewater-market_perf": 10.4,
     "example_burrow-brigade_perf": 9.1,
     "cli": 8.1,
+    "render_d3d12_raytracing": 8.0,  # ESTIMATE (M79 P1d, WARP DXR with the debug layer): replace from the next green run
     "render": 7.8,
     "example_tidewater-market-title_perf": 7.1,
     "example_kindlewatch_test": 7.0,

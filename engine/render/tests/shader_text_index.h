@@ -32,6 +32,7 @@
 #include "shaders/probe.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/quad_motion.glsl.h"
+#include "shaders/rt_denoise.glsl.h"
 #include "shaders/sky.glsl.h"
 #include "shaders/sky_physical.glsl.h"
 #include "shaders/ssao.glsl.h"
@@ -88,6 +89,8 @@ static const fa::shader_text::Texts* const kShaderTexts[] = {
     &quad_glsl430_pack_texts,
     &quad_motion_glsl300es_pack_texts,
     &quad_motion_glsl430_pack_texts,
+    &rt_denoise_glsl300es_pack_texts,
+    &rt_denoise_glsl430_pack_texts,
     &sky_glsl300es_pack_texts,
     &sky_glsl430_pack_texts,
     &sky_physical_glsl300es_pack_texts,
@@ -186,6 +189,10 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &quad_quad_plain_shader_desc,
     &quad_motion_quad_react_shader_desc,
     &quad_motion_quad_vel_shader_desc,
+    &rt_denoise_atrous_shader_desc,
+    &rt_denoise_debug_shader_desc,
+    &rt_denoise_guide_shader_desc,
+    &rt_denoise_temporal_shader_desc,
     &sky_sky_shader_desc,
     &skyphys_multiscatter_shader_desc,
     &skyphys_sky_shader_desc,

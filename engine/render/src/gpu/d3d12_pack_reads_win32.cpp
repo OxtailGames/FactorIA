@@ -249,6 +249,7 @@ Result<PackReadTicket> D3d12Device::read_pack_to_buffer(const PackSource& src, B
         return make_error(where + ": buffer " + std::to_string(buffer.id) +
                               " is not a live buffer (destroyed, failed, or another device's)",
                           "read into a buffer this device made, before destroy_buffer()");
+    if (t->accel) return make_error(where + ": " + accel_storage_copy_error(label), kAccelStorageCopyHint);
     auto layout = src.pack->range_layout(src.path, src.offset, src.size);
     if (!layout) return layout.error();
     const PackReader::RangeLayout& l = layout.value();

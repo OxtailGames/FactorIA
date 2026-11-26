@@ -164,17 +164,37 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
     else if (desc.data.ptr && desc.data.size > desc.size)
         error = "its initial data has " + std::to_string(desc.data.size) + " bytes, more than its size " +
                 std::to_string(desc.size) + " (hint: BufferDesc::size is the buffer's bytes, at least data.size)";
+    const BufferUsage& u = desc.usage;
+    const bool accelUsage = u.accelBuildInput || u.accelStorage || u.accelScratch;
+    if (error.empty() && accelUsage && !features_.accelerationStructure) {
+        error = "usage.accelBuildInput, accelStorage or accelScratch on a device without acceleration structures "
+                "(Features::accelerationStructure is false: " +
+                (rtWhy_.empty() ? std::string("this device has no ray query") : rtWhy_) +
+                ") (hint: check Device::features().accelerationStructure first)";
+    } else if (error.empty() && u.accelStorage) {
+        // D3D12 makes an acceleration structure's buffer in its own state and never moves it out of it.
+        const bool other = u.vertexBuffer || u.indexBuffer || u.storageBuffer || u.stagingBuffer ||
+                           u.stagingIndexBuffer || u.writeUnsealed || u.writeTransient || u.copySrc || u.copyDst ||
+                           u.accelBuildInput || u.accelScratch;
+        if (other || desc.data.ptr)
+            error = std::string("usage.accelStorage with ") + (other ? "another usage" : "initial data") +
+                    ": D3D12 keeps an acceleration structure's buffer in the acceleration structure state, which "
+                    "nothing else may use (hint: make the storage buffer with usage.accelStorage only and no data; "
+                    "builds write it)";
+    }
     if (error.empty()) {
-        const D3D12_RESOURCE_DESC d =
-            buffer_desc(align_up(desc.size, 256), desc.usage.storageBuffer ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-                                                                           : D3D12_RESOURCE_FLAG_NONE);
-        Com<ID3D12Resource> r =
-            make_committed(d, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON, "make_buffer", label.c_str());
+        const bool uav = u.storageBuffer || u.accelStorage || u.accelScratch;
+        const D3D12_RESOURCE_DESC d = buffer_desc(
+            align_up(desc.size, 256), uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
+        const D3D12_RESOURCE_STATES initial =
+            u.accelStorage ? D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE : D3D12_RESOURCE_STATE_COMMON;
+        Com<ID3D12Resource> r = make_committed(d, D3D12_HEAP_TYPE_DEFAULT, initial, "make_buffer", label.c_str());
         if (r) {
             auto t = std::make_shared<TrackedResource>();
             t->resource = std::move(r);
-            t->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
+            t->states.assign(1, StateBits(initial));
             t->buffer = true;
+            t->accel = u.accelStorage;
             // Unnamed: empty, so the ownership errors say "an unnamed buffer" (TrackedResource::display_name).
             t->label = desc.label && *desc.label ? "buffer '" + label + "'" : std::string();
             rec.tracked = std::move(t);
