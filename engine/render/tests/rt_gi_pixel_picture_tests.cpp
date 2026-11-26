@@ -78,7 +78,8 @@ Image frame_picture(Gfx& g, World& w) {
 
 }  // namespace
 
-TEST_CASE("rt gi pixel picture: a floor beside a red wall takes the wall's colour when the rays are per pixel, and the farther floor takes "
+TEST_CASE("rt gi pixel picture: a floor beside a red wall takes the wall's colour when the rays are per pixel, and the "
+          "farther floor takes "
           "less") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
@@ -93,7 +94,8 @@ TEST_CASE("rt gi pixel picture: a floor beside a red wall takes the wall's colou
     const int mx = off.width / 2, my = off.height / 2;
     const Color near = patch(off, mx, my);
     const Color far = patch(off, off.width / 8, off.height * 7 / 8);
-    INFO("gi off: near " << near.r << " " << near.g << " " << near.b << ", far " << far.r << " " << far.g << " " << far.b);
+    INFO("gi off: near " << near.r << " " << near.g << " " << near.b << ", far " << far.r << " " << far.g << " "
+                         << far.b);
     CHECK(near.r > 0.05f);  // the sun lights the floor
     CHECK(std::fabs(near.r - near.g) < 0.01f);
 

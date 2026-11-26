@@ -1103,13 +1103,14 @@ vec3 fa_indirect_diffuse(vec3 n) {
     }
     if (fa_gi_px.x > 0.5) {
         // The ray traced per-pixel GI (M79-P4b-1): the denoised irradiance / pi of the camera's image (view 26 holds it on a draw with no lightmap)
-        // at this fragment's pixel, in place of the probes and the ambient light below. It is bound only on opaque draws of the main camera's pass.
+        // at this fragment's pixel, in place of the probes and the ambient light below. It is bound only on opaque draws of the main camera's pass that the prepass drew
+        // and that have no baked light probes (fill_fs sets fa_gi_px).
         vec4 pv = vec4(fa_world_pos, 1.0);
         float w = max(dot(fa_ct_vpw, pv), 1e-4);
         vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
         vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
         ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
-        return texelFetch(sampler2D(fa_lightmap, fa_env_smp), px, 0).rgb;
+        return texelFetch(sampler2D(fa_lightmap, fa_env_smp), px, 0).rgb;  // the image is RGBA16F, or RGBA32F on a device that filters it (main_pass); a new sampler pair would pass the 16 of WebGL2
     }
     if (fa_probe_sh[0].w > 0.0) {
         // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the ambient

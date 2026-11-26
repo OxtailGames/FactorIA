@@ -91,7 +91,7 @@ the default stays `"cpu"`: use the GPU while you place lights and walls, and bak
 traces rays (not a software one such as WARP or lavapipe, which `"gpu"` still accepts) and the CPU otherwise. The result's `device` says which one baked (`{requested, used, name, note, process}`; `note` is why it was the CPU, `process` is `"here"` or `"helper"`). The GPU needs
 ray tracing (Metal on Apple silicon, D3D12 or Vulkan with ray queries elsewhere, [Ray tracing](../RAY_TRACING.md)). It works from the editor (Lightmap panel, Device), MCP and a
 `factoria call` with graphics too: a Mac process that already holds the only Metal context of the process (the editor, a window) runs the bake in a child
-`factoria session --no-graphics` (`process` is `"helper"`; the progress and Cancel work the same). It needs the `factoria` program next to the editor (or `FA_FACTORIA_EXE`);
+`factoria session --no-graphics --no-scene` (`process` is `"helper"`; the progress and Cancel work the same). It needs the `factoria` program next to the editor (or `FA_FACTORIA_EXE`);
 if it is missing, or the child crashes or the GPU resets, the editor is not affected: `"gpu"` fails with the reason, `"auto"` bakes on the CPU and says why in `device.note`.
 `FA_LIGHTMAP_HELPER=always|never` forces the choice. `samples`, `bounces` and `shadowSamples` have the CPU's ranges on the GPU too: outside them the bake is refused, never clamped.
 Light probes are always baked on the CPU (a scene with no lightmap texels and only probes says so in `device.note`).

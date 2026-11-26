@@ -633,7 +633,10 @@ struct Renderer::Impl {
     bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
     // M79 P1s: the scene's acceleration structures (rt_scene.h). `rtSettings` is the engine's setting; rt_begin_frame (Renderer::begin_frame)
     // turns the scene on or off from it and from what the device can do, so a frame sees one answer.
-    render::RayTracingSettings rtSettings;
+    render::RayTracingSettings
+        rtSettings;  // what the frame traces: rtRequested under the graphics preset's caps (M79-P6a)
+    render::RayTracingSettings
+        rtRequested;  // the setting the engine gave (Renderer::set_ray_tracing), before the preset's caps
     // M79-P5a: the path tracer (rt_pathtrace.h). `ptSettings` is the engine's setting; ptState is the accumulation's bookkeeping, one entry per
     // camera job (pt_hook); ptStatus is what the last frame did.
     render::PathTracerSettings ptSettings;
@@ -650,6 +653,11 @@ struct Renderer::Impl {
             local =
                 0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
     } rtShadowDraws;
+    // Tests (RendererTestAccess::rt_gi_pixel_draws): while the per-pixel GI image is bound, the opaque draws that read it (`on`) and those that keep the
+    // probes and the ambient light (`off`: baked light, no prepass image of their own, a terrain node, an impostor card). Reset by rt_begin_frame.
+    struct GiPixelDraws {
+        int on = 0, off = 0;
+    } giPixelDraws;
     // M79-P2a-3 (rt_local_shadows.h): which light holds each of the kRtLocalMaxLights slots of a camera (by camera entity bits), kept from frame to
     // frame so a light keeps its slot and the denoiser its history; what the frame did for `render.ray_tracing` (the lights that asked, the lights
     // traced; the highest over the frame's cameras, reset by rt_begin_frame) and the one-time message of a pipeline the device refused.

@@ -89,6 +89,7 @@ export default class Options extends Behaviour {
     world.find("quality_section").active = false; // the Graphics tab always opens on its first page
     world.find("latency_section").active = false;
     world.find("framegen_section").active = false;
+    world.find("raytracing_section").active = false;
   }
 
   // ------------------------------------------------------------------------------------------------------------ video
@@ -280,6 +281,9 @@ export default class Options extends Behaviour {
    * The "Frame generation" rows are a fourth page (framegen_section, opened by gfx_fg_page from the low-latency page; render.frameGeneration, docs/FRAME_GENERATION.md): gfx_fg_<mode> picks off, auto, dlss, fsr or xess
    * (an SDK this machine cannot run is greyed out and named in the note), gfx_fg_minfps is the frame rate the game must render at for it to stay on; saved in settings.graphics.frameGeneration. The note says
    * what runs now (the engine's own state), and recommends a low-latency mode while there is none. A game that started with frame generation off cannot turn a provider on while it runs: the note says so.
+   * The "Ray tracing" rows are a fifth page (raytracing_section, opened by gfx_rt_page from the frame-generation page; render.rayTracing, docs/RAY_TRACING.md): gfx_rt_enabled is the switch and gfx_rt_quality cycles high (hard shadows and ambient
+   * occlusion) and ultra (everything the engine traces), the tiers of the High and Ultra presets; saved in settings.graphics.rayTracing. The graphics preset only caps what is drawn, and the note says when it does. A device that cannot trace
+   * (render.supports "raytracing") greys both rows out and the note says why and how to get one.
    * gfx_dynamic (in gfx_dynamic_slot) cycles the dynamic resolution: off, 30 fps, 60 fps, the display's refresh (window.dynamicResolution); an old save has none
    * (null) and the row shows what the game set.
    */
@@ -291,6 +295,16 @@ export default class Options extends Behaviour {
     ui.on("click", "gfx_latency_back", () => this.showGraphicsPage("quality"));
     ui.on("click", "gfx_fg_page", () => this.showGraphicsPage("framegen"));
     ui.on("click", "gfx_fg_back", () => this.showGraphicsPage("latency"));
+    ui.on("click", "gfx_rt_page", () => this.showGraphicsPage("raytracing"));
+    ui.on("click", "gfx_rt_back", () => this.showGraphicsPage("framegen"));
+    ui.on("change", "gfx_rt_enabled", (e) => {
+      if (this.syncing || e.value === settings.rayTracingState().enabled) return;
+      this.chooseRayTracing({ enabled: e.value });
+    });
+    ui.on("click", "gfx_rt_quality", () => {
+      const all = settings.RAYTRACING_QUALITIES;
+      this.chooseRayTracing({ quality: all[(all.indexOf(settings.rayTracingState().quality) + 1) % all.length] });
+    });
     for (const mode of settings.FRAMEGEN_MODES) ui.on("click", `gfx_fg_${mode}`, () => this.chooseFrameGen({ mode }));
     ui.on("change", "gfx_fg_minfps", (e) => {
       const value = Math.round(Math.min(settings.FRAMEGEN_MIN_FPS_MAX, Math.max(0, e.value)));
@@ -331,14 +345,15 @@ export default class Options extends Behaviour {
     });
   }
 
-  /** Shows a page of the Graphics tab ("effects", "quality" for preset and upscaling, "latency", "framegen"), with the focus on the page's first row. */
+  /** Shows a page of the Graphics tab ("effects", "quality" for preset and upscaling, "latency", "framegen", "raytracing"), with the focus on the page's first row. */
   showGraphicsPage(page) {
     world.find("graphics_section").active = page === "effects";
     world.find("quality_section").active = page === "quality";
     world.find("latency_section").active = page === "latency";
     world.find("framegen_section").active = page === "framegen";
+    world.find("raytracing_section").active = page === "raytracing";
     if (page !== "effects") this.refreshQuality();
-    ui.focus(world.find({ effects: "gfx_page", quality: "gfx_preset_auto", latency: "gfx_latency_auto", framegen: "gfx_fg_auto" }[page]));
+    ui.focus(world.find({ effects: "gfx_page", quality: "gfx_preset_auto", latency: "gfx_latency_auto", framegen: "gfx_fg_auto", raytracing: "gfx_rt_enabled" }[page]));
   }
 
   /**
@@ -405,6 +420,19 @@ export default class Options extends Behaviour {
     this.applyQuality(
       () => settings.setFrameGeneration(keys),
       () => Object.assign(this.s.graphics.frameGeneration, keys),
+    );
+  }
+
+  /** The ray tracing switch or its quality: it applies at once and is saved (the graphics preset still caps what is drawn). A device that cannot trace has both rows greyed out, so nothing reaches here. */
+  chooseRayTracing(keys) {
+    this.applyQuality(
+      () => settings.setRayTracing(keys),
+      () => {
+        const g = this.s.graphics;
+        Object.assign(g.rayTracing, keys);
+        // Turning it on: record the tier the engine ended up with (the preset's, when the player never chose one), so the next start draws the same.
+        if (keys.enabled === true && keys.quality === undefined) g.rayTracing.quality = settings.rayTracingState().quality;
+      },
     );
   }
 
@@ -491,6 +519,24 @@ export default class Options extends Behaviour {
       const fgNote = world.find("framegen_note");
       fgNote.active = fgLines.length > 0;
       fgNote.get("Text").text = fgLines.join(" ");
+      const rt = settings.rayTracingState();
+      const rtCan = settings.rayTracingSupported();
+      world.find("gfx_rt_label").get("Text").text = t("options.gfx.rtLabel", { state: t(rt.enabled ? "options.gfx.rtOn" : "options.gfx.rtOff") });
+      const rtSwitch = world.find("gfx_rt_enabled").get("Toggle");
+      rtSwitch.interactable = rtCan;
+      rtSwitch.value = rtCan && rt.enabled;
+      const rtQuality = world.find("gfx_rt_quality").get("Button");
+      rtQuality.interactable = rtCan && rt.enabled;
+      rtQuality.text = t("options.gfx.rtqLabel", { quality: t(`options.gfx.rtq.${rt.quality}`) });
+      const rtLines = [];
+      if (!rtCan) rtLines.push(t("options.gfx.rtUnsupported"));
+      else if (rt.enabled) {
+        rtLines.push(t(`options.gfx.rtTier.${rt.quality}`));
+        if (rt.capped) rtLines.push(t(`options.gfx.rtCap.${rt.drawn}`, { preset: t(`options.gfx.p.${rt.preset}`) }));
+      }
+      const rtNote = world.find("raytracing_note");
+      rtNote.active = rtLines.length > 0;
+      rtNote.get("Text").text = rtLines.join(" ");
       const unsupported = [...reasons].map(([reason, names]) => `${names.join(sep)}: ${reason}`);
       world.find("gfx_uq").get("Button").text = t("options.gfx.uqLabel", { quality: t(`options.gfx.uq.${up.quality}`) });
       world.find("gfx_dynamic_slot").active = settings.renderSupports("dynamicResolution");

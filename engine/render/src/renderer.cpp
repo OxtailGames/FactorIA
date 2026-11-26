@@ -801,6 +801,7 @@ const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upsca
 void Renderer::set_quality(const render::QualityLimits& limits) {
     impl_->quality = limits;
     impl_->qualityOn = limits != render::QualityLimits{};
+    set_ray_tracing(impl_->rtRequested);  // the preset's ray tracing caps follow (M79-P6a)
 }
 const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
 ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
@@ -1411,6 +1412,10 @@ render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {
     if (!r.impl_) return {};
     return {r.impl_->rtShadowDraws.mask, r.impl_->rtShadowDraws.withCascades, r.impl_->rtShadowDraws.local};
+}
+RendererTestAccess::GiPixelDraws RendererTestAccess::rt_gi_pixel_draws(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->giPixelDraws.on, r.impl_->giPixelDraws.off};
 }
 std::string RendererTestAccess::rt_effect_failure(Renderer& r) {
     return r.impl_ ? r.impl_->rtEffects.failure() : std::string();

@@ -43,7 +43,10 @@ void Renderer::Impl::rt_release_skin_shader() {
 }
 
 void Renderer::set_ray_tracing(const render::RayTracingSettings& settings) {
-    if (impl_) impl_->rtSettings = settings;
+    if (!impl_) return;
+    impl_->rtRequested = settings;
+    // The graphics preset only caps what the project asked for (QualityLimits::rt*): never turns an effect on.
+    impl_->rtSettings = impl_->qualityOn ? render::apply_quality_to_ray_tracing(settings, impl_->quality) : settings;
 }
 
 void Renderer::set_path_tracer(const render::PathTracerSettings& settings) {
@@ -95,6 +98,7 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
     rtShadowDraws = {};
+    giPixelDraws = {};
     rtAccelPass.clear();
     rtGiHitValid = false;
     rtGiPixelFrame = {};
@@ -184,8 +188,9 @@ void Renderer::Impl::rt_gi_pixel_finish() {
             st.reason = why.empty() ? "the traced scene was not ready this frame (it has no instance yet)" : why;
             if (!why.empty() || ++rtGiPixelMisses >= kGiRtMissFrames) {
                 rtGiPixelFallbackUntil = frameSerial + std::uint64_t(kGiRtRetryFrames);
-                rtGiPixelFallbackReason =
-                    st.reason + " (the probe and ambient light is used; the rays are tried again in 120 frames)";
+                rtGiPixelFallbackReason = st.reason +
+                                          " (the probe and ambient light is used; the rays are tried again in " +
+                                          std::to_string(kGiRtRetryFrames) + " frames)";
                 rtGiPixelMisses = 0;
             }
         }

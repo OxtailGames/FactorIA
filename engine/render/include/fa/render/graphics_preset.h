@@ -19,6 +19,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/components.h"
 #include "fa/scene/postprocess.h"
@@ -74,6 +75,16 @@ struct QualityLimits {
     float lightScale = 1.0f;  // caps SceneSettings.lightScale, the size of the Light2D buffer as a share of the picture
     // Realtime global illumination (M73).
     int realtimeGiProbesPerFrame = 32;  // caps RealtimeGI.probesPerFrame (1..32): how fast the probe grid updates
+    // Ray tracing (M79, docs/RAY_TRACING.md): what render.rayTracing may ask for. A preset only CAPS the project's setting, never turns it on:
+    // a game whose `render.rayTracing.enabled` is false traces nothing under any preset, and an effect the game left off stays off. The
+    // defaults are the loosest value, so `custom` and ultra leave the game's own setting as it is. A device that cannot trace rays is not
+    // changed by any of these (nothing traces there).
+    RtShadows rtShadows = RtShadows::Soft;  // the most the shadows may be traced: off, hard or soft
+    bool rtAo = true;            // false: ray traced ambient occlusion is not drawn (the screen-space one stays)
+    bool rtReflections = true;   // false: ray traced reflections are not drawn
+    bool rtTranslucency = true;  // false: ray traced refraction through glass is not drawn
+    RtGi rtGi = RtGi::PerPixel;  // the most global illumination may be traced: off, probes or perPixel
+    int rtRaysPerPixel = kRtMaxRaysPerPixel;  // caps RayTracingSettings.raysPerPixel (1..16)
 
     bool operator==(const QualityLimits&) const = default;
 };
@@ -96,6 +107,10 @@ const std::vector<std::string>& quality_knob_names();
 // The same knobs as numbers where a higher number is a higher quality (a bool is 0 or 1, an enum its index, lodDistanceScale is
 // 1 / scale): what the monotony of the presets is checked with. Same order as quality_knob_names().
 std::vector<double> quality_knob_levels(const QualityLimits& q);
+
+// `s` as a graphics preset lets it be drawn: shadows, gi and raysPerPixel at most the limit's, an effect the limit switches off turned off.
+// `enabled` and `maxInstances` are never touched, and nothing is turned on that `s` has off. With the default limits it returns `s`.
+RayTracingSettings apply_quality_to_ray_tracing(const RayTracingSettings& s, const QualityLimits& q);
 
 // One knob the GPU capped below what the preset wants.
 struct QualityCap {

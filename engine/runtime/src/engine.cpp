@@ -2254,25 +2254,36 @@ Json Engine::ray_tracing_status() {
     // The sun's shadows, the ambient occlusion, the sharp reflections and the translucency draw with rays so far (M79-P2a-1, P2b, P3a-1, P3b): an effect that is on,
     // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
     // An effect whose kernel the driver rejected (or whose prepass does not match the output) draws its raster version: it is not active.
+    // M79-P6a: the graphics preset only caps what the project asked for (graphics.preset; QualityLimits::rt*): `rt` is what is drawn.
+    // The preset's table, not impl_->graphicsLimits: the rt knobs are not capped by the GPU, and a headless run (no renderer to resolve
+    // the preset) answers the same.
+    const render::RayTracingSettings rt = render::apply_quality_to_ray_tracing(
+        impl_->rayTracing, render::graphics_preset_table(impl_->graphicsPreset).limits);
     const std::string failure = impl_->renderer ? impl_->renderer->ray_tracing_failure() : std::string();
-    const bool shadowsOn = impl_->rayTracing.shadows != render::RtShadows::Off;
-    const bool aoOn = impl_->rayTracing.ao;
-    const bool reflectionsOn = impl_->rayTracing.reflections;
+    const bool shadowsOn = rt.shadows != render::RtShadows::Off;
+    const bool aoOn = rt.ao;
+    const bool reflectionsOn = rt.reflections;
     int localCandidates = 0, localTraced = 0;
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
-    const bool translucencyOn = impl_->rayTracing.translucency;
-    const bool giProbesOn = impl_->rayTracing.gi == render::RtGi::Probes;
-    const bool giPixelOn = impl_->rayTracing.gi == render::RtGi::PerPixel;
+    const bool translucencyOn = rt.translucency;
+    const bool giProbesOn = rt.gi == render::RtGi::Probes;
+    const bool giPixelOn = rt.gi == render::RtGi::PerPixel;
     render::RtGiStatus giStatus;
     render::RtGiPixelStatus giPixelStatus;
     if (impl_->renderer) {
         giStatus = impl_->renderer->ray_tracing_gi_status();
         giPixelStatus = impl_->renderer->ray_tracing_gi_pixel_status();
     }
-    const bool active = impl_->rayTracing.enabled && supported &&
+    const bool active = rt.enabled && supported &&
                         (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn || giPixelOn) &&
                         failure.empty();
     j["active"] = active;
+    // M79-P6a: what the graphics preset allows. `effective` is the setting after the caps (the same keys as the setting itself); it is
+    // the setting when `capped` is false (custom, ultra, or a project that asks for less than the preset allows).
+    const bool presetCapped = rt != impl_->rayTracing;
+    j["presetCap"] = Json::object({{"preset", std::string(render::graphics_preset_name(impl_->graphicsPreset))},
+                                   {"capped", presetCapped},
+                                   {"effective", render::ray_tracing_to_json(rt)}});
     j["pathTracer"] = path_tracer_status();
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
@@ -2280,14 +2291,19 @@ Json Engine::ray_tracing_status() {
                                       {"traced", shadowsOn && active ? localTraced : 0}});
     // M79-P4a: the realtime GI probes updated by rays (gi "probes"), as of the last whole frame. `active` is true when that frame updated probes.
     {
-        const bool giActive = impl_->rayTracing.enabled && supported && giProbesOn && giStatus.active;
+        const bool giActive = rt.enabled && supported && giProbesOn && giStatus.active;
         std::string giReason;
-        if (giProbesOn && impl_->rayTracing.enabled && !giActive)
+        if (giProbesOn && rt.enabled && !giActive)
             giReason = !supported ? std::string("this device cannot trace rays")
                        : giStatus.reason.empty()
                            ? std::string("no frame has been drawn yet with a RealtimeGI component in the scene")
                            : giStatus.reason;
+        else if (rt.enabled && impl_->rayTracing.gi == render::RtGi::Probes)
+            giReason = "the graphics preset \"" + std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                       "\" does not allow gi \"probes\" (presetCap.effective.gi); the raster captures update the grids";
+        // `wanted`: gi "probes" is on after the preset's caps (a preset that caps gi leaves it false, presetCap says so).
         j["giProbes"] = Json::object({{"active", giActive},
+                                      {"wanted", rt.enabled && giProbesOn},
                                       {"reason", giReason},
                                       {"grids", giActive ? giStatus.grids : 0},
                                       {"probesPerFrame", giActive ? giStatus.probesPerFrame : 0},
@@ -2296,13 +2312,19 @@ Json Engine::ray_tracing_status() {
     // M79-P4b-1: the bounce traced for every pixel (gi "perPixel"), as of the last whole frame. `active` is true when that frame's
     // lit meshes read the denoised bounce (or the noisy one while the denoiser refused).
     {
-        const bool pixelActive = impl_->rayTracing.enabled && supported && giPixelOn && giPixelStatus.active;
+        const bool pixelActive = rt.enabled && supported && giPixelOn && giPixelStatus.active;
         std::string pixelReason;
-        if (giPixelOn && impl_->rayTracing.enabled && !pixelActive)
+        if (giPixelOn && rt.enabled && !pixelActive)
             pixelReason = !supported                     ? std::string("this device cannot trace rays")
                           : giPixelStatus.reason.empty() ? std::string("no frame has been drawn yet")
                                                          : giPixelStatus.reason;
-        j["giPixel"] = Json::object({{"active", pixelActive}, {"reason", pixelReason}});
+        else if (rt.enabled && impl_->rayTracing.gi == render::RtGi::PerPixel)
+            pixelReason = "the graphics preset \"" + std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                          "\" does not allow gi \"perPixel\" (presetCap.effective.gi); the probes and the ambient "
+                          "light the meshes";
+        // `wanted`: gi "perPixel" is on after the preset's caps (a preset that caps gi leaves it false, presetCap says so).
+        j["giPixel"] =
+            Json::object({{"active", pixelActive}, {"wanted", rt.enabled && giPixelOn}, {"reason", pixelReason}});
     }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
@@ -2318,7 +2340,7 @@ Json Engine::ray_tracing_status() {
         if (shadowsOn)
             add(std::string("the shadow of the directional light that has castShadows, on the main camera (the one "
                             "whose meshes are the traced scene's; ") +
-                (impl_->rayTracing.shadows == render::RtShadows::Soft
+                (rt.shadows == render::RtShadows::Soft
                      ? "shadows \"soft\" casts raysPerPixel rays over the sun's angular size and denoises them"
                      : "shadows \"hard\" casts one ray per pixel") +
                 "; the point, spot and area lights that cast shadows are traced too, the " +
@@ -2355,6 +2377,11 @@ Json Engine::ray_tracing_status() {
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
                       "reflections, translucency and gi \"probes\" or \"perPixel\" are made so far).";
+    if (presetCapped && impl_->rayTracing.enabled && supported)
+        j["reason"] = j["reason"].get<std::string>() + " The graphics preset \"" +
+                      std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                      "\" caps what the project asks for (presetCap.effective is what is drawn); `graphics.preset "
+                      "{\"name\":\"custom\"}` or a higher preset lifts the cap.";
     return j;
 }
 

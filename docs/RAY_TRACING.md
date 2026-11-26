@@ -13,7 +13,7 @@ default, and free when off.
 > occlusion, "Ambient occlusion", below), **`reflections`** (mirror and glossy reflections, "Reflections", below), **`translucency`**
 > (refraction through glass and liquids, "Translucency", below) **`gi` = `probes`** (the light probes of the `RealtimeGI` grids updated
 > with rays) and **`gi` = `perPixel`** (a bounce traced for every pixel, "Global illumination", below). `render.ray_tracing` says what is
-> traced (`active`, with the reason). The sections below say what each part will do and mark what is planned.
+> traced (`active`, with the reason). The sections below say what each part does and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
 > an effect is on ("Which objects are traced", below). Direct3D 12, Vulkan and Metal run them; the shadow kernel reads them.
@@ -50,6 +50,36 @@ factoria.json#/render/rayTracing/shadows: "sofft" is not a valid shadows mode  (
 
 The settings are read from `factoria.json` at the start and changed while the game runs with the command `render.ray_tracing`.
 
+## Graphics presets, the editor and the menu kit
+
+The graphics preset (`render.graphicsPreset`, the command `graphics.preset`; [UPSCALING.md](UPSCALING.md), "Graphics presets") caps ray
+tracing like it caps the other costly effects: it only lowers what the project asks for and **never turns ray tracing on**. A project
+with `render.rayTracing.enabled` false traces nothing at any preset.
+
+| preset | traced with rays (at most) | rays per pixel | why |
+|---|---|---|---|
+| `low`, `medium` | nothing: the shadow maps, the screen-space occlusion and reflections, the probes | | A trace costs a top-level structure build and a pass per effect every frame; the two presets are for a GPU that has little to spare, or none that traces. |
+| `high` | `shadows: "hard"` and `ao` | 2 | The two cheapest effects: one ray per pixel towards the sun, and the ambient occlusion with a short ray. |
+| `ultra`, `custom` | everything the project asks for | no limit | The soft shadows (`raysPerPixel` rays), reflections and translucency cost several rays per pixel; `gi: "probes"` is a ray pass over the probes, and `gi: "perPixel"` (rays per pixel, a denoiser; the most expensive effect) is only allowed here: no lower preset names it. |
+
+A device that cannot trace (Direct3D 11, OpenGL, OpenGL ES 3, WebGL2, or a GPU without the ray queries) behaves as before: the presets
+change nothing there, because there is nothing to cap. The cap is applied by the renderer, so the order of `graphics.preset` and
+`render.ray_tracing` does not matter: the setting you wrote stays as you wrote it (`render.ray_tracing` returns it), and
+`presetCap` of the same command says what is drawn: `{preset, capped, effective}`, `effective` being the setting after the caps;
+`active` and `reason` follow `effective`. Picking `ultra` or `custom` again lifts the cap.
+
+The editor's **Graphics settings** window (View > Graphics; [editor/EDITOR_PANELS_WORLD.md](editor/EDITOR_PANELS_WORLD.md), "Graphics
+settings window") has a **Ray tracing** group (the switch, `shadows`, `ao`, `reflections`, `translucency`, `gi`, `raysPerPixel`) and a **Path
+tracer** group (the switch, `samplesPerFrame`, `maxSamples`) that write `render.rayTracing` and `render.pathTracer` of `factoria.json`. A
+line at the top of the group says whether this machine can trace; where it cannot, the controls are greyed out with the reason and a hint
+to choose a backend that traces with `graphics.backend`, because a project is written for the players' machines: the file may ask for
+rays all the same. `gi` lists `off`, `probes` and `perPixel`, all of them drawn.
+
+The menu kit's Graphics tab ([MENUS.md](MENUS.md)) has a fifth page, **Ray tracing**: an on/off switch and a quality that cycles `high`
+(hard shadows and ambient occlusion) and `ultra` (everything above), the two tiers of the presets. A player's choice is saved in
+`settings.graphics.rayTracing` (`{enabled, quality}`) and applied with `render.ray_tracing` at each start; the page's note says when the preset
+caps it, and on a device that cannot trace both rows are greyed out with the reason.
+
 ## The command
 
 `render.ray_tracing` reads or changes the same settings (no argument reads them; any key changes those and keeps the rest):
@@ -66,8 +96,8 @@ It returns the settings plus:
 | `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off`, or `ao`, `reflections`, `translucency` or `gi` = `probes` or `perPixel` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `localShadows` | `{cap, candidates, traced}`: the most point, spot and area lights traced per camera and frame (3), how many asked for a shadow in the last frame, and how many of them were traced (the rest keep their maps). 0 and 0 while `shadows` is `off` or nothing is active. |
-| `giProbes` | `{active, reason, grids, probesPerFrame, budget}` for `gi` = `probes`: whether rays updated at least one probe in the last frame, why not when they did not (no `RealtimeGI` in the scene, no probe due, the device refused the kernel, no traced scene yet), the grids updated, the probes updated and the most the settings allow per frame. All zero and empty while `gi` is not `probes`. |
-| `giPixel` | `{active, reason}` for `gi` = `perPixel`: whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
+| `giProbes` | `{active, wanted, reason, grids, probesPerFrame, budget}` for `gi` = `probes`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for the probes (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether rays updated at least one probe in the last frame, why not when they did not (no `RealtimeGI` in the scene, no probe due, the device refused the kernel, no traced scene yet), the grids updated, the probes updated and the most the settings allow per frame. All zero and empty while `gi` is not `probes`. |
+| `giPixel` | `{active, wanted, reason}` for `gi` = `perPixel`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for it (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -284,8 +314,9 @@ six scene renders.
 ```
 
 - **Budget.** Each grid updates `rtProbesPerFrame` of its probes a frame (16 by default), the ones never updated first and then the ones updated
-  longest ago; all grids together at most 64 probes a frame and at most the preset's `realtimeGiProbesPerFrame` (each frame starts one grid
-  further, so many grids share the 64). A `raysPerProbe` or `rtProbesPerFrame` out of range is clamped. A grid of 400 probes at 16 a frame is complete after 25 frames, and `render.gi_grid`
+  longest ago; all grids together at most 64 probes a frame (each frame starts one grid
+  further, so many grids share the 64). The graphics preset's `realtimeGiProbesPerFrame` is the raster captures' rate only; the preset's lever for
+  the rays is its ray tracing tier (`rtGi`, below), which decides whether the probes are updated by rays at all. A `raysPerProbe` or `rtProbesPerFrame` out of range is clamped. A grid of 400 probes at 16 a frame is complete after 25 frames, and `render.gi_grid`
   says it (`framesPerCycle`). The cost grows with probes x rays, never with the screen. (Probes near the camera are **not** updated first.)
 - **Free when off.** With `enabled` or `gi` off, or no `RealtimeGI` in the scene, nothing is made: the frame is the raster one.
 - **Fallbacks.** On a device that cannot trace rays, or when the device refuses the kernel, the grids keep updating with the raster captures
@@ -315,9 +346,11 @@ ambient, multiplied by the surface's own albedo, so textures stay sharp. The dir
   passes, the camera's guide pass shared with the other denoised effects) and its history (four images and the transient filter buffers), the
   prepass with its normals (the camera draws one if nothing else asked for it), plus the acceleration structures. It is the most expensive effect:
   with 1 ray per pixel it costs about as much as the glossy reflections, and it grows with `raysPerPixel`.
-- **What it replaces.** Only the term of the probes and the ambient, on opaque meshes. **Unchanged:** the meshes with a baked lightmap or light
-  probe volume (baked light keeps priority), meshes with a custom shader that is not the engine's own lit shader (a full-shader material), blended
-  and transparent meshes, subsurface meshes and the terrain: all of them keep the probes and the ambient.
+- **What it replaces.** Only the term of the probes and the ambient, on opaque meshes the camera's prepass draws. **Unchanged:** the meshes with a baked
+  lightmap or baked light probes (baked light keeps priority), the terrain and the impostor cards, meshes with a custom shader that is not the engine's
+  own lit shader (a full-shader material) and any draw the prepass leaves out (a full shader that keeps out of it, a mesh drawn from compute buffers
+  without a prepass program of its material: the image holds the surface behind them at their pixels), blended and transparent meshes, and the light
+  that the subsurface pass scatters: all of them keep the probes and the ambient.
 - **The grids.** With a `RealtimeGI` in the scene a hit also receives the light of its grids (times their `bounce` and intensity): one traced
   bounce plus a cached tail. In this mode the grids are filled by the raster captures (the rays of `gi: "probes"` are not used at the same time).
 - **Fallbacks.** On a device that cannot trace, with no prepass, or when the device refuses the kernel or its image, the probes and the ambient

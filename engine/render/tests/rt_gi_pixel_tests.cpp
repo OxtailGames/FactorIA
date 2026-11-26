@@ -14,11 +14,16 @@
 #include <vector>
 
 #include "fa/render/raytracing.h"
+#include "fa/scene/light_probes.h"
+#include "fa/scene/lightmap_manifest.h"
+#include "fa/scene/lightmap_uv.h"
+#include "fa/scene/terrain.h"
 #include "gpu/recording_device.h"
 #include "renderer_test_access.h"
 #include "rt_denoise.h"
 #include "rt_effect.h"
 #include "rt_gi.h"
+#include "mesh_buffer_draw.h"
 #include "rt_kernels.h"
 
 using namespace fa;
@@ -308,8 +313,9 @@ TEST_CASE("rt gi pixel: with gi off, or probes, nothing of the per-pixel mode is
     }
 }
 
-TEST_CASE("rt gi pixel: perPixel declares one compute pass after the TLAS and the prepass, then the denoiser, before the "
-          "lit pass") {
+TEST_CASE(
+    "rt gi pixel: perPixel declares one compute pass after the TLAS and the prepass, then the denoiser, before the "
+    "lit pass") {
     Rig r;
     r.gi(render::RtGi::PerPixel, 2);
     World w;
@@ -388,7 +394,8 @@ TEST_CASE("rt gi pixel: the denoiser has its own signal, and the recorded frame 
     CHECK_FALSE(first.empty());
 }
 
-TEST_CASE("rt gi pixel: turning the mode off frees the kernel, the image and the denoiser, and ray tracing off frees all") {
+TEST_CASE(
+    "rt gi pixel: turning the mode off frees the kernel, the image and the denoiser, and ray tracing off frees all") {
     Rig r;
     r.gi(render::RtGi::PerPixel);
     World w;
@@ -493,7 +500,8 @@ TEST_CASE("rt gi pixel: a traced scene that never builds falls back after a few 
     CHECK(r.status().active);
 }
 
-TEST_CASE("rt gi pixel: a device that cannot trace keeps the probes and the ambient, says why and spends nothing on rays") {
+TEST_CASE(
+    "rt gi pixel: a device that cannot trace keeps the probes and the ambient, says why and spends nothing on rays") {
     Rig r(false);
     r.gi(render::RtGi::PerPixel);
     World w;
@@ -508,4 +516,110 @@ TEST_CASE("rt gi pixel: a device that cannot trace keeps the probes and the ambi
     CHECK(r.effects().image_count() == 0);
     const render::RtGiPixelStatus st = r.status();
     CHECK_FALSE(st.active);
+}
+
+// ---- which draws read the image --------------------------------------------------------------------------------------------------------
+
+namespace {
+
+// A baked probe set (one grid group around the origin, every probe holding the same SH) written as the scene's lightmap manifest.
+void write_probe_manifest(World& w, const char* name) {
+    std::filesystem::create_directories(gfx().projectDir / "scenes");
+    ProbeSet set;
+    LightProbeGroup comp;
+    comp.size = {24, 8, 24};
+    comp.spacing = 4.0f;
+    REQUIRE(add_probe_group(set, "group", comp, {0, 0, 0}).ok());
+    ShL2 sh;
+    for (Vec3& c : sh.c) c = {0, 0, 0};
+    sh.c[0] = {0.5f * 3.5449077f, 0.5f * 3.5449077f, 0.5f * 3.5449077f};
+    set.sh.assign(set.size(), sh);
+    set.valid.assign(set.size(), 1);
+    const std::string probesFile = std::string("scenes/") + name + ".lightmap.probes";
+    const std::vector<std::uint8_t> bytes = encode_probe_set(set);
+    REQUIRE(fs::write_bytes(probesFile, bytes.data(), bytes.size()).ok());
+    LightmapManifest m;
+    m.uvVersion = kLightmapUvVersion;
+    m.settingsHash = "0123456789abcdef";
+    m.probes.file = probesFile;
+    m.probes.count = int(set.size());
+    m.probes.invalid = 0;
+    const std::string path = std::string("scenes/") + name + ".lightmap.json";
+    REQUIRE(fs::write_text(path, lightmap_manifest_to_json(m).dump(2)).ok());
+    w.settings().lightmaps = path;
+}
+
+// A few frames so that the traced scene is built and the kernel has run (the main pass binds its image from then on); the draws of the last one.
+RendererTestAccess::GiPixelDraws draws_after(Rig& r, World& w) {
+    for (int i = 0; i < 5; ++i) r.frame(w);
+    REQUIRE(r.status().active);
+    return RendererTestAccess::rt_gi_pixel_draws(r.renderer);
+}
+
+}  // namespace
+
+TEST_CASE("rt gi pixel: the opaque meshes read the image; a mesh with baked light probes keeps them (the baked light "
+          "has priority)") {
+    {
+        Rig r;
+        r.gi(render::RtGi::PerPixel);
+        World w;
+        make_scene(w);
+        const auto d = draws_after(r, w);
+        CHECK(d.on >= 2);  // the floor and the box
+        CHECK(d.off == 0);
+    }
+    {
+        Rig r;
+        r.gi(render::RtGi::PerPixel);
+        gfx().renderer.clear_asset_cache();
+        World w;
+        make_scene(w);
+        write_probe_manifest(w, "gipx_probes");
+        const auto d = draws_after(r, w);
+        INFO(r.errors());
+        CHECK(d.off >= 2);  // both meshes sit in the grid: their SH lights them, the traced image is not read
+        CHECK(d.on == 0);
+    }
+}
+
+TEST_CASE("rt gi pixel: a part the prepass does not draw (a full shader that keeps out of it, buffers with no prepass "
+          "program) is no receiver") {
+    using fa::render::MeshBufferUse;
+    using fa::render::prepass_draws;
+    MeshBufferUse plain;  // a mesh with no buffers
+    CHECK(prepass_draws(false, plain, true));
+    CHECK(prepass_draws(false, plain, false));      // the engine's program draws it
+    CHECK_FALSE(prepass_draws(true, plain, true));  // a full shader with "prepass": false
+    MeshBufferUse buffers;
+    buffers.active = true;
+    CHECK(prepass_draws(false, buffers, true));         // the material's own prepass program places the instances
+    CHECK_FALSE(prepass_draws(false, buffers, false));  // the engine's program cannot place what the buffers place
+    MeshBufferUse failed;
+    failed.skip = true;
+    CHECK_FALSE(prepass_draws(false, failed, true));
+}
+
+TEST_CASE("rt gi pixel: a terrain keeps the probes and the ambient light, the meshes beside it read the image") {
+    Rig r;
+    r.gi(render::RtGi::PerPixel);
+    constexpr int kSamples = 33;
+    GrayImage16 g;
+    g.width = g.height = kSamples;
+    g.sixteenBit = true;
+    g.samples.assign(std::size_t(kSamples) * kSamples, std::uint16_t(20000));
+    const auto png = encode_png_gray16(g);
+    const std::string file = fs::path_to_utf8(gfx().projectDir / "gipx_flat.png");
+    REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+    World w;
+    make_scene(w);
+    Entity ground = make(w, "ground", {0, -2, 0});
+    auto& t = w.add<Terrain3D>(ground);
+    t.heightmap = file;
+    t.size = {32.0f, 32.0f};
+    t.heightScale = 4.0f;
+    const auto d = draws_after(r, w);
+    INFO(r.errors());
+    CHECK(d.on >= 2);   // the floor and the box
+    CHECK(d.off >= 1);  // the terrain's nodes
 }

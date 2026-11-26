@@ -1,5 +1,6 @@
-// The bake's helper process (docs/design/ARCHITECTURE_BAKING.md, "The GPU bake", "A helper process"): a `factoria session --no-graphics` child that runs
-// a Plan with the GPU tracer when this process already has a graphics context and so cannot open one itself. Private to fa_authoring and its tests.
+// The bake's helper process (docs/design/ARCHITECTURE_BAKING.md, "The GPU bake", "A helper process"): a `factoria
+// session --no-graphics --no-scene` child that runs a Plan with the GPU tracer when this process already has a graphics
+// context and so cannot open one itself. Private to fa_authoring and its tests.
 #pragma once
 
 #include "lightmap_bake_job.h"

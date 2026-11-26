@@ -3186,6 +3186,25 @@ void Renderer::Impl::fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, b
     }
 }
 
+// Whether the prepass draws this part (prepass_pass and gi_pixel_receiver ask it, so the two never differ): a full shader that keeps out of the
+// depth and normal image, a mesh whose buffers failed, and a draw from GPU buffers with no prepass program of the material (the engine's program
+// cannot place what the buffers place) are not in the image. `mbu` is resolve_mesh_buffers of the mesh.
+static bool prepass_draws_part(const MeshItem& mi, const SubMesh& part, const Renderer::Impl::PartDraw& pd0,
+                               const MeshBufferUse& mbu) {
+    const MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+    const bool skinned = mi.anim && part.skinVb.id;
+    const MaterialProgram* custom = pd0.mat ? &pd0.mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
+    return prepass_draws(mat && mat->full && !mat->prepass, mbu,
+                         custom && custom->shader.id);  // no program: a twin made before the prepass
+}
+
+// Whether the per-pixel GI image holds this part's surface at its pixels (M79-P4b-1): the prepass drew it, and it is not a terrain node or an
+// impostor card (their programs and the rays' scene do not agree on the surface, so they keep the probes and the ambient light).
+static bool gi_pixel_receiver_for(const MeshItem& mi, const SubMesh& part, const Renderer::Impl::PartDraw& pd0,
+                                  const MeshBufferUse& mbu) {
+    return !mi.terrain && !mi.impostor && prepass_draws_part(mi, part, pd0, mbu);
+}
+
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
                                                  const PartDraw& d, bool blended) {
@@ -3196,9 +3215,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_counts[3] = float(
         decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     fu.fa_gi[3] = mi.lodFade;  // the dithered LOD cross-fade (mesh_common.glsl fa_lod_dither); 0 = none
-    // The per-pixel ray traced GI replaces the probe and ambient term of the opaque draws that have no baked light (bind_textures puts the image at the
-    // lightmap slot of the same draws); the shader reads it where fa_lm.z is 0.
-    fu.fa_gi_px[0] = (ctx.giPixel.view.id && !blended && !d.lightmap.id) ? 1.0f : 0.0f;
+    fu.fa_gi_px[0] = 0.0f;     // set at the end of the probe block below: it depends on the draw's baked light
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
@@ -3276,6 +3293,20 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
             fu.fa_probe_sh[k][2] = mi.probe->sh.c[k].z;
         }
         fu.fa_probe_sh[0][3] = std::clamp(mi.probe->coverage, 0.0f, 1.0f);
+    }
+    // The per-pixel ray traced GI replaces the probe and ambient term of the opaque draws of the main pass that have no baked light (bind_textures puts
+    // the image at the lightmap slot of the same draws); the shader reads it where fa_lm.z is 0 and the draw has no baked light probes (the baked
+    // light keeps its priority, docs/RAY_TRACING.md). Only a draw the prepass drew is a receiver: the image holds the surface of the prepass at each
+    // pixel, and a draw it skipped would read the one behind it (or the sky).
+    fu.fa_gi_px[0] = (ctx.giPixel.view.id && !blended && !d.lightmap.id && !(fu.fa_probe_sh[0][3] > 0.0f) &&
+                      gi_pixel_receiver_for(mi, part, d, resolve_mesh_buffers(*assets, compute, mi)))
+                         ? 1.0f
+                         : 0.0f;
+    if (ctx.giPixel.view.id && !blended) {
+        if (fu.fa_gi_px[0] > 0.5f)
+            ++giPixelDraws.on;
+        else
+            ++giPixelDraws.off;
     }
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
@@ -4131,16 +4162,17 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
         MaterialInputs inputs{};
         if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
             material_inputs(mi, mat, inputs);
-        if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
         const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
         if (mbu.skip) continue;
         for (const SubMesh& part : mi.mesh->parts) {
             const bool skinned = mi.anim && part.skinVb.id;
             const PartDraw pd0 = part_draw(ctx, mi, part);
+            // A full shader that keeps out of the image, a draw from buffers the engine's program cannot place: not drawn (the per-pixel GI of
+            // such a part is off, gi_pixel_receiver_for asks the same question).
+            if (!prepass_draws_part(mi, part, pd0, mbu)) continue;
             const MaterialProgram* custom =
                 pd0.mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
             if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
-            if (mbu.active && !custom) continue;  // the engine's program cannot place what the buffers place
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
@@ -4932,7 +4964,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
             if (ctx.giPixel.denoised) {
                 if (const Target* gt = transient_targets().get(pc.handle(ctx.giPixel.res)))
                     ctx.giPixel.view = gt->texView;
-            } else {
+            } else if (gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba32F).filter) {
+                // The kernel's own image is RGBA32F and the lit shader reads it through the lightmap slot's filtering sampler (a texel fetch, but a
+                // 32-bit float image bound to a filtering sampler is invalid on a device that cannot filter it: Vulkan validation, WebGPU, GLES): so
+                // without the denoiser's RGBA16F image such a device keeps the probes and the ambient light.
                 ctx.giPixel.view = ctx.giPixel.img->texture;
             }
         }
@@ -6027,6 +6062,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ctx.giPixel.img = nullptr;
     ctx.giPixel.on = ctx.giPixel.denoised = false;
     ctx.giPixel.res = ResourceId{};
+    if (ctx.giPixel.want && !(ctx.doMainPass && ctx.postPlan.prepass.valid()))
+        rtGiPixelFrame.why = !ctx.doMainPass
+                                 ? "this camera does not draw the main pass this frame, so there is no picture to light"
+                                 : "the prepass of this camera was not made this frame (its depth and normals are what "
+                                   "the rays start from)";
     if (ctx.giPixel.want && ctx.doMainPass && ctx.postPlan.prepass.valid()) {
         RtEffectRequest req;
         req.kernel = "rt_gi_pixel";
@@ -6106,8 +6146,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             }
         } else {
             rtGiPixelFrame.why = out.why;
-            rtGiPixelFallbackReason =
-                out.why + " (the probe and ambient light is used; the rays are tried again in 120 frames)";
+            rtGiPixelFallbackReason = out.why + " (the probe and ambient light is used; the rays are tried again in " +
+                                      std::to_string(kGiRtRetryFrames) + " frames)";
             rtGiPixelFallbackUntil = frameSerial + std::uint64_t(kGiRtRetryFrames);
             if (!rtWarnedGiPixel) {
                 rtWarnedGiPixel = true;
