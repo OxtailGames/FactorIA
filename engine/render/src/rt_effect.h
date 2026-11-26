@@ -230,7 +230,6 @@ struct RtEffectRequest {
     // counts its samples here (rt_pathtrace.h). It may change the constants (`params`: the sample counters) and says what to do. Called on the
     // thread that runs the graph, once per pass that runs, after the checks that could skip the pass and before the dispatch.
     std::function<RtPrepare(RtEffectParams& params, const RtEffectImage& image)> prepare;
-    RtHitParams hit{};      // set at kUniformHit when the kernel's spec has usesHit
     RtLocalParams local{};  // set at kUniformHit when the kernel's spec has usesLocal
     RtScene* scene = nullptr;
     int* drawCalls = nullptr;  // each dispatch adds one when it runs (may be null)

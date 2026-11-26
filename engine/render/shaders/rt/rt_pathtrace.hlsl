@@ -123,6 +123,33 @@ float3 pt_direct(float3 l, float3 n, float3 v, float ndv, float roughness, float
     return (diffuseColor + d * vis * f) * ndl;
 }
 
+// rt_hit's face normal falls back to the view direction when one of its two parallel rays lands on another triangle (a hit within a few
+// thousandths of the distance from a mesh edge): a dark or bright line along every edge. A path tracer shades millions of such hits, so it asks
+// again with smaller offsets (an eighth, then a sixty-fourth), which shrinks the band the edge leaves to a pixel's hundredth.
+float3 pt_refine_normal(float3 origin, float3 dir, float t0, uint rec0, float3 normal) {
+    if (any(normal != -dir)) return normal;
+    float tc;
+    uint recc, primc;
+    if (!rt_closest_hit(origin, dir, 0.0, kFar, kRtMaskSurfaces, tc, recc, primc)) return normal;
+    const float3 up = abs(dir.y) < 0.9 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    const float3 u = normalize(cross(up, dir));
+    const float3 v = cross(dir, u);
+    float eps = max(g_hit.limits.w * t0, 0.001);
+    for (uint k = 0u; k < 2u; ++k) {
+        eps = max(eps * 0.125, 2.0e-4);
+        float t1, t2;
+        uint rec1, rec2, prim1, prim2;
+        const bool h1 = rt_closest_hit(origin + u * eps, dir, 0.0, kFar, kRtMaskSurfaces, t1, rec1, prim1);
+        const bool h2 = rt_closest_hit(origin + v * eps, dir, 0.0, kFar, kRtMaskSurfaces, t2, rec2, prim2);
+        if (h1 && h2 && rec1 == rec0 && rec2 == rec0 && prim1 == primc && prim2 == primc) {
+            const float3 n = cross(u * eps + dir * (t1 - tc), v * eps + dir * (t2 - tc));
+            const float len = length(n);
+            if (len > 1.0e-12) return dot(n, dir) > 0.0 ? -n / len : n / len;
+        }
+    }
+    return normal;
+}
+
 // One path. Returns (radiance, 1) when the primary ray ends on a surface of the scene that the raster does not hide, else (0, 0, 0, 0).
 float4 pt_sample(float3 origin, float3 dir, float primaryLimit, uint maxBounces, bool useLights, inout uint rng) {
     float3 throughput = float3(1.0, 1.0, 1.0);
@@ -177,7 +204,7 @@ float4 pt_sample(float3 origin, float3 dir, float primaryLimit, uint maxBounces,
             radiance += throughput * s.albedo;
             break;
         }
-        const float3 n = s.normal;
+        const float3 n = pt_refine_normal(origin, dir, s.t, s.record, s.normal);
         const float3 v = -dir;
         const float roughness = clamp(s.roughness, 0.05, 1.0);
         const float3 diffuseColor = s.albedo * (1.0 - s.metalness);
@@ -251,6 +278,20 @@ void main(uint3 id : SV_DispatchThreadID) {
     const uint maxBounces = g_params.frame.w & 255u;
     const bool useLights = (g_params.frame.w & 256u) != 0u;
     const float4 pre = g_prepass.Load(int3(id.xy, 0));
+    // How much the surface's depth changes across one pixel (a floor at a grazing angle changes fast): the largest step to a neighbour that is the same
+    // surface (within a quarter of the depth). A hit may lie that far behind the prepass's depth, besides the 2 percent: a sub-pixel jitter that lands on
+    // the far side of the pixel is still the surface the raster drew.
+    float slope = 0.0;
+    if (pre.a > 0.5) {
+        const int2 size = int2(g_params.image.xy);
+        const int2 steps[4] = {int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1)};
+        for (int k = 0; k < 4; ++k) {
+            const int2 q = int2(id.xy) + steps[k];
+            if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
+            const float4 nb = g_prepass.Load(int3(q, 0));
+            if (nb.a > 0.5 && abs(nb.r - pre.r) <= 0.25 * pre.r) slope = max(slope, abs(nb.r - pre.r));
+        }
+    }
     const uint pixelHash = pcg(id.x + pcg(id.y + pcg(g_params.frame.y ^ 0x68E31DA4u)));
     const uint shiftY = pcg(pixelHash);
     float4 sum = float4(0.0, 0.0, 0.0, 0.0);
@@ -264,7 +305,7 @@ void main(uint3 id : SV_DispatchThreadID) {
         const float3 origin = g_params.uRayO0.xyz + ndc.x * g_params.uRayOX.xyz + ndc.y * g_params.uRayOY.xyz;
         const float3 dirPerDepth = g_params.uRayD0.xyz + ndc.x * g_params.uRayDX.xyz + ndc.y * g_params.uRayDY.xyz;
         const float dirLength = max(length(dirPerDepth), 1.0e-6);
-        const float primaryLimit = pre.a > 0.5 ? (pre.r * 1.02 + 0.05) * dirLength : kFar;
+        const float primaryLimit = pre.a > 0.5 ? (pre.r * 1.02 + 0.05 + slope) * dirLength : kFar;
         float4 c = pt_sample(origin, dirPerDepth / dirLength, primaryLimit, maxBounces, useLights, rng);
         if (any(isnan(c)) || any(isinf(c))) c = float4(0.0, 0.0, 0.0, 0.0);
         const float l = lum(c.rgb);
