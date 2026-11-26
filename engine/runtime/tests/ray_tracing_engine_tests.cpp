@@ -160,3 +160,40 @@ TEST_CASE("project: a render.rayTracing start value is the setting the engine st
     CHECK(r.result["gi"] == "perPixel");
     e.shutdown();
 }
+
+TEST_CASE(
+    "render.ray_tracing: with only ao on, active follows the device and the reason names the occlusion of the main "
+    "camera, not the shadows") {
+    TempProject p("aoonly");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("render.ray_tracing", Json::parse(R"({"enabled":true,"ao":true})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["shadows"] == "off");
+    CHECK(r.result["ao"] == true);
+    CHECK(r.result["active"] == r.result["supported"]);  // ao alone is an effect that draws with rays
+    const std::string reason = r.result["reason"].get<std::string>();
+    REQUIRE_FALSE(reason.empty());
+    if (r.result["supported"].get<bool>()) {
+        CHECK(contains(reason, "ambient occlusion"));
+        CHECK(contains(reason, "main camera"));
+        CHECK_FALSE(contains(reason, "shadow"));
+        CHECK_FALSE(contains(reason, "every world camera"));
+    }
+    // Shadows too: both are named, each as the main camera's.
+    r = c.call("render.ray_tracing", Json::parse(R"({"shadows":"hard"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    if (r.result["supported"].get<bool>()) {
+        const std::string both = r.result["reason"].get<std::string>();
+        CHECK(contains(both, "shadow"));
+        CHECK(contains(both, "ambient occlusion"));
+        CHECK_FALSE(contains(both, "every world camera"));
+    }
+    // ao off again with shadows on: the occlusion is no longer named.
+    r = c.call("render.ray_tracing", Json::parse(R"({"ao":false})"));
+    REQUIRE(r.ok);
+    if (r.result["supported"].get<bool>()) CHECK_FALSE(contains(r.result["reason"].get<std::string>(), "occlusion"));
+    e.shutdown();
+}

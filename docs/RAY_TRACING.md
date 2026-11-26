@@ -9,8 +9,8 @@ default, and free when off.
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
 > The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
-> **One effect draws with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below). The other settings (`ao`, `reflections`,
-> `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
+> **Two effects draw with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below) and **`ao`** (ambient occlusion, "Ambient
+> occlusion", below). The other settings (`reflections`, `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
 > sections below say what each part will do and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
@@ -30,7 +30,7 @@ default) writes nothing to `factoria.json`.
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
 | `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = rays towards a point of the light's disc (the edge softens with the distance to the caster): **not made yet, it draws the hard shadow** and the log says so once. |
-| `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one. |
+| `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Mirror and glossy reflections traced with rays, instead of the screen-space ones. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
 | `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
@@ -122,13 +122,46 @@ structures cost (P1s: every frame's TLAS build). The `drawCalls` of the stats co
 Hard shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the frame serial and the seed the
 kernels receive are for the effects that sample).
 
+## Ambient occlusion
+
+`"ao": true` darkens the creases, the contact between objects and the corners with rays instead of the screen-space effect (SSAO,
+`PostProcess.ssaoEnabled`). It needs a device that traces rays (the table below) and works on the main camera, the one whose meshes are the
+traced scene's.
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"ao":true,"raysPerPixel":4}'
+```
+
+What the renderer does each frame:
+
+1. From each pixel's surface, `raysPerPixel` rays (1 to 16) leave in a **cosine-weighted hemisphere** around its normal, each up to the occlusion
+   radius, and stop at the first triangle they find. The pixel's visibility is the share of rays that got out: 1 open, 0 closed in.
+2. The renderer's denoiser (temporal accumulation and an edge-aware filter) turns the noisy image into a clean one; one ray per pixel is enough for
+   a still picture, more rays settle faster after a cut.
+3. The picture is darkened where the occlusion is, after the opaque meshes and before glass, sprites, particles and the HUD, **exactly where the
+   screen-space occlusion would darken it** and with the same strength: the radius and the intensity are the camera's
+   `PostProcess.ssaoRadius` and `ssaoIntensity` when it has the effect on, else the component's defaults (0.5 m and 1). There is no second pair of
+   controls: the same look with or without ray tracing. `PostProcess.ssaoQuality` is not used (the rays are `raysPerPixel`). The debug view `ao`
+   shows the traced occlusion.
+
+With `ao` on and a device that traces, the screen-space passes are not drawn. With `ao` on and a device that cannot trace, the log says why once
+and the camera keeps its screen-space occlusion if it has one, and none otherwise. The same if the device traces but cannot make the kernel
+(one message).
+
+What occludes: opaque meshes and alpha-tested (cutout) ones. **A cutout occludes as a solid surface** in this version (the kernel does not read its
+texture), so a leaf card or a fence darkens its whole triangle. Blended surfaces (glass, water) let the ambient light through.
+
+Like the screen-space effect it multiplies the picture where it is drawn, so it darkens the direct light too, not only the ambient term. Off:
+nothing, no pass, no image, no denoiser. On: one dispatch, one image and the denoiser's histories. The result is deterministic: the same frame
+gives the same noise, and no clock or random number is read.
+
 ## Where it will run
 
 | backend | traces rays | what stands in the way today |
 |---|---|---|
 | Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
 | Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The hard shadows (`shadows: "hard"`) trace; no other effect does yet |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The hard shadows (`shadows: "hard"`) and the ambient occlusion (`ao`) trace; no other effect does yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 
@@ -168,7 +201,7 @@ tables and no hit shaders, so one kernel runs unchanged on Direct3D 12, Vulkan a
 The renderer builds one BLAS per submesh, rebuilds the TLAS every frame (capped by `maxInstances`, nearest first), and adds the
 effects' compute passes to the frame graph only when `enabled` and an effect
 are on. With the master switch off no acceleration structure exists and the frame graph has the same passes as before. Every effect
-shares one scaffold (docs/design/ARCHITECTURE_RT_EFFECTS.md, repository only): the hard shadows are the first effect on it.
+shares one scaffold (docs/design/ARCHITECTURE_RT_EFFECTS.md, repository only): the hard shadows are the first effect on it and the ambient occlusion the second.
 
 ## For engine developers
 
