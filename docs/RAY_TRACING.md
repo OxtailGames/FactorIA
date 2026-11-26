@@ -425,11 +425,12 @@ thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md 
 ## What it costs
 
 Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build, commit 70745d88f of the M79 branch), the project
-`tools/cli/tests/perf/rt_cost` (a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
+`tools/cli/tests/perf/rt_cost` (repository only, not in the binary; a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
 spheres, cylinders and cones of every roughness, four glass spheres, a mirror, a `RealtimeGI` grid), drawn at **1920 x 1080** with vsync off. Each
 row is one effect on top of the raster frame; `raysPerPixel` is 1 unless the row says more. The numbers are the **frame time**, the wall clock
-per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out): `factoria call perf.measure` for 60 and for
-360 frames, the difference over 300. Metal has no GPU timer in the engine, so the cost of one pass cannot be read; `perf.measure`'s own `cpuMs*`
+per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out): `factoria call perf.measure` (a headless engine with the GPU renderer, at the
+project's `display` size) for 60 and for 360 frames, each run timed from outside (`time` on macOS and Linux, `Measure-Command` on Windows),
+the difference over 300. Metal has no GPU timer in the engine, so the cost of one pass cannot be read; `perf.measure`'s own `cpuMs*`
 is CPU time and does not see the GPU. The raster frame of this scene takes **14.1 ms** (about 6.5 ms of it CPU), so read each cost as "added to
 a 14 ms frame", and as the order of magnitude, not a promise: another scene, size or GPU moves it.
 
@@ -446,7 +447,7 @@ a 14 ms frame", and as the order of magnitude, not a promise: another scene, siz
 | `gi: "probes"` (one grid of 189 probes, 64 rays, 16 probes a frame) | 64 per probe updated | the probe atlas, no per-pixel image | **-4.9 ms** (it replaces the raster captures, which cost more here) | not measured |
 | `gi: "perPixel"`, 1 ray | 1 (+1 shadow ray at a hit) | 1, denoiser history | +22.1 ms | not measured |
 | `gi: "perPixel"`, 2 rays | 2 | the same | +26.2 ms | not measured |
-| every pixel effect together (soft shadows, `ao`, `reflections`, `translucency`, `gi: "perPixel"`, 1 ray) | | | +102.3 ms (the sum of the rows: the costs add up) | not measured |
+| every pixel effect together (soft shadows, `ao`, `reflections`, `translucency`, `gi: "perPixel"`, 1 ray) | | | +102.3 ms (measured on its own: about the sum of the rows, 100.6 ms; the costs add up) | not measured |
 | the path tracer (`render.pathTracer`, `maxBounces` 4) | 1 path per sample | the accumulation image | **29 ms per sample** (a 64 sample picture takes 2 s; it replaces the raster frame while it is on) | not measured |
 
 What the table says:
@@ -461,8 +462,8 @@ What the table says:
   indirect effects.
 - Off, nothing: no pass, no image, no structure. The raster frame is the first row of the measurement and what a device that cannot trace draws.
 
-To measure your own scene, copy the project, put `render.rayTracing` in its `factoria.json` and compare `perf.measure` runs of 60 and 360 frames
-by the clock, as above (`factoria call --project <dir> perf.measure '{"frames":360}'`). The GPU numbers of D3D12 and Vulkan are **not
+To measure your own scene, copy the project (from the repository) or use your own, put `render.rayTracing` in its `factoria.json` and compare `perf.measure` runs of 60 and 360 frames
+timed from outside, as above (`time factoria call --project <dir> perf.measure '{"frames":360}'`). The GPU numbers of D3D12 and Vulkan are **not
 measured**: no kernel of theirs has run yet ("Where it runs", below).
 
 ## Where it runs
