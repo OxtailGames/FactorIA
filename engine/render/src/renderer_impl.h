@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <set>
 #include <unordered_set>
 
@@ -55,6 +56,7 @@
 #include "hiz.h"
 #include "rt_denoise.h"
 #include "rt_effect.h"
+#include "rt_gi.h"
 #include "rt_pathtrace.h"
 #include "rt_local_shadows.h"
 #include "rt_scene.h"
@@ -658,6 +660,15 @@ struct Renderer::Impl {
     std::atomic<int> rtLocalCandidatesShown{0},
         rtLocalTracedShown{0};  // rtLocalFrame of the last whole frame (Renderer::ray_tracing_local_shadows)
     bool rtWarnedLocal = false;
+    // M79-P4a (rt_gi.h, renderer_gi.cpp): the GI probes updated by rays. build_graph keeps the name of the main camera's `rt-accel` pass and the
+    // constants of the kernels that shade a hit (both reset by rt_begin_frame): gi_plan, which runs after the cameras' jobs, orders its pass
+    // after that one. `rtGiStatus` is what Renderer::ray_tracing_gi_status says (the last whole frame).
+    RtGiProbes rtGi;
+    std::string rtAccelPass;
+    RtHitParams rtGiHit{};
+    bool rtGiHitValid = false;
+    mutable std::mutex rtGiStatusMutex;
+    render::RtGiStatus rtGiStatus;
     static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
     bool rtWarnedEffect = false;
     bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
@@ -1021,6 +1032,7 @@ struct Renderer::Impl {
     // The records of the ready grids the meshes of this frame read (probes_build_volumes calls it): GiSystem::records, upload_lights packs them.
     void gi_build_records(World& world);
     void gi_plan(World& world, bool atlasRemade);
+    bool gi_plan_rays();
     void gi_finish();
     void gi_release();
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.

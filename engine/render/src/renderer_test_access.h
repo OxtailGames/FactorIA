@@ -21,6 +21,7 @@ class Gpu;
 class FrameGraph;
 class RtScene;
 class RtEffects;
+class RtGiProbes;
 class RtDenoiser;
 
 // The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats).
@@ -75,6 +76,8 @@ struct RendererTestAccess {
     static render::RtScene* rt_scene(Renderer& r);
     // M79-P2a-1: the shaders and images of the ray traced effects (rt_effect.h); null before init.
     static render::RtEffects* rt_effects(Renderer& r);
+    // M79-P4a: the GI probes updated by rays (rt_gi.h); null before init.
+    static render::RtGiProbes* rt_gi(Renderer& r);
     // M79-P2a-2: the draws of the last frame that read the sun's shadow from the ray traced image, and those that took min(image, cascades).
     struct RtShadowDraws {
         int mask = 0, withCascades = 0, local = 0;

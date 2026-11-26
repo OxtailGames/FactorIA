@@ -728,7 +728,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, "
          "blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, "
          "probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, "
-         "invalid: [{index, position}] (up to 64)}]}. `state` is \"updating\" (probes not captured yet), \"ready\", "
+         "invalid: [{index, position}] (up to 64)}]}. `state` is \"updating\" (probes not captured yet), "
+         "\"ready\", "
          "\"invalid\" (`message` names the field and the fix), \"noRoom\" (more than `probeLimit` probes), "
          "\"failed\" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay "
          "until the next capture succeeds) or \"unsupported\" (no RGBA16F blending). `invalidProbes` counts "
@@ -737,7 +738,13 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "renderer supports it). {grids: [], atlas: null} "
          "while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} "
          "See docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\"." FA_COMMAND_DETAILS
-         "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x "
+         "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock, rtUpdates, "
+         "rtProbesPerFrameLimit; "
+         "per grid updatedBy, raysPerProbe, rtProbesPerFrame, rtUpdatesLastFrame. `updatedBy` is \"rays\" when the "
+         "frame traced "
+         "rays for the grid (render.rayTracing.gi \"probes\" on a device that traces), else \"captures\" "
+         "(`framesPerCycle` "
+         "follows it). A grid costs `probes` x "
          "10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces "
          "of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any "
          "RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, "
@@ -1334,17 +1341,22 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "`raysPerPixel` "
          "(a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns "
          "the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, "
-         "reason, localShadows, changed}: `supported` is renderer.supports(\"raytracing\") of this device, `active` "
+         "reason, localShadows, giProbes, changed}: `supported` is renderer.supports(\"raytracing\") of this device, "
+         "`active` "
          "whether any effect "
          "is traced, `reason` says why not, `localShadows` {cap, candidates, traced} the point, spot and area lights "
          "whose shadow the rays make: the cap per camera, the lights that asked in the last frame and how many of them "
-         "were traced. Example: render.ray_tracing "
+         "were traced; `giProbes` {active, reason, grids, probesPerFrame, budget} the realtime GI probes updated by "
+         "rays "
+         "(gi \"probes\"): whether the last frame updated any, why not, the grids and probes updated and the budget "
+         "per frame. Example: render.ray_tracing "
          "{\"enabled\":true,\"shadows\":\"soft\"}" FA_COMMAND_DETAILS
          "Ray tracing is off by default and free when off. This version has the shared interface (acceleration "
          "structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a "
          "device that builds and traces "
          "them; so far `shadows` (the sun's shadow), `ao` (ambient occlusion), `reflections` (sharp mirror "
-         "reflections) and `translucency` (refraction through glass) draw with rays, so `active` is true "
+         "reflections), `translucency` (refraction through glass) and `gi` \"probes\" (the RealtimeGI grids updated "
+         "with rays) draw with rays, so `active` is true "
          "when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or "
          "type fails with "
          "`invalid_argument`, a JSON pointer and a \"did you mean\", and changes nothing. The start value is "
@@ -1356,7 +1368,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
                "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
                "translucency":{"type":"boolean","description":"Refraction through glass and liquids traced with rays (a ray bent at every interface, tinted by the volume), instead of the screen-space refraction. Default false."},
-               "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes updated with rays, or a bounce per pixel. Default off."},
+               "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes (the RealtimeGI grids updated with rays instead of raster captures), or perPixel (a bounce per pixel; not made yet, draws nothing). Default off."},
                "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame, clamped to 1..16. Default 1."},
                "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds, clamped to 1..1048576. Default 65536."}}})"),
          false, "game"},

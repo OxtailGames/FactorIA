@@ -6,6 +6,19 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Realtime GI probes updated by rays (M79-P4a):** `render.rayTracing.gi = "probes"` now draws: a compute kernel with inline ray queries
+  updates the probes of the `RealtimeGI` grids instead of the six raster captures of each probe. Each update traces `raysPerProbe` rays (new
+  field on `RealtimeGI`, 16 to 256, default 64) on a spherical Fibonacci set rotated deterministically from the frame's seed, shades the hits with
+  the sun, the emission and the environment plus the light the grid's own probes hold at the hit (the multi-bounce, scaled by `bounce`), projects
+  the result onto the nine SH coefficients and the depth moments, and the renderer blends it into the probe atlas with the grid's `hysteresis`;
+  the lit shader reads the grids exactly as before. A budget of `rtProbesPerFrame` probes per grid and frame (new field, default 16; 64 for all
+  grids together; round robin, camera priority is not made) bounds the cost by a count, never by a time. Off, or on a device that cannot trace,
+  nothing changes and nothing is spent: the raster captures update the grids and `render.ray_tracing` (`giProbes {active, reason, grids,
+  probesPerFrame, budget}`) and `render.gi_grid` (`updatedBy`, `rtUpdatesLastFrame`) say why. `gi = "perPixel"` still draws nothing. The Metal
+  kernel is tested on a real GPU against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet, and the sense
+  of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
+  (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
+  docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
 - **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
   main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
   query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the

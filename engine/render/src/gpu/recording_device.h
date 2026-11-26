@@ -8,6 +8,7 @@
 // own thread (the D3D12/Vulkan model); each list's stream joins the device stream at submit(), in submit order.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
@@ -282,6 +283,13 @@ public:
     // count 0 clears it. The faults are used up in call order.
     void fail_next_make_buffer(const std::string& label, int count = 1);
 
+    // Test hooks (fault injection): while set, make_pipeline of a compute pipeline fails (the pipeline is Failed and errors() says so) and
+    // build_tlas is refused. A real driver does both on a device that lies about its features or runs out of memory.
+    void inject_faults(bool rejectComputePipelines, bool rejectTlasBuilds) {
+        rejectCompute_ = rejectComputePipelines;
+        rejectTlas_ = rejectTlasBuilds;
+    }
+
     struct State;  // the resource pools and the facts the checks need (recording_device.cpp)
 
 private:
@@ -312,6 +320,7 @@ private:
     Limits limits_{};
     EnvironmentDefaults defaults_{};
     std::unique_ptr<State> state_;
+    std::atomic<bool> rejectCompute_{false}, rejectTlas_{false};  // inject_faults
     mutable std::mutex mutex_;  // guards state_, the lists, the stream and the errors (lists record on any thread)
     std::vector<std::unique_ptr<RecordingCommandList>> lists_;
     std::string failBufferLabel_;  // fail_next_make_buffer

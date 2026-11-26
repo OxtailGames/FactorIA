@@ -4,26 +4,33 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "rt_gi.h"
 #include "rt_scene.h"
 
 namespace fa::render {
 
 namespace {
 
+// Named fields (the struct has grown eleven of them): a row lists what it turns on; usesTlas is true unless a row says otherwise.
 const RtEffectKernelSpec kSpecs[] = {
-    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, readsOut, usesLights}
-    {"rt_shadow", false, false, false, true, false},
+    {.kernel = "rt_shadow"},
     // Moves the soft sun shadow's denoised visibility into the layout the lit pass reads (no ray query: no TLAS).
-    {"rt_shadow_pack", false, false, false, false, true},
-    {"rt_ao", false, false, false, true, false},
-    {"rt_reflect", true, true, true, true, false},
+    {.kernel = "rt_shadow_pack", .usesTlas = false, .usesAux = true},
+    {.kernel = "rt_ao"},
+    {.kernel = "rt_reflect", .usesRecords = true, .usesGbuffer = true, .usesHit = true},
     // M79-P2a-3: the shadows of up to three point, spot and area lights (one visibility per channel), and the pack that puts them in the image the
     // lit pass reads next to the sun's.
-    {"rt_shadow_local", false, false, false, true, false, true},
-    {"rt_shadow_local_pack", false, false, false, false, true, false},
-    {"rt_refract", true, false, true, true, false},
+    {.kernel = "rt_shadow_local", .usesLocal = true},
+    {.kernel = "rt_shadow_local_pack", .usesTlas = false, .usesAux = true},
+    {.kernel = "rt_refract", .usesRecords = true, .usesHit = true},
+    // M79-P4a: the GI probes updated by rays (rt_gi.h): its own constants block, an RGBA16F band image, the atlas in the prepass slot.
+    {.kernel = "rt_gi",
+     .usesRecords = true,
+     .usesHit = true,
+     .paramsSize = std::uint32_t(sizeof(RtGiParams)),
+     .outHalf = true},
     // The path tracer: it reads the prepass (what the raster hides), the records and the hit constants, its own image and the lights.
-    {"rt_pathtrace", true, false, true, true, false, false, true, true},
+    {.kernel = "rt_pathtrace", .usesRecords = true, .usesHit = true, .readsOut = true, .usesLights = true},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
@@ -123,7 +130,8 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     }
     // The constants: b0 / binding 2 / buffer(1).
     d.uniformBlocks[RtEffectBindings::kUniformParams].stage = ShaderStage::Compute;
-    d.uniformBlocks[RtEffectBindings::kUniformParams].size = std::uint32_t(sizeof(RtEffectParams));
+    d.uniformBlocks[RtEffectBindings::kUniformParams].size =
+        spec.paramsSize ? spec.paramsSize : std::uint32_t(sizeof(RtEffectParams));
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.hlslRegister = 0;
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.mslIndex = 1;
     d.uniformBlocks[RtEffectBindings::kUniformParams].binding.spirvSet = 0;
@@ -132,7 +140,7 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     ShaderStorageImageView& out = d.views[RtEffectBindings::kViewOut].storageImage;
     out.stage = ShaderStage::Compute;
     out.imageType = ImageType::Tex2d;
-    out.accessFormat = PixelFormat::Rgba32F;
+    out.accessFormat = spec.outHalf ? PixelFormat::Rgba16F : PixelFormat::Rgba32F;
     out.writeonly = !spec.readsOut;
     out.binding.hlslRegister = 0;
     out.binding.mslIndex = 0;
