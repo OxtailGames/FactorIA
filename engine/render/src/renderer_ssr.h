@@ -66,12 +66,14 @@ SsrPlan make_ssr_rt_plan(const CameraInfo& cam);
 // screen-space march and the probes take over (their blur matches a rough lobe better than a few noisy rays, and the rays cost the most there).
 constexpr float kRtReflectSharp = 0.25f, kRtReflectFade = 0.5f, kRtReflectLimit = 0.65f;
 struct SsrRtGlossy {
-    ResourceId color, coverage;  // the denoised radiance (rgb premultiplied by the coverage) and the denoised coverage (r)
+    ResourceId color,
+        coverage;  // the denoised radiance (rgb premultiplied by the coverage) and the denoised coverage (r)
     const TransientTargets* targets = nullptr;
-    ResourceId material;         // r = roughness (a transient of `targets`)
-    float sharp = kRtReflectSharp;         // under it: the raw mirror ray
-    float fadeStart = kRtReflectFade;      // from it to `limit` the traced reflection fades into the screen-space march and the probes
-    float limit = kRtReflectLimit;         // the roughest traced pixel
+    ResourceId material;            // r = roughness (a transient of `targets`)
+    float sharp = kRtReflectSharp;  // under it: the raw mirror ray
+    float fadeStart =
+        kRtReflectFade;  // from it to `limit` the traced reflection fades into the screen-space march and the probes
+    float limit = kRtReflectLimit;  // the roughest traced pixel
 };
 
 class Ssr {

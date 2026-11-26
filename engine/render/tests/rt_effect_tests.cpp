@@ -1348,8 +1348,9 @@ TEST_CASE(
     CHECK(index_of(off, "gbuffer") < 0);
 }
 
-TEST_CASE("rt reflect: the glossy reflections are denoised as two signals between the kernel and the composite, and the "
-          "denoiser is free when they are off") {
+TEST_CASE(
+    "rt reflect: the glossy reflections are denoised as two signals between the kernel and the composite, and the "
+    "denoiser is free when they are off") {
     Rig r;
     render::RayTracingSettings s;
     s.enabled = true;
@@ -1411,8 +1412,9 @@ TEST_CASE("rt reflect: the glossy reflections are denoised as two signals betwee
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt reflect: on a device that cannot trace there are no traced reflections and no denoiser, and the screen-space "
-          "ones stay") {
+TEST_CASE(
+    "rt reflect: on a device that cannot trace there are no traced reflections and no denoiser, and the screen-space "
+    "ones stay") {
     Logs log;
     Rig r(false);
     render::RayTracingSettings s;

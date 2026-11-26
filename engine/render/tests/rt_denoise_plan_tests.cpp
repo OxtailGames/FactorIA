@@ -140,7 +140,8 @@ TEST_CASE("denoise plan: the config key follows what the history's numbers mean,
     // A signal that changes kind (a coverage that was a specular one) starts a new history: the key differs, so the reset is Settings.
     DenoiseSignal c = b;
     c.kind = DenoiseKind::Coverage;
-    const std::uint64_t kb = make_denoise_plan(b, 8, 8, true).configKey, kc = make_denoise_plan(c, 8, 8, true).configKey;
+    const std::uint64_t kb = make_denoise_plan(b, 8, 8, true).configKey,
+                        kc = make_denoise_plan(c, 8, 8, true).configKey;
     CHECK(kb != kc);
     CHECK(denoise_reset_reason(state_of(1, kb), cam_at(2), 64, 48, kc) == DenoiseReset::Settings);
 }
@@ -175,7 +176,7 @@ TEST_CASE("denoise history: the first rule that breaks it names the reason") {
 
 TEST_CASE("denoise: every kind and reason has a name") {
     for (DenoiseKind k : {DenoiseKind::Visibility, DenoiseKind::Occlusion, DenoiseKind::Diffuse, DenoiseKind::Specular,
-                         DenoiseKind::Coverage})
+                          DenoiseKind::Coverage})
         CHECK(std::string(denoise_kind_name(k)).size() > 2);
     for (DenoiseReset r : {DenoiseReset::None, DenoiseReset::Fresh, DenoiseReset::Resize, DenoiseReset::Gap,
                            DenoiseReset::Scene, DenoiseReset::Origin, DenoiseReset::Settings, DenoiseReset::Cut})

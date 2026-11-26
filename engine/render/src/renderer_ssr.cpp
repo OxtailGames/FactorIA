@@ -261,7 +261,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
 
     std::vector<ResourceId> traceReads{game, pre};
     if (rtImage && rtRes.valid()) traceReads.push_back(rtRes);
-    if (rtImage && rtRes.valid() && glossyIn) {  // the denoiser's results and the roughness: ordered before the trace pass
+    if (rtImage && rtRes.valid() &&
+        glossyIn) {  // the denoiser's results and the roughness: ordered before the trace pass
         if (glossy.color.valid() && glossy.coverage.valid()) {
             traceReads.push_back(glossy.color);
             traceReads.push_back(glossy.coverage);
@@ -280,7 +281,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         const bool rtOn = rtImage && rtImage->ran && rtImage->texture.id;
         if (!rtOn && u.b[0] <= 0.0f) return;  // nothing to draw: the scratch is not made, the copy does not run
         // The denoised glossy images are used when both exist (the denoiser ran); else the raw image serves every traced pixel (mode 1).
-        const Target* dt = glossy.color.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.color)) : nullptr;
+        const Target* dt =
+            glossy.color.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.color)) : nullptr;
         const Target* kt =
             glossy.coverage.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.coverage)) : nullptr;
         const Target* mt =
@@ -307,8 +309,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.format = dstFormat;
         pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
         pd.colorStore = gpu::StoreAction::Store;
-        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, gpu::View{}, gpu::View{},
-                            gpu::View{}, gpu::View{}, nullptr, 0, rect.whole ? nullptr : &rect))
+        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, gpu::View{},
+                            gpu::View{}, gpu::View{}, gpu::View{}, nullptr, 0, rect.whole ? nullptr : &rect))
             ++*drawCalls;
     });
     return declared;

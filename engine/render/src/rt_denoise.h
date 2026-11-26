@@ -37,8 +37,8 @@ enum class DenoiseKind : std::uint8_t {
     Occlusion,   // ambient occlusion: 0 .. 1 in r (one channel); the result is in r, g and b alike
     Diffuse,     // diffuse radiance: rgb, linear; a firefly clamp applies
     Specular,  // specular radiance: rgb + the hit distance in a (world units, negative = the ray missed); the filter follows the lobe
-    Coverage   // M79-P3a-2: where the specular signal's rays ended on a surface: one channel, 1 where the alpha of the input is > 0 (a hit distance),
-               // else 0. The input is the specular signal's own image; its hit distance steers the reprojection the same way
+    Coverage  // M79-P3a-2: where the specular signal's rays ended on a surface: one channel, 1 where the alpha of the input is > 0 (a hit distance),
+    // else 0. The input is the specular signal's own image; its hit distance steers the reprojection the same way
 };
 const char* denoise_kind_name(DenoiseKind k);
 // 1 for a shadow, an occlusion and a coverage, 3 for the radiance kinds.
