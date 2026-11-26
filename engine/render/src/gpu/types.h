@@ -394,8 +394,8 @@ struct Features {
     bool bindless = false;  // Device::bindless_index(view) names the view's slot in the global table that
                             // shaders index; false = no table, bindless_index() answers kNoBindlessIndex
     // M79 ray tracing (the contract is in gpu/accel.h and docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md). Every one
-    // is false on the GL, GLES3, WebGL2, D3D11 and RecordingDevice (default caps) devices, and on every backend until
-    // its package lands (P1d D3D12, P1v Vulkan, P1m Metal).
+    // is false on the GL, GLES3, WebGL2, D3D11 and RecordingDevice (default caps) devices, on a Vulkan GPU without
+    // the extensions, and on every other backend until its package lands (P1d D3D12, P1m Metal).
     bool rayQuery = false;               // a compute shader can trace rays with an inline ray query (DXR 1.1
                                          // RayQuery, GL_EXT_ray_query, Metal intersector); no RT pipelines
     bool accelerationStructure = false;  // make_accel_structure / build_blas / build_tlas work
@@ -714,7 +714,8 @@ struct ShaderSampler {
 struct ShaderAccelStructure {
     ShaderStage stage = ShaderStage::None;
     BackendBinding binding{};  // hlslRegister = t<n> (RaytracingAccelerationStructure), mslIndex = buffer(n)
-    // (instance_acceleration_structure), spirvSet 1 + spirvBinding (accelerationStructureEXT)
+    // (instance_acceleration_structure), spirvSet + spirvBinding = where the SPIR-V declares it
+    // (accelerationStructureEXT; for a usesRayQuery kernel any set, which the Vulkan backend moves into set 1)
 };
 
 // Which texture slot is sampled with which sampler slot (GL combines them into one sampler2D named glslName).

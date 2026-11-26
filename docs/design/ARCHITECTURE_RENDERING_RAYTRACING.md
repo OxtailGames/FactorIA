@@ -4,11 +4,13 @@ The user page is docs/RAY_TRACING.md (the settings, the command, what each backe
 developers: the vocabulary and the calls that `fa::gpu` gained in package M79 P0a, what each backend answers today, how the
 `RecordingDevice` checks them, the `raytracing` rows of `renderer.supports`, the project settings, and the route the Metal
 backend takes. Read "The GPU interface" (ARCHITECTURE_RENDERING_GPU.md) first: handles, `Result<T>`, the barrier rule and the
-`RecordingDevice` are used here as that page describes them.
+`RecordingDevice` are used here as that page describes them. The kernels and the DXC toolchain that compiles them have a page
+of their own: [ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md).
 
-**What exists.** Only the interface: types, calls with refusing defaults, the `RecordingDevice` model and its checks, the
-supports rows, the settings and the command. **No backend builds an acceleration structure and no frame pass traces a ray.**
-The packages that come next fill the backends in (P1v Vulkan, P1d Direct3D 12, P1m Metal) and then the effects.
+**What exists.** The interface: types, calls with refusing defaults, the `RecordingDevice` model and its checks, the
+supports rows, the settings and the command. The **Vulkan** backend builds and traces (section "Vulkan" below). **No frame
+pass traces a ray yet.** The packages that come next fill the other backends in (P1d Direct3D 12, P1m Metal) and then the
+effects.
 
 ## Decision D1: inline ray query only
 
@@ -79,8 +81,8 @@ whose package has landed overrides it to say what its GPU lacks ("this GPU lacks
 - A caller asks the sizes, makes the scratch `Buffer` (usage `accelScratch`, at least `buildScratch` or `updateScratch` bytes
   from the offset) and the structure (`make_accel_structure` with `size = AccelSizes::structure`), then builds. A size is never
   guessed: a backend rounds it as its API needs.
-- `make_accel_structure` allocates the memory itself when `storage` is invalid. **Open design point, left to P1v and P1d:**
-  with a valid `storage` (a buffer with usage `accelStorage`, offset aligned to `accel_alignment()`) the caller sub-allocates
+- `make_accel_structure` allocates the memory itself when `storage` is invalid. **Open design point, left to P1d (Vulkan
+  takes it, section "Vulkan"):** with a valid `storage` (a buffer with usage `accelStorage`, offset aligned to `accel_alignment()`) the caller sub-allocates
   and may alias structures that are never live together. The `RecordingDevice` validates the buffer, the offset and the range;
   a real backend decides whether to take a `storage` of its own kind of memory (Vulkan: a buffer with the
   acceleration-structure-storage usage and a device address; D3D12: a buffer in the `ACCELERATION_STRUCTURE` state).
@@ -107,6 +109,17 @@ at `CommandList::build_blas` in `gpu/device.h`):
    barrier. Vulkan: `ACCELERATION_STRUCTURE_WRITE` to `ACCELERATION_STRUCTURE_READ` at stage `COMPUTE_SHADER`. Metal: the build
    is its own encoder, ordered before the compute encoder that traces.
 4. Before `query_compacted_size` and `copy_accel_structure`: the build that wrote the source has finished.
+5. Before a build writes a structure or a scratch buffer that an earlier dispatch traced or an earlier build read: the write
+   waits for those reads (write after read). The common case is a TLAS rebuilt every frame while the frame before still traces
+   it. Vulkan: `ACCELERATION_STRUCTURE_READ` at stage `COMPUTE_SHADER` or `ACCELERATION_STRUCTURE_BUILD` to
+   `ACCELERATION_STRUCTURE_WRITE` at stage `ACCELERATION_STRUCTURE_BUILD`.
+
+Vulkan derives all five from one state per resource (stage and access, the same tracking as its buffers and images): a
+build's `dst` is `AS_WRITE` at `BUILD` (`AS_READ | AS_WRITE` for an in-place update), its scratch `AS_READ | AS_WRITE` at
+`BUILD`, its vertex, index and instance buffers `SHADER_READ` at `BUILD`, the BLASes a TLAS build names `AS_READ` at
+`BUILD | COMPUTE_SHADER`, a TLAS bound for a dispatch `AS_READ` at `COMPUTE_SHADER`, a copy's source `AS_READ` and its
+destination `AS_WRITE` at `BUILD`. A change of state with a write on either side is one barrier, so rules 1 to 5 fall out
+of it: two builds on one scratch buffer get a barrier between them, and a write after reads waits for the reads.
 
 `accel_structure_state` reports the state the model keeps for a structure (the `RecordingDevice`: not built, built).
 
@@ -116,7 +129,7 @@ at `CommandList::build_blas` in `gpu/device.h`):
 |---|---|---|
 | OpenGL, GLES3, WebGL2, Direct3D 11 (`SokolDevice`) | false, for good | the API cannot trace rays; use the d3d12 or vulkan backend, or Metal on Apple |
 | Direct3D 12 | false until P1d | "the d3d12 backend does not build acceleration structures yet (package P1d of milestone 79)" |
-| Vulkan | false until P1v | the same with "vulkan" and "package P1v" |
+| Vulkan | true on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` | what this GPU lacks, with its name (`ray_tracing_status`); MoltenVK has none, lavapipe has them from Mesa 24.1 |
 | Metal (`SokolDevice` on Apple) | false until P1m | the same with "metal" and "package P1m" |
 | `RecordingDevice` | what it was made with (`DeviceInit::recordingRayTracing`) | a plain one refuses and says it was made without ray tracing |
 
@@ -196,6 +209,42 @@ never touched ray tracing is byte-identical. `Engine` holds the settings (`set_r
 `ray_tracing_status`) and applies the project's at start; `render.ray_tracing` reads and changes them
 (`changes_state` capability). **`active` is always false in this version**, because nothing reads the settings yet.
 
+## Vulkan (`vulkan_raytracing.cpp`)
+
+- **Opt-in device.** `init_device` asks for the three extensions and the `accelerationStructure`, `rayQuery` and
+  `bufferDeviceAddress` features only when the GPU has all of them; otherwise the device is made without them and
+  `ray_tracing_status` names the first missing piece and the device (with the Mesa release when the device is lavapipe).
+  Ray tracing never fails device creation: a `vkCreateDevice` that fails with them on is retried without them, and a driver
+  that lists the extension but gives no entry point turns it off. `VK_KHR_ray_tracing_pipeline` is reported
+  (`Features::rayTracingPipeline`), never enabled. A device hook that asks for the same feature structs merges into the
+  engine's.
+- **Caps.** `Limits::maxAccelInstances`, `maxAccelGeometries` and `maxAccelPrimitives` come from
+  `VkPhysicalDeviceAccelerationStructurePropertiesKHR` (clamped to 32 bits where the field is), and
+  `accel_scratch_alignment()` is `minAccelerationStructureScratchOffsetAlignment`, never below 256 (`fill_ray_tracing_caps`).
+- **Memory.** Buffers with usage `accelBuildInput`, `accelStorage` or `accelScratch` get the matching Vulkan usage plus
+  `SHADER_DEVICE_ADDRESS` and memory allocated with `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT`, aligned so offset 0 suits a
+  structure and a scratch range. `make_accel_structure` makes its own `accelStorage` buffer when `storage` is invalid and
+  takes a caller's `accelStorage` buffer at a 256-aligned offset otherwise. Sizes come from
+  `vkGetAccelerationStructureBuildSizesKHR`, rounded up to 256 (structure) and to the scratch alignment.
+- **Builds.** A BLAS is triangles (`R32G32B32_SFLOAT` positions at the stride given, 16- or 32-bit indices or none). A TLAS
+  build copies the instances into `VkAccelerationStructureInstanceKHR` records in an instance buffer the TLAS owns (grown in
+  steps of 64, the old one released with the frame) through the upload ring. An update keeps the counts, the geometries'
+  shapes and the flags of the build it refits, or is refused. Flags: `preferFastBuild` wins over `preferFastTrace`;
+  `allowCompaction` applies to a BLAS only.
+- **Compaction.** `query_compacted_size` writes the size with a query pool of its own (released with the frame) and
+  `vkCmdCopyQueryPoolResults` into the storage buffer; `copy_accel_structure` runs `vkCmdCopyAccelerationStructureKHR` in
+  `CLONE` or `COMPACT` mode, and the copy inherits the source's counts and `allowUpdate`; a copy is never compacted again.
+- **Destruction** is deferred like every resource: the handle goes once the frames that may use it have completed, before its
+  storage.
+- **Kernels.** A compute `ShaderDesc` with `usesRayQuery` takes DXC's SPIR-V as it is: its bindings may sit in any descriptor
+  set and the backend moves them into the engine's layout (uniform blocks in set 0, views, samplers and acceleration
+  structures in set 1, the binding numbers kept: `move_descriptor_sets`). `ShaderAccelStructure` slots become
+  `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR` bindings. Without ray query the shader is refused with the device's reason.
+- **Tests** (`vulkan_raytracing_tests.cpp`): the caps and the set move without a device; the refusals of a device without
+  ray tracing; and, on a GPU with it, the `rt_probe` kernel against a CPU trace of two instances, a refit, a compacted copy
+  and a TLAS rebuilt on consecutive frames, all under the validation layer with synchronization validation. A device
+  without ray tracing skips those with its reason, even under `FA_VULKAN_REQUIRE=1` (the Linux CI's lavapipe is Mesa 24.0).
+
 ## The Metal route (package P1m; documented here, not implemented)
 
 Metal is driven by `SokolDevice` (sokol_gfx owns the `MTLDevice`, the queue and the command buffers). Ray tracing on Metal
@@ -225,8 +274,6 @@ Until P1m lands, Metal answers "the metal backend does not build acceleration st
 
 ## What the next packages do
 
-- **P1v** (Vulkan): `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` (required by the first),
-  `bufferDeviceAddress`; the extension and feature request goes through the device hooks (ARCHITECTURE_RENDERING_HOOKS.md).
 - **P1d** (Direct3D 12): DXR 1.1 (`D3D12_RAYTRACING_TIER_1_1`), `ID3D12GraphicsCommandList4`, structures in
   `ACCELERATION_STRUCTURE` state buffers.
 - **P1m** (Metal): the route above.
