@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <system_error>
 #include <thread>
 
 #include "fa/core/child_process.h"
@@ -101,7 +102,7 @@ struct Reply {
 
 bool cancel_requested();
 
-enum class Sent { Ok, Gone, TimedOut, Cancelled };
+enum class Sent { Ok, Gone, TimedOut, Cancelled, NoThread };
 
 // A request line up to this size fits in the pipe to the helper (4 KB is the smallest pipe buffer of the three systems), so
 // writing it cannot block on a helper that does not read.
@@ -114,7 +115,13 @@ constexpr std::size_t kSmallWrite = 2048;
 Sent send_line(ChildProcess& child, const std::string& line, double timeoutSeconds, bool cancellable) {
     if (line.size() <= kSmallWrite) return child.write(line) ? Sent::Ok : Sent::Gone;
     std::atomic<int> state{0};  // 0 writing, 1 written, 2 failed
-    std::thread writer([&] { state.store(child.write(line) ? 1 : 2); });
+    std::thread writer;
+    try {
+        writer = std::thread([&] { state.store(child.write(line) ? 1 : 2); });
+    } catch (const std::system_error&) {
+        // No thread left (a process at its limit): nothing was written; the caller ends the bake with the reason.
+        return Sent::NoThread;
+    }
     const auto deadline =
         Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeoutSeconds));
     Sent result = Sent::Ok;
@@ -145,6 +152,13 @@ Reply ask(ChildProcess& child, const char* command, const Json& args, double tim
         case Sent::Gone: return reply;
         case Sent::TimedOut: reply.kind = Ask::TimedOut; return reply;
         case Sent::Cancelled: reply.kind = Ask::Cancelled; return reply;
+        case Sent::NoThread:
+            reply.kind = Ask::Failed;
+            reply.error = make_error(
+                "the plan could not be sent to the helper process: the system has no thread left to write it",
+                "Close other programs or lower this process's thread count, then bake again; device cpu "
+                "needs no helper.");
+            return reply;
     }
     const auto deadline =
         Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeoutSeconds));
@@ -155,8 +169,19 @@ Reply ask(ChildProcess& child, const char* command, const Json& args, double tim
             reply.kind = Ask::TimedOut;
             return reply;
         }
-        switch (child.read_line(line, left, nullptr)) {
-            case ChildProcess::Read::Timeout: reply.kind = Ask::TimedOut; return reply;
+        if (cancellable && cancel_requested()) {
+            child.terminate();
+            reply.kind = Ask::Cancelled;
+            return reply;
+        }
+        // A cancellable wait looks at the cancel flag every slice (a helper validating a big plan answers late).
+        const double slice = std::chrono::duration<double>(kCancelSlice).count();
+        const bool sliced = cancellable && left > slice;
+        switch (child.read_line(line, sliced ? slice : left, nullptr)) {
+            case ChildProcess::Read::Timeout:
+                if (sliced) continue;
+                reply.kind = Ask::TimedOut;
+                return reply;
             case ChildProcess::Read::Closed:
             case ChildProcess::Read::Cancelled: return reply;
             case ChildProcess::Read::Line: break;
@@ -295,18 +320,19 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
             const double left = std::chrono::duration<double>(deadline - Clock::now()).count();
             if (left <= 0) {
                 child.terminate();
-                return outcome(HelperOutcome::Kind::Unavailable,
-                               "the helper process did not become ready within " + std::to_string(int(kReadySeconds)) +
-                                   " seconds",
-                               "Run `factoria session --no-graphics` in the project to see why it does not start.");
+                return outcome(
+                    HelperOutcome::Kind::Unavailable,
+                    "the helper process did not become ready within " + std::to_string(int(kReadySeconds)) + " seconds",
+                    "Run `factoria session --no-graphics --no-scene` in the project to see why it does not start.");
             }
             switch (child.read_line(line, std::min(left, 0.1), nullptr)) {
                 case ChildProcess::Read::Timeout: continue;
                 case ChildProcess::Read::Closed:
                 case ChildProcess::Read::Cancelled:
-                    return outcome(HelperOutcome::Kind::Unavailable,
-                                   "the helper process ended before it was ready: " + tail_of(child),
-                                   "Run `factoria session --no-graphics` in the project to see why it does not start.");
+                    return outcome(
+                        HelperOutcome::Kind::Unavailable,
+                        "the helper process ended before it was ready: " + tail_of(child),
+                        "Run `factoria session --no-graphics --no-scene` in the project to see why it does not start.");
                 case ChildProcess::Read::Line: break;
             }
             auto parsed = parse_json(line, "<the bake helper's first line>");
