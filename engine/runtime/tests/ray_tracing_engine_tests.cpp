@@ -119,6 +119,8 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["active"] == false);
     CHECK_FALSE(
         r.result["reason"].get<std::string>().empty());  // the device's reason, or that no effect draws with rays yet
+    // A device that cannot trace says why (its own reason, never an empty string).
+    if (!r.result["supported"].get<bool>()) CHECK(r.result["reason"].get<std::string>().size() > 10);
     CHECK(e.ray_tracing().shadows == render::RtShadows::Hard);
 
     // The same value again changes nothing, and a key that is not given is kept; numbers are clamped.

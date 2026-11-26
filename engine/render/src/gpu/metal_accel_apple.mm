@@ -17,13 +17,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fa/core/log.h"
 #include "sokol_gfx.h"
 
 namespace fa::gpu {
 
 namespace {
 
-constexpr std::uint64_t kAlign = 256;  // Device::accel_scratch_alignment() (the default)
 constexpr std::uint32_t kMaxCustomIndex = 0xFFFFFFu;
 constexpr int kMaxReportedProblems = 4;
 constexpr std::size_t kMaxFreeInstanceBuffers = 8;
@@ -260,14 +260,31 @@ struct MetalAccel::Impl {
         return native ? (__bridge id<MTLCommandBuffer>)native->current_command_buffer() : nil;
     }
 
+    // Lets go of an acceleration structure (and the BLASes a TLAS named) only once the GPU has finished the work recorded so
+    // far. sokol acquires its command buffer WITHOUT retained references (commandBufferWithUnretainedReferences), so neither
+    // the acceleration structure encoder nor useResource: keeps anything alive: a structure released here while frame N still
+    // traces it would be freed under the GPU. The current command buffer completes after every earlier one on the queue, so
+    // its completion handler (which owns the references until it has run) is a safe place. Without a command buffer nothing
+    // can be in flight from this device and the references go at once.
+    void retire(id<MTLAccelerationStructure> as, NSArray<id<MTLAccelerationStructure>>* array) {
+        if (!as && !array) return;
+        id<MTLCommandBuffer> cb = command_buffer();
+        if (!cb) return;
+        [cb addCompletedHandler:^(id<MTLCommandBuffer>) {
+            (void)as;
+            (void)array;
+        }];
+    }
+
     const char* flag_name(bool update) const { return update ? "updateScratch" : "buildScratch"; }
 
     // Whether `scratch` (usage accelScratch, a live buffer) holds `need` bytes at `offset`.
     void check_scratch(std::string& what, Buffer scratch, std::size_t offset, std::uint64_t need, bool update) const {
         const BufferInfo* s = buffer_info(what, "scratch", scratch, "accelScratch", &BufferUsage::accelScratch);
         if (!s) return;
-        if (offset % kAlign != 0)
-            add(what, "scratchOffset " + std::to_string(offset) + " is not a multiple of " + std::to_string(kAlign) +
+        const std::uint64_t align = device.accel_scratch_alignment();
+        if (align != 0 && offset % align != 0)
+            add(what, "scratchOffset " + std::to_string(offset) + " is not a multiple of " + std::to_string(align) +
                           " (Device::accel_scratch_alignment())");
         if (offset > s->size || s->size - offset < need)
             add(what, "scratch buffer " + quoted(s->label) + " has " +
@@ -405,9 +422,13 @@ void MetalAccel::destroy_accel_structure(AccelStructure structure) {
     Impl::Entry* e = m.find(structure);
     if (!e) return;
     const std::uint16_t slot = std::uint16_t((structure.id & 0xFFFFu) - 1);
-    // The command buffers that use it keep it alive until they complete (Metal retains what a command buffer encodes).
+    // The command buffers in flight may still read it (sokol's are unretained: nothing else keeps it alive), and the BLASes a
+    // TLAS names that were destroyed earlier are kept by that TLAS only: both go once the GPU is done with the work so far.
+    id<MTLAccelerationStructure> as = e->as;
+    NSArray<id<MTLAccelerationStructure>>* array = e->primitives_array;
     e->as = nil;
     e->primitives_array = nil;
+    m.retire(as, array);
     e->alive = false;
     e->generation = std::uint16_t(e->generation + 1 == 0 ? 1 : e->generation + 1);
     m.freeSlots.push_back(slot);
@@ -670,7 +691,9 @@ Result<void> MetalAccel::build_tlas(const TlasBuild& b) {
         dst->built = true;
         dst->allowUpdate = b.flags.allowUpdate;
         dst->instances = std::uint32_t(n);
+        NSArray<id<MTLAccelerationStructure>>* previous = dst->primitives_array;
         dst->primitives_array = blases;
+        m.retire(nil, previous);  // the previous trace of this TLAS may still be in flight
         return {};
     }
 }
@@ -759,7 +782,9 @@ Result<void> MetalAccel::copy_accel_structure(AccelStructure src, AccelStructure
         d->geometries = a->geometries;
         d->primitives = a->primitives;
         d->instances = a->instances;
+        NSArray<id<MTLAccelerationStructure>>* previous = d->primitives_array;
         d->primitives_array = a->primitives_array;  // a cloned or compacted TLAS names the same BLASes
+        m.retire(nil, previous);
         return {};
     }
 }
@@ -794,11 +819,23 @@ std::string MetalAccel::check_compute_bindings(const Bindings& bindings, const M
 void MetalAccel::bind_compute(const Bindings& bindings, const MetalAccelSlots& slots) {
     Impl& m = *impl_;
     id<MTLComputeCommandEncoder> enc = (__bridge id<MTLComputeCommandEncoder>)sg_mtl_compute_command_encoder();
-    if (!enc) return;
+    if (!enc) {
+        FA_ERROR("render",
+                 "gpu: CommandList::set_bindings: shader '{}' has no compute encoder to bind its acceleration structure "
+                 "to (sokol did not open one); the dispatch traces nothing",
+                 slots.label);
+        return;
+    }
     for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
         if (!slots.declared[i]) continue;
         const Impl::Entry* e = m.find(bindings.accelStructures[i]);
-        if (!e || !e->as) continue;
+        if (!e || !e->as) {
+            FA_ERROR("render",
+                     "gpu: CommandList::set_bindings: accelStructures[{}] of shader '{}' went invalid after the "
+                     "bindings were checked; the dispatch traces nothing there",
+                     i, slots.label);
+            continue;
+        }
         [enc setAccelerationStructure:e->as atBufferIndex:slots.bufferIndex[i]];
         // Binding a TLAS does not make the BLASes it names (or itself) resident for the dispatch.
         [enc useResource:e->as usage:MTLResourceUsageRead];

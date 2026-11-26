@@ -209,7 +209,8 @@ traces.
 - **When it is on.** `SokolDevice` reports `Features::rayQuery` and `accelerationStructure` (and the `maxAccel*` limits) when
   `MTLDevice.supportsRaytracing` is true and the OS is macOS 13 / iOS 16 or later (the MSL 2.4 the kernels are written in).
   Otherwise every call refuses with a sentence that names the GPU and the OS version, and `Device::ray_tracing_status` and
-  `renderer.supports("raytracing")` give the same text. `rayTracingPipeline` is always false. The simulator and older GPUs refuse.
+  `renderer.supports("raytracing")` give the same text. `rayTracingPipeline` is always false. The simulator and older GPUs refuse. The limits it reports (1048576 instances, 4096
+  geometries, 2^28 triangles) are the engine's conservative ones, the same as the `RecordingDevice`'s: Metal documents no numbers.
 - **The structures live outside sokol.** `make_accel_structure` allocates an `MTLAccelerationStructure`
   (`newAccelerationStructureWithSize:`) kept in the pool of `MetalAccel` and named by the `AccelStructure` handle. A valid
   `AccelStructureDesc::storage` is **refused** with an error that says Metal allocates the memory itself (leave `storage` empty): the
@@ -232,8 +233,14 @@ traces.
 - **Instances.** `build_tlas` converts the `AccelInstance` array into `MTLAccelerationStructureUserIDInstanceDescriptor` records
   (row-major 3x4 to Metal's column-major 4x3, `customIndex` to the user id, `mask`, `opaque` and `cullDisable` to the options) in a
   buffer of its own. The TLAS keeps the BLASes its last build named alive (and resident for a trace) until it is built again or
-  destroyed, so a BLAS handle destroyed early cannot free memory the GPU still reads; the rule of "The memory model" (destroy the
-  TLAS first) is still the one to follow, because the other backends do not do this.
+  destroyed: a BLAS destroyed while a TLAS still names it stays in memory until the next build or destroy of that TLAS, so a
+  destroyed BLAS handle cannot free memory the GPU still reads. The rule of "The memory model" (destroy the TLAS first) is still
+  the one to follow, because the other backends do not do this.
+- **Lifetime against the GPU.** sokol acquires its command buffer *without* retained references (`commandBufferWithUnretainedReferences`),
+  so neither the acceleration structure encoder nor `useResource:` keeps a structure alive while a command buffer in flight still
+  uses it. `destroy_accel_structure`, and a rebuild or copy that replaces the BLAS array of a TLAS, therefore do not release the
+  Metal objects at once: the references move into a completion handler of the current command buffer (it completes after every
+  earlier one on the queue), and go when the GPU has finished the work recorded so far. With no command buffer they go at once.
 - **Compaction.** `query_compacted_size` writes the size (a `uint64`) into the `storageBuffer` the caller names, with
   `MTLAccelerationStructureCommandEncoder writeCompactedAccelerationStructureSize:`; the caller reads it after the frame, makes a
   smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies a structure of the same size.

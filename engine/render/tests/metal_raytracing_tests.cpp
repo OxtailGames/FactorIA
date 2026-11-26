@@ -353,8 +353,8 @@ TEST_CASE("metal ray tracing: a TLAS of two instances traced by rt_probe matches
 
     int hits = 0, compared = 0;
     rig.compare(rig.read_out(), hits, compared);
-    CHECK(hits > 40);  // the scene covers part of the image
-    CHECK(hits < compared - 100);  // and leaves misses
+    CHECK(hits > 40);                        // the scene covers part of the image
+    CHECK(hits < compared - 100);            // and leaves misses
     CHECK(compared > kDim * kDim * 9 / 10);  // few pixels lie on an edge
 
     dev.destroy_accel_structure(s.tlas);
@@ -406,6 +406,83 @@ TEST_CASE("metal ray tracing: a TLAS rebuilt on consecutive frames follows the i
         rig.compare(rig.read_out(), hits, compared);
         CHECK(hits > 30);
     }
+}
+
+TEST_CASE("metal ray tracing: structures destroyed and rebuilt on consecutive frames without waiting still trace") {
+    Rig rig;
+    std::string skip;
+    if (!rig.open(skip)) {
+        MESSAGE("skipped: " << skip);
+        return;
+    }
+    Device& dev = *rig.dev;
+    rig.make_mesh(false);
+    AccelBuildFlags flags;
+    flags.preferFastBuild = true;
+    rig.make_instances(flags);
+    rig.make_probe();
+
+    // Every frame makes a new BLAS and builds the same TLAS over it, then destroys the previous BLAS (and its scratch) at once,
+    // while the command buffer that traced it may still be running: sokol's command buffers do not retain what they use, so the
+    // device has to keep the structure until that command buffer completes. Nothing here reads the GPU until the last frame.
+    auto s = rig.build_scene(flags);
+    for (int frame = 0; frame < 8; ++frame) {
+        CAPTURE(frame);
+        rig.cpuInstances[0].m[3] = -1.7f + 0.3f * float(frame);
+        std::memcpy(rig.instances[0].transform, rig.cpuInstances[0].m, sizeof(float) * 12);
+        if (frame > 0) {
+            // Replace the BLAS the TLAS names, destroy the old one before the TLAS is rebuilt over the new one.
+            const AccelStructure oldBlas = s.blas;
+            const Buffer oldScratch = s.blasScratch;
+            auto bs = dev.blas_sizes(rig.geometry, flags);
+            REQUIRE_MESSAGE(bs.ok(), bs.error().message);
+            s.blas = rig.make_as(AccelKind::Blas, bs->structure, "rt blas (frame)");
+            s.blasScratch = rig.make_scratch(std::max(bs->buildScratch, bs->updateScratch), "rt blas scratch (frame)");
+            for (AccelInstance& i : rig.instances) i.blas = s.blas;
+            dev.destroy_accel_structure(oldBlas);
+            dev.destroy_buffer(oldScratch);
+        }
+        CommandList& cl = dev.begin_commands("rt frame");
+        BlasBuild bb;
+        bb.dst = s.blas;
+        bb.geometries = rig.geometry;
+        bb.flags = flags;
+        bb.scratch = s.blasScratch;
+        auto rb = cl.build_blas(bb);
+        REQUIRE_MESSAGE(rb.ok(), rb.error().message);
+        TlasBuild tb;
+        tb.dst = s.tlas;
+        tb.instances = rig.instances;
+        tb.flags = flags;
+        tb.scratch = s.tlasScratch;
+        auto rt = cl.build_tlas(tb);
+        REQUIRE_MESSAGE(rt.ok(), rt.error().message);
+        rig.record_trace(cl, s.tlas);
+        dev.submit(cl);
+        dev.commit();
+    }
+    int hits = 0, compared = 0;
+    rig.compare(rig.read_out(), hits, compared);
+    CHECK(hits > 30);
+
+    // A destroyed TLAS right after its last trace, then a new one over the same BLAS, traces the same picture.
+    dev.destroy_accel_structure(s.tlas);
+    auto ts = dev.tlas_sizes(std::uint32_t(rig.instances.size()), flags);
+    REQUIRE_MESSAGE(ts.ok(), ts.error().message);
+    s.tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt tlas (again)");
+    CommandList& cl = dev.begin_commands("rt frame again");
+    TlasBuild tb;
+    tb.dst = s.tlas;
+    tb.instances = rig.instances;
+    tb.flags = flags;
+    tb.scratch = s.tlasScratch;
+    auto rt = cl.build_tlas(tb);
+    REQUIRE_MESSAGE(rt.ok(), rt.error().message);
+    rig.record_trace(cl, s.tlas);
+    dev.submit(cl);
+    dev.commit();
+    rig.compare(rig.read_out(), hits, compared);
+    CHECK(hits > 30);
 }
 
 TEST_CASE("metal ray tracing: a refit after moving vertices traces the moved mesh, in place") {
@@ -591,7 +668,8 @@ TEST_CASE("metal ray tracing: the refusals teach (caller storage, a call inside 
 
     // Too small a scratch buffer.
     BlasBuild tiny = bb;
-    tiny.scratch = rig.make_scratch(0, "rt tiny");  // make_scratch rounds up to 256; the BLAS needs more or is borderline
+    tiny.scratch =
+        rig.make_scratch(0, "rt tiny");  // make_scratch rounds up to 256; the BLAS needs more or is borderline
     auto sizes = dev.blas_sizes(rig.geometry, flags);
     REQUIRE(sizes.ok());
     if (sizes->buildScratch > 256) {
@@ -628,7 +706,8 @@ TEST_CASE("metal ray tracing: a device without it refuses every call with the de
         return;
     }
     MESSAGE("this GPU or OS cannot trace rays (" << why << "): the refusals are checked here");
-    CHECK(contains(why, "ray tracing"));
+    CHECK(
+        (contains(why, "ray tracing") || contains(why, "ray queries")));  // macOS < 13 says "ray queries need macOS 13"
     const auto sizes = dev.tlas_sizes(4, {});
     REQUIRE_FALSE(sizes.ok());
     CHECK(contains(sizes.error().message, "gpu: Device::tlas_sizes: "));
