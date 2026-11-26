@@ -503,6 +503,10 @@ public:
     void set_path_tracer(const render::PathTracerSettings& settings);
     const render::PathTracerSettings& path_tracer() const;
     render::PathTracerStatus path_tracer_status() const;
+    // M79-P2a-3: the point, spot and area lights of the last whole frame: how many asked for a shadow (`candidates`, the lights the shadow maps were
+    // planned for) and how many of them the rays shadowed (`traced`, at most the cap `render::kRtLocalShadowMaxLights` (raytracing.h); the rest kept their maps).
+    // 0 and 0 while ray tracing is off, no camera traced them or the device refused the kernel. Thread-safe.
+    void ray_tracing_local_shadows(int& candidates, int& traced) const;
     const render::FrameGenSettings& frame_generation() const;
     render::FrameGenSlot effective_frame_generation() const;
     // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:
