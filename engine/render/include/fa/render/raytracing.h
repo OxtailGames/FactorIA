@@ -42,7 +42,8 @@ struct RayTracingSettings {
     RtShadows shadows = RtShadows::Off;
     bool ao = false;  // ambient occlusion traced with rays, instead of the screen-space one
     bool reflections =
-        false;  // sharp reflections traced with rays (roughness under 0.25), instead of the screen-space ones
+        false;  // reflections traced with rays (mirror under roughness 0.25, glossy and denoised up to 0.65), with the
+                // screen-space ones and the probes as the per-pixel fallback
     bool translucency = false;  // light through glass and thin surfaces (refraction and coloured shadows)
     RtGi gi = RtGi::Off;
     int raysPerPixel =

@@ -219,6 +219,8 @@ struct PostPlan {
     // reflections' trace pass reads it. Set by build_graph before the stack is declared.
     const RtEffectImage* rtReflectImg = nullptr;
     ResourceId rtReflectRes;
+    // M79-P3a-2: the denoised glossy reflections (invalid when the denoiser did not run) and the G-buffer's roughness, for the same trace pass.
+    SsrRtGlossy rtGlossy;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
     // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has
