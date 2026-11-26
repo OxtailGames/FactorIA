@@ -89,7 +89,7 @@ Ray tracing (`render.rayTracing` in `factoria.json`, command `render.ray_tracing
 
 Rules of thumb:
 - The effects **add up** (a frame with soft shadows, occlusion and reflections is about 90 ms there), and the denoiser, not the rays, is the price: 4 rays cost 1 to 5 ms more than 1. Turn on the one or two the look needs; never all. The numbers are from one GPU (D3D12 and Vulkan are not measured), so offer the choice to the player (the menu kit's Ray tracing page) instead of fixing it.
-- The graphics preset caps it and never turns it on: `low` and `medium` trace nothing, `high` allows `shadows: "hard"` and `ao` with 2 rays, `ultra` and `custom` everything the project asks for (`gi: "perPixel"` only there).
+- The graphics preset caps it and never turns it on: `low` and `medium` trace nothing, `high` allows `shadows: "hard"` and `ao` with 2 rays, `ultra` and `custom` everything the project asks for (soft shadows, `reflections`, `translucency` and `gi`, probes or perPixel, only there).
 - The path tracer (`render.pathTracer`, `render.pathtrace`) is a **reference tool**, not a game mode: about 29 ms per sample, a clean picture needs dozens. Use it to check that your lighting is right or to take a clean screenshot; it ignores textures and normal maps.
 - A headless run (`--no-graphics`) traces nothing. Judge an effect from a windowed run or `game.screenshot` with graphics, and say which GPU the numbers came from.
 

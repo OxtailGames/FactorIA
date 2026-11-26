@@ -896,8 +896,8 @@ TEST_CASE("rt effect: a device that cannot trace says so once and draws the fram
     CHECK(log.count("cannot run on this device") == 0);
 }
 
-// M79-P6b: the cost budget that a runner without ray tracing can check. Every effect asked for at once, the most rays and the path tracer's
-// master switch on, on a device that cannot trace: the frame is the frame of ray tracing off, command for command (so its cost stays inside
+// M79-P6b: the cost budget that a runner without ray tracing can check. Every effect asked for at once and the most rays, on a
+// device that cannot trace: the frame is the frame of ray tracing off, command for command (so its cost stays inside
 // the raster budget), and no kernel, image or acceleration structure is made. What the effects cost on a GPU that traces is a number of
 // docs/RAY_TRACING.md, "What it costs", measured by hand.
 TEST_CASE("rt effect: every effect on, on a device that cannot trace, draws exactly the frame of ray tracing off and "
