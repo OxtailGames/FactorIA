@@ -216,8 +216,9 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   thread that bakes.
 - **A helper process (editor, MCP, `factoria call` with graphics on a Mac).** The alternatives were a second Metal device inside the process
   (the singleton forbids it), borrowing the window's context (it belongs to the UI thread, and a bake would stall the editor) and
-  a service that stays up (state, versions, a thing to stop). A child `factoria session --no-graphics --project <root>` is the engine's own
-  headless session: no new protocol, the existing job commands do the talking. The parent turns its `Plan` (the data `make_plan` read from the
+  a service that stays up (state, versions, a thing to stop). A child `factoria session --project <root> --no-graphics --no-scene` is the engine's own
+  headless session with an empty world (the bake reads the plan, not a scene: the child loads no scene and runs no script, so a project's start
+  scene cannot slow the bake or fail it): no new protocol, the existing job commands do the talking. The parent turns its `Plan` (the data `make_plan` read from the
   world; `plan_to_json` / `plan_from_json` in `lightmap_plan_json.cpp`, checked field by field with JSON pointers) into the argument of
   `lightmap.bake_plan_start`, polls `lightmap.bake_status` every 100 ms and passes the child's phase and progress to its own `report`, and
   on the cancel flag sends `lightmap.bake_cancel`; at the end it sends `session.quit`. The child writes the pages and the manifest with the
@@ -228,7 +229,8 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   inside their positions and grids with `nx * ny * nz` probes, names without `..` or a drive, and the command resolves `manifestProject` with the
   project's write sandbox (`resolve_caller_write_path`, the rule of `x-fa-path: write`): a `.lightmap.json` inside the project that `manifestAbs` names. The child is a
   `fa::ChildProcess`: it is killed with its tree when the parent lets go, a child silent for 15 minutes or one that ignores a cancel for 2
-  minutes is killed, and a crash or a GPU reset (TDR) in it never reaches the editor: `gpu` fails with the reason (`device "gpu": the helper
+  minutes is killed (the request line carrying the plan is megabytes in a big scene: it is written by a thread of its own, so a child that stopped
+  reading cannot block the job: the cancel and the 2-minute limit end the wait, and the child is killed), and a crash or a GPU reset (TDR) in it never reaches the editor: `gpu` fails with the reason (`device "gpu": the helper
   process ended ...`), `auto` bakes on the CPU in the parent with the reason in `device.note`. No `factoria` found (it is looked for in
   `$FA_FACTORIA_EXE`, this program when it is `factoria`, then next to it) is the same case. `FA_LIGHTMAP_HELPER=always|never` forces the choice
   for a process (tests; `always` makes the child fall back to the CPU by itself where it has no ray tracing). The bake that has no lightmap

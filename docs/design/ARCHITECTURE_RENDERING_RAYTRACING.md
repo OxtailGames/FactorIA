@@ -365,11 +365,14 @@ traces.
   so neither the acceleration structure encoder nor `useResource:` keeps a structure alive while a command buffer in flight still
   uses it. `destroy_accel_structure`, and a rebuild or copy that replaces the BLAS array of a TLAS, therefore do not release the
   Metal objects at once: the references move into a completion handler of the current command buffer (it completes after every
-  earlier one on the queue), and go when the GPU has finished the work recorded so far. `command_buffer()` makes one when the frame has none (a destroy
-  outside a frame waits at most one frame of GPU time); it is null only when the queue is lost, and then they go at once.
+  earlier one on the queue), and go when the GPU has finished the work recorded so far. `command_buffer()` asks sokol for its current buffer, and sokol makes
+  one when the frame has none yet: that call **can block** on sokol's semaphore of frames in flight until the oldest frame has finished (up to
+  one frame of GPU time, more when the GPU is busy or hung), so a destroy outside a frame is not free; inside a frame the buffer exists and
+  nothing waits. It returns null only when the device lost its queue, and then the references go at once (nothing can complete any more).
   `~SokolDevice` (context it opened or not) runs `split_commit()` (commits the open frame's buffer, which a wait would
   otherwise never see finish), `wait_idle()` (an empty buffer queued behind everything on sokol's queue) and only then frees
-  `accel_`, all before `sg_shutdown`; a context that is already closed was waited for by its `sg_shutdown`.
+  `accel_`, all before `sg_shutdown`; a context that is already closed was waited for by its `sg_shutdown`, and `wait_idle()` (which does
+  not call sokol) runs once more there before `accel_` goes with the members.
 - **Compaction.** `query_compacted_size` writes the size (a `uint64`) into the `storageBuffer` the caller names, with
   `MTLAccelerationStructureCommandEncoder writeCompactedAccelerationStructureSize:`; the caller reads it after the frame, makes a
   smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies into a structure at least as large.

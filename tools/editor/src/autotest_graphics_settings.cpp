@@ -342,6 +342,8 @@ void Editor::at_section_Q4(AtScript& at) {
         at_check(!at_enabled("gfx:ptSamplesPerFrame") && !at_enabled("gfx:ptMaxSamples"),
                  "...and the path tracer's numbers while it is off");
         at_check(graphicsRayTracingPresetNote_.empty(), "...and no preset caps anything while ray tracing is off");
+        graphicsWork_.preset =
+            "low";  // the steps below read the line under the effects for this preset: set here, not left over
         pendingFocus_ = "Graphics";
     });
     click("gfx:rtEnabled");

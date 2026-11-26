@@ -9,12 +9,29 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 - **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
   `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
   is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so
-  `graphics.preset` and `render.ray_tracing` work in either order, and `render.ray_tracing` reports `presetCap` `{preset, capped, effective}`.
+  `graphics.preset` and `render.ray_tracing` work in either order, and `render.ray_tracing` reports `presetCap` `{preset, capped, effective}`. The probes of `gi = "probes"` follow the same cap (`giProbes.wanted` is false under `low`, `medium` and `high`, and `giProbes.reason` names the preset); the preset's `realtimeGiProbesPerFrame` now caps only the raster captures, not the rays' budget of 64 probes a frame.
   The editor's Graphics settings window has a **Ray tracing** group (the switch and each effect, with this machine's ability and the reason) and a
   **Path tracer** group (the switch, samples per frame and maximum samples), written to `render.rayTracing` and `render.pathTracer` through
   `project.graphics`, which takes `rayTracing` and `pathTracer`; the controls are greyed out where the device cannot trace, with a hint to
   `graphics.backend`. The menu kit's Graphics tab has a fifth page with an on/off switch and a quality that follows the High and Ultra
   tiers (docs/RAY_TRACING.md, "Graphics presets, the editor and the menu kit"; docs/UPSCALING.md; docs/MENUS.md).
+
+- **Realtime GI probes updated by rays (M79-P4a):** `render.rayTracing.gi = "probes"` now draws: a compute kernel with inline ray queries
+  updates the probes of the `RealtimeGI` grids instead of the six raster captures of each probe. Each update traces `raysPerProbe` rays (new
+  field on `RealtimeGI`, 16 to 256, default 64) on a spherical Fibonacci set rotated deterministically from the frame's seed, shades the hits with
+  the sun, the emission and the environment plus the light the grid's own probes hold at the hit (the multi-bounce, scaled by `bounce`), projects
+  the result onto the nine SH coefficients and the depth moments, and the renderer blends it into the probe atlas with the grid's `hysteresis`;
+  the lit shader reads the grids exactly as before. A budget of `rtProbesPerFrame` probes per grid and frame (new field, default 16; 64 for all
+  grids together; round robin, camera priority is not made) bounds the cost by a count, never by a time. Off, or on a device that cannot trace,
+  nothing changes and nothing is spent: the raster captures update the grids and `render.ray_tracing` (`giProbes {active, reason, grids,
+  probesPerFrame, budget}`) and `render.gi_grid` (`updatedBy`, `rtUpdatesLastFrame`) say why. `gi = "perPixel"` still draws nothing. The Metal
+  kernel is tested on a real GPU against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet, and the sense
+  of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
+  (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
+  docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
+
+- **GPU bake helper (M79 review leftovers):** a Cancel now ends the wait for the helper's answer to a large plan in a fraction of a second, a system with no thread left for the plan's write is an error with a hint, and the hints say to run `factoria session --no-graphics --no-scene`.
+
 - **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
   main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
   query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the
@@ -27,6 +44,17 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   trace keeps the raster picture. The kernel is HLSL (DXIL and SPIR-V) with a Metal twin, tested against a CPU ray caster on a real Metal device. Limits
   of this version: no textures, normal maps or custom materials (flat colour, roughness, metallic), a hard sun shadow, area lights as points,
   an 8-bit PNG (docs/RAY_TRACING.md, "The path tracer"; docs/design/ARCHITECTURE_RT_PATHTRACER.md).
+- **Review leftovers of the M79 ray tracing and bake work (POLISH-2):** `RtScene`: a skinned instance that is due for its periodic rebuild now
+  waits by age (the oldest first, an instance that jumped first of all) when the due rebuilds outnumber the frame's build budget, so none starves;
+  a refractive instance never takes a metallic 1.0 material (it is a mirror); `release()` waits for the GPU only when something is alive; the
+  docs say where a synchronous read blocks and why one scratch buffer serves the static builds. Metal: the device waits for the traced
+  structures also on the path where the renderer closed the context first; `command_buffer()` and `retire()` say they may block on sokol's frame
+  semaphore outside a frame; the Metal reflection test frees what it made. Tests: a `make_buffer` fault of the scene's buffers, the retire of a
+  BLAS the TLAS no longer lists, the build budget counting a shared BLAS once, the starvation of rebuilds, the skin kernel through `Gpu`'s pipeline
+  cache, and ray tracing switched on after a mesh was loaded from disk. The lightmap bake's helper process starts with `factoria session --project
+  <root> --no-graphics --no-scene` (new flag `--no-scene`, `EngineConfig.noStartScene`: an empty world, no scene script runs; not with `--scene`),
+  and the plan's request line, megabytes in a big scene, is written by a thread of its own: a Cancel or the helper's 2-minute limit ends the wait
+  and kills a helper that stopped reading. docs/CLI.md, docs/design/ARCHITECTURE_BAKING.md, docs/design/ARCHITECTURE_RT_SCENE.md.
 - **The GPU lightmap bake works from the editor, MCP and `factoria call` with graphics (M79-P5c):** a process that already holds the Mac's only
   Metal context cannot open the GPU tracer's own, so a `device` `"gpu"` or `"auto"` bake there now runs in a child `factoria session
   --no-graphics` that is given the bake's plan (new command `lightmap.bake_plan_start`), streams its progress back and is cancelled by the same

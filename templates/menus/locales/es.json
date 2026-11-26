@@ -162,7 +162,7 @@
       "rtq": { "high": "Alta", "ultra": "Ultra" },
       "rtTier": { "high": "Traza sombras duras y oclusión ambiental con rayos.", "ultra": "Traza sombras suaves, oclusión ambiental, reflejos, refracción del cristal y sondas de iluminación global con rayos." },
       "rtUnsupported": "Este dispositivo no puede trazar rayos. Necesita una GPU que pueda, dibujada con Direct3D 12 o Vulkan en Windows, Vulkan en Linux y Android, o Metal en macOS y iOS (el ajuste graphics.backend del juego lo elige).",
-      "rtCap": { "none": "El preajuste gráfico {preset} no traza nada, se pida lo que se pida. Elige Alto o Ultra en la página de preajustes.", "high": "El preajuste gráfico {preset} limita el trazado de rayos a sombras duras y oclusión ambiental. Ultra traza todo.", "ultra": "El preajuste gráfico {preset} limita el trazado de rayos a lo que permite." },
+      "rtCap": { "none": "El preajuste gráfico {preset} no traza nada, se pida lo que se pida. Elige Alto o Ultra en la página de preajustes.", "high": "El preajuste gráfico {preset} limita el trazado de rayos a sombras duras y oclusión ambiental. Ultra traza todo." },
       "unsupNote": "No disponible aquí: {modes}.",
       "listSep": ", ",
       "groupSep": "; ",

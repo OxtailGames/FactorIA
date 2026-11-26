@@ -168,6 +168,9 @@ struct RtEffectKernelSpec {
     // image, which needs a device that reads RGBA32F storage images) and the RtLightParams block of the request.
     bool readsOut = false;
     bool usesLights = false;
+    // M79-P4a (rt_gi.h): a kernel with its own constants block (the size in bytes at b0; 0 = RtEffectParams) and an RGBA16F output image.
+    std::uint32_t paramsSize = 0;
+    bool outHalf = false;
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the

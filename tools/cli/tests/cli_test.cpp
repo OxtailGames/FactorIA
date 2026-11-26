@@ -99,6 +99,9 @@ TEST_CASE("usage errors exit with 2 and teach") {
     CHECK(sub.err.find("add") != std::string::npos);
     auto group = run({"ai"});
     CHECK(group.code == 2);
+    auto noScene = run({"session", "--no-scene", "--scene", "scenes/main.scene.json", "--no-graphics"});
+    CHECK(noScene.code == 2);
+    CHECK(noScene.err.find("--no-scene and --scene") != std::string::npos);
 }
 
 TEST_CASE("every command has help with examples") {
@@ -572,6 +575,35 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
         std::error_code ec;
         stdfs::remove_all(root, ec);
     }
+    fa::fs::set_project_root(oldRoot);
+}
+
+// `factoria session --no-scene` (the lightmap bake helper's command line): the project opens, its commands answer, and no
+// scene is loaded, so no entity exists and no script of a scene ran. Without the flag the same project loads its main scene.
+TEST_CASE("session --no-scene: the project opens with an empty world, and the flag is refused next to --scene") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_noscene").value();
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    auto made = fa::create_project(dir, "3d-empty", opt);
+    REQUIRE_MESSAGE(made.ok(), (made.ok() ? std::string() : made.error().to_string()));
+    {
+        fa::cli::SessionOptions so;
+        so.gfx = fa::cli::Gfx::None;
+        auto withScene = fa::cli::Session::open(dir, so);
+        CHECK(withScene->engine().world().entity_count() > 0);
+    }
+    {
+        fa::cli::SessionOptions so;
+        so.gfx = fa::cli::Gfx::None;
+        so.noScene = true;
+        auto bare = fa::cli::Session::open(dir, so);
+        CHECK(bare->engine().world().entity_count() == 0);
+        CHECK(bare->registry().has("lightmap.bake_plan_start"));  // the commands are all there
+    }
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
     fa::fs::set_project_root(oldRoot);
 }
 

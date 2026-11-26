@@ -1452,7 +1452,11 @@ SokolDevice::~SokolDevice() {
         // their destructors would call the native API on a context that is gone. Leak the two small objects instead.
         (void)timer_.release();
         for (auto& ring : asyncRead_) (void)ring.release();
-        // accel_ goes with the members, after sg_shutdown, which waited for every frame in flight (sokol's semaphore).
+        // accel_ goes with the members, after sg_shutdown, which waited for every frame in flight (sokol's semaphore). The wait
+        // below does not call sokol: it makes sure no command buffer of this queue still traces a structure when they go.
+#if defined(SOKOL_METAL)
+        if (accel_) accel_->wait_idle();
+#endif
         return;
     }
 #if defined(SOKOL_METAL)
