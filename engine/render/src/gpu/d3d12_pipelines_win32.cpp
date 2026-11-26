@@ -92,14 +92,32 @@ bool compile_hlsl(const ShaderFunction& fn, const char* target, const char* stag
 }
 
 // One stage's DXBC: the bytecode given, or the source compiled for `target`.
-bool stage_code(const ShaderFunction& fn, const char* target, const char* stage, std::vector<std::uint8_t>& out,
-                std::string& error) {
+// `shaderModel` is the highest shader model the device takes (RtCaps::shaderModel): DXIL (shader model 6, from DXC)
+// is accepted for a compute stage on a device that takes shader model 6.0 or more, DXBC (shader model 5.x) everywhere.
+bool stage_code(const ShaderFunction& fn, const char* target, const char* stage, int shaderModel,
+                std::vector<std::uint8_t>& out, std::string& error) {
     if (fn.bytecode.ptr) {
         if (fn.bytecode.size < 4 || std::memcmp(fn.bytecode.ptr, "DXBC", 4) != 0) {
             error = std::string("the ") + stage +
-                    " stage's bytecode is not DXBC (hint: D3D12 takes shader model 5.x DXBC, sokol-shdc's hlsl5 "
-                    "output, or HLSL source it compiles itself; DXIL (shader model 6) is not supported)";
+                    " stage's bytecode is neither DXBC nor DXIL (hint: D3D12 takes shader model 5.x DXBC, sokol-shdc's "
+                    "hlsl5 output, HLSL source it compiles itself, or a compute shader's DXIL from DXC)";
             return false;
+        }
+        if (is_dxil_container(fn.bytecode.ptr, fn.bytecode.size)) {
+            const bool compute = std::strcmp(stage, "compute") == 0;
+            if (!compute) {
+                error = std::string("the ") + stage +
+                        " stage's bytecode is DXIL (shader model 6), which the engine takes for compute shaders only "
+                        "(hint: give a render shader shader model 5.x DXBC, sokol-shdc's hlsl5 output, or HLSL "
+                        "source)";
+                return false;
+            }
+            if (shaderModel < 0x60) {
+                error = "the compute stage's bytecode is DXIL (shader model 6) and this device takes shader model " +
+                        shader_model_name(shaderModel) +
+                        " at most (hint: update the GPU driver, or give the shader as shader model 5.x DXBC)";
+                return false;
+            }
         }
         const auto* p = static_cast<const std::uint8_t*>(fn.bytecode.ptr);
         out.assign(p, p + fn.bytecode.size);
@@ -511,7 +529,7 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
     };
     auto code = [&](const ShaderFunction& fn, const char* target, const char* stage, std::vector<std::uint8_t>& out) {
         std::string e;
-        if (error.empty() && !stage_code(fn, target, stage, out, e)) fail(e);
+        if (error.empty() && !stage_code(fn, target, stage, rtCaps_.shaderModel, out, e)) fail(e);
     };
     const bool hasRender = desc.vertexFunc.source || desc.vertexFunc.bytecode.ptr || desc.fragmentFunc.source ||
                            desc.fragmentFunc.bytecode.ptr;
@@ -588,6 +606,33 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         }
         claim(what, s, 's', sm.binding.hlslRegister, sm.binding.hlslSpace);
     }
+    // Ray queries (M79): a compute kernel with usesRayQuery, its TLAS slots on t registers (root SRVs).
+    const std::string noRt = rtWhy_.empty() ? std::string("this device has no ray query") : rtWhy_;
+    if (desc.usesRayQuery) {
+        if (!info->compute)
+            fail("usesRayQuery on a render shader: ray queries run in compute shaders (hint: a kernel keeps "
+                 "ShaderStage::Compute; there are no ray tracing pipelines)");
+        else if (!features_.rayQuery)
+            fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + noRt +
+                 ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const ShaderAccelStructure& a = desc.accelStructures[i];
+        if (a.stage == ShaderStage::None) continue;
+        const std::string what = "accelStructures[" + std::to_string(i) + "]";
+        if (a.stage != ShaderStage::Compute || !info->compute) {
+            fail(what + " has a stage other than Compute, or the shader is not a compute shader: only a compute "
+                        "shader traces rays (hint: ShaderStage::Compute on a shader with computeFunc)");
+            continue;
+        }
+        if (!desc.usesRayQuery)
+            fail(what + " is declared but usesRayQuery is false (hint: set it on a ray-query kernel)");
+        if (!features_.accelerationStructure)
+            fail(what + " on a device without acceleration structures (Features::accelerationStructure is false: " +
+                 noRt + ")");
+        info->accelDeclared[i] = true;
+        claim(what, 0, 't', a.binding.hlslRegister, a.binding.hlslSpace);
+    }
     for (int i = 0; i < kMaxVertexAttributes; ++i) {
         if (!desc.attrs[i].hlslSemName || !*desc.attrs[i].hlslSemName) continue;
         info->semName[i] = desc.attrs[i].hlslSemName;
@@ -655,6 +700,13 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
                                 std::uint64_t(s.binding.hlslRegister), std::uint64_t(s.binding.hlslSpace)})
             key.add(v);
     }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!info.accelDeclared[i]) continue;
+        const BackendBinding& b = desc.accelStructures[i].binding;
+        for (std::uint64_t v :
+             {std::uint64_t('a'), std::uint64_t(i), std::uint64_t(b.hlslRegister), std::uint64_t(b.hlslSpace)})
+            key.add(v);
+    }
     key.add(bindlessDescriptors_ > 0 ? "bindless" : "-");
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -682,6 +734,19 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
         p.Descriptor.RegisterSpace = b.binding.hlslSpace;
         p.ShaderVisibility = visibility[stage_index(b.stage, compute)];
         layout->cbvParam[i] = int(params.size());
+        params.push_back(p);
+    }
+    // A TLAS: a root SRV at the structure's GPU address (root signature 1.0 takes them; a descriptor table would need
+    // an SRV descriptor per build).
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!info.accelDeclared[i]) continue;
+        const BackendBinding& b = desc.accelStructures[i].binding;
+        D3D12_ROOT_PARAMETER p{};
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        p.Descriptor.ShaderRegister = b.hlslRegister;
+        p.Descriptor.RegisterSpace = b.hlslSpace;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        layout->accelParam[i] = int(params.size());
         params.push_back(p);
     }
     for (int i = 0; i < kMaxViews; ++i) {

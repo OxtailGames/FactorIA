@@ -100,7 +100,8 @@ AccelStructure make_as(RecordingDevice& dev, AccelKind kind, std::uint64_t size,
 }
 
 // A built BLAS of `mesh` (one build recorded and submitted), made with `flags`.
-AccelStructure built_blas(RecordingDevice& dev, const Mesh& mesh, const AccelBuildFlags& flags, const char* label = "rock") {
+AccelStructure built_blas(RecordingDevice& dev, const Mesh& mesh, const AccelBuildFlags& flags,
+                          const char* label = "rock") {
     auto sizes = dev.blas_sizes(mesh.geometries(), flags);
     REQUIRE_MESSAGE(sizes.ok(), sizes.error().message);
     const AccelStructure blas = make_as(dev, AccelKind::Blas, sizes->structure, label);
@@ -119,7 +120,8 @@ AccelStructure built_blas(RecordingDevice& dev, const Mesh& mesh, const AccelBui
 
 }  // namespace
 
-TEST_CASE("ray tracing: a RecordingDevice has none until it is asked, and every call refuses with the reason and records nothing") {
+TEST_CASE("ray tracing: a RecordingDevice has none until it is asked, and every call refuses with the reason and "
+          "records nothing") {
     RecordingDevice dev;
     CHECK_FALSE(dev.features().rayQuery);
     CHECK_FALSE(dev.features().accelerationStructure);
@@ -148,7 +150,7 @@ TEST_CASE("ray tracing: a RecordingDevice has none until it is asked, and every 
     CHECK_FALSE(cl.copy_accel_structure({}, {}, AccelCopyMode::Clone).ok());
     dev.submit(cl);
     dev.commit();
-    CHECK(dev.errors().empty());  // a refusal is an answer, not a misuse
+    CHECK(dev.errors().empty());        // a refusal is an answer, not a misuse
     CHECK(dev.commands().size() == 1);  // only the commit
     CHECK(dev.accel_structure_state({}) == ResourceState::Invalid);
 
@@ -171,7 +173,9 @@ TEST_CASE("ray tracing: the reason names where it can run and the package that b
         CHECK(contains(r, "d3d12 or vulkan"));
         CHECK(contains(r, "Metal"));
     }
-    CHECK(contains(accel_unavailable_reason(Backend::D3d12), "P1d"));
+    CHECK(contains(accel_unavailable_reason(Backend::D3d12), "DXR tier 1.1"));
+    CHECK(contains(accel_unavailable_reason(Backend::D3d12), "shader model 6.5"));
+    CHECK_FALSE(contains(accel_unavailable_reason(Backend::D3d12), "P1d"));
     CHECK(contains(accel_unavailable_reason(Backend::Vulkan), "P1v"));
     CHECK(contains(accel_unavailable_reason(Backend::Metal), "P1m"));
     const Error e = accel_refusal(Backend::Vulkan, "CommandList::build_blas");
@@ -179,7 +183,8 @@ TEST_CASE("ray tracing: the reason names where it can run and the package that b
     CHECK(contains(e.hint, "Device::features()"));
 }
 
-TEST_CASE("ray tracing: a RecordingDevice made with it reports the features and limits, and rayTracingPipeline stays false") {
+TEST_CASE(
+    "ray tracing: a RecordingDevice made with it reports the features and limits, and rayTracingPipeline stays false") {
     RecordingDevice dev(ray_tracing_init());
     CHECK(dev.features().rayQuery);
     CHECK(dev.features().accelerationStructure);
@@ -444,15 +449,18 @@ TEST_CASE("ray tracing: every misuse of a build is a teaching error that records
         Bindings bind;
         bind.accelStructures[0] = blas;
         cl.set_bindings(bind);
-        CHECK(has_error(dev.take_errors(), {"set_bindings", "accelStructures[0] is the BLAS 'rock'", "traces against a TLAS"}));
+        CHECK(has_error(dev.take_errors(),
+                        {"set_bindings", "accelStructures[0] is the BLAS 'rock'", "traces against a TLAS"}));
         Bindings other;
         other.accelStructures[0] = tlas;  // declared, but build_tlas has not run
         cl.set_bindings(other);
-        CHECK(has_error(dev.take_errors(), {"accelStructures[0] is the TLAS 'world'", "which build_tlas has not built yet"}));
+        CHECK(has_error(dev.take_errors(),
+                        {"accelStructures[0] is the TLAS 'world'", "which build_tlas has not built yet"}));
         Bindings extra;
         extra.accelStructures[1] = tlas;  // not declared
         cl.set_bindings(extra);
-        CHECK(has_error(dev.take_errors(), {"accelStructures[1] is bound", "declares no acceleration structure there"}));
+        CHECK(
+            has_error(dev.take_errors(), {"accelStructures[1] is bound", "declares no acceleration structure there"}));
         cl.end_pass();
     }
     SUBCASE("a build inside a pass, on a transfer list, and into the wrong kind") {
@@ -505,7 +513,8 @@ TEST_CASE("ray tracing: every misuse of a build is a teaching error that records
         b.scratch = make_scratch(dev, 1 << 16, "scratch");
         const auto r = cl.build_blas(b);
         REQUIRE_FALSE(r.ok());
-        CHECK(contains(r.error().message, "geometries[0].vertexBuffer 'draw only' was not made with usage.accelBuildInput"));
+        CHECK(contains(r.error().message,
+                       "geometries[0].vertexBuffer 'draw only' was not made with usage.accelBuildInput"));
 
         BufferDesc st;
         st.size = 1024;
@@ -566,7 +575,8 @@ TEST_CASE("ray tracing: a kernel declares its acceleration structure slots and t
 
 namespace {
 
-FeatureEnv env_of(FeatureBackend table, Backend gpuBackend, bool rayQuery = false, bool pipeline = false, const std::string& why = "") {
+FeatureEnv env_of(FeatureBackend table, Backend gpuBackend, bool rayQuery = false, bool pipeline = false,
+                  const std::string& why = "") {
     FeatureEnv e;
     e.backend = table;
     e.gpuBackend = gpuBackend;
@@ -587,11 +597,13 @@ bool supported(const FeatureEnv& env, const char* name, std::string* why = nullp
 
 }  // namespace
 
-TEST_CASE("renderer.supports: the ray tracing rows exist, are documented, and are false with a reason on every backend that cannot trace") {
+TEST_CASE("renderer.supports: the ray tracing rows exist, are documented, and are false with a reason on every backend "
+          "that cannot trace") {
     CHECK(render::find_feature("raytracing") >= 0);
     CHECK(render::find_feature("raytracingPipeline") >= 0);
-    for (const auto& pair : {std::pair{FeatureBackend::Gl, Backend::Gl}, std::pair{FeatureBackend::Gles3, Backend::Gles3},
-                             std::pair{FeatureBackend::WebGl2, Backend::WebGl2}, std::pair{FeatureBackend::D3d11, Backend::D3d11}}) {
+    for (const auto& pair :
+         {std::pair{FeatureBackend::Gl, Backend::Gl}, std::pair{FeatureBackend::Gles3, Backend::Gles3},
+          std::pair{FeatureBackend::WebGl2, Backend::WebGl2}, std::pair{FeatureBackend::D3d11, Backend::D3d11}}) {
         CAPTURE(backend_name(pair.second));
         const FeatureEnv e = env_of(pair.first, pair.second);
         std::string why;
@@ -604,14 +616,16 @@ TEST_CASE("renderer.supports: the ray tracing rows exist, are documented, and ar
     }
 }
 
-TEST_CASE("renderer.supports: D3D12, Vulkan and Metal say which package brings ray tracing, and answer true once the device has it") {
+TEST_CASE("renderer.supports: D3D12, Vulkan and Metal say which package brings ray tracing, and answer true once the "
+          "device has it") {
     struct Case {
         FeatureBackend table;
         Backend backend;
         const char* package;
     };
-    for (const Case& c : {Case{FeatureBackend::Headless, Backend::D3d12, "P1d"}, Case{FeatureBackend::Headless, Backend::Vulkan, "P1v"},
-                          Case{FeatureBackend::Metal, Backend::Metal, "P1m"}}) {
+    for (const Case& c :
+         {Case{FeatureBackend::Headless, Backend::D3d12, "DXR tier 1.1"},
+          Case{FeatureBackend::Headless, Backend::Vulkan, "P1v"}, Case{FeatureBackend::Metal, Backend::Metal, "P1m"}}) {
         CAPTURE(backend_name(c.backend));
         std::string why;
         // The device says it cannot (today every backend answers this): the reason names the package.
@@ -634,7 +648,8 @@ TEST_CASE("renderer.supports: D3D12, Vulkan and Metal say which package brings r
     }
 }
 
-TEST_CASE("renderer.supports: a RecordingDevice answers by what it was made with, and the report lists D3D12 and Vulkan for both rows") {
+TEST_CASE("renderer.supports: a RecordingDevice answers by what it was made with, and the report lists D3D12 and "
+          "Vulkan for both rows") {
     {
         RecordingDevice plain;
         const FeatureEnv e = render::feature_env_from_device(plain);
@@ -698,7 +713,8 @@ TEST_CASE("render.rayTracing: a settings object parses over the base, keeps keys
     RayTracingSettings base;
     base.maxInstances = 1000;
     auto r = render::parse_ray_tracing_settings(
-        Json::parse(R"({"enabled":true,"shadows":"soft","ao":true,"reflections":true,"translucency":true,"gi":"perPixel","raysPerPixel":4})"),
+        Json::parse(
+            R"({"enabled":true,"shadows":"soft","ao":true,"reflections":true,"translucency":true,"gi":"perPixel","raysPerPixel":4})"),
         "factoria.json#/render/rayTracing", base);
     REQUIRE_MESSAGE(r.ok(), r.error().message);
     CHECK(r->enabled);
@@ -737,7 +753,8 @@ TEST_CASE("render.rayTracing: whole numbers are clamped before they are narrowed
 
 TEST_CASE("render.rayTracing: every mistake names the JSON pointer, what is wrong and the fix") {
     const auto fail = [](const char* text) {
-        auto r = render::parse_ray_tracing_settings(Json::parse(text), "factoria.json#/render/rayTracing", RayTracingSettings{});
+        auto r = render::parse_ray_tracing_settings(Json::parse(text), "factoria.json#/render/rayTracing",
+                                                    RayTracingSettings{});
         REQUIRE_FALSE(r.ok());
         return r.error();
     };

@@ -5,10 +5,10 @@ something between this point and the light?", "what does this mirror reflect?", 
 answers with a **ray query** inside a compute shader, against **acceleration structures** it builds from the scene's meshes. It is off by
 default, and free when off.
 
-> **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface only**: the
+> **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface**: the
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
-> the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary). **No backend builds an
-> acceleration structure yet and no effect draws with rays**: turning the settings on changes nothing in the picture, and
+> the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
+> The Direct3D 12 backend builds acceleration structures on a GPU with DXR tier 1.1 (the table below). **No effect draws with rays yet**: turning the settings on changes nothing in the picture, and
 > `render.ray_tracing` says so (`active` is false, with the reason). The sections below say what each part will do and mark what is
 > planned.
 
@@ -81,7 +81,7 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 
 | backend | traces rays | what stands in the way today |
 |---|---|---|
-| Direct3D 12 (Windows) | planned (DXR 1.1 inline ray query) | the backend does not build acceleration structures yet: `render.supports` says "package P1d of milestone 79" |
+| Direct3D 12 (Windows) | on a GPU (or WARP) with DXR tier 1.1 and shader model 6.5: the backend builds acceleration structures and runs inline ray queries in compute shaders; no effect traces yet | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
 | Vulkan (Windows, Linux, Android) | planned (`VK_KHR_acceleration_structure` + `VK_KHR_ray_query`) | not built yet: "package P1v of milestone 79" |
 | Metal (macOS, iOS) | planned (Metal ray tracing, `intersector`) | not built yet: "package P1m of milestone 79" |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
