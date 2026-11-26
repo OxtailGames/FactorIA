@@ -2,7 +2,7 @@
 // (rt_shadow.hlsl) writes (visibility, depth, 0, mesh); the denoiser makes the visibility clean in a separate image; this kernel writes the
 // image the lit pass reads, the hard layout: r = the linear view depth, g = the denoised visibility, b = 0, a = 1 where a mesh was drawn.
 //
-//   binding 0  g_tlas     (not used here; declared so the contract's numbers stay the same)
+//   binding 0  g_tlas     (not used here and not declared: this kernel needs no TLAS; the other numbers are the contract's)
 //   binding 1  g_out      storage image, rgba32f                          (Metal: texture(0))
 //   binding 2  g_params   constant buffer, RtEffectParams                 (Metal: buffer(1))
 //   binding 3  g_src      Texture2D, the soft kernel's image              (Metal: texture(1))   t1   (the slot of the prepass)

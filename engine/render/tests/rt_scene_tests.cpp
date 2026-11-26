@@ -630,7 +630,29 @@ TEST_CASE("rt scene: a BLAS that cannot be built is reported once and its instan
     rig.frame(items);
     CHECK(rig.scene.instance_count() == 1);
     CHECK(rig.scene.stats().skippedNoBlas == 1);
+    CHECK(rig.scene.stats().untracedCasters ==
+          1);  // the instance that was left out casts a shadow: the cascades keep it
     CHECK(log.count("a BLAS could not be built") == 1);  // once, not a line per frame
+}
+
+TEST_CASE("rt scene: the instances whose BLAS waits for the frame's build budget count as untraced casters until it is "
+          "built") {
+    Rig rig;
+    const std::uint32_t over = 4;
+    const std::uint32_t total = render::RtScene::kMaxBuildsPerFrame + over;
+    REQUIRE(rig.scene.configure(rig.dev, true, total + 10));
+    std::vector<std::string> keys;
+    keys.reserve(total);
+    for (std::uint32_t i = 0; i < total; ++i) keys.push_back("budget" + std::to_string(i));
+    std::vector<render::MeshItem> items;
+    for (std::uint32_t i = 0; i < total; ++i)
+        items.push_back(rig.item(rig.mesh(keys[i].c_str()), {float(i), 0, 0}, i + 1));
+    rig.frame(items);
+    CHECK(rig.scene.stats().skippedNoBlas == over);
+    CHECK(rig.scene.stats().untracedCasters == over);
+    rig.frame(items);  // the rest are built now
+    CHECK(rig.scene.stats().skippedNoBlas == 0);
+    CHECK(rig.scene.stats().untracedCasters == 0);
 }
 
 TEST_CASE("rt scene: the BLASes of the instances the cap leaves out are never made") {
@@ -1318,6 +1340,26 @@ TEST_CASE("rt skin: the kernel is asked for in every frame that skins, so a pipe
     CHECK(rig.dev->errors().empty());
     rig.frame(items);
     CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt skin: with no skinning program the skinned meshes leave the TLAS and count as untraced casters") {
+    Warnings log;
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.scene.skinKernel = [] { return gpu::Pipeline{}; };  // the driver refused rt_skin: no pipeline
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator anim = posed(1.0f);
+    std::vector<render::MeshItem> items{rig.skinned_item(m, &anim, {0, 0, -3}, 1)};
+    rig.frame(items);
+    CHECK(rig.scene.stats().skinnedInstances == 0);
+    CHECK(rig.scene.stats().skippedSkinned == 1);
+    CHECK(rig.scene.stats().untracedCasters ==
+          1);  // the lit pass then takes min(rt, cascade): the character keeps its sun shadow
+    CHECK(log.count("the skinning program is not available") == 1);
+    // A skinned mesh that does not cast a shadow is not a lost shadow.
+    rig.renderers.back().castShadows = false;
+    rig.frame(items);
+    CHECK(rig.scene.stats().untracedCasters == 0);
 }
 
 TEST_CASE("rt skin: the bones' box jumping rebuilds the BLAS at once, a small move is a refit") {
