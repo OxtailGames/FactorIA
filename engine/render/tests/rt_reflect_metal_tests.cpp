@@ -697,7 +697,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
                 const Vec3 tx{1.0f + sg * n.x * n.x * ba, sg * bb, -sg * n.x};
                 const Vec3 ty{bb, sg + n.y * n.y * ba, -n.y};
                 const Vec3 toViewer = view * -1.0f;
-                const Vec3 ve = normalize(Vec3{dot(tx, toViewer), dot(ty, toViewer), std::max(dot(n, toViewer), 1.0e-3f)});
+                const Vec3 ve =
+                    normalize(Vec3{dot(tx, toViewer), dot(ty, toViewer), std::max(dot(n, toViewer), 1.0e-3f)});
                 const float alpha = rough * rough;
                 const float offset = params.user0[0] + params.user0[1] * prepass[i * 4];
                 const Vec3 o = positions[i] + n * offset;
@@ -715,7 +716,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
                     // GGX visible normals (Heitz 2018), as the kernel samples them.
                     const Vec3 vh = normalize(Vec3{alpha * ve.x, alpha * ve.y, ve.z});
                     const float lensq = vh.x * vh.x + vh.y * vh.y;
-                    const Vec3 t1 = lensq > 1.0e-7f ? Vec3{-vh.y, vh.x, 0.0f} * (1.0f / std::sqrt(lensq)) : Vec3{1, 0, 0};
+                    const Vec3 t1 =
+                        lensq > 1.0e-7f ? Vec3{-vh.y, vh.x, 0.0f} * (1.0f / std::sqrt(lensq)) : Vec3{1, 0, 0};
                     const Vec3 t2 = cross(vh, t1);
                     const float rr = std::sqrt(u1);
                     const float phi = 6.28318530717958647692f * u2;
@@ -749,7 +751,8 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
                         edge = true;
                         break;
                     }
-                    sum += shade_hit(sc, tris, places[std::size_t(ht.instance)].material, p, hn, dir * -1.0f, small.t) * tint;
+                    sum += shade_hit(sc, tris, places[std::size_t(ht.instance)].material, p, hn, dir * -1.0f, small.t) *
+                           tint;
                     distSum += small.t;
                     ++hits;
                 }
@@ -777,9 +780,9 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
                     magSum += std::fabs(comp(expect, c));
                 }
             }
-        MESSAGE("glossy: compared " << traced << " pixels (" << covered << " with a hit, " << skipped << " skipped on an edge), mean error "
-                                    << (covered ? errSum / (3.0 * covered) : 0.0) << ", mean magnitude "
-                                    << (covered ? magSum / (3.0 * covered) : 0.0));
+        MESSAGE("glossy: compared " << traced << " pixels (" << covered << " with a hit, " << skipped
+                                    << " skipped on an edge), mean error " << (covered ? errSum / (3.0 * covered) : 0.0)
+                                    << ", mean magnitude " << (covered ? magSum / (3.0 * covered) : 0.0));
         CHECK(traced > 400);
         CHECK(covered > 100);
         CHECK(bad == 0);

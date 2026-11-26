@@ -5489,8 +5489,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     why);
         }
     }
-    // Ray traced sharp reflections (M79-P3a-1, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer; the screen-space
-    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the image. A device that refuses the kernel or the
+    // Ray traced reflections (M79-P3a-1/2, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer (a mirror ray under the sharp
+    // cutoff, raysPerPixel glossy rays up to the limit, then the denoiser); the screen-space
+    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the images. A device that refuses the kernel or the
     // image keeps the screen-space reflections and the probes, said once.
     ctx.postPlan.rtReflectImg = nullptr;
     ctx.postPlan.rtReflectRes = ResourceId{};
@@ -5550,7 +5551,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         req.user0[1] = 0.002f;
         req.user0[2] = kRtReflectSharp;
         req.user0[3] = 10000.0f;
-        req.user1[0] = kRtReflectLimit;  // the roughest pixel that is traced (above it: the screen-space march and the probes)
+        req.user1[0] =
+            kRtReflectLimit;  // the roughest pixel that is traced (above it: the screen-space march and the probes)
         req.scene = &rtScene;
         req.drawCalls = &stats.drawCalls;
         const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
