@@ -30,6 +30,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   DLSS Ray Reconstruction now takes its roughness and its diffuse and specular albedo guides from them instead of constants, and
   `render.debug_view` has two new views, `albedo` and `material` (`FA_RENDER_DEBUG_VIEW` too). The fixtures of the render tests were made again
   for the new mesh template. docs/design/ARCHITECTURE_RENDERING_GBUFFER.md.
+- Internal piece of M79: the renderer's own spatio-temporal denoiser for the ray traced signals (shadows, occlusion, diffuse and specular radiance): temporal accumulation with reprojection and variance-guided a-trous iterations, with its history, debug views and tests; no ray pass uses it yet (docs/design/ARCHITECTURE_DENOISE.md).
 
 ## 0.38.0
 
