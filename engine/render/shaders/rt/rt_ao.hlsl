@@ -29,7 +29,9 @@
 //
 // The sequence: a PCG hash of (pixel, the frame's seed) gives the pixel's state, and every ray takes two draws of it (u1, u2 in [0, 1), 24
 // bits each); the rays are stratified (ray i of n takes u1 in [i / n, (i + 1) / n)). No clock, no rand(): the frame's seed is a hash of the
-// frame serial, so the same frame is the same picture, and the next frame's noise differs, which the temporal accumulation averages.
+// frame serial, so the same frame is the same picture on one machine and one GPU (the integer draws are the same everywhere, but the
+// directions made from them use float sin, cos and sqrt, and the Metal compile uses fast math: another GPU can differ in the last bits). The
+// next frame's noise differs, which the temporal accumulation averages.
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure g_tlas : register(t0);
 [[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> g_out : register(u0);
 
@@ -64,7 +66,7 @@ float3 oct_decode(float2 e) {
     return normalize(n);
 }
 
-// PCG (O'Neill): integer only, the same on every GPU and on the CPU.
+// PCG (O'Neill): integer only, so the sequence of draws is the same on every GPU and on the CPU.
 uint pcg(uint v) {
     const uint s = v * 747796405u + 2891336453u;
     const uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;

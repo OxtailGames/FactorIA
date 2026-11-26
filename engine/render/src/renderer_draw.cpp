@@ -5417,7 +5417,18 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ctx.rtAo.img = nullptr;
     ctx.rtAo.on = false;
     ctx.ssaoApply = SsaoApply{};
-    if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+    // The apply is the screen-space occlusion's: a GPU that cannot draw it (no RGBA16F targets that blend, or its shaders failed) keeps neither.
+    if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active() &&
+        !Ssao::apply_available(gpu)) {
+        if (!rtWarnedAo) {
+            rtWarnedAo = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.ao is on but this GPU cannot draw the occlusion's apply (it needs RGBA16F render "
+                "targets that blend, and the occlusion shaders): no ambient occlusion is drawn. Hint: set "
+                "render.rayTracing.ao to false to silence this.");
+        }
+    } else if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
         const SsaoSettings aoS = ssao_rt_settings(ctx.postPlan.ssao);
         RtEffectRequest req;
         req.kernel = "rt_ao";
@@ -5473,7 +5484,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             FA_WARN(
                 "render",
                 "render.rayTracing.ao is on but the ray traced ambient occlusion cannot run on this device ({}). The "
-                "camera keeps its screen-space occlusion (PostProcess.ssaoEnabled), if it has one. Hint: set "
+                "camera keeps its screen-space occlusion (PostProcess.ssaoEnabled), if it has one (a camera with no "
+                "PostProcess has none; the traced occlusion, where it runs, takes the PostProcess "
+                "defaults for radius and intensity then). Hint: set "
                 "render.rayTracing.ao to false to silence this.",
                 out.why);
         }
