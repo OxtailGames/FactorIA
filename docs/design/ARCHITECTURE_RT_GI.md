@@ -129,8 +129,8 @@ Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` 
 - **One query site** (Metal): `rt_trace_surface` and `rt_shade_hit` go through `rt_closest_hit_ff`, as in every kernel.
 - **Denoise.** One function, the `denoise` lambda of the `build_graph` block, calls `RtDenoiser::add_passes` with `DenoiseKind::Diffuse`, signal id
   `kRtGiPixelSignalId` (7) and the name `gipixel`. The image is already demodulated (it has no albedo), so the denoiser needs no albedo input and the
-  lit shader multiplies the result by the surface's albedo as it does the ambient. `DenoiseSignal::enabled = false` there (a vendor denoiser taking
-  the signal: the DLSS Ray Reconstruction package) makes the main pass read the noisy image.
+  lit shader multiplies the result by the surface's albedo as it does the ambient. `DenoiseSignal::enabled = false` there (DLSS Ray Reconstruction taking
+  the signal, see "Ray Reconstruction" below) makes the main pass read the noisy image.
 - **The composite.** `main_pass` takes the image view (the denoised transient, else the kernel's) when `img->ran` is true, so a pass that did not run
   never gives the lit shader an image it did not write. For the opaque draws with no lightmap `fill_fs` sets `fa_gi_px.x` and `bind_textures`
   binds the view at the **lightmap slot** (the mesh shader has no free texture unit: 16 are used): `fa_indirect_diffuse` returns the texel at
@@ -169,7 +169,13 @@ Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` 
   through the renderer: with `perPixel` the floor beside the wall turns red (0.22 to 0.29 on Metal), the farther floor less, and turning the mode off
   gives the first picture back bit for bit; a device that cannot trace skips it.
 
-## Next (P4b-2)
+## Ray Reconstruction (P4b-2)
 
-DLSS Ray Reconstruction takes the signal through `DenoiseSignal::enabled = false` in the `denoise` lambda. Free denoiser signal ids: 8 and up
-(7 is this one, 6 the local shadows).
+DLSS Ray Reconstruction takes the signal through `DenoiseSignal::enabled = false` in the `denoise` lambda. `build_graph` asks
+`Renderer::Impl::rr_signals` once per frame, before any RT pass is recorded (`DrawContext::rr`); it answers `{asked, reflections, gi, why}` from the
+state `vendor_upscale` draws with, and the per-pixel GI is taken only if the device filters a 32-bit float image (`pixel_format_caps(Rgba32F).filter`: the
+main pass binds the noisy RGBA32F image, and a device that cannot filter it keeps the engine's 16-bit denoised one; `DeviceInit::recordingFilterFloat32`
+lets the tests choose). The decision is remembered (`rrSignalsFrame`, `rrSignalsDeclared`), `vendor_upscale` records whether Ray Reconstruction drew
+(`rrDrewFrame`), and `rrSignalsLost` keeps the signals with the engine when a frame was handed them and not drawn by it. `rt_gi_pixel_finish` publishes the
+result as `RtDenoiserStatus` (`ray_tracing_denoiser_status`, `render.ray_tracing` `denoiser`). Free denoiser signal ids: 8 and up
+(7 is this one, 6 the local shadows). Never run on NVIDIA hardware (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction").

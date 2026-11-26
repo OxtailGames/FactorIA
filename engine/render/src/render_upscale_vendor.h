@@ -116,6 +116,7 @@ struct VendorFrame {
     gpu::Image normalRoughness{}, diffuseAlbedo{}, specularAlbedo{};
     gpu::Image
         rrDepth{};  // the hardware depth of the camera's projection that Ray Reconstruction reads in place of `depth`
+    gpu::Image hitDistance{};  // M79-P4b-2, optional: UpscaleInput::hitDistance's image (null when the frame has none)
     gpu::PixelFormat colorFormat = gpu::PixelFormat::None, outputFormat = gpu::PixelFormat::None;
     std::string error;
     // Set by upscale(): whether the frame was drawn with Ray Reconstruction; and, when UpscaleInput::rayReconstruction asked for it and the

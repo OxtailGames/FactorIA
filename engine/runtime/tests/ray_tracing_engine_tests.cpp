@@ -231,11 +231,17 @@ TEST_CASE(
     REQUIRE_FALSE(reason.empty());
     CHECK_FALSE(contains(reason, "not made yet"));
     if (r.result["supported"].get<bool>()) CHECK(contains(reason, "indirect diffuse"));
+    // M79-P4b-2: with no Ray Reconstruction the engine's denoiser is the one that works; AO and shadows are not listed.
+    REQUIRE(r.result["denoiser"].is_object());
+    CHECK(r.result["denoiser"]["gi"] == (r.result["supported"].get<bool>() ? "engine" : "off"));
+    CHECK(r.result["denoiser"]["reflections"] == "off");
+    CHECK(r.result["denoiser"]["reason"] == "");
     // Another gi value: the per-pixel status is empty again.
     r = c.call("render.ray_tracing", Json::parse(R"({"gi":"off"})"));
     REQUIRE(r.ok);
     CHECK(r.result["giPixel"]["active"] == false);
     CHECK(r.result["giPixel"]["reason"] == "");
+    CHECK(r.result["denoiser"]["gi"] == "off");
     e.shutdown();
 }
 

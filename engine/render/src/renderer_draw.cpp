@@ -202,6 +202,9 @@ struct Renderer::Impl::DrawContext {
     struct {
         bool want = false;
     } rtReflect;
+    // M79-P4b-2: which of this camera's ray traced signals DLSS Ray Reconstruction takes (Renderer::Impl::rr_signals, decided in plan_job before any RT pass is
+    // declared): the reflections' and the per-pixel GI's denoiser passes are then not declared, their noisy images are what the picture composites.
+    Renderer::Impl::RrSignals rr;
     // M79-P2b: ray traced ambient occlusion (rt_ao, ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)"). plan_job sets `want` (rayTracing.ao on, the scene
     // collected by this job, the prepass with its normals); build_graph declares the kernel, the denoiser and sets `img` and `on` (the SSAO passes are
     // then not declared). The main pass applies the result only while `img->ran` is true when it draws, else the picture is not darkened.
@@ -1197,6 +1200,19 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         else if (!rtScene.active())
             rtGiPixelFrame.why = "this device cannot trace rays here (render.supports raytracing says why)";
         ctx.giPixel.want = !inFallback && ctx.doPrepass && rtScene.active();
+    }
+    // The signals Ray Reconstruction denoises (M79-P4b-2). Asked once, here, before the kernels and the denoisers are declared. The camera the upscaler
+    // resolves is the one with a jittered temporal plan (`upscaleTaa.on`, the frame's only one); another camera keeps its denoisers.
+    {
+        const bool upscaleCamera = draws && upscaleTaa.on && !plan.view;
+        RrSignals r = rr_signals(upscaleCamera, ctx.postPlan.final_pass(), ctx.rtReflect.want, ctx.giPixel.want);
+        if (r.asked && (upscaleCamera || !rrSignalsDeclared)) {
+            ctx.rr = r;
+            rrSignalsFrame = r;
+            rrSignalsDeclared = true;
+        } else if (upscaleCamera) {
+            ctx.rr = r;
+        }
     }
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
     if (ctx.sssOn)
@@ -5954,13 +5970,20 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             color.kind = DenoiseKind::Specular;
             color.id = kRtReflectSignalId;
             color.name = "reflections";
+            // DLSS Ray Reconstruction takes both signals (rr_signals): nothing of the engine's denoiser is declared (it drops their histories) and the
+            // composite reads the noisy image as it is (rtGlossy stays empty). The kernel's image also gives Ray Reconstruction its hit distance.
+            color.enabled = !ctx.rr.reflections;
             DenoiseSignal cover = color;
             cover.kind = DenoiseKind::Coverage;
             cover.id = kRtReflectCoverageSignalId;
             cover.name = "reflections-coverage";
             const DenoiseOutput dc =
                 rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, color, din, &stats.drawCalls, plan.name);
-            if (dc.valid) {
+            if (ctx.rr.reflections) {
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, cover, din, &stats.drawCalls, plan.name);
+                upscaleReflectImg = out.out;
+                upscaleReflectRes = out.res;
+            } else if (dc.valid) {
                 const DenoiseOutput dk = rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, cover, din,
                                                                &stats.drawCalls, plan.name);
                 if (dk.valid) {
@@ -5978,6 +6001,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     "this.",
                     out.why);
         }
+    }
+    if (ctx.rr.reflections &&
+        !upscaleReflectImg) {  // the kernel was not declared after all: nothing was left to Ray Reconstruction
+        ctx.rr.reflections = false;
+        rrSignalsFrame.reflections = false;
     }
     // Ray traced ambient occlusion (M79-P2b, rt_effect.h): the kernel after the scene's TLAS and the prepass, then the denoiser (Occlusion), whose result
     // the main pass applies in place of the SSAO's (the same apply, the same radius and intensity). A kernel the device refuses is said once and leaves
@@ -6127,7 +6155,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
                                                                ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
                 DenoiseSignal sig;
-                sig.enabled = true;
+                // Ray Reconstruction takes the signal (rr_signals): nothing is declared, the history is dropped.
+                const bool rrTakesGi = ctx.rr.gi;
+                sig.enabled = !rrTakesGi;
                 sig.kind = DenoiseKind::Diffuse;
                 sig.id = kRtGiPixelSignalId;
                 sig.name = "gipixel";
@@ -6148,6 +6178,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 ctx.giPixel.denoised = true;
             }
         } else {
+            ctx.rr.gi = false;
+            rrSignalsFrame.gi = false;
             rtGiPixelFrame.why = out.why;
             rtGiPixelFallbackReason = out.why + " (the probe and ambient light is used; the rays are tried again in " +
                                       std::to_string(kGiRtRetryFrames) + " frames)";
@@ -6408,6 +6440,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             } else {
                 upscaleGbufAlbedo = upscaleGbufMaterial = PrepassRef{};
             }
+            // The reflections Ray Reconstruction denoises: their image is read for the hit distance guide, after the kernel wrote it.
+            if (upscaleReflectImg && upscaleReflectRes.valid()) upReads.push_back(upscaleReflectRes);
         }
         add(render::kPassUpscale, std::move(upReads), {outRes}, [this](const PassContext& c) {
             outputPassLog.push_back(render::kPassUpscale);

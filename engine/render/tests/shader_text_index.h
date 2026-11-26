@@ -221,6 +221,7 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &upscale_mfx_mfx_shader_desc,
     &upscale_rr_rr_shader_desc,
     &upscale_rr_rr_albedo_shader_desc,
+    &upscale_rr_rr_hit_shader_desc,
     &upscale_spatial_spatial_edge_shader_desc,
     &upscale_spatial_spatial_sharpen_shader_desc,
     &volumetric_apply_shader_desc,
