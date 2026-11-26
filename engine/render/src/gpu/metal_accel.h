@@ -67,7 +67,8 @@ public:
 
     // Whether the structures `bindings` binds in the slots `slots` declares are live, built TLASes ("" when they are; else
     // the error text, naming the slot).
-    std::string check_compute_bindings(const Bindings& bindings, const MetalAccelSlots& slots, const char* shaderLabel) const;
+    std::string check_compute_bindings(const Bindings& bindings, const MetalAccelSlots& slots,
+                                       const char* shaderLabel) const;
     // Binds them on sokol's open compute encoder (after sg_apply_bindings): the TLAS at its buffer index and the residency
     // of the TLAS and of every BLAS it names. Needs check_compute_bindings() to have returned "".
     void bind_compute(const Bindings& bindings, const MetalAccelSlots& slots);
