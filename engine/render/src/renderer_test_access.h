@@ -107,6 +107,11 @@ struct RendererTestAccess {
     static bool last_job_needs_velocity(Renderer& r);
     // M78: whether the images of the DLSS Ray Reconstruction guides (the normal and roughness, the albedos, the depth) exist now.
     static bool rr_guide_images(Renderer& r);
+    // M79-P4b-2: whether the hit distance guide of the ray traced reflections (the R32F image made while they go to Ray Reconstruction) exists now, and the
+    // DenoiseSignal ids the engine's denoiser gives the per-pixel GI and the reflections (RtDenoiser::last_reset asks by camera and signal).
+    static bool rr_hit_image(Renderer& r);
+    static std::uint32_t rt_gi_pixel_signal_id();
+    static std::uint32_t rt_reflect_signal_id();
     // M79-P0c: makes the programs of the Ray Reconstruction guides (the normal and depth pass and the albedo pass that reads the thin G-buffer) on this
     // GPU and says whether both pipelines are valid, with the formats the renderer draws them with. No NVIDIA GPU or DLSS needed.
     static bool rr_guide_programs(Renderer& r);

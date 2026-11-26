@@ -89,6 +89,12 @@ render::RtGiPixelStatus Renderer::ray_tracing_gi_pixel_status() const {
     return impl_->rtGiPixelStatus;
 }
 
+render::RtDenoiserStatus Renderer::ray_tracing_denoiser_status() const {
+    if (!impl_) return {};
+    std::lock_guard<std::mutex> lock(impl_->rtGiStatusMutex);
+    return impl_->rtDenoiserStatus;
+}
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -102,6 +108,11 @@ void Renderer::Impl::rt_begin_frame() {
     rtAccelPass.clear();
     rtGiHitValid = false;
     rtGiPixelFrame = {};
+    rrSignalsFrame = {};
+    rrSignalsDeclared = false;
+    rrDrewFrame = false;
+    upscaleReflectImg = nullptr;
+    upscaleReflectRes = ResourceId{};
     rtLocalCandidatesShown = rtLocalFrame.candidates;
     rtLocalTracedShown = rtLocalFrame.traced;
     rtLocalFrame = {};
@@ -203,8 +214,26 @@ void Renderer::Impl::rt_gi_pixel_finish() {
                     : frameSerial < rtGiPixelFallbackUntil ? rtGiPixelFallbackReason
                                                            : std::string("no camera drew the scene this frame");
     }
+    // Who denoised the signals of this frame (M79-P4b-2). A frame whose Ray Reconstruction decision was "take" and that DLSS then drew with Super
+    // Resolution (the evaluation was refused) shows the noisy signals once: the status says the engine denoises (it will, from the next frame) and why.
+    render::RtDenoiserStatus ds;
+    if (rrSignalsDeclared) {
+        const bool drew = rrDrewFrame;
+        ds.reflectionsRr = rrSignalsFrame.reflections && drew;
+        ds.giRr = rrSignalsFrame.gi && drew;
+        if (!drew && (rrSignalsFrame.reflections || rrSignalsFrame.gi))
+            ds.reason = "DLSS Ray Reconstruction did not draw the frame the signals were left to it for (" +
+                        (rrFailedWhy.empty() ? std::string("no reason given") : rrFailedWhy) +
+                        "): they were drawn noisy once and the engine's denoiser takes them from the next frame.";
+        else
+            ds.reason = rrSignalsFrame.why;
+    }
+    // A frame whose signals were left to Ray Reconstruction and that it did not draw (the decision looked at what it could, the frame had another
+    // answer) is not tried again: the engine's denoiser keeps the signals until the setting is switched off and on. It starts from a reset history.
+    if (rrSignalsDeclared && (rrSignalsFrame.reflections || rrSignalsFrame.gi) && !rrDrewFrame) rrSignalsLost = true;
     std::lock_guard<std::mutex> lock(rtGiStatusMutex);
     rtGiPixelStatus = std::move(st);
+    rtDenoiserStatus = std::move(ds);
 }
 
 }  // namespace fa

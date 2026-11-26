@@ -15,6 +15,9 @@
 //   The diffuse and specular albedo come from `fs_albedo` (program rr_albedo, a second pass over the G-buffer: diffuse = albedo * (1 - metalness),
 //   specular = mix(0.04, albedo, metalness), the constants where no mesh was drawn); a frame without the G-buffer has the constants for the
 //   whole picture, which the caller clears into their images.
+//   The specular hit distance (M79-P4b-2) comes from `fs_hit` (program rr_hit, a third pass, only on a frame whose ray traced reflections go to
+//   Ray Reconstruction): the alpha of the reflection signal (> 0 the distance in world units where a ray ended on a surface; 0 not traced; -1 every
+//   ray left the scene) into an R32F image, 0 where there is no distance.
 //
 // Like upscale_mfx.glsl the vendor SDKs run on Metal, D3D11/D3D12 and Vulkan, whose texture space is top-down, so the uv needs no flip.
 @module upscale_rr
@@ -100,5 +103,22 @@ void main() {
 }
 @end
 
+// The specular hit distance guide (M79-P4b-2): the alpha of the ray traced reflection signal (rt_reflect: > 0 the hit distance in world units, 0 a pixel
+// that was not traced, -1 every ray left the scene) in an R32F image, the distance where there is one and 0 elsewhere. The signal has the size of the
+// prepass, which is the size of this pass.
+@fs fs_hit
+layout(binding=4) uniform texture2D tex_refl;
+layout(binding=2) uniform sampler smp_refl;
+@image_sample_type tex_refl unfilterable_float
+@sampler_type smp_refl nonfiltering
+in vec2 uv;
+layout(location=0) out vec4 out_hit;
+void main() {
+    float d = textureLod(sampler2D(tex_refl, smp_refl), uv, 0.0).a;
+    out_hit = vec4(d > 0.0 ? d : 0.0, 0.0, 0.0, 1.0);
+}
+@end
+
 @program rr vs fs
 @program rr_albedo vs fs_albedo
+@program rr_hit vs fs_hit

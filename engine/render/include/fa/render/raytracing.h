@@ -85,6 +85,16 @@ struct RtGiPixelStatus {
     std::string reason;  // why not, when wanted and not active (empty when active or not wanted)
 };
 
+// M79-P4b-2: who denoises the ray traced reflections and the per-pixel GI in the last whole frame (Renderer::ray_tracing_denoiser_status;
+// docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). The ambient occlusion and the shadows always keep the engine's denoiser.
+struct RtDenoiserStatus {
+    bool reflectionsRr =
+        false;  // the reflections' noisy radiance was composited as it is and DLSS Ray Reconstruction denoised it
+    bool giRr = false;  // the same for the per-pixel GI
+    std::string
+        reason;  // Ray Reconstruction was asked for, a signal is on and it did not take it: why (empty otherwise)
+};
+
 // Whether any effect asks for rays: enabled and at least one effect on. The renderer pays for ray tracing only then.
 constexpr bool rt_any_effect(const RayTracingSettings& s) {
     return s.enabled && (s.shadows != RtShadows::Off || s.ao || s.reflections || s.translucency || s.gi != RtGi::Off);

@@ -1443,9 +1443,13 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
 }
 bool RendererTestAccess::last_job_needs_velocity(Renderer& r) { return r.impl_ && r.impl_->lastJobNeedsVelocity; }
 bool RendererTestAccess::rr_guide_images(Renderer& r) {
-    return r.impl_ && (r.impl_->rrNormal.color.id != 0 || r.impl_->rrDiffuse.color.id != 0 ||
-                       r.impl_->rrSpecular.color.id != 0 || r.impl_->rrDepth.color.id != 0);
+    return r.impl_ &&
+           (r.impl_->rrNormal.color.id != 0 || r.impl_->rrDiffuse.color.id != 0 || r.impl_->rrSpecular.color.id != 0 ||
+            r.impl_->rrDepth.color.id != 0 || r.impl_->rrHit.color.id != 0);
 }
+bool RendererTestAccess::rr_hit_image(Renderer& r) { return r.impl_ && r.impl_->rrHit.color.id != 0; }
+std::uint32_t RendererTestAccess::rt_gi_pixel_signal_id() { return Renderer::Impl::kRtGiPixelSignalId; }
+std::uint32_t RendererTestAccess::rt_reflect_signal_id() { return Renderer::Impl::kRtReflectSignalId; }
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;

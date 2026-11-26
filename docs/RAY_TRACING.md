@@ -98,6 +98,7 @@ It returns the settings plus:
 | `localShadows` | `{cap, candidates, traced}`: the most point, spot and area lights traced per camera and frame (3), how many asked for a shadow in the last frame, and how many of them were traced (the rest keep their maps). 0 and 0 while `shadows` is `off` or nothing is active. |
 | `giProbes` | `{active, wanted, reason, grids, probesPerFrame, budget}` for `gi` = `probes`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for the probes (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether rays updated at least one probe in the last frame, why not when they did not (no `RealtimeGI` in the scene, no probe due, the device refused the kernel, no traced scene yet), the grids updated, the probes updated and the most the settings allow per frame. All zero and empty while `gi` is not `probes`. |
 | `giPixel` | `{active, wanted, reason}` for `gi` = `perPixel`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for it (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, no image the lit shader can read on this device, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
+| `denoiser` | `{reflections, gi, reason}`: who denoises the traced reflections and the per-pixel GI in the last frame: `"rayReconstruction"` (DLSS Ray Reconstruction, which draws the frame with their noisy images), `"engine"` (the engine's denoiser) or `"off"` (the effect is not drawn). The ambient occlusion and the shadows always keep the engine's denoiser. `reason` is empty unless `render.upscaler` `rayReconstruction` is on and does not take them (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -147,7 +148,8 @@ What casts: every traced mesh whose `MeshRenderer.castShadows` is on (the scene'
 `"shadows": "soft"` casts `raysPerPixel` rays (1 to 16) per pixel toward random points of the sun's disc, and a denoiser (a temporal accumulation
 and a wavelet filter) makes the visibility smooth. The size of the disc is the scene setting `skySunSize` (the sun's angular diameter in degrees,
 0.53 by default, the real sun, whatever the `skyModel`): the penumbra grows with the distance between the caster and the surface, so a real sun
-gives a sharp shadow near the caster and a soft one far from it, and a bigger `skySunSize` gives a wider penumbra. Where a pixel is fully in the
+gives a sharp shadow near the caster and a soft one far from it, and a bigger `skySunSize` gives a wider penumbra. The engine's denoiser makes the visibility smooth
+also when DLSS Ray Reconstruction draws the frame (a shadow is a mask, not light for it to separate). Where a pixel is fully in the
 shadow of the disc, the shadow is the hard one. The noise is deterministic: the same frame (same serial) gives the same image. The cost on top of
 the hard shadow: `raysPerPixel` rays, a second image of the camera's size plus the denoiser's history images, and about eight small full-screen
 passes. Hard shadows stay one ray and no denoiser.
@@ -200,7 +202,8 @@ What the renderer does each frame:
 1. From each pixel's surface, `raysPerPixel` rays (1 to 16) leave in a **cosine-weighted hemisphere** around its normal, each up to the occlusion
    radius, and stop at the first triangle they find. The pixel's visibility is the share of rays that got out: 1 open, 0 closed in.
 2. The renderer's denoiser (temporal accumulation and an edge-aware filter) turns the noisy image into a clean one; one ray per pixel is enough for
-   a still picture, more rays settle faster after a cut.
+   a still picture, more rays settle faster after a cut. The engine's denoiser also does it when DLSS Ray Reconstruction draws the frame: the occlusion is a
+   darkening, not light for Ray Reconstruction to separate.
 3. The picture is darkened where the occlusion is, after the opaque meshes and before glass, sprites, particles and the HUD, **exactly where the
    screen-space occlusion would darken it** and with the same strength: the radius and the intensity are the camera's
    `PostProcess.ssaoRadius` and `ssaoIntensity` when it has the effect on, else the component's defaults (0.5 m and 1). There is no second pair of
@@ -241,7 +244,9 @@ What the renderer does each frame, for each camera that draws meshes:
    its own colour. The rays of a pixel that hit are averaged; the rays that left the scene add nothing.
 3. The glossy pixels are denoised, the sharp ones are not (a mirror has no noise, and a history would drag a reflection that moves differently
    from the surface). The denoiser keeps two signals of the camera, the radiance and the share of pixels whose rays hit, reprojects them to where
-   the **reflected image** was (the point behind the mirror, not the surface), and filters only between pixels of a similar roughness.
+   the **reflected image** was (the point behind the mirror, not the surface), and filters only between pixels of a similar roughness. With DLSS Ray
+   Reconstruction drawing the frame (`render.upscaler.rayReconstruction`) the engine does not denoise them: the noisy images are composited as the rays wrote them and
+   Ray Reconstruction denoises them with the specular hit distance (docs/UPSCALING_VENDORS.md; never run on NVIDIA hardware).
 4. The screen-space reflections' pass blends the result into the lit picture with the same Fresnel weight, so a reflection is as strong as
    the old one would have been. Where the traced reflection does not cover the pixel (the rays left the scene, or the roughness is between 0.5 and
    0.65, where the traced share fades out), the screen-space march runs for the rest and then what the lit pass drew (the probes and the
@@ -338,7 +343,7 @@ For every pixel of the **main camera** (the one whose meshes are the traced scen
 default) from the surface, spread over the hemisphere around its normal with a cosine weight, seeded from the frame and the pixel (the same
 frame draws the same rays). What a ray hits is lit like the reflections' hits (the sun and its shadow, the emissive colour, the environment) plus
 the light the `RealtimeGI` grids hold at that point; a ray that leaves the scene sees the sky. The average is the **indirect diffuse light** of the
-pixel: the denoiser (the diffuse one, its own history) filters it, and the lit meshes use it in place of the term they read from the probes and the
+pixel: the denoiser (the diffuse one, its own history; DLSS Ray Reconstruction does it instead when it draws the frame and the device filters 32-bit float images) filters it, and the lit meshes use it in place of the term they read from the probes and the
 ambient, multiplied by the surface's own albedo, so textures stay sharp. The direct light, the specular and the reflections do not change.
 
 - **Cost.** Off, nothing, and no denoiser history. On: one compute dispatch (`raysPerPixel` rays per pixel, plus a shadow ray at every hit), one
