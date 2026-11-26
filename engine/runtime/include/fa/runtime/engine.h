@@ -359,7 +359,7 @@ public:
     // The base and presented frame rates and the generated frames of the last frames ({} without a renderer).
     Json frame_generation_report();
     // render.ray_tracing (M79, docs/RAY_TRACING.md): the ray tracing setting {enabled, shadows, ao, reflections, translucency, gi, raysPerPixel,
-    // maxInstances}. An error is returned and nothing changes. The setting is only stored: no backend traces rays yet.
+    // maxInstances}. An error is returned and nothing changes. The setting is only stored: no effect reads it yet.
     std::string set_ray_tracing(const Json& value, const std::string& where = "render.ray_tracing");
     const render::RayTracingSettings& ray_tracing() const;
     // The setting, whether this device could trace (renderer.supports("raytracing") and its reason) and whether anything is traced

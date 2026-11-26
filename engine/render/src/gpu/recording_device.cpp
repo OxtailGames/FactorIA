@@ -450,9 +450,6 @@ Buffer RecordingDevice::make_buffer(const BufferDesc& d) {
             add(what, "usage.accelBuildInput, accelStorage or accelScratch on a device without acceleration structures "
                       "(Features::accelerationStructure is false: " +
                           accel_unavailable_reason(Backend::Recording) + ")");
-        else if (!features_.bufferDeviceAddress)
-            add(what, "usage.accelBuildInput, accelStorage or accelScratch on a device without buffer device addresses "
-                      "(Features::bufferDeviceAddress is false)");
     }
     BufferInfo info{d.size, d.usage};
     const ResourceState st = what.empty() ? ResourceState::Valid : ResourceState::Failed;
