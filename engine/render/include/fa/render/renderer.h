@@ -492,6 +492,8 @@ public:
     // keeps the scene's acceleration structures (a BLAS per mesh, a TLAS every frame; docs/design/ARCHITECTURE_RT_SCENE.md); off, or on a device
     // that cannot, it makes no buffer and does no work (a device that cannot says why once in the log). Applied at the start of the next frame.
     void set_ray_tracing(const render::RayTracingSettings& settings);
+    // What the frames trace: the setting above under the graphics preset's caps (QualityLimits::rtShadows..., set_quality), which never turn an
+    // effect on. The same as the setting while no preset caps it.
     const render::RayTracingSettings& ray_tracing() const;
     // Why an effect that is on is drawing its raster version this frame although the device traces (a kernel the driver rejected, a prepass
     // that does not match the output): one line per effect, empty when every effect that is on runs. Thread-safe.

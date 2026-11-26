@@ -24,7 +24,8 @@ pass: the raster captures update the grids as before and the status says why (`g
 1. `gi_plan` lays the grids out and, after `++g.frame`, calls `gi_plan_rays` when `gi = "probes"`. It picks the probes with the same `gi_pick` the
    raster path uses: the ones never captured first, then the ones updated longest ago (round robin; nothing looks at the camera: the camera
    priority of the brief is **not** made). A grid takes at most `rtProbesPerFrame` probes and all grids together at most `kGiRtMaxFrameProbes`
-   (64, the size of the constants block) and the preset's `quality.realtimeGiProbesPerFrame`. The grids are visited in the order of their entity
+   (64, the size of the constants block); `quality.realtimeGiProbesPerFrame` caps the raster captures only (the preset's lever for the rays is
+   `QualityLimits::rtGi`, applied to the setting before the renderer reads it). The grids are visited in the order of their entity
    ids, starting each frame one grid further (`rtStart`), so with many grids every one gets its share of the 64 instead of the first ones taking
    it all. The budget is a count, never a time, so the result does not depend on the CPU's speed.
 2. One `RtGiDispatch` (the constants block `RtGiParams`, 1120 bytes) per grid with picks, then one compute pass `gi-probes` (a side-effect pass, so

@@ -270,9 +270,9 @@ bool Renderer::Impl::gi_plan_rays() {
     const std::size_t first = order.empty() ? 0 : g.rtStart++ % order.size();
     for (std::size_t k = 0; k < order.size(); ++k) {
         GiGrid& gr = *order[(first + k) % order.size()];
-        // The same rate cap as the raster path (gi_plan): the graphics preset limits how fast a grid updates.
-        const int want = qualityOn ? std::max(1, std::min(gr.layout.rtProbesPerFrame, quality.realtimeGiProbesPerFrame))
-                                   : gr.layout.rtProbesPerFrame;
+        // M79-P6a: not capped by quality.realtimeGiProbesPerFrame (that knob is the raster captures' rate): the preset's lever for the
+        // rays is the tier (QualityLimits::rtGi, which decides whether the probes are updated by rays at all).
+        const int want = gr.layout.rtProbesPerFrame;
         g.rtBudget += std::min(want, kGiRtMaxFrameProbes);
         if (left <= 0) continue;
         Pick pick;
