@@ -786,6 +786,12 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         engine.profile_gpu(gpuMs, &gpuSupported, &gpuReason);
         for (double ms : gpuMs) profile.add_gpu_ms(ms);  // the answers of the last frames, if they are ready
         profile.set_gpu_status(gpuSupported, gpuReason);
+        {
+            std::string driver, why;
+            engine.profile_latency(&driver, &why);
+            profile.set_latency_status(driver, why);
+        }
+        profile.set_frame_generation(engine.profile_frame_generation());
         profile.add_memory(engine.profile_memory());
         report["profile"] = profile.to_json();
     }

@@ -467,7 +467,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupContext c = w.ctx();
 
     SetupStatus all = setup_status(c, {}, false);
-    REQUIRE(all.components.size() == 11);
+    REQUIRE(all.components.size() == 14);
     CHECK(all.components[10].id == "directstorage");
     CHECK(all.components[10].state == (c.host_os() == "windows" ? "missing" : "unsupported"));  // Windows only
     CHECK(all.components[9].id == "launcher");
@@ -505,7 +505,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 11);
+    CHECK(j.at("components").size() == 14);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 
@@ -622,8 +622,8 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     CHECK(mgr[0]->argv[1] == "--sdk_root=" + sdk.string());
     CHECK(starts_with(mgr[0]->argv[2], "--package_file="));
     CHECK(mgr[0]->env.at("JAVA_HOME") == jdk.string());
-    CHECK(mgr[0]->env.at("ANDROID_USER_HOME") ==
-          (w.h() / "android" / "user").string());  // Google's tools keep their files in FactorIA's folder
+    CHECK(stdfs::path(mgr[0]->env.at("ANDROID_USER_HOME")) ==
+          w.h() / "android" / "user");  // Google's tools keep their files in FactorIA's folder
     CHECK(mgr[0]->packageFile == "platform-tools\nplatforms;android-36\nbuild-tools;35.0.0\n");
     CHECK(mgr[0]->stdinText.empty());
 
@@ -707,7 +707,7 @@ TEST_CASE("setup android: when Google's list no longer has the pinned tools, `la
     REQUIRE(w.sdkmanager_calls() == 1);
     for (const ProcessCall& call : w.calls) {
         if (stdfs::path(call.argv[0]).filename() != "sdkmanager") continue;
-        CHECK(call.env.at("ANDROID_USER_HOME") == (w.h() / "android" / "user").string());
+        CHECK(stdfs::path(call.env.at("ANDROID_USER_HOME")) == w.h() / "android" / "user");
         CHECK(call.stdinText.rfind("y\ny\n", 0) == 0);
         for (const std::string& a : call.argv) CHECK(a != "--licenses");
     }
@@ -1703,7 +1703,7 @@ TEST_CASE("curl downloader: the command line and the result of a good download")
     CHECK(argv.back() == rq.url);
     const auto o = std::find(argv.begin(), argv.end(), "-o");
     REQUIRE(o != argv.end());
-    CHECK(*(o + 1) == rq.destination + ".part");  // written aside, renamed when complete
+    CHECK(stdfs::path(*(o + 1)) == stdfs::path(rq.destination + ".part"));  // written aside, renamed when complete
 }
 
 TEST_CASE("curl downloader: failures say what happened and how to fix it") {

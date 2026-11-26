@@ -2,7 +2,10 @@
 
 This page is the contract of the M76 settings. The **temporal antialiasing**, the **spatial upscaler**, the **temporal upscaler**,
 **MetalFX** (Apple GPUs), the plain **stretch**, the **graphics presets** and the **dynamic resolution** draw today (see below). A
-mode the GPU cannot draw draws as the best mode that exists, and `render.supports` says why.
+mode the GPU cannot draw draws as the best mode that exists, and `render.supports` says why. M78 adds the modes of the three GPU makers'
+own upscalers, **DLSS** (NVIDIA), **XeSS** (Intel) and **FSR 3.1** (AMD): the modes, the choice of `auto`, the reasons and the fallback
+exist now, DLSS and XeSS draw their own frames, and FSR's arrive with its package of M78 (see "Vendor upscalers" below and
+[UPSCALING_VENDORS.md](UPSCALING_VENDORS.md)).
 
 ## The engine-wide upscaler settings
 
@@ -15,7 +18,7 @@ The picture can be drawn at a lower resolution and brought up to the window's. O
 
 | Key | Values | Default |
 |---|---|---|
-| `mode` | `stretch` (the window scales the picture), `spatial`, `temporal`, `metalfx` (Apple GPUs), `auto` | `stretch` |
+| `mode` | `stretch` (the window scales the picture), `spatial`, `temporal`, `metalfx` (Apple GPUs), `dlss` (NVIDIA RTX, Windows), `xess` (Windows), `fsr` (Windows), `auto` | `stretch` |
 | `quality` | `native` (1), `quality` (1/1.5), `balanced` (1/1.7), `performance` (1/2), `ultraPerformance` (1/3) | `native` |
 | `sharpness` | 0 to 1 | 0.5 |
 
@@ -32,11 +35,17 @@ draws, so reading the setting back never lies:
   until one of its frames fails; it draws as `temporal` (then `spatial`) where it cannot, with the reason in `render.supports` and one
   warning in the log. Its temporal scaler has one history like the temporal upscaler, so a frame of several cameras draws `spatial`
   too; a GPU that has only MetalFX's spatial scaler keeps `metalfx` on every frame (the section "MetalFX" below);
-- `auto` picks the best the GPU can draw: `metalfx`, `temporal`, `spatial`; where `temporal` cannot run it is `spatial`;
+- `dlss`, `xess` and `fsr` draw as themselves when their SDK is usable on this machine (Windows, the library installed, a backend and a GPU
+  that suit it, none of its frames failed) and the frame is one jittered camera, like `temporal`; otherwise they draw as `metalfx` where
+  that exists, else `temporal`, else `spatial`, with the reason in `render.supports` and one warning in the log (the section "Vendor
+  upscalers" below);
+- `auto` picks the SDK of the GPU's maker when it is usable (NVIDIA: `dlss`, Intel: `xess`, AMD: `fsr`), else the best the GPU can draw:
+  `metalfx`, `temporal`, `spatial`; where `temporal` cannot run it is `spatial`;
 - with no renderer (`graphics=false`) `effectiveMode` is what a GPU here would draw for a game with one camera and no history to
   fail: `stretch` for a pixel-perfect project, and otherwise the setting itself (`spatial`, `temporal`), with `auto` and `metalfx`
   reported as `metalfx` on a Mac or iPhone build where MetalFX is available (the system is asked, no window is made) and as `temporal`
-  everywhere else. It cannot know that a particular GPU's shaders compile or that a frame has several cameras, so a game that does that
+  everywhere else (`dlss`, `xess` and `fsr` are reported as that same best mode: no GPU is opened, so no SDK is probed). It cannot know that a
+  particular GPU's shaders compile or that a frame has several cameras, so a game that does that
   draws `spatial` where this reports `temporal` or `metalfx`.
 
 The project's block is applied when the engine starts and again when `factoria.json` changes it.
@@ -92,7 +101,7 @@ The game is drawn at `window.renderScale` (0.33 to 1, the player's option) times
 
 The upscale stage is on when that scale is below 1, or when the mode that draws is `spatial` and `sharpness` is above 0: at
 scale 1 it is then the sharpen alone (one pass at the window's size, an extra cost the `stretch` mode never has; set
-`sharpness` 0 for none). The `temporal` and `metalfx` modes (so `auto`, where it picks one of them) at scale 1 draw nothing extra: there is nothing to
+`sharpness` 0 for none). The `temporal`, `metalfx`, `dlss`, `xess` and `fsr` modes (so `auto`, where it picks one of them) at scale 1 draw nothing extra: there is nothing to
 upscale and no sharpen (turn `temporalAAEnabled` on for antialiasing), so a game on `auto` at `native` quality is drawn as `stretch`
 is. A frame with several cameras makes them `spatial` (the section on the temporal upscaler), and the sharpen then runs at scale 1 too. The HUD, the UI and the debug text are drawn after the stage at the window's size, so text stays sharp
 (unless a screen-space bloom would make them glow: docs/design/ARCHITECTURE_RENDERING.md, "Upscale stage (M76)", repository only, not in the binary).
@@ -188,6 +197,16 @@ starts on an OS without it). It draws in the same `upscale` stage as the other m
   hooks of the wrapper), so they also run there: which frames hand the reactive mask over, and what happens when a MetalFX command buffer
   fails (the handler of its completion raises the event the later passes wait for, so the queue does not stall; the renderer then falls back
   with one warning).
+
+## Vendor upscalers: DLSS, XeSS and FSR 3.1 (M78)
+
+`mode` `dlss` (NVIDIA DLSS Super Resolution, through NVIDIA Streamline), `xess` (Intel XeSS) and `fsr` (AMD FidelityFX Super Resolution 3.1)
+hand the upscale to the maker's SDK, on Windows (Direct3D 12 and Vulkan; XeSS also Direct3D 11). They read the same jittered picture,
+depth and motion as `temporal`, need a single camera, and fall back to the next best mode with one warning when the SDK is missing, the
+GPU is not suitable or a frame fails. The engine ships no vendor header or binary: the libraries are installed with `factoria setup
+streamline`, `factoria setup xess` and `factoria setup fidelityfx`. The whole description (where the libraries are looked for, `auto`,
+the reasons, the NVIDIA, Intel and AMD sections, and the opt-in DLSS Ray Reconstruction, `rayReconstruction: true` with mode `dlss`, or `auto` where it picks DLSS) is in
+[UPSCALING_VENDORS.md](UPSCALING_VENDORS.md).
 
 ## Temporal antialiasing
 
@@ -485,7 +504,7 @@ upscaler is not put back by itself: applying the preset again does.
 
 ## What a game can already ask
 
-`render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dynamicResolution`, or `temporalAA`
+`render.supports` with `motionVectors`, `spatialUpscaler`, `temporalUpscaler`, `metalfx`, `dlss`, `xess`, `fsr`, `dynamicResolution`, or `temporalAA`
 (the effect's row). `temporalAA`, `spatialUpscaler`, `temporalUpscaler` and `dynamicResolution` are `supported` on every GPU
 backend; `metalfx` is `supported` on Metal where the OS and the GPU have MetalFX (else false, with the reason: the OS version, the
 iOS simulator, the GPU, or the OpenGL/D3D11 backend of this build); `motionVectors` answers
@@ -500,6 +519,13 @@ the world, and `render.debug_view {"view":"motionVectors"}` shows it).
 | `spatialUpscaler` | every GPU backend | nothing |
 | `dynamicResolution` | every GPU backend | nothing (the GPU time needs timer queries: Direct3D 11 and OpenGL; elsewhere the time between frames) |
 | `metalfx` | Metal only (macOS, iOS) | macOS 13 or iOS 16 or later and a GPU with the MetalFX scalers (`reason` names what is missing); the reactive mask needs macOS 14.4 / iOS 17.4, an older OS draws without it |
+| `dlss` | Windows: D3D12, Vulkan | an NVIDIA RTX GPU and Streamline installed (`factoria setup streamline`); `reason` names what is missing |
+| `xess` | Windows: D3D12, Vulkan, D3D11 | the XeSS SDK installed (`factoria setup xess`) |
+| `fsr` | Windows: D3D12, Vulkan | the FidelityFX SDK installed (`factoria setup fidelityfx`) |
 | `temporalAA` | every GPU backend (it is an effect row, see `postprocess.get`'s `order`) | nothing (RGBA16F history where the GPU can, else RGBA8) |
+
+The table behind `render.supports` has columns for the OpenGL family, D3D11 and Metal only (D3D12 and Vulkan are answered as its headless
+column, so a row such as `spatialUpscaler` reads "no" there); the `dlss`, `xess` and `fsr` rows are answered by their providers instead, which know the backend,
+the GPU's maker and the installed library, so they are correct on D3D12 and Vulkan.
 
 How jitter and motion vectors are shared between the passes is in docs/design/ARCHITECTURE_RENDERING_TEMPORAL.md, "Motion vectors and jitter (M76)" (repository only, not in the binary).

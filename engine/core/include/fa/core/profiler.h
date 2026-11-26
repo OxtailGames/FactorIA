@@ -96,6 +96,9 @@ struct ProfFrame {
     std::vector<ProfZoneSample> zones;         // sorted by ms, slowest first
     std::vector<ProfLane> lanes;               // main first, then every worker of the pool (idle ones too)
     std::vector<ProfBudgetSample> overBudget;  // the budgets this frame went over, sorted by name; usually empty
+    // The time from the input sample to the end of the present of this frame, ms (M78, docs/LATENCY.md); -1 when the frame did not
+    // present or the latency measurement is off. CPU-visible time: the frame still waits for the display after the present call.
+    double latencyMs = -1;
 };
 
 // Memory the engine can name. Bytes; what the build cannot measure stays 0.
@@ -126,9 +129,12 @@ public:
     // Probes (call only when on(); the scopes below check).
     void add_system(ProfSystem s, double ms) { cur_.systemMs[std::size_t(s)] += ms; }
     void add_behaviour(const std::string& className, const std::string& path, double ms);
-    // Main thread only. Charges `ms` to the zone `name` (a frame-graph pass of the renderer). The zone's time is also part of
-    // the system that ran it (Render), so zones are not added to the systems.
+    // Main thread only. Charges `ms` to the zone `name` (a frame-graph pass of the renderer). The zone's time is also part of the
+    // system that ran it (Render), so zones are not added to the systems. The exception is a zone added outside any
+    // ProfSystemScope (the engine's "Latency" wait before the input is sampled): its time belongs to no system, only to the zone.
     void add_zone(std::string_view name, double ms);
+    // Main thread only. The input-to-present time of the frame being measured (ProfFrame::latencyMs); a negative value means none.
+    void set_latency_ms(double ms) { cur_.latencyMs = ms >= 0 ? ms : -1; }
     // Main thread only. Marks the frame as over the budget `name` ("scripts"): it spent `ms` against a budget of `limitMs`. The
     // profile summary counts these frames per name (`overBudget` in perf.profile and play.report) and the editor's Profiler panel
     // shows the count. A second call with the same name in one frame keeps the larger `ms`.
@@ -207,6 +213,12 @@ public:
     void add_frame(const ProfFrame& f);
     void add_gpu_ms(double ms);  // one resolved GPU frame time (they arrive a few frames late)
     void set_gpu_status(bool supported, const std::string& reason);  // reason: why gpu times are null
+    // The latency block (M78): the driver that measured ("none", "pacing", "reflex", "antilag2", "xell") and, when no frame was
+    // measured, why. The times come from the frames' latencyMs.
+    void set_latency_status(const std::string& driver, const std::string& reason);
+    // The frame generation block (M78, docs/FRAME_GENERATION.md): the engine's readout of the run as a JSON object (provider, state, baseFps,
+    // presentedFps, renderedFrames, generatedFrames, reason). Copied into the summary as "frameGeneration"; a run that never set it reports state "off".
+    void set_frame_generation(const Json& readout);
     void add_memory(const ProfMemory& m);  // first call = start, last = end, max over calls = peak
     int frames() const { return frames_; }
     Json to_json() const;  // see docs/PERFORMANCE.md
@@ -251,6 +263,10 @@ private:
     std::unordered_map<std::string, BudgetAcc> budgets_;  // by name: frames over, worst time, the latest limit
     std::vector<LaneAcc> lanes_;                          // in the order the lanes first appeared (main, worker 1..)
     Acc gpu_;
+    Acc latency_;
+    std::string latencyDriver_ = "none";
+    std::string latencyReason_ = "the input-to-present time was not measured";
+    Json frameGeneration_;  // object, or null when never set
     bool gpuSupported_ = false;
     std::string gpuReason_ = "the GPU time was not measured";
     bool haveMemory_ = false;

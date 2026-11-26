@@ -5,7 +5,7 @@
 
 > La versión en inglés es la referencia: si esta traducción difiere de ella, prevalece la versión en inglés.
 
-> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.37; este texto sigue
+> **Esta traducción va por detrás del texto inglés** ([README.md](README.md), al día en la versión 0.38; este texto sigue
 > en la 0.1). Lo que falta aquí: el estado actual (versión 0.32 y los 11 juegos de ejemplo, no siete), el estado de la
 > firma en «Descarga» (las descargas de Windows no están firmadas todavía), las licencias de terceros (además de MIT, zlib
 > y dominio público hay Apache-2.0, BSL-1.0 y BSD-3-Clause) y la estructura del repositorio con `skills/` y el contenido
@@ -172,7 +172,7 @@ español de esta página y de la guía de primeros pasos ([docs/i18n/es/GETTING_
 Temas, una página cada uno (en inglés):
 
 - Arte 2D y 3D: [docs/ASSETS.md](docs/ASSETS.md), [docs/IMAGES.md](docs/IMAGES.md), [docs/VECTOR.md](docs/VECTOR.md), [docs/MODELING.md](docs/MODELING.md), [docs/RIGGING.md](docs/RIGGING.md), [docs/ANIMATION.md](docs/ANIMATION.md).
-- Aspecto y sensación: [docs/PARTICLES.md](docs/PARTICLES.md), [docs/EFFECTS.md](docs/EFFECTS.md), [docs/GAME_FEEL.md](docs/GAME_FEEL.md), [docs/SHADERS.md](docs/SHADERS.md), [docs/RENDERING.md](docs/RENDERING.md), [docs/UPSCALING.md](docs/UPSCALING.md).
+- Aspecto y sensación: [docs/PARTICLES.md](docs/PARTICLES.md), [docs/EFFECTS.md](docs/EFFECTS.md), [docs/GAME_FEEL.md](docs/GAME_FEEL.md), [docs/SHADERS.md](docs/SHADERS.md), [docs/RENDERING.md](docs/RENDERING.md), [docs/UPSCALING.md](docs/UPSCALING.md), [docs/LATENCY.md](docs/LATENCY.md), [docs/FRAME_GENERATION.md](docs/FRAME_GENERATION.md).
 - Sonido: [docs/SOUND.md](docs/SOUND.md), [docs/MUSIC.md](docs/MUSIC.md).
 - Texto y menús: [docs/TEXT.md](docs/TEXT.md), [docs/LOCALIZATION.md](docs/LOCALIZATION.md) (varios idiomas: tablas de textos, campos `key`, la API `i18n`), [docs/MENUS.md](docs/MENUS.md).
 - Mundo y servicios: [docs/NAVIGATION.md](docs/NAVIGATION.md), [docs/BIG_WORLDS.md](docs/BIG_WORLDS.md) (páginas: [niveles de detalle y oclusión](docs/BIG_WORLDS_LOD.md), [streaming y origen flotante](docs/BIG_WORLDS_STREAMING.md), [terreno y follaje](docs/BIG_WORLDS_TERRAIN.md)), [docs/NETWORKING.md](docs/NETWORKING.md), [docs/PLATFORM.md](docs/PLATFORM.md), [docs/ANALYTICS.md](docs/ANALYTICS.md).

@@ -123,6 +123,48 @@ TEST_CASE("ProfileSummary: gpu is null with the reason, or a number; memory star
     CHECK(j["gpu"]["reason"].is_null());
 }
 
+TEST_CASE("ProfileSummary: the frame generation block is off until the engine sets it (M78)") {
+    ProfileSummary s;
+    s.add_frame(frame(1, 0, {}));
+    Json j = s.to_json();
+    REQUIRE(j.contains("frameGeneration"));
+    CHECK(j["frameGeneration"]["state"] == "off");
+    CHECK(j["frameGeneration"]["generatedFrames"] == 0);
+    CHECK(j["frameGeneration"]["reason"].is_string());
+    s.set_frame_generation(
+        Json::parse(R"({"provider":"fsr","state":"active","baseFps":60.5,"presentedFps":121.0,"generatedFrames":90})"));
+    j = s.to_json();
+    CHECK(j["frameGeneration"]["provider"] == "fsr");
+    CHECK(j["frameGeneration"]["state"] == "active");
+    CHECK(j["frameGeneration"]["generatedFrames"] == 90);
+}
+
+TEST_CASE("ProfileSummary: latency is null with the reason until a frame has an input-to-present time (M78)") {
+    ProfileSummary s;
+    s.add_frame(frame(1, 0, {}));
+    s.set_latency_status("none", "the mode is off");
+    Json j = s.to_json();
+    REQUIRE(j.contains("latency"));
+    CHECK(j["latency"]["avgMs"].is_null());
+    CHECK(j["latency"]["samples"] == 0);
+    CHECK(j["latency"]["driver"] == "none");
+    CHECK(j["latency"]["reason"] == "the mode is off");
+
+    for (double ms : {4.0, 6.0, 5.0, 9.0}) {
+        ProfFrame f = frame(1, 0, {});
+        f.latencyMs = ms;
+        s.add_frame(f);
+    }
+    s.add_frame(frame(1, 0, {}));  // a frame with no measurement (latencyMs -1) is not a sample
+    s.set_latency_status("antilag2", "");
+    j = s.to_json();
+    CHECK(j["latency"]["samples"] == 4);
+    CHECK(j["latency"]["avgMs"].get<double>() == doctest::Approx(6.0));
+    CHECK(j["latency"]["maxMs"].get<double>() == doctest::Approx(9.0));
+    CHECK(j["latency"]["driver"] == "antilag2");
+    CHECK(j["latency"]["reason"].is_null());
+}
+
 TEST_CASE("ProfileSummary: p95 follows the last window, the maximum and average stay exact") {
     ProfileSummary s;
     const int n = int(ProfileSummary::kMaxWindow) + 100;

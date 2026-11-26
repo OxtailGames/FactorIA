@@ -28,9 +28,9 @@ std::string factoria_home(const ExportEnvLookup& env) {
 namespace {
 
 const std::vector<std::string>& component_ids() {
-    static const std::vector<std::string> ids = {"android",   "players",  "cmake",        "xcode",
-                                                 "appimage",  "shaders",  "vscode",       "ffmpeg",
-                                                 "webplayer", "launcher", "directstorage"};
+    static const std::vector<std::string> ids = {"android",       "players",    "cmake",  "xcode",     "appimage",
+                                                 "shaders",       "vscode",     "ffmpeg", "webplayer", "launcher",
+                                                 "directstorage", "streamline", "xess",   "fidelityfx"};
     return ids;
 }
 
@@ -131,6 +131,9 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
             st.components.push_back(setup_detail::launcher_status(ctx));
         else if (id == "directstorage")
             st.components.push_back(setup_detail::directstorage_status(ctx));
+        else if (find_vendor_sdk(id))
+            // A vendor SDK's license text is a network request of its own: fetched only when that component is asked for.
+            st.components.push_back(setup_detail::vendor_sdk_status_by_id(ctx, id, fetchLicenses && component == id));
         else
             st.components.push_back(setup_detail::ffmpeg_status(ctx));
     }
@@ -156,6 +159,7 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
     if (options.component == "ffmpeg") return setup_detail::ffmpeg_install(ctx, options);
     if (options.component == "launcher") return setup_detail::launcher_install(ctx, options);
     if (options.component == "directstorage") return setup_detail::directstorage_install(ctx, options);
+    if (find_vendor_sdk(options.component)) return setup_detail::vendor_sdk_install_by_id(ctx, options);
     SetupResult r;
     r.report.component = options.component;
     r.code = "invalid_argument";
@@ -192,7 +196,9 @@ void register_setup_commands(CommandRegistry& registry) {
         info.readOnly = true;
         info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other "
                        "platforms, CMake, Xcode, the AppImage tools, sokol-shdc, the VS Code debugger extension, "
-                       "ffmpeg, the FactorIA app launcher, the DirectStorage DLLs of Windows games.";
+                       "ffmpeg, the FactorIA app launcher, the DirectStorage DLLs of Windows games, the vendor SDKs "
+                       "(NVIDIA Streamline, "
+                       "Intel XeSS, AMD FidelityFX) a Windows game ships with.";
         info.description =
             "Returns {home, host, components[]}; each component is {id, title, state, details, paths, "
             "problems[], installSizeMb, licenses[], canInstall}. Example: "
@@ -216,20 +222,29 @@ void register_setup_commands(CommandRegistry& registry) {
             "PATH or the one under home/tools/ffmpeg/) and `directstorage` (the x64 dstorage.dll and "
             "dstoragecore.dll a Windows release export with export.pack.directStorage puts next to the game, "
             "under home/tools/directstorage/<version>/; any computer can hold them, but off Windows it is "
-            "unsupported: nothing there needs it, and it is installed only when asked for by name). state is "
+            "unsupported: nothing there needs it, and it is installed only when asked for by name) and the vendor SDKs "
+            "`streamline` (NVIDIA Streamline: DLSS, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), `xess` "
+            "(Intel XeSS, XeSS-FG, XeLL) and `fidelityfx` (AMD FidelityFX: FSR upscaler and frame generation): the "
+            "vendors' redistributable x64 DLLs a Windows export copies next to a game whose render settings can use "
+            "them (export.pack.vendorSdks), under home/tools/<id>/<version>/, installed on any computer and "
+            "unsupported off Windows like directstorage. state is "
             "installed | missing | "
             "partial | unsupported "
             "(nothing to do on this computer). problems[] says what is missing and how to fix it; "
-            "`setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android "
-            "SDK license is not accepted yet) holds {id, title, text}: the full license the user must read "
-            "and agree to before `setup.install` with acceptLicenses. The only network request is the fetch "
-            "of that license text (fetchLicenses false skips it). Everything installed lives under `home` "
+            "`setup.install` fixes everything except Xcode. `licenses` (android, streamline, xess and fidelityfx) "
+            "holds "
+            "{id, title, text}: the full license the user must read "
+            "and agree to before `setup.install` with acceptLicenses. Android lists it while it is not accepted yet; "
+            "a vendor SDK lists it, installed or not (a reinstall asks again), only when that component is asked for "
+            "(`component`), because it is fetched on its own. The only network request is the fetch "
+            "of that license text (fetchLicenses false skips it; without `component` only Android's is fetched). "
+            "Everything installed lives under `home` "
             "($FACTORIA_HOME, default ~/.factoria). Details: docs_read {\"name\":\"exporting\"}.";
         info.inputSchema = Json::parse(R"({
           "type":"object",
           "properties":{
-            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage"],"description":"Only this component (default: all of them)."},
-            "fetchLicenses":{"type":"boolean","default":true,"description":"Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI)."}
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage","streamline","xess","fidelityfx"],"description":"Only this component (default: all of them)."},
+            "fetchLicenses":{"type":"boolean","default":true,"description":"Download the license text (a network request): Android's when it is not accepted yet; a vendor SDK's (streamline, xess, fidelityfx) when `component` names it, installed or not. false = skip it (a polling UI)."}
           }})");
         registry.add(info, [cache](const Json& args) {
             const std::string component = tooling_detail::arg_string(args, "component", false);
@@ -250,7 +265,8 @@ void register_setup_commands(CommandRegistry& registry) {
         info.readOnly = false;
         info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, "
                        "the AppImage tools, sokol-shdc, the VS Code debugger extension, ffmpeg, the app launcher, the "
-                       "DirectStorage DLLs (or open Xcode's App Store page).";
+                       "DirectStorage DLLs, the NVIDIA Streamline, Intel XeSS and AMD FidelityFX DLLs (or open Xcode's "
+                       "App Store page).";
         info.description =
             "The user's call, not an AI's: it installs software outside the project and accepts licenses, so an MCP "
             "client "
@@ -302,16 +318,31 @@ void register_setup_commands(CommandRegistry& registry) {
             "dstorage.dll and dstoragecore.dll are kept in $FACTORIA_HOME/tools/directstorage/<version>/; a "
             "Windows release export with export.pack.directStorage copies them next to the game, which then "
             "reads the gdeflate blocks of game.pak through DirectStorage; any computer can install it, a "
-            "Mac or Linux that exports for Windows too. Every download is checked against the publisher's checksum "
+            "Mac or Linux that exports for Windows too. `streamline` (NVIDIA Streamline 2.14.16, about 280 MB), `xess` "
+            "(Intel "
+            "XeSS 3.0.2, about 77 MB) and `fidelityfx` (AMD FidelityFX SDK 2.4.0, about 160 MB) download the vendor's "
+            "own release (SHA-256 checked against FactorIA's pin) and keep only the redistributable x64 DLLs with "
+            "their "
+            "license texts in $FACTORIA_HOME/tools/<id>/<version>/ (only the listed files are unpacked, each checked "
+            "against "
+            "its own pinned SHA-256, and an export checks them again; the install needs about 550, 300 and 200 MB of "
+            "free disk space while it runs; folders of older versions are removed); each REFUSES with "
+            "`license_required` until "
+            "acceptLicenses is true (force installs again, so it asks again), which only the user who has read the "
+            "license (setup.status "
+            "components[].licenses[].text, which starts with what it asks of the game) sets; a Windows export copies "
+            "the "
+            "DLLs next to a game whose render settings can use them (export.pack.vendorSdks, default \"auto\"). Every "
+            "download is checked against the publisher's checksum "
             "(error code `checksum_mismatch` installs nothing). Other error codes: network, cancelled, unsupported, "
             "invalid_argument, failed; the data of the error holds the steps done so far.";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["component"],
           "properties":{
-            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), webplayer (builds the web player from the engine checkout), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4), launcher (the app that opens the editor, with the FactorIA icon), directstorage (the DirectStorage DLLs a Windows export ships with the game)."},
-            "acceptLicenses":{"type":"boolean","default":false,"description":"android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
+            "component":{"type":"string","enum":["android","players","webplayer","cmake","xcode","appimage","shaders","vscode","ffmpeg","launcher","directstorage","streamline","xess","fidelityfx"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), webplayer (builds the web player from the engine checkout), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials), vscode (the script debugger extension for VS Code, Insiders, VSCodium and Cursor), ffmpeg (turns --record-video recordings into .mp4), launcher (the app that opens the editor, with the FactorIA icon), directstorage (the DirectStorage DLLs a Windows export ships with the game), streamline (NVIDIA Streamline: DLSS and Reflex DLLs), xess (Intel XeSS DLLs), fidelityfx (AMD FidelityFX FSR DLLs)."},
+            "acceptLicenses":{"type":"boolean","default":false,"description":"android, streamline, xess, fidelityfx: the user has read the license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
             "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile","web"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). \"web\" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for."},
-            "force":{"type":"boolean","default":false,"description":"android, cmake, players, webplayer, ffmpeg, launcher, directstorage: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
+            "force":{"type":"boolean","default":false,"description":"android, cmake, players, webplayer, ffmpeg, launcher, directstorage, streamline, xess, fidelityfx: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
           }})");
         registry.add(info, [cache](const Json& args) {
             SetupInstallOptions o;
@@ -331,7 +362,7 @@ void register_setup_commands(CommandRegistry& registry) {
             return r.report.to_json();
         });
     }
-    // setup.status probes the installed tools (process) and may fetch the Android license text (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
+    // setup.status probes the installed tools (process) and may fetch the Android license text, or a vendor SDK's when asked for it by name (network); setup.install downloads and installs into the user's home, the app launcher and the editor extensions (not the project).
     declare_command_capabilities(
         registry, {{"setup.status", CapabilitySet{Capability::Read, Capability::Process, Capability::Network}},
                    {"setup.install", CapabilitySet{Capability::Read, Capability::WriteAnywhere, Capability::Process,

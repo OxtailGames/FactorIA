@@ -94,6 +94,8 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
         ci.perspective = true;
         ci.fov = cam.fov;
         const float nearP = std::max(1e-3f, cam.nearPlane), farP = std::max(cam.farPlane, cam.nearPlane + 0.01f);
+        ci.nearPlane = nearP;
+        ci.farPlane = farP;
         ci.proj = Mat4::perspective(cam.fov, aspect, nearP, farP, target.zeroToOne);
         projGl = target.zeroToOne ? Mat4::perspective(cam.fov, aspect, nearP, farP, false) : ci.proj;
         ci.pixelsPerUnit = 1.0f;
@@ -112,6 +114,8 @@ CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& ta
         ci.halfH = halfH;
         ci.halfW = halfW;
         ci.pixelsPerUnit = viewH / (2.0f * halfH);
+        ci.nearPlane = -1000.0f;
+        ci.farPlane = 1000.0f;
         ci.proj = Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, target.zeroToOne);
         projGl = target.zeroToOne ? Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, false) : ci.proj;
         ci.visible = Rect{t.x - halfW, t.y - halfH, halfW * 2, halfH * 2};

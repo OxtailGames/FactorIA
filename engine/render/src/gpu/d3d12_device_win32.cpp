@@ -166,6 +166,16 @@ Result<std::unique_ptr<D3d12Device>> D3d12Device::create(const D3d12Options& opt
 }
 
 Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
+    {
+        // Starts each hook available; one another live device holds is left out of this device (gpu/device_hooks.h).
+        std::vector<std::string> refused;
+        hooks_ = hookUse_.attach(options.init.hooks, Backend::D3d12, &refused);
+        for (const std::string& w : refused) {
+            FA_WARN("render", "{}", w);
+            std::lock_guard<std::mutex> lock(msgMutex_);
+            warnings_.push_back(w);
+        }
+    }
     UINT factoryFlags = 0;
     if (options.debugLayer) {
         Com<ID3D12Debug> debug;
@@ -203,6 +213,7 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
             return hr_error("IDXGIFactory4::EnumWarpAdapter", hr,
                             "WARP (the software rasterizer) ships with Windows 10 and later; ask for a hardware "
                             "adapter (D3d12Options::warp = false) instead");
+        if (!hooks_.empty()) hooks_before_device(adapter_.get(), true);
         deviceHr =
             D3D12CreateDevice(adapter_.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), device_.put_void());
         if (FAILED(deviceHr) || !device_)
@@ -224,6 +235,7 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
             candidate->GetDesc1(&ad);
             if (ad.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;  // WARP only when asked for
             Com<ID3D12Device> dev;
+            if (!hooks_.empty()) hooks_before_device(candidate.get(), false);
             deviceHr =
                 D3D12CreateDevice(candidate.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), dev.put_void());
             if (SUCCEEDED(deviceHr) && dev) {
@@ -274,6 +286,68 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
     return {};
 }
 
+// ---- device hooks (gpu/device_hooks.h) ----
+
+void D3d12Device::hook_unavailable(DeviceHook& hook, std::string reason) {
+    if (!hook.available()) return;
+    hook.mark_unavailable(std::move(reason));
+    const std::string w = device_hook_warning(Backend::D3d12, hook);
+    FA_WARN("render", "{}", w);
+    std::lock_guard<std::mutex> lock(msgMutex_);
+    warnings_.push_back(w);
+}
+
+void D3d12Device::hooks_before_device(IDXGIAdapter1* adapter, bool warp) {
+    D3d12BeforeDevice b;
+    b.factory = factory_.get();
+    b.adapter = adapter;
+    b.warp = warp;
+    for (const auto& h : hooks_)
+        if (h->available()) h->d3d12_before_device(b);
+}
+
+namespace {
+
+// Takes over the reference a hook handed in `replaced` when it is not what `held` holds already.
+template <class T>
+void adopt(Com<T>& held, void* replaced) {
+    if (!replaced || replaced == held.get()) return;
+    Com<T> next;
+    *next.put() = static_cast<T*>(replaced);
+    held = std::move(next);
+}
+
+}  // namespace
+
+void D3d12Device::hooks_device_created() {
+    hookCreated_.assign(hooks_.size(), 0);
+    for (std::size_t i = 0; i < hooks_.size(); ++i) {
+        const auto& h = hooks_[i];
+        if (!h->available()) continue;
+        D3d12DeviceCreated c;
+        c.factory = factory_.get();
+        c.device = device_.get();
+        c.queue = queue_.get();
+        c.adapter = adapter_.get();
+        hookCreated_[i] = 1;
+        h->d3d12_device_created(c);
+        if (!c.error.empty()) {
+            // Changes nothing; a replacement it handed anyway is released.
+            Com<IDXGIFactory4> f;
+            Com<ID3D12Device> d;
+            Com<ID3D12CommandQueue> q;
+            adopt(f, c.factory != factory_.get() ? c.factory : nullptr);
+            adopt(d, c.device != device_.get() ? c.device : nullptr);
+            adopt(q, c.queue != queue_.get() ? c.queue : nullptr);
+            hook_unavailable(*h, "on " + adapterName_ + ": " + c.error);
+            continue;
+        }
+        adopt(factory_, c.factory);
+        adopt(device_, c.device);
+        adopt(queue_, c.queue);
+    }
+}
+
 Result<void> D3d12Device::init(const D3d12Options& options) {
     framesInFlight_ = options.framesInFlight;
     if (auto r = init_adapter(options); !r) return r;
@@ -311,6 +385,9 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     HRESULT hr = device_->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), queue_.put_void());
     if (FAILED(hr)) return hr_error("CreateCommandQueue (direct)", hr, "the device was lost; update the GPU driver");
     set_name(queue_.get(), "fa-d3d12-direct-queue");
+    // The vendor SDKs' hooks (gpu/device_hooks.h) may wrap the factory, the device and the queue: everything below is
+    // made with what they leave.
+    if (!hooks_.empty()) hooks_device_created();
     hr = device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), fence_.put_void());
     if (FAILED(hr)) return hr_error("CreateFence", hr, "the device was lost; update the GPU driver");
     fenceEvent_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -381,6 +458,13 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     info_.backend = Backend::D3d12;
     info_.metalTarget = MetalTarget::None;
     info_.name = backend_name(Backend::D3d12);
+    info_.gpu.vendorId = identity_.vendor;  // the adapter's DXGI_ADAPTER_DESC1 (init_adapter)
+    info_.gpu.deviceId = identity_.device;
+    info_.gpu.vendor = gpu_vendor_from_pci(identity_.vendor);
+    info_.gpu.luidValid = true;
+    info_.gpu.luidLow = identity_.luidLow;
+    info_.gpu.luidHigh = identity_.luidHigh;
+    info_.gpu.software = warp_;
     init_caps();
     // Lists record on any thread (each its own allocator; the shared state is under locks), compute lists run on the
     // compute queue, and every live Texture view has a slot in the bindless table when there is one.
@@ -516,8 +600,18 @@ D3d12Device::~D3d12Device() {
     // files close before anything goes.
     if (device_ && queue_ && fence_) shutdown_pack_reads();
     packReads_.reset();
-    // The window's swapchain goes before the queue it presents on (it waits for the GPU first).
+    // The window's swapchain goes before the queue it presents on (it waits for the GPU first; the hooks hear it).
     destroy_swapchain();
+    // Then the hooks (slShutdown and the SDKs' contexts): the GPU idle, every other object still there.
+    // Only a hook that heard d3d12_device_created hears it (an init that failed before, or at the fence, never told
+    // them the device was made).
+    if (!hooks_.empty() && device_ && queue_) {
+        if (fence_) {
+            if (auto r = wait_idle(); !r) FA_ERROR("render", "{}", r.error().to_string());
+        }
+        for (std::size_t i = 0; i < hooks_.size(); ++i)
+            if (i < hookCreated_.size() && hookCreated_[i] && hooks_[i]->available()) hooks_[i]->device_destroying();
+    }
     // The PSOs made since the cache file was loaded go to it. save_pipeline_cache logs what happened itself: the file
     // it wrote (info), or a warning that says why it wrote none and that the old file stays.
     (void)save_pipeline_cache();
@@ -544,7 +638,10 @@ PixelFormatCaps D3d12Device::pixel_format_caps(PixelFormat format) const {
 NativeDevice D3d12Device::native() const {
     NativeDevice n;
     n.device = device_.get();
-    n.context = queue_.get();  // the ID3D12CommandQueue
+    n.context = queue_.get();  // the direct ID3D12CommandQueue
+    n.computeQueue =
+        side_[0].queue.get();    // the compute ID3D12CommandQueue (null: compute lists run on the direct one)
+    n.adapter = adapter_.get();  // IDXGIAdapter1*
     return n;
 }
 
@@ -979,6 +1076,11 @@ bool D3d12Device::check_submit(D3d12CommandList& list, const char* what) {
     if (list.passState_ != PassState::None) {
         report(at + " is still inside a pass (hint: end_pass() before submit(); it was ended here)");
         list.end_pass();
+    }
+    if (list.nativeOpen_) {
+        report(at + " still has a native section open (hint: end_native() before submit(); it was closed here with "
+                    "every resource in its declared state)");
+        (void)list.end_native();
     }
     if (list.openFrame_ != frame_) {
         // Its uniforms and descriptors are in the ring room and the descriptor segment of the frame it was opened in,

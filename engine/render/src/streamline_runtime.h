@@ -1,0 +1,570 @@
+// The NVIDIA Streamline runtime core of M78 (docs/design/ARCHITECTURE_RENDERING_HOOKS.md, "Streamline runtime core"): one object that loads
+// sl.interposer.dll, takes part in making the engine's D3D12 and Vulkan devices (it is a gpu::DeviceHook, so slInit runs before the device
+// is made), and hands the features built on it (DLSS Super Resolution and Reflex now; DLSS frame generation later) a frame token per
+// frame, the function table and the answer "is this feature usable on this machine, and if not, why". Private to fa_render.
+//
+// No NVIDIA header or binary is in the engine (decision D1 and D2 of M78). The structures and functions of the Streamline C ABI the engine
+// calls are declared below in `sl_abi`, written field by field from the public headers of Streamline 2.14.16 (MIT license; sl_core_types.h,
+// sl_consts.h, sl_core_api.h, sl_dlss.h, sl_reflex.h, sl_pcl.h, sl_helpers_vk.h), and every function is taken from the loaded library through VendorLibrary::symbol.
+// A struct whose size differs from the one the headers give is a crash, so the sizes are checked at build time (64-bit).
+//
+// Where it runs: Windows, Direct3D 12 and Vulkan (the device hooks are called on those two backends only), on an NVIDIA GPU. Everywhere else,
+// and when the library is not installed, the GPU is not NVIDIA, the driver is too old or slInit fails, the RUNTIME is unavailable with
+// Streamline's own reason: never the device (a hook degrades, it never fails the device).
+//
+// Manual hooking (Streamline's ProgrammingGuideManualHooking.md): slInit runs with eUseManualHooking and eUseFrameBasedResourceTagging before
+// any hooked API; D3D12 then upgrades the factory and the device (slUpgradeInterface) as soon as the device exists and gives
+// slSetD3DDevice the native device; Vulkan asks slGetFeatureRequirements before the instance for the instance extensions, then for the device
+// extensions, features and queues, loads Streamline's vkGetInstanceProcAddr / vkGetDeviceProcAddr through DeviceHook::vulkan_resolve and tells
+// slSetVulkanInfo the device and the queues it was given once the device exists.
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "fa/core/types.h"
+
+#include "gpu/device_hooks.h"
+#include "render_upscale_vendor.h"
+
+namespace fa::render {
+
+// ---- the engine's declarations of the Streamline C ABI --------------------------------------------------------------------------------
+namespace sl_abi {
+
+// sl::StructType, sl::BaseStructure: every structure starts with these 32 bytes (next, GUID, version).
+struct StructType {
+    std::uint32_t data1;
+    std::uint16_t data2, data3;
+    std::uint8_t data4[8];
+};
+struct Base {
+    void* next;
+    StructType type;
+    std::uint64_t version;  // size_t
+};
+
+// sl::Result (an enum class of int).
+using Result = std::int32_t;
+inline constexpr Result kOk = 0;
+inline constexpr Result kErrorIO = 1, kErrorDriverOutOfDate = 2, kErrorOSOutOfDate = 3, kErrorOSDisabledHWS = 4;
+inline constexpr Result kErrorNoSupportedAdapterFound = 6, kErrorAdapterNotSupported = 7, kErrorNoPlugins = 8;
+inline constexpr Result kErrorDuplicatedConstants = 27;
+inline constexpr Result kErrorMissingProxy = 17, kErrorFeatureMissing = 31, kErrorFeatureNotSupported = 32,
+                        kErrorFeatureFailedToLoad = 34, kErrorFeatureMissingDependency = 36, kErrorInvalidState = 38;
+inline constexpr Result kWarnOutOfVram = 39;
+
+// sl::Feature
+inline constexpr std::uint32_t kFeatureDlss = 0, kFeatureReflex = 3, kFeaturePcl = 4, kFeatureDlssG = 1000;
+// sl::kFeatureDLSS_RR (sl_core_types.h, Streamline 2.14.16): DLSS Ray Reconstruction, the plugin sl.dlss_d.dll
+inline constexpr std::uint32_t kFeatureDlssRr = 1001;
+// Not one feature: a result of the runtime itself (slInit, the device), or a call that serves several features.
+inline constexpr std::uint32_t kFeatureAny = 0xFFFFFFFFu;
+// sl::RenderAPI
+inline constexpr std::uint32_t kRenderApiD3d11 = 0, kRenderApiD3d12 = 1, kRenderApiVulkan = 2;
+// sl::PreferenceFlags (64-bit)
+inline constexpr std::uint64_t kPrefDisableClStateTracking = 1u << 0, kPrefDisableDebugText = 1u << 1,
+                               kPrefUseManualHooking = 1u << 2, kPrefUseFrameBasedResourceTagging = 1u << 7;
+// sl::BufferType
+inline constexpr std::uint32_t kBufferDepth = 0, kBufferMotionVectors = 1, kBufferScalingInputColor = 3,
+                               kBufferScalingOutputColor = 4, kBufferExposure = 13;
+// The optional mask of Super Resolution that says where the current frame's colour should weigh more (sl_core_types.h: kBufferTypeBiasCurrentColorHint).
+inline constexpr std::uint32_t kBufferBiasCurrentColorHint = 29;
+// The guides DLSS Ray Reconstruction reads besides those (sl_core_types.h: kBufferTypeNormals 5, kBufferTypeRoughness 6, kBufferTypeAlbedo 7,
+// kBufferTypeSpecularAlbedo 8, kBufferTypeSpecularMotionVectors 10, kBufferTypeNormalRoughness 14, kBufferTypeSpecularHitDistance 42).
+inline constexpr std::uint32_t kBufferNormals = 5, kBufferRoughness = 6, kBufferAlbedo = 7, kBufferSpecularAlbedo = 8,
+                               kBufferSpecularMotionVectors = 10, kBufferNormalRoughness = 14,
+                               kBufferSpecularHitDistance = 42, kBufferLinearDepth = 49;
+// sl::ResourceLifecycle
+inline constexpr std::uint32_t kOnlyValidNow = 0;
+// sl::ResourceType (a char)
+inline constexpr std::uint8_t kResourceTex2d = 0;
+// sl::Boolean (a char)
+inline constexpr char kFalse = 0, kTrue = 1, kInvalid = 2;
+// sl::FeatureRequirementFlags
+inline constexpr std::uint32_t kReqD3d12 = 1u << 1, kReqVulkan = 1u << 2;
+// sl::LogType
+inline constexpr std::uint32_t kLogInfo = 0, kLogWarn = 1, kLogError = 2;
+
+struct Extent {  // sl::Extent: top, left, width, height
+    std::uint32_t top, left, width, height;
+};
+struct Version {  // sl::Version
+    std::uint32_t major, minor, build;
+};
+struct Float2 {
+    float x, y;
+};
+struct Float3 {
+    float x, y, z;
+};
+struct Float4 {
+    float x, y, z, w;
+};
+struct Float4x4 {
+    Float4 row[4];
+};
+
+// sl::Preferences
+struct Preferences {
+    Base base;
+    bool showConsole;
+    std::uint32_t logLevel;  // sl::LogLevel: 0 off, 1 default, 2 verbose
+    const wchar_t** pathsToPlugins;
+    std::uint32_t numPathsToPlugins;
+    const wchar_t* pathToLogsAndData;
+    void* allocateCallback;
+    void* releaseCallback;
+    void (*logMessageCallback)(std::uint32_t type, const char* message);
+    std::uint64_t flags;
+    const std::uint32_t* featuresToLoad;
+    std::uint32_t numFeaturesToLoad;
+    std::uint32_t applicationId;
+    std::uint32_t engine;  // sl::EngineType: 0 custom
+    const char* engineVersion;
+    const char* projectId;
+    std::uint32_t renderApi;
+};
+// sl::ViewportHandle
+struct ViewportHandle {
+    Base base;
+    std::uint32_t value;
+};
+// sl::FeatureRequirements
+struct FeatureRequirements {
+    Base base;
+    std::uint32_t flags;
+    std::uint32_t maxNumCpuThreads;
+    std::uint32_t maxNumViewports;
+    std::uint32_t numRequiredTags;
+    const std::uint32_t* requiredTags;
+    Version osVersionDetected, osVersionRequired, driverVersionDetected, driverVersionRequired;
+    std::uint32_t vkNumComputeQueuesRequired;
+    std::uint32_t vkNumGraphicsQueuesRequired;
+    std::uint32_t vkNumDeviceExtensions;
+    const char** vkDeviceExtensions;
+    std::uint32_t vkNumInstanceExtensions;
+    const char** vkInstanceExtensions;
+    std::uint32_t vkNumFeatures12;
+    const char** vkFeatures12;
+    std::uint32_t vkNumFeatures13;
+    const char** vkFeatures13;
+    std::uint32_t vkNumOpticalFlowQueuesRequired;
+};
+// sl::AdapterInfo
+struct AdapterInfo {
+    Base base;
+    std::uint8_t* deviceLuid;
+    std::uint32_t deviceLuidSizeInBytes;
+    void* vkPhysicalDevice;
+};
+// sl::Resource
+struct Resource {
+    Base base;
+    std::uint8_t type;  // sl::ResourceType (a char)
+    void* native;       // ID3D12Resource* / VkImage
+    void* memory;
+    void* view;           // VkImageView
+    std::uint32_t state;  // D3D12_RESOURCE_STATES / VkImageLayout
+    std::uint32_t width, height, nativeFormat, mipLevels, arrayLayers;
+    std::uint64_t gpuVirtualAddress;
+    std::uint32_t flags;  // VkImageCreateFlags
+    std::uint32_t usage;  // VkImageUsageFlags
+    std::uint16_t internalFlags, reserved;
+};
+// sl::ResourceTag
+struct ResourceTag {
+    Base base;
+    Resource* resource;
+    std::uint32_t type;       // sl::BufferType
+    std::uint32_t lifecycle;  // sl::ResourceLifecycle
+    Extent extent;
+};
+// sl::Constants
+struct Constants {
+    Base base;
+    Float4x4 cameraViewToClip, clipToCameraView, clipToLensClip, clipToPrevClip, prevClipToClip;
+    Float2 jitterOffset, mvecScale, cameraPinholeOffset;
+    Float3 cameraPos, cameraUp, cameraRight, cameraFwd;
+    float cameraNear, cameraFar, cameraFov, cameraAspectRatio, motionVectorsInvalidValue;
+    char depthInverted, cameraMotionIncluded, motionVectors3d, reset, orthographicProjection, motionVectorsDilated,
+        motionVectorsJittered;
+    float minRelativeLinearDepthObjectSeparation;
+};
+// sl::DLSSOptions (sl_dlss.h)
+struct DlssOptions {
+    Base base;
+    std::uint32_t mode;  // sl::DLSSMode
+    std::uint32_t outputWidth, outputHeight;
+    float sharpness, preExposure, exposureScale;
+    char colorBuffersHdr, indicatorInvertAxisX, indicatorInvertAxisY;
+    std::uint32_t dlaaPreset, qualityPreset, balancedPreset, performancePreset, ultraPerformancePreset,
+        ultraQualityPreset;
+    char useAutoExposure, alphaUpscalingEnabled;
+};
+// sl::DLSSOptimalSettings
+struct DlssOptimalSettings {
+    Base base;
+    std::uint32_t optimalRenderWidth, optimalRenderHeight;
+    float optimalSharpness;
+    std::uint32_t renderWidthMin, renderHeightMin, renderWidthMax, renderHeightMax;
+};
+// sl::DLSSDOptions (sl_dlss_d.h, Streamline 2.14.16): the options of DLSS Ray Reconstruction. The two matrices are row-major (a Float4x4 of
+// rows), world to the camera's view space and back, of the camera's real, unjittered view.
+struct DlssdOptions {
+    Base base;
+    std::uint32_t mode;  // sl::DLSSMode
+    std::uint32_t outputWidth, outputHeight;
+    float sharpness, preExposure, exposureScale;
+    char colorBuffersHdr, indicatorInvertAxisX, indicatorInvertAxisY;
+    std::uint32_t
+        normalRoughnessMode;  // sl::DLSSDNormalRoughnessMode: 0 unpacked (Normals + Roughness), 1 packed (roughness in w)
+    Float4x4 worldToCameraView, cameraViewToWorld;
+    char alphaUpscalingEnabled;
+    std::uint32_t dlaaPreset, qualityPreset, balancedPreset, performancePreset, ultraPerformancePreset,
+        ultraQualityPreset;
+};
+// sl::DLSSDOptimalSettings (sl_dlss_d.h): the same members as DLSSOptimalSettings.
+struct DlssdOptimalSettings {
+    Base base;
+    std::uint32_t optimalRenderWidth, optimalRenderHeight;
+    float optimalSharpness;
+    std::uint32_t renderWidthMin, renderHeightMin, renderWidthMax, renderHeightMax;
+};
+// sl::DLSSDNormalRoughnessMode
+inline constexpr std::uint32_t kDlssdNormalRoughnessUnpacked = 0, kDlssdNormalRoughnessPacked = 1;
+// sl::VulkanInfo (sl_helpers_vk.h)
+struct VulkanInfo {
+    Base base;
+    void* device;
+    void* instance;
+    void* physicalDevice;
+    std::uint32_t computeQueueIndex, computeQueueFamily, graphicsQueueIndex, graphicsQueueFamily, opticalFlowQueueIndex,
+        opticalFlowQueueFamily;
+    bool useNativeOpticalFlowMode;
+    std::uint32_t computeQueueCreateFlags, graphicsQueueCreateFlags, opticalFlowQueueCreateFlags;
+};
+
+// sl::ReflexOptions, ReflexReport, ReflexReport2, ReflexState (sl_reflex.h, Streamline 2.14.16): the options of Reflex and what it reports about
+// the last frames. The structs the state holds in arrays carry their own base, as in the header.
+struct ReflexOptions {
+    Base base;
+    std::uint32_t mode;  // sl::ReflexMode
+    std::uint32_t frameLimitUs;
+    bool useMarkersToOptimize;
+    std::uint16_t virtualKey;
+    std::uint32_t idThread;
+};
+struct ReflexReport {
+    Base base;
+    std::uint64_t frameId, inputSampleTime, simStartTime, simEndTime, renderSubmitStartTime, renderSubmitEndTime,
+        presentStartTime, presentEndTime, driverStartTime, driverEndTime, osRenderQueueStartTime, osRenderQueueEndTime,
+        gpuRenderStartTime,
+        gpuRenderEndTime;  // microseconds of the driver's clock; 0 = not marked
+    std::uint32_t gpuActiveRenderTimeUs, gpuFrameTimeUs;
+};
+struct ReflexReport2 {
+    Base base;
+    std::uint64_t cameraConstructedTime;
+    std::uint32_t crossAdapterCopyTimeUs;
+};
+inline constexpr int kReflexFrameReportCount = 64;
+struct ReflexState {
+    Base base;
+    bool lowLatencyAvailable;
+    bool latencyReportAvailable;
+    std::uint32_t statsWindowMessage;
+    ReflexReport frameReport[kReflexFrameReportCount];
+    bool flashIndicatorDriverControlled;
+    ReflexReport2 frameReport2[kReflexFrameReportCount];  // kStructVersion2
+};
+// sl::ReflexMode
+inline constexpr std::uint32_t kReflexOff = 0, kReflexLowLatency = 1, kReflexLowLatencyBoost = 2;
+// sl::PCLMarker (sl_pcl.h; the value 6, eInputSample, is deprecated and never sent)
+inline constexpr std::uint32_t kPclSimulationStart = 0, kPclSimulationEnd = 1, kPclRenderSubmitStart = 2,
+                               kPclRenderSubmitEnd = 3, kPclPresentStart = 4, kPclPresentEnd = 5;
+
+// sl::DLSSMode
+inline constexpr std::uint32_t kDlssOff = 0, kDlssMaxPerformance = 1, kDlssBalanced = 2, kDlssMaxQuality = 3,
+                               kDlssUltraPerformance = 4, kDlssUltraQuality = 5, kDlssDlaa = 6;
+
+// sl::DLSSGOptions and sl::DLSSGState (sl_dlss_g.h, Streamline 2.14.16): the options of DLSS frame generation and what it reports. DLSS-G has
+// no evaluate call: it generates inside Present, from the tags and the constants of the frame. The two functions are given by
+// slGetFeatureFunction and are not thread safe (slDLSSGGetState has to run on the thread that presents).
+struct DlssgOptions {
+    Base base;
+    std::uint32_t mode;  // sl::DLSSGMode
+    std::uint32_t numFramesToGenerate;
+    std::uint32_t flags;  // sl::DLSSGFlags
+    std::uint32_t dynamicResWidth, dynamicResHeight;
+    std::uint32_t numBackBuffers;
+    std::uint32_t mvecDepthWidth, mvecDepthHeight;
+    std::uint32_t colorWidth, colorHeight;
+    std::uint32_t colorBufferFormat, mvecBufferFormat, depthBufferFormat, hudLessBufferFormat, uiBufferFormat;
+    void* onErrorCallback;
+    char bReserved15;
+    std::uint32_t queueParallelismMode;  // sl::DLSSGQueueParallelismMode
+    char enableUserInterfaceRecomposition;
+    float dynamicTargetFrameRate;
+};
+struct DlssgState {
+    Base base;
+    std::uint64_t estimatedVRAMUsageInBytes;
+    std::uint32_t status;  // sl::DLSSGStatus: a bit set of the kDlssgFail values, 0 = ok
+    std::uint32_t minWidthOrHeight;
+    std::uint32_t
+        numFramesActuallyPresented;  // every frame presented since the last slDLSSGGetState call, rendered and generated
+    std::uint32_t numFramesToGenerateMax;
+    char bReserved4;
+    char bIsVsyncSupportAvailable;
+    void* inputsProcessingCompletionFence;
+    std::uint64_t lastPresentInputsProcessingCompletionFenceValue;
+    char bIsDynamicMFGSupported;
+};
+// sl::DLSSGMode
+inline constexpr std::uint32_t kDlssgOff = 0, kDlssgOn = 1, kDlssgAuto = 2;
+// sl::DLSSGFlags
+inline constexpr std::uint32_t kDlssgRequestVramEstimate = 1u << 2, kDlssgRetainResourcesWhenOff = 1u << 3;
+// sl::DLSSGStatus (a bit set): why generation is not running
+inline constexpr std::uint32_t kDlssgFailResolutionTooLow = 1u << 0, kDlssgFailReflexNotDetectedAtRuntime = 1u << 1,
+                               kDlssgFailHdrFormatNotSupported = 1u << 2, kDlssgFailCommonConstantsInvalid = 1u << 3,
+                               kDlssgFailGetCurrentBackBufferIndexNotCalled = 1u << 4;
+// sl::BufferType and sl::ResourceLifecycle values DLSS-G reads
+inline constexpr std::uint32_t kBufferHudLessColor = 2, kBufferUiColorAndAlpha = 23;
+inline constexpr std::uint32_t kValidUntilPresent = 1;
+
+#if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFu
+static_assert(sizeof(Base) == 32, "sl::BaseStructure");
+static_assert(sizeof(Preferences) == 144, "sl::Preferences");
+static_assert(sizeof(ViewportHandle) == 40, "sl::ViewportHandle");
+static_assert(sizeof(FeatureRequirements) == 184, "sl::FeatureRequirements");
+static_assert(sizeof(AdapterInfo) == 56, "sl::AdapterInfo");
+static_assert(sizeof(Resource) == 112, "sl::Resource");
+static_assert(sizeof(ResourceTag) == 64, "sl::ResourceTag");
+static_assert(sizeof(Constants) == 456, "sl::Constants");
+static_assert(sizeof(DlssOptions) == 88, "sl::DLSSOptions");
+static_assert(sizeof(DlssOptimalSettings) == 64, "sl::DLSSOptimalSettings");
+static_assert(sizeof(DlssdOptions) == 224, "sl::DLSSDOptions");
+static_assert(offsetof(DlssdOptions, mode) == 32 && offsetof(DlssdOptions, normalRoughnessMode) == 60 &&
+                  offsetof(DlssdOptions, worldToCameraView) == 64 && offsetof(DlssdOptions, cameraViewToWorld) == 128 &&
+                  offsetof(DlssdOptions, alphaUpscalingEnabled) == 192 && offsetof(DlssdOptions, dlaaPreset) == 196,
+              "sl::DLSSDOptions members (sl_dlss_d.h, Streamline 2.14)");
+static_assert(sizeof(DlssdOptimalSettings) == 64, "sl::DLSSDOptimalSettings");
+static_assert(sizeof(VulkanInfo) == 96, "sl::VulkanInfo");
+static_assert(sizeof(ReflexOptions) == 48, "sl::ReflexOptions");
+static_assert(sizeof(ReflexReport) == 152, "sl::ReflexReport");
+static_assert(sizeof(ReflexReport2) == 48, "sl::ReflexReport2");
+static_assert(sizeof(ReflexState) == 12848, "sl::ReflexState");
+static_assert(sizeof(DlssgOptions) == 120, "sl::DLSSGOptions");
+static_assert(offsetof(DlssgOptions, mode) == 32 && offsetof(DlssgOptions, colorWidth) == 64 &&
+                  offsetof(DlssgOptions, uiBufferFormat) == 88 && offsetof(DlssgOptions, onErrorCallback) == 96 &&
+                  offsetof(DlssgOptions, queueParallelismMode) == 108 &&
+                  offsetof(DlssgOptions, dynamicTargetFrameRate) == 116,
+              "sl::DLSSGOptions members");
+static_assert(sizeof(DlssgState) == 88, "sl::DLSSGState");
+static_assert(offsetof(DlssgState, estimatedVRAMUsageInBytes) == 32 && offsetof(DlssgState, status) == 40 &&
+                  offsetof(DlssgState, numFramesActuallyPresented) == 48 &&
+                  offsetof(DlssgState, inputsProcessingCompletionFence) == 64 &&
+                  offsetof(DlssgState, bIsDynamicMFGSupported) == 80,
+              "sl::DLSSGState members");
+#endif
+
+// The GUID and the version each structure is made with (the macros SL_STRUCT_BEGIN of the headers). Fills `base`.
+void init_preferences(Preferences& p);
+void init_viewport(ViewportHandle& v, std::uint32_t id);
+void init_feature_requirements(FeatureRequirements& r);
+void init_adapter_info(AdapterInfo& a);
+void init_resource(Resource& r);
+void init_resource_tag(ResourceTag& t);
+// slInit's applicationId and projectId from FA_STREAMLINE_APP_ID and FA_STREAMLINE_PROJECT_ID (the text of the variable, or null): the id is
+// a decimal number that fits 32 bits, else 0; the project id a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), else FactorIA's own.
+inline constexpr const char* kDefaultProjectId = "f7e365b8-d718-4b3b-9c87-73752211173b";
+std::uint32_t streamline_application_id(const char* text);
+std::string streamline_project_id(const char* text);
+void init_constants(Constants& c);  // also the "not set" values of the headers (INVALID_FLOAT, eInvalid)
+void init_dlss_options(DlssOptions& o);
+void init_dlss_optimal_settings(DlssOptimalSettings& s);
+void init_dlssd_options(DlssdOptions& o);  // the world/view matrices are identity until the caller sets the camera's
+void init_dlssd_optimal_settings(DlssdOptimalSettings& s);
+void init_vulkan_info(VulkanInfo& v);
+void init_reflex_options(ReflexOptions& o);  // mode off, no limit
+void init_reflex_state(ReflexState& s);      // zeroed, with the base of the state and of each report
+void init_dlssg_options(DlssgOptions& o);    // mode off, one frame to generate, the "not set" values of the header
+void init_dlssg_state(DlssgState& s);        // zeroed, with the base of the state
+
+// The functions, as the headers declare them (SL_API is the C calling convention; the C++ references are pointers).
+using InitFn = Result (*)(const Preferences*, std::uint64_t sdkVersion);
+using ShutdownFn = Result (*)();
+using IsFeatureSupportedFn = Result (*)(std::uint32_t feature, const AdapterInfo*);
+using SetTagForFrameFn = Result (*)(void* frame, const ViewportHandle*, const ResourceTag*, std::uint32_t count,
+                                    void* commandBuffer);
+using SetConstantsFn = Result (*)(const Constants*, void* frame, const ViewportHandle*);
+using GetFeatureRequirementsFn = Result (*)(std::uint32_t feature, FeatureRequirements*);
+using AllocateResourcesFn = Result (*)(void* commandBuffer, std::uint32_t feature, const ViewportHandle*);
+using FreeResourcesFn = Result (*)(std::uint32_t feature, const ViewportHandle*);
+using EvaluateFeatureFn = Result (*)(std::uint32_t feature, void* frame, const Base* const* inputs, std::uint32_t count,
+                                     void* commandBuffer);
+using UpgradeInterfaceFn = Result (*)(void** baseInterface);
+using GetFeatureFunctionFn = Result (*)(std::uint32_t feature, const char* name, void** function);
+using GetNewFrameTokenFn = Result (*)(void** token, const std::uint32_t* frameIndex);
+using SetD3dDeviceFn = Result (*)(void* device);
+using SetVulkanInfoFn = Result (*)(const VulkanInfo*);
+using VkGetProcAddrFn = void* (*)(void* instanceOrDevice, const char* name);
+// The DLSS functions slGetFeatureFunction gives (sl_dlss.h).
+using DlssGetOptimalSettingsFn = Result (*)(const DlssOptions*, DlssOptimalSettings*);
+using DlssSetOptionsFn = Result (*)(const ViewportHandle*, const DlssOptions*);
+// The DLSS Ray Reconstruction functions (sl_dlss_d.h): slDLSSDGetOptimalSettings and slDLSSDSetOptions.
+using DlssdGetOptimalSettingsFn = Result (*)(const DlssdOptions*, DlssdOptimalSettings*);
+using DlssdSetOptionsFn = Result (*)(const ViewportHandle*, const DlssdOptions*);
+// The Reflex and PCL functions slGetFeatureFunction gives (sl_reflex.h, sl_pcl.h): slReflexSetOptions, slReflexGetState, slReflexSleep and
+// slPCLSetMarker, with the C++ references of the headers as pointers. slReflexGetState and slReflexSetOptions are not thread safe.
+using ReflexSetOptionsFn = Result (*)(const ReflexOptions*);
+using ReflexGetStateFn = Result (*)(ReflexState*);
+using ReflexSleepFn = Result (*)(void* frame);
+using PclSetMarkerFn = Result (*)(std::uint32_t marker, void* frame);
+// The DLSS-G functions slGetFeatureFunction gives (sl_dlss_g.h): slDLSSGSetOptions(viewport, options) and slDLSSGGetState(viewport, state,
+// options): the options the state is asked for are optional (null: the last set).
+using DlssgSetOptionsFn = Result (*)(const ViewportHandle*, const DlssgOptions*);
+using DlssgGetStateFn = Result (*)(const ViewportHandle*, DlssgState*, const DlssgOptions*);
+
+}  // namespace sl_abi
+
+// The functions of sl.interposer.dll the runtime and its features call. Null members are the ones another backend uses.
+struct StreamlineApi {
+    sl_abi::InitFn init = nullptr;
+    sl_abi::ShutdownFn shutdown = nullptr;
+    sl_abi::IsFeatureSupportedFn isFeatureSupported = nullptr;
+    sl_abi::SetTagForFrameFn setTagForFrame = nullptr;
+    sl_abi::SetConstantsFn setConstants = nullptr;
+    sl_abi::GetFeatureRequirementsFn getFeatureRequirements = nullptr;
+    sl_abi::AllocateResourcesFn allocateResources = nullptr;
+    sl_abi::FreeResourcesFn freeResources = nullptr;
+    sl_abi::EvaluateFeatureFn evaluateFeature = nullptr;
+    sl_abi::UpgradeInterfaceFn upgradeInterface = nullptr;
+    sl_abi::GetFeatureFunctionFn getFeatureFunction = nullptr;
+    sl_abi::GetNewFrameTokenFn getNewFrameToken = nullptr;
+    sl_abi::SetD3dDeviceFn setD3dDevice = nullptr;    // D3D12
+    sl_abi::SetVulkanInfoFn setVulkanInfo = nullptr;  // Vulkan
+    sl_abi::VkGetProcAddrFn vkGetInstanceProcAddr = nullptr;
+    sl_abi::VkGetProcAddrFn vkGetDeviceProcAddr = nullptr;
+};
+
+// Takes the functions `backend` needs from `lib`. "" when all are there, else the name of the first missing export.
+std::string streamline_load_api(VendorLibrary& lib, gpu::Backend backend, StreamlineApi& api);
+
+// "ok", "driver out of date", ... for a sl::Result, then what to do about it where the cause is known. "result 99" for a code this build
+// does not know.
+std::string streamline_result_text(sl_abi::Result result);
+// The sentence of a refusal with Streamline's own result: `what` answered "<text>" (<code>) and how to fix it. `feature` (an sl::Feature id: the
+// kFeature* above) is the feature the call was about, so "feature not supported" says what that feature needs (DLSS: an RTX GPU, Reflex: a
+// GeForce GTX 900 series or newer) and not the other's; kFeatureAny (the default) says both.
+std::string streamline_refusal(const char* what, sl_abi::Result result, std::uint32_t feature = sl_abi::kFeatureAny);
+
+// The Vulkan feature structs Streamline asks for by member name (slGetFeatureRequirements::vkFeatures12 / vkFeatures13), as the bytes of a
+// whole VkPhysicalDeviceVulkan12Features / VkPhysicalDeviceVulkan13Features with VK_TRUE in the named members (gpu::VulkanDeviceRequest::
+// features). A name this build does not know is returned in `unknown`.
+std::vector<std::uint8_t> streamline_vulkan_features(int core, const std::vector<std::string>& names,
+                                                     std::vector<std::string>* unknown);
+
+// What the runtime asks of the system, replaceable by a test.
+struct StreamlineAdapter {
+    std::uint32_t vendorId = 0;  // PCI vendor id; 0 = not known
+    std::uint8_t luid[8]{};
+    bool hasLuid = false;
+    std::string name;
+};
+struct StreamlineHost {
+    // Reads the IDXGIAdapter1* a D3D12 hook callback gives. False: the adapter could not be read (Streamline then decides alone).
+    std::function<bool(const void* adapter, StreamlineAdapter& out)> readAdapter;
+    // Releases one reference of a COM object (a replacement of the device or the factory that has to be undone).
+    std::function<void(void* object)> releaseCom;
+};
+// The Windows one (DXGI, IUnknown::Release); elsewhere readAdapter reads nothing and releaseCom does nothing.
+StreamlineHost default_streamline_host();
+
+// What the runtime knows after the device was made (or failed to be).
+struct StreamlineStatus {
+    bool tried = false;  // a device was made (or tried) with this hook
+    bool ready = false;  // slInit succeeded and the device is set up: the features can be used
+    gpu::Backend backend = gpu::Backend::Recording;
+    std::string reason;  // when tried and not ready: what is wrong and what to do
+    std::uint64_t generation =
+        0;  // grows with every successful set-up: a feature drops what it made for the previous one
+};
+
+class StreamlineRuntime final : public gpu::DeviceHook {
+public:
+    // `features`: the sl::Feature ids to load (slInit's featuresToLoad), in the order of their importance; the first decides whether the
+    // runtime is worth starting (every one is asked slIsFeatureSupported). A feature built on this runtime adds its id here.
+    explicit StreamlineRuntime(std::vector<std::uint32_t> features, StreamlineHost host = default_streamline_host());
+    ~StreamlineRuntime() override;
+
+    // gpu::DeviceHook
+    std::string_view name() const override { return "NVIDIA Streamline"; }
+    void vulkan_instance_request(gpu::VulkanInstanceRequest& request) override;
+    void vulkan_instance_created(const void* instance, gpu::HookProcAddr getInstanceProcAddr) override;
+    void vulkan_device_request(const gpu::VulkanPhysicalDevice& physical, gpu::VulkanDeviceRequest& request) override;
+    gpu::HookProcAddr vulkan_resolve(const char* name, const void* device, gpu::HookProcAddr resolved) override;
+    void vulkan_device_created(const gpu::VulkanDeviceCreated& created) override;
+    void d3d12_before_device(const gpu::D3d12BeforeDevice& before) override;
+    void d3d12_device_created(gpu::D3d12DeviceCreated& created) override;
+    void present_end(const gpu::PresentEvent& event) override;
+    void device_destroying() override;
+
+    // Adds `feature` to the ones slInit loads, when the runtime has not started yet (a device made with this hook before; later calls change
+    // nothing for that device, and a device made after a reset takes it). The feature stays in the list: a feature built on the runtime
+    // that is optional (DLSS frame generation: it asks for Vulkan queues and extensions) is added by the one that wants it, before the device.
+    void add_feature(std::uint32_t feature);
+    // Whether `feature` was in the list the set-up of the current device used (so feature_reason is Streamline's own answer for it).
+    bool feature_asked(std::uint32_t feature) const;
+    // Why `feature` is not in the list on purpose, for the answer of a provider whose plugin was not asked ("" clears it): the project asked for
+    // the feature but the run cannot use it (Ray Reconstruction's plugin is not loaded under a mode that never draws with DLSS). Kept across
+    // devices; the next renderer sets it again.
+    void set_feature_skipped_reason(std::uint32_t feature, std::string reason);
+    std::string feature_skipped_reason(std::uint32_t feature) const;
+
+    StreamlineStatus status() const;
+    // "" when Streamline says `feature` runs on this machine, else its reason (slIsFeatureSupported's answer, with what to do). Meaningful
+    // once status().ready.
+    std::string feature_reason(std::uint32_t feature) const;
+    // The function table of the loaded library; null until the runtime is ready. Valid until device_destroying().
+    const StreamlineApi* api() const;
+
+    // The generation of the set-up when it is ready (status().generation), else 0: one cheap call a feature makes before it calls Streamline, so
+    // nothing is called after the device went (the functions of a shut-down Streamline are gone) or on the set-up of an earlier device.
+    std::uint64_t ready_generation() const;
+
+    // The token of the frame being rendered, from slGetNewFrameToken with the index of the frame (the presents completed so far: the frame
+    // between present k and present k + 1 is frame k, as Streamline counts them). `index` (when given) receives it. Null token and `why`
+    // when the runtime is not ready or Streamline refuses. One token per frame: DLSS, Reflex and the features after them get the same pointer
+    // (the first call of a frame asks Streamline, the others take that token) so the markers, the constants and the evaluation of a frame meet.
+    void* frame_token(std::uint32_t* index, std::string* why) const;
+    std::uint32_t frame_index() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// The process's runtime, with the features of the engine today (DLSS Super Resolution, Reflex and the PC latency markers it needs). Created on
+// first use. DLSS frame generation adds its id when a renderer asks for frame generation, before that renderer's device is made
+// (DlssFrameGenProvider::device_hook, StreamlineRuntime::add_feature).
+// The latency setting is chosen after the device exists, so Reflex and PCL are always asked of slInit: a plugin that is not installed makes
+// that feature unsupported with its reason and the others run.
+StreamlineRuntime& streamline_runtime();
+// Registers it with gpu::register_device_hook, once, so every D3D12 and Vulkan device the process makes takes part (the renderer calls this
+// before it makes its device; Windows only: elsewhere there is nothing to hook and it does nothing).
+void register_streamline_runtime();
+// A test's own runtime in place of the process's (null puts the process's back).
+void set_streamline_runtime_for_test(StreamlineRuntime* runtime);
+// A test's reader of the environment variables slInit's ids come from (FA_STREAMLINE_APP_ID, FA_STREAMLINE_PROJECT_ID) in place of
+// std::getenv (null puts it back): a developer who exports them does not change what a test sees.
+using StreamlineEnvReader = const char* (*)(const char* name);
+void set_streamline_environment_for_test(StreamlineEnvReader reader);
+
+}  // namespace fa::render

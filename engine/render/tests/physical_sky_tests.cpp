@@ -485,22 +485,14 @@ TEST_CASE(
     "physical sky: every float of the GLES3 and WebGL2 fragment sources is highp (a mobile GPU's mediump is fp16)") {
     // sokol-shdc writes `precision mediump float;` as the default of a GLSL ES 3.00 fragment shader and qualifies every declaration
     // (variables, parameters, uniforms, samplers, inputs, outputs) with highp. The atmosphere (6360 km squared overflows fp16) needs that
-    // on a phone. The generated header only holds the GLES3 sources when it is built for GLES3, so this reads its text (the sources are
-    // arrays of hex bytes) and scans the fragment shader of each of the four programs for a declaration without highp.
-    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/src/shaders/sky_physical.glsl.h", std::ios::binary);
-    REQUIRE(in.good());
-    const std::string header((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // on a phone. The generated header only holds the GLES3 sources when it is built for GLES3, so this decodes its text (the sources
+    // are zstd frames, shader_text_tests.cpp) and scans the fragment shader of each of the four programs for a declaration without highp.
     int found = 0;
     for (const char* name : {"transmittance", "multiscatter", "skyview", "sky"}) {
-        const std::string key = std::string("skyphys_fs_") + name + "_source_glsl300es[";
-        const std::size_t at = header.find(key);
+        const std::string key = std::string("skyphys_fs_") + name + "_source_glsl300es";
         CAPTURE(key);
-        REQUIRE(at != std::string::npos);
-        const std::size_t open = header.find('{', at), close = header.find('}', open);
-        REQUIRE(close != std::string::npos);
-        std::string src;
-        for (std::size_t i = header.find("0x", open); i != std::string::npos && i < close; i = header.find("0x", i + 2))
-            src.push_back(char(std::strtoul(header.substr(i + 2, 2).c_str(), nullptr, 16)));
+        const std::string src = glsl_source_from_header("sky_physical.glsl.h", key);
+        REQUIRE(!src.empty());
         CHECK(src.find("precision mediump float;") !=
               std::string::npos);  // the default is what it is: the declarations decide
         CHECK(src.find("highp") != std::string::npos);

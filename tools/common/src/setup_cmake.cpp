@@ -2,6 +2,7 @@
 // <home>/tools/cmake. find_cmake() is what the export (and the status) uses to locate one.
 #include <algorithm>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "setup_internal.h"
 
@@ -17,7 +18,7 @@ std::string archive_name(const std::string& host, const std::string& arch) {
 }
 
 stdfs::path installed_cmake(const SetupContext& ctx) {
-    const stdfs::path root = stdfs::path(ctx.home_dir()) / "tools" / "cmake";
+    const stdfs::path root = fs::path_from_utf8(ctx.home_dir()) / "tools" / "cmake";
     if (ctx.host_os() == "macos") return root / "CMake.app" / "Contents" / "bin" / "cmake";
     return root / "bin" / ("cmake" + exe_suffix(ctx.host_os()));
 }
@@ -117,7 +118,7 @@ SetupComponent cmake_status(const SetupContext& ctx) {
     c.installSizeMb = 75;
     c.details = "CMake " + std::string(kSetupCmakeMinimum) +
                 " or newer is needed by build_ios.sh; the install downloads CMake " + kSetupCmakeVersion +
-                " from Kitware into " + (stdfs::path(ctx.home_dir()) / "tools" / "cmake").string() + ".";
+                " from Kitware into " + fs::path_to_utf8(fs::path_from_utf8(ctx.home_dir()) / "tools" / "cmake") + ".";
     c.problems.push_back(f.tooOldPath.empty()
                              ? "No CMake " + std::string(kSetupCmakeMinimum) +
                                    " or newer was found (PATH, Homebrew, /Applications/CMake.app)."
@@ -136,7 +137,7 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
                 "Only the iOS export needs CMake, and iOS exports run on a Mac, so there is nothing to install on " +
                     host + ".",
                 "Pass force (factoria setup cmake --force) to install CMake into " +
-                    (stdfs::path(ctx.home_dir()) / "tools" / "cmake").string() + " anyway."));
+                    fs::path_to_utf8(fs::path_from_utf8(ctx.home_dir()) / "tools" / "cmake") + " anyway."));
     if (!opt.force) {
         const Found found = look_for_cmake(ctx);
         if (!found.path.empty()) {
@@ -177,7 +178,7 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
     std::error_code ec;
     stdfs::remove(archive, ec);
     const stdfs::path top = single_child_dir(unpacked);
-    const stdfs::path root = stdfs::path(ctx.home_dir()) / "tools" / "cmake";
+    const stdfs::path root = fs::path_from_utf8(ctx.home_dir()) / "tools" / "cmake";
     const stdfs::path relExe = installed_cmake(ctx).lexically_relative(root);
     if (!is_file(top / relExe))
         return in.fail("failed",

@@ -257,6 +257,15 @@ void Engine::Impl::track_display_refresh(double dt) {
     }
 }
 
+// The refresh rate the engine's own latency pacing aligns to (docs/LATENCY.md, "The engine's own pacing"): the display's, while the display paces a
+// windowed game (vsync on, no window.frameCap, a continuous render mode) and the rate is known; else 0 and no sleep is added.
+double Engine::Impl::latency_pacing_hz() const {
+    if (!windowed || cfg.editorMode || !renderer) return 0.0;
+    const bool paced =
+        app_vsync() && (!appWindow || appWindow->frame_cap() == 0) && cfg.renderMode != RenderMode::OnDemand;
+    return paced ? refreshHz : 0.0;
+}
+
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     world.interp().enabled = project.renderInterpolation;  // fa/scene/interpolation.h
@@ -288,6 +297,16 @@ void Engine::Impl::apply_project_settings() {
                 applyingPreset = false;
             }
         }
+    }
+    // The low-latency setting of factoria.json ("render.latency"), applied when it changes, like the upscaler. Always valid.
+    if (!appliedProjectLatency || *appliedProjectLatency != project.latency) {
+        appliedProjectLatency = project.latency;
+        self->set_latency(render::latency_to_json(project.latency), "factoria.json");
+    }
+    // The frame generation setting of factoria.json ("render.frameGeneration"), applied when it changes. Always valid.
+    if (!appliedProjectFrameGen || *appliedProjectFrameGen != project.frameGeneration) {
+        appliedProjectFrameGen = project.frameGeneration;
+        self->set_frame_generation(render::frame_gen_to_json(project.frameGeneration), "factoria.json");
     }
     // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
     // load_project checked it.
@@ -811,7 +830,21 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
             jobOwner.run_main_thread_tasks();
             jobs::run_main_thread_tasks();
         }
+    }
+    // The engine's own pacing sleeps here (before the input is sampled), or the vendor's Sleep call does; nothing runs while the setting is
+    // off. The frame id of the markers below is the count of presents so far plus one. The sleep is waiting, not work: the profiler shows it
+    // as its own zone "Latency", outside the Platform system's time.
+    if (profiled && renderer) {
+        // A zone only while a driver runs: with the setting off nothing sleeps and the profile has no "Latency" line.
+        const bool zoned = Profiler::on() && renderer->effective_latency() != render::LatencyDriver::None;
+        const double t0 = zoned ? Profiler::now_ms() : 0.0;
+        renderer->latency_frame_begin(latency_pacing_hz());
+        if (zoned) Profiler::get().add_zone("Latency", Profiler::now_ms() - t0);
+    }
+    {
+        ProfSystemScope prof(ProfSystem::Platform);
         platform.frame();
+        if (profiled && renderer) renderer->latency_mark(render::LatencyMarker::InputSample);
         tick_background_loads();  // scene.preload / assets.preload / async scene.load: this frame's share, then their handles hear it
         scripts.dispatch_platform();
         scripts.dispatch_back();      // the Back button of this frame: input.onBack handlers, else quit
@@ -952,6 +985,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // (`time_scale()`: a hit-stop or a pause holds them).
     feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
     interp_update(world, interpAlpha, false);  // what scripts moved since the steps is drawn where it is, not blended
+    if (profiled && renderer) renderer->latency_mark(render::LatencyMarker::SimulationEnd);
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
@@ -962,6 +996,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (recorder.recording())
         recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
     inFrame = false;
+    if (profiled && renderer && Profiler::on())
+        Profiler::get().set_latency_ms(
+            renderer->take_latency_ms());  // this frame's input-to-present (M78), -1 when none
     if (profiled) {
         jobs::end_frame(&jobOwner);  // with 0 workers the jobs nobody waited for run here; closes the job statistics
         Profiler::get().end_frame();
@@ -1164,6 +1201,14 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         rd.backend = I.gpuChoice.backend;
         rd.asyncCompute = I.project.renderAsyncCompute;
         rd.multiThreadRecording = I.project.renderMultiThreadRecording;
+        // Frame generation owns the swapchain (a provider hooks its creation), so the renderer is told at its start; only a game window has one.
+        rd.frameGeneration = I.windowed && !config.editorMode && I.frameGeneration.mode != render::FrameGenMode::Off;
+        rd.frameGenerationMode = I.frameGeneration.mode;
+        // Ray Reconstruction's plugin is loaded only for a game that can draw with DLSS (mode "dlss", or "auto" where it picks DLSS).
+        // A project that asked for it under another mode is told which setting to change (rayReconstructionNeedsMode).
+        rd.rayReconstruction =
+            I.project.upscaler.rayReconstruction && render::upscaler_mode_may_use_dlss(I.project.upscaler.mode);
+        rd.rayReconstructionNeedsMode = I.project.upscaler.rayReconstruction && !rd.rayReconstruction;
         std::string gerr;
         bool ok = false;
         // One start of the renderer on `backend` ("" = it started). D3D12 and Vulkan in a window claim the native
@@ -1272,6 +1317,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
+            // The low-latency setting: a window the game draws into only (the editor's own loop and a headless run have no display to pace).
+            if (I.windowed && !config.editorMode) I.renderer->set_latency(I.latency);
+            if (I.windowed && !config.editorMode) I.renderer->set_frame_generation(I.frameGeneration);
             // The project's dynamic resolution: the renderer's GPU timing and the render scale (the project's quality
             // draws below the window's size from the first frame).
             I.sync_dynamic_resolution();
@@ -2024,6 +2072,82 @@ std::string Engine::set_upscaler(const Json& value, const std::string& where) {
     return err;
 }
 
+std::string Engine::set_latency(const Json& value, const std::string& where) {
+    auto parsed = render::parse_latency_settings(value, where, impl_->latency);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->latency = parsed.value();
+    if (impl_->renderer && impl_->windowed && !impl_->cfg.editorMode) impl_->renderer->set_latency(impl_->latency);
+    return std::string();
+}
+
+const render::LatencySettings& Engine::latency() const { return impl_->latency; }
+
+Json Engine::latency_status() {
+    Json j;
+    if (impl_->renderer) {
+        j = impl_->renderer->latency_status();
+        if (!(impl_->windowed && !impl_->cfg.editorMode) && impl_->latency.mode != render::LatencyMode::Off) {
+            j["mode"] = std::string(render::latency_mode_name(impl_->latency.mode));
+            j["boost"] = impl_->latency.boost;
+            j["driver"] = "none";
+            j["reason"] = "The latency setting acts in a game window only: this run is headless or the editor's own "
+                          "loop, so nothing is paced.";
+        }
+        return j;
+    }
+    j = render::latency_to_json(impl_->latency);
+    j["driver"] = "none";
+    j["reason"] =
+        impl_->latency.mode == render::LatencyMode::Off
+            ? std::string()
+            : std::string("No renderer: the engine runs with graphics=false, so the setting is only remembered.");
+    j["modes"] = Json::object();
+    return j;
+}
+
+Json Engine::latency_report() { return impl_->renderer ? impl_->renderer->latency_report() : Json::object(); }
+
+std::string Engine::set_frame_generation(const Json& value, const std::string& where) {
+    auto parsed = render::parse_frame_gen_settings(value, where, impl_->frameGeneration);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->frameGeneration = parsed.value();
+    if (impl_->renderer && impl_->windowed && !impl_->cfg.editorMode)
+        impl_->renderer->set_frame_generation(impl_->frameGeneration);
+    return std::string();
+}
+
+const render::FrameGenSettings& Engine::frame_generation() const { return impl_->frameGeneration; }
+
+Json Engine::frame_generation_status() {
+    Json j;
+    if (impl_->renderer) {
+        j = impl_->renderer->frame_generation_status();
+        if (!(impl_->windowed && !impl_->cfg.editorMode) && impl_->frameGeneration.mode != render::FrameGenMode::Off) {
+            j["mode"] = std::string(render::frame_gen_mode_name(impl_->frameGeneration.mode));
+            j["minBaseFps"] = impl_->frameGeneration.minBaseFps;
+            j["provider"] = "none";
+            j["state"] = "refused";
+            j["reason"] =
+                "Frame generation acts in a game window only: this run is headless or the editor's own loop, so "
+                "nothing is generated.";
+        }
+        return j;
+    }
+    j = render::frame_gen_to_json(impl_->frameGeneration);
+    j["provider"] = "none";
+    j["state"] = impl_->frameGeneration.mode == render::FrameGenMode::Off ? "off" : "refused";
+    j["reason"] =
+        impl_->frameGeneration.mode == render::FrameGenMode::Off
+            ? std::string()
+            : std::string("No renderer: the engine runs with graphics=false, so the setting is only remembered.");
+    j["modes"] = Json::object();
+    return j;
+}
+
+Json Engine::frame_generation_report() {
+    return impl_->renderer ? impl_->renderer->frame_generation_report() : Json::object();
+}
+
 std::string Engine::set_dynamic_resolution(const Json& value, const std::string& where) {
     std::string err = ScriptHost::set_dynamic_resolution(value, where);
     if (err.empty()) {
@@ -2073,6 +2197,8 @@ render::UpscalerCaps Engine::upscaler_caps() const {
     caps.multiCamera = false;
     caps.metalfx = mfx.available;
     caps.metalfxTemporal = mfx.temporal;
+    // The vendor SDK upscalers (DLSS, XeSS, FSR) stay false here: they need a renderer to probe the GPU and load the SDK library, so a
+    // headless run reports spatial or temporal for them (M78).
     caps.pixelArt = impl_->project.scaleMode == ScaleMode::PixelPerfect;
     return caps;
 }
@@ -2225,6 +2351,79 @@ void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::strin
     }
     r->take_gpu_ms(msOut);
     if (supported) *supported = r->gpu_timing_supported(reason);
+}
+
+void Engine::profile_latency(std::string* driver, std::string* reason) {
+    // The status is a JSON object with every provider's answer: rebuilt when what it depends on changed, not on every frame of a session.
+    // The keys are the mode, the boost, the driver that runs and the frame's 64-frame bucket, so a provider that became usable (a library
+    // installed, a device lost) with none of the others changed is seen up to 64 frames late (about a second at 60 fps), which the profiler's panel does not mind.
+    Impl::LatencyProfileCache& cache = impl_->latencyProfileCache;
+    const render::LatencyDriver running =
+        impl_->renderer ? impl_->renderer->effective_latency() : render::LatencyDriver::None;
+    const std::uint64_t bucket = impl_->frame / 64;
+    if (!cache.valid || cache.mode != impl_->latency.mode || cache.boost != impl_->latency.boost ||
+        cache.driver != running || cache.bucket != bucket) {
+        const Json st = latency_status();
+        cache.valid = true;
+        cache.mode = impl_->latency.mode;
+        cache.boost = impl_->latency.boost;
+        cache.driver = running;
+        cache.bucket = bucket;
+        cache.name = st.value("driver", std::string("none"));
+        cache.reason = st.value("reason", std::string());
+    }
+    const std::string& name = cache.name;
+    std::string why = cache.reason;
+    if (name == "none" && why.empty())
+        why = "render.latency is off (set mode auto, or the one of the GPU's maker: docs/LATENCY.md)";
+    else if (name != "none")
+        why = "no frame was presented while this was measured";
+    if (driver) *driver = name;
+    if (reason) *reason = why;
+}
+
+Json Engine::profile_frame_generation() {
+    Json j = frame_generation_report();
+    if (j.is_object() && !j.empty() &&
+        !(j.value("state", std::string()) == "off" && j.value("reason", std::string()).empty()))
+        return j;
+    // The profiler asks for this every frame: with the setting off nothing is asked of the providers (frame_generation_status probes each SDK,
+    // which loads its libraries), so a game that never turns frame generation on never loads one because a profiler is open. With it on and no
+    // report yet (the SDK is not running: a reason is the answer), the status is read again after a second of the simulation clock, or after 60
+    // rendered frames when the simulation is paused or stepped and its clock does not move (like profile_latency, which also keys on frames).
+    // A clock or frame counter that went backwards (a scene reload) reads it again.
+    Impl::FrameGenProfileCache& cache = impl_->frameGenProfileCache;
+    const double now = impl_->world.time();
+    if (impl_->frameGeneration.mode == render::FrameGenMode::Off) {
+        cache.valid = false;
+    } else if (!cache.valid || cache.mode != impl_->frameGeneration.mode || now < cache.atS || now >= cache.atS + 1.0 ||
+               impl_->frame < cache.atFrame || impl_->frame >= cache.atFrame + 60) {
+        const Json read = frame_generation_status();
+        cache.valid = true;
+        cache.mode = impl_->frameGeneration.mode;
+        cache.atS = now;
+        cache.atFrame = impl_->frame;
+        cache.state = read.value("state", std::string("off"));
+        cache.reason = read.value("reason", std::string());
+    }
+    Json st = Json::object();
+    if (cache.valid) {
+        st["state"] = cache.state;
+        st["reason"] = cache.reason;
+    }
+    j = Json::object();
+    j["provider"] = "none";
+    j["state"] = st.value("state", std::string("off"));
+    j["generating"] = false;
+    j["baseFps"] = 0.0;
+    j["presentedFps"] = 0.0;
+    j["renderedFrames"] = 0;
+    j["generatedFrames"] = 0;
+    std::string why = st.value("reason", std::string());
+    if (why.empty())
+        why = "render.frameGeneration is off (set mode auto, or the one of the GPU's maker: docs/FRAME_GENERATION.md)";
+    j["reason"] = why;
+    return j;
 }
 
 void Engine::step_frames(int n) { step(n); }

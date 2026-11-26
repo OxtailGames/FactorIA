@@ -117,6 +117,8 @@ Result<void> VulkanCommandList::open(const char* label) {
     scopes_.clear();
     scopeOpen_ = false;
     timerSlot_ = -1;
+    nativeOpen_ = false;
+    nativeDecls_.clear();
     // The GPU finished the list's last commands: its secondaries and uniform sets can go (the framebuffers are the
     // device's, cached until one of their views is destroyed).
     secondaryNext_ = 0;
@@ -132,6 +134,16 @@ Result<void> VulkanCommandList::open(const char* label) {
             if (cmd_)                                                                                                  \
                 device_.report(std::string("gpu vulkan: CommandList::") + what + " on list '" + label_ +               \
                                "', which was submitted (hint: take a new list with begin_commands() each frame)");     \
+            return;                                                                                                    \
+        }                                                                                                              \
+    } while (false)
+
+// Writes and copies inside a native section: the engine's barriers and the SDK's commands would interleave on states
+// the section has declared, so the call is refused and skipped (the section stays open).
+#define FA_VK_REFUSE_IN_NATIVE(what)                                                                                   \
+    do {                                                                                                               \
+        if (nativeOpen_) {                                                                                             \
+            fail(what, "a native section is open (hint: end_native() first; the call is skipped)");                    \
             return;                                                                                                    \
         }                                                                                                              \
     } while (false)
@@ -368,6 +380,10 @@ void VulkanCommandList::begin_pass(const PassDesc& pass) {
     clear_pass_state();
     passState_ = PassState::Render;
     passFailed_ = true;
+    if (nativeOpen_) {
+        fail("begin_pass", "a native section is open (hint: end_native() first; the pass's commands are skipped)");
+        return;
+    }
     if (queue_ != QueueKind::Graphics) {
         fail("begin_pass", std::string("the list runs on the ") + queue_name(queue_) +
                                " queue, which has no render passes (hint: record render passes on a "
@@ -600,6 +616,12 @@ void VulkanCommandList::begin_compute_pass(const char* label) {
     }
     clear_pass_state();
     passState_ = PassState::Compute;
+    if (nativeOpen_) {
+        passFailed_ = true;  // open, so end_pass() closes it; its commands are skipped
+        fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
+                                       "': a native section is open (hint: end_native() first)");
+        return;
+    }
     if (queue_ == QueueKind::Transfer) {
         passFailed_ = true;  // open, so end_pass() closes it; its commands are skipped
         fail("begin_compute_pass", std::string("compute pass '") + (label ? label : "") +
@@ -1287,6 +1309,170 @@ void VulkanCommandList::flush_barriers() {
 
 void VulkanCommandList::keep_until_done(std::shared_ptr<TrackedResource> r) { keep_.push_back(std::move(r)); }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Native commands (M78: vendor SDKs record into the list's command buffer between begin_native and end_native)
+// ---------------------------------------------------------------------------------------------------------------------
+
+SubState VulkanCommandList::native_state(NativeState state, bool image) {
+    constexpr VkPipelineStageFlags2 all = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    const auto layout = [image](VkImageLayout l) { return image ? l : VK_IMAGE_LAYOUT_UNDEFINED; };
+    switch (state) {
+        case NativeState::ShaderRead:
+            return {layout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL), all, VK_ACCESS_2_SHADER_READ_BIT};
+        case NativeState::UnorderedAccess:
+            return {layout(VK_IMAGE_LAYOUT_GENERAL), all, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT};
+        case NativeState::RenderTarget:
+            return {VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, all,
+                    VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT};
+        case NativeState::DepthWrite:
+            return {VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, all,
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
+        case NativeState::DepthRead:
+            return {VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, all,
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT};
+        case NativeState::CopySource:
+            return {layout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL), all, VK_ACCESS_2_TRANSFER_READ_BIT};
+        case NativeState::CopyDest:
+            return {layout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL), all, VK_ACCESS_2_TRANSFER_WRITE_BIT};
+        case NativeState::Common:
+        case NativeState::Count: break;
+    }
+    return {layout(VK_IMAGE_LAYOUT_GENERAL), all, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT};
+}
+
+std::string VulkanCommandList::resolve_native(std::span<const NativeUse> uses, const char* name,
+                                              std::vector<NativeDecl>& out) {
+    out.clear();
+    if (uses.empty()) return {};  // no resMutex_: submit closes a forgotten section with nothing left in
+    std::vector<NativeRange> ranges;
+    std::vector<std::shared_ptr<TrackedResource>> found(uses.size());
+    std::string error;
+    {
+        std::lock_guard<std::mutex> lock(device_.resMutex_);  // the labels the errors name are the records'
+        std::size_t next = 0;
+        error = check_native_uses(uses, queue_, name, true, ranges, [&](const NativeUse& use, NativeTarget& t) {
+            const std::size_t i = next++;
+            if (use.image.id) {
+                const VulkanDevice::ImageRecord* r = device_.images_.get(use.image.id);
+                if (!r || !r->tracked) return false;
+                found[i] = r->tracked;
+                t.label = r->label.c_str();
+                t.imageUsage = r->usage;
+                t.format = r->format;
+                t.mips = int(r->tracked->mips);
+                t.layers = int(r->tracked->layers);
+                return true;
+            }
+            const VulkanDevice::BufferRecord* r = device_.buffers_.get(use.buffer.id);
+            if (!r || !r->tracked) return false;
+            found[i] = r->tracked;
+            t.buffer = true;
+            t.label = r->label.c_str();
+            t.bufferUsage = r->usage;
+            return true;
+        });
+        // Vulkan's own rule: SHADER_READ_ONLY_OPTIMAL needs an image made with SAMPLED usage (a format the device
+        // cannot sample has none).
+        for (std::size_t i = 0; i < uses.size() && error.empty(); ++i)
+            if (uses[i].image.id && uses[i].state == NativeState::ShaderRead && found[i] &&
+                !(found[i]->usage & VK_IMAGE_USAGE_SAMPLED_BIT))
+                error = std::string(name) + "[" + std::to_string(i) + "]: " + device_.deviceName_ +
+                        " cannot sample the image's format, so it cannot be in ShaderRead (hint: Common or "
+                        "UnorderedAccess)";
+    }
+    if (!error.empty()) return error;
+    out.clear();
+    for (std::size_t i = 0; i < uses.size(); ++i) out.push_back({found[i], ranges[i], uses[i].state});
+    return {};
+}
+
+void VulkanCommandList::assume_native(const NativeDecl& d) {
+    auto it = useIndex_.find(d.res.get());
+    if (it == useIndex_.end()) return;  // begin_native required every declared resource
+    Use& u = uses_[it->second];
+    SubState s = native_state(d.state, d.res->image != VK_NULL_HANDLE);
+    // A state the native commands can write (storage, attachments, copy destination, Common): the next use, even a read
+    // in this layout, waits for it. A read-only state (ShaderRead, DepthRead, CopySource) wrote nothing: it keeps its
+    // read access, so a later read in the same layout needs no barrier (begin_native's barrier already moved the
+    // resource there), and `since` keeps the last write's scope for the next write to wait on.
+    const bool writes = access_writes(s.access);
+    if (writes) s.access = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    for (int l = d.range.layer; l < d.range.layer + d.range.layerCount; ++l)
+        for (int m = d.range.mip; m < d.range.mip + d.range.mipCount; ++m) {
+            const std::uint32_t sub = d.res->subresource(std::uint32_t(m), std::uint32_t(l));
+            if (sub >= u.current.size()) continue;
+            if (writes) {
+                u.current[sub] = s;
+                u.since[sub] = s;
+            } else if (u.current[sub].layout != s.layout) {
+                // The native commands moved it to another read-only layout (leftIn): their own barrier made the
+                // earlier writes visible, so this is the state `since` starts from.
+                u.current[sub] = s;
+                u.since[sub] = s;
+            }  // else: begin_native put it here already and merged this state's stages and access into current
+        }
+}
+
+Result<NativeCommands> VulkanCommandList::begin_native(std::span<const NativeUse> uses) {
+    const std::string at = "gpu vulkan: CommandList::begin_native in list '" + label_ + "': ";
+    if (!open_ || !cmd_)
+        return make_error(at + "the list is not recording", "take a new list with begin_commands() each frame");
+    if (nativeOpen_)
+        return make_error(at + "a native section is open already", "end_native() first; sections do not nest");
+    if (passState_ != PassState::None)
+        return make_error(at + "the list is inside a pass", "end_pass() first: native commands go between passes");
+    if (queue_ == QueueKind::Transfer)
+        return make_error(at + "the list runs on the transfer queue",
+                          "record native commands on a QueueKind::Graphics or Compute list");
+    std::vector<NativeDecl> decls;
+    const std::string error = resolve_native(uses, "uses", decls);
+    if (!error.empty()) return make_error(at + error, "fix that entry; nothing was recorded");
+    for (const NativeDecl& d : decls)
+        require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount), std::uint32_t(d.range.layer),
+                      std::uint32_t(d.range.layerCount), native_state(d.state, d.res->image != VK_NULL_HANDLE));
+    flush_barriers();
+    nativeOpen_ = true;
+    nativeDecls_ = std::move(decls);
+    empty_ = false;
+    NativeCommands n;
+    n.backend = Backend::Vulkan;
+    n.list = cmd_;
+    n.queue = queue_;
+    return n;
+}
+
+Result<void> VulkanCommandList::end_native(std::span<const NativeUse> leftIn) {
+    const std::string at = "gpu vulkan: CommandList::end_native in list '" + label_ + "': ";
+    if (!open_ || !nativeOpen_)
+        return make_error(at + "no native section is open",
+                          "call end_native once after each begin_native that succeeded");
+    std::vector<NativeDecl> left;
+    const std::string error = resolve_native(leftIn, "leftIn", left);
+    if (!error.empty()) return make_error(at + error, "fix that entry; the section is still open");
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const NativeDecl& d = left[i];
+        for (int l = d.range.layer; l < d.range.layer + d.range.layerCount; ++l)
+            for (int m = d.range.mip; m < d.range.mip + d.range.mipCount; ++m) {
+                bool declared = false;
+                for (const NativeDecl& b : nativeDecls_)
+                    declared = declared || (b.res == d.res && m >= b.range.mip && m < b.range.mip + b.range.mipCount &&
+                                            l >= b.range.layer && l < b.range.layer + b.range.layerCount);
+                if (!declared)
+                    return make_error(at + "leftIn[" + std::to_string(i) + "]: mip " + std::to_string(m) +
+                                          " of layer " + std::to_string(l) + " was not declared by begin_native",
+                                      "declare every subresource the native commands touch in begin_native's uses; "
+                                      "the section is still open");
+            }
+    }
+    for (const NativeDecl& d : nativeDecls_) assume_native(d);
+    for (const NativeDecl& d : left) assume_native(d);
+    // The native commands may have bound pipelines and descriptor sets of their own: bind everything again.
+    reset_bind_state();
+    nativeOpen_ = false;
+    nativeDecls_.clear();
+    return {};
+}
+
 void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& barriers) {
     if (barriers.empty()) return;
     // Merge the barriers of one image that go the same way: adjacent mips first, then adjacent layers of equal mip
@@ -1427,6 +1613,7 @@ void VulkanDevice::record_barriers(VkCommandBuffer cmd, std::vector<Barrier>& ba
 
 void VulkanCommandList::write_buffer(const BufferWrite& w) {
     FA_VK_REQUIRE_OPEN("write_buffer");
+    FA_VK_REFUSE_IN_NATIVE("write_buffer");
     std::size_t bufferSize = 0;
     std::string label;
     std::shared_ptr<TrackedResource> t = device_.buffer_tracked(w.buffer, &bufferSize, &label);
@@ -1459,6 +1646,7 @@ void VulkanCommandList::write_buffer(const BufferWrite& w) {
 
 void VulkanCommandList::copy_buffer_to_buffer(const BufferCopy& c) {
     FA_VK_REQUIRE_OPEN("copy_buffer_to_buffer");
+    FA_VK_REFUSE_IN_NATIVE("copy_buffer_to_buffer");
     std::size_t srcSize = 0, dstSize = 0;
     std::string srcLabel, dstLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);
@@ -1608,6 +1796,7 @@ std::size_t region_bytes(const Region& r) {
 
 void VulkanCommandList::write_image(const ImageWrite& w) {
     FA_VK_REQUIRE_OPEN("write_image");
+    FA_VK_REFUSE_IN_NATIVE("write_image");
     VulkanDevice::ImageRecord im;
     if (!device_.image_info(w.dst.image, im)) {
         device_.report("gpu vulkan: CommandList::write_image in list '" + label_ + "': image " +
@@ -1628,6 +1817,7 @@ void VulkanCommandList::write_image(const ImageWrite& w) {
 
 void VulkanCommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     FA_VK_REQUIRE_OPEN("copy_buffer_to_image");
+    FA_VK_REFUSE_IN_NATIVE("copy_buffer_to_image");
     std::size_t srcSize = 0;
     std::string srcLabel;
     std::shared_ptr<TrackedResource> src = device_.buffer_tracked(c.src, &srcSize, &srcLabel);

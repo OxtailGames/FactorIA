@@ -574,10 +574,15 @@ public:
     void end_timed_scope() override;
     // The queue it runs on: the one begin_commands asked for, or the queue that stands in for it (map_queue).
     QueueKind queue() const override { return kind_; }
+    Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
+    Result<void> end_native(std::span<const NativeUse> leftIn) override;
+    using CommandList::end_native;
 
     // ---- the backend's side -----------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
     static constexpr std::uint32_t kAllSubresources = 0xFFFFFFFFu;
+    // The resource state a NativeState maps to on a list of `queue` (shader reads: NON_PIXEL only on compute lists).
+    static D3D12_RESOURCE_STATES native_state(NativeState state, QueueKind queue);
     void require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
     // The same for mips [mip, mip + mipCount) of layers [layer, layer + layerCount), every plane.
     void require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount,
@@ -690,6 +695,20 @@ private:
         const char* role = "";
     };
     std::vector<PassAttachment> passAttachments_;
+    // A range a native section declares (begin_native) or leaves in another state (end_native).
+    struct NativeDecl {
+        std::shared_ptr<TrackedResource> res;
+        NativeRange range{};
+        NativeState state = NativeState::Common;
+    };
+    // Finds and checks the resources of `uses` ("uses" or "leftIn" in the errors): "" with one NativeDecl each, or the
+    // error.
+    std::string resolve_native(std::span<const NativeUse> uses, const char* name, std::vector<NativeDecl>& out);
+    // The tracking after a native section: `d`'s subresources (every plane) are in its state, with no barrier.
+    void assume_native(const NativeDecl& d);
+    // The open native section (begin_native .. end_native) and what it declared.
+    bool nativeOpen_ = false;
+    std::vector<NativeDecl> nativeDecls_;
 };
 
 // What the backend counted (tests, the profiler).
@@ -781,6 +800,7 @@ public:
     NativeDevice native() const override;
     NativeImage native_image(Image image) const override;
     NativeBuffer native_buffer(Buffer buffer) const override;
+    NativeView native_view(View view) const override;
     MetalNative* native_metal() override { return nullptr; }  // Metal only (MetalFX)
 
     Buffer make_buffer(const BufferDesc& desc) override;
@@ -939,7 +959,7 @@ public:
     std::vector<std::string> warnings();
     void clear_messages();
     // Waits until the GPU finished everything submitted, then releases what was waiting for it.
-    Result<void> wait_idle();
+    Result<void> wait_idle() override;
     D3d12Counters counters() const;
     // Mip `mip` of layer `layer` (array layer, cube face or 3D slice), the rectangle (x, y, w, h), tightly packed
     // rows top first, in the image's own format. Waits for the GPU.
@@ -1343,6 +1363,23 @@ private:
     PixelFormat swapDepthFormat_ = PixelFormat::None;
     bool swapAcquired_ = false;  // acquire_swapchain ran and present() has not yet
     UINT swapIndex_ = 0;         // the acquired back buffer
+
+    // Device hooks (gpu/device_hooks.h; D3d12Options::init.hooks), in their order; presents_: the presents so far
+    // (PresentEvent::frame, render thread).
+    DeviceHooks hooks_;
+    std::vector<char> hookCreated_;  // per hook: d3d12_device_created ran, so device_destroying follows (only then)
+    HookAttachment hookUse_;         // after hooks_: detaches once the destructor body has called device_destroying
+    std::uint64_t presents_ = 0;
+    // Marks `hook` unavailable with `reason`, logs it and keeps it in warnings().
+    void hook_unavailable(DeviceHook& hook, std::string reason);
+    void hooks_before_device(IDXGIAdapter1* adapter, bool warp);
+    // DeviceHook::d3d12_device_created over the available hooks: the factory, device and direct queue they replace.
+    void hooks_device_created();
+    // DeviceHook::d3d12_create_swapchain: true when a hook made `chain`; `desc` as the hooks left it.
+    bool hooks_make_swapchain(HWND hwnd, DXGI_SWAP_CHAIN_DESC1& desc, Com<IDXGISwapChain1>& chain);
+    void hooks_swapchain_created(Com<IDXGISwapChain1>& chain);
+    void hooks_swapchain_destroying(const void* swapchain);
+    void hooks_present(bool begin, UINT image, HRESULT result);
 
     // Messages (msgMutex_)
     mutable std::mutex msgMutex_;

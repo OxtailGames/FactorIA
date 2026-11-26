@@ -11,15 +11,21 @@
 #include "fullscreen_gpu.h"
 
 #include "render_features.h"
+#include "render_upscale_vendor.h"
+#include "shaders/upscale_rr.glsl.h"
 #include "shaders/upscale_spatial.glsl.h"
 
 namespace fa::render {
 
 UpscaleImpl select_upscale_impl(std::string_view mode, bool* known) {
-    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal" || mode == "metalfx";
+    const bool understood = mode == "stretch" || mode == "spatial" || mode == "temporal" || mode == "metalfx" ||
+                            mode == "dlss" || mode == "xess" || mode == "fsr";
     if (known) *known = understood;
     if (mode == "temporal") return UpscaleImpl::Temporal;
     if (mode == "metalfx") return UpscaleImpl::MetalFx;
+    if (mode == "dlss") return UpscaleImpl::Dlss;
+    if (mode == "xess") return UpscaleImpl::Xess;
+    if (mode == "fsr") return UpscaleImpl::Fsr;
     return mode == "spatial" ? UpscaleImpl::Spatial : UpscaleImpl::Stretch;
 }
 
@@ -35,6 +41,9 @@ const char* upscale_impl_name(UpscaleImpl impl) {
         case UpscaleImpl::Stretch: return "stretch";
         case UpscaleImpl::Temporal: return "temporal";
         case UpscaleImpl::MetalFx: return "metalfx";
+        case UpscaleImpl::Dlss: return "dlss";
+        case UpscaleImpl::Xess: return "xess";
+        case UpscaleImpl::Fsr: return "fsr";
         case UpscaleImpl::Spatial: return "spatial";
     }
     return "stretch";
@@ -51,7 +60,8 @@ using render::UpscaleInput;
 // art (ScaleMode::PixelPerfect) keeps its hard edges. The temporal upscaler (M76-P4) is the TAA resolve: it needs the TAA shaders (compiled
 // here the first time a temporal, metalfx or auto setting asks, as the cameras do) and histories that fit, and it works on a frame of one
 // full-viewport camera (`multiCamera`, what the last frame had). MetalFX (M76-P5b) is the Metal backend on an OS and a GPU that have its
-// scalers (metalfx.h, asked once), until one of its frames fails here.
+// scalers (metalfx.h, asked once), until one of its frames fails here. The vendor SDKs (M78, render_upscale_vendor.h) are asked when the
+// setting wants one (that mode, or "auto" on a GPU of that maker), once, and are off for the rest of the run after a failed frame.
 render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     // Asked once, with a device: without one the answer (no) is not kept, so a renderer that gets its device later asks again.
     if (spatialSupported < 0 && gpu.has_device()) {
@@ -64,7 +74,7 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     caps.spatial = spatialSupported > 0;
     if (gpu.has_device() &&
         (upscaler.mode == render::UpscalerMode::Temporal || upscaler.mode == render::UpscalerMode::Auto ||
-         upscaler.mode == render::UpscalerMode::MetalFx))
+         upscaler.mode == render::UpscalerMode::MetalFx || render::vendor_upscaler_index(upscaler.mode) >= 0))
         caps.temporal = taa.ready(gpu.device()) && !taa.upscale_unavailable();
     caps.multiCamera = temporalBlocked;
     if (gpu.has_device() && render::metalfx::on_metal(gpu.device()) && !mfxFailed) {
@@ -74,6 +84,30 @@ render::UpscalerCaps Renderer::Impl::upscaler_caps() {
     } else {
         caps.metalfx = false;
         caps.metalfxTemporal = false;  // no MetalFX at all, so no temporal one either (the default says true)
+    }
+    if (gpu.has_device()) {
+        caps.gpuVendor = render::gpu_vendor_of(gpu.device());
+        const int own = caps.gpuVendor == render::GpuVendor::Nvidia  ? 0
+                        : caps.gpuVendor == render::GpuVendor::Intel ? 1
+                        : caps.gpuVendor == render::GpuVendor::Amd   ? 2
+                                                                     : -1;
+        for (int i = 0; i < render::kVendorUpscalerCount; ++i) {
+            const bool wanted = render::vendor_upscaler_index(upscaler.mode) == i ||
+                                (upscaler.mode == render::UpscalerMode::Auto && own == i);
+            if (!wanted) continue;
+            const bool usable = vendor_probe(i).available && !vendorFailed[i];
+            (i == 0 ? caps.dlss : i == 1 ? caps.xess : caps.fsr) = usable;
+            // An explicit vendor mode its SDK cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
+            if (!usable && !vendorFailed[i] && !vendorWarnedUnavailable[i] &&
+                upscaler.mode == render::vendor_upscaler_mode(i)) {
+                vendorWarnedUnavailable[i] = true;
+                FA_WARN(
+                    "render",
+                    "render.upscaler mode \"{}\" is not available: {} The temporal upscaler is used instead, then the "
+                    "spatial one.",
+                    render::vendor_provider(i).mode(), vendorProbe[i].reason);
+            }
+        }
     }
     // An explicit "metalfx" the GPU cannot run says why, once (the effective mode then is the next best, as render.upscaler reports).
     if (upscaler.mode == render::UpscalerMode::MetalFx && !caps.metalfx && !mfxWarnedUnavailable && !mfxFailed &&
@@ -145,9 +179,11 @@ void Renderer::Impl::free_output_targets() {
         destroy_target(gpu.device(), spatialTarget);
         destroy_target(gpu.device(), outTarget);
         destroy_target(gpu.device(), outFilterTarget);
+        destroy_target(gpu.device(), hudlessTarget);
     }
     free_mfx_images();
     mfxScaler.release();
+    rrPrep.release();
     outHasStorage = false;
     outActive = false;
     outFilterActive = false;
@@ -289,6 +325,294 @@ void Renderer::Impl::spatial_upscale(const UpscaleInput& in, Target& out, const 
             resize ? in.outW : in.renderW, resize ? in.outH : in.renderH, out);
 }
 
+// What provider `index` answered for this GPU, asked once. Needs a device.
+const render::VendorProbe& Renderer::Impl::vendor_probe(int index) {
+    if (!vendorProbed[index]) {
+        vendorProbe[index] = render::vendor_provider(index).probe(render::vendor_env_of(gpu.device()));
+        vendorProbed[index] = true;
+    }
+    return vendorProbe[index];
+}
+
+// What DLSS answered for Ray Reconstruction on this GPU (Streamline's Ray Reconstruction plugin included), asked once. Needs a device.
+const render::VendorProbe& Renderer::Impl::rr_probe() {
+    if (!rrProbed) {
+        rrProbe = render::vendor_provider(0).probe_ray_reconstruction(render::vendor_env_of(gpu.device()));
+        rrProbed = true;
+    }
+    return rrProbe;
+}
+
+// The providers' answers for render.supports: a provider that refused a frame is off, with that reason.
+void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
+    std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
+    for (int i = 0; i < render::kVendorUpscalerCount; ++i) {
+        answers[std::size_t(i)] = vendor_probe(i);
+        if (vendorFailed[i]) {
+            answers[std::size_t(i)].available = false;
+            answers[std::size_t(i)].reason = std::string(render::vendor_provider(i).name()) +
+                                             " failed a frame earlier in this run (" + vendorFailedWhy[i] +
+                                             "); the temporal upscaler draws instead.";
+        }
+    }
+    // Ray Reconstruction: the machine's answer; off after a frame DLSS refused with it, or when DLSS itself is off. The linear frame it needs
+    // is a property of the renderer's pipeline (gpu.linear()), not of the machine: it is said here too.
+    render::VendorProbe rr = rr_probe();
+    if (rr.available && !gpu.linear()) {
+        rr.available = false;
+        rr.reason = "DLSS Ray Reconstruction needs the picture in linear HDR light, and this renderer works in display "
+                    "values (the sRGB "
+                    "framebuffer is not available on this device).";
+    }
+    if (rr.available && rrFailed) {
+        rr.available = false;
+        rr.reason =
+            "DLSS Ray Reconstruction failed earlier in this run (" + rrFailedWhy + "); Super Resolution draws instead.";
+    }
+    if (rr.available && !answers[0].available) {
+        rr.available = false;
+        rr.reason = answers[0].reason;
+    }
+    render::set_vendor_upscalers_env(env, answers, rr);
+}
+
+// A vendor SDK failed on this machine (a frame its provider refused): from now on every frame is drawn without it, with one warning that
+// says what happened. The rule of MetalFX (metalfx_fail): fail once, stay off. Returns false so the caller can `return vendor_fail(...)`.
+bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
+    if (index >= 0 && index < render::kVendorUpscalerCount && !vendorFailed[index]) {
+        vendorFailed[index] = true;
+        vendorFailedWhy[index] = why;
+        FA_WARN("render",
+                "{} failed: {} The upscaler continues with the temporal TAA upscaler (the spatial one on a frame that "
+                "cannot use it) for "
+                "the rest of this run. Hint: set render.upscaler mode to \"temporal\" to silence this.",
+                render::vendor_provider(index).name(), why.empty() ? std::string("the provider gave no reason.") : why);
+    }
+    return false;
+}
+
+// The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): from the depth prepass, the world normal with a roughness and the
+// hardware depth of the camera's projection (Ray Reconstruction is told that projection, so it cannot read the prepass's d / (d + 1)), and
+// a cleared image for each albedo. The renderer is a forward renderer with no material G-buffer, so the roughness and the two albedos are
+// constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null `prepass` means every pixel is sky. False when the four images
+// cannot be made. The caller made sure rrPrep is ready.
+bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass) {
+    if (!ensure_mfx_target(rrNormal, "rr-normal-roughness", gpu::PixelFormat::Rgba16F, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrDiffuse, "rr-diffuse-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
+        !ensure_mfx_target(rrDepth, "rr-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH))
+        return false;
+    constexpr float kRoughness = 0.5f, kDiffuseAlbedo = 0.5f, kSpecularAlbedo = 0.04f;
+    gpu::CommandList& list = pass_list(c, gpu);
+    {
+        PassDesc p = pass_into(rrNormal, "upscale-rr-guides");
+        p.color1 = rrDepth.colorAtt;
+        p.format.color1 = rrDepth.format.color;
+        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
+        p.colorStore = gpu::StoreAction::Store;
+        const gpu::Pipeline pipeline = rrPrep.pipeline(p.format);  // before the pass: nothing is made inside one
+        list.begin_pass(p);
+        list.set_pipeline(pipeline);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
+        b.views[VIEW_upscale_rr_tex_p] = prepass ? prepass->texView : assets->white()->view;
+        b.samplers[SMP_upscale_rr_smp_pt] = gpu.sampler(SamplerKind::Nearest);
+        list.set_bindings(b);
+        upscale_rr_rr_params_t u{};
+        const Vec3 back = upscaleTaa.forward * -1.0f;
+        u.right[0] = upscaleTaa.right.x;
+        u.right[1] = upscaleTaa.right.y;
+        u.right[2] = upscaleTaa.right.z;
+        u.right[3] = kRoughness;
+        u.up[0] = upscaleTaa.up.x;
+        u.up[1] = upscaleTaa.up.y;
+        u.up[2] = upscaleTaa.up.z;
+        u.back[0] = back.x;
+        u.back[1] = back.y;
+        u.back[2] = back.z;
+        u.back[3] = prepass ? 1.0f : 0.0f;
+        render::rr_depth_terms(upscaleTaa.projection, u.zrow);  // the unjittered projection the provider is told too
+        list.set_uniforms(UB_upscale_rr_rr_params, gpu::Range{&u, sizeof(u)});
+        list.draw(0, 3, 1);
+        list.end_pass();
+        ++stats.drawCalls;
+    }
+    // The two albedos are constants (the renderer has no material G-buffer): a clear pass each.
+    for (int i = 0; i < 2; ++i) {
+        const float v = i == 0 ? kDiffuseAlbedo : kSpecularAlbedo;
+        PassDesc p = pass_into(i == 0 ? rrDiffuse : rrSpecular, i == 0 ? "upscale-rr-diffuse" : "upscale-rr-specular");
+        p.colorLoad = gpu::LoadAction::Clear;
+        p.clearColor = gpu::Color{v, v, v, 1.0f};
+        p.colorStore = gpu::StoreAction::Store;
+        list.begin_pass(p);
+        list.end_pass();
+        ++stats.drawCalls;
+    }
+    return true;
+}
+
+void Renderer::Impl::free_rr_images() {
+    if (!gpu.has_device()) return;
+    destroy_target(gpu.device(), rrNormal);
+    destroy_target(gpu.device(), rrDiffuse);
+    destroy_target(gpu.device(), rrSpecular);
+    destroy_target(gpu.device(), rrDepth);
+}
+
+// The vendor implementation into `out` (M78): the provider of `impl` is given the frame's images and the pass's command list. False
+// (nothing drawn, `out` untouched) when the provider is off or this frame has nothing for it, and a provider that refuses a frame is off for
+// good (vendor_fail). Fills the depth, velocity and reactive views of `in` (what the frame has, at the picture's size).
+bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Target& src, Target& out,
+                                    const PassContext& c) {
+    const int index = render::vendor_impl_index(impl);
+    if (index < 0 || vendorFailed[index] || !gpu.has_device() || !out.valid(gpu.device()) || !src.valid(gpu.device()))
+        return false;
+    const Target* prepass = upscalePrepass.target(c);
+    const Target* velocity = upscaleVelocity.target(c);
+    const Target* reactive = upscaleReactive.target(c);
+    // Only what is the picture's size (and, for the reactive mask, the format the temporal passes write) goes to the SDK.
+    if (prepass && (prepass->w != in.renderW || prepass->h != in.renderH)) prepass = nullptr;
+    if (velocity && (velocity->w != in.renderW || velocity->h != in.renderH)) velocity = nullptr;
+    if (reactive &&
+        (reactive->w != in.renderW || reactive->h != in.renderH || reactive->format.color != Gpu::reactive_format()))
+        reactive = nullptr;
+    // The SDKs read a 0..1 depth and a motion image in UV units, not the prepass's world-unit depth and the velocity's "none" sentinel: the
+    // preparation pass MetalFX uses makes them (a frame without a prepass is all sky, without a velocity every motion is the camera's).
+    if (!upscaleTaa.on || !assets || !assets->white()) return false;
+    if (!mfxPrep.ready(gpu.device())) return vendor_fail(index, "the input preparation shader did not compile.");
+    std::uint64_t config = 0;
+    const bool histValid = scaler_history_valid(in, config);
+    render::VendorUpscaler& provider = render::vendor_provider(index);
+    in.cameraNear = 0.1f;  // any near plane serves: the provider is told the one the reversed depth is made with
+    in.dynamicResolution = renderScale != renderBaseScale;
+    if (in.dynamicResolution) dynResSeen = true;
+    in.dynamicResolutionEnabled = gpuFrameWanted || dynResSeen;
+    if (!run_upscale_prep(in, c, prepass, velocity, histValid, provider.wants_reversed_depth() ? in.cameraNear : 0.0f))
+        return vendor_fail(index, "the depth and motion images of the render size could not be made.");
+    scaler_history_note(config);
+    // What an SDK asks besides the images: the sizes it was made for, the quality, the engine clock, the camera's lens.
+    in.quality = upscaler.quality;
+    in.maxRenderW = std::max(in.renderW, int(std::lround(double(in.outW) * double(renderBaseScale))));
+    in.maxRenderH = std::max(in.renderH, int(std::lround(double(in.outH) * double(renderBaseScale))));
+    in.frameTimeMs = frameDt * 1000.0f;
+    const float p11 = upscaleTaa.proj[1];
+    in.cameraFovY =
+        p11 > 1e-4f ? 2.0f * std::atan(1.0f / p11) : 1.0f;  // an orthographic lens has no field of view: a nominal one
+    in.depth = mfxDepth.texView;
+    in.velocity = mfxMotion.texView;
+    in.reactive = reactive ? reactive->texView : gpu::View{};
+    in.exposure = 1.0f;  // the scene is exposed before the stage
+    in.resetHistory = !histValid;
+    // The camera the frame was drawn with (DLSS Ray Reconstruction is told its matrices).
+    render::UpscaleCamera& cam = in.camera;
+    cam.valid = true;
+    cam.perspective = upscaleTaa.perspective;
+    std::copy(upscaleTaa.view.m, upscaleTaa.view.m + 16, cam.view);
+    std::copy(upscaleTaa.projection.m, upscaleTaa.projection.m + 16, cam.proj);
+    std::copy(upscaleTaa.prevFromView.m, upscaleTaa.prevFromView.m + 16, cam.prevFromView);
+    cam.prevValid = histValid;
+    const Vec3 axes[4] = {upscaleTaa.position, upscaleTaa.right, upscaleTaa.up, upscaleTaa.forward};
+    float* const dest[4] = {cam.position, cam.right, cam.up, cam.forward};
+    for (int i = 0; i < 4; ++i) {
+        dest[i][0] = axes[i].x;
+        dest[i][1] = axes[i].y;
+        dest[i][2] = axes[i].z;
+    }
+    cam.nearPlane = upscaleTaa.nearPlane;
+    cam.farPlane = upscaleTaa.farPlane;
+    // DLSS Ray Reconstruction (M78-P4c): when the setting asks for it, this frame can use it and the guides are made. Else the frame is
+    // drawn with Super Resolution, the reason said once; a machine that refuses it, or a frame it refused, stays off.
+    in.rayReconstruction = false;
+    // The guide images stay while the setting is on and a later frame may use them (a frame that cannot use them, a final pass).
+    bool keepGuides = false;
+    if (index == 0 && upscaler.rayReconstruction) {
+        std::string why;
+        bool permanent =
+            false;  // the reason belongs to the machine or to a refused frame: the setting stays unusable for this run
+        if (rrFailed) {
+            why = rrFailedWhy;
+        } else if (!rr_probe().available) {
+            why = rr_probe().reason;
+            permanent = true;
+        } else if (!in.linear) {
+            why = "the frame is not in linear HDR light (the picture is display values: a final pass or a "
+                  "display-referred pipeline), "
+                  "and Ray Reconstruction reads linear colour";
+        } else if (in.dynamicResolution) {
+            why = "the dynamic resolution is changing the render size, which Ray Reconstruction does not support";
+        } else if (!upscaleTaa.perspective) {
+            why = "the camera is orthographic, and Ray Reconstruction needs a perspective one";
+        } else if (!rrPrep.ready(gpu.device())) {
+            why = "the guides shader did not compile";
+            rrFailed = true;
+            rrFailedWhy = why;
+        } else if (!run_rr_guides(in, c, prepass)) {
+            why = "the guide images of the render size could not be made";
+            rrFailed = true;
+            rrFailedWhy = why;
+        } else {
+            in.rayReconstruction = true;
+        }
+        keepGuides = !permanent && !rrFailed;
+        if (!in.rayReconstruction) {
+            bool& warned = permanent ? rrWarnedUnavailable : rrWarnedFrame;
+            if (!warned) {
+                warned = true;
+                FA_WARN(
+                    "render",
+                    "DLSS Ray Reconstruction is not used: {}. Super Resolution draws instead. Hint: render.supports "
+                    "\"dlssRayReconstruction\" says what this machine can do; set render.upscaler rayReconstruction to "
+                    "false to silence "
+                    "this.",
+                    why);
+            }
+        }
+    }
+    // The guides are four images of the render size: a frame that cannot use them (one that is refused for a frame, a final pass) keeps
+    // them while the render size stays; they go when the setting goes false, the machine or a frame refuses them, or another upscaler
+    // draws (`index` is the provider's, 0 = DLSS: XeSS and FSR frames have no use for them).
+    if (!in.rayReconstruction && !keepGuides) free_rr_images();
+    render::VendorFrame f;
+    f.device = &gpu.device();
+    f.list = &pass_list(c, gpu);
+    f.color = src.texture_image();
+    f.depth = mfxDepth.color;
+    f.velocity = mfxMotion.color;
+    f.reactive = reactive ? reactive->texture_image() : gpu::Image{};
+    f.output = out.color;
+    f.colorFormat = src.format.color;
+    f.outputFormat = out.format.color;
+    if (in.rayReconstruction) {
+        f.normalRoughness = rrNormal.color;
+        f.diffuseAlbedo = rrDiffuse.color;
+        f.specularAlbedo = rrSpecular.color;
+        f.rrDepth = rrDepth.color;
+        in.normalRoughness = rrNormal.texView;
+        in.diffuseAlbedo = rrDiffuse.texView;
+        in.specularAlbedo = rrSpecular.texView;
+        in.rrDepth = rrDepth.texView;
+    }
+    mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
+    if (!provider.upscale(in, f)) return vendor_fail(index, f.error);
+    mfxLastWrote = true;
+    if (index == 0) rrLastUsed = f.usedRayReconstruction;
+    if (in.rayReconstruction && !f.usedRayReconstruction) {
+        // DLSS drew the frame with Super Resolution: Ray Reconstruction is off for the rest of the run (fail once, stay off).
+        rrFailed = true;
+        rrFailedWhy =
+            f.rayReconstructionFallback.empty() ? std::string("DLSS gave no reason") : f.rayReconstructionFallback;
+        rrWarnedFrame = true;
+        FA_WARN("render",
+                "DLSS Ray Reconstruction is not used: {} Super Resolution draws instead for the rest of this run. "
+                "Hint: set "
+                "render.upscaler rayReconstruction to false to silence this.",
+                rrFailedWhy);
+        free_rr_images();
+    }
+    ++stats.drawCalls;  // the provider's own pass
+    return true;
+}
+
 // The upscale pass: the picture of the render resolution (scene_target()) into `out`. The implementation follows the effective upscaler mode and the frame (Temporal only on a frame the renderer jittered).
 void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     const Target& src = scene_target();
@@ -306,8 +630,11 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // frame render() jittered for it (temporalFrame); a temporal mode on a frame that was not (the stage came up between the two) and a
     // temporal picture that cannot be made fall to the spatial upscaler, as the effective mode does.
     const render::UpscalerMode mode = effective_upscaler_mode();
+    const int vendorIndex = render::vendor_impl_index(vendorFrameImpl);
     if (temporalFrame)
-        upscaleImpl = mfxFrame && !mfxFailed ? UpscaleImpl::MetalFx : UpscaleImpl::Temporal;
+        upscaleImpl = vendorIndex >= 0 && !vendorFailed[vendorIndex] ? vendorFrameImpl
+                      : mfxFrame && !mfxFailed                       ? UpscaleImpl::MetalFx
+                                                                     : UpscaleImpl::Temporal;
     else if (mode == render::UpscalerMode::Stretch)
         upscaleImpl = UpscaleImpl::Stretch;
     else
@@ -320,15 +647,26 @@ void Renderer::Impl::run_upscale(Target& out, const PassContext& c) {
     // upscaler when the frame is jittered, then to the spatial one, as the effective mode lists them.
     if (upscaleImpl == UpscaleImpl::MetalFx && !metalfx_upscale(in, src, out, c))
         upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
-    if (mode != render::UpscalerMode::MetalFx)
-        free_mfx_images();  // another mode: the two images of its preparation pass are not kept
+    // A vendor SDK (M78) draws the jittered frame through its provider; a frame it cannot draw (and its failure for good) falls to the
+    // temporal upscaler, which the jittered frame suits, then to the spatial one.
+    if (render::vendor_impl_index(upscaleImpl) >= 0 && !vendor_upscale(upscaleImpl, in, src, out, c))
+        upscaleImpl = temporalFrame ? UpscaleImpl::Temporal : UpscaleImpl::Spatial;
+    // A provider that failed for good draws no more frames: its preparation images are not kept either (frame generation apart, which reads
+    // the two images after this pass).
+    const int keptVendor = render::vendor_impl_index(vendorFrameImpl);
+    const bool vendorDrawing = keptVendor >= 0 && !vendorFailed[keptVendor];
+    if (mode != render::UpscalerMode::MetalFx && !vendorDrawing && !framegen.wants_dispatch())
+        free_mfx_images();  // another mode: the two images of its preparation pass are not kept (the vendor SDKs use them too)
     if (upscaleImpl == UpscaleImpl::Temporal && !temporal_upscale(in, out, c))
         upscaleImpl = UpscaleImpl::Spatial;  // no history to make: this frame is upscaled spatially
     switch (upscaleImpl) {
         case UpscaleImpl::Stretch: stretch_upscale(in, out, c); break;
         case UpscaleImpl::Spatial: spatial_upscale(in, out, c); break;
         case UpscaleImpl::Temporal:
-        case UpscaleImpl::MetalFx: break;  // drawn above
+        case UpscaleImpl::MetalFx:
+        case UpscaleImpl::Dlss:
+        case UpscaleImpl::Xess:
+        case UpscaleImpl::Fsr: break;  // drawn above
     }
     outActive = true;
 }

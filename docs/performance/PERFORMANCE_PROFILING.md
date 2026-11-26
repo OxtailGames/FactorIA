@@ -28,6 +28,7 @@ profile: {
   threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
              jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
+  latency: {driver, avgMs, p95Ms, maxMs, samples, reason},    // input to present; numbers, or null + reason
   overBudget: [{name, limitMs, frames, maxMs}],               // frames over runtime.scriptFrameBudgetMs; [] when none
   memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}
 }
@@ -45,6 +46,9 @@ Reading it:
 - Start with `frameMs`, then the biggest `systems`, then the first `behaviours`. A game that is slow in `render` with a small
   `gpu` time spends it recording many separate draws (see `drawCalls` in `play.report`); a big `gpu` time means the pictures
   are heavy (resolution, bloom, lights, overdraw).
+- `latency` is the time from the input sample to the end of the present call, in the frames where `render.latency` is on
+  (LATENCY.md). `driver` is the path that ran (`antilag2`, `xell`, `pacing`, or `none`); with no sample the numbers are `null` and
+  `reason` says why (the mode is `off`, a headless or automatic run, no window). It is what the CPU sees, for comparing settings.
 - `gpu` is the time the GPU took to draw the world (not the final copy to the window). It is read from timer queries that
   come back a few frames late and are never waited for, so it describes recent frames, not the exact one. It is measured on
   Direct3D 11 (Windows) and desktop OpenGL (Linux). Everywhere else the numbers are `null` and `reason` says why: Metal

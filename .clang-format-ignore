@@ -4,6 +4,7 @@ external/
 # Headers written by tools/shaders/compile_shaders.sh (sokol-shdc).
 engine/render/src/shaders/*.glsl.h
 engine/render/tests/shaders/*.glsl.h
+engine/render/tests/shader_text_index.h
 # Test data and golden files are compared byte for byte.
 **/tests/data/
 **/tests/golden/

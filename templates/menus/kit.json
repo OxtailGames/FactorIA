@@ -10,7 +10,7 @@
     },
     {
       "name": "options",
-      "description": "The options panel: video, a colour filter, a graphics tab (quality of the screen effects, bloom, grain, vignette, chromatic aberration, outlines, HDR output, and a second page with the graphics preset, the upscaler mode and quality, the render scale and the sharpness), audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue \"Text speed\" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.",
+      "description": "The options panel: video, a colour filter, a graphics tab (quality of the screen effects, bloom, grain, vignette, chromatic aberration, outlines, HDR output, and a second page with the graphics preset, the upscaler mode and quality, the render scale, the sharpness and the dynamic resolution, and a third page with the low-latency mode, and a fourth with the frame generation), audio per bus, controls (rebinding every action of the game) and language, saved between runs (prefabs/ui/options.prefab.json, scripts/ui/options.js). The textSpeed part adds a dialogue \"Text speed\" row to the audio tab; addOptionsRow() of scripts/ui/options.js adds a row of the game to any tab.",
       "requires": ["core"],
       "prunes": {"textSpeed": ["text_speed"]},
       "files": ["prefabs/ui/options.prefab.json", "scripts/ui/options.js"],

@@ -402,6 +402,51 @@ Result<void> copy_directstorage(const ExportOptions& options, const stdfs::path&
     return {};
 }
 
+// A windows export with export.pack.vendorSdks: each SDK of Project::vendorSdks puts its DLLs next to the executable, where
+// the game loads them, and its license texts in licenses/<id>/. The SDK's obligations (NVIDIA's: notify before a commercial
+// release, credits) go to the next steps, so whoever ships the game reads them at the moment of exporting.
+Result<void> copy_vendor_sdks(const ExportOptions& options, const Project& p, const stdfs::path& exeDir,
+                              ExportReport& report) {
+    const SetupContext defaultContext;
+    const SetupContext& ctx = options.setup ? *options.setup : defaultContext;
+    for (const std::string& id : p.vendorSdks) {
+        const VendorSdk* sdk = find_vendor_sdk(id);
+        if (!sdk) continue;
+        const std::string dir = installed_vendor_sdk_dir(ctx, *sdk);
+        if (dir.empty())
+            return err("export: the vendor SDK '" + id + "' is no longer installed on this computer",
+                       "Run `factoria setup " + id + "` and export again.");
+        std::error_code ec;
+        const stdfs::path licenses = exeDir / "licenses" / id;
+        stdfs::create_directories(os_path(licenses), ec);
+        for (int i = 0; i < sdk->fileCount; ++i) {
+            const std::string name = vendor_sdk_file_name(sdk->files[i]);
+            const stdfs::path from = fs::path_from_utf8(dir) / fs::path_from_utf8(name);
+            const stdfs::path to =
+                (vendor_sdk_file_is_library(sdk->files[i]) ? exeDir : licenses) / fs::path_from_utf8(name);
+            stdfs::copy_file(os_path(from), os_path(to), stdfs::copy_options::overwrite_existing, ec);
+            if (ec)
+                return err(
+                    "export: cannot copy " + fs::path_to_utf8(from) + " next to the game (" + fs::path_to_utf8(to) +
+                        "): " + ec.message(),
+                    "Close the game exported there before if it still runs (Windows keeps a loaded DLL from being "
+                    "replaced), check that the output folder is writable, or run `factoria setup " +
+                        id + " --force` (it asks you to accept the license again) if the installed files are damaged.");
+        }
+        report.nextSteps.push_back(std::string("Shipped ") + sdk->title + " " + sdk->version +
+                                   ": its DLLs sit next to the "
+                                   "executable and its license texts in licenses/" +
+                                   id + "/ (ship that folder with the game). " + sdk->obligations);
+    }
+    for (const auto& [id, why] : p.vendorSdksMissing)
+        report.nextSteps.push_back(
+            "Not shipped: the vendor SDK '" + id +
+            "' is not installed on this computer, though the project can use it (" + why +
+            " in factoria.json); the game falls back to what it has. `factoria setup " + id +
+            "` installs it, then export again (export.pack.vendorSdks \"none\" silences this line).");
+    return {};
+}
+
 }  // namespace
 
 Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile,
@@ -620,6 +665,9 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
             (p.settings.scriptBytecode ? ", scripts compiled to bytecode" : ", scripts as source") + "), next to the " +
             (platform == "macos" ? "app's executable inside the .app" : "executable") +
             "; there is no game/ folder. Ship them together");
+    // After the next steps above, which they join: the vendors' DLLs and license texts, their obligations.
+    if (platform == "windows")
+        if (auto r = copy_vendor_sdks(options, p, exeDest.parent_path(), report); !r.ok()) return r;
     return {};
 }
 

@@ -249,8 +249,16 @@ std::unique_ptr<D3d12Device> make_warp(D3d12Options o = {}) {
         MESSAGE("d3d12: skipped, no WARP device: " << d.error().to_string());
         return nullptr;
     }
-    if (!d.value()->debug_layer_active())
+    if (!d.value()->debug_layer_active()) {
+        // The Windows CI job installs Graphics Tools and sets FA_D3D12_REQUIRE_DEBUG_LAYER=1: a runner that lost the layer
+        // fails here instead of passing with no validation.
+        const char* layer = std::getenv("FA_D3D12_REQUIRE_DEBUG_LAYER");
+        if (layer && std::strcmp(layer, "1") == 0) {
+            FAIL("d3d12: FA_D3D12_REQUIRE_DEBUG_LAYER=1 but the debug layer is not installed (Graphics Tools)");
+            return nullptr;
+        }
         MESSAGE("d3d12: the debug layer is not installed (Graphics Tools): the case runs without its checks");
+    }
     return std::move(d.value());
 }
 
@@ -3094,6 +3102,103 @@ TEST_CASE("d3d12: a swapchain on a hidden window clears, presents, resizes and i
     auto after = dev->acquire_swapchain(Swapchain{});
     REQUIRE(!after);
     CHECK(contains(after.error().message, "without a swapchain"));
+    auto r = dev->wait_idle();
+    CHECK_MESSAGE(r, r.error().to_string());
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
+}
+
+namespace {
+
+// A device hook that makes the swapchain itself (as FSR 3's ffxCreateSwapchainDX12 or a frame generation proxy does)
+// with the factory and queue the engine hands it, and counts the presents and the swapchain's end.
+struct SwapchainMaker : DeviceHook {
+    int asked = 0, created = 0, begins = 0, ends = 0, destroyed = 0;
+    std::uint64_t lastFrame = 0;
+    const void* made = nullptr;
+    std::string_view name() const override { return "swapchain maker (test)"; }
+    bool d3d12_create_swapchain(D3d12SwapchainCreate& sc) override {
+        ++asked;
+        REQUIRE(sc.factory != nullptr);
+        REQUIRE(sc.queue != nullptr);
+        REQUIRE(sc.desc != nullptr);
+        auto* factory = static_cast<IDXGIFactory4*>(const_cast<void*>(sc.factory));
+        auto* queue = static_cast<ID3D12CommandQueue*>(const_cast<void*>(sc.queue));
+        IDXGISwapChain1* chain = nullptr;
+        const HRESULT hr =
+            factory->CreateSwapChainForHwnd(queue, static_cast<HWND>(const_cast<void*>(sc.hwnd)),
+                                            static_cast<DXGI_SWAP_CHAIN_DESC1*>(sc.desc), nullptr, nullptr, &chain);
+        if (FAILED(hr)) {
+            sc.error = "CreateSwapChainForHwnd failed";
+            return false;
+        }
+        sc.swapchain = chain;  // its one reference goes to the engine
+        made = chain;
+        return true;
+    }
+    void d3d12_swapchain_created(void*& swapchain) override {
+        ++created;
+        CHECK(swapchain == made);
+    }
+    void present_begin(const PresentEvent& e) override {
+        ++begins;
+        CHECK(e.backend == Backend::D3d12);
+        CHECK(e.frame == lastFrame + 1);
+        CHECK(e.swapchain != nullptr);
+        CHECK(e.queue != nullptr);
+    }
+    void present_end(const PresentEvent& e) override {
+        ++ends;
+        CHECK(e.frame == lastFrame + 1);
+        CHECK(e.result >= 0);  // SUCCEEDED, DXGI_STATUS_OCCLUDED included
+        lastFrame = e.frame;
+    }
+    void swapchain_destroying(const SwapchainEvent& e) override {
+        ++destroyed;
+        CHECK(e.swapchain != nullptr);
+    }
+};
+
+}  // namespace
+
+TEST_CASE("d3d12: a device hook makes the swapchain itself; the engine presents and resizes it and tells the hook") {
+    auto hook = std::make_shared<SwapchainMaker>();
+    D3d12Options o;
+    o.init.hooks = {hook};
+    auto dev = make_warp(o);
+    if (!dev) return;
+    HiddenWindow win(64, 48);
+    if (!win.hwnd) {
+        MESSAGE("d3d12: skipped, Windows made no window (error " << GetLastError() << ")");
+        return;
+    }
+    SwapchainDesc d;
+    d.nativeWindow = win.hwnd;
+    d.vsync = false;
+    d.label = "hooked-window";
+    auto made = dev->create_swapchain(d);
+    REQUIRE_MESSAGE(made, made.error().to_string());
+    CHECK(hook->asked == 1);
+    CHECK(hook->created == 1);
+    CHECK(hook->available());
+
+    std::vector<std::uint8_t> px;
+    const std::array<int, 4> orange = {255, 64, 0, 255};
+    for (int f = 0; f < 2; ++f) {
+        const Swapchain sc = swapchain_frame(*dev, Color{1.0f, 0.25f, 0.0f, 1.0f}, px);
+        const std::string bad = first_mismatch(px, sc.width, sc.height, 1, [&](int, int) { return orange; });
+        CHECK_MESSAGE(bad.empty(), bad);
+    }
+    CHECK(hook->begins == 2);
+    CHECK(hook->ends == 2);
+    // A resize goes through ResizeBuffers of the hook's swapchain: not made again.
+    auto resized = dev->resize_swapchain(96, 64);
+    REQUIRE_MESSAGE(resized, resized.error().to_string());
+    CHECK(hook->asked == 1);
+    const Swapchain sc = swapchain_frame(*dev, Color{1.0f, 0.25f, 0.0f, 1.0f}, px);
+    CHECK(sc.width == 96);
+    CHECK(hook->lastFrame == 3);
+    dev->destroy_swapchain();
+    CHECK(hook->destroyed == 1);
     auto r = dev->wait_idle();
     CHECK_MESSAGE(r, r.error().to_string());
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));

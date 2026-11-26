@@ -43,12 +43,24 @@ bool native_read_buffer(Device& device, Buffer buffer, std::size_t offset, std::
 // Metal the read-write texture tier decides (Tier 1: the 32-bit single-channel formats only). OpenGL 4.3 loads every
 // format its shader declares with a layout qualifier. False + `why` (a sentence about this GPU) when it cannot.
 bool native_storage_image_loadable(const Device& device, PixelFormat format, std::string* why);
+// Direct3D 11 only (readback_d3d11.cpp): ID3D11DeviceContext::ClearState on the immediate context, so nothing a
+// native section bound (shaders, views, render targets, states of a vendor SDK) leaks into sokol's next pass.
+// SokolCommandList::end_native calls it, outside a pass, before reset_state_cache().
+void native_d3d11_clear_state(Device& device);
 // Called by SokolDevice::make_image after the image was made (image_gl.cpp). OpenGL ES: sokol_gfx gives every sampler a
 // mipmap min filter and creates textures with glTexStorage2D, trusting the driver to clamp the effective max level to
 // the storage's levels; the Android emulator's software GLES 3.0 does not, so every texture without a full mip chain
 // samples black. This sets the real last level (`mipmaps` - 1) on every GL texture of the image (a writeTransient
 // image has one per frame in flight). Nothing on the other backends, on a 3D image or on an image that is not Valid.
 void native_finish_image(Device& device, Image image, int mipmaps);
+// Who the GPU of the open sokol context is (gpu_info.cpp; DeviceInfo::gpu): D3D11 the DXGI adapter's PCI ids and
+// LUID (and the IDXGIAdapter* in `adapter`: the reference GetAdapter gave, kept until native_release_adapter()),
+// OpenGL the vendor GL_VENDOR and GL_RENDERER name (deviceId 0: GL has no PCI id), Metal Apple or the vendor the
+// device name says (deviceId 0).
+// `native` is the device's sokol_native_device(). Called once, by the SokolDevice constructor.
+GpuIdentity native_gpu_identity(Backend backend, const NativeDevice& native, const void** adapter);
+// Drops the adapter reference native_gpu_identity kept (the SokolDevice destructor; null is fine; nothing off D3D11).
+void native_release_adapter(const void* adapter);
 
 // GPU->CPU readback of the start of a storage buffer WITHOUT waiting (SokolDevice::request_buffer_read, which the Hi-Z
 // culling of renderer_hiz.cpp uses): a small ring of staging buffers. request() queues a copy of the first `bytes`

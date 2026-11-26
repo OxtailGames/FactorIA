@@ -18,6 +18,8 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
     // (caps.multiCamera), and so does the temporal scaler of MetalFX (one history); the spatial scaler of MetalFX needs none.
     const bool temporal_ok = caps.temporal && !caps.multiCamera;
     const bool metalfx_ok = caps.metalfx && (!caps.multiCamera || !caps.metalfxTemporal);
+    // A vendor SDK (M78) reads the jittered frame, the depth and the motion of the temporal upscaler, so it is drawable where that frame is.
+    const auto vendor_ok = [&](int index) { return caps.vendor(index) && temporal_ok; };
     const auto best_from_metalfx = [&]() {
         if (metalfx_ok) return UpscalerMode::MetalFx;
         if (temporal_ok) return UpscalerMode::Temporal;
@@ -29,8 +31,19 @@ UpscalerMode effective_upscaler_mode(const UpscalerSettings& s, const UpscalerCa
         case UpscalerMode::Temporal:
             if (temporal_ok) return UpscalerMode::Temporal;
             return caps.spatial ? UpscalerMode::Spatial : UpscalerMode::Stretch;
-        case UpscalerMode::MetalFx:
-        case UpscalerMode::Auto: return best_from_metalfx();
+        case UpscalerMode::Dlss:
+        case UpscalerMode::Xess:
+        case UpscalerMode::Fsr: return vendor_ok(vendor_upscaler_index(s.mode)) ? s.mode : best_from_metalfx();
+        case UpscalerMode::MetalFx: return best_from_metalfx();
+        case UpscalerMode::Auto: {
+            // The SDK of the maker of this GPU, when it is usable; every other GPU, and a maker without an SDK here, take the M76 chain.
+            const int own = caps.gpuVendor == GpuVendor::Nvidia  ? 0
+                            : caps.gpuVendor == GpuVendor::Intel ? 1
+                            : caps.gpuVendor == GpuVendor::Amd   ? 2
+                                                                 : -1;
+            if (own >= 0 && vendor_ok(own)) return vendor_upscaler_mode(own);
+            return best_from_metalfx();
+        }
     }
     return UpscalerMode::Stretch;
 }
@@ -49,6 +62,7 @@ Json upscaler_to_json(const UpscalerSettings& s) {
     j["mode"] = std::string(upscaler_mode_name(s.mode));
     j["quality"] = std::string(upscaler_quality_name(s.quality));
     j["sharpness"] = std::round(double(s.sharpness) * 1000.0) / 1000.0;
+    j["rayReconstruction"] = s.rayReconstruction;
     return j;
 }
 
@@ -83,8 +97,8 @@ Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view
                               ": expected an object like {\"mode\": \"spatial\", \"quality\": \"balanced\", "
                               "\"sharpness\": 0.5}, got " +
                               describe_json_value(j),
-                          "Every key is optional: mode, quality, sharpness.");
-    static const std::vector<std::string> keys = {"mode", "quality", "sharpness"};
+                          "Every key is optional: mode, quality, sharpness, rayReconstruction.");
+    static const std::vector<std::string> keys = {"mode", "quality", "sharpness", "rayReconstruction"};
     for (auto e = j.begin(); e != j.end(); ++e)
         if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
             return make_error(std::string(where) + "/" + e.key() + ": '" + e.key() + "' is not an upscaler setting",
@@ -110,6 +124,14 @@ Result<UpscalerSettings> parse_upscaler_settings(const Json& j, std::string_view
             return make_error(ptr + ": " + describe_json_value(*it) + " is outside 0..1",
                               "Use a number from 0 (no sharpening) to 1 (the strongest); 0.5 is the default.");
         s.sharpness = float(d);
+    }
+    if (auto it = j.find("rayReconstruction"); it != j.end()) {
+        if (!it->is_boolean())
+            return make_error(
+                std::string(where) + "/rayReconstruction: expected true or false, got " + describe_json_value(*it),
+                "true draws mode \"dlss\" with DLSS Ray Reconstruction where this machine can (see render.supports "
+                "\"dlssRayReconstruction\"); false (the default) keeps Super Resolution.");
+        s.rayReconstruction = it->get<bool>();
     }
     return s;
 }

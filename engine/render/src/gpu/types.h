@@ -409,11 +409,46 @@ struct Limits {
     int vkMinUniformBufferOffsetAlignment = 0;  // Vulkan only
 };
 
+// The maker of the GPU (M78: a vendor SDK such as DLSS, XeSS or FSR runs on its own vendor's GPUs only).
+enum class GpuVendor : std::uint8_t {
+    Unknown,    // the API did not say (the RecordingDevice; a GL driver with an unknown vendor string)
+    Nvidia,     // PCI 0x10DE
+    Amd,        // PCI 0x1002
+    Intel,      // PCI 0x8086
+    Apple,      // PCI 0x106B (Apple silicon; MoltenVK reports it)
+    Microsoft,  // PCI 0x1414: WARP, the D3D12 software rasteriser, and the GL/Vulkan-on-D3D12 mapping layers
+    Other       // any other id (Arm, Qualcomm, Mesa's software rasterisers' 0x10005...)
+};
+inline constexpr std::uint32_t kPciVendorNvidia = 0x10DE;
+inline constexpr std::uint32_t kPciVendorAmd = 0x1002;
+inline constexpr std::uint32_t kPciVendorIntel = 0x8086;
+inline constexpr std::uint32_t kPciVendorApple = 0x106B;
+inline constexpr std::uint32_t kPciVendorMicrosoft = 0x1414;
+// The vendor of a PCI vendor id: Unknown for 0, Other for an id not listed above.
+GpuVendor gpu_vendor_from_pci(std::uint32_t vendorId);
+// "nvidia", "amd", "intel", "apple", "microsoft", "other", "unknown".
+const char* gpu_vendor_name(GpuVendor vendor);
+
+// Which GPU the device runs on, as the graphics API reports it (DeviceInfo::gpu). D3D12 and D3D11: the DXGI adapter
+// (vendor, device id, LUID); Vulkan: VkPhysicalDeviceProperties and VkPhysicalDeviceIDProperties (the LUID, which
+// Windows drivers give); GL: GL_VENDOR / GL_RENDERER, best effort (the PCI id of the vendor it names, no device id);
+// Metal: the MTLDevice's name, the same way (Apple silicon is Apple 0x106B).
+struct GpuIdentity {
+    GpuVendor vendor = GpuVendor::Unknown;
+    std::uint32_t vendorId = 0;  // PCI vendor id (0 = unknown)
+    std::uint32_t deviceId = 0;  // PCI device id (0 = unknown)
+    bool luidValid = false;      // the adapter LUID below means something (D3D11, D3D12; Vulkan on Windows)
+    std::uint32_t luidLow = 0;   // LUID::LowPart
+    std::int32_t luidHigh = 0;   // LUID::HighPart
+    bool software = false;       // a CPU rasteriser (WARP, llvmpipe, lavapipe, SwiftShader)
+};
+
 // Who the device is.
 struct DeviceInfo {
     Backend backend = Backend::Recording;
     MetalTarget metalTarget = MetalTarget::None;  // Metal: macOS, iOS or the simulator; None elsewhere
     const char* name = "";                        // backend_name(backend): a static string
+    GpuIdentity gpu{};                            // the GPU (Unknown on the RecordingDevice)
 };
 
 // The name of a backend as the engine's reports use it: "glcore", "gles3", "webgl2", "d3d11", "metal", "d3d12",
@@ -982,28 +1017,65 @@ struct PassDesc {
 // ---------------------------------------------------------------------------------------------------------------------
 
 // The backend's own device objects, for code that talks to the API directly (readbacks, timer queries, MetalFX,
-// Dear ImGui's backends). Null where the backend has none.
+// Dear ImGui's backends, the vendor SDKs of M78). Null where the backend has none. Every pointer is borrowed: it lives
+// as long as the Device and the caller takes no reference (AddRef it to keep it longer).
 struct NativeDevice {
-    const void* device = nullptr;        // id<MTLDevice>, ID3D11Device*, ID3D12Device*, VkDevice
-    const void* context = nullptr;       // ID3D11DeviceContext* (D3D11); the VkQueue / ID3D12CommandQueue later
+    const void* device = nullptr;  // id<MTLDevice>, ID3D11Device*, ID3D12Device*, VkDevice
+    // ID3D11DeviceContext* (D3D11: the immediate context), ID3D12CommandQueue* (D3D12: the direct queue), VkQueue
+    // (Vulkan: the graphics queue)
+    const void* context = nullptr;
     const void* commandQueue = nullptr;  // id<MTLCommandQueue> (Metal)
+    // The queue compute lists run on: the ID3D12CommandQueue* / VkQueue of the device's own compute queue; null when
+    // compute lists run on the graphics queue (Features::asyncCompute false).
+    const void* computeQueue = nullptr;
+    const void* adapter = nullptr;         // IDXGIAdapter1* (D3D12), IDXGIAdapter* (D3D11)
+    const void* instance = nullptr;        // VkInstance (Vulkan)
+    const void* physicalDevice = nullptr;  // VkPhysicalDevice (Vulkan)
+    // Vulkan: the loader's vkGetInstanceProcAddr and the instance's vkGetDeviceProcAddr (cast them to
+    // PFN_vkGetInstanceProcAddr / PFN_vkGetDeviceProcAddr), for an SDK that loads its own Vulkan functions.
+    using ProcAddr = void (*)();
+    ProcAddr getInstanceProcAddr = nullptr;
+    ProcAddr getDeviceProcAddr = nullptr;
+    std::uint32_t apiVersion = 0;  // Vulkan: the API version the device was made with (VK_MAKE_API_VERSION)
+    // Vulkan: the queue family, and the index in it, of the graphics queue and of the queue compute lists run on (the
+    // graphics queue's when there is no compute queue of its own).
+    std::uint32_t graphicsFamily = 0, graphicsQueueIndex = 0;
+    std::uint32_t computeFamily = 0, computeQueueIndex = 0;
 };
 
 // The backend's own objects of an image (the slot of the frame in flight where the backend keeps several).
 struct NativeImage {
-    const void* texture = nullptr;   // id<MTLTexture>, ID3D11Texture2D* (or ID3D11Texture3D* for a 3D image)
-    const void* resource = nullptr;  // ID3D11Resource* (D3D11)
+    // id<MTLTexture>, ID3D11Texture2D* (or ID3D11Texture3D* for a 3D image), ID3D12Resource*, VkImage (64-bit targets;
+    // vkImage below on every target)
+    const void* texture = nullptr;
+    const void* resource = nullptr;  // ID3D11Resource* (D3D11), ID3D12Resource* (D3D12)
     std::uint32_t glTexture = 0;     // GL texture name (the slot of the frame in flight)
     std::uint32_t glTarget = 0;      // GL texture target (GL_TEXTURE_2D...)
     // GL: the texture of every slot (a writeTransient image has one per frame in flight, the others only [0]; 0 where
     // there is none), for a fix that must reach them all (image_gl.cpp).
     std::uint32_t glTextures[kInflightFrames]{};
+    std::uint64_t vkImage = 0;       // VkImage (Vulkan), as a number: 32-bit targets have it too
+    std::uint32_t nativeFormat = 0;  // the resource's DXGI_FORMAT (D3D12; R24G8_TYPELESS-like for depth) or VkFormat
+    std::uint32_t vkUsage = 0;       // VkImageUsageFlags it was made with (Vulkan)
+    std::uint32_t vkAspects = 0;     // VkImageAspectFlags of the whole image (Vulkan: COLOR, or DEPTH and STENCIL)
+};
+
+// The backend's own objects of a view (Device::native_view), for an SDK that takes a view or a format.
+struct NativeView {
+    std::uint64_t vkImageView = 0;  // VkImageView (Vulkan; 0 for a storage buffer view)
+    // D3D12: the view's CPU descriptor handle (D3D12_CPU_DESCRIPTOR_HANDLE::ptr) in the engine's non-shader-visible
+    // heap of its kind (CBV/SRV/UAV, RTV or DSV): copy it, never write into it. A storage buffer's is its raw SRV.
+    std::uint64_t d3d12Descriptor = 0;
+    std::uint32_t nativeFormat = 0;  // the view's DXGI_FORMAT (D3D12) or VkFormat (Vulkan)
+    Image image{};                   // the image it views (invalid for a storage buffer view)
+    int mip = 0, mipCount = 1, slice = 0, sliceCount = 1;
 };
 
 // The backend's own objects of a buffer (the slot of the frame in flight where the backend keeps several).
 struct NativeBuffer {
-    const void* buffer = nullptr;  // id<MTLBuffer>, ID3D11Buffer*
+    const void* buffer = nullptr;  // id<MTLBuffer>, ID3D11Buffer*, ID3D12Resource*, VkBuffer (64-bit targets)
     std::uint32_t glBuffer = 0;    // GL buffer name
+    std::uint64_t vkBuffer = 0;    // VkBuffer on every target (a 32-bit target's handles are 64-bit numbers)
 };
 
 // Totals of one resource kind since the device started (sg_total_resource_stats).
@@ -1072,6 +1144,55 @@ struct QueueHandoff {
 
 // Device::bindless_index() when the view has no slot in the global table.
 inline constexpr std::uint32_t kNoBindlessIndex = 0xFFFFFFFFu;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Native command recording (M78: CommandList::begin_native / end_native)
+// ---------------------------------------------------------------------------------------------------------------------
+
+// The state a resource is in for native commands, the same names on every backend. Each backend maps it to its own:
+//   state            D3D12 resource state                      Vulkan layout (access; stages ALL_COMMANDS)
+//   Common           COMMON                                    GENERAL (memory read and write)
+//   ShaderRead       NON_PIXEL | PIXEL_SHADER_RESOURCE (1)     SHADER_READ_ONLY_OPTIMAL (shader read)
+//   UnorderedAccess  UNORDERED_ACCESS                          GENERAL (shader read and write)
+//   RenderTarget     RENDER_TARGET                             COLOR_ATTACHMENT_OPTIMAL (colour read and write)
+//   DepthWrite       DEPTH_WRITE                               DEPTH_STENCIL_ATTACHMENT_OPTIMAL (depth read and write)
+//   DepthRead        DEPTH_READ | NON_PIXEL | PIXEL (1)        DEPTH_STENCIL_READ_ONLY_OPTIMAL (depth read, shader read)
+//   CopySource       COPY_SOURCE                               TRANSFER_SRC_OPTIMAL (transfer read)
+//   CopyDest         COPY_DEST                                 TRANSFER_DST_OPTIMAL (transfer write)
+// (1) NON_PIXEL_SHADER_RESOURCE only on a compute list. A Vulkan buffer has no layout: its state is the access.
+enum class NativeState : std::uint8_t {
+    Common,
+    ShaderRead,
+    UnorderedAccess,
+    RenderTarget,
+    DepthWrite,
+    DepthRead,
+    CopySource,
+    CopyDest,
+    Count
+};
+// "Common", "ShaderRead"... ("?" past Count).
+const char* native_state_name(NativeState state);
+
+// One image (a range of its mips and layers) or one buffer that native commands touch, and its state. Names `image` or
+// `buffer`, never both. mipCount / layerCount 0 = up to the last one. `layer` counts array layers and cube faces (a 3D
+// image has one). A buffer is always whole: its four range fields stay 0.
+struct NativeUse {
+    Image image{};
+    Buffer buffer{};
+    NativeState state = NativeState::Common;
+    int mip = 0, mipCount = 0;
+    int layer = 0, layerCount = 0;
+};
+
+// What CommandList::begin_native gives: the backend's own command list, open for recording.
+struct NativeCommands {
+    Backend backend = Backend::Recording;
+    // ID3D12GraphicsCommandList* (D3D12: a direct or a compute list), VkCommandBuffer (Vulkan: a primary command
+    // buffer outside any render pass), ID3D11DeviceContext* (D3D11: the immediate context).
+    const void* list = nullptr;
+    QueueKind queue = QueueKind::Graphics;  // the queue it runs on (CommandList::queue())
+};
 
 }  // namespace fa::gpu
 

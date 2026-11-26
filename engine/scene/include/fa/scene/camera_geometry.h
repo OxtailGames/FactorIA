@@ -57,6 +57,9 @@ struct CameraGeometry {
     float pixelsPerUnit = 1.0f;            // ortho: target pixels per world unit
     Rect visible{};                        // orthographic view rectangle in world units
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+    // The perspective lens's near and far planes after sanitizing (what `proj` was made with); an orthographic camera's depth range
+    // (-1000..1000). The vendor upscalers (M78) are told them.
+    float nearPlane = 0.1f, farPlane = 1000.0f;
 
     // Jitters the DRAWN projection by `pixels` render pixels (x right, y down) of an image `viewWidthPx` x `viewHeightPx` pixels big:
     // drawProj and drawViewProj move, nothing else does (proj, viewProj, invViewProj and the query matrices stay as they are).

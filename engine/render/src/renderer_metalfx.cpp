@@ -49,7 +49,9 @@ bool Renderer::Impl::metalfx_fail(const std::string& why) {
 void Renderer::Impl::free_mfx_images() {
     if (mfxDepth.color.id) destroy_target(gpu.device(), mfxDepth);
     if (mfxMotion.color.id) destroy_target(gpu.device(), mfxMotion);
+    free_rr_images();
     mfxLastWrote = false;
+    prepSerial = ~std::uint64_t(0);
 }
 
 // An image of the MetalFX preparation pass: `format` at w x h, a colour attachment that is also sampled.
@@ -66,6 +68,71 @@ bool Renderer::Impl::ensure_mfx_target(Target& t, const char* label, gpu::PixelF
         destroy_target(gpu.device(), t);
         return false;
     }
+    return true;
+}
+
+// The history of a temporal scaler (MetalFX, the vendor SDKs) starts again on the events of the temporal upscaler (TaaFx::upscale): a cut (no
+// camera of the frame before), a frame the scaler did not draw in between, another scene, a floating-origin shift, another render size or
+// quality. `config` is the size-and-quality key to give scaler_history_note once the frame is prepared. (A scaler that is new resets itself.)
+bool Renderer::Impl::scaler_history_valid(const UpscaleInput& in, std::uint64_t& config) const {
+    config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
+             (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 | (std::uint64_t(int(upscaler.quality)) & 0xFF);
+    return mfxLastWrote && mfxLastSerial + 1 == upscaleTaa.serial && mfxLastScene == upscaleTaa.sceneKey &&
+           mfxLastShifts == upscaleTaa.originShifts && mfxLastConfig == config && upscaleTaa.prevValid;
+}
+
+void Renderer::Impl::scaler_history_note(std::uint64_t config) {
+    mfxLastSerial = upscaleTaa.serial;
+    mfxLastScene = upscaleTaa.sceneKey;
+    mfxLastShifts = upscaleTaa.originShifts;
+    mfxLastConfig = config;
+}
+
+// The preparation pass of the temporal scalers (shaders/upscale_mfx.glsl): the depth prepass and the velocity image of the frame become a 0..1
+// depth (mfxDepth, R32F) and a motion image in UV units (mfxMotion, RG16F) with the camera's own movement reprojected where no object wrote a
+// velocity. A null `prepass` means every pixel is sky, a null `velocity` that no object wrote a motion. `histValid` says the camera of the frame
+// before can be reprojected. False when the two images cannot be made. The caller made sure mfxPrep is ready and the assets have their white image.
+bool Renderer::Impl::run_upscale_prep(const UpscaleInput& in, const PassContext& c, const Target* prepass,
+                                      const Target* velocity, bool histValid, float reversedNear) {
+    if (!ensure_mfx_target(mfxDepth, "mfx-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH) ||
+        !ensure_mfx_target(mfxMotion, "mfx-motion", gpu::PixelFormat::Rg16F, in.renderW, in.renderH))
+        return false;
+    PassDesc p = pass_into(mfxDepth, "upscale-metalfx-prep");
+    p.color1 = mfxMotion.colorAtt;
+    p.format.color1 = mfxMotion.format.color;
+    p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
+    p.colorStore = gpu::StoreAction::Store;
+    const gpu::Pipeline prepPipeline = mfxPrep.pipeline(p.format);  // before the pass: nothing is made inside one
+    gpu::CommandList& list = pass_list(c, gpu);
+    list.begin_pass(p);
+    list.set_pipeline(prepPipeline);
+    gpu::Bindings b;
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_upscale_mfx_tex_p] = prepass ? prepass->texView : assets->white()->view;
+    b.views[VIEW_upscale_mfx_tex_v] = velocity ? velocity->texView : assets->white()->view;
+    b.samplers[SMP_upscale_mfx_smp_pt] = gpu.sampler(SamplerKind::Nearest);
+    list.set_bindings(b);
+    upscale_mfx_mfx_params_t u{};
+    u.s[0] = float(in.renderW);
+    u.s[1] = float(in.renderH);
+    u.s[2] = velocity ? 1.0f : 0.0f;
+    u.s[3] = mfxMotionSign;
+    u.j[0] = upscaleTaa.jitterPx.x;
+    u.j[1] = upscaleTaa.jitterPx.y;
+    u.j[2] = histValid ? 1.0f : 0.0f;
+    u.j[3] = prepass ? 1.0f : 0.0f;
+    for (int i = 0; i < 4; ++i) u.pa[i] = upscaleTaa.proj[i];
+    for (int i = 0; i < 4; ++i) u.pb[i] = upscaleTaa.proj[4 + i];
+    for (int i = 0; i < 16; ++i) u.m[i] = upscaleTaa.prevFromView.m[i];
+    u.d[0] = reversedNear > 0.0f ? 1.0f : 0.0f;
+    u.d[1] = reversedNear;
+    list.set_uniforms(UB_upscale_mfx_mfx_params, gpu::Range{&u, sizeof(u)});
+    list.draw(0, 3, 1);
+    list.end_pass();
+    ++stats.drawCalls;
+    prepSerial =
+        upscaleTaa.serial;  // the frame generation of this frame reads these two images and need not make them again
+    prepReversed = reversedNear > 0.0f;
     return true;
 }
 
@@ -129,51 +196,10 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
                          reactive->format.color != Gpu::reactive_format()))
             reactive = nullptr;
         if (reactive && !mfxNoReactive) f.reactive = reactive->texture_image();
-        if (!ensure_mfx_target(mfxDepth, "mfx-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH) ||
-            !ensure_mfx_target(mfxMotion, "mfx-motion", gpu::PixelFormat::Rg16F, in.renderW, in.renderH))
+        std::uint64_t config = 0;
+        const bool histValid = scaler_history_valid(in, config);
+        if (!run_upscale_prep(in, c, prepass, velocity, histValid))
             return metalfx_fail("the depth and motion images of the render size could not be made.");
-
-        // The history starts again on the events of the temporal upscaler (TaaFx::upscale): a cut (no camera of the frame before), a frame
-        // MetalFX did not draw in between, another scene, a floating-origin shift, another render size or quality. A new scaler resets itself
-        // (its first encode), which covers a change of size, format or kind.
-        const std::uint64_t config = (std::uint64_t(std::max(in.renderW, 0)) & 0xFFFFF) << 40 |
-                                     (std::uint64_t(std::max(in.renderH, 0)) & 0xFFFFF) << 20 |
-                                     (std::uint64_t(int(upscaler.quality)) & 0xFF);
-        const bool histValid = mfxLastWrote && mfxLastSerial + 1 == upscaleTaa.serial &&
-                               mfxLastScene == upscaleTaa.sceneKey && mfxLastShifts == upscaleTaa.originShifts &&
-                               mfxLastConfig == config && upscaleTaa.prevValid;
-
-        PassDesc p = pass_into(mfxDepth, "upscale-metalfx-prep");
-        p.color1 = mfxMotion.colorAtt;
-        p.format.color1 = mfxMotion.format.color;
-        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
-        p.colorStore = gpu::StoreAction::Store;
-        const gpu::Pipeline prepPipeline = mfxPrep.pipeline(p.format);  // before the pass: nothing is made inside one
-        gpu::CommandList& list = pass_list(c, gpu);
-        list.begin_pass(p);
-        list.set_pipeline(prepPipeline);
-        gpu::Bindings b;
-        b.vertexBuffers[0] = gpu.fullscreen_triangle();
-        b.views[VIEW_upscale_mfx_tex_p] = prepass ? prepass->texView : assets->white()->view;
-        b.views[VIEW_upscale_mfx_tex_v] = velocity ? velocity->texView : assets->white()->view;
-        b.samplers[SMP_upscale_mfx_smp_pt] = gpu.sampler(SamplerKind::Nearest);
-        list.set_bindings(b);
-        upscale_mfx_mfx_params_t u{};
-        u.s[0] = float(in.renderW);
-        u.s[1] = float(in.renderH);
-        u.s[2] = velocity ? 1.0f : 0.0f;
-        u.s[3] = mfxMotionSign;
-        u.j[0] = upscaleTaa.jitterPx.x;
-        u.j[1] = upscaleTaa.jitterPx.y;
-        u.j[2] = histValid ? 1.0f : 0.0f;
-        u.j[3] = prepass ? 1.0f : 0.0f;
-        for (int i = 0; i < 4; ++i) u.pa[i] = upscaleTaa.proj[i];
-        for (int i = 0; i < 4; ++i) u.pb[i] = upscaleTaa.proj[4 + i];
-        for (int i = 0; i < 16; ++i) u.m[i] = upscaleTaa.prevFromView.m[i];
-        list.set_uniforms(UB_upscale_mfx_mfx_params, gpu::Range{&u, sizeof(u)});
-        list.draw(0, 3, 1);
-        list.end_pass();
-        ++stats.drawCalls;
 
         f.depth = mfxDepth.color;
         f.motion = mfxMotion.color;
@@ -183,10 +209,7 @@ bool Renderer::Impl::metalfx_upscale(const UpscaleInput& in, const Target& src, 
         f.motionScaleX = float(in.renderW);
         f.motionScaleY = float(in.renderH);
         f.reset = !histValid;
-        mfxLastSerial = upscaleTaa.serial;
-        mfxLastScene = upscaleTaa.sceneKey;
-        mfxLastShifts = upscaleTaa.originShifts;
-        mfxLastConfig = config;
+        scaler_history_note(config);
     }
     if (mfxPrepOnly) return false;  // test hook: the preparation pass is drawn and read, MetalFX is not asked
     // After the preparation pass: a scaler MetalFX cannot make costs one preparation pass, once (the failure is for good).

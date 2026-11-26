@@ -19,6 +19,7 @@
 #include "gpu/recording_device.h"
 #include "gpu/sokol_context.h"
 #include "render_internal.h"
+#include "render_latency.h"
 #include "ui_painter_internal.h"
 #if defined(FA_RENDER_VULKAN)
 #include "gpu/vulkan_device.h"
@@ -401,6 +402,61 @@ TEST_CASE("renderer: on a RecordingDevice it draws without a GPU and lends the d
     CHECK(dev->errors().empty());
     ui.release(*dev, *painter);
     painter.reset();  // before the renderer's shutdown: the device is the renderer's
+}
+
+namespace {
+// A low-latency SDK that only lists the markers it is sent.
+class MarkerList final : public render::LatencyProvider {
+public:
+    std::vector<std::string> markers;
+    std::string_view name() const override { return "Marker list"; }
+    render::LatencyDriver driver() const override { return render::LatencyDriver::Reflex; }
+    std::string_view setup_id() const override { return ""; }
+    unsigned backends() const override { return ~0u; }
+    render::VendorProbe probe(const render::VendorEnv&) override {
+        render::VendorProbe p;
+        p.available = true;
+        return p;
+    }
+    std::string start(gpu::Device&) override { return {}; }
+    void configure(bool, bool, std::uint32_t) override {}
+    void sleep(std::uint64_t) override {}
+    void marker(render::LatencyMarker m, std::uint64_t) override {
+        markers.emplace_back(render::latency_marker_name(m));
+    }
+    void stop(gpu::Device&) override {}
+};
+}  // namespace
+
+TEST_CASE("renderer: the present step is marked before the window's image is acquired") {
+    if (!gfx().ok) {
+        MESSAGE("no GPU here (" << gfx().error << "): skipped");
+        return;
+    }
+    MarkerList sdk;
+    render::set_latency_provider_for_test(render::LatencyDriver::Reflex, &sdk);
+    struct Restore {
+        ~Restore() { render::set_latency_provider_for_test(render::LatencyDriver::Reflex, nullptr); }
+    } restore;
+    BackendRenderer rec(GpuBackend::Recording);
+    REQUIRE_MESSAGE(rec.ok, rec.error);
+    render::LatencySettings latency;
+    latency.mode = render::LatencyMode::Reflex;
+    rec.renderer.set_latency(latency);
+    REQUIRE(rec.renderer.effective_latency() == render::LatencyDriver::Reflex);
+    Scene2D s;
+    rec.renderer.update(s.world);
+    rec.renderer.begin_frame();
+    rec.renderer.render_world(s.world, 0.0f);
+    rec.renderer.end_frame();
+    // A RecordingDevice has no window: its acquire is refused (an error is logged) and the frame ends there. PresentStart is in the list all the
+    // same, which it could not be if it were sent after the acquire; the frame is closed with PresentEnd (the id of the frame would stay open for
+    // the next one otherwise), and the render-submit end, which needs the acquired image, is not sent.
+    sdk.markers.clear();
+    rec.renderer.present(GfxSwapchain{}, kW, kH, ScaleMode::Fit);
+    REQUIRE(sdk.markers.size() == 2);
+    CHECK(sdk.markers[0] == "presentStart");
+    CHECK(sdk.markers[1] == "presentEnd");
 }
 
 TEST_CASE("renderer: a UiPainter made on a renderer of the sokol backend uploads and draws next to its frame") {

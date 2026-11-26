@@ -459,7 +459,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
-    timeout-minutes: 120  # a build with a cold ccache takes 35-70 min, and two shards of main's M72 run were past 89
+    timeout-minutes: 150  # a cold-ccache build took 111 min in M77 (two shards cancelled at 120)
     permissions:
       contents: read
       actions: write  # "Delete this ref's older ccaches" (shard 1)

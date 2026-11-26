@@ -1,11 +1,13 @@
-// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler and dynamic resolution, the keys
-// `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness} and `render.dynamicResolution` {enabled, targetMs,
-// minScale, maxScale} of factoria.json (M76, docs/UPSCALING.md). It
-// edits a working copy: Save writes only those three keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
+// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler, dynamic resolution, low latency and frame
+// generation, the keys `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness}, `render.dynamicResolution` {enabled, targetMs,
+// minScale, maxScale} (M76, docs/UPSCALING.md), `render.latency` {mode, boost} (M78, docs/LATENCY.md) and `render.frameGeneration` {mode,
+// minBaseFps} (M78, docs/FRAME_GENERATION.md) of factoria.json. It
+// edits a working copy: Save writes only those five keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "editor_internal.h"
 #include "fa/tooling/graphics_settings.h"
@@ -15,8 +17,22 @@ namespace fa::editor {
 
 namespace {
 
+// How often the window asks the renderer's render.supports table again while it is open.
+constexpr double kGraphicsSupportRefreshS = 10.0;
+
 void gfx_tip(const char* text) {
     if (!ImGui::BeginItemTooltip()) return;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+// The tooltip of a widget that may be disabled (BeginItemTooltip stays silent on a disabled item).
+void gfx_tip_always(const char* text) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip) ||
+        !ImGui::BeginTooltip())
+        return;
     ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
     ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
@@ -43,12 +59,178 @@ bool gfx_combo(const char* label, std::string& value, const std::vector<std::str
     return changed;
 }
 
+// What the renderer says of one low-latency mode (the rows reflex, antilag2 and xell of render.supports): usable here, or the reason
+// it is not. off and auto are always usable (auto falls back to the engine's own pacing). Without a report (no renderer to ask) the
+// SDK modes are not usable, with that as the reason; a report without the row (an older engine) leaves the mode usable.
+struct LatencyRow {
+    bool usable = true;
+    std::string why;
+};
+
+LatencyRow latency_row(const Json& report, const std::string& mode) {
+    LatencyRow r;
+    if (mode == "off" || mode == "auto") return r;
+    const auto features = report.is_object() ? report.find("features") : report.end();
+    if (features == report.end() || !features->is_array()) {
+        r.usable = false;
+        r.why = "The editor has no GPU to ask whether this mode can run here.";
+        return r;
+    }
+    for (const Json& f : *features) {
+        if (!f.is_object() || f.value("name", std::string()) != mode) continue;
+        r.usable = f.value("supported", false);
+        if (!r.usable) r.why = f.value("status", std::string("not available here"));
+        return r;
+    }
+    return r;
+}
+
+// The line under the latency mode: what the chosen mode does on this machine (from the renderer's own table).
+std::string latency_line(const std::string& mode, const Json& report) {
+    if (mode == "off") return "Off: the loop is the one of a game without this setting; nothing is paced.";
+    if (mode == "auto") {
+        std::string usable;
+        for (const char* sdk : {"reflex", "antilag2", "xell"})
+            if (latency_row(report, sdk).usable) usable += (usable.empty() ? "" : ", ") + std::string(sdk);
+        if (usable.empty())
+            return "Auto: no vendor SDK can run on this machine, so a run uses the engine's own pacing (a game window, "
+                   "vsync on).";
+        return "Auto: the SDK of the GPU's maker when it can run (usable on this machine: " + usable +
+               "), else the engine's own pacing.";
+    }
+    const LatencyRow row = latency_row(report, mode);
+    if (row.usable) return "Usable on this machine: a run of the game uses " + mode + ".";
+    return "Not usable on this machine: " + row.why + " A run of the game uses the engine's own pacing instead.";
+}
+
+// The "Low latency" group (render.latency, docs/LATENCY.md): the mode combo with each mode the renderer cannot run greyed out and its
+// reason as the tooltip, the boost checkbox for the modes that have one, and the line that says what the mode does here. It edits `g`
+// only; `support` is the renderer's render.supports report. Returns that line (the autotest reads it).
+std::string draw_latency_group(GraphicsSettings& g, const Json& support,
+                               const std::function<void(const std::string&, bool)>& track,
+                               const std::function<void(const char*)>& show_problem) {
+    ImGui::SeparatorText("Low latency");
+    const bool open = ImGui::BeginCombo("Mode##latency", g.latencyMode.c_str());
+    track("gfx:latMode", true);
+    if (open) {
+        for (const std::string& m : latency_modes()) {
+            const LatencyRow row = latency_row(support, m);
+            ImGui::BeginDisabled(!row.usable);
+            if (ImGui::Selectable(m.c_str(), m == g.latencyMode)) {
+                g.latencyMode = m;
+                if (!latency_mode_has_boost(m)) g.latencyBoost = false;  // a switch the mode does not have is not kept
+            }
+            ImGui::EndDisabled();
+            track("gfx:latMode:" + m, row.usable);
+            if (!row.usable) gfx_tip_always(row.why.c_str());
+        }
+        ImGui::EndCombo();
+    }
+    gfx_tip(
+        "render.latency.mode. off (the default) paces nothing. auto takes the SDK of the GPU's maker when it can run "
+        "(AMD Anti-Lag 2, Intel XeLL, NVIDIA Reflex), else the engine's own pacing. reflex, antilag2 and xell name "
+        "one SDK; a mode this machine cannot run is greyed out (hover it for the reason) and a run falls back to "
+        "the engine's own pacing. Only a run of the game paces: the editor's own viewport never does.");
+    show_problem("/render/latency/mode");
+    const bool hasBoost = latency_mode_has_boost(g.latencyMode);
+    ImGui::BeginDisabled(!hasBoost);
+    ImGui::Checkbox("Boost", &g.latencyBoost);
+    track("gfx:latBoost", hasBoost);
+    ImGui::EndDisabled();
+    gfx_tip("render.latency.boost. Keeps the GPU clocks up while the game waits, for less latency at more power "
+            "(Reflex and "
+            "XeLL). Anti-Lag 2, the engine's own pacing and off have no such switch, so it is greyed out for them.");
+    show_problem("/render/latency/boost");
+    const std::string line = latency_line(g.latencyMode, support);
+    const bool warn = g.latencyMode != "off" && g.latencyMode != "auto" && !latency_row(support, g.latencyMode).usable;
+    ImGui::PushStyleColor(ImGuiCol_Text, warn ? kStatusWarn : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", line.c_str());
+    ImGui::PopStyleColor();
+    return line;
+}
+
+// What the "Frame generation" group shows, for the autotest: the sentence under the mode, the latency advice (empty when none) and the
+// line of the engine's own readout.
+struct FrameGenLines {
+    std::string describe, hint, state;
+};
+
+// The "Frame generation" group (render.frameGeneration, docs/FRAME_GENERATION.md): the mode combo with each SDK mode the renderer cannot
+// run greyed out and its reason as the tooltip, the minimum base frame rate, the sentence that says what the mode does here, the advice for
+// a low-latency mode when it is missing, and the one-line state of the engine's readout (`readout`: Engine::profile_frame_generation()). It
+// edits `g` only; `support` is the renderer's render.supports report.
+FrameGenLines draw_frame_gen_group(GraphicsSettings& g, const Json& support, const Json& readout,
+                                   const std::function<void(const std::string&, bool)>& track,
+                                   const std::function<void(const char*)>& show_problem) {
+    FrameGenLines out;
+    ImGui::SeparatorText("Frame generation");
+    const bool open = ImGui::BeginCombo("Mode##framegen", g.frameGenMode.c_str());
+    track("gfx:fgMode", true);
+    if (open) {
+        for (const std::string& m : frame_gen_modes()) {
+            const FrameGenModeSupport row = frame_gen_mode_support(support, m);
+            ImGui::BeginDisabled(!row.usable);
+            if (ImGui::Selectable(m.c_str(), m == g.frameGenMode)) g.frameGenMode = m;
+            ImGui::EndDisabled();
+            track("gfx:fgMode:" + m, row.usable);
+            if (!row.usable) gfx_tip_always(row.why.c_str());
+        }
+        ImGui::EndCombo();
+    }
+    gfx_tip(
+        "render.frameGeneration.mode. off (the default) loads no SDK. auto takes the SDK of the GPU's maker when it "
+        "can run "
+        "(NVIDIA DLSS, AMD FSR 3, Intel XeSS). dlss, fsr and xess name one SDK; a mode this machine cannot run is "
+        "greyed "
+        "out (hover it for the reason) and a run shows the rendered frames only. A generated frame sits between two "
+        "rendered "
+        "ones, so the display shows more frames than the game renders. It runs only in a game window on Direct3D 12 or "
+        "Vulkan with the temporal upscaler (a render scale below 1), and a provider takes part in making the window, "
+        "so "
+        "it is chosen when the game starts. The editor's own viewport never generates.");
+    show_problem("/render/frameGeneration/mode");
+    const bool on = g.frameGenMode != "off";
+    ImGui::BeginDisabled(!on);
+    int minFps = g.frameGenMinBaseFps;
+    if (ImGui::SliderInt("Minimum base fps##framegen", &minFps, 0, 240, minFps == 0 ? "never switch off" : "%d fps"))
+        g.frameGenMinBaseFps = minFps;
+    track("gfx:fgMinFps", on);
+    ImGui::EndDisabled();
+    gfx_tip(
+        "render.frameGeneration.minBaseFps (0 to 1000; Ctrl+click types a number). The frame rate the game renders at, "
+        "generated frames not counted, below which generation switches off: a generated frame between two slow ones "
+        "adds delay and shows artefacts. It comes back at 10% above. 0 never switches off.");
+    show_problem("/render/frameGeneration/minBaseFps");
+    out.describe = frame_gen_describe(g, support);
+    const bool warn = on && g.frameGenMode != "auto" && !frame_gen_mode_support(support, g.frameGenMode).usable;
+    ImGui::PushStyleColor(ImGuiCol_Text, warn ? kStatusWarn : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", out.describe.c_str());
+    ImGui::PopStyleColor();
+    out.hint = frame_gen_latency_hint(g);
+    if (!out.hint.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
+        ImGui::TextWrapped("%s", out.hint.c_str());
+        ImGui::PopStyleColor();
+    }
+    out.state = frame_gen_state_line(readout, g.frameGenMinBaseFps);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Now, in the editor: %s", out.state.c_str());
+    ImGui::PopStyleColor();
+    gfx_tip(
+        "The engine's own readout (the Profiler window shows the same line): base frame rate, presented frame rate and "
+        "generated frames while a provider runs, or why none does. The editor's own loop never generates, so a game "
+        "window (factoria run, an export) is where it shows numbers.");
+    return out;
+}
+
 }  // namespace
 
 void Editor::graphics_settings_reload() {
     graphicsDir_ = projectDir_;
     graphicsLoadError_.clear();
     graphicsMessage_.clear();
+    graphicsSupportStale_ =
+        true;  // opening and Revert ask the renderer again (what a vendor probe may touch is read once, not every few seconds)
     if (projectDir_.empty()) return;
     auto s = read_graphics_settings(projectDir_);
     if (s.ok()) {
@@ -87,9 +269,11 @@ void Editor::draw_graphics_settings_panel() {
     }
     if (graphicsDir_ != projectDir_) graphics_settings_reload();
     ImGui::TextWrapped(
-        "The preset, the upscaler and the dynamic resolution a run of this game starts with (factoria.json: "
-        "render.graphicsPreset, render.upscaler and render.dynamicResolution). A game can let the player change them "
-        "at run time (the menu kit's Graphics tab).");
+        "The preset, the upscaler, the dynamic resolution, the low-latency mode and the frame generation a run of this "
+        "game starts with (factoria.json: render.graphicsPreset, render.upscaler, render.dynamicResolution, "
+        "render.latency "
+        "and render.frameGeneration). A game "
+        "can let the player change them at run time (the menu kit's Graphics tab).");
     draw_play_banner(*this);
     if (!graphicsLoadError_.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, kStatusFailed);
@@ -128,8 +312,10 @@ void Editor::draw_graphics_settings_panel() {
     ImGui::SeparatorText("Upscaler");
     gfx_combo("Mode", g.mode, upscaler_modes(),
               "render.upscaler.mode. stretch is the plain blit (the default); spatial is our edge-adaptive upscale "
-              "plus sharpen; temporal accumulates jittered frames; metalfx is Apple's MetalFX (Metal only); auto "
-              "takes the best this GPU draws. A mode the GPU cannot draw draws as the next best one; read "
+              "plus sharpen; temporal accumulates jittered frames; metalfx is Apple's MetalFX (Metal only); dlss, "
+              "xess and fsr are NVIDIA DLSS, Intel XeSS and AMD FSR 3.1 (Windows, each needs its SDK: `factoria setup "
+              "streamline`, `xess` or `fidelityfx`); auto takes the GPU maker's own SDK when it is installed, else "
+              "the best this GPU draws. A mode the GPU cannot draw draws as the next best one; read "
               "window.upscaler.effectiveMode in a script for what draws.",
               "gfx:mode", track);
     show_problem("/render/upscaler/mode");
@@ -179,6 +365,25 @@ void Editor::draw_graphics_settings_panel() {
     gfx_tip("render.dynamicResolution.maxScale, 0.25 to 1. The largest share, and where the controller starts.");
     show_problem("/render/dynamicResolution/maxScale");
     ImGui::EndDisabled();
+
+    if (!graphicsSupportPinned_ && (graphicsSupport_.is_null() || graphicsSupportStale_ ||
+                                    time_ - graphicsSupportAt_ > kGraphicsSupportRefreshS)) {
+        // The renderer's own table (what render.supports answers), not a command call: nothing is logged. A vendor probe behind it may touch
+        // the disk, so it is asked when the window opens, on Revert and at most every kGraphicsSupportRefreshS seconds (an SDK installed
+        // meanwhile shows up then), never on every frame.
+        const Renderer* r = engine_->renderer();
+        graphicsSupport_ = r ? r->supports_report() : Json::object();
+        graphicsSupportAt_ = time_;
+        graphicsSupportStale_ = false;
+    }
+    graphicsLatencyLine_ = draw_latency_group(
+        g, graphicsSupport_, [this](const std::string& id, bool enabled) { at_track(id, enabled); }, show_problem);
+    const FrameGenLines fg = draw_frame_gen_group(
+        g, graphicsSupport_, engine_->profile_frame_generation(),
+        [this](const std::string& id, bool enabled) { at_track(id, enabled); }, show_problem);
+    graphicsFrameGenLine_ = fg.describe;
+    graphicsFrameGenHint_ = fg.hint;
+    graphicsFrameGenState_ = fg.state;
     ImGui::EndChild();
 
     ImGui::Separator();
@@ -195,7 +400,8 @@ void Editor::draw_graphics_settings_panel() {
     if (ImGui::Button("Save", ImVec2(110, 0))) graphics_settings_save();
     ImGui::EndDisabled();
     at_track("gfx:save", canSave);
-    gfx_tip("Writes render.graphicsPreset, render.upscaler and render.dynamicResolution of factoria.json; nothing else "
+    gfx_tip("Writes render.graphicsPreset, render.upscaler, render.dynamicResolution, render.latency and "
+            "render.frameGeneration of factoria.json; nothing else "
             "in the file changes. "
             "Settings at their default are removed from the file.");
     ImGui::SameLine();

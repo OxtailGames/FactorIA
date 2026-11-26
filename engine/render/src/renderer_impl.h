@@ -63,7 +63,11 @@
 #include "render_internal.h"
 #include "render_upscale.h"
 #include "render_upscale_metalfx.h"
+#include "render_upscale_rr.h"
 #include "render_upscale_spatial.h"
+#include "render_framegen.h"
+#include "render_latency.h"
+#include "render_upscale_vendor.h"
 #include "metalfx.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
@@ -100,7 +104,9 @@ struct Renderer::Impl {
     bool scaleStepOnly = false;
     float renderBaseScale =
         1.0f;  // renderScale without the dynamic resolution's factor: what the temporal history is bound to
-    bool gpuFrameWanted = false;     // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    bool gpuFrameWanted = false;  // Renderer::set_gpu_frame_timing: time every frame for the dynamic resolution
+    bool dynResSeen =
+        false;  // the render scale has moved under renderBaseScale at least once (kept: the SDKs' contexts keep their flags)
     std::vector<double> gpuFrameMs;  // the GPU frame times it has not taken yet
     int physW = 0, physH = 0;        // size of the GPU images
     Gpu gpu;
@@ -258,12 +264,84 @@ struct Renderer::Impl {
     bool mfxPrepOnly = false;
     // Test hook: the reactive mask is not handed to MetalFX (the frames without one are the contrast).
     bool mfxNoReactive = false;
+    // M78, the vendor SDKs (render_upscale_vendor.h; renderer_upscale.cpp). vendorFrameImpl: the vendor implementation this frame's jittered
+    // picture goes to (Stretch: none; render() decides it with temporalFrame). vendorProbe[i]: what provider i answered for this GPU, asked
+    // once (vendorProbed[i]). vendorFailed[i]: provider i refused a frame: every frame after draws with the temporal upscaler, and the caps
+    // say it is not available. vendorWarnedUnavailable[i]: the one warning of an explicit mode its SDK cannot run.
+    render::UpscaleImpl vendorFrameImpl = render::UpscaleImpl::Stretch;
+    render::VendorProbe vendorProbe[render::kVendorUpscalerCount];
+    bool vendorProbed[render::kVendorUpscalerCount] = {};
+    bool vendorFailed[render::kVendorUpscalerCount] = {};
+    bool vendorWarnedUnavailable[render::kVendorUpscalerCount] = {};
+    bool vendor_upscale(render::UpscaleImpl impl, render::UpscaleInput& in, const Target& src, Target& out,
+                        const PassContext& c);
+    bool vendor_fail(int index, const std::string& why);
+    const render::VendorProbe& vendor_probe(int index);  // asked once; a provider that failed a frame says so
+    void set_vendor_env(render::FeatureEnv& env);        // render.supports: the three providers' answers
+    std::string vendorFailedWhy[render::kVendorUpscalerCount];
+    // M78-P4c, DLSS Ray Reconstruction (renderer_upscale.cpp, render_upscale_rr.h). rrPrep draws the guides the denoiser-upscaler reads
+    // (rrNormal: the world normal and the roughness, rrDiffuse and rrSpecular: the albedos) at the render resolution. They are kept while
+    // the setting is on and the render size holds; turning it off, a refusal, another upscaler drawing or a new render size gives them
+    // back (free_rr_images). rrProbe: what the provider answered for this GPU, asked
+    // once (rrProbed). rrFailed: a frame was refused (or the machine cannot run it): every frame after draws with Super Resolution, and
+    // render.supports says why (rrFailedWhy). rrWarned*: the one warning of a frame that cannot use it (not linear, dynamic resolution) and
+    // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
+    render::RrGuidesPrep rrPrep;
+    Target rrNormal, rrDiffuse, rrSpecular, rrDepth;
+    render::VendorProbe rrProbe;
+    bool rrProbed = false;
+    bool rrFailed = false;
+    std::string rrFailedWhy;
+    bool rrWarnedUnavailable = false, rrWarnedFrame = false;
+    bool rrLastUsed = false;
+    const render::VendorProbe& rr_probe();  // asked once; a refused frame says so
+    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass);
+    void free_rr_images();
+    // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
+    // at init and detached before the device goes.
+    render::LatencyController latency;
+    void set_latency_env(render::FeatureEnv& env);  // render.supports: the three low-latency providers' answers
+    // M78, frame generation (render_framegen.h; renderer_framegen.cpp): the setting, the provider that runs it and the readout. Attached to the
+    // device at init (with `frameGenHooked`: RendererDesc::frameGeneration) and detached before the device goes. hudlessTarget: the output
+    // picture before the screen-space items (a copy, made only on a frame the provider is given, when the items are drawn into outTarget);
+    // prepSerial: the game frame whose depth and motion images mfxDepth / mfxMotion hold.
+    render::FrameGenController framegen;
+    Target hudlessTarget;
+    int hudlessIdleFrames = 0;  // frames in a row the copy was not needed: it is freed at kOutputIdleFrames
+    std::uint64_t prepSerial = ~std::uint64_t(0);
+    bool prepReversed =
+        false;  // ... and whether they were made with the reversed infinite depth (the provider that wants it, run_upscale_prep)
+    // The camera of the frame the temporal upscaler is made for, as frame generation tells it to its provider.
+    struct FrameGenCamera {
+        bool perspective = true;
+        float nearPlane = 0.1f, farPlane = 1000.0f;
+        Vec3 position{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
+        Mat4 view;
+    };
+    FrameGenCamera fgCamera;
+    std::vector<const char*>
+        outputPassLog;  // the output passes run by the last frame, in order (tests: RendererTestAccess::output_passes)
+    // The running frame-generation provider's required low-latency SDK (DLSS: Reflex, XeSS: XeLL) => the latency controller runs it
+    // (FrameGenProvider::requires_reflex, the XeSS slot; LatencyController::require_driver).
+    void sync_framegen_latency();
+    void set_framegen_env(render::FeatureEnv& env);  // render.supports: the three frame-generation providers' answers
+    // outTarget into hudlessTarget: a copy, or (`grade` set) drawn through the colour filter, as the picture shown is.
+    void framegen_hudless_copy(const PassContext& c, const PostPlan* grade);
+    // The provider's dispatch; `filtered`: the picture shown is outFilterTarget (the colour filter ran), else outTarget.
+    void framegen_pass(const render::FrameGenPassPlan& plan, bool filtered, const PassContext& c);
     float mfxJitterSign = 1.0f, mfxMotionSign = 1.0f;
     void free_mfx_images();
     const render::metalfx::Support& metalfx_support();
     bool metalfx_upscale(const render::UpscaleInput& in, const Target& src, Target& out, const PassContext& c);
     bool metalfx_fail(const std::string& why);
     bool ensure_mfx_target(Target& t, const char* label, gpu::PixelFormat format, int w, int h);
+    // The preparation pass and the history rule MetalFX and the vendor SDKs share (renderer_metalfx.cpp): run_upscale_prep draws mfxDepth and
+    // mfxMotion; scaler_history_valid says whether the history of the frame before still holds (and gives the key scaler_history_note stores).
+    // `reversedNear` > 0 makes the depth image the reversed infinite depth reversedNear / distance (VendorUpscaler::wants_reversed_depth).
+    bool run_upscale_prep(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
+                          const Target* velocity, bool histValid, float reversedNear = 0.0f);
+    bool scaler_history_valid(const render::UpscaleInput& in, std::uint64_t& config) const;
+    void scaler_history_note(std::uint64_t config);
     bool ensure_output_target(Target& t, const char* label, gpu::PixelFormat colorFormat, bool withDepth);
     // The images the screen-space items need at the output size: outTarget in the format the picture has there (`display`: after a final
     // pass, so display values; else the scene format), with the depth the items are drawn with when `depth`; the render-resolution
@@ -368,6 +446,8 @@ struct Renderer::Impl {
     // force_jitter) jitters every camera with that many phases (0 = off) so the tests, and the passes that turn the effect on, can run
     // before the effect is drawn.
     int jitterForce = 0;
+    float frameDt =
+        0.0f;  // the dt of the frame being rendered (seconds, the engine clock): the vendor upscalers' frame time
     UpscalerSettings
         upscaler;  // Renderer::set_upscaler: the mode, quality and sharpness the upscale stage draws with (M76)
     QualityLimits quality;   // Renderer::set_quality: the graphics preset's limits on what the scene asks for (M76)
