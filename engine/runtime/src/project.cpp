@@ -1221,7 +1221,7 @@ constexpr const char* kSchemaText =
             "reflections": {
               "type": "boolean",
               "default": false,
-              "description": "Mirror and glossy reflections traced with rays instead of the screen-space ones. Default false."
+              "description": "Sharp reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel instead of the screen-space reflections and the probes; rougher surfaces keep the old ones. Default false."
             },
             "translucency": {
               "type": "boolean",

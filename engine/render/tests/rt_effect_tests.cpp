@@ -175,10 +175,10 @@ TEST_CASE("rt effect: the seed of a frame is a pure function of the frame serial
 
 namespace {
 
-// The field names between `// BEGIN RtEffectParams` and `// END RtEffectParams` of a kernel source, in order.
-std::vector<std::string> struct_fields(const std::string& source) {
-    const std::size_t b = source.find("// BEGIN RtEffectParams");
-    const std::size_t e = source.find("// END RtEffectParams");
+// The field names between `// BEGIN <name>` and `// END <name>` of a kernel source, in order.
+std::vector<std::string> struct_fields(const std::string& source, const std::string& name = "RtEffectParams") {
+    const std::size_t b = source.find("// BEGIN " + name);
+    const std::size_t e = source.find("// END " + name);
     std::vector<std::string> out;
     if (b == std::string::npos || e == std::string::npos || e < b) return out;
     std::string body = source.substr(b, e - b);
@@ -195,7 +195,7 @@ std::vector<std::string> struct_fields(const std::string& source) {
     std::istringstream in(clean);
     std::string tok;
     while (in >> tok) {
-        if (tok == "struct" || tok == "RtEffectParams" || tok == "float4" || tok == "uint4") continue;
+        if (tok == "struct" || tok == name || tok == "float4" || tok == "uint4") continue;
         out.push_back(tok);
     }
     return out;
@@ -282,7 +282,7 @@ TEST_CASE("rt effect: the shader of a kernel declares the bindings of the contra
         const gpu::ShaderStorageBufferView& rec = d.views[2].storageBuffer;
         CHECK(rec.stage == gpu::ShaderStage::Compute);
         CHECK(rec.binding.hlslRegister == 2);
-        CHECK(rec.binding.mslIndex == 2);
+        CHECK(rec.binding.mslIndex == 8);
         CHECK(rec.binding.spirvBinding == 4);
         CHECK(d.views[3].texture.binding.hlslRegister == 3);
         CHECK(d.views[3].texture.binding.mslIndex == 2);
@@ -602,4 +602,220 @@ TEST_CASE("rt effect: a device that cannot trace says so once and draws the fram
     // The renderer's one teaching message of rt_begin_frame; the effect adds none of its own.
     CHECK(log.count("cannot trace rays") == 1);
     CHECK(log.count("cannot run on this device") == 0);
+}
+
+// ---- M79-P3a-1: the hit shading include and the sharp reflections ------------------------------------------------------------------------
+
+TEST_CASE("rt reflect: RtHitParams is the same struct in C++, rt_hit.hlsli and rt_hit.msli, and RtEffectParams the "
+          "same in rt_reflect") {
+    const std::vector<std::string> hit(std::begin(fa::render::kRtHitParamNames),
+                                       std::end(fa::render::kRtHitParamNames));
+    REQUIRE(hit.size() == 6);
+    CHECK(sizeof(fa::render::RtHitParams) == 96);
+    const std::string hlsli = read_repo_file("engine/render/shaders/rt/rt_hit.hlsli");
+    const std::string msli = read_repo_file("engine/render/shaders/rt/rt_hit.msli");
+    REQUIRE_FALSE(hlsli.empty());
+    REQUIRE_FALSE(msli.empty());
+    CHECK(struct_fields(hlsli, "RtHitParams") == hit);
+    CHECK(struct_fields(msli, "RtHitParams") == hit);
+    // The kernel's embedded MSL carries the include's text (the library is compiled from one string).
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_reflect");
+    REQUIRE(k != nullptr);
+    CHECK(struct_fields(std::string(k->msl), "RtHitParams") == hit);
+    const std::vector<std::string> params(std::begin(fa::render::kRtEffectParamNames),
+                                          std::end(fa::render::kRtEffectParamNames));
+    CHECK(struct_fields(read_repo_file("engine/render/shaders/rt/rt_reflect.hlsl")) == params);
+    CHECK(struct_fields(std::string(k->msl)) == params);
+    CHECK(offsetof(fa::render::RtHitParams, ambient) == 2 * 16);
+    CHECK(offsetof(fa::render::RtHitParams, limits) == 5 * 16);
+}
+
+TEST_CASE("rt reflect: the kernel has a spec that asks for the records, the G-buffer and the hit constants, with the "
+          "bindings of the "
+          "contract in every backend's numbering") {
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_reflect");
+    REQUIRE(k != nullptr);
+    const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_reflect");
+    REQUIRE(spec != nullptr);
+    CHECK(spec->usesRecords);
+    CHECK(spec->usesGbuffer);
+    CHECK(spec->usesHit);
+    CHECK_FALSE(fa::render::find_rt_effect_spec("rt_shadow")->usesHit);
+    CHECK(k->msl.find("kernel void rt_reflect") != std::string_view::npos);
+    CHECK_FALSE(k->dxil.empty());
+    CHECK_FALSE(k->spirv.empty());
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+        INFO("backend " << int(backend));
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, *spec, backend);
+        REQUIRE(d.compute());
+        CHECK(d.usesRayQuery);
+        CHECK(d.uniformBlocks[0].size == sizeof(RtEffectParams));
+        CHECK(d.uniformBlocks[0].binding.hlslRegister == 0);
+        CHECK(d.uniformBlocks[0].binding.mslIndex == 1);
+        CHECK(d.uniformBlocks[0].binding.spirvBinding == 2);
+        // The second block: b1 / buffer(3) / binding 7 (rt_hit.hlsli, rt_hit.msli).
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].stage == gpu::ShaderStage::Compute);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].size == sizeof(fa::render::RtHitParams));
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.hlslRegister == 1);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.mslIndex == 3);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.spirvBinding == 7);
+        CHECK(d.views[2].storageBuffer.binding.hlslRegister == 2);
+        CHECK(d.views[2].storageBuffer.binding.mslIndex == 8);
+        CHECK(d.views[2].storageBuffer.binding.spirvBinding == 4);
+        CHECK(d.views[3].texture.binding.mslIndex == 2);
+        CHECK(d.views[4].texture.binding.mslIndex == 3);
+    }
+    // A kernel without the hit constants has no second block.
+    const gpu::ShaderDesc shadow = fa::render::rt_effect_shader_desc(
+        *rt_kernels::find_rt_kernel("rt_shadow"), *fa::render::find_rt_effect_spec("rt_shadow"), gpu::Backend::Metal);
+    CHECK(shadow.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].stage == gpu::ShaderStage::None);
+    // The sources say the same numbers (the HLSL's registers and Vulkan bindings, the MSL's buffer indices).
+    const std::string hlsli = read_repo_file("engine/render/shaders/rt/rt_hit.hlsli");
+    CHECK(hlsli.find("[[vk::binding(7, 0)]] ConstantBuffer<RtHitParams> g_hit : register(b1);") != std::string::npos);
+    CHECK(hlsli.find("[[vk::binding(4, 0)]] StructuredBuffer<RtInstanceRecord> g_records : register(t2);") !=
+          std::string::npos);
+    CHECK(hlsli.find("[[vk::binding(0, 0)]] RaytracingAccelerationStructure g_tlas : register(t0);") !=
+          std::string::npos);
+    CHECK(k->msl.find("constant RtHitParams& hit [[buffer(3)]]") != std::string_view::npos);
+    CHECK(k->msl.find("const device RtInstanceRecord* records [[buffer(8)]]") != std::string_view::npos);
+}
+
+namespace {
+
+void make_reflect_scene(World& w) {
+    make_scene(w);
+    // The floor is a mirror (roughness 0), as the lit shader's roughness default is 0.5.
+    Entity floor = w.find("floor");
+    if (!floor.is_null()) w.get<MeshRenderer>(floor)->roughness = 0.0f;
+}
+
+}  // namespace
+
+TEST_CASE("rt reflect: with reflections off nothing is declared, made or kept, with ray tracing on") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.reflections = false;
+    s.ao = true;  // another effect keeps ray tracing on
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    for (int i = 0; i < 3; ++i) {
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        const std::vector<std::string> lines = r.lines();
+        CHECK(index_of(lines, "gbuffer") < 0);
+        CHECK(index_of(lines, "ssr-trace") < 0);
+    }
+    CHECK(r.effects().empty());
+}
+
+TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass after the TLAS, with the two constants "
+          "blocks, and the "
+          "reflections' trace pass composites it") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.reflections = true;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].find("rt-reflections") != std::string::npos);
+    const std::vector<std::string> lines = r.lines();
+    const int tlas = index_of(lines, "build_tlas");
+    const int gbuffer = index_of(lines, "begin_pass 'gbuffer'");
+    const int refl = index_of(lines, "rt-reflections");
+    const int trace = index_of(lines, "begin_pass 'ssr-trace'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(gbuffer >= 0);
+    REQUIRE(refl >= 0);
+    REQUIRE(trace >= 0);
+    CHECK(tlas < refl);
+    CHECK(gbuffer < refl);
+    CHECK(refl < trace);
+    REQUIRE(std::size_t(refl) + 5 < lines.size());
+    CHECK(lines[std::size_t(refl) + 1].find("set_pipeline") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 3].find("set_uniforms 0 400B") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 4].find("set_uniforms 1 96B") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 5].find("dispatch 20 12 1") != std::string::npos);
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    // Free again when it is turned off.
+    s.reflections = false;
+    s.ao = true;
+    r.renderer.set_ray_tracing(s);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 0);
+    CHECK(r.effects().kernel_count() == 0);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.compute_passes().empty());
+    CHECK(index_of(r.lines(), "ssr-trace") < 0);
+}
+
+TEST_CASE("rt reflect: the shadows and the reflections are two effects of the same frame, and the frame is the same "
+          "every frame") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Hard;
+    s.reflections = true;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.compute_passes().size() == 2);
+    const std::vector<std::string> a = r.lines();
+    CHECK(r.effects().kernel_count() == 2);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.lines() == a);
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE(
+    "rt reflect: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {
+    Logs log;
+    auto stream = [&](bool deviceTraces, bool setting) {
+        Rig r(deviceTraces);
+        if (setting) {
+            render::RayTracingSettings s;
+            s.enabled = true;
+            s.reflections = true;
+            r.renderer.set_ray_tracing(s);
+        }
+        World w;
+        make_reflect_scene(w);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        return r.lines();
+    };
+    const std::vector<std::string> off = stream(true, false);
+    const std::vector<std::string> unsupported = stream(false, true);
+    REQUIRE(off.size() > 5);
+    CHECK(off == unsupported);
+    CHECK(log.count("cannot trace rays") == 1);
+    CHECK(log.count("ray traced reflections cannot run") == 0);
+    CHECK(index_of(off, "gbuffer") < 0);
 }

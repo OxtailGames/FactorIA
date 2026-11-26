@@ -9,8 +9,8 @@ default, and free when off.
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
 > The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
-> **One effect draws with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below). The other settings (`ao`, `reflections`,
-> `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
+> **Two effects draw with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below) and `reflections` (sharp mirror
+> reflections, "Reflections", below). The other settings (`ao`, `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
 > sections below say what each part will do and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
@@ -31,7 +31,7 @@ default) writes nothing to `factoria.json`.
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
 | `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = rays towards a point of the light's disc (the edge softens with the distance to the caster): **not made yet, it draws the hard shadow** and the log says so once. |
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one. |
-| `reflections` | `true`, `false` | `false` | Mirror and glossy reflections traced with rays, instead of the screen-space ones. |
+| `reflections` | `true`, `false` | `false` | Sharp reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel instead of the screen-space reflections and the probes ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
 | `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
 | `raysPerPixel` | whole number, 1 to 16 | `1` | Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside the range is **clamped**, not an error. |
@@ -61,7 +61,7 @@ It returns the settings plus:
 | field | meaning |
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
-| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off` on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
+| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off` or `reflections` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `changed` | whether this call changed a setting. |
 
@@ -121,6 +121,37 @@ structures cost (P1s: every frame's TLAS build). The `drawCalls` of the stats co
 
 Hard shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the frame serial and the seed the
 kernels receive are for the effects that sample).
+
+## Reflections
+
+`"reflections": true` traces the **mirror reflection** of the surfaces that are smooth enough to show one. It needs a device that traces
+rays and a camera that draws the thin G-buffer (the prepass plus the albedo, roughness and metalness images the engine makes for the
+screen-space effects; a device that cannot make them, or a frame that draws no mesh, keeps the old reflections and the engine says so once).
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"reflections":true}'
+```
+
+What the renderer does each frame, for each camera that draws meshes:
+
+1. One compute pass, `rt-reflections`, takes every pixel whose **roughness is under 0.25** and casts **one ray** from the surface along the
+   reflection of the view ray. A pixel of the sky, a pixel with no G-buffer texel and a rougher surface are not traced.
+2. Where the ray ends on a mesh of the scene, the kernel shades that point: the sun (Lambert and GGX, with one shadow ray), the scene's
+   ambient light, the environment's gradient seen by a mirror there, and the emission; an `unlit` mesh is its colour. A metal tints the
+   reflection with its own colour. Where the ray leaves the scene it sees the sky and horizon gradient and the lit picture already holds that.
+3. The screen-space reflections' pass blends the result into the lit picture with the same Fresnel weight, so a reflection is as strong as
+   the old one would have been. A camera with no screen-space reflections in its post stack still gets the pass, for the traced pixels only.
+
+What stays as it was: every pixel of roughness 0.25 or more (the screen-space reflections march and the probes fill in), the sky, and the
+whole picture on a device that cannot trace. Rough, blurry reflections are a later package.
+
+Limits of this version, what a ray sees in a reflection: the **flat colour** of a material (no textures), a **faceted** normal (the mesh's
+vertices are not available to the kernel), the **sun only** (no point or spot light, no second bounce, no fog), and a sky that is a material,
+a physical sky or an HDRI appears as the plain gradient. The picture is not denoised: a sharp reflection needs no denoiser, and the kernel
+writes the hit distance in its output for the one that will come.
+
+**Cost.** Off: nothing. On: one compute dispatch (a ray and, at a hit, three more for the normal and one for the sun's shadow), one image
+(RGBA32F, the camera's size), plus the acceleration structures. The same frame gives the same image: the pass uses no random number.
 
 ## Where it will run
 

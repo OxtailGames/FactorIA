@@ -635,6 +635,7 @@ struct Renderer::Impl {
     // shadows, which are the hard ones for now).
     RtEffects rtEffects;
     bool rtWarnedEffect = false, rtInformedSoft = false;
+    bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).
