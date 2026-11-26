@@ -216,8 +216,10 @@ becomes the engine roadmap.
   (`cmake/fa_doctest_split_check.cmake`, plain CMake) fails unless the entries together list exactly the test cases of the
   whole executable, each once. Entries run at the same time, so two test cases never share a fixed name outside their
   process: temp folders come from `fa::fs::make_temp_dir` (they carry the process id) and servers bind port 0. The one
-  fixed name is `~/Library/Containers/com.factoria.sandboxprobe`, the container of `sign.macos`'s sandboxed app: one
-  test case uses it, so one entry. `ctest -L tooling` runs the five entries and the check.
+  shared name is the container of `sign.macos`'s sandboxed app in `~/Library/Containers`: that test case takes one of
+  16 slot ids `com.factoria.sandboxprobe0` to `15` with an `flock` on `~/Library/Caches/FactorIA/sandboxprobe-slot<N>.lock`
+  (held until it ends, so checkouts running at once never share a container; macOS keeps the empty folder of a
+  container, so the ids are slots and not pids). `ctest -L tooling` runs the five entries and the check.
 - Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus the menus and export goldens in
   `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
   mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of
