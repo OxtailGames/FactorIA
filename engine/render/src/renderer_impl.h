@@ -638,7 +638,9 @@ struct Renderer::Impl {
     // Tests (RendererTestAccess::rt_shadow_draws): the draws of the frame that took the sun's shadow from the ray traced mask, and those of
     // them that also took the cascades' (the scene had casters the rays do not see). Reset by rt_begin_frame.
     struct RtShadowDraws {
-        int mask = 0, withCascades = 0, local = 0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
+        int mask = 0, withCascades = 0,
+            local =
+                0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
     } rtShadowDraws;
     // M79-P2a-3 (rt_local_shadows.h): which light holds each of the kRtLocalMaxLights slots of a camera (by camera entity bits), kept from frame to
     // frame so a light keeps its slot and the denoiser its history; what the frame did for `render.ray_tracing` (the lights that asked, the lights
@@ -647,7 +649,8 @@ struct Renderer::Impl {
     struct RtLocalFrame {
         int candidates = 0, traced = 0;
     } rtLocalFrame;
-    std::atomic<int> rtLocalCandidatesShown{0}, rtLocalTracedShown{0};  // rtLocalFrame of the last whole frame (Renderer::ray_tracing_local_shadows)
+    std::atomic<int> rtLocalCandidatesShown{0},
+        rtLocalTracedShown{0};  // rtLocalFrame of the last whole frame (Renderer::ray_tracing_local_shadows)
     bool rtWarnedLocal = false;
     static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
     bool rtWarnedEffect = false;

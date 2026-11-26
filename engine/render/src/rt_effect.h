@@ -90,16 +90,20 @@ inline constexpr int kRtLocalMaxLights = kRtLocalShadowMaxLights;  // raytracing
 // What the kernel needs of one light (5 float4, 80 bytes; rt_shadow_local.hlsl / .metal have the same struct between `// BEGIN RtLocalLight` and
 // `// END RtLocalLight`). Kinds: 1 point, 2 spot, 3 rectangle, 4 disc, 5 tube.
 struct RtLocalLight {
-    float posReach[4];  // xyz: the light's position; w: how far it reaches (its range plus an area light's radius), the pixels past it are lit
-    float axisCos[4];   // xyz: a spot's axis / an area light's front (unit); w: a spot's cos(half angle) (-2 = no cone)
-    float kind[4];      // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z: the
-                        // factor on an area light's half sizes (Light.shadowSoftness; 0 = hard); w: 0
-    float right[4];     // xyz: an area light's first axis times its half size (a tube: along its length); w: 0
-    float up[4];        // xyz: the second axis times its half size (a disc: the same as `right`; a tube: its half thickness); w: 0
+    float posReach
+        [4];  // xyz: the light's position; w: how far it reaches (its range plus an area light's radius), the pixels past it are lit
+    float axisCos[4];  // xyz: a spot's axis / an area light's front (unit); w: a spot's cos(half angle) (-2 = no cone)
+    float kind
+        [4];  // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z: the
+    // factor on an area light's half sizes (Light.shadowSoftness; 0 = hard); w: 0
+    float right[4];  // xyz: an area light's first axis times its half size (a tube: along its length); w: 0
+    float up
+        [4];  // xyz: the second axis times its half size (a disc: the same as `right`; a tube: its half thickness); w: 0
 };
 // The constants block of rt_shadow_local at uniform slot RtEffectBindings::kUniformHit: 16 float4, 256 bytes (the header, then the lights).
 struct RtLocalParams {
-    float header[4];  // x: how many lights are traced (0 .. kRtLocalMaxLights); y: the ray's pull back from the light, a fraction of its length
+    float header
+        [4];  // x: how many lights are traced (0 .. kRtLocalMaxLights); y: the ray's pull back from the light, a fraction of its length
     RtLocalLight lights[kRtLocalMaxLights];
 };
 static_assert(sizeof(RtLocalLight) == 5 * 16 && sizeof(RtLocalParams) == 16 * 16,
@@ -139,7 +143,8 @@ struct RtEffectKernelSpec {
         true;  // the TLAS (t0 / binding 0 / buffer(0)); false: a kernel that only moves pixels, no ray query
     bool usesAux =
         false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
-    bool usesLocal = false;  // RtEffectRequest::local (RtLocalParams) at b1 / binding 7 / buffer(3), like usesHit; not with usesHit or usesAux
+    bool usesLocal =
+        false;  // RtEffectRequest::local (RtLocalParams) at b1 / binding 7 / buffer(3), like usesHit; not with usesHit or usesAux
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the
@@ -195,7 +200,7 @@ struct RtEffectRequest {
     int raysPerPixel = 1;
     float lightDir[3] = {0, 1, 0};  // toward the light
     float user0[4] = {}, user1[4] = {};
-    RtHitParams hit{};  // set at kUniformHit when the kernel's spec has usesHit
+    RtHitParams hit{};      // set at kUniformHit when the kernel's spec has usesHit
     RtLocalParams local{};  // set at kUniformHit when the kernel's spec has usesLocal
     RtScene* scene = nullptr;
     int* drawCalls = nullptr;  // each dispatch adds one when it runs (may be null)

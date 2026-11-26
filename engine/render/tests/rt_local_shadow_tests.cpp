@@ -52,6 +52,13 @@ std::vector<std::string> struct_fields(const std::string& source, const std::str
     if (b == std::string::npos || e == std::string::npos || e < b) return out;
     std::string body = source.substr(b, e - b);
     body.erase(0, body.find('\n') + 1);
+    std::string clean;
+    for (std::size_t i = 0; i < body.size(); ++i) {  // drop the // comments
+        if (body[i] == '/' && i + 1 < body.size() && body[i + 1] == '/')
+            while (i < body.size() && body[i] != '\n') ++i;
+        if (i < body.size()) clean.push_back(body[i]);
+    }
+    body = clean;
     for (char& c : body)
         if (c == '{' || c == '}' || c == ',' || c == ';') c = ' ';
     std::istringstream in(body);
@@ -143,7 +150,8 @@ TEST_CASE("rt local shadows: a light that is not usable (importance 0, negative 
     CHECK(p.count == 1);
 }
 
-TEST_CASE("rt local shadows: a light keeps its slot while it stays a candidate, and is replaced only by a clearly better one") {
+TEST_CASE("rt local shadows: a light keeps its slot while it stays a candidate, and is replaced only by a clearly "
+          "better one") {
     RtLocalSlots slots;
     std::vector<RtLocalCandidate> c = candidates_of({10.0f, 8.0f, 6.0f, 4.0f});
     RtLocalPick p = render::pick_rt_local_lights(slots, c);
@@ -176,7 +184,8 @@ TEST_CASE("rt local shadows: a light keeps its slot while it stays a candidate, 
     CHECK(p.light[2] == 3);
 }
 
-TEST_CASE("rt local shadows: a slot follows the light's entity when the light table is ordered differently, and a light that goes frees its slot") {
+TEST_CASE("rt local shadows: a slot follows the light's entity when the light table is ordered differently, and a "
+          "light that goes frees its slot") {
     RtLocalSlots slots;
     std::vector<RtLocalCandidate> c = candidates_of({10.0f, 8.0f, 6.0f});
     RtLocalPick p = render::pick_rt_local_lights(slots, c);
@@ -226,7 +235,8 @@ LightData point_light(float x, float y, float z, float range) {
 
 }  // namespace
 
-TEST_CASE("rt local shadows: the record of a point light has the cone of rays its softness asks for, and none when it is hard") {
+TEST_CASE("rt local shadows: the record of a point light has the cone of rays its softness asks for, and none when it "
+          "is hard") {
     LightData soft = point_light(1, 2, 3, 10);
     RtLocalLight r = render::make_rt_local_light(soft);
     CHECK(r.kind[0] == 1.0f);
@@ -250,7 +260,8 @@ TEST_CASE("rt local shadows: the record of a point light has the cone of rays it
     CHECK(render::make_rt_local_light(bad).kind[1] == doctest::Approx(std::tan(0.5f)));
 }
 
-TEST_CASE("rt local shadows: the record of a spot light has its axis and cone, the one of an area light its shape and axes") {
+TEST_CASE(
+    "rt local shadows: the record of a spot light has its axis and cone, the one of an area light its shape and axes") {
     LightData spot = point_light(0, 5, 0, 12);
     spot.color.w = 2.0f;
     spot.dir = {0, -1, 0, 0.8f};
@@ -269,8 +280,8 @@ TEST_CASE("rt local shadows: the record of a spot light has its axis and cone, t
     for (int shape = 0; shape < 3; ++shape) {
         area.ext[2] = {0, 0, 0, float(shape)};
         const RtLocalLight a = render::make_rt_local_light(area);
-        CHECK(a.kind[0] == float(3 + shape));  // rectangle, disc, tube
-        CHECK(a.kind[2] == 1.0f);              // the factor on its half sizes: Light.shadowSoftness
+        CHECK(a.kind[0] == float(3 + shape));            // rectangle, disc, tube
+        CHECK(a.kind[2] == 1.0f);                        // the factor on its half sizes: Light.shadowSoftness
         CHECK(a.posReach[3] == doctest::Approx(10.5f));  // the range is measured from the emitter's surface
         CHECK(a.right[0] == 2.0f);
         CHECK(a.up[2] == 0.5f);
@@ -304,7 +315,8 @@ TEST_CASE("rt local shadows: the constants block has the lights in their slots a
 // ---- the shaders and their tables -----------------------------------------------------------------------------------------------------
 
 TEST_CASE("rt local shadows: RtLocalLight is the same struct in C++, HLSL and MSL, and the kernels are in the table") {
-    const std::vector<std::string> expected(std::begin(render::kRtLocalLightNames), std::end(render::kRtLocalLightNames));
+    const std::vector<std::string> expected(std::begin(render::kRtLocalLightNames),
+                                            std::end(render::kRtLocalLightNames));
     REQUIRE(expected.size() == 5);
     CHECK(offsetof(RtLocalLight, axisCos) == 16);
     CHECK(offsetof(RtLocalLight, kind) == 32);
@@ -320,18 +332,22 @@ TEST_CASE("rt local shadows: RtLocalLight is the same struct in C++, HLSL and MS
     CHECK(struct_fields(hlsl, "RtLocalLight") == expected);
     CHECK(struct_fields(std::string(k->msl), "RtLocalLight") == expected);
     // The constants block of the engine is the same in both kernels as in the sun's (the pack kernel reads it, too).
-    const std::vector<std::string> params(std::begin(render::kRtEffectParamNames), std::end(render::kRtEffectParamNames));
+    const std::vector<std::string> params(std::begin(render::kRtEffectParamNames),
+                                          std::end(render::kRtEffectParamNames));
     CHECK(struct_fields(hlsl, "RtEffectParams") == params);
     CHECK(struct_fields(std::string(k->msl), "RtEffectParams") == params);
-    CHECK(struct_fields(read_repo_file("engine/render/shaders/rt/rt_shadow_local_pack.hlsl"), "RtEffectParams") == params);
+    CHECK(struct_fields(read_repo_file("engine/render/shaders/rt/rt_shadow_local_pack.hlsl"), "RtEffectParams") ==
+          params);
     CHECK(struct_fields(std::string(pack->msl), "RtEffectParams") == params);
     CHECK(k->msl.find("kernel void rt_shadow_local") != std::string_view::npos);
     CHECK(k->msl.find("accept_any_intersection(true)") != std::string_view::npos);
     CHECK(k->msl.find("constant RtLocalParams& local [[buffer(3)]]") != std::string_view::npos);
-    CHECK(hlsl.find("[[vk::binding(7, 0)]] ConstantBuffer<RtLocalParams> g_local : register(b1);") != std::string::npos);
+    CHECK(hlsl.find("[[vk::binding(7, 0)]] ConstantBuffer<RtLocalParams> g_local : register(b1);") !=
+          std::string::npos);
     // One ray query call site per kernel (Metal's compiler unrolls a second one into a very long compile).
     std::size_t calls = 0;
-    for (std::size_t at = k->msl.find(".reset("); at != std::string_view::npos; at = k->msl.find(".reset(", at + 1)) ++calls;
+    for (std::size_t at = k->msl.find(".reset("); at != std::string_view::npos; at = k->msl.find(".reset(", at + 1))
+        ++calls;
     CHECK(calls == 1);
     CHECK_FALSE(k->dxil.empty());
     CHECK_FALSE(k->spirv.empty());
@@ -404,7 +420,8 @@ TEST_CASE("rt local shadows: the two kernels declare the bindings of the contrac
     CHECK_FALSE(render::rt_effect_shader_desc(*k, *spec, gpu::Backend::D3d11).compute());
 }
 
-TEST_CASE("rt local shadows: only the point, spot and area lights' shadow factor of the lit shader reads the traced mask") {
+TEST_CASE(
+    "rt local shadows: only the point, spot and area lights' shadow factor of the lit shader reads the traced mask") {
     const std::string glsl = read_repo_file("engine/render/shaders/mesh_common.glsl");
     REQUIRE_FALSE(glsl.empty());
     const std::size_t fn = glsl.find("float fa_shadow_local_rt(");
@@ -575,7 +592,8 @@ TEST_CASE("rt local shadows: with the shadows setting off, or no light that cast
     }
 }
 
-TEST_CASE("rt local shadows: lights that cast declare the trace and the pack after the TLAS and the prepass, with the bindings of the contract") {
+TEST_CASE("rt local shadows: lights that cast declare the trace and the pack after the TLAS and the prepass, with the "
+          "bindings of the contract") {
     Rig r;
     r.rays(render::RtShadows::Hard);
     World w;
@@ -814,7 +832,8 @@ TEST_CASE("rt local shadows: soft lights are denoised as one signal, hard ones a
     }
 }
 
-TEST_CASE("rt local shadows: the history of the signal starts again when a light enters or leaves a slot, and only then") {
+TEST_CASE(
+    "rt local shadows: the history of the signal starts again when a light enters or leaves a slot, and only then") {
     Rig r;
     r.rays(render::RtShadows::Soft);
     World w;
@@ -854,14 +873,15 @@ TEST_CASE("rt local shadows: the history of the signal starts again when a light
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt local shadows: turning the shadows off, or ray tracing off, frees the kernels, the images and the denoiser") {
+TEST_CASE(
+    "rt local shadows: turning the shadows off, or ray tracing off, frees the kernels, the images and the denoiser") {
     Rig r;
     r.rays(render::RtShadows::Soft);
     World w;
     make_room(w);
     add_lights(w, 2);
     r.frames(w, 5);
-    CHECK(r.effects().kernel_count() == 3 - 1);  // the trace and the pack
+    CHECK(r.effects().kernel_count() == 2);  // the trace and the pack
     CHECK(RendererTestAccess::rt_denoiser(r.renderer)->history_image_count() > 0);
     r.rays(render::RtShadows::Off);
     r.frames(w, 6);
@@ -883,12 +903,12 @@ TEST_CASE("rt local shadows: turning the shadows off, or ray tracing off, frees 
     r.renderer.set_ray_tracing(off);
     r.frames(w, 3);
     CHECK(r.effects().empty());
-    CHECK_FALSE(RendererTestAccess::rt_denoiser(r.renderer)->shaders_made() &&
-                RendererTestAccess::rt_denoiser(r.renderer)->history_image_count() > 0);
+    CHECK(RendererTestAccess::rt_denoiser(r.renderer)->history_image_count() == 0);
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt local shadows: the sun and the local lights are two effects of the same frame, and the lit pass reads one image") {
+TEST_CASE("rt local shadows: the sun and the local lights are two effects of the same frame, and the lit pass reads "
+          "one image") {
     Rig r;
     r.rays(render::RtShadows::Hard);
     World w;
@@ -913,13 +933,15 @@ TEST_CASE("rt local shadows: the sun and the local lights are two effects of the
     const std::vector<std::string> lines = r.lines();
     const int pack = index_of(lines, "begin_compute_pass 'camera:0/rt-shadows-local'");
     REQUIRE(pack >= 0);
-    CHECK(lines[std::size_t(pack) + 2].find("views=3") != std::string::npos);  // the output, the sun's image, the visibilities
+    CHECK(lines[std::size_t(pack) + 2].find("views=3") !=
+          std::string::npos);  // the output, the sun's image, the visibilities
     const auto d = RendererTestAccess::rt_shadow_draws(r.renderer);
     CHECK(d.mask > 0);
     CHECK(d.local > 0);
 }
 
-TEST_CASE("rt local shadows: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {
+TEST_CASE("rt local shadows: a device that cannot trace says so once and draws the frame it would draw with ray "
+          "tracing off") {
     Logs log;
     auto stream = [&](bool deviceTraces, bool setting) {
         Rig r(deviceTraces);
@@ -964,7 +986,7 @@ TEST_CASE("rt local shadows: a caster the rays cannot see keeps the maps of the 
         r.dev->clear_commands();
         r.frame(w);
         return std::array<int, 2>{r.count(gpu::CommandKind::Draw),
-                                  RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters};
+                                  int(RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters)};
     };
     const auto all = draws(1000);
     const auto few = draws(1);
@@ -973,7 +995,8 @@ TEST_CASE("rt local shadows: a caster the rays cannot see keeps the maps of the 
     CHECK(few[0] > all[0]);  // the maps are drawn: a caster is missing from the rays
 }
 
-TEST_CASE("rt local shadows: a terrain keeps the maps of the lights (the rays do not see it, and its own shader reads the map)") {
+TEST_CASE("rt local shadows: a terrain keeps the maps of the lights (the rays do not see it, and its own shader reads "
+          "the map)") {
     Rig r;
     r.rays(render::RtShadows::Hard);
     World w;

@@ -1067,9 +1067,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         candidates.reserve(ctx.localInputs.size());
         for (const render::LocalShadowInput& in : ctx.localInputs) {
             const LightData& ld = ctx.lights[std::size_t(in.light)];
-            candidates.push_back({ld.id, in.light,
-                                  render::local_shadow_importance(in.brightness, in.range,
-                                                                  length(in.position - fr.cam.position))});
+            candidates.push_back(
+                {ld.id, in.light,
+                 render::local_shadow_importance(in.brightness, in.range, length(in.position - fr.cam.position))});
         }
         ctx.rtLocal.pick = render::pick_rt_local_lights(rtLocalSlots[fr.cam.entity.bits()], candidates);
         ctx.rtLocal.params = render::make_rt_local_params(ctx.lights, ctx.rtLocal.pick);
@@ -3113,14 +3113,16 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_ct_a[0] =
         (ctx.contactOn && ctx.screenView.id && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
     // The sun's shadow from the ray traced mask (view 28 holds the kernel's image, set by main_pass when it ran): the same draws take it.
-    const bool rtImageOk = ctx.rtShadow.img && ctx.rtShadow.img->ran && ctx.screenView.id == ctx.rtShadow.img->texture.id &&
-                           !blended && mr.receiveShadows && !(d.mat && d.mat->full);
+    const bool rtImageOk = ctx.rtShadow.img && ctx.rtShadow.img->ran &&
+                           ctx.screenView.id == ctx.rtShadow.img->texture.id && !blended && mr.receiveShadows &&
+                           !(d.mat && d.mat->full);
     fu.fa_ct_b[1] = rtImageOk && ctx.rtShadow.sunTraced ? 1.0f : 0.0f;
     // M79-P2a-3: the point, spot and area lights of the image's slots take their shadow from it too (fa_shadow_local_rt).
     fu.fa_ct_b[3] = rtImageOk && ctx.rtLocal.traced ? 1.0f : 0.0f;
     // When the scene has casters the rays do not see (terrain, impostors, GPU-driven meshes, cutouts, instances over the cap, BLASes not built yet) the
     // lit pass takes the darker of the mask and the cascades, so those casters keep their shadow (mesh_common.glsl fa_shadow_factor).
-    fu.fa_ct_b[2] = ((fu.fa_ct_b[1] > 0.5f || fu.fa_ct_b[3] > 0.5f) && (rtScene.stats().untracedCasters > 0)) ? 1.0f : 0.0f;
+    fu.fa_ct_b[2] =
+        ((fu.fa_ct_b[1] > 0.5f || fu.fa_ct_b[3] > 0.5f) && (rtScene.stats().untracedCasters > 0)) ? 1.0f : 0.0f;
     rtShadowDraws.mask += fu.fa_ct_b[1] > 0.5f ? 1 : 0;
     rtShadowDraws.withCascades += fu.fa_ct_b[2] > 0.5f ? 1 : 0;
     rtShadowDraws.local += fu.fa_ct_b[3] > 0.5f ? 1 : 0;
@@ -3544,7 +3546,8 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
         rtEffects.failure().empty() && ctx.blended.empty() && ctx.decals.empty() && ctx.terrainDraws.empty() &&
         !ctx.xmit.want && !ctx.sssOn) {
         bool onlyEngineMaterials = true;
-        for (const MeshItem& it : ctx.opaque) onlyEngineMaterials = onlyEngineMaterials && !(it.material && it.material->ok && it.material->full);
+        for (const MeshItem& it : ctx.opaque)
+            onlyEngineMaterials = onlyEngineMaterials && !(it.material && it.material->ok && it.material->full);
         if (onlyEngineMaterials) {
             ctx.rtLocal.skipView.assign(ctx.viewProj.size(), 0);
             for (const render::LocalShadowLight& l : ctx.localPlan.lights)
@@ -3618,7 +3621,8 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
     for (int view = viewFirst; view < viewEnd && view < int(ctx.viewProj.size()); ++view) {
         const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
         if (!tile.placed() || (view >= ctx.cascades && view < ctx.sunViews)) continue;
-        if (std::size_t(view) < ctx.rtLocal.skipView.size() && ctx.rtLocal.skipView[std::size_t(view)]) continue;  // M79-P2a-3: traced
+        if (std::size_t(view) < ctx.rtLocal.skipView.size() && ctx.rtLocal.skipView[std::size_t(view)])
+            continue;  // M79-P2a-3: traced
         cl.set_viewport(tile.x, tile.y, tile.size, tile.size, true);
         cl.set_scissor(tile.x, tile.y, tile.size, tile.size, true);
         copy_mat(u.fa_light_vp, ctx.viewProj[std::size_t(view)]);
@@ -5629,7 +5633,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             pack.after.clear();
             pack.prepass = PrepassRef{};
             if (ctx.rtShadow.img && ctx.rtShadow.sunTraced && rtShadowRes.valid()) {
-                pack.srcImage = ctx.rtShadow.img;  // the sun's final image: its depth, visibility and mesh flag are kept
+                pack.srcImage =
+                    ctx.rtShadow.img;  // the sun's final image: its depth, visibility and mesh flag are kept
                 pack.srcRes = rtShadowRes;
                 pack.user1[0] = 1.0f;
             } else {
@@ -5653,10 +5658,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             rtLocalFrame.traced = std::max(rtLocalFrame.traced, ctx.rtLocal.pick.traced);
         } else if (!rtWarnedLocal) {
             rtWarnedLocal = true;
-            FA_WARN("render",
-                    "render.rayTracing.shadows is on but the ray traced shadows of point, spot and area lights cannot run on this device ({}). "
-                    "Those lights keep their shadow maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
-                    why);
+            FA_WARN(
+                "render",
+                "render.rayTracing.shadows is on but the ray traced shadows of point, spot and area lights cannot run "
+                "on this device ({}). "
+                "Those lights keep their shadow maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
+                why);
         }
     }
     // Ray traced reflections (M79-P3a-1/2, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer (a mirror ray under the sharp
