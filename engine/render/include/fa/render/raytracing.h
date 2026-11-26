@@ -80,8 +80,9 @@ struct RtGiStatus {
 // "Per pixel").
 struct RtGiPixelStatus {
     bool wanted = false;  // render.rayTracing.gi is "perPixel"
-    bool active = false;  // the last whole frame lit the main camera's opaque surfaces with the denoised traced result
-    std::string reason;   // why not, when wanted and not active (empty when active or not wanted)
+    bool active =
+        false;  // the last whole frame lit the main camera's opaque surfaces with the traced result (the pass ran and the main pass bound its image)
+    std::string reason;  // why not, when wanted and not active (empty when active or not wanted)
 };
 
 // Whether any effect asks for rays: enabled and at least one effect on. The renderer pays for ray tracing only then.

@@ -60,14 +60,11 @@ bool latency_mode_has_boost(const std::string& mode);
 // The values of render.rayTracing.shadows and .gi in the order the combos list them.
 const std::vector<std::string>& ray_tracing_shadow_modes();
 const std::vector<std::string>& ray_tracing_gi_modes();
-// A mode of render.rayTracing.gi the file may name (the parser accepts it) but no renderer draws yet: "" when it is drawn, else the sentence
-// the editor shows next to it. perPixel waits for its package (M79-P4b); take its name out of the list in graphics_settings.cpp when it lands.
-std::string ray_tracing_gi_coming(const std::string& mode);
 
 // Whether this machine's renderer can trace rays (the row `raytracing` of render.supports, `report` being what Renderer::supports_report()
 // returns), with the row's own reason when it cannot, followed by how to get a device that does (graphics.backend). Without a report (no
 // renderer to ask) it cannot, with that as the reason. A project is written for the players' machines, so a device that cannot trace only
-// greys the controls out in the editor: the file may still ask for rays.
+// adds a note in the editor (this window cannot show the effect): the controls stay editable and the file may ask for rays.
 struct RayTracingSupport {
     bool usable = true;
     std::string why;
@@ -119,9 +116,10 @@ Result<GraphicsSettings> read_graphics_settings(const std::string& projectDir, b
 // Every problem of `s`, each with its pointer (empty = fine). Nothing is saved or changed.
 std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSettings& s);
 
-// Writes `s` into <projectDir>/factoria.json: `render.graphicsPreset` (removed when custom), `render.upscaler` (removed
-// when every value is the default; else the three keys) and `render.dynamicResolution` (removed when every value is the
-// default; else the four keys), `render.latency` (removed when off with no boost; else the two keys), `render.frameGeneration` (removed when off at the default minBaseFps; else the two keys), `render.rayTracing` and `render.pathTracer` (removed when every value is the default; else every key), and an empty `render` object is removed. Refuses, and writes
+// Writes `s` into <projectDir>/factoria.json: `render.graphicsPreset` (removed when custom) and the blocks `render.upscaler`,
+// `render.dynamicResolution`, `render.latency`, `render.frameGeneration`, `render.rayTracing` and `render.pathTracer`. One rule for every
+// block: only the keys that differ from their defaults are written (`"rayTracing": {"enabled": true}`), and a block with none left is
+// removed; an empty `render` object is removed too. Refuses, and writes
 // nothing, when check_graphics_settings finds a problem (the error is its first message) or the file is not valid JSON.
 Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s);
 

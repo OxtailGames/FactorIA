@@ -140,8 +140,12 @@ Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` 
   baked light is known, so a baked lightmap or baked light probes (`fa_probe_sh[0].w > 0`) keep priority, and only for a draw the prepass drew
   (`prepass_draws_part`, the function `prepass_pass` skips with, so the two never differ: the image holds the surface of the prepass at each pixel, and a
   draw it skipped would read the one behind it) that is not a terrain node or an impostor card (`gi_pixel_receiver_for`). The full-shader materials
-  (their own template), blended draws, the subsurface pass and those draws keep the probes and the ambient. The image is read with the nearest sampler
-  (RGBA32F is not filterable on every backend).
+  (their own template), blended draws and the meshes the subsurface pass scatters (`ctx.sssOn && sss_scatters`: that pass runs before the main
+  pass and lights its A image with the probes, and its delta `strength * (blur(A) - A)` is added over that same light) keep the probes and the
+  ambient. The image is read with a texel fetch on the `fa_env_smp` sampler of the lightmap slot, not a dedicated nearest sampler: a new
+  (view, sampler) pair would be the 17th of the mesh shader and WebGL2/GLES3 allow 16. The denoiser's RGBA16F image is always filterable; the
+  kernel's own RGBA32F one is bound only where `pixel_format_caps(Rgba32F).filter` is true, else the draws keep the probes (`fa_gi_px` 1 only
+  where the view was bound) and `giPixel.active` is false with the reason saying so (`rtGiPixelFrame.bound`).
 - **Free when off.** Without `perPixel` (or `enabled`, or a device that traces) `plan_job` asks for no prepass normals, declares no pass, and
   `rt_begin_frame` lets the image and the denoiser slot go through the usual sweep; `fa_gi_px` stays 0 and the lightmap slot keeps what it had.
 - **Fallback** (counted in frames, `frameSerial`, never in time). A failed `add_pass` (the kernel or the image refused, the request invalid) sets
@@ -149,8 +153,8 @@ Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` 
   did not run (`img->ran` false: no TLAS, the atlas not valid) counts `rtGiPixelMisses`; at `kGiRtMissFrames` (2) in a row it starts the same
   fallback. While the fallback runs `plan_job` does not declare the pass and the lit shader keeps the probes and the ambient; after it the rays are
   tried again. `rt_gi_pixel_finish` (after the graph has run) sets the status; `ray_tracing_gi_pixel_status` reads it under `rtGiStatusMutex`.
-- **Status.** `render.ray_tracing` answers `giPixel {active, reason}` (`Engine::ray_tracing_status`): `active` is true when the last frame's
-  pass ran. `gi = "perPixel"` also counts for `active` of the whole setting.
+- **Status.** `render.ray_tracing` answers `giPixel {active, wanted, reason}` (`Engine::ray_tracing_status`): `active` is true when the last frame's
+  pass ran and the main pass bound its image (`rtGiPixelFrame.bound`). `gi = "perPixel"` also counts for `active` of the whole setting.
 - **Limits and what was not measured.** Not made: the kernel in a second camera, the terrain's own bounce, a recursion deeper than one traced
   bounce, a debug view of the raw image. The D3D12 and Vulkan kernels (DXIL, SPIR-V in `rt_gi_pixel.rt.h`) were compiled by DXC and never ran. On
   Metal the kernel is compared with a CPU reference; the picture-level test shows a lit wall's colour on a white floor with the mode on.

@@ -239,16 +239,19 @@ std::string command_field_doc(const CommandRegistry& commands, const char* comma
     return std::string(command) + " `" + key + "`.";
 }
 
-// What the "Ray tracing" group shows, for the autotest: the line about this machine, the line about the graphics preset's caps (empty when
-// none) and the sentence under the gi mode when it is one that is not drawn yet (empty otherwise).
+// What the "Ray tracing" group shows, for the autotest: the line about this machine, the note that this window cannot show the effect (empty
+// when the device traces) and the line about the graphics preset's caps (empty when none).
 struct RayTracingLines {
-    std::string device, presetNote, giComing;
+    std::string device, cannotShow, presetNote;
 };
 
 // The "Ray tracing" and "Path tracer" groups (render.rayTracing and render.pathTracer, docs/RAY_TRACING.md): whether this machine's
-// renderer traces rays, with the reason when it does not (the row `raytracing` of render.supports), and the settings themselves. A device
-// that cannot trace greys the controls out: the reason names graphics.backend. Every tooltip is the doc string of the field in
-// render.ray_tracing or render.path_tracer. It edits `g` only; `support` is the renderer's render.supports report.
+// renderer traces rays, with the reason when it does not (the row `raytracing` of render.supports), and the settings themselves. The
+// controls are editable on every device: a project is written for the players' machines, and which backend a player runs is the player's
+// choice (graphics.backend, FA_GPU_BACKEND), so the project file cannot say whether its game will trace (the editor on Windows draws with
+// Direct3D 11 while the game may ship d3d12 or vulkan). A device that cannot trace only adds a note: the change is saved, this window
+// cannot show it. Every tooltip is the doc string of the field in render.ray_tracing or render.path_tracer. It edits `g` only; `support`
+// is the renderer's render.supports report.
 RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support, const CommandRegistry& commands,
                                         const std::function<void(const std::string&, bool)>& track,
                                         const std::function<void(const char*)>& show_problem) {
@@ -264,17 +267,19 @@ RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support
     ImGui::TextWrapped("%s", out.device.c_str());
     ImGui::PopStyleColor();
     if (!device.usable) {
-        ImGui::TextDisabled("The settings below are greyed out: a run on a machine that traces uses them.");
+        out.cannotShow =
+            "This window cannot show the effect, but the settings below are saved in factoria.json: a run on a machine "
+            "that traces uses them.";
+        ImGui::TextWrapped("%s", out.cannotShow.c_str());
     }
-    ImGui::BeginDisabled(!device.usable);
     ImGui::Checkbox("Enabled##rt", &rt.enabled);
-    track("gfx:rtEnabled", device.usable);
+    track("gfx:rtEnabled", true);
     gfx_tip_always(rt_doc("enabled").c_str());
     show_problem("/render/rayTracing/enabled");
     ImGui::BeginDisabled(!rt.enabled);
     {
         const bool open = ImGui::BeginCombo("Shadows##rt", std::string(render::rt_shadows_name(rt.shadows)).c_str());
-        track("gfx:rtShadows", device.usable && rt.enabled);
+        track("gfx:rtShadows", rt.enabled);
         if (open) {
             for (int i = 0; i < render::kRtShadowsCount; ++i) {
                 const std::string name(render::kRtShadowsNames[std::size_t(i)]);
@@ -287,46 +292,34 @@ RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support
         show_problem("/render/rayTracing/shadows");
     }
     ImGui::Checkbox("Ambient occlusion##rt", &rt.ao);
-    track("gfx:rtAo", device.usable && rt.enabled);
+    track("gfx:rtAo", rt.enabled);
     gfx_tip_always(rt_doc("ao").c_str());
     ImGui::Checkbox("Reflections##rt", &rt.reflections);
-    track("gfx:rtReflections", device.usable && rt.enabled);
+    track("gfx:rtReflections", rt.enabled);
     gfx_tip_always(rt_doc("reflections").c_str());
     ImGui::Checkbox("Translucency##rt", &rt.translucency);
-    track("gfx:rtTranslucency", device.usable && rt.enabled);
+    track("gfx:rtTranslucency", rt.enabled);
     gfx_tip_always(rt_doc("translucency").c_str());
     {
         const bool open = ImGui::BeginCombo("Global illumination##rt", std::string(render::rt_gi_name(rt.gi)).c_str());
-        track("gfx:rtGi", device.usable && rt.enabled);
+        track("gfx:rtGi", rt.enabled);
         if (open) {
             for (int i = 0; i < render::kRtGiCount; ++i) {
                 const std::string name(render::kRtGiNames[std::size_t(i)]);
-                const std::string coming = ray_tracing_gi_coming(name);
-                // A mode that is not drawn yet is listed and greyed out, with what it will do: the file may still name it.
-                ImGui::BeginDisabled(!coming.empty());
                 if (ImGui::Selectable(name.c_str(), int(rt.gi) == i)) rt.gi = render::RtGi(i);
-                ImGui::EndDisabled();
-                track("gfx:rtGi:" + name, coming.empty());
-                if (!coming.empty()) gfx_tip_always(coming.c_str());
+                track("gfx:rtGi:" + name, true);
             }
             ImGui::EndCombo();
         }
         gfx_tip_always(rt_doc("gi").c_str());
         show_problem("/render/rayTracing/gi");
-        out.giComing = ray_tracing_gi_coming(std::string(render::rt_gi_name(rt.gi)));
-        if (!out.giComing.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("%s", out.giComing.c_str());
-            ImGui::PopStyleColor();
-        }
     }
     int rays = rt.raysPerPixel;
     if (ImGui::SliderInt("Rays per pixel##rt", &rays, render::kRtMinRaysPerPixel, render::kRtMaxRaysPerPixel))
         rt.raysPerPixel = rays;
-    track("gfx:rtRays", device.usable && rt.enabled);
+    track("gfx:rtRays", rt.enabled);
     gfx_tip_always(rt_doc("raysPerPixel").c_str());
     show_problem("/render/rayTracing/raysPerPixel");
-    ImGui::EndDisabled();
     ImGui::EndDisabled();
     out.presetNote = ray_tracing_preset_note(g);
     if (!out.presetNote.empty()) {
@@ -337,9 +330,8 @@ RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support
 
     ImGui::SeparatorText("Path tracer");
     render::PathTracerSettings& pt = g.pathTracer;
-    ImGui::BeginDisabled(!device.usable);
     ImGui::Checkbox("Enabled##pt", &pt.enabled);
-    track("gfx:ptEnabled", device.usable);
+    track("gfx:ptEnabled", true);
     gfx_tip_always(pt_doc("enabled").c_str());
     show_problem("/render/pathTracer/enabled");
     ImGui::BeginDisabled(!pt.enabled);
@@ -347,16 +339,15 @@ RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support
     if (ImGui::SliderInt("Samples per frame##pt", &perFrame, render::kPtMinSamplesPerFrame,
                          render::kPtMaxSamplesPerFrame))
         pt.samplesPerFrame = perFrame;
-    track("gfx:ptSamplesPerFrame", device.usable && pt.enabled);
+    track("gfx:ptSamplesPerFrame", pt.enabled);
     gfx_tip_always(pt_doc("samplesPerFrame").c_str());
     show_problem("/render/pathTracer/samplesPerFrame");
     int maxSamples = pt.maxSamples;
     if (ImGui::InputInt("Samples to accumulate##pt", &maxSamples, 16, 256))
         pt.maxSamples = std::max(0, std::min(maxSamples, render::kPtMaxMaxSamples));
-    track("gfx:ptMaxSamples", device.usable && pt.enabled);
+    track("gfx:ptMaxSamples", pt.enabled);
     gfx_tip_always(pt_doc("maxSamples").c_str());
     show_problem("/render/pathTracer/maxSamples");
-    ImGui::EndDisabled();
     ImGui::EndDisabled();
     ImGui::TextDisabled("A reference picture, not a game mode. 0 samples to accumulate: it never stops.");
     return out;
@@ -528,8 +519,8 @@ void Editor::draw_graphics_settings_panel() {
         g, graphicsSupport_, engine_->commands(),
         [this](const std::string& id, bool enabled) { at_track(id, enabled); }, show_problem);
     graphicsRayTracingLine_ = rtLines.device;
+    graphicsRayTracingCannotShow_ = rtLines.cannotShow;
     graphicsRayTracingPresetNote_ = rtLines.presetNote;
-    graphicsRayTracingGiComing_ = rtLines.giComing;
     ImGui::EndChild();
 
     ImGui::Separator();

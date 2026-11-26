@@ -3199,10 +3199,12 @@ static bool prepass_draws_part(const MeshItem& mi, const SubMesh& part, const Re
 }
 
 // Whether the per-pixel GI image holds this part's surface at its pixels (M79-P4b-1): the prepass drew it, and it is not a terrain node or an
-// impostor card (their programs and the rays' scene do not agree on the surface, so they keep the probes and the ambient light).
+// impostor card (their programs and the rays' scene do not agree on the surface, so they keep the probes and the ambient light), and no mesh the
+// subsurface pass scatters (`sssOn`): that pass runs before the main pass and lights its image with the probes, and its delta
+// strength * (blur(A) - A) must be added over that same light.
 static bool gi_pixel_receiver_for(const MeshItem& mi, const SubMesh& part, const Renderer::Impl::PartDraw& pd0,
-                                  const MeshBufferUse& mbu) {
-    return !mi.terrain && !mi.impostor && prepass_draws_part(mi, part, pd0, mbu);
+                                  const MeshBufferUse& mbu, bool sssOn) {
+    return !mi.terrain && !mi.impostor && !(sssOn && sss_scatters(mi)) && prepass_draws_part(mi, part, pd0, mbu);
 }
 
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
@@ -3299,7 +3301,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // light keeps its priority, docs/RAY_TRACING.md). Only a draw the prepass drew is a receiver: the image holds the surface of the prepass at each
     // pixel, and a draw it skipped would read the one behind it (or the sky).
     fu.fa_gi_px[0] = (ctx.giPixel.view.id && !blended && !d.lightmap.id && !(fu.fa_probe_sh[0][3] > 0.0f) &&
-                      gi_pixel_receiver_for(mi, part, d, resolve_mesh_buffers(*assets, compute, mi)))
+                      gi_pixel_receiver_for(mi, part, d, resolve_mesh_buffers(*assets, compute, mi), ctx.sssOn))
                          ? 1.0f
                          : 0.0f;
     if (ctx.giPixel.view.id && !blended) {
@@ -4971,6 +4973,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                 ctx.giPixel.view = ctx.giPixel.img->texture;
             }
         }
+        if (ctx.giPixel.view.id) rtGiPixelFrame.bound = true;
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
