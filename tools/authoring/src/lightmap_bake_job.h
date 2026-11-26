@@ -28,11 +28,16 @@ namespace lightmap_job {
 // Which light the bake gives the surfaces from outside the scene.
 enum class SkyChoice { Auto, Environment, Gradient, Ambient, None };
 
+// What traces the texels: the CPU baker (bit-exact, the reference), the GPU (a fast preview: rays on the graphics card, fa/render/lightmap_gpu_bake.h),
+// or Auto (the GPU when this machine has one that traces rays, else the CPU, with a note saying why).
+enum class DeviceChoice { Cpu, Gpu, Auto };
+
 // What the caller asks for (the arguments of the commands, checked).
 struct Options {
     double texelsPerMeter = 16;  // the scene's density; MeshRenderer.lightmapScale multiplies it
     int maxPageSize = 2048;      // the largest side of a page, 16..8192
     SkyChoice sky = SkyChoice::Auto;
+    DeviceChoice device = DeviceChoice::Cpu;
     BakeSettings settings;  // maxAtlasSize follows maxPageSize
 };
 
@@ -76,7 +81,7 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
 using ReportFn = std::function<void(const std::string& phase, double progress, std::uint64_t rays)>;
 
 // Runs the bake and writes the files. The result: {manifest, pages: [{file, width, height, bakedTexels}], entities, texels, rays, triangles,
-// settingsHash, skipped: [{id, reason}], warnings}. A cancelled bake returns the error "cancelled" and has written nothing (the cancel is
+// settingsHash, device: {requested, used, name, note}, skipped: [{id, reason}], warnings}. A cancelled bake returns the error "cancelled" and has written nothing (the cancel is
 // not looked at once the files are being written: a half-written set is worse than a finished bake).
 Result<Json> execute(const Plan& plan, const ReportFn& report);
 

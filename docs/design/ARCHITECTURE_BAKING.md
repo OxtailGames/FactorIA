@@ -3,7 +3,7 @@
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page). This page describes the core of the lightmap
 baker of M73.4: `engine/scene/include/fa/scene/lightmap_bake.h` and `bvh.h`, with `src/lightmap_bake.cpp` and `src/bvh.cpp`. It is
 plain data in and float buffers out: no renderer, no file format and no command (the lightmap runtime and the UV generation landed in M73.4a, [ARCHITECTURE_RENDERING_LIGHTING.md](ARCHITECTURE_RENDERING_LIGHTING.md),
-"Lightmaps"; the `lightmap.bake` commands that write the files are the last section of this page, the light probes are the last section).
+"Lightmaps"; the `lightmap.bake` commands that write the files, the light probes and the GPU bake (M79) are the last sections).
 
 ## The pieces
 
@@ -89,7 +89,8 @@ an `fa::Result` error that names the field, the numbers and what to change, and 
 ## Not done yet
 
 Textured albedo and emission (a material is one color per triangle), seam stitching, importance sampling of a bright sun in an
-HDRI (a very bright small light is noisy; use a directional light for it), and any GPU path (M79).
+HDRI (a very bright small light is noisy; use a directional light for it). The GPU bake (M79) is a preview next to this baker, the last
+section of this page.
 
 ## The lightmap.bake commands (M73.4c)
 
@@ -174,3 +175,50 @@ interpolation), `sample_probes` in `lightmap_bake.cpp`, the `probes` phase in `t
   the editor's probe gizmo (`tools/editor/src/probe_gizmo.cpp`) reads the first.
 - **Not done.** No occlusion between a probe and the receiver (a probe through a thin wall counts), no run-time update of the probes, no
   probe specular (reflections stay with the sky and the reflection probes).
+
+## The GPU bake (M79-P5b)
+
+A fast PREVIEW next to the CPU baker, which stays the reference (decision D10: the CPU path is bit-exact, the GPU path has a tolerance).
+`lightmap.bake {"device":"gpu"}` (or `"auto"`) runs the path tracer of "The algorithm" as a compute kernel with inline ray queries
+(`engine/render/shaders/rt/rt_bake.hlsl` for D3D12 and Vulkan, `rt_bake.metal` for Metal, the generated `rt_bake.rt.h`; the table row is in
+`engine/render/src/rt_kernels.h`). The default is `"cpu"`: a bake that must be the same bytes on every machine, a CI golden or a final build
+asks for no more, and a GPU image can differ in the last bits between GPUs and drivers.
+
+- **A hook, not a second baker.** `bake_lightmap(scene, settings, progress, tracer)` (`fa/scene/lightmap_bake.h`) takes an optional
+  `BakeTexelTracer`. With one, the validation, the budgets, the BVH-free flattening, the atlas rasterization, the progress phases, the cancel, the
+  denoise, the gutter and the mask are the CPU's own code; only "the value of each texel" comes from the tracer: `begin(BakeTraceScene)` once
+  (the triangles that cast a shadow with their normal, albedo and emission, the lights as plain numbers, the sky, eps, the counts) and
+  `trace_atlas(atlasKey, texels, progress, rgb)` per atlas. `fa::render::LightmapGpuTracer` (`fa/render/lightmap_gpu_bake.h`, module render,
+  private `fa::gpu` inside) is the one implementation; `fa_scene` knows nothing about GPUs. `BakeStats::rays` is then the budget's upper
+  bound (the device does not count).
+- **The same random numbers.** The kernel computes the hash of "Determinism" (`mix64`, `combine`, SplitMix64) with 64-bit integers emulated
+  as pairs of 32-bit ones, the same Hammersley sequence with the same per-texel shift, the same cosine hemisphere, the same Russian roulette
+  from the third hit, the same keys (`combine(atlasKey, texelIndex)`, `0xD1` direct, `0x10000 + s` per gather sample, `0x2000 + depth` per
+  bounce). So the GPU image is the CPU image up to float rounding: `sin`, `cos`, the ray-triangle test and a fused multiply-add differ, and
+  a path whose rounding flips a Russian roulette draw or a hit differs. On the Apple M5 the Cornell room of the tests has a mean error of
+  2e-7 on a mean value of 5.1 (the largest 3e-6); the tests allow 0.5% of the mean and 25% for the largest, so another GPU passes.
+- **The scene.** One BLAS of every shadow-casting triangle in the order of the CPU's caster list (a scene with none gets one degenerate
+  triangle) and a TLAS of one instance, built once per bake (`maxAccelPrimitives` is checked first: a scene over it says so and the bake
+  goes to the CPU or fails). It is the bake's own scene, not the renderer's: same geometry and materials as the CPU, no instance cap, no
+  alpha test. Lights, casters (normal, albedo, emission) and the sky image go into two read-only storage buffers; a hit's primitive index is
+  the caster's index. Buffers over 256 MiB are refused (64-bit sizes, checked before anything is allocated).
+- **Cuts.** The work is cut by COUNTS only, never by time: a dispatch is at most 2^23 "ray units" (texels per dispatch from the work of one
+  texel, then the samples per dispatch from what is left), so no dispatch comes near the 2 s after which Windows resets a GPU, and the
+  same request is cut the same way on every machine. The kernel writes the direct light (only in the dispatch that starts at sample 0) and the
+  SUM of the gather over its samples into an RGBA32F image (two pixels per texel); the CPU adds the sums in order, divides by the number of
+  samples and reads one image per dispatch back. Progress (`lightmap bake: atlas a/N, texels d/t`) and cancel are looked at after each
+  dispatch; a cancel returns `cancelled`, drops the result and leaves the CPU baker's rules for files (nothing is written).
+- **Where it runs.** The tracer opens its own device (`LightmapGpuTracer::open`, one at a time per process): Windows D3D12 then Vulkan,
+  Linux and Android Vulkan, macOS Metal through a hidden `HeadlessGpu` context. Sokol is a singleton with one thread: a process that already
+  has a graphics context (the editor, a game, an engine without `--no-graphics`) cannot lend it to a bake thread, so on a Mac there is no GPU
+  bake in the editor or in `factoria call` without `--no-graphics` (the answer says so); D3D12 and Vulkan devices are independent of it and
+  work next to a window. The commands run the tracer on the job thread that bakes.
+- **No device, no failure of `auto`.** `device: "gpu"` with no GPU that traces rays (or a tracer that fails: a scene too big, a refused
+  buffer) fails with the reason and the hint `device: "cpu"`; `"auto"` bakes on the CPU and puts the reason in the result's `device.note` and
+  `warnings` once. The result's `device` is `{requested, used, name, note}`. The `settingsHash` includes the requested device when it is
+  not `"cpu"` (the CPU's hash is what it was), so `lightmap.status` calls a GPU preview stale once a CPU bake is asked for. The light
+  probes (`sample_probes`) always bake on the CPU, and the result says so in `warnings`.
+- **Tests.** `engine/render/tests/lightmap_gpu_bake_tests.cpp`: on a Mac with a tracing GPU the Cornell room of the CPU tests (and a 64 times
+  bigger one for the timing) is baked by both, compared texel by texel, baked twice on the GPU (same bytes) and cancelled; the
+  RecordingDevice tests refuse a device without ray tracing with a teaching message and run the whole call sequence on one with it. D3D12
+  and Vulkan compile the same HLSL with DXC (the blobs are in `rt_bake.rt.h`) and run it nowhere in this suite.

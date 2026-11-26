@@ -84,6 +84,15 @@ on a laptop. Start with `texelsPerMeter` 8 and `samples` 16 for a draft, then ra
 threads and on every run (a seed: `seed`). Cancel is looked at in every phase (the BVH, the layout, the rays, the denoiser, the gutter); a
 cancelled bake changes no file. The rest of the arguments (`bounces`, `denoiseRadius`, `rayEpsilon`, ...) are in the command's schema (`api.commands`).
 
+**A fast preview on the GPU.** `"device":"gpu"` traces the texels on the graphics card with ray queries instead of the CPU: a scene that takes minutes on the
+CPU takes seconds (on an Apple M5 a Cornell room of 98,000 texels and 64 samples took 5.2 s on the CPU and 45 ms on the GPU). The light is the CPU's up to the
+GPU's own rounding (a tiny difference, never a different look) and the same on every run of one GPU and driver, but it is **not** byte for byte the CPU's, so
+the default stays `"cpu"`: use the GPU while you place lights and walls, and bake the final one on the CPU. `"auto"` uses the GPU when this machine has one that
+traces rays and the CPU otherwise. The result's `device` says which one baked (`{requested, used, name, note}`; `note` is why it was the CPU). The GPU needs
+ray tracing (Metal on Apple silicon, D3D12 or Vulkan with ray queries elsewhere, [Ray tracing](../RAY_TRACING.md)); on a Mac it cannot run inside the editor or
+a `factoria call` that has graphics, which already hold the only Metal context of the process: run `factoria call --no-graphics lightmap.bake '{"device":"gpu"}'`
+(`auto` falls back to the CPU there and says so). Light probes are always baked on the CPU.
+
 ## Light probes and mixed lights (M73.4d)
 
 A `LightProbeGroup` is baked by the same job (phase `probes`); a mesh with no lightmap gets the probes' light, and a `baked` light no longer lights it twice. See [Light probes and mixed lights](RENDERING_LIGHT_PROBES.md) (`docs.read rendering-light-probes`).

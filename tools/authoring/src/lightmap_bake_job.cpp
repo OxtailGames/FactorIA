@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <set>
 #include <utility>
 
@@ -16,6 +17,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/hdri.h"
 #include "fa/render/lightmap_geometry.h"
+#include "fa/render/lightmap_gpu_bake.h"
 #include "fa/scene/components.h"
 #include "fa/scene/lightmap_manifest.h"
 #include "fa/scene/lightmap_uv.h"
@@ -77,6 +79,7 @@ std::string settings_hash(const Plan& p) {
     h.f(p.options.texelsPerMeter);
     h.i(p.options.maxPageSize);
     h.i(int(p.options.sky));
+    if (p.options.device != DeviceChoice::Cpu) h.i(100 + int(p.options.device));  // the CPU's hash stays what it was
     for (const BakeLight& l : p.lights) {
         h.i(int(l.kind));
         h.i(int(l.mode));
@@ -689,8 +692,35 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     };
     say("prepare", 0.12, 0);
     BakeResult result;
+    const char* requested = opt.device == DeviceChoice::Cpu ? "cpu" : opt.device == DeviceChoice::Gpu ? "gpu" : "auto";
+    std::string deviceUsed = "cpu", deviceName = "CPU", deviceNote;
     if (lightmapped) {
-        auto baked = bake_lightmap(scene, st, progress);
+        std::unique_ptr<render::LightmapGpuTracer> tracer;
+        if (opt.device != DeviceChoice::Cpu) {
+            say("prepare", 0.12, 0);
+            auto opened = render::LightmapGpuTracer::open();
+            if (opened) {
+                tracer = std::move(opened.value());
+                deviceUsed = "gpu";
+                deviceName = tracer->device_name();
+            } else if (opt.device == DeviceChoice::Gpu) {
+                return make_error("device \"gpu\": " + opened.error().message, opened.error().hint);
+            } else {
+                deviceNote = "baked on the CPU, no GPU can trace rays here: " + opened.error().message;
+            }
+        }
+        if (cancelled()) return cancelled_error();
+        auto baked = bake_lightmap(scene, st, progress, tracer.get());
+        if (!baked && tracer && baked.error().message != "cancelled" && !cancelled() &&
+            opt.device == DeviceChoice::Auto) {
+            // The GPU stopped in the middle (a scene it cannot hold, a driver that refused a buffer): the CPU does the bake it was asked for.
+            deviceNote = "baked on the CPU, the GPU bake failed: " + baked.error().message;
+            deviceUsed = "cpu";
+            deviceName = "CPU";
+            tracer.reset();
+            say("prepare", 0.12, 0);
+            baked = bake_lightmap(scene, st, progress, nullptr);
+        }
         if (!baked) return baked.error();
         if (cancelled()) return cancelled_error();
         result = std::move(baked.value());
@@ -850,6 +880,8 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
     out["rays"] = result.stats.rays;
     out["triangles"] = result.stats.triangles;
     out["settingsHash"] = plan.settingsHash;
+    out["device"] =
+        Json::object({{"requested", requested}, {"used", deviceUsed}, {"name", deviceName}, {"note", deviceNote}});
     out["lights"] = plan.lights.size();
     out["skipped"] = skipped;
     if (hasProbes) {
@@ -867,6 +899,9 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
                                       {"invalid", probeSet.invalid_count()},
                                       {"groups", groups}});
     }
+    if (!deviceNote.empty()) warnings.push_back(deviceNote);
+    if (deviceUsed == "gpu" && hasProbes)
+        warnings.push_back("the light probes were baked on the CPU: the GPU bake traces the lightmap texels only.");
     Json w = Json::array();
     for (const std::string& s : warnings) w.push_back(s);
     out["warnings"] = w;
