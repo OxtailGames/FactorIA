@@ -2966,18 +2966,14 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
         rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
                                                             : g.anisotropyRotation;
         spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
-        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
         for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
         // Transmission and volume (M73.6b): a MeshRenderer field that is not at its default replaces the model's value, as above.
-        transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
-        thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
-        attDistance = std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance),
-                                 0.0f, 100000.0f);
-        const Color ac = to_scene(mr.attenuationColor, linear);
-        const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
-        attColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
-        attColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
-        attColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
+        const PartTransmission pt = resolve_part_transmission(mr, part, linear);
+        ior = pt.ior;
+        transmission = pt.transmission;
+        thickness = pt.thickness;
+        attDistance = pt.attenuationDistance;
+        for (int i = 0; i < 3; ++i) attColor[i] = pt.attenuationColor[i];
     }
     fu.fa_layers_a[0] = coat;
     fu.fa_layers_a[1] = coatRough;

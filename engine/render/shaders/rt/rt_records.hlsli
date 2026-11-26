@@ -2,7 +2,7 @@
 // for every instance of the TLAS into a StructuredBuffer<RtInstanceRecord>. The customIndex of a TLAS instance is its position in that
 // buffer: a kernel that hit instance `i` with an inline ray query reads records[q.CommittedInstanceID()] (the HLSL RayQuery call that
 // returns the 24-bit InstanceID the TLAS was built with). Keep the two files in step: a test compares the field names and the size
-// (96 bytes, std430: every member is a 4-byte scalar or a float4 on a 16-byte boundary).
+// (128 bytes, std430: every member is a 4-byte scalar or a float4 on a 16-byte boundary).
 //
 // Metal kernels declare the same struct in their own source (the .metal files are written by hand).
 #ifndef FA_RT_RECORDS_HLSLI
@@ -18,6 +18,7 @@ static const uint kRtFlagFoliage = 1u << 5;
 static const uint kRtFlagCastsShadow = 1u << 6;
 static const uint kRtFlagCustomMaterial = 1u << 7;
 static const uint kRtFlagSkinned = 1u << 8;
+static const uint kRtFlagRefractive = 1u << 9;
 
 // The instance mask bits of the TLAS (the ray's InstanceInclusionMask).
 static const uint kRtMaskOpaque = 0x01;
@@ -26,6 +27,7 @@ static const uint kRtMaskBlended = 0x04;
 static const uint kRtMaskCastsShadow = 0x08;
 static const uint kRtMaskFoliage = 0x10;
 static const uint kRtMaskEmissive = 0x20;
+static const uint kRtMaskRefractive = 0x40;
 static const uint kRtMaskSurfaces = 0x07;
 
 struct RtInstanceRecord {
@@ -38,6 +40,8 @@ struct RtInstanceRecord {
     float metalness;
     uint flags;  // kRtFlag*
     uint blasId;
-};  // 96 bytes
+    float4 volume;       // x: index of refraction, y: thickness (m; 0 = a thin sheet), z: attenuation distance (m; 0 = no tint), w: transmission
+    float4 attenuation;  // rgb: the colour the light has after the attenuation distance; w: 0
+};  // 128 bytes
 
 #endif

@@ -324,34 +324,63 @@ vec3 fa_xm_sample(vec2 uv, float lod) {
 // normal incidence and at grazing angles (the surface's specular reflection takes that share, the rest goes through), `keep` what the layers on
 // top let through (FaLayers.base_scale), `tr` the transmission (already times 1 - metallic). When no atlas is bound (fa_tr_a.w = 2)
 // `blend` gets the share of the picture behind the draw lets through, for the caller to turn into a plain alpha blend (the glass keeps
-// its reflections and darkens what is behind; no refraction).
+// its reflections and darkens what is behind; no refraction). With fa_tr_a.w = 3 the atlas's level 0 holds the ray traced translucency (see below).
 vec3 fa_transmitted(in Surface s, vec3 n, vec3 v, float roughness, vec3 f0, float f90, float keep, float tr, inout float blend) {
     float ndv = max(dot(n, v), 1e-4);
     vec2 ab = fa_env_brdf(roughness, ndv);
     vec3 refl = clamp(f0 * ab.x + vec3(f90) * ab.y, 0.0, 1.0);
     vec3 through = (vec3(1.0) - refl) * s.albedo * (tr * keep);
+    vec3 shown = through;  // before the Beer-Lambert tint: the ray traced translucency has already travelled through the volume
     // Beer-Lambert over the distance travelled in the volume.
     float len = max(s.thickness, 0.0);
     if (s.attenuation_distance > 0.0 && len > 0.0) {
         vec3 coef = -log(clamp(s.attenuation_color, vec3(0.0001), vec3(1.0))) / s.attenuation_distance;
         through *= exp(-coef * len);
     }
-    if (fa_tr_a.w > 1.5 || fa_tr_a.w < 0.5) {
+    if ((fa_tr_a.w > 1.5 && fa_tr_a.w < 2.5) || fa_tr_a.w < 0.5) {
         blend = clamp(dot(through, vec3(1.0 / 3.0)), 0.0, 0.98);
         return vec3(0.0);
     }
+    // Where this fragment is on the screen (the camera's rectangle, in 0..1).
+    vec4 pw = vec4(fa_world_pos, 1.0);
+    float ww = dot(fa_ct_vpw, pw);
+    vec2 uv0 = vec2(0.5);
+    if (ww > 1e-4) {
+        vec2 ndc0 = vec2(dot(fa_ct_vpx, pw), dot(fa_ct_vpy, pw)) / ww;
+        uv0 = vec2(ndc0.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc0.y * 0.5 + 0.5 : 0.5 - ndc0.y * 0.5);
+    }
+    // The ray traced translucency (fa_tr_a.w = 3; xmit.glsl mode 2): level 0 of the atlas holds, with alpha 1, what the traced ray saw through
+    // the glass at this pixel. A rough surface averages the traced texels around it (a box of up to 5 x 5: the traced rays of a rough surface
+    // are one sample each); a pixel the kernel did not trace (alpha 0) keeps the screen-space refraction below.
+    if (fa_tr_a.w > 2.5) {
+        vec2 size0 = fa_xm_size(0);
+        vec2 q = floor(clamp(uv0, vec2(0.0), vec2(0.9999)) * size0);
+        vec4 mid = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), ivec2(q), 0);
+        if (mid.a > 0.5) {
+            int rad = int(floor(clamp(roughness, 0.0, 1.0) * 2.0 + 0.5));
+            vec3 acc = vec3(0.0);
+            float cnt = 0.0;
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    if (abs(dx) > rad || abs(dy) > rad) { continue; }
+                    vec4 t = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), ivec2(clamp(q + vec2(float(dx), float(dy)), vec2(0.0), size0 - 1.0)), 0);
+                    if (t.a > 0.5) { acc += t.rgb; cnt += 1.0; }
+                }
+            }
+            return shown * (acc / max(cnt, 1.0));
+        }
+    }
     // Where the light that went through is on the screen.
-    vec3 world = fa_world_pos;
+    vec2 uv = uv0;
     if (len > 0.0) {
         vec3 rd = refract(-v, n, 1.0 / max(s.ior, 1.0));
-        world += rd * len;
-    }
-    vec4 pv = vec4(world, 1.0);
-    float w = dot(fa_ct_vpw, pv);
-    vec2 uv = vec2(0.5);
-    if (w > 1e-4) {
-        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
-        uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        vec4 pv = vec4(fa_world_pos + rd * len, 1.0);
+        float w = dot(fa_ct_vpw, pv);
+        uv = vec2(0.5);
+        if (w > 1e-4) {
+            vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+            uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        }
     }
     float lod = clamp(roughness, 0.0, 1.0) * clamp(2.0 * s.ior - 2.0, 0.0, 1.0) * max(fa_tr_b.w - 1.0, 0.0);
     return through * fa_xm_sample(clamp(uv, vec2(0.0), vec2(1.0)), lod);
