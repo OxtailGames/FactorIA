@@ -123,3 +123,57 @@ TEST_CASE(
     std::error_code ec;
     stdfs::remove_all(tmp, ec);
 }
+
+namespace {
+
+// The sum of the light on the pages of the manifest a bake of the project at `tmpGame` wrote.
+double pages_sum(const stdfs::path& tmpGame) {
+    fa::fs::set_project_root(tmpGame);
+    auto manifest = fa::load_lightmap_manifest("scenes/main.lightmap.json");
+    REQUIRE_MESSAGE(manifest.ok(), manifest.error().message);
+    double sum = 0;
+    for (const fa::LightmapPage& page : manifest->pages) {
+        auto img = fa::load_hdr(page.file);
+        REQUIRE_MESSAGE(img.ok(), img.error().message);
+        for (float v : img->data) sum += v;
+    }
+    return sum;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "factoria call lightmap.bake device: auto bakes on the GPU where one traces rays and says which device baked") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_gpu").value();
+    const std::string project = (tmp / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(project, "3d-empty", opt).ok());
+    REQUIRE(fa::fs::write_text((tmp / "game" / "scenes" / "main.scene.json").generic_string(), kScene).ok());
+
+    const std::string args = R"({"texelsPerMeter":8,"samples":16,"shadowSamples":4,"maxPageSize":512)";
+    const CliResult cpu = run({"call", "lightmap.bake", args + "}", "--project", project, "--no-graphics"});
+    REQUIRE_MESSAGE(cpu.code == 0, cpu.err << cpu.out);
+    CHECK(fa::Json::parse(cpu.out)["device"]["used"] == "cpu");
+    const double cpuSum = pages_sum(tmp / "game");
+
+    const CliResult autoRun =
+        run({"call", "lightmap.bake", args + R"(,"device":"auto"})", "--project", project, "--no-graphics"});
+    REQUIRE_MESSAGE(autoRun.code == 0, autoRun.err << autoRun.out);
+    const fa::Json result = fa::Json::parse(autoRun.out);
+    const std::string used = result["device"]["used"].get<std::string>();
+    MESSAGE("device: " << result["device"].dump());
+    if (used == "gpu") {
+        CHECK(result["device"]["name"].get<std::string>().size() > 0);
+        CHECK(pages_sum(tmp / "game") ==
+              doctest::Approx(cpuSum).epsilon(0.01));  // the same light up to the GPU's rounding
+    } else {
+        CHECK(used == "cpu");
+        CHECK(result["device"]["note"].get<std::string>().find("baked on the CPU") != std::string::npos);
+    }
+
+    fa::fs::set_project_root(oldRoot);
+    std::error_code ec;
+    stdfs::remove_all(tmp, ec);
+}

@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "shaders/rt/rt_ao.rt.h"
+#include "shaders/rt/rt_bake.rt.h"
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_reflect.rt.h"
 #include "shaders/rt/rt_refract.rt.h"
@@ -48,6 +49,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_ao", kRtAoDxil, kRtAoSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtAoMsl), sizeof(kRtAoMsl) - 1), kRtAoDxcVersion,
          kRtAoHlslSha256, kRtAoMslSha256},
+        {"rt_bake", kRtBakeDxil, kRtBakeSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtBakeMsl), sizeof(kRtBakeMsl) - 1), kRtBakeDxcVersion,
+         kRtBakeHlslSha256, kRtBakeMslSha256},
         {"rt_shadow_local", kRtShadowLocalDxil, kRtShadowLocalSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtShadowLocalMsl), sizeof(kRtShadowLocalMsl) - 1),
          kRtShadowLocalDxcVersion, kRtShadowLocalHlslSha256, kRtShadowLocalMslSha256},

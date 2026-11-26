@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Lightmaps bake on the GPU, as a fast preview (M79-P5b):** `lightmap.bake` and `lightmap.bake_start` take `device`: `"cpu"` (the default,
+  unchanged and bit-exact), `"gpu"` or `"auto"`. The GPU traces the texels with the CPU baker's own random numbers (the same hash, Hammersley
+  sequences, cosine hemisphere and Russian roulette) in a compute kernel with inline ray queries over an acceleration structure of the bake's own
+  scene; the validation, budgets, atlas layout, denoise, gutter, progress and cancel are the CPU's code, so the pages have the same format and
+  the same light up to the GPU's rounding (mean error 2e-7 on a mean value of 5 in the Cornell room test on an Apple M5). A Cornell room of 98,000
+  texels with 64 samples: 5.2 s on the CPU, 45 ms on the GPU. The result's `device` says `{requested, used, name, note}`; `"gpu"` without a GPU
+  that traces rays fails with the reason and `"cpu"` as the hint, `"auto"` bakes on the CPU and says why. On a Mac the GPU bake needs a process
+  without a graphics context (`factoria call --no-graphics`); D3D12 and Vulkan run next to a window. The Metal kernel is tested on a real GPU;
+  the D3D12 and Vulkan blobs are compiled with DXC and run nowhere in the suite. The light probes always bake on the CPU.
+  docs/design/ARCHITECTURE_BAKING.md, docs/rendering/RENDERING_LIGHTMAPS.md, docs/RAY_TRACING.md.
 - **Ray traced shadows of point, spot and area lights (M79-P2a-3):** with `render.rayTracing.shadows` on, up to three shadow-casting lights per
   camera and frame (the most important by brightness, range and distance; a light keeps its slot with a hysteresis of 25%) get their shadow from
   rays instead of their shadow maps: `hard` casts one ray to the light's centre, `soft` casts `raysPerPixel` rays over the cone of a point or spot

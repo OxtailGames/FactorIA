@@ -91,6 +91,21 @@ Request read_request(Engine::Impl& I, const Json& a, const char* command) {
     s.maxRays = std::uint64_t(number(a, "maxRays", 1, 1e15, double(s.maxRays), true,
                                      "A bake over this many rays is refused. One core traces about 2-10 million rays "
                                      "per second, so 1e9 rays are minutes."));
+    if (a.contains("device") && !a["device"].is_null()) {
+        const std::string v = a["device"].is_string() ? a["device"].get<std::string>() : std::string();
+        if (v == "cpu")
+            o.device = lightmap_job::DeviceChoice::Cpu;
+        else if (v == "gpu")
+            o.device = lightmap_job::DeviceChoice::Gpu;
+        else if (v == "auto")
+            o.device = lightmap_job::DeviceChoice::Auto;
+        else
+            bad("/device",
+                "\"" + v + "\" is not a device. " + did_you_mean(v, std::vector<std::string>{"cpu", "gpu", "auto"}),
+                "One of cpu (the default: exact, the same bytes every time), gpu (a fast preview on a graphics card "
+                "that traces rays), "
+                "auto (a GPU when there is one, else the CPU).");
+    }
     if (a.contains("apply") && !a["apply"].is_null()) {
         if (!a["apply"].is_boolean())
             bad("/apply", "must be true or false.",
@@ -308,6 +323,7 @@ const char* kRequestProps = R"(
     "rayEpsilon":{"type":"number","minimum":0,"maximum":100,"default":0,"description":"Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel."},
     "maxRays":{"type":"number","minimum":1,"default":50000000000,"description":"The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit."},
     "sky":{"type":"string","enum":["auto","environment","gradient","ambient","none"],"default":"auto","description":"The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings."},
+    "device":{"type":"string","enum":["cpu","gpu","auto"],"default":"cpu","description":"What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. The light probes always bake on the CPU. The result's `device` says which one baked."},
     "apply":{"type":"boolean","default":true,"description":"Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way)."})";
 
 Json request_schema(bool withJob) {
@@ -343,11 +359,13 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "atomically and sets "
          "SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long "
          "bake belongs in lightmap.bake_start. The "
-         "same scene and settings give byte-identical pages on any thread count. The LightProbeGroups of the scene are "
+         "same scene and settings give byte-identical pages on any thread count (device \"cpu\", the default; device "
+         "\"gpu\" is a fast preview within a small tolerance, see `device`). The LightProbeGroups of the scene are "
          "baked by the same job (phase \"probes\") into `<name>.lightmap.<hash>.probes`, which the manifest lists: "
          "moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. "
          "Result: {manifest, pages, entities, "
-         "texels, rays, skipped, warnings, probes {file, count, invalid, groups}, "
+         "texels, rays, device {requested, used, name, note}, skipped, warnings, probes {file, count, invalid, "
+         "groups}, "
          "applied}. Example: lightmap.bake {\"texelsPerMeter\":16,\"samples\":64}",
          request_schema(false), false, "assets",
          "Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the "
