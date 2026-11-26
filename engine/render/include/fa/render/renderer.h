@@ -66,7 +66,9 @@ struct RendererTestAccess;
 // (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
 // MotionVectors (M76) paints the per-pixel motion vectors the prepass writes (direction as hue, magnitude as brightness, grey where no mesh
 // wrote one), over the picture, with the prepass drawn only for it.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors };
+// Albedo and Material (M79-P0c) paint the thin G-buffer's two images, which the renderer draws only while something asks for them: the albedo
+// (linear colour), and the roughness as red and the metalness as green; black where no opaque mesh was drawn.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors, Albedo, Material };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)

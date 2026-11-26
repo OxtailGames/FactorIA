@@ -393,16 +393,22 @@ bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
 
 // The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): from the depth prepass, the world normal with a roughness and the
 // hardware depth of the camera's projection (Ray Reconstruction is told that projection, so it cannot read the prepass's d / (d + 1)), and
-// a cleared image for each albedo. The renderer is a forward renderer with no material G-buffer, so the roughness and the two albedos are
-// constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null `prepass` means every pixel is sky. False when the four images
-// cannot be made. The caller made sure rrPrep is ready.
-bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass) {
+// the two albedos. The roughness and the albedos come from the thin G-buffer (M79-P0c: `gbAlbedo` and `gbMaterial`, which the renderer asks
+// for while Ray Reconstruction is on) where a mesh was drawn; the pixels no mesh wrote, and every pixel of a frame without the G-buffer (the GPU
+// refused its images, or they are not the picture's size), have constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null
+// `prepass` means every pixel is sky. False when the four images cannot be made. The caller made sure rrPrep is ready.
+bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass,
+                                   const Target* gbAlbedo, const Target* gbMaterial) {
     if (!ensure_mfx_target(rrNormal, "rr-normal-roughness", gpu::PixelFormat::Rgba16F, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrDiffuse, "rr-diffuse-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrDepth, "rr-depth", gpu::PixelFormat::R32F, in.renderW, in.renderH))
         return false;
     constexpr float kRoughness = 0.5f, kDiffuseAlbedo = 0.5f, kSpecularAlbedo = 0.04f;
+    // The G-buffer only when both images are the render size (a camera of a split screen has a smaller one) and the albedo program is there.
+    const bool gbuf = prepass && gbAlbedo && gbMaterial && gbAlbedo->texView.id && gbMaterial->texView.id &&
+                      gbAlbedo->w == in.renderW && gbAlbedo->h == in.renderH && gbMaterial->w == in.renderW &&
+                      gbMaterial->h == in.renderH;
     gpu::CommandList& list = pass_list(c, gpu);
     {
         PassDesc p = pass_into(rrNormal, "upscale-rr-guides");
@@ -416,6 +422,7 @@ bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c,
         gpu::Bindings b;
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
         b.views[VIEW_upscale_rr_tex_p] = prepass ? prepass->texView : assets->white()->view;
+        b.views[VIEW_upscale_rr_tex_m] = gbuf ? gbMaterial->texView : assets->white()->view;
         b.samplers[SMP_upscale_rr_smp_pt] = gpu.sampler(SamplerKind::Nearest);
         list.set_bindings(b);
         upscale_rr_rr_params_t u{};
@@ -431,13 +438,39 @@ bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c,
         u.back[1] = back.y;
         u.back[2] = back.z;
         u.back[3] = prepass ? 1.0f : 0.0f;
+        u.flags[0] = gbuf ? 1.0f : 0.0f;
         render::rr_depth_terms(upscaleTaa.projection, u.zrow);  // the unjittered projection the provider is told too
         list.set_uniforms(UB_upscale_rr_rr_params, gpu::Range{&u, sizeof(u)});
         list.draw(0, 3, 1);
         list.end_pass();
         ++stats.drawCalls;
     }
-    // The two albedos are constants (the renderer has no material G-buffer): a clear pass each.
+    if (gbuf) {
+        // The two albedos from the G-buffer: one pass, colour 0 = the diffuse albedo, colour 1 = the specular albedo.
+        PassDesc p = pass_into(rrDiffuse, "upscale-rr-albedo");
+        p.color1 = rrSpecular.colorAtt;
+        p.format.color1 = rrSpecular.format.color;
+        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel of both images is drawn
+        p.colorStore = gpu::StoreAction::Store;
+        const gpu::Pipeline pipeline = rrPrep.albedo_pipeline(p.format);
+        list.begin_pass(p);
+        list.set_pipeline(pipeline);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
+        b.views[VIEW_upscale_rr_tex_alb] = gbAlbedo->texView;
+        b.views[VIEW_upscale_rr_tex_mat] = gbMaterial->texView;
+        b.samplers[SMP_upscale_rr_smp_alb] = gpu.sampler(SamplerKind::Nearest);
+        list.set_bindings(b);
+        upscale_rr_rr_albedo_params_t u{};
+        u.defaults[0] = kDiffuseAlbedo;
+        u.defaults[1] = kSpecularAlbedo;
+        list.set_uniforms(UB_upscale_rr_rr_albedo_params, gpu::Range{&u, sizeof(u)});
+        list.draw(0, 3, 1);
+        list.end_pass();
+        ++stats.drawCalls;
+        return true;
+    }
+    // No G-buffer: the two albedos are constants, a clear pass each.
     for (int i = 0; i < 2; ++i) {
         const float v = i == 0 ? kDiffuseAlbedo : kSpecularAlbedo;
         PassDesc p = pass_into(i == 0 ? rrDiffuse : rrSpecular, i == 0 ? "upscale-rr-diffuse" : "upscale-rr-specular");
@@ -546,7 +579,7 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
             why = "the guides shader did not compile";
             rrFailed = true;
             rrFailedWhy = why;
-        } else if (!run_rr_guides(in, c, prepass)) {
+        } else if (!run_rr_guides(in, c, prepass, upscaleGbufAlbedo.target(c), upscaleGbufMaterial.target(c))) {
             why = "the guide images of the render size could not be made";
             rrFailed = true;
             rrFailedWhy = why;

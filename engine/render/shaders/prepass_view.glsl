@@ -8,6 +8,9 @@
 //                     where no object wrote a vector
 //   mode 4 (raw)      TEST-ONLY (RendererTestAccess::read_velocity, renderer_draw.cpp kPrepassViewRaw): the velocity as floats, rg = the vector as it
 //                     is, into an RGBA16F image a test reads back; no game or tool draws it
+//   mode 5 (albedo)   reads the thin G-buffer's albedo image (M79-P0c, RGBA8, a = 1 where a mesh was drawn): its rgb; black where nothing was drawn
+//   mode 6 (material) reads the G-buffer's material image: red = the roughness, green = the metalness; black where nothing was drawn
+//   mode 7 (raw)      TEST-ONLY (RendererTestAccess::read_gbuffer): the four channels of a G-buffer image as they are, into an RGBA16F image
 // The values are written as they are: in a linear scene the final pass encodes them like any picture.
 @module prepass_view
 
@@ -31,12 +34,21 @@ layout(binding=0) uniform sampler smp;
 @image_sample_type tex unfilterable_float
 @sampler_type smp nonfiltering
 layout(binding=1) uniform prepass_view_fs_params {
-    vec4 mode;      // x = 1 depth, 2 normals, 3 motion vectors, 4 the raw floats, test-only (the image is the velocity's)
+    vec4 mode;      // x = 1 depth, 2 normals, 3 motion vectors, 4 the raw floats, test-only (the image is the velocity's),
+                    // 5 the G-buffer's albedo, 6 the G-buffer's roughness (red) and metalness (green), 7 the four channels as they are, test-only
 };
 in vec2 uv;
 out vec4 frag_color;
 void main() {
     vec4 t = textureLod(sampler2D(tex, smp), uv, 0.0);
+    if (mode.x > 6.5) {  // mode 7 (test-only): the four channels as they are, into a float image
+        frag_color = t;
+        return;
+    }
+    if (mode.x > 4.5) {  // modes 5 and 6: the thin G-buffer (alpha 0: nothing was drawn, black)
+        frag_color = t.a < 0.5 ? vec4(0.0, 0.0, 0.0, 1.0) : (mode.x < 5.5 ? vec4(t.rgb, 1.0) : vec4(t.r, t.g, 0.0, 1.0));
+        return;
+    }
     if (mode.x > 3.5) {  // mode 4 (test-only): the vector as it is, into a float image
         frag_color = vec4(t.rg, 0.0, 1.0);
         return;

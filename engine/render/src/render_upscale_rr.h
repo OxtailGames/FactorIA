@@ -1,6 +1,8 @@
 // The guides of DLSS Ray Reconstruction (shaders/upscale_rr.glsl, M78-P4c): one fragment pass at the render resolution that turns the depth
-// prepass into the world-space normal with a roughness (colour 0) and the hardware depth of the camera's projection (colour 1). Created on first use, only when the setting
-// asks for Ray Reconstruction. Every backend has the shader. Private to fa_render; Renderer::run_rr_guides draws with it.
+// prepass into the world-space normal with a roughness (colour 0) and the hardware depth of the camera's projection (colour 1), and, since M79-P0c,
+// a second one that turns the thin G-buffer's albedo and metalness into the diffuse albedo (colour 0) and the specular albedo (colour 1). Created
+// on first use, only when the setting asks for Ray Reconstruction. Every backend has the shaders. Private to fa_render; Renderer::run_rr_guides
+// draws with it.
 #pragma once
 
 #include <vector>
@@ -34,18 +36,20 @@ public:
     bool ready(gpu::Device& device);
     // The pipeline for a pass that writes `format` (colour 0 = normal and roughness, colour 1 = the hardware depth); invalid when not ready().
     gpu::Pipeline pipeline(const TargetFormat& format);
+    // The same for the albedo pass (rr_albedo: colour 0 = the diffuse albedo, colour 1 = the specular albedo).
+    gpu::Pipeline albedo_pipeline(const TargetFormat& format);
     // Destroys everything made; ready() makes it again.
     void release();
 
 private:
     gpu::Device* device_ = nullptr;  // the device of the first ready()
-    gpu::Shader shader_{};
+    gpu::Shader shader_{}, albedoShader_{};
     int state_ = 0;  // 0 = not tried, 1 = ready, -1 = failed
     struct Entry {
         TargetFormat format;
         gpu::Pipeline pipeline;
     };
-    std::vector<Entry> pipelines_;
+    std::vector<Entry> pipelines_, albedoPipelines_;
 };
 
 }  // namespace fa::render

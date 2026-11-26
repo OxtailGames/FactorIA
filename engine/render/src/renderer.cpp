@@ -565,6 +565,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "cascades") == 0      ? DebugView::Cascades
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
+                       : std::strcmp(dv, "albedo") == 0        ? DebugView::Albedo
+                       : std::strcmp(dv, "material") == 0      ? DebugView::Material
                                                                : DebugView::None;
     // The device's backend (RendererDesc::backend). A sokol one runs on the sokol context; D3D12, Vulkan and Recording
     // make a device of their own and never touch the context.
@@ -730,6 +732,8 @@ void Renderer::shutdown() {
             im.gpu.device(),
             im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
         destroy_target(im.gpu.device(), im.reactiveProbe);
+        destroy_target(im.gpu.device(), im.gbufferProbe[0]);
+        destroy_target(im.gpu.device(), im.gbufferProbe[1]);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
@@ -1423,6 +1427,36 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
         render::destroy_target(r.impl_->gpu.device(), r.impl_->velocityProbe);
         render::destroy_target(r.impl_->gpu.device(), r.impl_->reactiveProbe);
     }
+}
+bool RendererTestAccess::rr_guide_programs(Renderer& r) {
+    if (!r.impl_ || !r.impl_->gpu.has_device()) return false;
+    gpu::Device& dev = r.impl_->gpu.device();
+    if (!r.impl_->rrPrep.ready(dev)) return false;
+    TargetFormat normal;  // colour 0 = the normal and roughness, colour 1 = the hardware depth
+    normal.color = gpu::PixelFormat::Rgba16F;
+    normal.color1 = gpu::PixelFormat::R32F;
+    TargetFormat albedo;  // colour 0 = the diffuse albedo, colour 1 = the specular albedo
+    albedo.color = albedo.color1 = gpu::PixelFormat::Rgba8;
+    const bool ok = dev.state(r.impl_->rrPrep.pipeline(normal)) == gpu::ResourceState::Valid &&
+                    dev.state(r.impl_->rrPrep.albedo_pipeline(albedo)) == gpu::ResourceState::Valid;
+    r.impl_->rrPrep.release();
+    return ok;
+}
+void RendererTestAccess::force_gbuffer(Renderer& r, bool on) {
+    if (!r.impl_) return;
+    r.impl_->forceGbuffer = on;
+    if (!on) {
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->gbufferProbe[0]);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->gbufferProbe[1]);
+    }
+}
+bool RendererTestAccess::read_gbuffer(Renderer& r, int which, std::vector<float>& out, int& w, int& h,
+                                      std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_gbuffer(which, out, w, h, error);
 }
 void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
     if (!r.impl_) return;

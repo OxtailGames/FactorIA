@@ -370,6 +370,7 @@ void TerrainRenderer::destroy() {
         s = {};
     }
     matState_ = 0;
+    gbufferFailed_ = false;
     device_ = nullptr;
 }
 
@@ -509,6 +510,29 @@ MaterialAsset* TerrainRenderer::material(gpu::Device& device) {
     material_ = std::move(m);
     matState_ = 1;
     return material_.get();
+}
+
+// The G-buffer program of the terrain (shaders/terrain.glsl, program "gbuffer"): the prepass's vertex stage and the albedo and material outputs of
+// fa_prepass_fs_main. Made on first use, after material() (the slots of the material are the prepass's).
+bool TerrainRenderer::ensure_gbuffer(gpu::Device& device) {
+    if (!material_ || matState_ <= 0) return false;
+    if (material_->programs[kProgGbuffer].shader.id) return true;
+    if (gbufferFailed_) return false;
+    const gpu::ShaderDesc desc = gpu::generated_shader_desc(device, terrain_gbuffer_shader_desc);
+    shaders_[3] = make_shader(device, desc, "terrain_gbuffer");
+    if (!shaders_[3].id || device.state(shaders_[3]) != gpu::ResourceState::Valid) {
+        if (shaders_[3].id) device.destroy_shader(shaders_[3]);
+        shaders_[3] = {};
+        gbufferFailed_ = true;
+        FA_ERROR(
+            "render",
+            "The G-buffer program of the terrain could not be built for this graphics backend (see the sokol log lines "
+            "above): "
+            "the terrain keeps the constants in the albedo and material images. Hint: update the graphics driver.");
+        return false;
+    }
+    material_->programs[kProgGbuffer] = program_slots(shaders_[3], desc);
+    return true;
 }
 
 // RG8 pixels of the heights of the rectangle `r` (the whole grid for an empty one): r = the high byte, g = the low byte.

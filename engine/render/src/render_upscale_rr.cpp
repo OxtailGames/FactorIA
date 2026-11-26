@@ -13,9 +13,13 @@ bool RrGuidesPrep::ready(gpu::Device& dev) {
     if (state_ != 0) return state_ > 0;
     device_ = &dev;
     shader_ = make_shader(dev, gpu::generated_shader_desc(dev, upscale_rr_rr_shader_desc), "upscale_rr");
-    if (dev.state(shader_) != gpu::ResourceState::Valid) {
+    albedoShader_ =
+        make_shader(dev, gpu::generated_shader_desc(dev, upscale_rr_rr_albedo_shader_desc), "upscale_rr_albedo");
+    if (dev.state(shader_) != gpu::ResourceState::Valid || dev.state(albedoShader_) != gpu::ResourceState::Valid) {
         if (shader_.id) dev.destroy_shader(shader_);
+        if (albedoShader_.id) dev.destroy_shader(albedoShader_);
         shader_ = {};
+        albedoShader_ = {};
         state_ = -1;
         FA_ERROR("render", "The DLSS Ray Reconstruction guides shader failed to compile (see the sokol log lines "
                            "above); DLSS draws with Super "
@@ -38,14 +42,30 @@ gpu::Pipeline RrGuidesPrep::pipeline(const TargetFormat& format) {
     return p;
 }
 
+gpu::Pipeline RrGuidesPrep::albedo_pipeline(const TargetFormat& format) {
+    for (const Entry& e : albedoPipelines_)
+        if (e.format == format) return e.pipeline;
+    if (state_ <= 0 || !device_) return {};
+    const gpu::Pipeline p = make_triangle_pipeline(*device_, albedoShader_, format, "upscale-rr-albedo");
+    if (device_->state(p) != gpu::ResourceState::Valid)
+        FA_ERROR("render", "failed to create pipeline 'upscale-rr-albedo'");
+    albedoPipelines_.push_back({format, p});
+    return p;
+}
+
 void RrGuidesPrep::release() {
     if (device_) {
         for (Entry& e : pipelines_)
             if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
+        for (Entry& e : albedoPipelines_)
+            if (e.pipeline.id) device_->destroy_pipeline(e.pipeline);
         if (shader_.id) device_->destroy_shader(shader_);
+        if (albedoShader_.id) device_->destroy_shader(albedoShader_);
     }
     pipelines_.clear();
+    albedoPipelines_.clear();
     shader_ = {};
+    albedoShader_ = {};
     state_ = 0;
     device_ = nullptr;
 }

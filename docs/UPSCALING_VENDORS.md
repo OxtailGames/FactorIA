@@ -115,21 +115,21 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   the two on your content. It exists now so that the guide plumbing, the camera constants and the fall backs are in place and tested
   before M79 (ray-traced reflections and global illumination, M79.4) feeds it real noisy signals.
 - **What M79 adds.** The ray-traced passes give it a noisy specular and diffuse light, the specular hit distance and real material
-  guides; M79.4 replaces the approximations below with the renderer's own values and reads the hit distance.
+  guides and reads the hit distance. The roughness and the two albedos below already come from the renderer's own thin G-buffer (M79-P0c).
 - **The guides.** With Ray Reconstruction on, a pass (`shaders/upscale_rr.glsl`, "upscale-rr-guides") makes four images at the render
-  size from the depth and normal prepass (a draw for the normal and the depth, a clear for each albedo); they are made only on the
+  size from the depth and normal prepass and the thin G-buffer (a draw for the normal, the roughness and the depth, a draw for the two albedos; two clears for the albedos when the GPU makes no G-buffer); they are made only on the
   frames that use Ray Reconstruction, never for Super Resolution. They are tagged with the colour in, the motion vectors and the colour
   out that Super Resolution takes, and a depth of their own:
 
   | Buffer | What the engine gives | Approximation |
   |---|---|---|
-  | normals and roughness (`NormalRoughness`, packed: roughness in `w`) | the prepass normal turned into **world space** with the camera's axes (a pixel with no mesh, the sky, gets a normal facing the camera) | roughness is the constant 0.5 |
-  | diffuse albedo (`Albedo`) | none in a forward renderer | the constant 0.5 grey |
-  | specular albedo (`SpecularAlbedo`) | none | the constant 0.04, the reflectance of a dielectric at normal incidence |
+  | normals and roughness (`NormalRoughness`, packed: roughness in `w`) | the prepass normal turned into **world space** with the camera's axes (a pixel with no mesh, the sky, gets a normal facing the camera) | roughness is the material's roughness from the thin G-buffer where a mesh was drawn (a mesh with a custom or layered material writes its mesh renderer's own roughness), the constant 0.5 elsewhere |
+  | diffuse albedo (`Albedo`) | the thin G-buffer's albedo times (1 - metalness) where a mesh was drawn | the constant 0.5 grey where none was |
+  | specular albedo (`SpecularAlbedo`) | the thin G-buffer's mix(0.04, albedo, metalness) where a mesh was drawn | the constant 0.04, the reflectance of a dielectric at normal incidence, where none was |
   | depth (`Depth`) | **hardware depth**: clip z / clip w of the camera's unjittered projection (0..1 growing with the distance, 1 for the sky), computed from the prepass's view distance | none; it is not the depth Super Resolution reads (the prepass's d / (d + 1)), because Ray Reconstruction rebuilds the view position from the depth and the matrices it is told, and the two must agree |
   | motion vectors | the same image as Super Resolution | none |
 
-  The specular motion vectors and the hit distance are not given (Ray Reconstruction takes them as optional). The normal space the
+  The G-buffer (the engine's design notes, repository only, not in the binary) is drawn only while Ray Reconstruction is on and runs as an extra pass over the opaque meshes at the render size; a GPU that cannot make it, and a camera whose images are not the render size, keep the constants. The specular motion vectors and the hit distance are not given (Ray Reconstruction takes them as optional). The normal space the
   network expects (world or view, and the sign of the axes) is not verified on hardware: the engine sends world-space normals and the
   camera's world-to-view and view-to-world matrices, as NVIDIA's integration guide describes; if the picture shows lighting that
   follows the camera, the space is the thing to check first.
@@ -153,7 +153,9 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   Resolution and does not free them, so they are not made again at every step. They are freed when the setting goes false, when the
   machine or a frame refuses Ray Reconstruction, or when another upscaler draws.
 - **Not tested.** The tests use a fake Streamline (feature switch, the seven tags and their order, the options and matrices sent, the
-  fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen.
+  fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen. The G-buffer images are tested on every GPU the
+  tests run on (known materials read back), and the two guide programs are built by a test on any GPU, but the guides pass itself (and the
+  albedos it makes) has been run only with Ray Reconstruction on, which needs NVIDIA hardware.
 - **Checked against NVIDIA's header** (`sl_dlss_d.h` and `sl_core_types.h` of Streamline 2.14, read on the web, not copied): the feature
   id 1001, the GUIDs of `DLSSDOptions` and `DLSSDOptimalSettings`, the buffer ids (albedo 7, specular albedo 8, normals and roughness 14,
   specular hit distance 42) and the 224-byte layout of `DLSSDOptions` (a `static_assert` checks the member offsets). Not checked: how the
