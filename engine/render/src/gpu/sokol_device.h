@@ -10,8 +10,10 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 #include "gpu/device.h"
+#include "gpu/metal_accel.h"
 #include "sokol_gfx.h"
 
 namespace fa::render {
@@ -117,6 +119,12 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    // Ray tracing (M79): Metal builds them on sokol's command buffer (metal_accel.h); every other sokol backend refuses,
+    // with the reason of Device::ray_tracing_status. Outside a pass and outside a native section.
+    Result<void> build_blas(const BlasBuild& build) override;
+    Result<void> build_tlas(const TlasBuild& build) override;
+    Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) override;
+    Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) override;
     // D3D11: the immediate ID3D11DeviceContext (no state to declare: the uses are only checked, and end_native resets
     // sokol's state cache). GL and Metal refuse (Metal: Device::native_metal()).
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
@@ -135,6 +143,14 @@ private:
     // list (gpu::begin_context_pass, the window pass the UI painter draws in) is not checked: ownPass_ is false.
     TargetFormat passFormat_{};
     bool ownPass_ = false;
+    // The error of an acceleration structure call that may not run now (success = it may): ray tracing is off on this
+    // device, a pass or a native section is open.
+    Result<void> accel_gate(const char* call);
+    // Metal: the acceleration structure slots of the pipeline set_pipeline applied (null: none), and whether the
+    // bindings the dispatch needs were refused (a TLAS missing or not built: the dispatch is skipped, the error logged).
+    [[maybe_unused]] const MetalAccelSlots* accelSlots_ = nullptr;
+    [[maybe_unused]] bool accelSkip_ = false;
+    friend class SokolDevice;
 };
 
 // The Device of the sokol backends. It adopts the sokol context that is open when it is made (the renderer's: it is
@@ -166,6 +182,15 @@ public:
     NativeImage native_image(Image image) const override;
     NativeBuffer native_buffer(Buffer buffer) const override;
     MetalNative* native_metal() override;
+
+    // Ray tracing (M79): on Metal when the GPU and the OS can trace (ray_tracing_status says why not, naming both);
+    // elsewhere the Device defaults refuse. gpu/metal_accel.h has the design.
+    bool ray_tracing_status(std::string* why) const override;
+    Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags) override;
+    Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) override;
+    Result<AccelStructure> make_accel_structure(const AccelStructureDesc& desc) override;
+    void destroy_accel_structure(AccelStructure structure) override;
+    ResourceState accel_structure_state(AccelStructure structure) const override;
 
     Buffer make_buffer(const BufferDesc& desc) override;
     Image make_image(const ImageDesc& desc) override;
@@ -260,6 +285,17 @@ private:
     std::thread::id thread_{};
     SokolCommandList list_{*this};
     std::unique_ptr<MetalNative> metal_;  // Metal only (made by create)
+    // The error of an acceleration structure call on a device that cannot trace ("gpu: <call>: <reason>" + the hint).
+    Error rt_refusal(const char* call) const;
+    // What a ray-query shader declares, checked at make_shader ("" = fine); `slots` gets the acceleration structure slots.
+    std::string ray_shader_problem(const ShaderDesc& desc, MetalAccelSlots& slots) const;
+#if defined(SOKOL_METAL)
+    std::unique_ptr<MetalAccel> accel_;  // null when the GPU or the OS cannot trace
+    std::string accelWhy_;               // why accel_ is null
+    // The acceleration structure slots of the ray-query shaders and of the pipelines made from them (SokolCommandList
+    // binds by them).
+    std::unordered_map<std::uint32_t, MetalAccelSlots> shaderAccel_, pipelineAccel_;
+#endif
     bool listOpen_ = false;
     std::uint64_t frames_ = 0;
     mutable std::unique_ptr<render::GpuTimer> timer_;  // made on first use

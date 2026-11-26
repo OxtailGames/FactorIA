@@ -5,10 +5,11 @@ something between this point and the light?", "what does this mirror reflect?", 
 answers with a **ray query** inside a compute shader, against **acceleration structures** it builds from the scene's meshes. It is off by
 default, and free when off.
 
-> **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface only**: the
+> **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface** (the
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
-> the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary). **No backend builds an
-> acceleration structure yet and no effect draws with rays**: turning the settings on changes nothing in the picture, and
+> the GPU interface in `engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary)
+> and **the Metal backend, which builds acceleration structures and traces them** on a GPU that supports Metal ray tracing. **No effect
+> draws with rays yet**: turning the settings on changes nothing in the picture, and
 > `render.ray_tracing` says so (`active` is false, with the reason). The sections below say what each part will do and mark what is
 > planned.
 
@@ -58,7 +59,7 @@ It returns the settings plus:
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
 | `active` | whether any effect is traced right now. **Always false in this version.** |
-| `reason` | empty while `enabled` is false; otherwise why nothing is traced (the device's reason, or that this version has the interface only). |
+| `reason` | empty while `enabled` is false; otherwise why nothing is traced (the device's reason, or that no effect draws with rays yet). |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -67,7 +68,7 @@ Two rows of `render.supports` (the same answer as `Renderer::supports("raytracin
 
 | row | true when | reason when false |
 |---|---|---|
-| `raytracing` | the device has **ray queries** and **acceleration structures** (Direct3D 12 with DXR 1.1, Vulkan with `VK_KHR_ray_query`, Metal on a GPU with ray tracing) and the engine's backend builds them | names the backend and what is missing, and the package that will bring it |
+| `raytracing` | the device has **ray queries** and **acceleration structures** (Direct3D 12 with DXR 1.1, Vulkan with `VK_KHR_ray_query`, Metal on a GPU with ray tracing) and the engine's backend builds them | names the backend and what is missing (and, on Direct3D 12 and Vulkan, the package that will bring it) |
 | `raytracingPipeline` | the GPU also has ray tracing **pipelines** and shader binding tables. **Reported only**: the engine traces with inline ray queries in compute shaders and never uses pipelines, so a GPU without them still traces | the same reason, or "no ray tracing pipelines" on a GPU with ray queries only |
 
 Ask before you turn an effect on, and draw without it when the answer is false:
@@ -83,7 +84,7 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 |---|---|---|
 | Direct3D 12 (Windows) | planned (DXR 1.1 inline ray query) | the backend does not build acceleration structures yet: `render.supports` says "package P1d of milestone 79" |
 | Vulkan (Windows, Linux, Android) | planned (`VK_KHR_acceleration_structure` + `VK_KHR_ray_query`) | not built yet: "package P1v of milestone 79" |
-| Metal (macOS, iOS) | planned (Metal ray tracing, `intersector`) | not built yet: "package P1m of milestone 79" |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. Only the structures are built and traced for now; no effect draws with them yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 

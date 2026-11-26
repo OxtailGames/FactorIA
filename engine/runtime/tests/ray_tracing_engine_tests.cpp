@@ -1,5 +1,5 @@
 // M79-P0a: ray tracing settings in the engine (docs/RAY_TRACING.md): the project key render.rayTracing, the command render.ray_tracing and
-// Engine::set_ray_tracing. No backend traces rays yet, so the setting is read, written, refused and reported (`active` false, with the
+// Engine::set_ray_tracing. No effect draws with rays yet, so the setting is read, written, refused and reported (`active` false, with the
 // reason); the renderer's own rows are tested in engine/render/tests/raytracing_tests.cpp.
 #include <doctest.h>
 
@@ -55,7 +55,9 @@ TEST_CASE("project: render.rayTracing loads, round-trips, defaults to off and te
     CHECK(s->rayTracing == render::RayTracingSettings{});
     CHECK_FALSE(s->to_json().contains("render"));  // off writes nothing
 
-    TempProject set("set", R"(, "render": { "rayTracing": { "enabled": true, "shadows": "soft", "gi": "probes", "raysPerPixel": 99 } })");
+    TempProject set(
+        "set",
+        R"(, "render": { "rayTracing": { "enabled": true, "shadows": "soft", "gi": "probes", "raysPerPixel": 99 } })");
     auto t = load_project(set.path());
     REQUIRE_MESSAGE(t.ok(), t.error().message);
     CHECK(t->rayTracing.enabled);
@@ -85,7 +87,8 @@ TEST_CASE("project: render.rayTracing loads, round-trips, defaults to off and te
     CHECK(contains(y.error().message, "/render/rayTracing/enabled"));
 }
 
-TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything (nothing traces yet: active is false and says why)") {
+TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything (no effect traces yet: active is "
+          "false and says why)") {
     TempProject p("command");
     Engine e;
     std::string err;
@@ -100,7 +103,9 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["gi"] == "off");
     CHECK(r.result["raysPerPixel"] == 1);
     CHECK(r.result["maxInstances"] == 65536);
-    CHECK(r.result["supported"] == false);  // headless: no renderer, no GPU
+    // Whether this machine's GPU can trace rays (a Mac with Metal ray tracing says true, a runner without says false and why):
+    // `active` is false either way, because no effect draws with rays yet.
+    REQUIRE(r.result["supported"].is_boolean());
     CHECK(r.result["active"] == false);
     CHECK(r.result["changed"] == false);
     CHECK(r.result["reason"] == "");  // off: nothing to explain
@@ -112,7 +117,8 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["raysPerPixel"] == 4);
     CHECK(r.result["changed"] == true);
     CHECK(r.result["active"] == false);
-    CHECK_FALSE(r.result["reason"].get<std::string>().empty());
+    CHECK_FALSE(
+        r.result["reason"].get<std::string>().empty());  // the device's reason, or that no effect draws with rays yet
     CHECK(e.ray_tracing().shadows == render::RtShadows::Hard);
 
     // The same value again changes nothing, and a key that is not given is kept; numbers are clamped.

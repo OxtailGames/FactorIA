@@ -395,14 +395,17 @@ struct Features {
                             // shaders index; false = no table, bindless_index() answers kNoBindlessIndex
     // M79 ray tracing (the contract is in gpu/accel.h and docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md). Every one
     // is false on the GL, GLES3, WebGL2, D3D11 and RecordingDevice (default caps) devices, and on every backend until
-    // its package lands (P1d D3D12, P1v Vulkan, P1m Metal).
+    // its package lands (P1d D3D12, P1v Vulkan); Metal has them when the GPU and the OS can trace.
     bool rayQuery = false;               // a compute shader can trace rays with an inline ray query (DXR 1.1
                                          // RayQuery, GL_EXT_ray_query, Metal intersector); no RT pipelines
     bool accelerationStructure = false;  // make_accel_structure / build_blas / build_tlas work
     bool rayTracingPipeline = false;     // the GPU has RT pipelines and shader tables: reported only, the engine
                                          // never uses them (decision D1: inline ray query only)
-    bool bufferDeviceAddress = false;    // a buffer has a GPU address (Vulkan's bufferDeviceAddress, D3D12's GPU
-                                         // virtual address, Metal's gpuAddress): the AS builds need it
+    bool bufferDeviceAddress = false;    // a buffer has an explicit GPU address a shader or a build can be handed
+                                         // (Vulkan's bufferDeviceAddress, D3D12's GPU virtual address). Only that: the
+                                         // acceleration structure calls never need it (Metal binds by index and answers
+                                         // false), so a buffer with usage accelBuildInput, accelStorage or accelScratch
+                                         // is valid on every device that has accelerationStructure
 };
 
 // Limits of the device (sg_limits).

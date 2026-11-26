@@ -2190,8 +2190,7 @@ Json Engine::ray_tracing_status() {
         j["reason"] =
             why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why;
     else
-        j["reason"] =
-            "This device could trace rays, but this version has the interface only: no effect draws with rays yet.";
+        j["reason"] = "This device could trace rays, but no effect draws with rays yet in this version.";
     return j;
 }
 

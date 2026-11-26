@@ -1337,9 +1337,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "effect "
          "is traced, `reason` says why not. Example: render.ray_tracing "
          "{\"enabled\":true,\"shadows\":\"soft\"}" FA_COMMAND_DETAILS
-         "Ray tracing is off by default and free when off. This version has the shared interface only (acceleration "
-         "structures, ray queries in compute shaders, the supports rows): no backend traces rays yet and no effect "
-         "draws with the setting, so `active` is false and `reason` names that. A wrong name or type fails with "
+         "Ray tracing is off by default and free when off. This version has the shared interface (acceleration "
+         "structures, ray queries in compute shaders, the supports rows) and, on Metal, a device that builds and "
+         "traces "
+         "them; no effect draws with the setting yet, so `active` is false and `reason` names that. A wrong name or "
+         "type fails with "
          "`invalid_argument`, a JSON pointer and a \"did you mean\", and changes nothing. The start value is "
          "factoria.json \"render\": {\"rayTracing\": {...}}. Works with graphics=false too (the value is only "
          "remembered).",

@@ -13,8 +13,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   them, so the code that builds structures is tested without a GPU. `render.supports` has the rows `raytracing` and
   `raytracingPipeline` (capability only), the project setting `render.rayTracing` (`enabled`, `shadows`, `ao`, `reflections`,
   `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
-  and change it. **No backend builds an acceleration structure yet and nothing is traced:** turning the settings on changes no
+  and change it. **No effect draws with rays yet:** turning the settings on changes no
   picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+- **Ray tracing on Metal (M79):** the Metal device (`SokolDevice` on macOS 13 / iOS 16 and later, on a GPU where
+  `MTLDevice.supportsRaytracing` is true) reports `rayQuery` and `accelerationStructure`, builds, refits, compacts and clones
+  bottom-level structures and builds the top-level one (`MTLAccelerationStructureCommandEncoder` on sokol's command buffer), and a
+  compute dispatch of a ray-query kernel binds the TLAS: the shipped `rt_probe` kernel traces two instances and matches a CPU ray
+  caster in the tests. A GPU or OS without it refuses with a sentence that names the GPU and the OS. Metal allocates the structures
+  itself, so `AccelStructureDesc::storage` is refused there; `bufferDeviceAddress` now means explicit GPU addresses only, and the
+  acceleration structure buffer usages no longer need it. Nothing in the frame traces yet. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
+  "Metal".
 - **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
   written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
   MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New

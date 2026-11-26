@@ -467,7 +467,9 @@ sg_buffer_desc to_sg(const BufferDesc& d) {
     s.size = d.size;
     s.usage.vertex_buffer = d.usage.vertexBuffer;
     s.usage.index_buffer = d.usage.indexBuffer;
-    s.usage.storage_buffer = d.usage.storageBuffer;
+    // A scratch or storage buffer of an acceleration structure is written by the GPU, so it is a storage buffer (no initial
+    // data needed); a build input is a plain buffer that carries its vertex or index usage.
+    s.usage.storage_buffer = d.usage.storageBuffer || d.usage.accelScratch || d.usage.accelStorage;
     s.usage.staging_buffer = d.usage.stagingBuffer;
     s.usage.staging_index_buffer = d.usage.stagingIndexBuffer;
     s.usage.write_unsealed = d.usage.writeUnsealed;
@@ -1190,12 +1192,45 @@ void SokolCommandList::set_pipeline(Pipeline pipeline) {
     }
 #endif
     sg_apply_pipeline(to_sg(pipeline));
+#if defined(SOKOL_METAL)
+    accelSkip_ = false;
+    const auto it = device_.pipelineAccel_.find(pipeline.id);
+    accelSlots_ = it == device_.pipelineAccel_.end() ? nullptr : &it->second;
+#endif
 }
 
 void SokolCommandList::set_bindings(const Bindings& bindings) {
     device_.check_thread("CommandList::set_bindings");
     const sg_bindings b = to_sg(bindings);
     sg_apply_bindings(&b);
+#if defined(SOKOL_METAL)
+    // The TLAS of a ray-query kernel is bound by hand on sokol's compute encoder, right after sokol's own bindings
+    // (metal_accel.h): sokol_gfx knows no acceleration structure.
+    accelSkip_ = false;
+    if (accelSlots_ && device_.accel_) {
+        const std::string problem =
+            device_.accel_->check_compute_bindings(bindings, *accelSlots_, accelSlots_->label.c_str());
+        if (!problem.empty()) {
+            FA_ERROR(
+                "render",
+                "gpu: CommandList::set_bindings: {}; the dispatch that follows is skipped (bind a live, built TLAS "
+                "in every acceleration structure slot the shader declares)",
+                problem);
+            accelSkip_ = true;
+        } else {
+            device_.accel_->bind_compute(bindings, *accelSlots_);
+        }
+    } else {
+        for (int i = 0; i < kMaxAccelStructureBindings; ++i)
+            if (bindings.accelStructures[i].valid()) {
+                FA_ERROR("render",
+                         "gpu: CommandList::set_bindings: accelStructures[{}] is bound, but the pipeline is not a "
+                         "ray-query compute pipeline (a shader with usesRayQuery and accelStructures); it is ignored",
+                         i);
+                break;
+            }
+    }
+#endif
 }
 
 void SokolCommandList::set_uniforms(int slot, Range data) {
@@ -1231,6 +1266,9 @@ void SokolCommandList::draw_ex(int base, int count, int instances, int baseVerte
 
 void SokolCommandList::dispatch(int x, int y, int z) {
     device_.check_thread("CommandList::dispatch");
+#if defined(SOKOL_METAL)
+    if (accelSkip_) return;  // set_bindings refused the acceleration structures and said why
+#endif
     sg_dispatch(x, y, z);
 }
 
@@ -1300,6 +1338,66 @@ void SokolCommandList::end_timed_scope() {
     device_.timer().end_pass();
 }
 
+// The acceleration structure calls run in their own encoder of sokol's command buffer, so no pass of sokol may be open
+// (sokol keeps one encoder per pass) and no native section either.
+Result<void> SokolCommandList::accel_gate(const char* call) {
+    if (!device_.features_.accelerationStructure)
+        return device_.rt_refusal((std::string("CommandList::") + call).c_str());
+    if (from_sg(sg_query_pass_state()) != PassState::None)
+        return Error{std::string("gpu: CommandList::") + call + ": called inside a pass; it goes outside a pass",
+                     "end_pass() first, or record the build before begin_pass()"};
+    if (nativeOpen_)
+        return Error{std::string("gpu: CommandList::") + call + ": called inside a native section",
+                     "end_native() first: the native commands own the command buffer until then"};
+    return {};
+}
+
+#if defined(SOKOL_METAL)
+Result<void> SokolCommandList::build_blas(const BlasBuild& build) {
+    device_.check_thread("CommandList::build_blas");
+    if (auto gate = accel_gate("build_blas"); !gate) return gate;
+    return device_.accel_->build_blas(build);
+}
+
+Result<void> SokolCommandList::build_tlas(const TlasBuild& build) {
+    device_.check_thread("CommandList::build_tlas");
+    if (auto gate = accel_gate("build_tlas"); !gate) return gate;
+    return device_.accel_->build_tlas(build);
+}
+
+Result<void> SokolCommandList::query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) {
+    device_.check_thread("CommandList::query_compacted_size");
+    if (auto gate = accel_gate("query_compacted_size"); !gate) return gate;
+    return device_.accel_->query_compacted_size(blas, dst, dstOffset);
+}
+
+Result<void> SokolCommandList::copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) {
+    device_.check_thread("CommandList::copy_accel_structure");
+    if (auto gate = accel_gate("copy_accel_structure"); !gate) return gate;
+    return device_.accel_->copy_accel_structure(src, dst, mode);
+}
+#else
+Result<void> SokolCommandList::build_blas(const BlasBuild& build) {
+    device_.check_thread("CommandList::build_blas");
+    return CommandList::build_blas(build);
+}
+
+Result<void> SokolCommandList::build_tlas(const TlasBuild& build) {
+    device_.check_thread("CommandList::build_tlas");
+    return CommandList::build_tlas(build);
+}
+
+Result<void> SokolCommandList::query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) {
+    device_.check_thread("CommandList::query_compacted_size");
+    return CommandList::query_compacted_size(blas, dst, dstOffset);
+}
+
+Result<void> SokolCommandList::copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) {
+    device_.check_thread("CommandList::copy_accel_structure");
+    return CommandList::copy_accel_structure(src, dst, mode);
+}
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------------
 // SokolDevice
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1326,6 +1424,23 @@ SokolDevice::SokolDevice(bool ownsContext) : ownsContext_(ownsContext), thread_(
     info_.gpu = native_gpu_identity(info_.backend, sokol_native_device(), &adapter_);
     features_ = from_sg(sg_query_features());
     limits_ = from_sg(sg_query_limits());
+#if defined(SOKOL_METAL)
+    // Metal ray tracing (gpu/metal_accel.h): on when this GPU and this OS can trace, else the reason is kept for
+    // ray_tracing_status and the refusals. rayTracingPipeline stays false (inline ray query only).
+    if (info_.backend == Backend::Metal) {
+        accel_ = MetalAccel::create(*this, sokol_native_device().device);
+        if (accel_) {
+            features_.rayQuery = true;
+            features_.accelerationStructure = true;
+            const Limits l = accel_->limits();
+            limits_.maxAccelInstances = l.maxAccelInstances;
+            limits_.maxAccelGeometries = l.maxAccelGeometries;
+            limits_.maxAccelPrimitives = l.maxAccelPrimitives;
+        } else {
+            (void)MetalAccel::supported(sokol_native_device().device, &accelWhy_);
+        }
+    }
+#endif
     listening_ = sg_add_commit_listener(sg_commit_listener{&SokolDevice::count_commit, this});
 }
 
@@ -1412,6 +1527,109 @@ MetalNative* SokolDevice::native_metal() {
     return metal_.get();
 }
 
+// ---- ray tracing (M79) ----------------------------------------------------------------------------------------------
+bool SokolDevice::ray_tracing_status(std::string* why) const {
+#if defined(SOKOL_METAL)
+    if (info_.backend == Backend::Metal) {
+        if (!accel_ && why) *why = accelWhy_;
+        return accel_ != nullptr;
+    }
+#endif
+    return Device::ray_tracing_status(why);
+}
+
+Error SokolDevice::rt_refusal(const char* call) const {
+    std::string why;
+    (void)ray_tracing_status(&why);
+    return Error{std::string("gpu: ") + call + ": " + why,
+                 "check Device::features().accelerationStructure && rayQuery before building acceleration structures "
+                 "(renderer.supports(\"raytracing\") says it with a reason), and draw without ray tracing when it is "
+                 "false"};
+}
+
+std::string SokolDevice::ray_shader_problem(const ShaderDesc& d, MetalAccelSlots& slots) const {
+    std::string what;
+    auto add = [&](const std::string& s) {
+        if (!what.empty()) what += "; ";
+        what += s;
+    };
+    if (d.usesRayQuery) {
+        if (!d.compute())
+            add("usesRayQuery on a render shader: ray queries run in compute shaders (a kernel keeps "
+                "ShaderStage::Compute; "
+                "there are no ray tracing pipelines)");
+        if (!features_.rayQuery) {
+            std::string why;
+            (void)ray_tracing_status(&why);
+            add("usesRayQuery on a device without ray query (Features::rayQuery is false: " + why + ")");
+        }
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const ShaderAccelStructure& a = d.accelStructures[i];
+        if (a.stage == ShaderStage::None) continue;
+        const std::string where = "accelStructures[" + std::to_string(i) + "]";
+        if (a.stage != ShaderStage::Compute)
+            add(where + " has a stage other than Compute: only a compute shader traces rays");
+        if (!d.usesRayQuery) add(where + " is declared but usesRayQuery is false: set it on a ray-query kernel");
+        if (!features_.accelerationStructure)
+            add(where + " on a device without acceleration structures (Features::accelerationStructure is false)");
+        slots.declared[i] = true;
+        slots.bufferIndex[i] = a.binding.mslIndex;
+    }
+    return what;
+}
+
+Result<AccelSizes> SokolDevice::blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags) {
+    check_thread("Device::blas_sizes");
+#if defined(SOKOL_METAL)
+    if (accel_) return accel_->blas_sizes(geometries, flags);
+#else
+    (void)geometries;
+    (void)flags;
+#endif
+    return rt_refusal("Device::blas_sizes");
+}
+
+Result<AccelSizes> SokolDevice::tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) {
+    check_thread("Device::tlas_sizes");
+#if defined(SOKOL_METAL)
+    if (accel_) return accel_->tlas_sizes(instanceCount, flags);
+#else
+    (void)instanceCount;
+    (void)flags;
+#endif
+    return rt_refusal("Device::tlas_sizes");
+}
+
+Result<AccelStructure> SokolDevice::make_accel_structure(const AccelStructureDesc& desc) {
+    check_thread("Device::make_accel_structure");
+#if defined(SOKOL_METAL)
+    if (accel_) return accel_->make_accel_structure(desc);
+#else
+    (void)desc;
+#endif
+    return rt_refusal("Device::make_accel_structure");
+}
+
+void SokolDevice::destroy_accel_structure(AccelStructure structure) {
+    check_thread("Device::destroy_accel_structure");
+#if defined(SOKOL_METAL)
+    if (accel_) accel_->destroy_accel_structure(structure);
+#else
+    (void)structure;
+#endif
+}
+
+ResourceState SokolDevice::accel_structure_state(AccelStructure structure) const {
+    check_thread("Device::accel_structure_state");
+#if defined(SOKOL_METAL)
+    if (accel_) return accel_->accel_structure_state(structure);
+#else
+    (void)structure;
+#endif
+    return ResourceState::Invalid;
+}
+
 NativeImage SokolDevice::native_image(Image image) const {
     check_thread("Device::native_image");
     NativeImage n;
@@ -1467,8 +1685,26 @@ NativeBuffer SokolDevice::native_buffer(Buffer buffer) const {
 
 Buffer SokolDevice::make_buffer(const BufferDesc& desc) {
     check_thread("Device::make_buffer");
+    if ((desc.usage.accelBuildInput || desc.usage.accelStorage || desc.usage.accelScratch) &&
+        !features_.accelerationStructure) {
+        // Like the RecordingDevice: a usage nothing can honour is an error here, not a plain buffer that fails later.
+        std::string why;
+        (void)ray_tracing_status(&why);
+        FA_ERROR("render",
+                 "gpu: make_buffer '{}': usage.accelBuildInput, accelStorage or accelScratch on a device without "
+                 "acceleration structures ({}); check renderer.supports(\"raytracing\") first",
+                 desc.label ? desc.label : "", why);
+        const sg_buffer failed = sg_alloc_buffer();
+        sg_fail_buffer(failed);
+        return from_sg(failed);
+    }
     const sg_buffer_desc d = to_sg(desc);
-    return from_sg(sg_make_buffer(&d));
+    const Buffer buffer = from_sg(sg_make_buffer(&d));
+#if defined(SOKOL_METAL)
+    if (accel_ && sg_query_buffer_state(to_sg(buffer)) == SG_RESOURCESTATE_VALID)
+        accel_->note_buffer(buffer, desc.usage, desc.size ? desc.size : desc.data.size, desc.label);
+#endif
+    return buffer;
 }
 
 Image SokolDevice::make_image(const ImageDesc& desc) {
@@ -1494,18 +1730,45 @@ Sampler SokolDevice::make_sampler(const SamplerDesc& desc) {
 
 Shader SokolDevice::make_shader(const ShaderDesc& desc) {
     check_thread("Device::make_shader");
+    MetalAccelSlots slots;
+    const std::string problem = ray_shader_problem(desc, slots);
+    if (!problem.empty()) {
+        FA_ERROR("render", "gpu: make_shader '{}': {}; use the desc the generated shader header returns unchanged",
+                 desc.label ? desc.label : "", problem);
+        const sg_shader failed = sg_alloc_shader();
+        sg_fail_shader(failed);
+        return from_sg(failed);
+    }
     const sg_shader_desc d = to_sg(desc);
-    return from_sg(sg_make_shader(&d));
+    const Shader shader = from_sg(sg_make_shader(&d));
+#if defined(SOKOL_METAL)
+    if (desc.usesRayQuery && sg_query_shader_state(to_sg(shader)) == SG_RESOURCESTATE_VALID) {
+        slots.label = desc.label ? desc.label : "";
+        shaderAccel_[shader.id] = std::move(slots);
+    }
+#endif
+    return shader;
 }
 
 Pipeline SokolDevice::make_pipeline(const PipelineDesc& desc) {
     check_thread("Device::make_pipeline");
     const sg_pipeline_desc d = to_sg(desc);
-    return from_sg(sg_make_pipeline(&d));
+    const Pipeline pipeline = from_sg(sg_make_pipeline(&d));
+#if defined(SOKOL_METAL)
+    if (desc.compute) {
+        auto it = shaderAccel_.find(desc.shader.id);
+        if (it != shaderAccel_.end() && sg_query_pipeline_state(to_sg(pipeline)) == SG_RESOURCESTATE_VALID)
+            pipelineAccel_[pipeline.id] = it->second;
+    }
+#endif
+    return pipeline;
 }
 
 void SokolDevice::destroy_buffer(Buffer buffer) {
     check_thread("Device::destroy_buffer");
+#if defined(SOKOL_METAL)
+    if (accel_) accel_->forget_buffer(buffer);
+#endif
     sg_destroy_buffer(to_sg(buffer));
 }
 
@@ -1526,11 +1789,21 @@ void SokolDevice::destroy_sampler(Sampler sampler) {
 
 void SokolDevice::destroy_shader(Shader shader) {
     check_thread("Device::destroy_shader");
+#if defined(SOKOL_METAL)
+    shaderAccel_.erase(shader.id);
+#endif
     sg_destroy_shader(to_sg(shader));
 }
 
 void SokolDevice::destroy_pipeline(Pipeline pipeline) {
     check_thread("Device::destroy_pipeline");
+#if defined(SOKOL_METAL)
+    auto it = pipelineAccel_.find(pipeline.id);
+    if (it != pipelineAccel_.end()) {
+        if (list_.accelSlots_ == &it->second) list_.accelSlots_ = nullptr;
+        pipelineAccel_.erase(it);
+    }
+#endif
     sg_destroy_pipeline(to_sg(pipeline));
 }
 
