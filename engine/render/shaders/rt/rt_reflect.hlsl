@@ -17,12 +17,16 @@
 //   binding 7  g_hit      constant buffer, RtHitParams                    (Metal: buffer(3))   b1   declared by rt_hit.hlsli
 //
 // user0 (RtEffectParams): x = the ray's offset from the surface along the normal in metres, y = more of it per metre of view depth,
-// z = the roughness cutoff (a pixel with a roughness at or above it is not traced), w = the ray's TMax.
+// z = the sharp cutoff (a pixel with a roughness under it gets ONE mirror ray, as in P3a-1), w = the ray's TMax.
+// user1: x = the glossy limit (M79-P3a-2): a pixel with a roughness from the sharp cutoff up to it gets `frame.z` rays (1 to 16) whose
+// directions are sampled from the GGX distribution of the visible normals (Heitz 2018) with alpha = roughness^2; a pixel at or above it is not
+// traced. A limit at or under the cutoff leaves only the mirror rays.
 //
-// Output (Rgba32F, the size of the prepass): rgb = the radiance the mirror ray sees, tinted by the albedo of a metal (a miss: the
-// environment in the ray's direction), a = 0 where nothing was traced (the sky, a surface above the cutoff, no G-buffer texel), the hit's
-// distance in metres (> 0, at least 0.0001) where the ray ended on a surface, -1 where it left the scene. The hit distance is the denoiser's
-// hook (P3a-2); the composite takes a > 0 as a reflection and a < 0 as "the lit picture already holds the environment's reflection".
+// Output (Rgba32F, the size of the prepass): the rays that ended on a surface are averaged. rgb = the mean radiance of those rays, tinted by
+// the albedo of a metal; a = 0 where nothing was traced (the sky, a surface above the limit, no G-buffer texel), the mean hit distance in
+// metres (> 0, at least 0.0001) where at least one ray ended on a surface, -1 where every ray left the scene (rgb is 0 then: the pixel falls
+// back to the screen-space reflections and the probes). The hit distance is the denoiser's: the virtual-motion reprojection and the width of
+// the filter; the coverage (a > 0) is a signal of its own.
 #include "rt_hit.hlsli"
 
 [[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> g_out : register(u0);
@@ -48,6 +52,35 @@ struct RtEffectParams {
 [[vk::binding(5, 0)]] Texture2D<float4> g_albedo : register(t3);
 [[vk::binding(6, 0)]] Texture2D<float4> g_material : register(t4);
 
+static const float kInv24 = 1.0 / 16777216.0;
+static const float kTwoPi = 6.28318530717958647692;
+
+// PCG (O'Neill): integer only, so the sequence of draws is the same on every GPU and on the CPU (rt_ao.hlsl).
+uint pcg(uint v) {
+    const uint s = v * 747796405u + 2891336453u;
+    const uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float unit(uint h) { return float(h >> 8u) * kInv24; }
+
+// A direction sampled from the GGX distribution of the normals visible from `ve` (tangent space, ve.z > 0): Heitz, "Sampling the GGX
+// Distribution of Visible Normals" (JCGT 2018). Returns the reflected direction (tangent space).
+float3 ggx_vndf_reflect(float3 ve, float alpha, float u1, float u2) {
+    const float3 vh = normalize(float3(alpha * ve.x, alpha * ve.y, ve.z));
+    const float lensq = vh.x * vh.x + vh.y * vh.y;
+    const float3 t1 = lensq > 1.0e-7 ? float3(-vh.y, vh.x, 0.0) * rsqrt(lensq) : float3(1.0, 0.0, 0.0);
+    const float3 t2 = cross(vh, t1);
+    const float r = sqrt(u1);
+    const float phi = kTwoPi * u2;
+    const float a = r * cos(phi);
+    float b = r * sin(phi);
+    const float sh = 0.5 * (1.0 + vh.z);
+    b = (1.0 - sh) * sqrt(max(1.0 - a * a, 0.0)) + sh * b;
+    const float3 nh = a * t1 + b * t2 + sqrt(max(1.0 - a * a - b * b, 0.0)) * vh;
+    const float3 ne = normalize(float3(alpha * nh.x, alpha * nh.y, max(nh.z, 0.0)));
+    return reflect(-ve, ne);
+}
+
 // The normal the prepass stores (octahedral, -1 .. 1) in view space.
 float3 oct_decode(float2 e) {
     float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -60,7 +93,8 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= (uint)g_params.image.x || id.y >= (uint)g_params.image.y) return;
     const float4 pre = g_prepass.Load(int3(id.xy, 0));
     const float4 mat = g_material.Load(int3(id.xy, 0));
-    if (pre.a < 0.5 || mat.a < 0.5 || mat.r >= g_params.user0.z) {  // the sky, no G-buffer texel, a surface too rough for a mirror
+    const float limit = max(g_params.user1.x, g_params.user0.z);
+    if (pre.a < 0.5 || mat.a < 0.5 || mat.r >= limit) {  // the sky, no G-buffer texel, a surface too rough to trace
         g_out[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
@@ -75,10 +109,44 @@ void main(uint3 id : SV_DispatchThreadID) {
     const float3 r = reflect(view, n);
     const float3 tint = lerp(float3(1.0, 1.0, 1.0), g_albedo.Load(int3(id.xy, 0)).rgb, saturate(mat.g));
     const float offset = g_params.user0.x + g_params.user0.y * depth;
-    RtSurface s;
-    if (rt_trace_surface(pos + n * offset, r, 0.0, g_params.user0.w, s)) {
-        g_out[id.xy] = float4(rt_shade_hit(s, -r) * tint, max(s.t, 0.0001));
+    const float3 origin = pos + n * offset;
+    const bool glossy = mat.r >= g_params.user0.z;
+    const uint count = glossy ? clamp(g_params.frame.z, 1u, 16u) : 1u;
+    // An orthonormal basis around the normal (Duff et al., branchless), and the view vector in it.
+    const float sg = n.z >= 0.0 ? 1.0 : -1.0;
+    const float ba = -1.0 / (sg + n.z);
+    const float bb = n.x * n.y * ba;
+    const float3 tx = float3(1.0 + sg * n.x * n.x * ba, sg * bb, -sg * n.x);
+    const float3 ty = float3(bb, sg + n.y * n.y * ba, -n.y);
+    const float3 toViewer = -view;
+    const float3 ve = normalize(float3(dot(tx, toViewer), dot(ty, toViewer), max(dot(n, toViewer), 1.0e-3)));
+    const float alpha = mat.r * mat.r;
+    const float invCount = 1.0 / float(count);
+    uint state = pcg(id.x + pcg(id.y + pcg(g_params.frame.y)));
+    float3 sum = float3(0.0, 0.0, 0.0);
+    float distSum = 0.0;
+    uint hits = 0;
+    for (uint i = 0; i < count; ++i) {
+        float3 dir = r;
+        if (glossy) {
+            state = pcg(state);
+            const float u1 = (float(i) + unit(state)) * invCount;  // stratified over the rays of the pixel
+            state = pcg(state);
+            const float u2 = unit(state);
+            const float3 l = ggx_vndf_reflect(ve, alpha, u1, u2);
+            const float3 w = normalize(tx * l.x + ty * l.y + n * l.z);
+            if (l.z > 1.0e-3) dir = w;  // a sample under the surface is the mirror direction instead
+        }
+        RtSurface s;
+        if (rt_trace_surface(origin, dir, 0.0, g_params.user0.w, s)) {
+            sum += rt_shade_hit(s, -dir) * tint;
+            distSum += s.t;
+            ++hits;
+        }
+    }
+    if (hits > 0) {
+        g_out[id.xy] = float4(sum / float(hits), max(distSum / float(hits), 0.0001));
     } else {
-        g_out[id.xy] = float4(rt_miss_color(r) * tint, -1.0);
+        g_out[id.xy] = float4(0.0, 0.0, 0.0, -1.0);
     }
 }

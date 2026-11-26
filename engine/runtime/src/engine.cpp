@@ -2227,8 +2227,9 @@ Json Engine::ray_tracing_status() {
             add("the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
                 "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)");
         if (reflectionsOn)
-            add("the sharp reflections of the surfaces smoother than roughness 0.25 (one mirror ray per pixel; the "
-                "rougher ones keep the screen-space reflections and the probes)");
+            add("the reflections of the surfaces smoother than roughness 0.65 (one mirror ray per pixel under 0.25, "
+                "raysPerPixel denoised glossy rays up to 0.65; the rougher ones, and the pixels whose rays leave the "
+                "scene, keep the screen-space reflections and the probes)");
         j["reason"] = "Traced: " + what + ". The other effects are not made yet.";
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao and "

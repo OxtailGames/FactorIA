@@ -77,11 +77,14 @@ const char* denoise_kind_name(DenoiseKind k) {
         case DenoiseKind::Occlusion: return "occlusion";
         case DenoiseKind::Diffuse: return "diffuse";
         case DenoiseKind::Specular: return "specular";
+        case DenoiseKind::Coverage: return "coverage";
     }
     return "diffuse";
 }
 
-int denoise_channels(DenoiseKind k) { return k == DenoiseKind::Visibility || k == DenoiseKind::Occlusion ? 1 : 3; }
+int denoise_channels(DenoiseKind k) {
+    return k == DenoiseKind::Visibility || k == DenoiseKind::Occlusion || k == DenoiseKind::Coverage ? 1 : 3;
+}
 
 const char* denoise_reset_name(DenoiseReset r) {
     switch (r) {
@@ -165,7 +168,7 @@ DenoisePlan make_denoise_plan(const DenoiseSignal& signal, int width, int height
     p.guidePasses = 1;
     p.transients = 1 + std::min(p.settings.iterations - 1, 2) + (dbg ? 1 : 0);
     p.historyImages = 4;
-    p.hitDistance = signal.kind == DenoiseKind::Specular;
+    p.hitDistance = signal.kind == DenoiseKind::Specular || signal.kind == DenoiseKind::Coverage;
     p.configKey = config_key(signal.kind, p.settings);
     p.historyBytes = sat_add(image_bytes(width, height, 8, 2), image_bytes(width, height, momentsF32 ? 16 : 8, 2));
     p.guideBytes = image_bytes(width, height, 8, 2);

@@ -1347,3 +1347,93 @@ TEST_CASE(
     CHECK(log.count("ray traced reflections cannot run") == 0);
     CHECK(index_of(off, "gbuffer") < 0);
 }
+
+TEST_CASE(
+    "rt reflect: the glossy reflections are denoised as two signals between the kernel and the composite, and the "
+    "denoiser is free when they are off") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.reflections = true;
+    s.raysPerPixel = 4;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> lines = r.lines();
+    const int refl = index_of(lines, "rt-reflections");
+    const int temporal = index_of(lines, "rtd-temporal");
+    const int trace = index_of(lines, "begin_pass 'ssr-trace'");
+    REQUIRE(refl >= 0);
+    REQUIRE(temporal >= 0);
+    REQUIRE(trace >= 0);
+    CHECK(refl < temporal);
+    CHECK(temporal < trace);
+    // Two signals (the radiance and its coverage): two temporal passes, one camera guide pass, and still one traced dispatch.
+    CHECK(count_labels(lines, "begin_pass 'rtd-temporal") == 2);
+    CHECK(count_labels(lines, "begin_pass 'rtd-guide") == 1);
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.compute_passes().size() == 1);
+    const auto* denoiser = RendererTestAccess::rt_denoiser(r.renderer);
+    REQUIRE(denoiser != nullptr);
+    CHECK(denoiser->shaders_made());
+    const int historyImages = denoiser->history_image_count();
+    CHECK(historyImages >= 8);  // four per signal and the camera's guide
+    // The same frame every frame, whatever the number of rays.
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> a = r.lines();
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.lines() == a);
+    // Off: the denoiser frees its history (swept) and the passes are gone; ray tracing stays on for another effect.
+    s.reflections = false;
+    s.translucency = true;
+    r.renderer.set_ray_tracing(s);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(denoiser->history_image_count() == 0);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "rtd-") == 0);
+    CHECK(index_of(r.lines(), "ssr-trace") < 0);
+    // On again: a new history (the first frame of a signal starts from nothing).
+    s.reflections = true;
+    r.renderer.set_ray_tracing(s);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "begin_pass 'rtd-temporal") == 2);
+    CHECK(denoiser->history_image_count() == historyImages);
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE(
+    "rt reflect: on a device that cannot trace there are no traced reflections and no denoiser, and the screen-space "
+    "ones stay") {
+    Logs log;
+    Rig r(false);
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.reflections = true;
+    s.raysPerPixel = 8;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.errors().empty());
+    CHECK(count_labels(r.lines(), "rtd-") == 0);
+    CHECK(count_labels(r.lines(), "rt-reflections") == 0);
+    const auto* denoiser = RendererTestAccess::rt_denoiser(r.renderer);
+    REQUIRE(denoiser != nullptr);
+    CHECK_FALSE(denoiser->shaders_made());
+    CHECK(denoiser->history_image_count() == 0);
+    CHECK(r.effects().empty());
+}
