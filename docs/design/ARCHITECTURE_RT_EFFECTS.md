@@ -192,6 +192,17 @@ that traces but refuses the kernel says so once (`rtWarnedAo`) and the SSAO pass
 `RtEffectImage::ran` is true as it draws (the scene had a TLAS that frame), else the picture is not darkened (SSAO is not drawn in its place:
 the graph was built with the other passes).
 
+**Guards of the apply.** The traced image is drawn by the screen-space occlusion's apply, so `Ssao::apply_available` (RGBA16F targets that
+render, blend and filter, and `Gpu::ssao_ready()`) is asked before `rt_ao` is declared. A GPU without them says so once (`rtWarnedAo`) and draws
+neither effect. The radius is clamped to the SSAO's own range (0.001 to 20 m) and the intensity to 0 to 4, and a NaN falls back to the defaults,
+before either reaches the kernel or the power of the apply.
+
+**A frame without the kernel.** The graph is built before it runs, so the denoiser's passes are declared even on a frame where `rt-ao` does not
+dispatch (the scene had no TLAS yet: `RtEffectImage::ran` is false). The denoiser then accumulates what the image holds (the last visibility the
+kernel wrote, or nothing the first time) into its history, and the main pass skips the apply, so the picture is not darkened. The history of
+that frame is not a measurement; the temporal pass's own rejection (disocclusion, camera cut) recovers within a few frames. Gating the
+denoiser by `ran` would need a pass that decides when it executes, which the frame graph does not have.
+
 **What occludes.** Instances with the mask `0x03` (`kRtMaskOpaque | kRtMaskCutout`, `rt_records.h`). Blended surfaces (glass, water) let
 the ambient light through. An **alpha-tested instance occludes as a solid**: the kernel binds no texture and no records, so the ray is
 `RAY_FLAG_FORCE_OPAQUE` (Metal: `forced_opacity::opaque`) and a cutout's whole triangle counts. A leaf card therefore darkens more than its

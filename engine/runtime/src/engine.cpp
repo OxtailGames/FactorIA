@@ -2199,12 +2199,13 @@ Json Engine::ray_tracing_status() {
     else if (active) {
         std::string what;
         if (shadowsOn)
-            what = "the shadow of the directional light that has castShadows (shadows \"soft\" draws the hard one for "
-                   "now)";
+            what = "the shadow of the directional light that has castShadows, on the main camera (the one whose "
+                   "meshes are the traced scene's; shadows \"soft\" draws the hard one for now)";
         if (aoOn)
-            what += std::string(what.empty() ? "" : " and ") +
-                    "the ambient occlusion of every world camera (rays around the surface's normal, denoised; the "
-                    "radius and intensity are the screen-space occlusion's)";
+            what +=
+                std::string(what.empty() ? "" : " and ") +
+                "the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
+                "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)";
         j["reason"] = "Traced: " + what + ". The other effects are not made yet.";
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows and ao are made "

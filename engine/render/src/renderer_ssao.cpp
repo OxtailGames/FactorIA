@@ -99,8 +99,16 @@ SsaoSettings ssao_rt_settings(const SsaoSettings& own) {
         s.intensity = defaults.ssaoIntensity;
         s.radius = defaults.ssaoRadius;
     }
+    // The ray's reach and the power come from the same ranges add_passes uses (a NaN or an out of range number never reaches the kernel).
+    s.intensity = std::clamp(finite_or(s.intensity, 1.0f), 0.0f, kMaxIntensity);
+    s.radius = std::clamp(finite_or(s.radius, 0.5f), kMinRadius, kMaxRadius);
     s.enabled = true;
     return s;
+}
+
+bool Ssao::apply_available(Gpu& gpu) {
+    const gpu::PixelFormatCaps fmtInfo = gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba16F);
+    return fmtInfo.render && fmtInfo.blend && fmtInfo.filter && gpu.ssao_ready();
 }
 
 SsaoApply ssao_apply_for_image(const SsaoSettings& s, const SsaoCamera& cam, bool linear, bool gl, ResourceId ao,

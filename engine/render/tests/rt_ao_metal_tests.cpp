@@ -315,8 +315,9 @@ float cpu_visibility(const std::vector<Tri>& tris, Vec3 pos, Vec3 n, float depth
 
 }  // namespace
 
-TEST_CASE("rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray caster, darkens at the contact and is the same "
-          "every frame") {
+TEST_CASE(
+    "rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray caster, darkens at the contact and is the same "
+    "every frame") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -373,7 +374,8 @@ TEST_CASE("rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray ca
     const CameraGeometry cam = make_camera();
     const Vec2 targetSize{float(kW), float(kH)};
     std::vector<float> prepass(std::size_t(kW) * kH * 4, 0.0f);
-    std::vector<int> primary(std::size_t(kW) * kH, -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
+    std::vector<int> primary(std::size_t(kW) * kH,
+                             -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
     std::vector<float> depths(std::size_t(kW) * kH, 0.0f);
     std::vector<Vec3> positions(std::size_t(kW) * kH);
     std::vector<Vec3> normals(std::size_t(kW) * kH);
@@ -462,7 +464,8 @@ TEST_CASE("rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray ca
                 continue;
             }
             CHECK(g[3] == 1.0f);
-            const float cpu = cpu_visibility(tris, positions[i], normals[i], depths[i], x, y, params.frame[1], kRays, user0);
+            const float cpu =
+                cpu_visibility(tris, positions[i], normals[i], depths[i], x, y, params.frame[1], kRays, user0);
             ++compared;
             const float diff = std::fabs(g[0] - cpu);
             sumAbs += double(diff);
@@ -473,11 +476,14 @@ TEST_CASE("rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray ca
             if (primary[i] <= 1) {
                 const Vec3 p = positions[i];
                 // distance in the ground plane to the box at (-1, 0, 0.5): [-2, 0] x [-0.5, 1.5]
-                const float dx = std::max({-2.0f - p.x, 0.0f, p.x - 0.0f}), dz = std::max({-0.5f - p.z, 0.0f, p.z - 1.5f});
+                const float dx = std::max({-2.0f - p.x, 0.0f, p.x - 0.0f}),
+                            dz = std::max({-0.5f - p.z, 0.0f, p.z - 1.5f});
                 const float dBox = std::sqrt(dx * dx + dz * dz);
-                const float ex = std::max({3.0f - p.x, 0.0f, p.x - 5.0f}), ez = std::max({-2.0f - p.z, 0.0f, p.z - 0.0f});
+                const float ex = std::max({3.0f - p.x, 0.0f, p.x - 5.0f}),
+                            ez = std::max({-2.0f - p.z, 0.0f, p.z - 0.0f});
                 const float dGlass = std::sqrt(ex * ex + ez * ez);  // the blended box: [3, 5] x [-2, 0]
-                const float fx = std::max({-6.0f - p.x, 0.0f, p.x + 4.0f}), fz = std::max({-3.0f - p.z, 0.0f, p.z + 1.0f});
+                const float fx = std::max({-6.0f - p.x, 0.0f, p.x + 4.0f}),
+                            fz = std::max({-3.0f - p.z, 0.0f, p.z + 1.0f});
                 const float dCutout = std::sqrt(fx * fx + fz * fz);  // the alpha tested box: [-6, -4] x [-3, -1]
                 if (dBox < 0.8f && dCutout > 3.0f) {
                     nearSum += double(g[0]);
@@ -495,9 +501,10 @@ TEST_CASE("rt ao on Metal: the ambient occlusion matches a CPU hemisphere ray ca
     }
     MESSAGE("compared " << compared << ", agree " << agree << ", exact " << exact << ", mean |gpu - cpu| "
                         << (compared ? sumAbs / compared : 0.0) << ", sky " << sky << ", partly closed " << partlyClosed
-                        << ", near the contact " << nearCount << " (gpu mean " << (nearCount ? nearSum / nearCount : 0.0)
-                        << ", cpu mean " << (nearCount ? nearCpu / nearCount : 0.0) << "), far " << farCount
-                        << " (mean " << (farCount ? farSum / farCount : 0.0) << "), open beside the blended box " << maskMatters);
+                        << ", near the contact " << nearCount << " (gpu mean "
+                        << (nearCount ? nearSum / nearCount : 0.0) << ", cpu mean "
+                        << (nearCount ? nearCpu / nearCount : 0.0) << "), far " << farCount << " (mean "
+                        << (farCount ? farSum / farCount : 0.0) << "), open beside the blended box " << maskMatters);
     CHECK(compared > kW * kH / 2);
     CHECK(sky > 50);
     CHECK(agree >= int(0.98 * compared));

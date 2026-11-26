@@ -86,6 +86,10 @@ public:
     static void draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre,
                            const TargetFormat& format);
 
+    // Whether the apply can be drawn on this GPU: RGBA16F targets that blend and filter, and the occlusion's shaders compiled. add_passes
+    // needs the same; the ray traced occlusion (rt_ao) asks before it replaces the screen-space one, so a GPU without them draws neither.
+    static bool apply_available(Gpu& gpu);
+
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
     void release() {
         failed_.clear();
