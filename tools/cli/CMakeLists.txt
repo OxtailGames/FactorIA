@@ -48,7 +48,10 @@ if(FA_BUILD_TESTS)
         target_link_libraries(fa_test_cli PRIVATE fa_cli fa_ext_doctest fa_warnings)
         target_include_directories(fa_test_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)  # common.h: Session, run_project_tests
         target_include_directories(fa_test_cli PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
+        # The lightmap helper process cases run the real `factoria` (lightmap_bake_test.cpp): built first, found through FA_FACTORIA_EXE.
+        add_dependencies(fa_test_cli factoria)
         add_test(NAME cli COMMAND fa_test_cli WORKING_DIRECTORY ${FA_ROOT})
+        set_property(TEST cli APPEND PROPERTY ENVIRONMENT "FA_FACTORIA_EXE=$<TARGET_FILE:factoria>")
     endif()
 
     # End-to-end: drives the real binary (new/validate/run/test/call/mcp) for every template.

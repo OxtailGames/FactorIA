@@ -365,6 +365,13 @@ public:
     // The setting, whether this device could trace (renderer.supports("raytracing") and its reason) and whether anything is traced
     // ("active": always false in this version), as render.ray_tracing returns it.
     Json ray_tracing_status();
+    // render.path_tracer (M79-P5a, docs/design/ARCHITECTURE_RT_PATHTRACER.md): the path-traced reference picture {enabled, maxBounces, samplesPerFrame,
+    // maxSamples, fireflyClamp, lights, seed}. An error is returned and nothing changes.
+    std::string set_path_tracer(const Json& value, const std::string& where = "render.path_tracer");
+    const render::PathTracerSettings& path_tracer() const;
+    // The setting, whether this device could trace, and what the last drawn frame did (the samples accumulated, why the accumulation restarted),
+    // as render.path_tracer returns it.
+    Json path_tracer_status();
     // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
     // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
     std::string set_dynamic_resolution(const Json& value,

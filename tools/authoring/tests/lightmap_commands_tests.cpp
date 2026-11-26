@@ -6,8 +6,11 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <thread>
@@ -177,6 +180,8 @@ TEST_CASE("lightmap.bake: arguments are checked with a JSON pointer and a hint b
     bad(Json::object({{"path", "scenes/main.json"}}), ".lightmap.json");
     bad(Json::object({{"path", "../outside.lightmap.json"}}), "outside");
     bad(Json::object({{"apply", "yes"}}), "/apply");
+    bad(Json::object({{"device", "gpuu"}}), "gpu");
+    bad(Json::object({{"device", 3}}), "/device");
     bad(Json::object({{"sky", "environment"}}), "environmentMap");
     // A scene with nothing that receives light.
     CHECK(c.call("scene.set_component", Json::object({{"id", "floor"},
@@ -826,3 +831,623 @@ TEST_CASE("lightmap jobs: with no worker threads the first status answers a fini
     CHECK(status.result["handOver"]["applied"] == true);
     e.shutdown();
 }
+
+namespace {
+
+// The sum of every value of the pages the manifest lists.
+double page_sum(const std::string& manifestPath) {
+    auto manifest = load_lightmap_manifest(manifestPath);
+    REQUIRE_MESSAGE(manifest.ok(), manifest.error().message);
+    double sum = 0;
+    for (const LightmapPage& pg : manifest->pages) {
+        auto img = load_hdr(pg.file);
+        REQUIRE_MESSAGE(img.ok(), img.error().message);
+        for (float v : img->data) sum += v;
+    }
+    return sum;
+}
+
+}  // namespace
+
+TEST_CASE("lightmap.bake device: the CPU is the default and says so; auto and gpu say which device baked, and why not "
+          "the GPU") {
+    TempProject p("device");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto cpu = c.call("lightmap.bake", small());
+    REQUIRE_MESSAGE(cpu.ok, cpu.error.dump());
+    CHECK(cpu.result["device"]["requested"] == "cpu");
+    CHECK(cpu.result["device"]["used"] == "cpu");
+    CHECK(cpu.result["device"]["note"] == "");
+    const double cpuSum = page_sum("scenes/main.lightmap.json");
+    const std::string cpuHash = cpu.result["settingsHash"].get<std::string>();
+
+    // auto: the GPU when this machine traces rays (Metal on a Mac without a window), else the CPU with the reason as a note and a warning.
+    auto autoBake = c.call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+    REQUIRE_MESSAGE(autoBake.ok, autoBake.error.dump());
+    const std::string used = autoBake.result["device"]["used"].get<std::string>();
+    MESSAGE("auto baked on " << autoBake.result["device"].dump());
+    CHECK(autoBake.result["device"]["requested"] == "auto");
+    CHECK(autoBake.result["settingsHash"].get<std::string>() !=
+          cpuHash);  // another device is another bake (the status sees it)
+    if (used == "cpu") {
+        const std::string note = autoBake.result["device"]["note"].get<std::string>();
+        CHECK_MESSAGE(note.find("baked on the CPU") != std::string::npos, note);
+        CHECK(autoBake.result["warnings"].dump().find("baked on the CPU") != std::string::npos);
+        // The GPU was asked for by name: an error that says why and what to do. Not when "auto" left a software rasteriser out (WARP,
+        // lavapipe on a CI machine): "gpu" would run the kernel on it, and no test does that.
+        if (note.find("software") != std::string::npos) return;
+        auto gpu = c.call("lightmap.bake", small(Json::object({{"device", "gpu"}})));
+        if (!gpu.ok) {
+            CHECK(gpu.error.dump().find("device \\\"gpu\\\"") != std::string::npos);
+            CHECK(gpu.error.dump().find("cpu") != std::string::npos);
+        }
+    } else {
+        CHECK(used == "gpu");
+        CHECK(autoBake.result["device"]["name"].get<std::string>().size() > 0);
+        CHECK(autoBake.result["device"]["note"] == "");
+        // The same scene, the same random numbers: the light on the pages is the CPU's up to the GPU's rounding.
+        const double gpuSum = page_sum("scenes/main.lightmap.json");
+        CHECK(gpuSum == doctest::Approx(cpuSum).epsilon(0.01));
+    }
+}
+
+// ---- the GPU bake's device report, the failure of a tracer in the middle of a bake, and the helper process (M79-P5c) -------------------------------
+
+#include "lightmap_bake_helper.h"
+
+namespace {
+
+// A tracer that fills every texel with a constant and fails once `failAfter` texels were traced: what the GPU does when a driver resets the device in
+// the middle of a bake. failAfter 0 = never fails.
+class FakeTracer final : public BakeTexelTracer {
+public:
+    explicit FakeTracer(std::uint64_t failAfter) : failAfter_(failAfter) {}
+    Result<void> begin(const BakeTraceScene&) override { return {}; }
+    Result<void> trace_atlas(std::uint64_t, const std::vector<BakeTraceTexel>& texels,
+                             const BakeTraceProgressFn& progress, std::vector<float>& rgb) override {
+        rgb.assign(texels.size() * 3, 0.25f);
+        const std::uint64_t n = failAfter_ == 0 ? texels.size() : std::min<std::uint64_t>(texels.size(), failAfter_);
+        if (progress && !progress(n)) return make_error("cancelled", "the bake was cancelled");
+        if (n < texels.size())
+            return make_error("the fake GPU lost its device after " + std::to_string(n) + " texels",
+                              "Reset the graphics driver.");
+        return {};
+    }
+
+private:
+    std::uint64_t failAfter_;
+};
+
+// Gives the bake job a tracer of the test's own and never a helper process; puts both back at the end.
+struct FakeGpu {
+    explicit FakeGpu(std::uint64_t failAfter) {
+        lightmap_job::set_helper_use(lightmap_job::HelperUse::Never);
+        lightmap_job::set_tracer_opener([failAfter](bool) -> Result<lightmap_job::TracerHandle> {
+            lightmap_job::TracerHandle h;
+            h.tracer = std::make_unique<FakeTracer>(failAfter);
+            h.deviceName = "Fake GPU";
+            return h;
+        });
+    }
+    ~FakeGpu() {
+        lightmap_job::set_tracer_opener({});
+        lightmap_job::set_helper_use(lightmap_job::HelperUse::Auto);
+    }
+};
+
+// Sets an environment variable of this process for the test (a path in the tests below is ASCII).
+struct EnvVar {
+    std::string name;
+    std::string old;
+    bool had = false;
+    EnvVar(const std::string& n, const std::string& value) : name(n) {
+        if (const char* o = std::getenv(n.c_str())) {
+            had = true;
+            old = o;
+        }
+        set(value.c_str());
+    }
+    ~EnvVar() { set(had ? old.c_str() : nullptr); }
+    void set(const char* v) {
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), v ? v : "");
+#else
+        if (v)
+            setenv(name.c_str(), v, 1);
+        else
+            unsetenv(name.c_str());
+#endif
+    }
+};
+
+// A scene with a light probe group and no mesh that gets lightmap texels (the box casts shadows and receives nothing).
+std::string probes_only_scene() {
+    return R"({
+  "format": "factoria.scene/1",
+  "settings": { "ambientLight": "#404060" },
+  "entities": [
+    { "id": "box", "name": "box", "components": { "Transform": { "position": [0, 0.5, 0] }, "MeshRenderer": { "mesh": "cube", "receiveGI": false } } },
+    { "id": "sun", "name": "sun", "components": { "Transform": { "rotation": [-50, 30, 0] }, "Light": { "type": "directional", "intensity": 2, "mode": "baked" } } },
+    { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2, "points": [] } } }
+  ]
+})";
+}
+
+Result<lightmap_job::Plan> plan_of(Engine& e, const TempProject& p, const Json& args = small()) {
+    lightmap_job::Options opt;
+    opt.texelsPerMeter = args.value("texelsPerMeter", 4.0);
+    opt.maxPageSize = args.value("maxPageSize", 256);
+    opt.settings.samples = args.value("samples", 8);
+    opt.settings.shadowSamples = args.value("shadowSamples", 2);
+    opt.settings.denoiseRadius = args.value("denoiseRadius", 0);
+    const std::string device = args.value("device", std::string("cpu"));
+    opt.device = device == "gpu"    ? lightmap_job::DeviceChoice::Gpu
+                 : device == "auto" ? lightmap_job::DeviceChoice::Auto
+                                    : lightmap_job::DeviceChoice::Cpu;
+    return lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                   (p.dir / "scenes/main.lightmap.json").generic_string(), "scenes/main.lightmap.json");
+}
+
+}  // namespace
+
+TEST_CASE("lightmap.bake_start device: gpu and auto bake on the GPU or on the CPU, and the result says which, where "
+          "and why") {
+    TempProject p("devicejob");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    for (const char* device : {"auto", "gpu"}) {
+        auto start = c.call("lightmap.bake_start", small(Json::object({{"device", device}, {"apply", false}})));
+        REQUIRE_MESSAGE(start.ok, start.error.dump());
+        const Json done = wait_done(e, start.result["job"].get<std::string>());
+        MESSAGE(device << ": " << done.dump());
+        if (done["state"] == "failed") {
+            // No GPU here that traces rays (and, for gpu, none at all): the error names the device and says what to do.
+            REQUIRE(std::string(device) == "gpu");
+            CHECK(done["error"].get<std::string>().find("device \"gpu\"") != std::string::npos);
+            CHECK(done["hint"].get<std::string>().size() > 0);
+            continue;
+        }
+        REQUIRE(done["state"] == "done");
+        const Json& dev = done["result"]["device"];
+        CHECK(dev["requested"] == device);
+        const std::string used = dev["used"].get<std::string>();
+        CHECK((used == "cpu" || used == "gpu"));
+        CHECK(dev["name"].get<std::string>().size() > 0);
+        CHECK((dev["process"] == "here" ||
+               dev["process"] == "helper"));  // a helper when this process has a graphics context (a Mac)
+        if (used == "cpu")
+            CHECK(dev["note"].get<std::string>().find("baked on the CPU") != std::string::npos);
+        else
+            CHECK(dev["note"] == "");
+        CHECK(done["result"]["pages"].size() >= 1);
+    }
+    e.shutdown();
+}
+
+TEST_CASE("lightmap.bake device: a tracer of the test traces the texels, and the result names it") {
+    TempProject p("faketracer");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const FakeGpu gpu(0);
+    auto r = e.commands().call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["device"]["used"] == "gpu");
+    CHECK(r.result["device"]["name"] == "Fake GPU");
+    CHECK(r.result["device"]["note"] == "");
+    CHECK(r.result["device"]["process"] == "here");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap.bake device: a GPU that fails in the middle of a bake - auto bakes on the CPU, gpu fails and "
+          "writes nothing") {
+    TempProject p("gpufail");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto cpu = c.call("lightmap.bake", small());
+    REQUIRE_MESSAGE(cpu.ok, cpu.error.dump());
+    const double cpuSum = page_sum("scenes/main.lightmap.json");
+    REQUIRE(stdfs::remove(p.dir / "scenes/main.lightmap.json"));
+    for (const std::string& f : p.files())
+        if (f.size() > 4 && f.substr(f.size() - 4) == ".hdr") stdfs::remove(p.dir / "scenes" / f);
+
+    const FakeGpu gpu(100);  // fails after 100 texels
+    auto fallback = c.call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+    REQUIRE_MESSAGE(fallback.ok, fallback.error.dump());
+    const Json& dev = fallback.result["device"];
+    CHECK(dev["requested"] == "auto");
+    CHECK(dev["used"] == "cpu");
+    CHECK(dev["name"] == "CPU");
+    const std::string note = dev["note"].get<std::string>();
+    CHECK_MESSAGE(note.find("the GPU bake failed") != std::string::npos, note);
+    CHECK_MESSAGE(note.find("fake GPU lost its device after 100 texels") != std::string::npos, note);
+    CHECK(fallback.result["warnings"].dump().find("the GPU bake failed") != std::string::npos);
+    // The CPU did the bake: the pages are the CPU's, bit for bit.
+    CHECK(page_sum("scenes/main.lightmap.json") == cpuSum);
+
+    // gpu was asked for by name: the failure is the answer, with the tracer's own words, and the bake of before stays.
+    const std::string manifestBefore = p.read("scenes/main.lightmap.json");
+    auto strict = c.call("lightmap.bake", small(Json::object({{"device", "gpu"}, {"seed", 5}})));
+    REQUIRE_FALSE(strict.ok);
+    CHECK(strict.error.dump().find("fake GPU lost its device after 100 texels") != std::string::npos);
+    CHECK(p.read("scenes/main.lightmap.json") == manifestBefore);
+    e.shutdown();
+}
+
+TEST_CASE(
+    "lightmap.bake device: a scene with probes and no lightmap texels says it baked on the CPU, whatever the device") {
+    TempProject p("probesonly", probes_only_scene());
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const FakeGpu gpu(0);
+    for (const char* device : {"gpu", "auto"}) {
+        auto r = e.commands().call("lightmap.bake", small(Json::object({{"device", device}})));
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["device"]["requested"] == device);
+        CHECK(r.result["device"]["used"] == "cpu");
+        CHECK(r.result["device"]["note"] == "no lightmap texels: only probes, baked on the CPU");
+        CHECK(r.result["warnings"].dump().find("no lightmap texels: only probes, baked on the CPU") !=
+              std::string::npos);
+        CHECK(r.result["pages"].size() == 0);
+        CHECK(r.result.contains("probes"));
+    }
+    // The CPU says nothing: it was what was asked for.
+    auto cpu = e.commands().call("lightmap.bake", small());
+    REQUIRE_MESSAGE(cpu.ok, cpu.error.dump());
+    CHECK(cpu.result["device"]["note"] == "");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap bake helper: a helper that cannot start is the reason, never a crash - gpu fails with it, auto "
+          "bakes on the CPU") {
+    TempProject p("nohelper");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const EnvVar exe("FA_FACTORIA_EXE",
+                     (p.dir / "no-such-factoria").generic_string());  // a wrong override is not replaced
+    CHECK(lightmap_job::helper_executable().empty());
+    lightmap_job::set_helper_use(lightmap_job::HelperUse::Always);
+    struct Reset {
+        ~Reset() { lightmap_job::set_helper_use(lightmap_job::HelperUse::Auto); }
+    } reset;
+
+    auto strict = e.commands().call("lightmap.bake", small(Json::object({{"device", "gpu"}})));
+    REQUIRE_FALSE(strict.ok);
+    CHECK(strict.error.dump().find("device \\\"gpu\\\"") != std::string::npos);
+    CHECK(strict.error.dump().find("was not found") != std::string::npos);
+
+    auto fallback = e.commands().call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+    REQUIRE_MESSAGE(fallback.ok, fallback.error.dump());
+    CHECK(fallback.result["device"]["used"] == "cpu");
+    CHECK(fallback.result["device"]["process"] == "here");
+    CHECK(fallback.result["device"]["note"].get<std::string>().find("baked on the CPU, the GPU bake could not run") !=
+          std::string::npos);
+
+    // The CPU never asks for a helper.
+    auto cpu = e.commands().call("lightmap.bake", small());
+    REQUIRE_MESSAGE(cpu.ok, cpu.error.dump());
+    CHECK(cpu.result["device"]["note"] == "");
+    e.shutdown();
+}
+
+TEST_CASE(
+    "lightmap bake helper: only a bake that traces lightmap texels on a device other than the CPU wants a helper") {
+    TempProject p("wanted");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    lightmap_job::set_helper_use(lightmap_job::HelperUse::Always);
+    struct Reset {
+        ~Reset() { lightmap_job::set_helper_use(lightmap_job::HelperUse::Auto); }
+    } reset;
+    auto gpu = plan_of(e, p, small(Json::object({{"device", "gpu"}})));
+    REQUIRE_MESSAGE(gpu.ok(), gpu.error().message);
+    CHECK(lightmap_job::helper_wanted(*gpu));
+    auto cpu = plan_of(e, p);
+    REQUIRE_MESSAGE(cpu.ok(), cpu.error().message);
+    CHECK_FALSE(lightmap_job::helper_wanted(*cpu));
+    lightmap_job::set_helper_use(lightmap_job::HelperUse::Never);
+    CHECK_FALSE(lightmap_job::helper_wanted(*gpu));
+    e.shutdown();
+}
+
+TEST_CASE(
+    "lightmap bake plan: a plan survives its JSON and bakes the same bytes; a mistake in it gets a JSON pointer") {
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2, "points": [[0, 0.5, 0]] } } },
+    { "id": "lamp", "components": { "Transform": { "position": [1, 3, 0] }, "Light": { "type": "point", "intensity": 5, "range": 10, "mode": "mixed" } } })";
+    TempProject p("planjson", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto plan = plan_of(e, p);
+    REQUIRE_MESSAGE(plan.ok(), plan.error().message);
+    const Json text = lightmap_job::plan_to_json(*plan);
+    auto parsed = parse_json(text.dump(), "<plan>");  // through the text the pipe carries
+    REQUIRE_MESSAGE(parsed.ok(), parsed.error().message);
+    auto back = lightmap_job::plan_from_json(*parsed);
+    REQUIRE_MESSAGE(back.ok(), back.error().message);
+    CHECK(lightmap_job::plan_to_json(*back).dump() == text.dump());
+    CHECK(back->meshes.size() == plan->meshes.size());
+    CHECK(back->lights.size() == plan->lights.size());
+    CHECK(back->probes.size() == plan->probes.size());
+
+    auto direct = lightmap_job::execute_here(*plan, {});
+    REQUIRE_MESSAGE(direct.ok(), direct.error().message);
+    const double directSum = page_sum("scenes/main.lightmap.json");
+    const std::string probeFile = (*direct)["probes"]["file"].get<std::string>();
+    auto viaJson = lightmap_job::execute_here(*back, {});
+    REQUIRE_MESSAGE(viaJson.ok(), viaJson.error().message);
+    CHECK(page_sum("scenes/main.lightmap.json") == directSum);
+    CHECK((*viaJson)["settingsHash"] == (*direct)["settingsHash"]);
+    CHECK((*viaJson)["probes"]["file"] == probeFile);  // the same bytes: the probe file is named after them
+    CHECK((*viaJson)["pages"] == (*direct)["pages"]);
+
+    // A mistake says where it is.
+    Json broken = *parsed;
+    broken["meshes"][0].erase("world");
+    auto noWorld = lightmap_job::plan_from_json(broken);
+    REQUIRE_FALSE(noWorld.ok());
+    CHECK(noWorld.error().message.find("/meshes/0/world") != std::string::npos);
+    broken = *parsed;
+    broken["options"]["device"] = 7;
+    auto badDevice = lightmap_job::plan_from_json(broken);
+    REQUIRE_FALSE(badDevice.ok());
+    CHECK(badDevice.error().message.find("/options/device") != std::string::npos);
+    broken = *parsed;
+    broken["lights"][0]["intensity"] = "bright";
+    auto badLight = lightmap_job::plan_from_json(broken);
+    REQUIRE_FALSE(badLight.ok());
+    CHECK(badLight.error().message.find("/lights/0/intensity") != std::string::npos);
+    CHECK_FALSE(lightmap_job::plan_from_json(Json::array()).ok());
+
+    // A process that is not the helper of a bake refuses the internal command, whatever the plan (nothing is written, no job starts).
+    auto notHelper = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", *parsed}}));
+    REQUIRE_FALSE(notHelper.ok);
+    CHECK(notHelper.error.dump().find("internal_command") != std::string::npos);
+    CHECK(notHelper.error.dump().find("lightmap.bake_start") != std::string::npos);
+
+    // The helper's session (run_in_helper sets this variable in the child) takes the same plan and refuses a broken one with the pointer.
+    const EnvVar helperSession("FA_LIGHTMAP_HELPER_SESSION", "1");
+    auto refused = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", broken}}));
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.error.dump().find("/lights/0/intensity") != std::string::npos);
+    auto started = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", *parsed}}));
+    REQUIRE_MESSAGE(started.ok, started.error.dump());
+    const Json done = wait_done(e, started.result["job"].get<std::string>());
+    CHECK(done["state"] == "done");
+    CHECK(done["result"]["device"]["process"] == "here");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap bake plan: a plan that writes outside the project, or has numbers out of range, is refused with a "
+          "JSON pointer") {
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2 } } })";
+    TempProject p("planguard", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto plan = plan_of(e, p);
+    REQUIRE_MESSAGE(plan.ok(), plan.error().message);
+    const Json good = lightmap_job::plan_to_json(*plan);
+    REQUIRE_MESSAGE(lightmap_job::plan_from_json(good).ok(), "the plan of the test is valid");
+    const EnvVar helperSession("FA_LIGHTMAP_HELPER_SESSION", "1");
+    const stdfs::path outside = p.dir.parent_path() / "planguard_evil.lightmap.json";
+    std::error_code ec;
+    stdfs::remove(outside, ec);
+
+    // The command: where the plan writes is the project's own write sandbox, the same as lightmap.bake's `path`.
+    auto refuse = [&](Json plan, const std::string& pointer) {
+        auto r = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", plan}}));
+        CHECK_FALSE(r.ok);
+        CHECK_MESSAGE(r.error.dump().find(pointer) != std::string::npos, pointer << " in " << r.error.dump());
+        CHECK_MESSAGE(!r.error.value("hint", std::string()).empty(), "a hint in " << r.error.dump());
+    };
+    Json bad = good;
+    bad["manifestAbs"] = fs::path_to_utf8(outside);  // an absolute path outside the project, project spelling untouched
+    refuse(bad, "/plan/manifestAbs");
+    bad = good;
+    bad["manifestProject"] = "../planguard_evil.lightmap.json";
+    bad["manifestAbs"] = fs::path_to_utf8(outside);
+    refuse(bad, "outside");  // the sandbox's own error: path_outside_root
+    bad = good;
+    bad["manifestProject"] = fs::path_to_utf8(outside);
+    bad["manifestAbs"] = fs::path_to_utf8(outside);
+    refuse(bad, "/plan/manifestProject");
+    bad = good;
+    bad["manifestProject"] = "scenes/evil.json";
+    bad["manifestAbs"] = fs::path_to_utf8(p.dir / "scenes" / "evil.json");
+    refuse(bad, "/plan/manifestProject");
+    bad = good;
+    bad["manifestProject"] = "scenes/other.lightmap.json";  // inside the project, but not the file manifestAbs names
+    refuse(bad, "/plan/manifestAbs");
+    CHECK_FALSE(stdfs::exists(outside));
+    CHECK_FALSE(stdfs::exists(p.dir / "scenes" / "evil.json"));
+
+    // The numbers and indices of the plan.
+    auto pointer_of = [&](const std::function<void(Json&)>& change) {
+        Json j = good;
+        change(j);
+        auto r = lightmap_job::plan_from_json(j);
+        return r.ok() ? std::string("<accepted>") : r.error().message;
+    };
+    REQUIRE(good["probes"]["groups"].size() == 1);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["count"] = 100000; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["first"] = -1; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["nx"] = 99; }).find("/probes/groups/0/count") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["nz"] = 0; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["maxPageSize"] = 1000000; }).find("/options/maxPageSize") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["texelsPerMeter"] = 1e9; }).find("/options/texelsPerMeter") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["samples"] = 0; }).find("/options/settings") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["bounces"] = 99; }).find("/bounces") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["shadowSamples"] = 100000; }).find("/shadowSamples") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) {
+              j["options"]["settings"]["denoiseSigma"] = std::numeric_limits<double>::infinity();
+          }).find("/options/settings/denoiseSigma") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["denoiseSigma"] = 1e300; }).find("denoiseSigma") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) {
+              j["sky"]["intensity"] = std::numeric_limits<double>::quiet_NaN();
+          }).find("/sky/intensity") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["environmentMap"] = "../../secret.hdr"; }).find("/environmentMap") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["meshes"][0]["mesh"] = "C:/x/m.glb"; }).find("/meshes/0/mesh") !=
+          std::string::npos);
+    e.shutdown();
+}
+
+#if !defined(_WIN32)
+#include <sys/types.h>
+
+#include <cerrno>
+#include <csignal>
+
+namespace {
+
+// A shell script that stands in for `factoria session` (the helper). It is written, closed and then run: no file is open for writing when it starts.
+stdfs::path write_fake_factoria(const TempProject& p, const std::string& name, const std::string& body) {
+    const stdfs::path file = p.dir / name;
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << "#!/bin/sh\n" << body;
+    }
+    stdfs::permissions(file, stdfs::perms::owner_all, stdfs::perm_options::add);
+    return file;
+}
+
+// True when the process whose id the script wrote is gone (the helper ended before the job did); waits a little for a slow machine.
+bool helper_gone(const stdfs::path& pidFile) {
+    std::ifstream in(pidFile);
+    long pid = 0;
+    if (!(in >> pid) || pid <= 1) return false;
+    for (int i = 0; i < 100; ++i) {
+        if (::kill(pid_t(pid), 0) != 0 && errno == ESRCH) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    return false;
+}
+
+struct HelperAlways {
+    HelperAlways() { lightmap_job::set_helper_use(lightmap_job::HelperUse::Always); }
+    ~HelperAlways() { lightmap_job::set_helper_use(lightmap_job::HelperUse::Auto); }
+};
+
+}  // namespace
+
+TEST_CASE("lightmap bake helper: its progress is followed, a cancel reaches it, and it is gone when the job ends") {
+    TempProject p("fakehelper");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const stdfs::path pidFile = p.dir / "helper.pid";
+    const stdfs::path script = write_fake_factoria(p, "fake-factoria", "echo $$ > \"" + pidFile.generic_string() + R"("
+echo '{"ready":true}'
+cancelled=0
+while read line; do
+  case "$line" in
+    *lightmap.bake_plan_start*)  # only a child that was told it is the helper takes a plan
+      if [ "$FA_LIGHTMAP_HELPER_SESSION" = 1 ]; then echo '{"ok":true,"result":{"job":"bake:1","state":"running"}}';
+      else echo '{"ok":false,"error":{"message":"the helper session variable is not set"}}'; fi ;;
+    *lightmap.bake_cancel*) cancelled=1; echo '{"ok":true,"result":{"state":"running"}}' ;;
+    *lightmap.bake_status*)
+      if [ "$cancelled" = 1 ]; then echo '{"ok":true,"result":{"state":"cancelled","error":"cancelled"}}';
+      else echo '{"ok":true,"result":{"state":"running","phase":"trace","progress":0.5,"rays":1000}}'; fi ;;
+    *session.quit*) exit 0 ;;
+  esac
+done
+)");
+    const EnvVar exe("FA_FACTORIA_EXE", script.generic_string());
+    const HelperAlways always;
+    auto& c = e.commands();
+    auto start = c.call("lightmap.bake_start", small(Json::object({{"device", "auto"}, {"apply", false}})));
+    REQUIRE_MESSAGE(start.ok, start.error.dump());
+    const std::string job = start.result["job"].get<std::string>();
+    // The progress the helper reports is the job's progress.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    Json seen;
+    for (;;) {
+        auto s = c.call("lightmap.bake_status", Json::object({{"job", job}}));
+        REQUIRE_MESSAGE(s.ok, s.error.dump());
+        seen = s.result;
+        if (seen["state"] != "running" || seen["phase"] == "trace") break;
+        REQUIRE(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE_MESSAGE(seen["state"] == "running", seen.dump());
+    CHECK(seen["phase"] == "trace");
+    CHECK(seen["progress"].get<double>() == doctest::Approx(0.5));
+    CHECK(seen["rays"] == 1000);
+    // The cancel goes to the helper; the job ends cancelled, nothing is written and the helper is gone.
+    auto cancel = c.call("lightmap.bake_cancel", Json::object({{"job", job}}));
+    REQUIRE_MESSAGE(cancel.ok, cancel.error.dump());
+    const Json done = wait_done(e, job);
+    CHECK(done["state"] == "cancelled");
+    CHECK(helper_gone(pidFile));
+    for (const std::string& f : p.files()) CHECK(f.find("lightmap") == std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE("lightmap bake helper: a helper that dies or never starts leaves this process untouched - gpu fails with the "
+          "reason, auto "
+          "bakes on the CPU") {
+    TempProject p("deadhelper");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const HelperAlways always;
+    auto& c = e.commands();
+    const stdfs::path pidFile = p.dir / "helper.pid";
+    // Dies in the middle of the bake (a driver crash, a GPU reset): killed by a signal after it took the plan.
+    const stdfs::path crashing =
+        write_fake_factoria(p, "crashing-factoria", "echo $$ > \"" + pidFile.generic_string() + R"("
+echo '{"ready":true}'
+read line
+echo '{"ok":true,"result":{"job":"bake:1","state":"running"}}'
+read line
+kill -9 $$
+)");
+    // Ends before it is ready (a project it cannot open).
+    const stdfs::path unready =
+        write_fake_factoria(p, "unready-factoria", "echo 'cannot open the project' >&2\nexit 3\n");
+    struct Case {
+        stdfs::path script;
+        const char* reason;
+    };
+    for (const Case& k : {Case{crashing, "the helper process stopped"}, Case{unready, "ended before it was ready"}}) {
+        const EnvVar exe("FA_FACTORIA_EXE", k.script.generic_string());
+        auto strict = c.call("lightmap.bake", small(Json::object({{"device", "gpu"}})));
+        REQUIRE_FALSE(strict.ok);
+        const std::string text = strict.error.dump();
+        CHECK_MESSAGE(text.find("device \\\"gpu\\\"") != std::string::npos, text);
+        CHECK_MESSAGE(text.find(k.reason) != std::string::npos, text);
+        auto fallback = c.call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+        REQUIRE_MESSAGE(fallback.ok, fallback.error.dump());
+        CHECK(fallback.result["device"]["used"] == "cpu");
+        CHECK(fallback.result["device"]["process"] == "here");
+        const std::string note = fallback.result["device"]["note"].get<std::string>();
+        CHECK_MESSAGE(note.find("baked on the CPU, the GPU bake could not run") != std::string::npos, note);
+        CHECK_MESSAGE(note.find(k.reason) != std::string::npos, note);
+        CHECK(fallback.result["pages"].size() >= 1);  // the CPU wrote the bake
+    }
+    CHECK(helper_gone(pidFile));
+    e.shutdown();
+}
+#endif

@@ -21,6 +21,15 @@ namespace {
 
 constexpr int kLightmapPageSizes[] = {512, 1024, 2048, 4096};
 const char* const kLightmapSkies[] = {"auto", "environment", "gradient", "ambient", "none"};
+const char* const kLightmapDevices[] = {"cpu", "gpu", "auto"};
+const char* const kLightmapDeviceLabels[] = {"CPU", "GPU", "Auto"};
+constexpr const char* kLightmapDeviceHints[] = {
+    "The CPU baker: exact, the same bytes on every machine. Use it for a final bake.",
+    ("A fast preview on the graphics card (ray queries). The bake fails with the reason when this machine's GPU cannot "
+     "trace rays."),
+    "The GPU when this machine has one that traces rays, else the CPU; the result says which and why."};
+constexpr const char* kLightmapDeviceFallbackDoc = "What traces the texels: cpu (exact), gpu (a fast preview on the "
+                                                   "graphics card) or auto (the GPU when there is one, else the CPU).";
 constexpr const char* kLightmapSkyHints[] = {
     "The environment map when the scene has one, else the scene's ambient light.",
     "The scene's environment map (SceneSettings.environmentMap), rotated and scaled like the renderer does.",
@@ -33,6 +42,18 @@ void tip(const char* text) {
     ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
     ImGui::EndTooltip();
+}
+
+// The doc string of lightmap.bake_start's `device` argument (the command's own text: what the tooltip shows), up to the part about the
+// light probes and the helper process, which the result line of the panel says for the bake that ran.
+std::string lightmap_device_doc(Engine* engine) {
+    if (!engine) return kLightmapDeviceFallbackDoc;
+    const CommandInfo* info = engine->commands().info("lightmap.bake_start");
+    if (!info || !info->inputSchema.contains("properties") || !info->inputSchema["properties"].contains("device"))
+        return kLightmapDeviceFallbackDoc;
+    std::string doc = info->inputSchema["properties"]["device"].value("description", std::string());
+    if (const auto cut = doc.find(" The light probes always bake"); cut != std::string::npos) doc.resize(cut);
+    return doc.empty() ? std::string(kLightmapDeviceFallbackDoc) : doc;
 }
 
 std::string seconds_text(double s) {
@@ -78,6 +99,7 @@ bool Editor::lightmap_start(std::string* error) {
     args["shadowSamples"] = std::clamp(lightmap_.shadowSamples, 1, 1024);
     args["maxPageSize"] = kLightmapPageSizes[std::clamp(lightmap_.pageSizeIndex, 0, 3)];
     args["sky"] = kLightmapSkies[std::clamp(lightmap_.skyIndex, 0, 4)];
+    args["device"] = kLightmapDevices[std::clamp(lightmap_.deviceIndex, 0, 2)];
     if (!lightmap_.path.empty()) args["path"] = lightmap_.path;
     args["apply"] = false;  // the panel sets SceneSettings.lightmaps itself: an undo step and a dirty scene
     const CommandResult r = engine_->commands().call("lightmap.bake_start", args);
@@ -85,8 +107,9 @@ bool Editor::lightmap_start(std::string* error) {
         const std::string text = command_error_text(r.error);
         return fail(r.error.value("message", text), r.error.value("hint", std::string()));
     }
-    lightmap_ = LightmapUi{lightmap_.texelsPerMeter, lightmap_.samples,  lightmap_.shadowSamples,
-                           lightmap_.pageSizeIndex,  lightmap_.skyIndex, lightmap_.path};
+    lightmap_ =
+        LightmapUi{lightmap_.texelsPerMeter, lightmap_.samples,     lightmap_.shadowSamples, lightmap_.pageSizeIndex,
+                   lightmap_.skyIndex,       lightmap_.deviceIndex, lightmap_.path};
     lightmap_.job = r.result.value("job", std::string());
     lightmap_.scene = scenePath_;
     lightmap_.engine = engine_.get();
@@ -219,6 +242,20 @@ void Editor::draw_lightmap_panel() {
             ImGui::EndCombo();
         }
         tip(kLightmapSkyHints[std::clamp(lightmap_.skyIndex, 0, 4)]);
+        {
+            const std::string deviceDoc = lightmap_device_doc(engine_.get());
+            row("Device", deviceDoc.c_str());
+            if (ImGui::BeginCombo("##device", kLightmapDeviceLabels[std::clamp(lightmap_.deviceIndex, 0, 2)])) {
+                for (int i = 0; i < 3; ++i) {
+                    if (ImGui::Selectable(kLightmapDeviceLabels[i], i == lightmap_.deviceIndex))
+                        lightmap_.deviceIndex = i;
+                    tip(kLightmapDeviceHints[i]);
+                }
+                ImGui::EndCombo();
+            }
+            at_track("lm:device", !running);
+            tip(deviceDoc.c_str());
+        }
         row("Manifest", "Where the manifest is written, inside the project (.lightmap.json); the pages go next to it. "
                         "Empty: next to the open scene.");
         ImGui::InputTextWithHint("##path", "next to the scene", &lightmap_.path);
@@ -289,6 +326,21 @@ void Editor::draw_lightmap_panel() {
                     count_text(double(res.value("rays", std::uint64_t(0)))).c_str(),
                     seconds_text(lightmap_.elapsed).c_str());
         at_track("lm:summary");
+        if (res.contains("device") && res["device"].is_object()) {
+            const Json& dev = res["device"];
+            const std::string used = dev.value("used", std::string());
+            std::string line = "Baked on the " + std::string(used == "gpu" ? "GPU" : "CPU");
+            if (!dev.value("name", std::string()).empty()) line += " (" + dev.value("name", std::string()) + ")";
+            if (dev.value("process", std::string()) == "helper") line += ", in a helper process";
+            ImGui::TextWrapped("%s", line.c_str());
+            at_track("lm:device_used");
+            const std::string devNote = dev.value("note", std::string());
+            if (!devNote.empty()) {  // the panel is 440 wide and a note can be a sentence: wrap it
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", devNote.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
         if (res.contains("probes") && res["probes"].is_object()) {
             const Json& pr = res["probes"];
             ImGui::Text("%d light probe(s), %d inside geometry (ignored)", pr.value("count", 0),

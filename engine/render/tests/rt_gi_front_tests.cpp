@@ -66,7 +66,8 @@ struct Fractions {
 
 }  // namespace
 
-TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured, no back face is counted when it is unknown or the "
+TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured, no back face is counted when it is "
+          "unknown or the "
           "instance is two-sided") {
     auto& g = fa::test::gfx();
     if (!g.ok) {
@@ -302,7 +303,8 @@ TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured,
         auto r = dev.read_storage_image(outImg, PixelFormat::Rgba16F, 0, 0, fa::render::kProbeAtlasSize,
                                         fa::render::kGiBandHeight, bytes);
         REQUIRE_MESSAGE(r.ok(), r.error().message);
-        REQUIRE(bytes.size() == std::size_t(fa::render::kProbeAtlasSize) * fa::render::kGiBandHeight * 4 * sizeof(std::uint16_t));
+        REQUIRE(bytes.size() ==
+                std::size_t(fa::render::kProbeAtlasSize) * fa::render::kGiBandHeight * 4 * sizeof(std::uint16_t));
         auto meta = [&](int probe) {  // the meta texel is texel 9 of the SH row (row 10) of the probe's block
             std::uint16_t half = 0;
             const std::size_t texel = (std::size_t(10) * fa::render::kProbeAtlasSize + std::size_t(probe * 10 + 9)) * 4;
@@ -318,14 +320,15 @@ TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured,
     // The sign: told "+1", the probe inside the box reads 1 when the backend's flag is set for the side of the triangle that faces the ray (as
     // Metal's is), 0 when it is set for the other side.
     const Fractions told = trace(1.0f, recordsView);
-    MESSAGE("with the sense +1: back faces seen by the probe in the open " << told.open << ", inside the box " << told.inside);
+    MESSAGE("with the sense +1: back faces seen by the probe in the open " << told.open << ", inside the box "
+                                                                           << told.inside);
     float measured = 0.0f;
     if (told.inside > 0.9f)
         measured = 1.0f;
     else if (told.inside < 0.1f)
         measured = -1.0f;
-    MESSAGE("MEASURED front-face sense of " << backend_name(backend) << ": " << measured
-                                           << " (rt_gi_front_sense says " << fa::render::rt_gi_front_sense(backend) << ")");
+    MESSAGE("MEASURED front-face sense of " << backend_name(backend) << ": " << measured << " (rt_gi_front_sense says "
+                                            << fa::render::rt_gi_front_sense(backend) << ")");
     CHECK(measured != 0.0f);  // 0.1 .. 0.9 inside a closed box would be a kernel or a scene problem
     CHECK(told.open < 0.9f);
     const float known = fa::render::rt_gi_front_sense(backend);
