@@ -215,7 +215,8 @@ struct CpuInputs {
     Vec3 camPos, camBack;
 };
 
-Expect cpu_refract(const CpuInputs& in, int px, int py, Vec3 o0, Vec3 dir0, float tmax, float grow, std::uint32_t seed) {
+Expect cpu_refract(const CpuInputs& in, int px, int py, Vec3 o0, Vec3 dir0, float tmax, float grow,
+                   std::uint32_t seed) {
     const std::vector<Tri>& tris = *in.tris;
     const fa::render::RtEffectParams& P = *in.params;
     Expect e;
@@ -230,8 +231,9 @@ Expect cpu_refract(const CpuInputs& in, int px, int py, Vec3 o0, Vec3 dir0, floa
         const bool first = seg == 0;
         const Tri& t = tris[std::size_t(cur.tri)];
         const Vec3 hitPos = origin + dir * cur.t;
-        if (inside) throughput = {throughput.x * std::exp(-coef.x * cur.t), throughput.y * std::exp(-coef.y * cur.t),
-                                  throughput.z * std::exp(-coef.z * cur.t)};
+        if (inside)
+            throughput = {throughput.x * std::exp(-coef.x * cur.t), throughput.y * std::exp(-coef.y * cur.t),
+                          throughput.z * std::exp(-coef.z * cur.t)};
         // rt_hit's normal: from the hit and two neighbours of the ray (a step of `eps` along two axes across it); where they do not hit the same
         // triangle (an edge, a silhouette) the surface is taken as facing the ray, which lets the ray through unbent.
         Vec3 n = dir * -1.0f;
@@ -460,8 +462,9 @@ CameraGeometry make_camera() {
 
 }  // namespace
 
-TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows what a CPU port of the same loop computes, "
-          "deterministically") {
+TEST_CASE(
+    "rt refract on Metal: a glass slab in front of coloured boxes shows what a CPU port of the same loop computes, "
+    "deterministically") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -472,7 +475,8 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
     MESSAGE("Metal ray tracing: vendor " << std::string(gpu_vendor_name(dev.info().gpu.vendor)));
 
     // The scene: a floor (0), a red box (1), a green box (2) behind a glass slab (3): ior 1.5, 2 m thick in z, a green-blue tint.
-    Mesh ground = make_quad(), box = make_box({-1, 0, -1}, {1, 2, 1}), slab = make_box({-2.5f, 0.1f, -1.0f}, {2.5f, 2.5f, 1.0f});
+    Mesh ground = make_quad(), box = make_box({-1, 0, -1}, {1, 2, 1}),
+         slab = make_box({-2.5f, 0.1f, -1.0f}, {2.5f, 2.5f, 1.0f});
     rig.upload(ground);
     rig.upload(box);
     rig.upload(slab);
@@ -484,16 +488,19 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
     constexpr std::uint8_t kOpaqueMask = fa::render::kRtMaskOpaque | fa::render::kRtMaskCastsShadow;
     constexpr std::uint8_t kGlassMask =
         fa::render::kRtMaskBlended | fa::render::kRtMaskCastsShadow | fa::render::kRtMaskRefractive;
-    const std::array<Place, 4> places = {Place{&ground, {0, 0, 0}, kOpaqueMask}, Place{&box, {-1.5f, 0, -3.0f}, kOpaqueMask},
-                                         Place{&box, {3.0f, 0, -4.0f}, kOpaqueMask}, Place{&slab, {0.5f, 0, 4.0f}, kGlassMask}};
-    const std::vector<Material> materials = {Material{{0.5f, 0.5f, 0.5f}, 0.5f, 0.0f}, Material{{0.8f, 0.05f, 0.05f}, 0.8f, 0.0f},
-                                             Material{{0.1f, 0.7f, 0.1f}, 0.3f, 0.0f}, Material{{1.0f, 1.0f, 1.0f}, 0.1f, 0.0f}};
+    const std::array<Place, 4> places = {
+        Place{&ground, {0, 0, 0}, kOpaqueMask}, Place{&box, {-1.5f, 0, -3.0f}, kOpaqueMask},
+        Place{&box, {3.0f, 0, -4.0f}, kOpaqueMask}, Place{&slab, {0.5f, 0, 4.0f}, kGlassMask}};
+    const std::vector<Material> materials = {
+        Material{{0.5f, 0.5f, 0.5f}, 0.5f, 0.0f}, Material{{0.8f, 0.05f, 0.05f}, 0.8f, 0.0f},
+        Material{{0.1f, 0.7f, 0.1f}, 0.3f, 0.0f}, Material{{1.0f, 1.0f, 1.0f}, 0.1f, 0.0f}};
     GlassVolume glass;
     std::vector<Tri> tris;
     for (std::size_t pi = 0; pi < places.size(); ++pi) {
         const Place& p = places[pi];
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, p.mask, int(pi)});
     }
 
@@ -514,7 +521,8 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
             in.transform[7] = places[i].at.y;
             in.transform[11] = places[i].at.z;
             in.blas = places[i].mesh->blas;
-            in.mask = refractiveFlag || i != 3 ? places[i].mask : std::uint8_t(places[i].mask & ~fa::render::kRtMaskRefractive);
+            in.mask = refractiveFlag || i != 3 ? places[i].mask
+                                               : std::uint8_t(places[i].mask & ~fa::render::kRtMaskRefractive);
             in.customIndex = std::uint32_t(i);
             in.opaque = true;
             in.cullDisable = i == 3;
@@ -553,7 +561,8 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
     auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
     REQUIRE_MESSAGE(ts.ok(), ts.error().message);
     const AccelStructure tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt refract tlas");
-    const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt refract tlas scratch");
+    const Buffer tlasScratch =
+        rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt refract tlas scratch");
     BufferDesc rbd;
     rbd.size = records.size() * sizeof(fa::render::RtInstanceRecord);
     rbd.usage.storageBuffer = true;
@@ -710,7 +719,8 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
                 const Expect a = cpu_refract(in, x, y, rayO[i], rayD[i], tmax, 1e-3f, params.frame[1]);
                 const Expect b = cpu_refract(in, x, y, rayO[i], rayD[i], tmax, -1e-3f, params.frame[1]);
                 if (a.kind != b.kind || a.u != b.u || a.v != b.v ||
-                    std::fabs(a.rgb.x - b.rgb.x) + std::fabs(a.rgb.y - b.rgb.y) + std::fabs(a.rgb.z - b.rgb.z) > 1e-3f) {
+                    std::fabs(a.rgb.x - b.rgb.x) + std::fabs(a.rgb.y - b.rgb.y) + std::fabs(a.rgb.z - b.rgb.z) >
+                        1e-3f) {
                     ++edge;
                     continue;
                 }
@@ -752,9 +762,9 @@ TEST_CASE("rt refract on Metal: a glass slab in front of coloured boxes shows wh
                 }
             }
         }
-        MESSAGE(what << ": compared " << compared << ", radiance " << radiance << ", picture texels " << encoded << " (bent more than 1.5 px: "
-                     << bent << "), nothing traced " << zero << ", edges left out " << edge << ", kind mismatches "
-                     << kindMismatch << ", worst colour error " << worst);
+        MESSAGE(what << ": compared " << compared << ", radiance " << radiance << ", picture texels " << encoded
+                     << " (bent more than 1.5 px: " << bent << "), nothing traced " << zero << ", edges left out "
+                     << edge << ", kind mismatches " << kindMismatch << ", worst colour error " << worst);
         CHECK(compared > 300);
         CHECK(kindMismatch * 50 <= compared);  // at most 2 %
         return std::array<int, 3>{radiance, encoded, bent};
