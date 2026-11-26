@@ -210,16 +210,43 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   dispatch; a cancel returns `cancelled`, drops the result and leaves the CPU baker's rules for files (nothing is written).
 - **Where it runs.** The tracer opens its own device (`LightmapGpuTracer::open`, one at a time per process): Windows D3D12 then Vulkan,
   Linux and Android Vulkan, macOS Metal through a hidden `HeadlessGpu` context. Sokol is a singleton with one thread: a process that already
-  has a graphics context (the editor, a game, an engine without `--no-graphics`) cannot lend it to a bake thread, so on a Mac there is no GPU
-  bake in the editor or in `factoria call` without `--no-graphics` (the answer says so); D3D12 and Vulkan devices are independent of it and
-  work next to a window. The commands run the tracer on the job thread that bakes.
+  has a graphics context (the editor, a game, an engine without `--no-graphics`) cannot lend it to a bake thread
+  (`LightmapGpuTracer::open_needs_helper_process()`: Apple, Metal, a context open). There the texels are traced in a helper process (next
+  bullet); D3D12 and Vulkan devices are independent of the window's and trace in the process itself. The commands run the tracer on the job
+  thread that bakes.
+- **A helper process (editor, MCP, `factoria call` with graphics on a Mac).** The alternatives were a second Metal device inside the process
+  (the singleton forbids it), borrowing the window's context (it belongs to the UI thread, and a bake would stall the editor) and
+  a service that stays up (state, versions, a thing to stop). A child `factoria session --no-graphics --project <root>` is the engine's own
+  headless session: no new protocol, the existing job commands do the talking. The parent turns its `Plan` (the data `make_plan` read from the
+  world; `plan_to_json` / `plan_from_json` in `lightmap_plan_json.cpp`, checked field by field with JSON pointers) into the argument of
+  `lightmap.bake_plan_start`, polls `lightmap.bake_status` every 100 ms and passes the child's phase and progress to its own `report`, and
+  on the cancel flag sends `lightmap.bake_cancel`; at the end it sends `session.quit`. The child writes the pages and the manifest with the
+  same code (`execute_here`), so the files are the ones an in-process bake writes; `device.process` says `"helper"`. A plan says where the
+  job writes, so `lightmap.bake_plan_start` is not a command for callers: it answers only a process that has `FA_LIGHTMAP_HELPER_SESSION=1`
+  (`run_in_helper` sets it in the child and nowhere else), refuses with `internal_command` otherwise, and even then checks the plan like an argument:
+  `plan_from_json` holds the ranges of `lightmap.bake_start` (`check_bake_settings`, page size, texels per meter), finite floats, probe groups that stay
+  inside their positions and grids with `nx * ny * nz` probes, names without `..` or a drive, and the command resolves `manifestProject` with the
+  project's write sandbox (`resolve_caller_write_path`, the rule of `x-fa-path: write`): a `.lightmap.json` inside the project that `manifestAbs` names. The child is a
+  `fa::ChildProcess`: it is killed with its tree when the parent lets go, a child silent for 15 minutes or one that ignores a cancel for 2
+  minutes is killed, and a crash or a GPU reset (TDR) in it never reaches the editor: `gpu` fails with the reason (`device "gpu": the helper
+  process ended ...`), `auto` bakes on the CPU in the parent with the reason in `device.note`. No `factoria` found (it is looked for in
+  `$FA_FACTORIA_EXE`, this program when it is `factoria`, then next to it) is the same case. `FA_LIGHTMAP_HELPER=always|never` forces the choice
+  for a process (tests; `always` makes the child fall back to the CPU by itself where it has no ray tracing). The bake that has no lightmap
+  texels (only probes) never starts a helper.
 - **No device, no failure of `auto`.** `device: "gpu"` with no GPU that traces rays (or a tracer that fails: a scene too big, a refused
   buffer) fails with the reason and the hint `device: "cpu"`; `"auto"` bakes on the CPU (it also leaves out a software
   rasteriser, WARP or lavapipe: `open(allowSoftware=false)`; only `"gpu"` takes one, and no CI test asks for it) and puts the reason in the result's `device.note` and
-  `warnings` once. The result's `device` is `{requested, used, name, note}`. The `settingsHash` includes the requested device when it is
+  `warnings` once. The result's `device` is `{requested, used, name, note, process}`. The `settingsHash` includes the requested device when it is
   not `"cpu"` (the CPU's hash is what it was), so `lightmap.status` calls a GPU preview stale once a CPU bake is asked for. The light
   probes (`sample_probes`) always bake on the CPU, and the result says so in `warnings`.
 - **Tests.** `engine/render/tests/lightmap_gpu_bake_tests.cpp`: on a Mac with a tracing GPU the Cornell room of the CPU tests (and a 64 times
   bigger one for the timing) is baked by both, compared texel by texel, baked twice on the GPU (same bytes) and cancelled; the
   RecordingDevice tests refuse a device without ray tracing with a teaching message and run the whole call sequence on one with it. D3D12
-  and Vulkan compile the same HLSL with DXC (the blobs are in `rt_bake.rt.h`) and run it nowhere in this suite.
+  and Vulkan compile the same HLSL with DXC (the blobs are in `rt_bake.rt.h`) and run it nowhere in this suite. The planner is tested for the
+  budget (no dispatch over 2^23 ray units, minimum batch included). `tools/authoring/tests/lightmap_commands_tests.cpp`: a tracer of the
+  test (`set_tracer_opener`) that fails after N texels (auto bakes on the CPU with the same bytes, gpu fails and keeps the old manifest), only
+  probes (note and warning), samples out of range refused, the plan surviving its JSON byte for byte, and (POSIX) a fake `factoria` shell
+  script that streams progress, is cancelled, dies or never becomes ready. `tools/cli/tests/lightmap_bake_test.cpp` runs the real child
+  (`FA_FACTORIA_EXE`): the device report, progress, cancel, and no process left behind (`process_tree()`); where there is no ray tracing the
+  child falls back to the CPU by itself, so the test passes on every CI machine. The editor autotest L4 bakes with Device Auto and GPU
+  (on a Mac through the helper). A real GPU ran only on the Mac; D3D12 and Vulkan never.

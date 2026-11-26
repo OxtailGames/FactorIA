@@ -176,6 +176,10 @@ struct BakeResult {
 // Errors name the field with a JSON-pointer-like path ("/meshes/2/lightmapUv") and say what to change. Allocates nothing big.
 Result<void> validate_bake(const BakeScene& scene, const BakeSettings& settings);
 
+// Only the ranges of the settings (samples, bounces, shadowSamples, dilate passes, denoise, epsilon, atlas size), as validate_bake judges them: for a caller
+// that is given settings from outside (the helper process's plan) and refuses them before anything is built.
+Result<void> check_bake_settings(const BakeSettings& settings);
+
 // The phases of a bake, in order (the atlas ones repeat for every atlas).
 enum class BakePhase : std::int32_t {
     Prepare,    // validating, flattening the scene, building the BVH

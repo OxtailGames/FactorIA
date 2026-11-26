@@ -22,6 +22,21 @@ struct LightmapBakeBindings {
 // the kernel has no code for its backend.
 Result<std::unique_ptr<LightmapGpuTracer>> make_lightmap_gpu_tracer_on(gpu::Device& device);
 
+// How one atlas is cut into dispatches (counts only, never time). A dispatch traces `batch` texels for `sampleChunk` gather samples
+// each, and the first dispatch of a batch also traces the direct light (lights x shadowSamples rays per texel): its work in "ray units"
+// (`ray units` = one ray query and its shading) is at most kBakeDispatchWork whatever the lights and the shadow samples, so no dispatch
+// comes near the 2 seconds after which Windows resets a GPU. `batch` is a multiple of 1024 (whole rows of the output image) from 1024 up
+// and any count below that (one partial row), down to one texel. Fails (a teaching error, "bake on the CPU") when ONE texel needs more
+// than the budget: so many lights times shadow samples that the direct light of a single texel cannot be one dispatch.
+inline constexpr std::uint64_t kBakeDispatchWork = std::uint64_t(1) << 23;
+inline constexpr std::uint32_t kBakeMaxBatchTexels = 16384;
+struct BakeDispatchPlan {
+    std::uint64_t batch = 0;        // texels per dispatch (>= 1)
+    std::uint64_t sampleChunk = 0;  // gather samples per dispatch (>= 1)
+};
+Result<BakeDispatchPlan> plan_bake_dispatches(std::uint64_t texels, std::uint64_t lights, std::uint32_t shadowSamples,
+                                              std::uint32_t bounces, std::uint32_t samples);
+
 // The shader description of rt_bake for `backend` (an empty one when the kernel has no code for it).
 gpu::ShaderDesc lightmap_bake_shader_desc(gpu::Backend backend);
 

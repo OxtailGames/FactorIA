@@ -8,11 +8,16 @@ View > Lightmap bakes the open scene's lightmaps: the same bake as the `lightmap
 commands (docs/rendering/RENDERING_LIGHTING.md, "Baking"), on a job thread, so the editor keeps drawing and you can keep working.
 
 - **Options.** Texels per meter (16 is a good start; 64 is sharp and 16 times heavier), Samples (gather rays per texel: 16 is a draft, 64 is
-  smooth), Shadow samples, Page size, Sky (`auto`, `environment`, `gradient`, `ambient`, `none`) and the Manifest path (empty: next to the
-  scene, `scenes/main.lightmap.json`). Each has its tooltip.
+  smooth), Shadow samples, Page size, Sky (`auto`, `environment`, `gradient`, `ambient`, `none`), Device (CPU, the default and the exact one;
+  GPU, a fast preview; Auto, the GPU when this machine has one that traces rays, else the CPU) and the Manifest path (empty: next to the
+  scene, `scenes/main.lightmap.json`). Each has its tooltip (Device shows the doc string of the command's `device` argument).
 - **Start and Cancel.** Start is disabled while a bake runs and while the game plays. The bar shows the phase (geometry, layout, prepare,
   rasterize, trace, denoise, dilate, writing), the percentage and, after a few seconds, the time left; Cancel stops it within a moment and no
   file is changed.
+- **The device.** The result says which device baked ("Baked on the GPU (metal (apple)), in a helper process") and, when Auto fell back to the
+  CPU, why. A GPU bake in the editor on a Mac runs in a child `factoria` process (the editor already holds the only Metal context): progress
+  and Cancel work the same, and a crash of the child never takes the editor down (GPU fails with the reason, Auto bakes on the CPU). The editor
+  looks for `factoria` next to itself (or `FA_FACTORIA_EXE`).
 - **The result.** A finished bake lists its pages (file and size), the texels, the meshes, the rays and the time, the skipped entities with
   their reason, and the warnings (a physical sky that fell back to the gradient, a Tube light baked as a rectangle).
 - **Light probes.** The bake also bakes the `LightProbeGroup` entities of the scene (phase `probes`) and the result says how many probes there are and how many lie inside geometry (ignored). **Show probes** draws them in the 3D viewport: a sphere per probe coloured by the light it baked (grey before the first bake or after the group was edited, a red cross for a probe inside geometry); `LightProbeGroup.showGizmo` hides one group (docs/rendering/RENDERING_LIGHT_PROBES.md). View > Show light probes is the same switch. At most 2048 probes are drawn in all (a stride over every group, so a big scene shows a sample) and probes behind the camera are not drawn. When groups were edited after the bake, the panel shows an orange line "N light probe groups changed since the last bake" (the same groups are grey in the viewport): bake again to refresh them.
