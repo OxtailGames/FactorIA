@@ -25,8 +25,9 @@ denoiser.sweep(serial);                                // once a frame, after ev
 ```
 
 - `DenoiseKind`: `Visibility` (a shadow, 1 channel, in r), `Occlusion` (1 channel), `Diffuse` (rgb radiance), `Specular`
-  (rgb radiance and the hit distance in a: world units, negative when the ray missed). A one-channel signal comes out in r, g
-  and b alike.
+  (rgb radiance and the hit distance in a: world units, negative when the ray missed) and `Coverage` (M79-P3a-2: one channel, 1
+  where the alpha of the input is a hit distance above 0, else 0; the input is a `Specular` signal's own image, whose hit
+  distance steers the reprojection the same way). A one-channel signal comes out in r, g and b alike.
 - `DenoiseInputs`: `noisy` (Rgba16F or Rgba32F), `prepass` (the camera's prepass: r linear view depth, gb octahedral
   view-space normal, a = 1 where a mesh was drawn), `velocity` (optional: rg = uvPrev - uvCurr of moved objects, the sentinel
   1024 where none moved), `roughness` (optional, specular: r). A `DenoiseImage` is either a transient of the frame graph (`res`
@@ -69,7 +70,12 @@ Persistent images per signal: four (colour history and moments, two each, flippe
 2. Reprojection: the velocity image when it holds an entry (`|v| < 512`), else the camera's own movement from the depth
    (`prevFromView`). The four history pixels around that position are taken with bilinear weights, each only when it was drawn,
    its stored depth is within `depthTolerance` of the depth it should have (plus a slope term) and its world normal's cosine with
-   this pixel's is at least 0.9. When no tap passes, the pixel is a disocclusion: its history length restarts at 1.
+   this pixel's is at least 0.9. When no tap passes, the pixel is a disocclusion: its history length restarts at 1. A `Specular` or
+   `Coverage` signal (a reflection does not move with its surface) first tries the position of the VIRTUAL point, the surface's view
+   position moved `hit` further along the view ray (the accumulated hit distance, a miss counted as 60000; an orthographic camera moves it
+   along its axis), reprojected with `prevFromView`; the depth test still uses the surface's own previous depth, widened by the slope
+   over the pixels between the two positions. Only when no tap of the virtual position passes does it fall back to the surface's motion
+   (and a velocity entry, which is the object's, keeps the surface motion). Nothing changes for the other kinds.
 3. Accumulation: a running mean over the history length, which grows by one a frame up to `maxHistory` and then becomes an
    exponential mean. The first and second moments of the luminance are accumulated the same way (Rgba32F, or Rgba16F where the
    GPU cannot render to Rgba32F; variance by cancellation needs the precision).
@@ -96,6 +102,8 @@ lightly filtered, the last iteration is for display only). Iteration `i` reads t
 A `Specular` signal limits the step by the lobe: the footprint of the reflection cone at the hit,
 `roughness^2 * min(hitDistance, 64 * depth)` over the world size of a pixel, halved. A mirror (roughness 0) keeps its image; a
 rough surface is filtered like a diffuse one. The roughness comes from `DenoiseInputs::roughness` or `DenoiseSettings::roughness`.
+A `Specular` or a `Coverage` signal also multiplies a neighbour's weight by `exp(-8 |roughness - this pixel's roughness|)` when the
+roughness image is bound (two surfaces of another roughness show other reflections); the lobe limit above is for `Specular` only.
 The hit distance is accumulated with the colour like the moments (a miss, negative, counts as 60000 units, a NaN as 0); the lobe limit reads it capped at 64 times the pixel's depth.
 
 ### Settings
@@ -164,6 +172,8 @@ disabled signal, saturating byte counts, settings clamping, the config key, the 
 - a block of closer geometry starts at history length 1 and holds its own truth after four frames;
 - the six reset reasons, the resize, and that changing `iterations` does not reset;
 - a specular mirror keeps its temporal-only image while a rough surface is filtered (error under a tenth);
+- a `Coverage` signal converges to the share of the rays that hit, and a reflection of a pattern behind a mirror, with the camera moving,
+  stays closer to its truth with the true hit distance than with none (the virtual-motion reprojection);
 - a firefly of 1000 is clamped to under 6 (34 without) and a NaN does not spread;
 - radiance noise of 0 to 4000 (a luminance deviation of 1150, far over what a 16-bit variance holds), diffuse and specular, with 32-bit and
   16-bit moments: every colour and debug value is finite, none is above the brightest sample and the mean stays within 10% (on Metal
