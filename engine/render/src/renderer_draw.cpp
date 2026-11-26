@@ -26,6 +26,7 @@
 
 namespace fa {
 
+using render::part_base_color;  // mesh_batch.h
 using render::to_scene;
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ struct Renderer::Impl::DrawContext {
     Px fullPx, camPx;
     Gi2dJobPlan gi2d;  // gi2d_plan: the field this job's passes fill (inactive without an enabled GlobalIllumination2D)
     bool partial = false, clearByQuad = false, clearByLoad = false;
+    bool rtCollected =
+        false;  // gather_meshes: this job's meshes are the ray tracing scene's (it builds the BLASes and the TLAS)
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
     ImpostorDraws impostorDraws;           // gather_meshes: what the MeshItems of the impostor cards point at
@@ -390,25 +393,6 @@ void apply_view(gpu::CommandList& list, const Px& r) {
     list.set_scissor(r.x, r.y, r.w, r.h, true);
 }
 
-// The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
-// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
-Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
-    if (authored) *authored = false;
-    if (!part.materialName.empty() && mr.materialColors.is_object()) {
-        auto it = mr.materialColors.find(part.materialName);
-        if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
-            float v[4] = {1, 1, 1, 1};
-            for (std::size_t i = 0; i < it->size(); ++i) {
-                if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
-                v[i] = (*it)[i].get<float>();
-            }
-            if (authored) *authored = true;
-            return Color{v[0], v[1], v[2], v[3]};
-        }
-    }
-    return part.baseColor;
-}
-
 // The material's params (fa_material_vs, fa_material), when the program declares them.
 void apply_material_params(gpu::CommandList& list, const MaterialProgram& prog, const MaterialInputs& in) {
     for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
@@ -596,6 +580,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
         graph.set_pass_hooks(std::move(hooks));
     }
     graph.clear();
+    rtScene.begin_graph();
     jobContexts.clear();
     postCams.clear();
     frameJobs.clear();
@@ -1424,6 +1409,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
     };
     rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
+    // The ray tracing scene (rt_scene.h): the main camera's items, every one of them (the ones outside the view too: a ray may hit them).
+    if (lodMainJob && rtScene.active() && !rtScene.collected()) {
+        rtScene.collect(opaque, blended, fr.cam.position, fr.linear);
+        ctx.rtCollected = true;
+    }
 }
 
 // ---- lights and studio rig ----
@@ -5075,6 +5065,15 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                    bool sideEffect = false) {
         add_job(plan.name, name, std::move(reads), std::move(writes), std::forward<decltype(fn)>(fn), sideEffect);
     };
+    // The ray tracing scene's acceleration structures (rt_scene.h): built before any pass of the job, so what a later package's effect reads
+    // (the TLAS, the record buffer) is there. A side effect: nothing in this graph reads what it makes yet.
+    if (ctx.rtCollected)
+        add(
+            "rt-accel", {}, {},
+            [this](const PassContext& c) {
+                if (gpu::CommandList* list = c.commands()) rtScene.record(*list);
+            },
+            true);
     // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
     auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
         if (slot.valid())

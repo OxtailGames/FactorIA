@@ -1322,6 +1322,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
                 I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
+            I.renderer->set_ray_tracing(I.rayTracing);     // the same
             // The low-latency setting: a window the game draws into only (the editor's own loop and a headless run have no display to pace).
             if (I.windowed && !config.editorMode) I.renderer->set_latency(I.latency);
             if (I.windowed && !config.editorMode) I.renderer->set_frame_generation(I.frameGeneration);
@@ -2157,6 +2158,7 @@ std::string Engine::set_ray_tracing(const Json& value, const std::string& where)
     auto parsed = render::parse_ray_tracing_settings(value, where, impl_->rayTracing);
     if (!parsed.ok()) return parsed.error().to_string();
     impl_->rayTracing = parsed.value();
+    if (impl_->renderer) impl_->renderer->set_ray_tracing(impl_->rayTracing);  // takes effect at the next frame
     return std::string();
 }
 

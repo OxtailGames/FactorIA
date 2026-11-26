@@ -44,7 +44,10 @@ struct AccelBuildFlags {
     bool allowCompaction = false;  // BLAS only: query_compacted_size / copy_accel_structure(Compact) may shrink it
 };
 
-// One triangle geometry of a BLAS: positions from a vertex buffer, optionally indexed.
+// One triangle geometry of a BLAS: positions from a vertex buffer, optionally indexed. Alignment (checked by the
+// RecordingDevice in build_blas and blas_sizes, with the field's name in the message; every real API demands it too):
+// `vertexOffset` is a multiple of 4 (the position is three 32-bit floats) and `indexOffset` a multiple of the index width
+// (2 for Uint16, 4 for Uint32); the stride is a multiple of 4 as well.
 struct AccelTriangles {
     Buffer vertexBuffer{};           // usage accelBuildInput
     std::size_t vertexOffset = 0;    // bytes from the start of the buffer to the first vertex's position

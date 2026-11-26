@@ -664,6 +664,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     im.assets->set_shader_compiler(shaderCompiler_);
     Impl* impl = &im;
     im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });
+    im.assets->set_mesh_release_hook(
+        [impl](const MeshAsset* mesh) { impl->rtScene.forget(mesh); });  // its BLASes go with its buffers
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
     im.fonts->set_rich_style(richStyle_);
@@ -708,6 +710,8 @@ void Renderer::shutdown() {
         im.skyEnv.release();
         im.probes_release();
         im.hiz_release();
+        im.rtScene
+            .release();  // its BLASes, TLAS and buffers, while the device is open and before the assets that its BLASes read
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
@@ -859,6 +863,7 @@ void Renderer::begin_frame() {
     impl_->inFrame = true;
     impl_
         ->hiz_submit();  // before sokol's frame begins: the copy of the last depth pyramid is queued after the frame that made it
+    impl_->rt_begin_frame();  // the same: ray tracing on or off, the compaction answers of the frames before
     impl_->gpu.begin_frame();
     impl_->latency.mark(render::LatencyMarker::RenderSubmitStart);
 }
@@ -1394,6 +1399,7 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
     return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
 }
 int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
+render::RtScene* RendererTestAccess::rt_scene(Renderer& r) { return r.impl_ ? &r.impl_->rtScene : nullptr; }
 int RendererTestAccess::hiz_cameras(Renderer& r) { return r.impl_ ? int(r.impl_->hizCams.size()) : 0; }
 std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
 bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {

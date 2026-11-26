@@ -15,6 +15,15 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
   and change it. **Nothing is traced yet:** turning the settings on changes no picture (Direct3D 12 and Vulkan build
   acceleration structures, below). docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+- **Ray tracing, the scene's acceleration structures (M79-P1s):** with `render.rayTracing` enabled, an effect on and a device that can trace
+  rays, the renderer builds one bottom-level structure per submesh of every mesh the main camera draws (once per mesh asset, compacted
+  after the first build, freed when the mesh goes) and rebuilds the top-level structure every frame from meshes, instanced batches and
+  foliage (one level of detail per instance; terrain, impostors, skinned meshes and the fading-out level of a LOD cross-fade are left
+  out). The scene holds at most `maxInstances` instances (or what the GPU allows): over it, the nearest to the main camera stay and the
+  log says once how many were left out. A per-instance record buffer (colour, roughness, metalness, emissive, flags; layout shared with
+  the kernels) is written beside it, and the floating origin moves the cached records. Off, or on a device that cannot trace, nothing is
+  built and the frame is the same (one message says why). Nothing reads the structures yet, so the picture does not change.
+  docs/design/ARCHITECTURE_RT_SCENE.md, docs/RAY_TRACING.md.
 - **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
   written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
   MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New
