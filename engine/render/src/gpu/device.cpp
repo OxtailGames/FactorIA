@@ -44,8 +44,10 @@ std::string accel_unavailable_reason(Backend backend) {
             return "the d3d12 backend does not build acceleration structures yet (DXR 1.1 inline ray query is package "
                    "P1d of milestone 79)";
         case Backend::Vulkan:
-            return "the vulkan backend does not build acceleration structures yet (VK_KHR_acceleration_structure and "
-                   "VK_KHR_ray_query are package P1v of milestone 79)";
+            return "a vulkan device traces rays only when it has VK_KHR_acceleration_structure, VK_KHR_ray_query and "
+                   "VK_KHR_deferred_host_operations with the accelerationStructure, rayQuery and bufferDeviceAddress "
+                   "features (Device::ray_tracing_status names what this device lacks; Mesa's lavapipe has them from "
+                   "Mesa 24.1, MoltenVK has none)";
         case Backend::Metal:
             return "the metal backend does not build acceleration structures yet (Metal ray tracing inside the sokol "
                    "device is package P1m of milestone 79)";

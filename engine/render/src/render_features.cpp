@@ -140,8 +140,8 @@ std::vector<FeatureDef> build_table() {
          "Ray tracing with inline ray queries (render.rayTracing; docs/RAY_TRACING.md): the device builds acceleration "
          "structures (a BLAS per mesh, a TLAS of instances) and a compute shader traces rays against them. Direct3D 12 "
          "(DXR 1.1), Vulkan (VK_KHR_ray_query) and Metal on a GPU that has them; never OpenGL, GLES3, WebGL2 or D3D11. "
-         "The row is false where it cannot run, with the reason in render.supports. Today no backend builds "
-         "acceleration structures yet (milestone 79 brings them one backend at a time)."});
+         "The row is false where it cannot run, with the reason in render.supports. Vulkan builds acceleration "
+         "structures; Direct3D 12 and Metal do not yet (milestone 79 brings them one backend at a time)."});
     t.push_back(
         {"raytracingPipeline", FeatureKind::Capability, bit(FeatureBackend::Metal), "", nullptr,
          "The GPU has ray tracing pipelines and shader binding tables (DXR 1.0 and VK_KHR_ray_tracing_pipeline). "

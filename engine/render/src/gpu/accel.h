@@ -15,7 +15,7 @@
 //  * Barriers are derived by the backend, like everywhere in gpu/ (docs/design/ARCHITECTURE_RENDERING_GPU.md,
 //    "Barriers live inside the backends"); a caller never records one. What a backend must insert is listed at build_blas() in gpu/device.h.
 //  * Every call is optional: a device whose Features::accelerationStructure is false refuses them all with a reason
-//    that names the package that brings the backend's support, and does nothing else.
+//    (the package that brings the backend's support, or what the GPU lacks), and does nothing else.
 #pragma once
 
 #include <cstddef>
@@ -36,25 +36,25 @@ const char* accel_kind_name(AccelKind kind);
 // How an acceleration structure is built and what it may be used for later. The size queries and the build must get
 // the same flags (a backend sizes memory for the flags it is told).
 struct AccelBuildFlags {
-    bool allowUpdate = false;       // build_blas / build_tlas may refit it later (`update` true): vertices move, the
-                                    // topology and the counts stay; costs memory and trace speed
-    bool preferFastTrace = true;    // spend build time on a tree that traces faster (static meshes)
-    bool preferFastBuild = false;   // spend trace speed on a faster build (meshes rebuilt every frame); wins over
-                                    // preferFastTrace when both are set
-    bool allowCompaction = false;   // BLAS only: query_compacted_size / copy_accel_structure(Compact) may shrink it
+    bool allowUpdate = false;      // build_blas / build_tlas may refit it later (`update` true): vertices move, the
+                                   // topology and the counts stay; costs memory and trace speed
+    bool preferFastTrace = true;   // spend build time on a tree that traces faster (static meshes)
+    bool preferFastBuild = false;  // spend trace speed on a faster build (meshes rebuilt every frame); wins over
+                                   // preferFastTrace when both are set
+    bool allowCompaction = false;  // BLAS only: query_compacted_size / copy_accel_structure(Compact) may shrink it
 };
 
 // One triangle geometry of a BLAS: positions from a vertex buffer, optionally indexed.
 struct AccelTriangles {
-    Buffer vertexBuffer{};   // usage accelBuildInput
-    std::size_t vertexOffset = 0;        // bytes from the start of the buffer to the first vertex's position
-    std::uint32_t vertexStride = 0;      // bytes between two vertices (>= the size of the position)
-    std::uint32_t vertexCount = 0;       // vertices from vertexOffset (the highest index + 1 when indexed)
+    Buffer vertexBuffer{};           // usage accelBuildInput
+    std::size_t vertexOffset = 0;    // bytes from the start of the buffer to the first vertex's position
+    std::uint32_t vertexStride = 0;  // bytes between two vertices (>= the size of the position)
+    std::uint32_t vertexCount = 0;   // vertices from vertexOffset (the highest index + 1 when indexed)
     VertexFormat vertexFormat = VertexFormat::Float3;  // Float3 (and Float2, Short4N where the API has them)
-    Buffer indexBuffer{};    // invalid = a triangle list over the vertices in order; else usage accelBuildInput
-    std::size_t indexOffset = 0;         // bytes from the start of the index buffer
+    Buffer indexBuffer{};         // invalid = a triangle list over the vertices in order; else usage accelBuildInput
+    std::size_t indexOffset = 0;  // bytes from the start of the index buffer
     IndexType indexType = IndexType::None;  // Uint16 or Uint32 with an index buffer; None without one
-    std::uint32_t indexCount = 0;        // indices read (a multiple of 3); unused without an index buffer
+    std::uint32_t indexCount = 0;           // indices read (a multiple of 3); unused without an index buffer
     // True = no any-hit work: the first hit a ray query finds is committed by the hardware. False = every candidate
     // is reported to the shader, which commits it (alpha-tested leaves).
     bool opaque = true;
@@ -76,7 +76,7 @@ struct AccelSizes {
 // target of a compaction).
 struct AccelStructureDesc {
     AccelKind kind = AccelKind::Blas;
-    std::uint64_t size = 0;      // bytes, from AccelSizes::structure (never guessed)
+    std::uint64_t size = 0;  // bytes, from AccelSizes::structure (never guessed)
     // Where it lives. Invalid = the device allocates the memory. A buffer with usage accelStorage lets the caller
     // sub-allocate (offset aligned to Device::accel_alignment()) and alias.
     Buffer storage{};
@@ -97,23 +97,24 @@ struct AccelInstance {
 
 // CommandList::build_blas: builds (or, with `update`, refits) a BLAS from triangle geometries.
 struct BlasBuild {
-    AccelStructure dst{};                       // a Blas made with a size from blas_sizes of these geometries
-    std::span<const AccelTriangles> geometries; // borrowed for the call; at least one, at most Limits::maxAccelGeometries
-    AccelBuildFlags flags{};                    // the flags of the size query
-    bool update = false;                        // refit `dst` from `src` (needs src built with allowUpdate)
-    AccelStructure src{};                       // update: the structure to refit; invalid or == dst = refit in place
-    Buffer scratch{};                           // usage accelScratch
-    std::size_t scratchOffset = 0;              // aligned to Device::accel_scratch_alignment()
+    AccelStructure dst{};  // a Blas made with a size from blas_sizes of these geometries
+    std::span<const AccelTriangles>
+        geometries;                 // borrowed for the call; at least one, at most Limits::maxAccelGeometries
+    AccelBuildFlags flags{};        // the flags of the size query
+    bool update = false;            // refit `dst` from `src` (needs src built with allowUpdate)
+    AccelStructure src{};           // update: the structure to refit; invalid or == dst = refit in place
+    Buffer scratch{};               // usage accelScratch
+    std::size_t scratchOffset = 0;  // aligned to Device::accel_scratch_alignment()
 };
 
 // CommandList::build_tlas: builds (or refits) a TLAS from instances. The instances are read during the call (the
 // backend copies them into memory of its own), never kept.
 struct TlasBuild {
-    AccelStructure dst{};                       // a Tlas made with a size from tlas_sizes of this many instances
-    std::span<const AccelInstance> instances;   // borrowed; at most Limits::maxAccelInstances
+    AccelStructure dst{};                      // a Tlas made with a size from tlas_sizes of this many instances
+    std::span<const AccelInstance> instances;  // borrowed; at most Limits::maxAccelInstances
     AccelBuildFlags flags{};
-    bool update = false;                        // refit: same instance count, only transforms and masks may change
-    AccelStructure src{};                       // update: invalid or == dst = refit in place
+    bool update = false;   // refit: same instance count, only transforms and masks may change
+    AccelStructure src{};  // update: invalid or == dst = refit in place
     Buffer scratch{};
     std::size_t scratchOffset = 0;
 };
@@ -123,8 +124,9 @@ struct TlasBuild {
 enum class AccelCopyMode : std::uint8_t { Clone, Compact };
 
 // Why `backend` does not trace rays (yet), as one sentence for an error or a supports() reason: GL, GLES3, WebGL2 and
-// D3D11 cannot ("use the d3d12 or vulkan backend, or Metal on Apple"); D3D12, Vulkan and Metal could, and name the
-// package that brings it (P1d, P1v, P1m); the RecordingDevice names what it was made with. A backend that does trace
+// D3D11 cannot ("use the d3d12 or vulkan backend, or Metal on Apple"); D3D12 and Metal could, and name the package
+// that brings it (P1d, P1m); Vulkan names the extensions and features a GPU needs; the RecordingDevice names what it
+// was made with. A backend that does trace
 // but whose GPU lacks the feature is a different reason (render_features.cpp says it).
 std::string accel_unavailable_reason(Backend backend);
 // The error a call without ray tracing answers: "gpu: <call>: <accel_unavailable_reason>" and a hint that names

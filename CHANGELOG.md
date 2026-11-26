@@ -13,8 +13,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   them, so the code that builds structures is tested without a GPU. `render.supports` has the rows `raytracing` and
   `raytracingPipeline` (capability only), the project setting `render.rayTracing` (`enabled`, `shadows`, `ao`, `reflections`,
   `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
-  and change it. **No backend builds an acceleration structure yet and nothing is traced:** turning the settings on changes no
-  picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+  and change it. **No frame pass traces yet:** turning the settings on changes no picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
 - **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
   written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
   MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New
@@ -23,6 +22,14 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `--check`); macOS and Linux Arm are `unsupported` and the install says where the DXIL comes from. The Linux CI job regenerates the
   headers and fails with the regenerated files as an artifact when they are stale; CI also reports lavapipe's and WARP's ray tracing
   support. Design: `docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md`.
+- **Vulkan builds acceleration structures and runs ray query kernels (M79):** on a GPU with `VK_KHR_acceleration_structure`,
+  `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` the Vulkan device turns them on (never a reason
+  for device creation to fail) and answers every acceleration structure call: sizes, BLAS and TLAS builds and refits, compaction
+  and clones, with the barriers derived by the backend (two builds on one scratch buffer, a TLAS rebuilt while the frame before
+  traces it). A compute shader with `usesRayQuery` binds a TLAS, with its DXC bindings moved into the engine's descriptor sets.
+  `Features` and `Limits` come from the GPU's acceleration structure properties; a GPU without ray tracing (MoltenVK, lavapipe
+  before Mesa 24.1) says what it lacks in `render.supports` and in every refusal. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
+  "Vulkan".
 
 ## 0.38.0
 
