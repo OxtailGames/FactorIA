@@ -484,7 +484,9 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                               std::to_string(need) + ", but vertex buffer " + quoted(vb->label) + " has " +
                               std::to_string(vb->size) + " bytes");
             uses.add(vb->tracked, kBuildStage, VK_ACCESS_2_SHADER_READ_BIT);
-            vertex = device_.buffer_address(vb->tracked->buffer) + g.vertexOffset;
+            // Only a buffer made with usage.accelBuildInput has a device address (VUID-VkBufferDeviceAddressInfo-
+            // buffer-02601); one without is reported above and the build never runs.
+            if (vb->usage.accelBuildInput) vertex = device_.buffer_address(vb->tracked->buffer) + g.vertexOffset;
         }
         if (g.indexBuffer.valid()) {
             const VulkanDevice::BufferRecord* ib = device_.buffers_.get(g.indexBuffer.id);
@@ -501,7 +503,7 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                                   std::to_string(need) + ", but index buffer " + quoted(ib->label) + " has " +
                                   std::to_string(ib->size) + " bytes");
                 uses.add(ib->tracked, kBuildStage, VK_ACCESS_2_SHADER_READ_BIT);
-                index = device_.buffer_address(ib->tracked->buffer) + g.indexOffset;
+                if (ib->usage.accelBuildInput) index = device_.buffer_address(ib->tracked->buffer) + g.indexOffset;
             }
         }
         geos.push_back(triangles_geometry(g, vertex, index));
@@ -566,7 +568,8 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
                           (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
                           " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
         uses.add(scratch->tracked, kBuildStage, kAccelRead | kAccelWrite);
-        scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
+        if (scratch->usage.accelScratch)  // no device address without it: reported above, the build never runs
+            scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
     }
     if (!what.empty()) {
         lock.unlock();
@@ -725,7 +728,8 @@ Result<void> VulkanCommandList::build_tlas(const TlasBuild& b) {
                           (b.update ? "update" : "build") + " needs " + std::to_string(scratchNeed) +
                           " (AccelSizes::" + (b.update ? "updateScratch" : "buildScratch") + ")");
         uses.add(scratch->tracked, kBuildStage, kAccelRead | kAccelWrite);
-        scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
+        if (scratch->usage.accelScratch)  // no device address without it: reported above, the build never runs
+            scratchAddress = device_.buffer_address(scratch->tracked->buffer) + b.scratchOffset;
     }
     const std::string buildFix = "build every BLAS the instances name first (and keep it alive), size the TLAS and the "
                                  "scratch buffer from tlas_sizes() with the flags of the build, and keep the instance "
@@ -743,6 +747,12 @@ Result<void> VulkanCommandList::build_tlas(const TlasBuild& b) {
 
     // The instances go into the TLAS's own device-local buffer (grown here; the old one is released with the frame),
     // copied from the upload ring before the build. No device lock is held while buffers are made or deferred.
+    // One buffer per TLAS, written by every build into it: two builds into the same `dst` in one list are ordered by the
+    // barriers below (the second copy waits for the first build's read of the buffer, tracked like any buffer use; the
+    // second build waits for the first's write of the structure), and the later one wins. Two lists recorded on
+    // different threads into one TLAS are two writes of one resource, ordered only by how the caller submits them, as for
+    // any other resource (docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md, "Vulkan", "Builds"); a list that grows the
+    // buffer keeps the old one alive until it ends (keep_until_done below), so a list in flight never loses it.
     std::uint32_t capacity = 0;
     if (grow) {
         capacity = std::uint32_t(std::min<std::uint64_t>(align_up(count, 64), 0xFFFFFFFFu));
@@ -924,8 +934,14 @@ Result<void> VulkanCommandList::copy_accel_structure(AccelStructure src, AccelSt
         if (what.empty()) {
             srcHandle = a->handle;
             dstHandle = b->handle;
-            uses.add(a->tracked, kBuildStage, kAccelRead);
-            uses.add(b->tracked, kBuildStage, kAccelWrite);
+            // The copy runs in its own stage where VK_KHR_ray_tracing_maintenance1 and synchronization2 are on
+            // (init_device), else in the build stage: the spec puts vkCmdCopyAccelerationStructureKHR in
+            // ACCELERATION_STRUCTURE_COPY_BIT_KHR only with the extension, and the legacy 32-bit stage flags have no
+            // bit for it. The next build that reads the copy waits for this stage (the tracked state keeps it).
+            const VkPipelineStageFlags2 copyStage =
+                device_.accelCopyStage_ ? VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR : kBuildStage;
+            uses.add(a->tracked, copyStage, kAccelRead);
+            uses.add(b->tracked, copyStage, kAccelWrite);
             b->built = true;
             b->allowUpdate = a->allowUpdate;
             b->allowCompaction = false;  // a compacted structure is not compacted again

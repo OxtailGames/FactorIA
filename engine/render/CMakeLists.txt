@@ -59,7 +59,10 @@ if(APPLE)
     set_source_files_properties(src/readback_metal.mm src/gpu_info_metal.mm src/metalfx_apple.mm src/gpu/metal_accel_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
-fa_add_tests(render LABELS gpu)  # REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`
+# REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`. The Vulkan ray tracing cases are left out of this
+# whole-module run: they have the ctest entry render_vulkan_raytracing below (lavapipe compiles and runs their kernels on
+# the CPU, so a second run there is time spent twice).
+fa_add_tests(render LABELS gpu ARGS --fa-files-exclude=vulkan_raytracing_tests.cpp)
 # The CPU core of the frame graph needs no GPU: its tests also run on a host that runs `ctest -LE gpu`.
 if(TARGET fa_test_render)
     add_test(NAME render_frame_graph_core
@@ -76,13 +79,18 @@ if(TARGET fa_test_render)
         WORKING_DIRECTORY ${FA_ROOT})
     # Its ray tracing (M79 P1d, src/gpu/d3d12_accel.* and d3d12_raytracing_win32.cpp): the neutral checks on every host;
     # on Windows a WARP device builds, traces (rt_probe), refits, compacts and rebuilds, or says so and passes when its
-    # WARP has no DXR tier 1.1 (a failure with FA_D3D12_REQUIRE_RT=1, the Windows CI job). FA_WARP_DIR (a folder with
+    # WARP has no DXR tier 1.1 (a failure with FA_D3D12_REQUIRE_RT=1, which -DFA_D3D12_REQUIRE_RT=ON sets on this ctest
+    # alone: the Windows CI job configures with it, so the whole-suite `render` run never fails for it). FA_WARP_DIR (a folder with
     # the d3d10warp.dll of the Microsoft.Direct3D.WARP NuGet package, which every Windows CI shard exports when the
     # runner's WARP is older) is loaded before its first device: this file runs alone here, so no earlier case of the
     # process has loaded another WARP (in the whole-suite `render` run one may have, and the case then skips).
     add_test(NAME render_d3d12_raytracing
         COMMAND fa_test_render --fa-files=d3d12_raytracing_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    if(FA_D3D12_REQUIRE_RT)
+        # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put its own variables in ENVIRONMENT.
+        set_property(TEST render_d3d12_raytracing APPEND PROPERTY ENVIRONMENT "FA_D3D12_REQUIRE_RT=1")
+    endif()
     # Its DirectStorage reads of game.pak into buffers and textures (src/gpu/d3d12_pack_reads_win32.cpp): with the DLLs
     # of `factoria setup directstorage` (FA_DIRECTSTORAGE_DIR) DirectStorage writes them, else the CPU fallback does (the
     # DirectStorage cases say so and pass, or fail with FA_DIRECTSTORAGE_REQUIRE=1).
@@ -100,7 +108,8 @@ if(TARGET fa_test_render)
     # refusals of a device without ray tracing, and on one with VK_KHR_acceleration_structure and VK_KHR_ray_query the
     # rt_probe kernel against a CPU trace. A device without them skips the tracing cases, a failure under
     # FA_VULKAN_REQUIRE_RT=1 (the Linux CI job: Mesa 25.2's lavapipe). Lavapipe compiles and runs the kernels on the CPU
-    # of a loaded 4-vCPU runner: the timeout is a safety net far above the seconds the cases take.
+    # of a loaded 4-vCPU runner: the timeout is a safety net far above the seconds the cases take (measured on Mesa 25.2.8
+    # lavapipe: about 1 s with every core and 2 s on one core, against 600 s).
     add_test(NAME render_vulkan_raytracing
         COMMAND fa_test_render --fa-files=vulkan_raytracing_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})

@@ -1667,7 +1667,7 @@ TEST_CASE("vulkan: make_shader and make_pipeline say what is wrong with a desc")
     CHECK(contains(shader_error(sd), "uniform block 1 is in descriptor set 1"));
     sd = fill_shader_desc();
     sd.uniformBlocks[1].binding.spirvBinding = 0;
-    CHECK(contains(shader_error(sd), "uniform block 1 is on binding 0 of set 0, which uniform block 0 is on already"));
+    CHECK(contains(shader_error(sd), "uniform block 1 is on binding 0 of set 0"));
     sd = fill_shader_desc();
     sd.samplers[0].stage = ShaderStage::Compute;
     sd.samplers[0].binding.spirvSet = 1;
@@ -2588,6 +2588,51 @@ TEST_CASE("vulkan: a pass's framebuffer is kept for the next list and leaves wit
     CHECK(dev->counters().pendingReleases == 0);
     step = "the validation layer said nothing";
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+}
+
+// RtScene destroys a skinned BLAS's positions buffer and its outView right after the build that read them was
+// submitted (M79 POLISH): the frame the destroy happens in decides when they go, not the call.
+TEST_CASE("vulkan: a destroyed view and a destroyed buffer wait for the frame of the list that used them") {
+    auto dev = make_vk();
+    if (!dev) return;
+    std::string step = "a list that draws into a view and writes a buffer, submitted";
+    INFO("step: " << step);
+    REQUIRE(dev->wait_idle());
+    const std::uint32_t liveBefore = dev->counters().memory.liveAllocations;
+    const Target t = make_target(*dev, Attach::Color, 4, 4, PixelFormat::Rgba8);
+    BufferDesc bd;
+    bd.size = 4096;
+    bd.usage.writeTransient = true;
+    const Buffer b = dev->make_buffer(bd);
+    REQUIRE(dev->state(b) == ResourceState::Valid);
+    CommandList& list = dev->begin_commands("use-then-destroy");
+    const std::vector<std::uint8_t> data = pattern(4096, 9);
+    BufferWrite w;
+    w.data = range_of(data);
+    w.buffer = b;
+    list.write_buffer(w);
+    list.begin_pass(color_pass(t, PixelFormat::Rgba8, Color{1.0f, 0.0f, 0.0f, 1.0f}));
+    list.end_pass();
+    dev->submit(list);
+
+    step = "destroyed before the frame is committed: the handles are gone, the objects are not";
+    const std::size_t pendingBefore = dev->counters().pendingReleases;
+    dev->destroy_view(t.view);
+    dev->destroy_buffer(b);
+    CHECK(dev->state(t.view) == ResourceState::Invalid);
+    CHECK(dev->state(b) == ResourceState::Invalid);
+    CHECK(dev->counters().pendingReleases >= pendingBefore + 2);
+    CHECK(dev->counters().memory.liveAllocations > liveBefore);
+
+    step = "after the frame's timeline value everything went";
+    dev->commit();
+    REQUIRE(dev->wait_idle());
+    CHECK(dev->counters().pendingReleases == 0);
+    dev->destroy_image(t.image);
+    REQUIRE(dev->wait_idle());
+    CHECK(dev->counters().memory.liveAllocations == liveBefore);
+    step = "the validation layer said nothing";
+    CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
 
 TEST_CASE("vulkan: without 2D views of a 3D image a slice of one is no colour attachment") {

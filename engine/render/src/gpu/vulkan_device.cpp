@@ -809,6 +809,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     const bool accelExtension = has_extension(extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
     const bool rayQueryExtension = has_extension(extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME);
     const bool deferredExtension = has_extension(extensions, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    const bool maint1Extension = has_extension(extensions, VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME);
     rayTracingPipeline_ = has_extension(extensions, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
 
     // What the device has.
@@ -824,6 +825,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     qAccel.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
     VkPhysicalDeviceRayQueryFeaturesKHR qRayQuery{};
     qRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+    VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR qMaint1{};
+    qMaint1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR;
     VkPhysicalDeviceFeatures2 q2{};
     q2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     q2.pNext = &q12;
@@ -843,7 +846,11 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         *tail = &qAccel;
         tail = &qAccel.pNext;
     }
-    if (rayQueryExtension) *tail = &qRayQuery;
+    if (rayQueryExtension) {
+        *tail = &qRayQuery;
+        tail = &qRayQuery.pNext;
+    }
+    if (maint1Extension) *tail = &qMaint1;
     fn_.vkGetPhysicalDeviceFeatures2(physical_, &q2);
     // The first piece ray tracing lacks on this device ("" = it has them all).
     const char* rtMissing =
@@ -857,6 +864,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
                               : "";
     const bool wantRt = *rtMissing == '\0';
     rayTracing_ = wantRt;
+    const bool rtMissingFeature =
+        !wantRt;  // later switch-offs (a failed vkCreateDevice, a missing entry point) are not
     if (!wantRt) {
         rtWhy_ =
             "the vulkan device '" + deviceName_ + "' has no ray tracing: it lacks " + rtMissing +
@@ -898,6 +907,8 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     eAccel.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
     VkPhysicalDeviceRayQueryFeaturesKHR eRayQuery{};
     eRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+    VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR eMaint1{};
+    eMaint1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR;
     VkPhysicalDeviceFeatures2 e2{};
     e2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     e2.pNext = &e12;
@@ -925,7 +936,15 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         enabled.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         enabled.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
         enabled.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+        // The copy commands get a stage of their own (synchronization2 only: the legacy stage flags have no bit for it).
+        if (sync2 && maint1Extension && qMaint1.rayTracingMaintenance1) {
+            eMaint1.rayTracingMaintenance1 = VK_TRUE;
+            eRayQuery.pNext = &eMaint1;
+            tail = &eMaint1.pNext;
+            enabled.push_back(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME);
+        }
     }
+    const bool useMaint1 = eMaint1.rayTracingMaintenance1 == VK_TRUE;
     const VkPhysicalDeviceFeatures& q = q2.features;
     VkPhysicalDeviceFeatures& e = e2.features;
     e.samplerAnisotropy = q.samplerAnisotropy;
@@ -955,13 +974,15 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
 
     // Device hooks (gpu/device_hooks.h): what each asks of the device, merged into the create info below. The last
     // struct of the chain gets the hooks' own feature structs after it; the snapshots undo every merge for the retry.
-    void* chainEnd = wantRt                    ? static_cast<void*>(&eRayQuery)
+    void* chainEnd = useMaint1                 ? static_cast<void*>(&eMaint1)
+                     : wantRt                  ? static_cast<void*>(&eRayQuery)
                      : portability_            ? static_cast<void*>(&ePort)
                      : core13                  ? static_cast<void*>(&e13)
                      : eSync2.synchronization2 ? static_cast<void*>(&eSync2)
                                                : static_cast<void*>(&e12);
     const VkPhysicalDeviceAccelerationStructureFeaturesKHR snapAccel = eAccel;
     const VkPhysicalDeviceRayQueryFeaturesKHR snapRayQuery = eRayQuery;
+    const VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR snapMaint1 = eMaint1;
     const VkPhysicalDeviceFeatures2 snap2 = e2;
     const VkPhysicalDeviceVulkan12Features snap12 = e12;
     const VkPhysicalDeviceVulkan13Features snap13 = e13;
@@ -1052,6 +1073,9 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
             chained.push_back(
                 {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, &eAccel, sizeof eAccel});
             chained.push_back({VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, &eRayQuery, sizeof eRayQuery});
+            if (useMaint1)
+                chained.push_back({VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR, &eMaint1,
+                                   sizeof eMaint1});
         }
         VulkanPhysicalDevice pd;
         pd.instance = instance_;
@@ -1160,6 +1184,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         ePort = snapPort;
         eAccel = snapAccel;
         eRayQuery = snapRayQuery;
+        eMaint1 = snapMaint1;
         enabled.resize(engineExtensions);
         queue_infos(engineQueues);
         dci.queueCreateInfoCount = std::uint32_t(queueInfos.size());
@@ -1186,8 +1211,9 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         *rtLink = nullptr;
         e12.bufferDeviceAddress = VK_FALSE;
         enabled.resize(engineExtensions);
-        for (const char* name : {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
-                                 VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME})
+        for (const char* name :
+             {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
+              VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME})
             enabled.erase(std::remove_if(enabled.begin(), enabled.end(),
                                          [name](const char* ext) { return std::strcmp(ext, name) == 0; }),
                           enabled.end());
@@ -1247,25 +1273,38 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
     if (!rayTracing_) {
         // Whichever step turned it off, the reason names the driver and its version (a skip or a required-RT failure
         // then says what to update; on lavapipe, the CI's software device, the Mesa release).
+        // VkPhysicalDeviceDriverProperties is core in Vulkan 1.2 and VK_KHR_driver_properties before: it is chained, and
+        // its strings read, only where the driver fills it (a driver with neither leaves it untouched, all zero here).
         VkPhysicalDeviceDriverProperties driver{};
         driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+        const bool driverProps =
+            apiVersion_ >= VK_API_VERSION_1_2 || has_extension(extensions, VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME);
         VkPhysicalDeviceProperties2 p2{};
         p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        p2.pNext = &driver;
-        if (fn_.vkGetPhysicalDeviceProperties2) fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
-        driver.driverName[VK_MAX_DRIVER_NAME_SIZE - 1] = '\0';
-        driver.driverInfo[VK_MAX_DRIVER_INFO_SIZE - 1] = '\0';
-        if (driver.driverID == VK_DRIVER_ID_MESA_LLVMPIPE)
-            rtWhy_ += std::string("; this is lavapipe of ") +
-                      (driver.driverInfo[0] ? driver.driverInfo : "an unnamed Mesa") +
-                      ", and lavapipe traces rays from Mesa 24.1";
-        else if (driver.driverName[0])
+        if (driverProps) p2.pNext = &driver;
+        if (driverProps && fn_.vkGetPhysicalDeviceProperties2) {
+            fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
+            driver.driverName[VK_MAX_DRIVER_NAME_SIZE - 1] = '\0';
+            driver.driverInfo[VK_MAX_DRIVER_INFO_SIZE - 1] = '\0';
+        }
+        if (driver.driverID == VK_DRIVER_ID_MESA_LLVMPIPE) {
+            rtWhy_ +=
+                std::string("; this is lavapipe of ") + (driver.driverInfo[0] ? driver.driverInfo : "an unnamed Mesa");
+            // Only when a piece is missing: lavapipe lists VK_KHR_acceleration_structure and VK_KHR_ray_query from
+            // Mesa 24.1 (the "Implement/Advertise" commits in https://docs.mesa3d.org/relnotes/24.1.0.html). The
+            // engine's tests trace on Mesa 25.2.8 only. A failed vkCreateDevice or a missing entry point on lavapipe
+            // is a different problem that this would hide.
+            if (rtMissingFeature)
+                rtWhy_ += ", and lavapipe lists ray queries from Mesa 24.1 (verified here on Mesa 25.2.8)";
+        } else if (driver.driverName[0]) {
             rtWhy_ += std::string("; its driver is ") + driver.driverName +
                       (driver.driverInfo[0] ? std::string(" ") + driver.driverInfo : std::string());
+        }
 #define FA_VK_CLEAR_ACCEL(name) fn_.name = nullptr;
         FA_VK_ACCEL_FUNCTIONS(FA_VK_CLEAR_ACCEL)
 #undef FA_VK_CLEAR_ACCEL
     } else {
+        accelCopyStage_ = useMaint1 && sync2;
         accelProps_ = VkPhysicalDeviceAccelerationStructurePropertiesKHR{};
         accelProps_.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
         VkPhysicalDeviceProperties2 p2{};

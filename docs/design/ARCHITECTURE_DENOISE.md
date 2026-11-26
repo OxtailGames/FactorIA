@@ -4,10 +4,10 @@ The ray traced shadows, ambient occlusion, reflections and global illumination o
 signal comes out noisy. `RtDenoiser` (`engine/render/src/rt_denoise.{h,cpp}`, shaders `engine/render/shaders/rt_denoise.glsl`)
 is the one denoiser they share: a temporal accumulation with reprojection followed by a variance-guided a-trous wavelet filter
 (the family of SVGF and A-SVGF; the code is the engine's own, only the ideas are the published ones). It is a renderer-private
-module: nothing in it is a public API, a component or a command. The ray traced soft sun shadows (P2a-2,
-[ARCHITECTURE_RT_EFFECTS.md](ARCHITECTURE_RT_EFFECTS.md), "Soft shadows") are its first caller, with `DenoiseKind::Visibility` and signal id 1; the
-later ray passes declare a signal with `add_passes` and read the image it returns. The renderer sweeps it every frame and releases it when ray
-tracing or the soft shadows go off.
+module: nothing in it is a public API, a component or a command. The ray traced ambient occlusion (P2b, `DenoiseKind::Occlusion`, signal id 2) and
+the ray traced soft sun shadows (P2a-2, [ARCHITECTURE_RT_EFFECTS.md](ARCHITECTURE_RT_EFFECTS.md), "Soft shadows", `DenoiseKind::Visibility`,
+signal id 1) are its callers, each signal with its own history per camera; the later ray passes declare a signal with `add_passes` and read the
+image it returns. The renderer sweeps it every frame and releases it when ray tracing goes off.
 
 Everything here runs as full-screen fragment passes through `fa::gpu`, so it works on every backend (Metal, D3D11, D3D12,
 Vulkan, GL, WebGL2 shaders come from the same sokol-shdc source). No compute, no storage image, no vendor SDK.

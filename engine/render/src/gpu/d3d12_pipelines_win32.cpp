@@ -531,6 +531,9 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         std::string e;
         if (error.empty() && !stage_code(fn, target, stage, rtCaps_.shaderModel, out, e)) fail(e);
     };
+    // What a ray-query kernel's compute stage is, when it is not DXIL: nothing at all, HLSL text, or bytecode of another
+    // compiler (DXBC, SPIR-V): the refusal says which, and what to give instead.
+    const bool rqNoStage = !desc.computeFunc.bytecode.ptr && !desc.computeFunc.source;
     const bool rqNotDxil =
         desc.usesRayQuery && !(desc.computeFunc.bytecode.ptr &&
                                is_dxil_container(desc.computeFunc.bytecode.ptr, desc.computeFunc.bytecode.size));
@@ -620,10 +623,22 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         else if (!features_.rayQuery)
             fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + noRt +
                  ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
-        else if (rqNotDxil)
-            fail("usesRayQuery on a compute stage that is not DXIL: RayQuery needs DXIL (cs_6_5), and HLSL text is "
-                 "compiled for cs_5_1 (hint: give the DXC container as computeFunc.bytecode: the engine's kernels are "
-                 "engine/render/shaders/rt/*.hlsl, compiled by tools/shaders/compile_rt_shaders.sh)");
+        else if (rqNotDxil) {
+            const char* dxilHint = "(hint: give the DXC container as computeFunc.bytecode: the engine's kernels are "
+                                   "engine/render/shaders/rt/*.hlsl, compiled by tools/shaders/compile_rt_shaders.sh)";
+            if (rqNoStage)
+                fail(std::string("usesRayQuery on a shader with no compute stage: computeFunc has neither bytecode nor "
+                                 "source ") +
+                     dxilHint);
+            else if (!desc.computeFunc.bytecode.ptr)
+                fail(std::string("usesRayQuery on a compute stage given as HLSL text: RayQuery needs DXIL (cs_6_5), "
+                                 "and HLSL text is compiled for cs_5_1, which has no RayQuery ") +
+                     dxilHint);
+            else
+                fail(std::string("usesRayQuery on a compute stage whose bytecode is not a DXIL container (no \"DXBC\" "
+                                 "header with a DXIL part: DXBC from FXC and SPIR-V have no RayQuery either) ") +
+                     dxilHint);
+        }
     }
     for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
         const ShaderAccelStructure& a = desc.accelStructures[i];
@@ -640,6 +655,8 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
             fail(what + " on a device without acceleration structures (Features::accelerationStructure is false: " +
                  noRt + ")");
         info->accelDeclared[i] = true;
+        // Stage 0 is the compute stage (stage_index(Compute, true) == 0): the same stage the kernel's own views claim
+        // their registers in, so a TLAS on a t register a view uses is reported as the clash it is.
         claim(what, 0, 't', a.binding.hlslRegister, a.binding.hlslSpace);
     }
     for (int i = 0; i < kMaxVertexAttributes; ++i) {

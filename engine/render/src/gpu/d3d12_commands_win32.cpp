@@ -79,6 +79,7 @@ Result<void> D3d12CommandList::open(const char* label) {
     nativeOpen_ = false;
     nativeDecls_.clear();
     accelLast_.clear();
+    accelWritten_ = false;
     // Every list that can bind sees the two shader-visible heaps (the bindings' tables and the bindless table point
     // into them); a copy list binds nothing and may not set them.
     if (kind_ != QueueKind::Transfer) {
@@ -720,6 +721,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
     const std::uint32_t viewInc = device_.viewHeap_.increment(), samplerInc = device_.samplerHeap_.increment();
     boundUavs_.clear();
     uavsWritten_ = false;
+    bool statesOk = true;  // require() reported a resource it cannot put in the state this command needs
     for (int i = 0; i < kMaxViews; ++i) {
         const BoundView& v = views[i];
         if (!v.t) continue;
@@ -731,9 +733,10 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         if (v.writable) {
             uav_barrier_if_written(v.t);
             if (v.type == ViewType::StorageBuffer)
-                require(v.t, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                statesOk = require(v.t, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) && statesOk;
             else
-                require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                statesOk =
+                    require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) && statesOk;
             if (std::find(boundUavs_.begin(), boundUavs_.end(), v.t) == boundUavs_.end()) boundUavs_.push_back(v.t);
         } else {
             // A compute list's queue has no pixel shader state (a COMPUTE list may not use it).
@@ -742,9 +745,9 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
                                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
                                   : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             if (v.type == ViewType::StorageBuffer)
-                require(v.t, 0, read);
+                statesOk = require(v.t, 0, read) && statesOk;
             else
-                require_range(v.t, v.mip, v.mipCount, layer, layers, read);
+                statesOk = require_range(v.t, v.mip, v.mipCount, layer, layers, read) && statesOk;
         }
     }
     for (int i = 0; i < kMaxSamplers; ++i) {
@@ -775,7 +778,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
     for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
         if (!accels[i] || lay.accelParam[i] < 0) continue;
         list_->SetComputeRootShaderResourceView(UINT(lay.accelParam[i]), accelAddress[i]);
-        require(accels[i], 0, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+        statesOk = require(accels[i], 0, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) && statesOk;
         if (std::find(boundAccels_.begin(), boundAccels_.end(), accels[i]) == boundAccels_.end())
             boundAccels_.push_back(accels[i]);
     }
@@ -784,7 +787,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
     for (int i = 0; i < kMaxVertexBuffers; ++i) {
         const BoundBuffer& v = vbs[i];
         if (!v.t) continue;
-        require(v.t, 0, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+        statesOk = require(v.t, 0, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER) && statesOk;
         D3D12_VERTEX_BUFFER_VIEW vbv{};
         vbv.BufferLocation = v.t->resource->GetGPUVirtualAddress() + v.offset;
         vbv.SizeInBytes = UINT(std::min<std::uint64_t>(v.size - v.offset, 0xFFFFFFFFu));
@@ -792,12 +795,16 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         list_->IASetVertexBuffers(UINT(i), 1, &vbv);
     }
     if (ib.t) {
-        require(ib.t, 0, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+        statesOk = require(ib.t, 0, D3D12_RESOURCE_STATE_INDEX_BUFFER) && statesOk;
         D3D12_INDEX_BUFFER_VIEW ibv{};
         ibv.BufferLocation = ib.t->resource->GetGPUVirtualAddress() + ib.offset;
         ibv.SizeInBytes = UINT(std::min<std::uint64_t>(ib.size - ib.offset, 0xFFFFFFFFu));
         ibv.Format = st.indexType == IndexType::Uint16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
         list_->IASetIndexBuffer(&ibv);
+    }
+    if (!statesOk) {  // require() reported it: no draw or dispatch runs on bindings it could not put in state
+        drawsFailed_ = true;
+        return;
     }
     bindingsSet_ = true;
     empty_ = false;
@@ -928,6 +935,16 @@ bool D3d12CommandList::ready_to_run(const char* what, bool compute) {
                        "since set_pipeline");
         return false;
     }
+    // A dispatch that traces runs after every build, refit and copy of this list: a UAV barrier over all resources (a
+    // null pResource), because the BLASes a TLAS points at are no binding of the dispatch (a BLAS refit after the TLAS
+    // build, then a trace, has no per-resource barrier to hang on).
+    if (tracesRays && accelWritten_) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        b.UAV.pResource = nullptr;
+        pending_.push_back(b);
+        accelWritten_ = false;
+    }
     // A dispatch that traces a TLAS runs after the builds of this list that wrote it (a UAV barrier on its buffer).
     for (const std::shared_ptr<TrackedResource>& t : boundAccels_) accel_access(t, AccelAccess::Read);
     // A command after one that wrote the bound UAVs sees its writes.
@@ -1012,16 +1029,16 @@ void D3d12CommandList::transition(Use& u, std::uint32_t sub, StateBits state) {
     current = state;
 }
 
-void D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub,
+bool D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub,
                                D3D12_RESOURCE_STATES state) {
-    if (!t) return;
+    if (!t) return true;
     if (t->accel && state != D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) {
         // D3D12 allows no transition out of the acceleration structure state; make_buffer refuses every usage that
         // would ask for one, so this is an engine bug, reported instead of recorded.
         device_.report("d3d12: " + t->display_name() +
                        " holds acceleration structures and was asked for another resource state (" +
                        std::to_string(unsigned(state)) + "); the barrier was not recorded");
-        return;
+        return false;  // the caller does not record the command that wanted it
     }
     auto [it, added] = useIndex_.try_emplace(t.get(), uses_.size());
     if (added) {
@@ -1037,16 +1054,19 @@ void D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::u
     } else if (sub < t->subresource_count()) {
         transition(u, sub, StateBits(state));
     }
+    return true;
 }
 
-void D3d12CommandList::require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip,
+bool D3d12CommandList::require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip,
                                      std::uint32_t mipCount, std::uint32_t layer, std::uint32_t layerCount,
                                      D3D12_RESOURCE_STATES state) {
-    if (!t) return;
+    if (!t) return true;
+    bool ok = true;
     for (std::uint32_t p = 0; p < t->planes; ++p)
         for (std::uint32_t l = layer; l < layer + layerCount && l < t->layers; ++l)
             for (std::uint32_t m = mip; m < mip + mipCount && m < t->mips; ++m)
-                require(t, t->subresource(m, l, p), state);
+                ok = require(t, t->subresource(m, l, p), state) && ok;
+    return ok;
 }
 
 void D3d12CommandList::flush_barriers() {
@@ -1230,7 +1250,7 @@ void D3d12CommandList::write_buffer(const BufferWrite& w) {
     const UploadAlloc a = device_.upload(size, 16, this);
     if (!a.ok()) return;  // reported
     std::memcpy(a.cpu, static_cast<const std::uint8_t*>(w.data.ptr) + w.srcOffset, size);
-    require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (!require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST)) return;  // reported: the copy is not recorded
     flush_barriers();
     list_->CopyBufferRegion(t->resource.get(), w.dstOffset, a.resource, a.offset, size);
     empty_ = false;
@@ -1261,8 +1281,8 @@ void D3d12CommandList::copy_buffer_to_buffer(const BufferCopy& c) {
         device_.report("gpu d3d12: CommandList::copy_buffer_to_buffer in list '" + label_ + "': " + error);
         return;
     }
-    require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    require(dst, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    const bool srcOk = require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    if (!require(dst, 0, D3D12_RESOURCE_STATE_COPY_DEST) || !srcOk) return;  // reported: the copy is not recorded
     flush_barriers();
     list_->CopyBufferRegion(dst->resource.get(), c.dstOffset, src->resource.get(), c.srcOffset, c.size);
     empty_ = false;
@@ -1440,7 +1460,7 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
         return;
     }
     const bool is3d = im.type == ImageType::Tex3d;
-    require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    if (!require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE)) return;  // reported: the copy is not recorded
     const bool placed =
         c.srcOffset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT == 0 &&
         r.rowPitch % D3D12_TEXTURE_DATA_PITCH_ALIGNMENT == 0 &&

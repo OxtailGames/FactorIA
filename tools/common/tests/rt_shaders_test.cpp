@@ -5,6 +5,7 @@
 // pin that moved without a regeneration all fail with the command that fixes them.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -61,6 +62,31 @@ Blob blob(const std::string& text, const std::string& label) {
     return b;
 }
 
+// The text of a kernel source with every `#include "name"` line (at the start of a line, in quotes) replaced by the text of that file, next to the
+// including one, recursively: what compile_rt_shaders.sh's expand_includes writes. A source with no such line is returned as it is, so a
+// kernel without an include keeps its hash. The hash of the HLSL and the MSL text of the header are of this text.
+std::string expand_includes(const stdfs::path& file) {
+    const std::string text = testing::read_all(file);
+    if (text.rfind("#include \"", 0) != 0 && text.find("\n#include \"") == std::string::npos) return text;
+    std::string out;
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind("#include \"", 0) == 0) {
+            const std::size_t end = line.find('"', 10);
+            const std::string name = end == std::string::npos ? std::string() : line.substr(10, end - 10);
+            REQUIRE_MESSAGE(!name.empty(), file.string() << ": malformed #include line: " << line);
+            const std::string inner = expand_includes(file.parent_path() / name);
+            REQUIRE_MESSAGE(!inner.empty(), file.string()
+                                                << ": the file it includes (" << name << ") is missing or empty");
+            out += inner;
+        } else {
+            out += line + "\n";
+        }
+    }
+    return out;
+}
+
 const char* kFix =
     " (regenerate: tools/shaders/compile_rt_shaders.sh; on a computer without DXC the Linux CI job does it and "
     "uploads the headers as the artifact rt-shader-headers)";
@@ -78,8 +104,8 @@ TEST_CASE("rt shaders: every kernel has an HLSL, a Metal twin and a header that 
         const std::string name = entry.path().stem().string();
         CAPTURE(name);
         ++kernels;
-        const std::string hlsl = testing::read_all(entry.path());
-        const std::string msl = testing::read_all(sources / (name + ".metal"));
+        const std::string hlsl = expand_includes(entry.path());
+        const std::string msl = expand_includes(sources / (name + ".metal"));
         REQUIRE_MESSAGE(!msl.empty(), name << ".metal (the Metal twin of the HLSL) is missing");
         CHECK(hlsl.find('\r') == std::string::npos);  // .gitattributes: LF, the hashes below are of these bytes
         const std::string header = testing::read_all(headers / (name + ".rt.h"));
@@ -104,7 +130,7 @@ TEST_CASE("rt shaders: every kernel has an HLSL, a Metal twin and a header that 
                 REQUIRE(!b.data.empty());
                 CHECK(b.data.back() == '\0');
                 const std::string text = b.data.substr(0, b.data.size() - 1);
-                CHECK(text == msl);  // exactly the .metal file, and the NUL after it
+                CHECK(text == msl);  // exactly the .metal file with its includes put in, and the NUL after it
                 CHECK(b.bytes == msl.size());
             } else {
                 CHECK(b.bytes == b.data.size());
@@ -139,7 +165,17 @@ TEST_CASE(
     REQUIRE(!ci.empty());
     CHECK(ci.find("compile_rt_shaders.sh") != std::string::npos);
     CHECK(ci.find("rt-shader-headers") != std::string::npos);
-    // The cache key of the DXC download carries the pinned version, so a new pin is a new download.
-    CHECK(ci.find("dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}") != std::string::npos);
-    CHECK(ci.find("compile_rt_shaders.sh") != std::string::npos);
+    // The cache key of the DXC download carries the pinned version, so a new pin is a new download. It is written twice
+    // (the restore step and the save step), and only the parts that matter are matched: the runner's OS and the pin the
+    // `dxc-pin` step prints, with any spacing inside the `${{ }}` (a re-indented or re-quoted workflow still passes).
+    size_t keys = 0;
+    for (size_t at = ci.find("key: dxc-"); at != std::string::npos; at = ci.find("key: dxc-", at + 1)) {
+        const size_t end = ci.find('\n', at);
+        std::string line = ci.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        line.erase(std::remove_if(line.begin(), line.end(), [](char c) { return c == ' '; }), line.end());
+        if (line.find("${{runner.os}}") != std::string::npos &&
+            line.find("steps.dxc-pin.outputs.pin") != std::string::npos)
+            ++keys;
+    }
+    CHECK_MESSAGE(keys >= 2, "ci.yml: the restore and the save of the DXC cache use a key with the pinned version");
 }

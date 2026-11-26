@@ -176,10 +176,10 @@ TEST_CASE("rt effect: the seed of a frame is a pure function of the frame serial
 
 namespace {
 
-// The field names between `// BEGIN RtEffectParams` and `// END RtEffectParams` of a kernel source, in order.
-std::vector<std::string> struct_fields(const std::string& source) {
-    const std::size_t b = source.find("// BEGIN RtEffectParams");
-    const std::size_t e = source.find("// END RtEffectParams");
+// The field names between `// BEGIN <name>` and `// END <name>` of a kernel source, in order.
+std::vector<std::string> struct_fields(const std::string& source, const std::string& name = "RtEffectParams") {
+    const std::size_t b = source.find("// BEGIN " + name);
+    const std::size_t e = source.find("// END " + name);
     std::vector<std::string> out;
     if (b == std::string::npos || e == std::string::npos || e < b) return out;
     std::string body = source.substr(b, e - b);
@@ -196,7 +196,7 @@ std::vector<std::string> struct_fields(const std::string& source) {
     std::istringstream in(clean);
     std::string tok;
     while (in >> tok) {
-        if (tok == "struct" || tok == "RtEffectParams" || tok == "float4" || tok == "uint4") continue;
+        if (tok == "struct" || tok == name || tok == "float4" || tok == "uint4") continue;
         out.push_back(tok);
     }
     return out;
@@ -283,7 +283,7 @@ TEST_CASE("rt effect: the shader of a kernel declares the bindings of the contra
         const gpu::ShaderStorageBufferView& rec = d.views[2].storageBuffer;
         CHECK(rec.stage == gpu::ShaderStage::Compute);
         CHECK(rec.binding.hlslRegister == 2);
-        CHECK(rec.binding.mslIndex == 2);
+        CHECK(rec.binding.mslIndex == 8);
         CHECK(rec.binding.spirvBinding == 4);
         CHECK(d.views[3].texture.binding.hlslRegister == 3);
         CHECK(d.views[3].texture.binding.mslIndex == 2);
@@ -883,4 +883,467 @@ TEST_CASE("rt effect: a device that cannot trace says so once and draws the fram
     // The renderer's one teaching message of rt_begin_frame; the effect adds none of its own.
     CHECK(log.count("cannot trace rays") == 1);
     CHECK(log.count("cannot run on this device") == 0);
+}
+
+// ---- M79-P2b: ray traced ambient occlusion (shaders/rt/rt_ao.{hlsl,metal}, docs/design/ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)") ---------
+
+namespace {
+
+void ao_rays(Rig& r, bool ao, render::RtShadows shadows = render::RtShadows::Off, int raysPerPixel = 1) {
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = shadows;
+    s.ao = ao;
+    s.raysPerPixel = raysPerPixel;
+    r.renderer.set_ray_tracing(s);
+}
+
+// The camera of make_scene with the screen-space occlusion on (PostProcess.ssao*).
+void add_ssao_to_camera(World& w) {
+    PostProcess& p = w.add<PostProcess>(w.find("cam"));
+    p.ssaoEnabled = true;
+    p.ssaoIntensity = 1.5f;
+    p.ssaoRadius = 0.8f;
+}
+
+int count_labels(const std::vector<std::string>& lines, const std::string& needle) {
+    int n = 0;
+    for (const std::string& l : lines) n += l.find(needle) != std::string::npos ? 1 : 0;
+    return n;
+}
+
+}  // namespace
+
+TEST_CASE("rt effect: the kernel table has rt_ao, with the same constants block and bindings as the shadows") {
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_ao");
+    REQUIRE(k != nullptr);
+    const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_ao");
+    REQUIRE(spec != nullptr);
+    CHECK_FALSE(spec->usesRecords);
+    CHECK_FALSE(spec->usesGbuffer);
+    CHECK(k->msl.find("kernel void rt_ao") != std::string_view::npos);
+    CHECK(k->msl.find("accept_any_intersection(true)") != std::string_view::npos);
+    CHECK_FALSE(k->dxil.empty());
+    CHECK_FALSE(k->spirv.empty());
+    const std::vector<std::string> expected(std::begin(fa::render::kRtEffectParamNames),
+                                            std::end(fa::render::kRtEffectParamNames));
+    const std::string hlsl = read_repo_file("engine/render/shaders/rt/rt_ao.hlsl");
+    REQUIRE_FALSE(hlsl.empty());
+    CHECK(struct_fields(hlsl) == expected);
+    CHECK(struct_fields(std::string(k->msl)) == expected);
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+        INFO("backend " << int(backend));
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, *spec, backend);
+        REQUIRE(d.compute());
+        CHECK(d.usesRayQuery);
+        CHECK(d.uniformBlocks[0].size == sizeof(RtEffectParams));
+        CHECK(d.views[0].storageImage.accessFormat == gpu::PixelFormat::Rgba32F);
+        CHECK(d.views[1].texture.binding.mslIndex == 1);  // the prepass
+        if (backend == gpu::Backend::Metal) CHECK(std::string(d.computeFunc.entry) == "rt_ao");
+    }
+}
+
+TEST_CASE("rt effect: ambient occlusion adds the kernel and the denoiser's passes and not the screen-space ones") {
+    Rig r;
+    ao_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    add_ssao_to_camera(w);
+    r.frame(w);  // the first frame builds the BLASes
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].find("rt-ao") != std::string::npos);
+    const std::vector<std::string> lines = r.lines();
+    // The kernel after the TLAS and the prepass; the denoiser's passes after the kernel and before the main pass, which applies the result.
+    const int tlas = index_of(lines, "build_tlas");
+    const int prepass = index_of(lines, "begin_pass 'prepass'");
+    const int kernel = index_of(lines, "rt-ao");
+    const int temporal = index_of(lines, "rtd-temporal");
+    const int atrous = index_of(lines, "rtd-atrous");
+    const int game = index_of(lines, "begin_pass 'game'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(prepass >= 0);
+    REQUIRE(kernel >= 0);
+    REQUIRE(temporal >= 0);
+    REQUIRE(atrous >= 0);
+    REQUIRE(game >= 0);
+    CHECK(tlas < kernel);
+    CHECK(prepass < kernel);
+    CHECK(kernel < temporal);
+    CHECK(temporal < atrous);
+    CHECK(atrous < game);
+    CHECK(count_labels(lines, "rtd-guide") >= 1);
+    // The SSAO's passes are gone: the traced result replaces them.
+    CHECK(count_labels(lines, "begin_pass 'ssao-") == 0);
+    CHECK(count_labels(lines, "set_pipeline 'ssao-apply'") ==
+          1);  // the apply of the screen-space occlusion draws the traced one
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    // One kernel pipeline, the output and the prepass as views, one 400-byte block, one dispatch over 160 x 96 pixels.
+    REQUIRE(std::size_t(kernel) + 4 < lines.size());
+    CHECK(lines[std::size_t(kernel) + 2].find("views=2 samplers=1") != std::string::npos);
+    CHECK(lines[std::size_t(kernel) + 3].find("set_uniforms 0 400B") != std::string::npos);
+    CHECK(lines[std::size_t(kernel) + 4].find("dispatch 20 12 1") != std::string::npos);
+}
+
+TEST_CASE("rt effect: ambient occlusion works without a PostProcess too (the component's defaults) and is the same "
+          "every frame") {
+    Rig r;
+    ao_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> a = r.lines();
+    CHECK(r.compute_passes().size() == 1);
+    CHECK(count_labels(a, "begin_pass 'rtd-temporal'") == 1);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> b = r.lines();
+    REQUIRE(a.size() > 10);
+    CHECK(a == b);
+}
+
+TEST_CASE("rt effect: with ambient occlusion off nothing is declared, made or kept, and the screen-space passes stay") {
+    Rig r;
+    ao_rays(r, false, render::RtShadows::Hard);  // another effect on: ray tracing is on, ao is not
+    World w;
+    make_scene(w, true, true);
+    add_ssao_to_camera(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> lines = r.lines();
+    CHECK(count_labels(lines, "rtd-") == 0);
+    CHECK(count_labels(lines, "rt-ao") == 0);
+    CHECK(count_labels(lines, "begin_pass 'ssao-ao'") == 1);
+    const auto* denoiser = RendererTestAccess::rt_denoiser(r.renderer);
+    REQUIRE(denoiser != nullptr);
+    CHECK_FALSE(denoiser->shaders_made());
+    CHECK(denoiser->history_image_count() == 0);
+}
+
+TEST_CASE("rt effect: ambient occlusion together with the sun's shadow makes two compute passes") {
+    Rig r;
+    ao_rays(r, true, render::RtShadows::Hard);
+    World w;
+    make_scene(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 2);
+    CHECK(count_labels(passes, "rt-shadows") == 1);
+    CHECK(count_labels(passes, "rt-ao") == 1);
+    CHECK(r.effects().image_count() == 2);
+}
+
+TEST_CASE("rt effect: ambient occlusion turned off frees the kernel, the image and the denoiser, and ray tracing off "
+          "frees all") {
+    Rig r;
+    ao_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    r.frame(w);
+    r.frame(w);
+    r.frame(w);
+    CHECK(r.effects().image_count() == 1);
+    const auto* denoiser = RendererTestAccess::rt_denoiser(r.renderer);
+    REQUIRE(denoiser != nullptr);
+    CHECK(denoiser->shaders_made());
+    CHECK(denoiser->history_image_count() > 0);
+    ao_rays(r, false, render::RtShadows::Hard);  // ray tracing stays on (the shadows), the occlusion goes
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() <=
+          1);  // the shadows' image, if the scene has a sun that casts (it has no light here)
+    CHECK(denoiser->history_image_count() == 0);  // swept: no camera asked for the signal
+    ao_rays(r, true);
+    r.frame(w);
+    r.frame(w);
+    CHECK(r.effects().image_count() == 1);
+    render::RayTracingSettings off;
+    off.enabled = false;
+    r.renderer.set_ray_tracing(off);
+    r.frame(w);
+    CHECK(r.effects().empty());
+    CHECK_FALSE(denoiser->shaders_made());
+    CHECK(denoiser->history_image_count() == 0);
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE(
+    "rt effect: ambient occlusion on a device that cannot trace keeps the screen-space occlusion and says so once") {
+    Logs log;
+    Rig r(false);
+    ao_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    add_ssao_to_camera(w);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> lines = r.lines();
+    CHECK(r.compute_passes().empty());
+    CHECK(count_labels(lines, "begin_pass 'ssao-ao'") == 1);
+    CHECK(count_labels(lines, "rtd-") == 0);
+    CHECK(r.effects().empty());
+    CHECK(log.count("cannot trace rays") == 1);
+    CHECK(log.count("cannot run on this device") == 0);
+}
+
+TEST_CASE("rt effect: a resize makes the ambient occlusion image again at the new size, and the dispatch covers it") {
+    Rig r;
+    ao_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    r.frame(w);
+    r.frame(w);
+    REQUIRE(r.effects().image_count() == 1);
+    r.dev->clear_commands();
+    r.frame(w);
+    auto dispatched = [&](const char* groups) {
+        for (const std::string& l : r.lines())
+            if (l.find(groups) != std::string::npos) return true;
+        return false;
+    };
+    CHECK(dispatched("dispatch 20 12 1"));  // 160 x 96 pixels in 8 x 8 groups
+    r.renderer.set_render_scale(0.5f);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(dispatched("dispatch 10 6 1"));  // 80 x 48 pixels
+    CHECK_FALSE(dispatched("dispatch 20 12 1"));
+    // The image the kernel writes is the new size, and the old one goes after its two frames.
+    for (int i = 0; i < 4; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.errors().empty());
+}
+
+// ---- M79-P3a-1: the hit shading include and the sharp reflections ------------------------------------------------------------------------
+
+TEST_CASE("rt reflect: RtHitParams is the same struct in C++, rt_hit.hlsli and rt_hit.msli, and RtEffectParams the "
+          "same in rt_reflect") {
+    const std::vector<std::string> hit(std::begin(fa::render::kRtHitParamNames),
+                                       std::end(fa::render::kRtHitParamNames));
+    REQUIRE(hit.size() == 6);
+    CHECK(sizeof(fa::render::RtHitParams) == 96);
+    const std::string hlsli = read_repo_file("engine/render/shaders/rt/rt_hit.hlsli");
+    const std::string msli = read_repo_file("engine/render/shaders/rt/rt_hit.msli");
+    REQUIRE_FALSE(hlsli.empty());
+    REQUIRE_FALSE(msli.empty());
+    CHECK(struct_fields(hlsli, "RtHitParams") == hit);
+    CHECK(struct_fields(msli, "RtHitParams") == hit);
+    // The kernel's embedded MSL carries the include's text (the library is compiled from one string).
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_reflect");
+    REQUIRE(k != nullptr);
+    CHECK(struct_fields(std::string(k->msl), "RtHitParams") == hit);
+    const std::vector<std::string> params(std::begin(fa::render::kRtEffectParamNames),
+                                          std::end(fa::render::kRtEffectParamNames));
+    CHECK(struct_fields(read_repo_file("engine/render/shaders/rt/rt_reflect.hlsl")) == params);
+    CHECK(struct_fields(std::string(k->msl)) == params);
+    CHECK(offsetof(fa::render::RtHitParams, ambient) == 2 * 16);
+    CHECK(offsetof(fa::render::RtHitParams, limits) == 5 * 16);
+}
+
+TEST_CASE("rt reflect: the kernel has a spec that asks for the records, the G-buffer and the hit constants, with the "
+          "bindings of the "
+          "contract in every backend's numbering") {
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_reflect");
+    REQUIRE(k != nullptr);
+    const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_reflect");
+    REQUIRE(spec != nullptr);
+    CHECK(spec->usesRecords);
+    CHECK(spec->usesGbuffer);
+    CHECK(spec->usesHit);
+    CHECK_FALSE(fa::render::find_rt_effect_spec("rt_shadow")->usesHit);
+    CHECK(k->msl.find("kernel void rt_reflect") != std::string_view::npos);
+    CHECK_FALSE(k->dxil.empty());
+    CHECK_FALSE(k->spirv.empty());
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+        INFO("backend " << int(backend));
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, *spec, backend);
+        REQUIRE(d.compute());
+        CHECK(d.usesRayQuery);
+        CHECK(d.uniformBlocks[0].size == sizeof(RtEffectParams));
+        CHECK(d.uniformBlocks[0].binding.hlslRegister == 0);
+        CHECK(d.uniformBlocks[0].binding.mslIndex == 1);
+        CHECK(d.uniformBlocks[0].binding.spirvBinding == 2);
+        // The second block: b1 / buffer(3) / binding 7 (rt_hit.hlsli, rt_hit.msli).
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].stage == gpu::ShaderStage::Compute);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].size == sizeof(fa::render::RtHitParams));
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.hlslRegister == 1);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.mslIndex == 3);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.spirvBinding == 7);
+        CHECK(d.views[2].storageBuffer.binding.hlslRegister == 2);
+        CHECK(d.views[2].storageBuffer.binding.mslIndex == 8);
+        CHECK(d.views[2].storageBuffer.binding.spirvBinding == 4);
+        CHECK(d.views[3].texture.binding.mslIndex == 2);
+        CHECK(d.views[4].texture.binding.mslIndex == 3);
+    }
+    // A kernel without the hit constants has no second block.
+    const gpu::ShaderDesc shadow = fa::render::rt_effect_shader_desc(
+        *rt_kernels::find_rt_kernel("rt_shadow"), *fa::render::find_rt_effect_spec("rt_shadow"), gpu::Backend::Metal);
+    CHECK(shadow.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].stage == gpu::ShaderStage::None);
+    // The sources say the same numbers (the HLSL's registers and Vulkan bindings, the MSL's buffer indices).
+    const std::string hlsli = read_repo_file("engine/render/shaders/rt/rt_hit.hlsli");
+    CHECK(hlsli.find("[[vk::binding(7, 0)]] ConstantBuffer<RtHitParams> g_hit : register(b1);") != std::string::npos);
+    CHECK(hlsli.find("[[vk::binding(4, 0)]] StructuredBuffer<RtInstanceRecord> g_records : register(t2);") !=
+          std::string::npos);
+    CHECK(hlsli.find("[[vk::binding(0, 0)]] RaytracingAccelerationStructure g_tlas : register(t0);") !=
+          std::string::npos);
+    CHECK(k->msl.find("constant RtHitParams& hit [[buffer(3)]]") != std::string_view::npos);
+    CHECK(k->msl.find("const device RtInstanceRecord* records [[buffer(8)]]") != std::string_view::npos);
+}
+
+namespace {
+
+void make_reflect_scene(World& w) {
+    make_scene(w);
+    // The floor is a mirror (roughness 0), as the lit shader's roughness default is 0.5.
+    Entity floor = w.find("floor");
+    if (!floor.is_null()) w.get<MeshRenderer>(floor)->roughness = 0.0f;
+}
+
+}  // namespace
+
+TEST_CASE("rt reflect: with reflections off nothing is declared, made or kept, with ray tracing on") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.reflections = false;
+    s.translucency = true;  // another effect keeps ray tracing on
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    for (int i = 0; i < 3; ++i) {
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        const std::vector<std::string> lines = r.lines();
+        CHECK(index_of(lines, "gbuffer") < 0);
+        CHECK(index_of(lines, "ssr-trace") < 0);
+    }
+    CHECK(r.effects().empty());
+}
+
+TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass after the TLAS, with the two constants "
+          "blocks, and the "
+          "reflections' trace pass composites it") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.reflections = true;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].find("rt-reflections") != std::string::npos);
+    const std::vector<std::string> lines = r.lines();
+    const int tlas = index_of(lines, "build_tlas");
+    const int gbuffer = index_of(lines, "begin_pass 'gbuffer'");
+    const int refl = index_of(lines, "rt-reflections");
+    const int trace = index_of(lines, "begin_pass 'ssr-trace'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(gbuffer >= 0);
+    REQUIRE(refl >= 0);
+    REQUIRE(trace >= 0);
+    CHECK(tlas < refl);
+    CHECK(gbuffer < refl);
+    CHECK(refl < trace);
+    REQUIRE(std::size_t(refl) + 5 < lines.size());
+    CHECK(lines[std::size_t(refl) + 1].find("set_pipeline") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 3].find("set_uniforms 0 400B") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 4].find("set_uniforms 1 96B") != std::string::npos);
+    CHECK(lines[std::size_t(refl) + 5].find("dispatch 20 12 1") != std::string::npos);
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    // Free again when it is turned off.
+    s.reflections = false;
+    s.translucency = true;
+    r.renderer.set_ray_tracing(s);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 0);
+    CHECK(r.effects().kernel_count() == 0);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.compute_passes().empty());
+    CHECK(index_of(r.lines(), "ssr-trace") < 0);
+}
+
+TEST_CASE("rt reflect: the shadows and the reflections are two effects of the same frame, and the frame is the same "
+          "every frame") {
+    Rig r;
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Hard;
+    s.reflections = true;
+    r.renderer.set_ray_tracing(s);
+    World w;
+    make_reflect_scene(w);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.compute_passes().size() == 2);
+    const std::vector<std::string> a = r.lines();
+    CHECK(r.effects().kernel_count() == 2);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.lines() == a);
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE(
+    "rt reflect: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {
+    Logs log;
+    auto stream = [&](bool deviceTraces, bool setting) {
+        Rig r(deviceTraces);
+        if (setting) {
+            render::RayTracingSettings s;
+            s.enabled = true;
+            s.reflections = true;
+            r.renderer.set_ray_tracing(s);
+        }
+        World w;
+        make_reflect_scene(w);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        return r.lines();
+    };
+    const std::vector<std::string> off = stream(true, false);
+    const std::vector<std::string> unsupported = stream(false, true);
+    REQUIRE(off.size() > 5);
+    CHECK(off == unsupported);
+    CHECK(log.count("cannot trace rays") == 1);
+    CHECK(log.count("ray traced reflections cannot run") == 0);
+    CHECK(index_of(off, "gbuffer") < 0);
 }
