@@ -5,7 +5,8 @@ kernel that reads the camera's prepass and writes one image; the scaffold declar
 image and the shader, and frees them when the effect stops. Hard shadows (P2a), the ambient occlusion (P2b), the reflections (P3a) and the
 translucency (P3b) are rows of one table, not four copies of the same plumbing. The user-facing description (the settings, what is traced, the
 fallbacks) is docs/RAY_TRACING.md. The translucency kernel (`rt_refract`, M79-P3b) has its own page,
-[ARCHITECTURE_RT_TRANSLUCENCY.md](ARCHITECTURE_RT_TRANSLUCENCY.md).
+[ARCHITECTURE_RT_TRANSLUCENCY.md](ARCHITECTURE_RT_TRANSLUCENCY.md). The path tracer (`rt_pathtrace`, M79-P5a; the first kernel that reads
+its own output and the lights block) has its own page, [ARCHITECTURE_RT_PATHTRACER.md](ARCHITECTURE_RT_PATHTRACER.md).
 
 Code: `engine/render/src/rt_effect.h` and `rt_effect.cpp` (the scaffold), `engine/render/src/rt_kernels.h` (the kernel table, the blobs),
 `engine/render/shaders/rt/rt_shadow.hlsl`, `rt_shadow.metal`, `rt_shadow_pack.hlsl` and `rt_shadow_pack.metal` (the first kernels), `renderer_draw.cpp` (the pass in the frame graph and the

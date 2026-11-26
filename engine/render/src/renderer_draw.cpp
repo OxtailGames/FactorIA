@@ -6029,10 +6029,12 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const render::PathTracerSettings cfg = ptSettings;
         const bool lightsUsed = cfg.lights && req.lights.count[0] > 0;
         const std::uint64_t settingsHash = path_trace_settings_hash(cfg, req.hit, req.lights);
-        PathTraceJobState* job = &ptState.jobs[plan.name];  // std::map: the node stays while the state is not cleared (rt_begin_frame)
+        PathTraceJobState* job =
+            &ptState.jobs[plan.name];  // std::map: the node stays while the state is not cleared (rt_begin_frame)
         render::PathTracerStatus* status = &ptState.status;
         RtScene* scene = &rtScene;
-        req.prepare = [cfg, lightsUsed, settingsHash, job, status, scene](RtEffectParams& params, const RtEffectImage& image) {
+        req.prepare = [cfg, lightsUsed, settingsHash, job, status, scene](RtEffectParams& params,
+                                                                          const RtEffectImage& image) {
             const PathTraceStep step = path_trace_step(*job, cfg, path_trace_camera_hash(params), scene->content_hash(),
                                                        settingsHash, image.serial, image.width, image.height);
             path_trace_fill_params(params, cfg, step, lightsUsed);
@@ -6053,7 +6055,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         } else if (!rtWarnedPathTrace) {
             rtWarnedPathTrace = true;
             FA_WARN("render",
-                    "render.pathTracer is on but the path tracer cannot run on this device ({}). The frame is the raster one. Hint: set "
+                    "render.pathTracer is on but the path tracer cannot run on this device ({}). The frame is the "
+                    "raster one. Hint: set "
                     "render.pathTracer.enabled to false to silence this.",
                     out.why);
         }

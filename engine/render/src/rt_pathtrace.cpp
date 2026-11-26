@@ -24,13 +24,14 @@ struct Fnv {
 std::uint64_t path_trace_camera_hash(const RtEffectParams& p) {
     Fnv f;
     f.bytes(p.camera, sizeof p.camera);
-    const float* basis[] = {p.uRayO0, p.uRayOX, p.uRayOY, p.uRayD0, p.uRayDX, p.uRayDY,
-                            p.viewProj0, p.viewProj1, p.viewProj2, p.viewProj3};
+    const float* basis[] = {p.uRayO0, p.uRayOX,    p.uRayOY,    p.uRayD0,    p.uRayDX,
+                            p.uRayDY, p.viewProj0, p.viewProj1, p.viewProj2, p.viewProj3};
     for (const float* b : basis) f.bytes(b, 4 * sizeof(float));
     return f.h;
 }
 
-std::uint64_t path_trace_settings_hash(const PathTracerSettings& s, const RtHitParams& hit, const RtLightParams& lights) {
+std::uint64_t path_trace_settings_hash(const PathTracerSettings& s, const RtHitParams& hit,
+                                       const RtLightParams& lights) {
     Fnv f;
     f.value(s.maxBounces);
     f.value(s.lights);
@@ -67,23 +68,26 @@ PathTraceStep path_trace_step(PathTraceJobState& state, const PathTracerSettings
     state.width = width;
     state.height = height;
     const std::uint32_t cap = settings.maxSamples > 0 ? std::uint32_t(std::min(settings.maxSamples, kPtMaxMaxSamples))
-                                                       : std::uint32_t(kPtMaxMaxSamples);
+                                                      : std::uint32_t(kPtMaxMaxSamples);
     step.firstSample = state.samples;
     if (state.samples >= cap) {
         step.what = RtPrepare::Hold;
         return step;
     }
-    const std::uint32_t perFrame = std::uint32_t(std::clamp(settings.samplesPerFrame, kPtMinSamplesPerFrame, kPtMaxSamplesPerFrame));
+    const std::uint32_t perFrame =
+        std::uint32_t(std::clamp(settings.samplesPerFrame, kPtMinSamplesPerFrame, kPtMaxSamplesPerFrame));
     step.count = std::min(perFrame, cap - state.samples);
     state.samples += step.count;
     return step;
 }
 
-void path_trace_fill_params(RtEffectParams& params, const PathTracerSettings& settings, const PathTraceStep& step, bool lightsUsed) {
+void path_trace_fill_params(RtEffectParams& params, const PathTracerSettings& settings, const PathTraceStep& step,
+                            bool lightsUsed) {
     params.frame[0] = step.firstSample;
     params.frame[1] = std::uint32_t(std::clamp(settings.seed, 0, kPtMaxSeed));
     params.frame[2] = std::max<std::uint32_t>(step.count, 1u);
-    params.frame[3] = std::uint32_t(std::clamp(settings.maxBounces, kPtMinMaxBounces, kPtMaxMaxBounces) - 1) | (lightsUsed ? 256u : 0u);
+    params.frame[3] = std::uint32_t(std::clamp(settings.maxBounces, kPtMinMaxBounces, kPtMaxMaxBounces) - 1) |
+                      (lightsUsed ? 256u : 0u);
     params.user0[0] = std::max(settings.fireflyClamp, 0.0f);
 }
 

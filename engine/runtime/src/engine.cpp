@@ -2214,13 +2214,13 @@ Json Engine::path_tracer_status() {
     if (!impl_->pathTracer.enabled)
         j["reason"] = std::string();
     else if (!supported)
-        j["reason"] = (why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).")
-                                   : why) +
-                      " The picture stays the raster one; choose a backend that traces with graphics.backend "
-                      "(d3d12, vulkan or metal).";
+        j["reason"] =
+            (why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why) +
+            " The picture stays the raster one; choose a backend that traces with graphics.backend "
+            "(d3d12, vulkan or metal).";
     else if (!st.failure.empty())
-        j["reason"] = "This device can trace rays, but the path tracer could not run and the raster picture shows: " +
-                      st.failure;
+        j["reason"] =
+            "This device can trace rays, but the path tracer could not run and the raster picture shows: " + st.failure;
     else if (active)
         j["reason"] = "Traced: " + std::to_string(st.samples) + " samples per pixel so far" +
                       (st.lastReset.empty() ? std::string() : " (restarted: " + st.lastReset + ")") + ".";

@@ -11,7 +11,7 @@ namespace fa::render {
 namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
-    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, readsOut, usesLights}
+    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, readsOut, usesLights}
     {"rt_shadow", false, false, false, true, false},
     // Moves the soft sun shadow's denoised visibility into the layout the lit pass reads (no ray query: no TLAS).
     {"rt_shadow_pack", false, false, false, false, true},
@@ -288,7 +288,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
         (spec->usesLocal && (spec->usesHit || spec->usesAux)) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
-        (spec->usesAux && !(auxFromImage ? req.auxRes.valid() : req.aux.valid())) || (spec->readsOut && !req.prepass.valid())) {
+        (spec->usesAux && !(auxFromImage ? req.auxRes.valid() : req.aux.valid())) ||
+        (spec->readsOut && !req.prepass.valid())) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
         return result;
     }
@@ -320,7 +321,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             return result;
         }
         if (spec->readsOut && !caps.read) {
-            result.why = "this device cannot read a 32-bit float RGBA image from a compute shader (the path tracer accumulates in one)";
+            result.why = "this device cannot read a 32-bit float RGBA image from a compute shader (the path tracer "
+                         "accumulates in one)";
             images_.erase(key);
             return result;
         }
@@ -409,8 +411,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
     pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, auxImage,
-                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, usesLights, needsSampler, params, hit,
-                    local, lights, prepare, key, name = pass.name](const PassContext& c) {
+                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, usesLights, needsSampler, params,
+                    hit, local, lights, prepare, key, name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;

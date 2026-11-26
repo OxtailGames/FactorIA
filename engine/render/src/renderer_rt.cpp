@@ -92,7 +92,8 @@ void Renderer::Impl::rt_begin_frame() {
         } else if (!rtWarnedUnsupported) {
             rtWarnedUnsupported = true;
             FA_WARN("render",
-                    "Ray tracing is on (render.rayTracing or render.pathTracer) but this device cannot trace rays ({}). Nothing is traced "
+                    "Ray tracing is on (render.rayTracing or render.pathTracer) but this device cannot trace rays "
+                    "({}). Nothing is traced "
                     "and nothing is "
                     "built: the frame is the one it would be with ray tracing off. Hint: `factoria call "
                     "render.ray_tracing` and "
