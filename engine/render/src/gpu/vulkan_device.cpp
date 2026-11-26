@@ -863,19 +863,6 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
             " (ray queries need VK_KHR_acceleration_structure, VK_KHR_ray_query and "
             "VK_KHR_deferred_host_operations with bufferDeviceAddress; update the GPU driver, or the GPU has none: "
             "Mesa's lavapipe has them from Mesa 24.1, MoltenVK has none)";
-        // lavapipe (the CI's software device): name the Mesa release found, so a skip says what to install.
-        VkPhysicalDeviceDriverProperties driver{};
-        driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
-        VkPhysicalDeviceProperties2 p2{};
-        p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        p2.pNext = &driver;
-        if (fn_.vkGetPhysicalDeviceProperties2) fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
-        if (driver.driverID == VK_DRIVER_ID_MESA_LLVMPIPE) {
-            driver.driverInfo[VK_MAX_DRIVER_INFO_SIZE - 1] = '\0';
-            rtWhy_ += std::string("; this is lavapipe of ") +
-                      (driver.driverInfo[0] ? driver.driverInfo : "an unnamed Mesa") +
-                      ", and lavapipe traces rays from Mesa 24.1";
-        }
     }
 
     // What the backend turns on.
@@ -1006,10 +993,10 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
                    core + " instead";
         // An extension's struct needs its extension on the device.
         auto requested = [&](const char* ext) {
-            for (const std::string& e : req.extensions)
-                if (e == ext) return true;
-            for (const char* e : enabled)
-                if (std::strcmp(e, ext) == 0) return true;
+            for (const std::string& asked : req.extensions)
+                if (asked == ext) return true;
+            for (const char* have : enabled)
+                if (std::strcmp(have, ext) == 0) return true;
             return false;
         };
         if (type == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR &&
@@ -1202,7 +1189,7 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         for (const char* name : {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME,
                                  VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME})
             enabled.erase(std::remove_if(enabled.begin(), enabled.end(),
-                                         [name](const char* e) { return std::strcmp(e, name) == 0; }),
+                                         [name](const char* ext) { return std::strcmp(ext, name) == 0; }),
                           enabled.end());
         queue_infos(engineQueues);
         dci.queueCreateInfoCount = std::uint32_t(queueInfos.size());
@@ -1258,6 +1245,23 @@ Result<void> VulkanDevice::init_device(const VulkanOptions& options) {
         }
     }
     if (!rayTracing_) {
+        // Whichever step turned it off, the reason names the driver and its version (a skip or a required-RT failure
+        // then says what to update; on lavapipe, the CI's software device, the Mesa release).
+        VkPhysicalDeviceDriverProperties driver{};
+        driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+        VkPhysicalDeviceProperties2 p2{};
+        p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        p2.pNext = &driver;
+        if (fn_.vkGetPhysicalDeviceProperties2) fn_.vkGetPhysicalDeviceProperties2(physical_, &p2);
+        driver.driverName[VK_MAX_DRIVER_NAME_SIZE - 1] = '\0';
+        driver.driverInfo[VK_MAX_DRIVER_INFO_SIZE - 1] = '\0';
+        if (driver.driverID == VK_DRIVER_ID_MESA_LLVMPIPE)
+            rtWhy_ += std::string("; this is lavapipe of ") +
+                      (driver.driverInfo[0] ? driver.driverInfo : "an unnamed Mesa") +
+                      ", and lavapipe traces rays from Mesa 24.1";
+        else if (driver.driverName[0])
+            rtWhy_ += std::string("; its driver is ") + driver.driverName +
+                      (driver.driverInfo[0] ? std::string(" ") + driver.driverInfo : std::string());
 #define FA_VK_CLEAR_ACCEL(name) fn_.name = nullptr;
         FA_VK_ACCEL_FUNCTIONS(FA_VK_CLEAR_ACCEL)
 #undef FA_VK_CLEAR_ACCEL

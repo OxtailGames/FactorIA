@@ -5,8 +5,9 @@
 // instances, a refit after the vertices moved, a compacted copy, and a TLAS rebuilt on consecutive frames (the trace of
 // one frame reads it while the next frame's build writes it). Every device case runs with the validation layer and its
 // synchronization validation and checks that the layer reported no error. A device without ray tracing skips the RT
-// cases with its reason (MESSAGE), even under FA_VULKAN_REQUIRE=1: the Linux CI job's lavapipe (Ubuntu 24.04, Mesa 24.0)
-// has no ray query.
+// cases with its reason (MESSAGE), also under FA_VULKAN_REQUIRE=1; FA_VULKAN_REQUIRE_RT=1 turns that skip into a failure
+// that names the device, its driver and what it lacks. The Linux CI job sets both: its lavapipe is Mesa 25.2's
+// (noble-updates), which traces rays. Lavapipe runs the kernels on the CPU: the scenes stay tiny (one quad, 16x16 rays).
 #include <doctest.h>
 
 #include <algorithm>
@@ -66,14 +67,29 @@ std::unique_ptr<VulkanDevice> make_vk() {
     return std::unique_ptr<VulkanDevice>(static_cast<VulkanDevice*>(d.value().release()));
 }
 
-// A device that traces rays, or null with the reason this one does not (a skip, never a failure: FA_VULKAN_REQUIRE
+// FA_VULKAN_REQUIRE_RT=1: a device without ray tracing fails the RT cases instead of skipping them (FA_VULKAN_REQUIRE
 // asks for Vulkan, not for ray tracing).
+bool ray_tracing_required() {
+    const char* v = std::getenv("FA_VULKAN_REQUIRE_RT");
+    return v && std::strcmp(v, "1") == 0;
+}
+
+// A device that traces rays, or null with the reason this one does not: a skip, or a failure under
+// FA_VULKAN_REQUIRE_RT=1.
 std::unique_ptr<VulkanDevice> make_rt() {
     auto dev = make_vk();
-    if (!dev) return nullptr;
+    if (!dev) {
+        if (ray_tracing_required())
+            FAIL("vulkan ray tracing: FA_VULKAN_REQUIRE_RT=1, but this machine runs no Vulkan device (see the line "
+                 "above; install the GPU driver, or Mesa's lavapipe 24.1 or later, and the Vulkan loader)");
+        return nullptr;
+    }
     std::string why;
     if (!dev->ray_tracing_status(&why)) {
-        MESSAGE("vulkan ray tracing: skipped, " << why);
+        if (ray_tracing_required())
+            FAIL("vulkan ray tracing: FA_VULKAN_REQUIRE_RT=1, but " << why);
+        else
+            MESSAGE("vulkan ray tracing: skipped, " << why);
         return nullptr;
     }
     return dev;
@@ -140,7 +156,7 @@ struct Quad {
 struct Placement {
     float sx, tx, sy, ty, tz;
 };
-constexpr Placement kLeft{1.5f, -1.5f, 2.0f, 0.0f, -4.0f};  // x in [-3, 0], y in [-2, 2]
+constexpr Placement kLeft{1.5f, -1.5f, 2.0f, 0.0f, -4.0f};   // x in [-3, 0], y in [-2, 2]
 constexpr Placement kRight{3.0f, 3.0f, 4.0f, -2.0f, -8.0f};  // x in [0, 6], y in [-6, 2]
 
 AccelInstance instance_of(const Placement& p, AccelStructure blas, std::uint32_t customIndex) {
@@ -280,8 +296,8 @@ Rt make_scene(AccelBuildFlags flags = {}) {
     REQUIRE_MESSAGE(bs, bs.error().to_string());
     auto ts = dev.tlas_sizes(2, flags);
     REQUIRE_MESSAGE(ts, ts.error().to_string());
-    rt.scratchBytes = std::size_t(std::max({bs.value().buildScratch, bs.value().updateScratch,
-                                            ts.value().buildScratch, ts.value().updateScratch}));
+    rt.scratchBytes = std::size_t(std::max(
+        {bs.value().buildScratch, bs.value().updateScratch, ts.value().buildScratch, ts.value().updateScratch}));
     BufferDesc sd;
     sd.size = rt.scratchBytes;
     sd.usage.accelScratch = true;
@@ -316,7 +332,7 @@ AccelStructure make_tlas(Rt& rt, std::uint32_t instances, const AccelBuildFlags&
 }
 
 fa::Result<void> build_blas(Rt& rt, CommandList& list, AccelStructure blas, const AccelBuildFlags& flags,
-                        bool update = false) {
+                            bool update = false) {
     const AccelTriangles g = quad_geometry(rt);
     BlasBuild b;
     b.dst = blas;
@@ -328,7 +344,7 @@ fa::Result<void> build_blas(Rt& rt, CommandList& list, AccelStructure blas, cons
 }
 
 fa::Result<void> build_tlas(Rt& rt, CommandList& list, AccelStructure tlas, const std::vector<AccelInstance>& instances,
-                        const AccelBuildFlags& flags = {}) {
+                            const AccelBuildFlags& flags = {}) {
     TlasBuild b;
     b.dst = tlas;
     b.instances = instances;
@@ -416,7 +432,7 @@ TEST_CASE("vulkan rt: a device without ray tracing says why and refuses every ca
         MESSAGE("vulkan rt: this device traces rays; the refusals of one that does not are not run here");
         return;
     }
-    CHECK(contains(why, "has no ray tracing: it lacks"));
+    CHECK(contains(why, "has no ray tracing: "));  // what it lacks, or the failed vkCreateDevice that turned it off
     CHECK(contains(why, "the vulkan device '"));
     CHECK_FALSE(dev->features().rayQuery);
     CHECK_FALSE(dev->features().accelerationStructure);

@@ -82,7 +82,7 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 | backend | traces rays | what stands in the way today |
 |---|---|---|
 | Direct3D 12 (Windows) | planned (DXR 1.1 inline ray query) | the backend does not build acceleration structures yet: `render.supports` says "package P1d of milestone 79" |
-| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (no effect traces yet) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe has them from Mesa 24.1; MoltenVK on a Mac has none) |
+| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (no effect traces yet) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
 | Metal (macOS, iOS) | planned (Metal ray tracing, `intersector`) | not built yet: "package P1m of milestone 79" |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |

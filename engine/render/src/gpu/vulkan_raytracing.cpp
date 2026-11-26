@@ -19,7 +19,7 @@ namespace fa::gpu::vk {
 
 namespace {
 
-constexpr std::uint64_t kAccelAlign = 256;           // Device::accel_alignment(): where a structure starts in its buffer
+constexpr std::uint64_t kAccelAlign = 256;  // Device::accel_alignment(): where a structure starts in its buffer
 constexpr std::uint32_t kMaxCustomIndex = 0xFFFFFFu;  // 24 bits
 constexpr int kMaxReportedProblems = 8;               // per list of geometries or instances
 
@@ -95,7 +95,7 @@ VkAccelerationStructureGeometryKHR triangles_geometry(const AccelTriangles& g, V
     t.vertexData.deviceAddress = vertex;
     t.vertexStride = g.vertexStride;
     t.maxVertex = g.vertexCount > 0 ? g.vertexCount - 1 : 0;
-    t.indexType = !g.indexBuffer.valid()               ? VK_INDEX_TYPE_NONE_KHR
+    t.indexType = !g.indexBuffer.valid()             ? VK_INDEX_TYPE_NONE_KHR
                   : g.indexType == IndexType::Uint16 ? VK_INDEX_TYPE_UINT16
                                                      : VK_INDEX_TYPE_UINT32;
     t.indexData.deviceAddress = index;
@@ -161,12 +161,11 @@ void check_geometry_list(std::string& what, std::span<const AccelTriangles> geom
             if (g.indexType != IndexType::Uint16 && g.indexType != IndexType::Uint32)
                 add(what, n + " has an index buffer but indexType is not Uint16 or Uint32");
             else if (g.indexOffset % index_width(g.indexType) != 0)
-                add(what, n + ".indexOffset " + std::to_string(g.indexOffset) + " is not a multiple of the index size " +
-                              std::to_string(index_width(g.indexType)));
+                add(what, n + ".indexOffset " + std::to_string(g.indexOffset) +
+                              " is not a multiple of the index size " + std::to_string(index_width(g.indexType)));
             if (g.indexCount % 3 != 0)
                 add(what, n + ".indexCount " + std::to_string(g.indexCount) + " is not a multiple of 3");
-            if (g.vertexCount == 0)
-                add(what, n + ".vertexCount is 0: an indexed geometry gives its highest index + 1");
+            if (g.vertexCount == 0) add(what, n + ".vertexCount is 0: an indexed geometry gives its highest index + 1");
         } else {
             if (g.indexType == IndexType::Uint16 || g.indexType == IndexType::Uint32)
                 add(what, n + " names an indexType but no index buffer");
@@ -219,12 +218,12 @@ std::uint32_t fill_ray_tracing_caps(bool rayTracing, bool rayTracingPipeline,
     f.accelerationStructure = rayTracing;
     f.bufferDeviceAddress = rayTracing;
     f.rayTracingPipeline = rayTracingPipeline;
-    l.maxAccelInstances =
-        rayTracing ? std::uint32_t(std::min<std::uint64_t>(props.maxInstanceCount, 0xFFFFFFFFu)) : 0u;
+    l.maxAccelInstances = rayTracing ? std::uint32_t(std::min<std::uint64_t>(props.maxInstanceCount, 0xFFFFFFFFu)) : 0u;
     l.maxAccelGeometries =
         rayTracing ? std::uint32_t(std::min<std::uint64_t>(props.maxGeometryCount, 0xFFFFFFFFu)) : 0u;
     l.maxAccelPrimitives = rayTracing ? props.maxPrimitiveCount : 0u;
-    return rayTracing ? std::max<std::uint32_t>(std::uint32_t(kAccelAlign), props.minAccelerationStructureScratchOffsetAlignment)
+    return rayTracing ? std::max<std::uint32_t>(std::uint32_t(kAccelAlign),
+                                                props.minAccelerationStructureScratchOffsetAlignment)
                       : std::uint32_t(kAccelAlign);
 }
 
@@ -276,8 +275,8 @@ Result<AccelSizes> VulkanDevice::blas_sizes(std::span<const AccelTriangles> geom
         geos.push_back(triangles_geometry(g, 0, 0));
         counts.push_back(std::uint32_t(g.primitive_count()));
     }
-    const auto info = build_info(AccelKind::Blas, vk_build_flags(flags, AccelKind::Blas), geos.data(),
-                                 std::uint32_t(geos.size()));
+    const auto info =
+        build_info(AccelKind::Blas, vk_build_flags(flags, AccelKind::Blas), geos.data(), std::uint32_t(geos.size()));
     return build_sizes(info, counts.data());
 }
 
@@ -325,8 +324,7 @@ Result<AccelStructure> VulkanDevice::make_accel_structure(const AccelStructureDe
                               std::to_string(kAccelAlign) + " (Device::accel_alignment())");
             if (d.storageOffset > b->size || d.size > b->size - d.storageOffset)
                 add(what, std::to_string(d.size) + " bytes at offset " + std::to_string(d.storageOffset) +
-                              " do not fit in buffer " + quoted(b->label) + " (" + std::to_string(b->size) +
-                              " bytes)");
+                              " do not fit in buffer " + quoted(b->label) + " (" + std::to_string(b->size) + " bytes)");
             rec.tracked = b->tracked;
         }
     } else if (d.storageOffset != 0) {
@@ -478,10 +476,9 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
         } else {
             if (!vb->usage.accelBuildInput)
                 add(what, name + ".vertexBuffer " + quoted(vb->label) + " was not made with usage.accelBuildInput");
-            const std::uint64_t need =
-                g.vertexCount == 0
-                    ? 0
-                    : std::uint64_t(g.vertexOffset) + std::uint64_t(g.vertexCount - 1) * g.vertexStride + 12;
+            const std::uint64_t need = g.vertexCount == 0 ? 0
+                                                          : std::uint64_t(g.vertexOffset) +
+                                                                std::uint64_t(g.vertexCount - 1) * g.vertexStride + 12;
             if (need > vb->size)
                 add(what, name + " reads " + std::to_string(g.vertexCount) + " vertices up to byte " +
                               std::to_string(need) + ", but vertex buffer " + quoted(vb->label) + " has " +
@@ -590,8 +587,10 @@ Result<void> VulkanCommandList::build_blas(const BlasBuild& b) {
 
     uses.require_all(*this);
     flush_barriers();
-    VkAccelerationStructureBuildGeometryInfoKHR info = build_info(AccelKind::Blas, flags, geos.data(), std::uint32_t(n));
-    info.mode = b.update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    VkAccelerationStructureBuildGeometryInfoKHR info =
+        build_info(AccelKind::Blas, flags, geos.data(), std::uint32_t(n));
+    info.mode =
+        b.update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     info.srcAccelerationStructure = b.update ? srcHandle : VK_NULL_HANDLE;
     info.dstAccelerationStructure = dstHandle;
     info.scratchData.deviceAddress = scratchAddress;
@@ -748,11 +747,11 @@ Result<void> VulkanCommandList::build_tlas(const TlasBuild& b) {
     if (grow) {
         capacity = std::uint32_t(std::min<std::uint64_t>(align_up(count, 64), 0xFFFFFFFFu));
         std::string error;
-        instanceBuffer = device_.make_raw_buffer(
-            VkDeviceSize(capacity) * sizeof(VkAccelerationStructureInstanceKHR),
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            MemoryUse::GpuOnly, false, instanceLabel.c_str(), error);
+        instanceBuffer =
+            device_.make_raw_buffer(VkDeviceSize(capacity) * sizeof(VkAccelerationStructureInstanceKHR),
+                                    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                    MemoryUse::GpuOnly, false, instanceLabel.c_str(), error);
         if (!instanceBuffer)
             return reject(cmd, "the buffer of " + std::to_string(count) + " instances: " + error,
                           "free GPU memory, or trace fewer instances");
@@ -797,7 +796,8 @@ Result<void> VulkanCommandList::build_tlas(const TlasBuild& b) {
     flush_barriers();
     const VkAccelerationStructureGeometryKHR geo = instances_geometry(device_.buffer_address(instanceBuffer->buffer));
     VkAccelerationStructureBuildGeometryInfoKHR info = build_info(AccelKind::Tlas, flags, &geo, 1);
-    info.mode = b.update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    info.mode =
+        b.update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     info.srcAccelerationStructure = b.update ? srcHandle : VK_NULL_HANDLE;
     info.dstAccelerationStructure = dstHandle;
     info.scratchData.deviceAddress = scratchAddress;
@@ -905,8 +905,8 @@ Result<void> VulkanCommandList::copy_accel_structure(AccelStructure src, AccelSt
         if (a && b && a->handle && b->handle) {
             if (a == b) add(what, "src and dst are the same structure");
             if (a->kind != b->kind)
-                add(what, "src is a " + std::string(accel_kind_name(a->kind)) + " and dst a " +
-                              accel_kind_name(b->kind));
+                add(what,
+                    "src is a " + std::string(accel_kind_name(a->kind)) + " and dst a " + accel_kind_name(b->kind));
             if (!a->built) add(what, accel_label(a->label, a->kind) + " was never built");
             if (mode == AccelCopyMode::Compact) {
                 if (!a->allowCompaction)

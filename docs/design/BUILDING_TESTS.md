@@ -73,6 +73,14 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   `SKIPPED, no compute here (<why>)` and pass. `FA_REQUIRE_COMPUTE=1` turns that skip into a failure, like
   `FA_REQUIRE_SHDC` does for sokol-shdc: set it on a runner that must have compute (CI sets it in the `linux` job,
   where llvmpipe offers GL 4.5), so a driver that stopped offering it cannot turn into silent skips. The refusal test (a backend without compute answers with its name) always runs.
+- **Vulkan ray tracing tests, `FA_VULKAN_REQUIRE` and `FA_VULKAN_REQUIRE_RT`.** The Vulkan backend's tests run on the
+  machine's Vulkan device with the validation layer and skip, saying why, where there is no loader, no device or no layer;
+  `FA_VULKAN_REQUIRE=1` turns that skip into a failure. Its ray tracing cases (`render_vulkan_raytracing`,
+  `vulkan_raytracing_tests.cpp`) also need `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`,
+  `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`; a device without them (MoltenVK, lavapipe before Mesa 24.1)
+  skips them with its reason, also under `FA_VULKAN_REQUIRE=1`. `FA_VULKAN_REQUIRE_RT=1` turns that skip into a failure
+  that names the device, its driver and version, and what it lacks. CI sets both in the `linux` job, which installs Mesa
+  25.2's lavapipe (noble-updates); the sanitizer jobs install no lavapipe and set neither.
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that

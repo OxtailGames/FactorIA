@@ -87,6 +87,15 @@ if(TARGET fa_test_render)
     add_test(NAME render_vulkan_device
         COMMAND fa_test_render --fa-files=vulkan_device_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    # Its ray tracing (M79, src/gpu/vulkan_raytracing.cpp): the caps and the descriptor set move without a device, the
+    # refusals of a device without ray tracing, and on one with VK_KHR_acceleration_structure and VK_KHR_ray_query the
+    # rt_probe kernel against a CPU trace. A device without them skips the tracing cases, a failure under
+    # FA_VULKAN_REQUIRE_RT=1 (the Linux CI job: Mesa 25.2's lavapipe). Lavapipe compiles and runs the kernels on the CPU
+    # of a loaded 4-vCPU runner: the timeout is a safety net far above the seconds the cases take.
+    add_test(NAME render_vulkan_raytracing
+        COMMAND fa_test_render --fa-files=vulkan_raytracing_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(render_vulkan_raytracing PROPERTIES TIMEOUT 600)
     # Native access for vendor SDKs (M78): the neutral checks and the sokol device, then raw commands recorded between
     # begin_native and end_native on Vulkan and on D3D12 (WARP), and the device hooks (vulkan_hooks_tests.cpp, the
     # D3D12 ones in d3d12_native_tests.cpp), under the same skip rules as the two backends' cases.
