@@ -261,7 +261,7 @@ TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured,
     };
 
     bool built = false;
-    auto trace = [&](float sense, View records) {
+    auto trace = [&](float sense, View recordsOf) {
         CommandList& cl = dev.begin_commands("rt gi front frame");
         if (!built) {
             for (FrontMesh* m : {&ground, &box}) {
@@ -289,7 +289,7 @@ TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured,
         Bindings b;
         b.views[fa::render::RtEffectBindings::kViewOut] = outView;
         b.views[fa::render::RtEffectBindings::kViewPrepass] = atlasView;
-        b.views[fa::render::RtEffectBindings::kViewRecords] = records;
+        b.views[fa::render::RtEffectBindings::kViewRecords] = recordsOf;
         if (fa::render::rt_effect_needs_sampler(backend)) b.samplers[fa::render::RtEffectBindings::kSampler] = sampler;
         b.accelStructures[0] = tlas;
         cl.set_bindings(b);

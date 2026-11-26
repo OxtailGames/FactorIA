@@ -61,9 +61,9 @@ inline constexpr std::string_view kRtGiParamNames[] = {"grid0", "grid1", "grid2"
 
 // What the kernel's `flags.x` holds: +1 when the hardware's front-face flag of a hit is set for a triangle that faces the ray's origin with
 // the mesh's own (counter-clockwise) winding, -1 when it is the other way round, 0 when the sense is not known. MEASURED on Metal
-// (rt_gi_metal_tests.cpp: a probe in the open reads no back faces, one inside a box reads them) where the flag is set for the
-// counter-clockwise side: +1. D3D12 and Vulkan are NOT measured (rt_gi_d3d12_tests.cpp / rt_gi_vulkan_tests.cpp print the sign a machine with ray
-// tracing gives, and check it once a value is set here): they return 0 and the kernel counts no back faces, so the probes inside walls are not
+// (rt_gi_front_tests.cpp: a probe in the open reads no back faces, one inside a box reads them) where the flag is set for the
+// counter-clockwise side: +1. D3D12 and Vulkan are NOT measured (rt_gi_front_tests.cpp prints the sign a machine with ray
+// tracing gives on the build's backend, and checks it once a value is set here): they return 0 and the kernel counts no back faces, so the probes inside walls are not
 // discarded (a light leak) instead of every probe going black when the guess is wrong.
 inline constexpr float rt_gi_front_sense(gpu::Backend backend) { return backend == gpu::Backend::Metal ? 1.0f : 0.0f; }
 

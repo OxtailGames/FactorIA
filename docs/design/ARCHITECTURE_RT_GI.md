@@ -24,8 +24,9 @@ pass: the raster captures update the grids as before and the status says why (`g
 1. `gi_plan` lays the grids out and, after `++g.frame`, calls `gi_plan_rays` when `gi = "probes"`. It picks the probes with the same `gi_pick` the
    raster path uses: the ones never captured first, then the ones updated longest ago (round robin; nothing looks at the camera: the camera
    priority of the brief is **not** made). A grid takes at most `rtProbesPerFrame` probes and all grids together at most `kGiRtMaxFrameProbes`
-   (64, the size of the constants block), in the order of the grids' entity ids. The budget is a count, never a time, so the result does not
-   depend on the CPU's speed.
+   (64, the size of the constants block) and the preset's `quality.realtimeGiProbesPerFrame`. The grids are visited in the order of their entity
+   ids, starting each frame one grid further (`rtStart`), so with many grids every one gets its share of the 64 instead of the first ones taking
+   it all. The budget is a count, never a time, so the result does not depend on the CPU's speed.
 2. One `RtGiDispatch` (the constants block `RtGiParams`, 1120 bytes) per grid with picks, then one compute pass `gi-probes` (a side-effect pass, so
    the graph keeps it) is declared after the main camera's `<job>/rt-accel` (the TLAS and the records). The kernel is dispatched once per grid, one
    thread group per probe (`dispatch(probes, 1, 1)`), 64 threads per group.
@@ -63,10 +64,10 @@ the first uniform block is `RtGiParams` (the `paramsSize` of the kernel's spec r
   all go through `rt_closest_hit_ff` (`rt_hit.hlsli` / `rt_hit.msli`), which also returns the hardware's front-face flag
   (`RtSurface.front`, additive: the other kernels are unchanged).
 - **The front-face sense.** The back-face fraction needs to know which side of a triangle the flag calls the front. `flags.x` of the constants says
-  it, `rt_gi_front_sense(backend)`: +1 on Metal, **measured** by `rt_gi_metal_tests.cpp` (a probe in the open reads 0 back faces, one inside a box
+  it, `rt_gi_front_sense(backend)`: +1 on Metal, **measured** by `rt_gi_front_tests.cpp` (a probe in the open reads 0 back faces, one inside a box
   reads 1); **0 on D3D12 and Vulkan**, which have not been measured: with 0 the kernel counts no back faces at all (the probes inside walls are
-  not discarded, a light leak, but no probe goes black because of a guessed sign). `rt_gi_d3d12_tests.cpp` and `rt_gi_vulkan_tests.cpp` run the
-  same two probes on a machine with ray tracing, print the sign they measure and check it against `rt_gi_front_sense` once that is not 0; put the
+  not discarded, a light leak, but no probe goes black because of a guessed sign). `rt_gi_front_tests.cpp` runs the
+  same two probes on the backend of the build (on a machine with ray tracing), prints the sign it measures and checks it against `rt_gi_front_sense` once that is not 0; put the
   measured value in `rt_gi_front_sense` to turn the discard on. A two-sided instance (`kRtFlagTwoSided`) never counts as a back face.
 
 ## Status
