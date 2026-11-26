@@ -13,7 +13,11 @@
 //   debug     the history length or the variance as a grey picture (the "views" of the module)
 //
 // The signal kinds (uniform `s.y`): 0 visibility (a shadow: one channel), 1 occlusion (one channel), 2 diffuse radiance (rgb), 3 specular radiance
-// (rgb + the hit distance in a, in world units, < 0 = the ray missed). A one-channel signal is read from r and written to r, g and b alike.
+// (rgb + the hit distance in a, in world units, < 0 = the ray missed), 4 coverage (M79-P3a-2: one channel, 1 where the alpha of the input is a hit
+// distance > 0 and 0 where it is not; the input is the specular signal's own image, and the hit distance steers its reprojection). A one-channel
+// signal is read from r (a coverage from a) and written to r, g and b alike. The two reflection kinds (3 and 4) reproject with the VIRTUAL
+// position of the reflection, the point `hit` further along the view ray behind the mirror (a reflected point does not move with the surface), and
+// the filter does not mix pixels of different roughness.
 //
 // Nothing is random and nothing depends on the frame number: the same inputs give the same picture. A pixel without a mesh (the prepass a = 0)
 // passes the signal through and keeps no history.
@@ -143,8 +147,38 @@ vec2 rtd_uv(vec2 ip) {
 }
 
 vec3 rtd_read(vec4 t) {
+    if (s.y > 3.5) return vec3(t.a > 0.0 ? 1.0 : 0.0);   // a coverage: did a ray end on a surface (a NaN is not > 0)
     vec3 c = s.x < 1.5 ? vec3(t.r) : t.rgb;
     return rtd_nan3(c) ? vec3(0.0) : clamp(c, vec3(0.0), vec3(65000.0));
+}
+
+// The history around the position `pu` (the picture's top-down uv on the frame before): the bilinear weights of the four pixels that pass the
+// tests, summed with their colour (accA.rgb, the weight in .w) and their moments (accB: first, second, history length, hit distance).
+void rtd_gather(vec2 pu, float d, float prevDepth, bool velKnown, float tol, vec3 nw, bool canReproject, out vec4 accA, out vec4 accB) {
+    accA = vec4(0.0);
+    accB = vec4(0.0);
+    vec2 fpos = pu * a.yz - 0.5;
+    vec2 i0 = floor(fpos);
+    vec2 fr = fpos - i0;
+    for (int k = 0; k < 4; k++) {
+        vec2 o = vec2(float(k & 1), float(k >> 1));
+        vec2 q = i0 + o;
+        float w = (o.x > 0.5 ? fr.x : 1.0 - fr.x) * (o.y > 0.5 ? fr.y : 1.0 - fr.y);
+        if (!canReproject || w <= 0.0 || q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
+        vec2 tq = rtd_uv(q);
+        vec4 hg = textureLod(sampler2D(tex_hg, smp_pt), tq, 0.0);
+        if (!(hg.r > 0.0)) continue;   // nothing was drawn there (also a NaN)
+        float e1 = prevDepth > 0.0 ? abs(hg.r - prevDepth) : 1e30;
+        float e2 = abs(hg.r - d);
+        float dz = (velKnown || prevDepth <= 0.0) ? min(e1, e2) : e1;
+        if (dz > tol) continue;
+        if (dot(hg.gba, nw) < f.z) continue;
+        vec4 hc = textureLod(sampler2D(tex_hc, smp_pt), tq, 0.0);
+        vec4 hm = textureLod(sampler2D(tex_hm, smp_pt), tq, 0.0);
+        if (rtd_nan3(hc.rgb) || rtd_nanf(hm.x) || rtd_nanf(hm.y) || rtd_nanf(hm.z) || rtd_nanf(hm.w)) continue;
+        accA += vec4(hc.rgb * w, w);
+        accB += vec4(hm.xy * w, hm.z * w, hm.w * w);
+    }
 }
 
 void main() {
@@ -219,40 +253,33 @@ void main() {
     }
     bool canReproject = a.w > 0.5 && (ok || velKnown);
 
-    // The four history pixels around that position, each taken only when it shows the same surface: drawn, at the depth it should have
-    // (the camera's movement says it; a pixel an object moved may also have kept its distance) and facing the same way.
-    vec2 pu = sU + mv;
-    vec2 fpos = pu * a.yz - 0.5;
-    vec2 i0 = floor(fpos);
-    vec2 fr = fpos - i0;
+    // The four history pixels around a position, each taken only when it shows the same surface: drawn, at the depth it should have
+    // (the camera's movement says it; a pixel an object moved may also have kept its distance) and facing the same way. A reflection first
+    // tries the position of its virtual point (the image behind the mirror), where the history of a reflected object is; a surface that
+    // changed (wsum 0) falls back to the surface's own motion.
     float tol = f.y * d + 1.5 * slope;
-    float wsum = 0.0;
-    float hlen = 0.0;
-    float hhit = 0.0;
-    vec3 hcol = vec3(0.0);
-    vec2 hmom = vec2(0.0);
-    for (int k = 0; k < 4; k++) {
-        vec2 o = vec2(float(k & 1), float(k >> 1));
-        vec2 q = i0 + o;
-        float w = (o.x > 0.5 ? fr.x : 1.0 - fr.x) * (o.y > 0.5 ? fr.y : 1.0 - fr.y);
-        if (!canReproject || w <= 0.0 || q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
-        vec2 tq = rtd_uv(q);
-        vec4 hg = textureLod(sampler2D(tex_hg, smp_pt), tq, 0.0);
-        if (!(hg.r > 0.0)) continue;   // nothing was drawn there (also a NaN)
-        float e1 = prevDepth > 0.0 ? abs(hg.r - prevDepth) : 1e30;
-        float e2 = abs(hg.r - d);
-        float dz = (velKnown || prevDepth <= 0.0) ? min(e1, e2) : e1;
-        if (dz > tol) continue;
-        if (dot(hg.gba, nw) < f.z) continue;
-        vec4 hc = textureLod(sampler2D(tex_hc, smp_pt), tq, 0.0);
-        vec4 hm = textureLod(sampler2D(tex_hm, smp_pt), tq, 0.0);
-        if (rtd_nan3(hc.rgb) || rtd_nanf(hm.x) || rtd_nanf(hm.y) || rtd_nanf(hm.z) || rtd_nanf(hm.w)) continue;
-        wsum += w;
-        hcol += hc.rgb * w;
-        hmom += hm.xy * w;
-        hlen += hm.z * w;
-        hhit += hm.w * w;
+    vec4 accA = vec4(0.0);
+    vec4 accB = vec4(0.0);
+    bool reflection = s.y > 2.5 && f.w > 0.5;
+    if (reflection && canReproject && !velKnown) {
+        vec3 vv = vp;
+        float hv0 = min(hit, RTD_FAR);
+        if (abs(pb.z) > 1e-6) vv = vp * ((length(vp) + hv0) / max(length(vp), 1e-6));
+        else vv = vp + vec3(0.0, 0.0, -hv0);
+        vec4 pcv = m * vec4(vv, 1.0);
+        if (pcv.w > 1e-4) {
+            vec2 mvv = ((pcv.xy / pcv.w) - ndc) * vec2(0.5, -0.5);
+            vec2 dpx = mvv * a.yz - mv * a.yz;   // how far the virtual position landed from the surface's own, in pixels
+            float tolV = tol + 1.5 * (slopeX < 1e29 ? slopeX : 0.0) * abs(dpx.x) + 1.5 * (slopeY < 1e29 ? slopeY : 0.0) * abs(dpx.y);
+            rtd_gather(sU + mvv, d, prevDepth, false, tolV, nw, canReproject, accA, accB);
+        }
     }
+    if (accA.w <= 0.01) rtd_gather(sU + mv, d, prevDepth, velKnown, tol, nw, canReproject, accA, accB);
+    float wsum = accA.w;
+    vec3 hcol = accA.rgb;
+    vec2 hmom = accB.xy;
+    float hlen = accB.z;
+    float hhit = accB.w;
     bool hv = wsum > 0.01;
 
     // The accumulation: a running mean over the history length, which stops growing at the longest history (an exponential mean from there).
@@ -331,9 +358,11 @@ void main() {
     // How far this iteration reaches. A specular signal is filtered only as wide as its lobe: the footprint of the reflection cone at the hit
     // (roughness^2 * the hit distance) in pixels, so a mirror keeps its image and a rough surface is blurred like a diffuse one.
     float st = a.w;
-    if (s.y > 2.5) {
+    bool reflection = s.y > 2.5;   // a specular signal or the coverage of one: two pixels of another roughness are not one surface
+    float roughP = (reflection && f.y > 0.5) ? textureLod(sampler2D(tex_r, smp_pt), uv, 0.0).r : -1.0;
+    if (s.y > 2.5 && s.y < 3.5) {
         float hitD = textureLod(sampler2D(tex_hm, smp_pt), uv, 0.0).a;
-        float rough = f.y > 0.5 ? textureLod(sampler2D(tex_r, smp_pt), uv, 0.0).r : f.z;
+        float rough = f.y > 0.5 ? roughP : f.z;
         rough = clamp(rough, 0.0, 1.0);
         float pixW = 2.0 * (cam.z > 0.5 ? 1.0 : dp) * cam.y / a.z;   // the size of a pixel in world units at this depth
         float radiusPx = rough * rough * min(hitD, 64.0 * dp) / max(pixW, 1e-6);
@@ -383,6 +412,7 @@ void main() {
                 float wn = pow(max(dot(np, rtd_oct_decode(pq.gb)), 0.0), s.w);
                 float wl = exp(-abs(lp - rtd_luma(cq.rgb, s.x)) / sigmaL);
                 w = hk * wz * wn * wl;
+                if (roughP >= 0.0) w *= exp(-abs(textureLod(sampler2D(tex_r, smp_pt), tq, 0.0).r - roughP) * 8.0);
             }
             acc += w * cq.rgb;
             wsum += w;
