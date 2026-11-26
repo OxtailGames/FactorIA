@@ -42,8 +42,7 @@ Result<int> parse_name(const Json& j, const std::string& ptr, const std::array<s
 }
 
 Result<bool> parse_bool(const Json& j, const std::string& ptr, const char* meaning) {
-    if (!j.is_boolean())
-        return make_error(ptr + ": expected true or false, got " + describe_json_value(j), meaning);
+    if (!j.is_boolean()) return make_error(ptr + ": expected true or false, got " + describe_json_value(j), meaning);
     return j.get<bool>();
 }
 
@@ -62,12 +61,13 @@ Result<int> parse_clamped_int(const Json& j, const std::string& ptr, int lo, int
 Result<RayTracingSettings> parse_ray_tracing_settings(const Json& j, std::string_view where,
                                                       const RayTracingSettings& base) {
     if (!j.is_object())
-        return make_error(std::string(where) + ": expected an object like {\"enabled\": true, \"shadows\": \"soft\"}, got " +
-                              describe_json_value(j),
-                          "Every key is optional: enabled, shadows (off, hard, soft), ao, reflections, translucency, gi (off, "
-                          "probes, perPixel), raysPerPixel (1 to 16), maxInstances (1 to 1048576).");
-    static const std::vector<std::string> keys = {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel",
-                                                  "maxInstances"};
+        return make_error(
+            std::string(where) + ": expected an object like {\"enabled\": true, \"shadows\": \"soft\"}, got " +
+                describe_json_value(j),
+            "Every key is optional: enabled, shadows (off, hard, soft), ao, reflections, translucency, gi (off, "
+            "probes, perPixel), raysPerPixel (1 to 16), maxInstances (1 to 1048576).");
+    static const std::vector<std::string> keys = {"enabled",      "shadows", "ao",           "reflections",
+                                                  "translucency", "gi",      "raysPerPixel", "maxInstances"};
     for (auto e = j.begin(); e != j.end(); ++e)
         if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
             return make_error(std::string(where) + "/" + e.key() + ": '" + e.key() + "' is not a ray tracing setting",
@@ -75,7 +75,8 @@ Result<RayTracingSettings> parse_ray_tracing_settings(const Json& j, std::string
     RayTracingSettings s = base;
     const std::string w(where);
     if (auto it = j.find("enabled"); it != j.end()) {
-        auto v = parse_bool(*it, w + "/enabled", "enabled is the master switch: false (the default) builds and traces nothing.");
+        auto v = parse_bool(*it, w + "/enabled",
+                            "enabled is the master switch: false (the default) builds and traces nothing.");
         if (!v) return v.error();
         s.enabled = v.value();
     }

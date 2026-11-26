@@ -127,9 +127,8 @@ struct TlasBuild {
 enum class AccelCopyMode : std::uint8_t { Clone, Compact };
 
 // Why `backend` does not trace rays (yet), as one sentence for an error or a supports() reason: GL, GLES3, WebGL2 and
-// D3D11 cannot ("use the d3d12 or vulkan backend, or Metal on Apple"); D3D12 and Metal could, and name the package
-// that brings it (P1d, P1m); Vulkan names the extensions and features a GPU needs; the RecordingDevice names what it
-// was made with. A backend that does trace
+// D3D11 cannot ("use the d3d12 or vulkan backend, or Metal on Apple"); D3D12, Vulkan and Metal say what a GPU (and
+// for Metal the OS) needs; the RecordingDevice names what it was made with. A backend that does trace
 // but whose GPU lacks the feature is a different reason (render_features.cpp says it).
 std::string accel_unavailable_reason(Backend backend);
 // The error a call without ray tracing answers: "gpu: <call>: <accel_unavailable_reason>" and a hint that names

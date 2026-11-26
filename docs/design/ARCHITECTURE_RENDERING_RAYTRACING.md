@@ -8,9 +8,9 @@ backend takes. Read "The GPU interface" (ARCHITECTURE_RENDERING_GPU.md) first: h
 of their own: [ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md).
 
 **What exists.** The interface: types, calls with refusing defaults, the `RecordingDevice` model and its checks, the
-supports rows, the settings and the command. The Direct3D 12 and Vulkan backends build, refit, compact and bind
-acceleration structures (sections "Direct3D 12" and "Vulkan" below). **No frame pass traces a ray yet.** The packages
-that come next fill Metal in (P1m) and then the effects.
+supports rows, the settings and the command. The Direct3D 12, Vulkan and Metal backends build, refit, compact and bind
+acceleration structures and run inline ray queries (sections "Direct3D 12", "Vulkan" and "Metal" below). **No frame pass traces a ray yet**
+(the settings change no picture). The packages that come next are the effects.
 
 ## Pages
 
@@ -87,7 +87,7 @@ whose package has landed overrides it to say what its GPU lacks ("this GPU lacks
   from the offset) and the structure (`make_accel_structure` with `size = AccelSizes::structure`), then builds. A size is never
   guessed: a backend rounds it as its API needs.
 - `make_accel_structure` allocates the memory itself when `storage` is invalid. **Open design point** (the answers of
-  Direct3D 12 and Vulkan are in their sections below):
+  Direct3D 12 and Vulkan are in their sections below; Metal refuses a valid `storage`, see "Metal"):
   with a valid `storage` (a buffer with usage `accelStorage`, offset aligned to `accel_alignment()`) the caller sub-allocates
   and may alias structures that are never live together. The `RecordingDevice` validates the buffer, the offset and the range;
   a real backend decides whether to take a `storage` of its own kind of memory (Vulkan: a buffer with the
@@ -134,9 +134,9 @@ of it: two builds on one scratch buffer get a barrier between them, and a write 
 | backend | `Features::accelerationStructure` | the refusal says |
 |---|---|---|
 | OpenGL, GLES3, WebGL2, Direct3D 11 (`SokolDevice`) | false, for good | the API cannot trace rays; use the d3d12 or vulkan backend, or Metal on Apple |
-| Direct3D 12 | true on a device with DXR tier 1.1 and shader model 6.5 (P1d) | "the d3d12 device on '<adapter>' has DXR tier <t> and shader model <m>: inline ray query needs DXR tier 1.1 and shader model 6.5" and what to do |
+| Direct3D 12 | true on a device with DXR tier 1.1 and shader model 6.5 | "the d3d12 device on '<adapter>' has DXR tier <t> and shader model <m>: inline ray query needs DXR tier 1.1 and shader model 6.5" and what to do |
 | Vulkan | true on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` | what this GPU lacks, with its name (`ray_tracing_status`); MoltenVK has none, lavapipe has them from Mesa 24.1 |
-| Metal (`SokolDevice` on Apple) | false until P1m | the same with "metal" and "package P1m" |
+| Metal (`SokolDevice` on Apple) | true when `MTLDevice.supportsRaytracing` and macOS 13 / iOS 16 (see "Metal"); `rayTracingPipeline` false | on a GPU or OS without it: the GPU and the OS version named, and what Metal needs |
 | `RecordingDevice` | what it was made with (`DeviceInit::recordingRayTracing`) | a plain one refuses and says it was made without ray tracing |
 
 `Device::backend()` and `CommandList::backend()` were added (the D3D12, Vulkan and sokol devices override them) so a refusal can
@@ -302,38 +302,72 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
   a failure that names the device, its driver and what it lacks. The Linux CI job sets it: it runs Mesa 25.2's lavapipe,
   which traces rays (docs/design/BUILDING_TESTS.md, "Vulkan ray tracing tests").
 
-## The Metal route (package P1m; documented here, not implemented)
+## Metal
 
-Metal is driven by `SokolDevice` (sokol_gfx owns the `MTLDevice`, the queue and the command buffers). Ray tracing on Metal
-(`MTLAccelerationStructure`, `MTLAccelerationStructureCommandEncoder`, `intersector<>` in the Metal Shading Language) is not
-in sokol, and the engine does not patch `external/`. The design:
+Metal is driven by `SokolDevice` (sokol_gfx owns the `MTLDevice`, the queue and the command buffers). Ray tracing
+(`MTLAccelerationStructure`, `MTLAccelerationStructureCommandEncoder`, `intersection_query` in the Metal Shading Language) is not in
+sokol, and the engine does not patch `external/`. The code is `engine/render/src/gpu/metal_accel.h` (plain C++, included by
+`sokol_device.h`) and `metal_accel_apple.mm` (the Objective-C++ half, built with ARC); `SokolDevice` on Metal owns one `MetalAccel`
+and forwards the calls to it. There is no new `Backend` value and no second device class: the renderer does not know which API
+traces.
 
-1. **RT lives inside the sokol device on Apple, in a native `.mm`** next to the sokol files (a file with the `_apple` suffix, which the build
-   globs by the platform-suffix rule). `SokolDevice` overrides the same virtuals (`blas_sizes`, `make_accel_structure`, `build_blas` and the
-   rest) behind `#if` for Apple; on every other sokol backend the defaults refuse as today. No new `Backend` value and no second
-   device class: the renderer does not know which API traces.
-2. The `.mm` reaches the native objects through the interop the sokol device already has for the engine's own native work
-   (`begin_native` / `end_native` and sokol's Metal accessors for the device and the command buffer; P1m settles which). A build is recorded in
-   an `MTLAccelerationStructureCommandEncoder` of its own, which is why barrier rule 3 reads "the build is its own encoder,
-   ordered before the compute encoder that traces". The compute dispatch binds the TLAS with
-   `setAccelerationStructure:atBufferIndex:` and marks the BLASes it reaches with `useResource:` (Metal needs them made
-   resident; a TLAS over them does not do it).
-3. `AccelStructureDesc::storage` is not used on Metal (it allocates its structures from an `MTLHeap` or by `newAccelerationStructure`
-   with the size from the size query); the interface says `storage` is optional, so this is allowed. `accel_alignment()` answers
-   what Metal asks.
-4. Sizes come from `accelerationStructureSizesWithDescriptor:`; `Features::accelerationStructure` and `rayQuery` are true when
-   `supportsRaytracing` is, and the reason says what is missing otherwise (older Apple GPUs, the simulator).
-5. `bufferDeviceAddress` is not needed (Metal binds buffers by index); its row stays false there.
-6. Inline queries are the only model the interface has, and `intersector<>` is the same one; the MSL of an effect is a sibling of
-   its HLSL and GLSL source in the shader packs, found by the usual rules (docs/design/ARCHITECTURE_RENDERING.md, "Start-up order and the shader cache").
-
-Until P1m lands, Metal answers "the metal backend does not build acceleration structures yet (package P1m of milestone 79)".
+- **When it is on.** `SokolDevice` reports `Features::rayQuery` and `accelerationStructure` (and the `maxAccel*` limits) when
+  `MTLDevice.supportsRaytracing` is true and the OS is macOS 13 / iOS 16 or later (the MSL 2.4 the kernels are written in).
+  Otherwise every call refuses with a sentence that names the GPU and the OS version, and `Device::ray_tracing_status` and
+  `renderer.supports("raytracing")` give the same text. `rayTracingPipeline` is always false. The simulator and older GPUs refuse. The limits it reports (1048576 instances, 4096
+  geometries, 2^28 triangles) are the engine's conservative ones, the same as the `RecordingDevice`'s: Metal documents no numbers.
+- **The structures live outside sokol.** `make_accel_structure` allocates an `MTLAccelerationStructure`
+  (`newAccelerationStructureWithSize:`) kept in the pool of `MetalAccel` and named by the `AccelStructure` handle. A valid
+  `AccelStructureDesc::storage` is **refused** with an error that says Metal allocates the memory itself (leave `storage` empty): the
+  open design point of "The calls" is settled this way on Metal. The size comes from `blas_sizes` / `tlas_sizes`, which ask
+  `accelerationStructureSizesWithDescriptor:`. Metal needs neither a buffer nor the BLAS list to size a TLAS, so the interface keeps
+  `tlas_sizes(instanceCount, flags)`. `accel_alignment()` and `accel_scratch_alignment()` stay 256 (Metal takes any scratch offset;
+  one number for every backend). The scratch and storage buffers are ordinary sokol buffers: `accelScratch` and `accelStorage` map
+  to sokol storage buffers, and `accelBuildInput` only marks the buffer as a build input.
+- **`bufferDeviceAddress` means "explicit GPU addresses"** (Vulkan and D3D12 need them for the structure memory and instance data).
+  Metal has none and binds by index, so its row stays false and the `accelBuildInput`, `accelStorage` and `accelScratch` buffer usages
+  are accepted without it (they were tied to it in P0a; `RecordingDevice` no longer requires it either).
+- **Builds run on sokol's command buffer.** `build_blas`, `build_tlas`, `query_compacted_size` and `copy_accel_structure` finish
+  sokol's blit encoder (`fa_sg_mtl_command_buffer`, reached through `MetalNative::current_command_buffer()`), open an
+  `MTLAccelerationStructureCommandEncoder` on that command buffer, encode and end it. They are refused inside a pass and inside a
+  native section (`begin_native`). Metal orders the encoders of one command buffer through the hazard tracking of the resources they
+  use (the structures and sokol's buffers are tracked), so a BLAS build, the TLAS build that reads it and the compute dispatch that
+  traces it run in that order with no barrier: this is barrier rule 3 on Metal. A refit with `update` and `src` invalid or equal to
+  `dst` refits in place; `allowUpdate` and the preconditions are checked before Metal sees them (Metal aborts the process on a bad
+  descriptor, so every check of the `RecordingDevice` that Metal would assert on is made first, with the same messages).
+- **Instances.** `build_tlas` converts the `AccelInstance` array into `MTLAccelerationStructureUserIDInstanceDescriptor` records
+  (row-major 3x4 to Metal's column-major 4x3, `customIndex` to the user id, `mask`, `opaque` and `cullDisable` to the options) in a
+  buffer of its own. The TLAS keeps the BLASes its last build named alive (and resident for a trace) until it is built again or
+  destroyed: a BLAS destroyed while a TLAS still names it stays in memory until the next build or destroy of that TLAS, so a
+  destroyed BLAS handle cannot free memory the GPU still reads. The rule of "The memory model" (destroy the TLAS first) is still
+  the one to follow, because the other backends do not do this.
+- **Lifetime against the GPU.** sokol acquires its command buffer *without* retained references (`commandBufferWithUnretainedReferences`),
+  so neither the acceleration structure encoder nor `useResource:` keeps a structure alive while a command buffer in flight still
+  uses it. `destroy_accel_structure`, and a rebuild or copy that replaces the BLAS array of a TLAS, therefore do not release the
+  Metal objects at once: the references move into a completion handler of the current command buffer (it completes after every
+  earlier one on the queue), and go when the GPU has finished the work recorded so far. With no command buffer they go at once.
+- **Compaction.** `query_compacted_size` writes the size (a `uint64`) into the `storageBuffer` the caller names, with
+  `MTLAccelerationStructureCommandEncoder writeCompactedAccelerationStructureSize:`; the caller reads it after the frame, makes a
+  smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies a structure of the same size.
+- **The trace.** The kernel is an ordinary sokol compute shader (`ShaderDesc::computeFunc.source` holds the MSL; sokol compiles it at
+  `make_shader`). sokol knows no acceleration structure, so `SokolDevice` keeps the `accelStructures` slots of each compute shader
+  and, right after `sg_apply_bindings`, `MetalAccel::bind_compute` calls `setAccelerationStructure:atBufferIndex:` on sokol's open
+  compute encoder (`sg_mtl_compute_command_encoder`) for the TLAS and `useResource:` for the TLAS and for every BLAS it names (a TLAS
+  does not make them resident). A binding the dispatch needs and cannot have (a TLAS that is missing, destroyed or never built, a
+  slot the shader does not declare) is logged with the shader's label and the dispatch is skipped; nothing aborts.
+- **Tests.** `engine/render/tests/metal_raytracing_tests.cpp` runs on a Mac with Metal ray tracing: a BLAS and a TLAS of two
+  instances traced by `rt_probe` against a CPU ray caster, rebuilds of one TLAS on consecutive frames, a refit after moving vertices,
+  compaction and clone, and the refusals. A machine whose GPU or OS cannot trace rays says why and skips them (the refusal case
+  checks the reasons there instead); it never fails a runner for lacking the hardware.
+- Inline queries are the only model the interface has, and `intersection_query` is the same one; the MSL of an effect is a sibling of
+  its HLSL and GLSL source in the shader packs, found by the usual rules (docs/design/ARCHITECTURE_RENDERING.md, "Start-up order and
+  the shader cache").
 
 ## What the next packages do
 
 - **P1d** (Direct3D 12): landed, "Direct3D 12" above.
 - **P1v** (Vulkan): landed, "Vulkan" above.
-- **P1m** (Metal): the route above.
+- **P1m** (Metal): landed, "Metal" above.
 - **P1s** (done, ARCHITECTURE_RT_SCENE.md): the renderer builds one BLAS per submesh, a TLAS per frame and the per-instance records, when
   `rt_any_effect` is true on a device that traces.
 - After them, the renderer adds the effects' compute passes to the frame graph

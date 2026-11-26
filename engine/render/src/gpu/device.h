@@ -280,7 +280,8 @@ struct DeviceInit {
     Limits recordingLimits{};
     bool recordingDefaultCaps = true;
     // RecordingDevice (M79): add ray tracing to what it reports: Features::rayQuery, accelerationStructure,
-    // bufferDeviceAddress (and rayTracingPipeline false: the engine never uses it) and the limits 4096 geometries,
+    // bufferDeviceAddress (a Vulkan or D3D12 like device; the calls do not need it) and rayTracingPipeline false (the
+    // engine never uses it), and the limits 4096 geometries,
     // 1 << 20 instances, 1 << 28 triangles. With recordingDefaultCaps false the test sets recordingFeatures and
     // recordingLimits itself and this is ignored. Off by default: a plain RecordingDevice has no ray tracing, like GL.
     bool recordingRayTracing = false;
@@ -481,10 +482,10 @@ public:
 
     // ---- ray tracing (M79; gpu/accel.h) ------------------------------------------------------------------------------
     // Features::rayQuery and accelerationStructure say whether any of this works; the defaults below are the answer of a
-    // device without ray tracing (GL, GLES3, WebGL2, D3D11) or whose package has not landed (D3D12: P1d, Metal: P1m): an
-    // error naming the backend and the package, never a crash and never a silent no-op. The Vulkan device overrides
-    // them and refuses on a GPU without the extensions with what it lacks (ray_tracing_status). Render thread
-    // only, like every make_*.
+    // device without ray tracing (GL, GLES3, WebGL2, D3D11) or whose GPU or OS cannot trace (D3D12: no DXR tier 1.1 with
+    // shader model 6.5; Vulkan: ray_tracing_status names what the GPU lacks; Metal: SokolDevice::ray_tracing_status names
+    // the device and the OS): an error naming the backend, never a crash and never a silent no-op. Render thread only,
+    // like every make_*.
     //
     // Whether the engine can trace rays on this device (Features::rayQuery and accelerationStructure) and, when it
     // cannot, one sentence for the player: "the d3d12 backend does not build acceleration structures yet (...)" or

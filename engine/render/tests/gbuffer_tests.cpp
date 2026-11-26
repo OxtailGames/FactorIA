@@ -147,7 +147,8 @@ int covered(const GImage& g) {
 
 }  // namespace
 
-TEST_CASE("gbuffer: nothing asks by default - the plan has no request, no image and the formats are the documented ones") {
+TEST_CASE(
+    "gbuffer: nothing asks by default - the plan has no request, no image and the formats are the documented ones") {
     PostPlan plan;
     CHECK_FALSE(plan.needsGbuffer);
     CHECK_FALSE(plan.gbufferAlbedo.valid());
@@ -161,7 +162,8 @@ TEST_CASE("gbuffer: nothing asks by default - the plan has no request, no image 
     CHECK(Gpu::gbuffer_format() == gpu::PixelFormat::Rgba8);
 }
 
-TEST_CASE("gbuffer: off - no pass in the frame graph and the same picture, bit for bit; on - the pass follows the prepass") {
+TEST_CASE(
+    "gbuffer: off - no pass in the frame graph and the same picture, bit for bit; on - the pass follows the prepass") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -187,7 +189,8 @@ TEST_CASE("gbuffer: off - no pass in the frame graph and the same picture, bit f
     CHECK(a.rgba == b.rgba);
 }
 
-TEST_CASE("gbuffer: two cubes of known materials read back as their albedo, roughness and metalness; the sky is not covered") {
+TEST_CASE("gbuffer: two cubes of known materials read back as their albedo, roughness and metalness; the sky is not "
+          "covered") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -198,8 +201,8 @@ TEST_CASE("gbuffer: two cubes of known materials read back as their albedo, roug
     const GImage alb = read(o, 0), mat = read(o, 1);
     const float* wa = alb.at(kLeftX, kMidY);
     const float* wm = mat.at(kLeftX, kMidY);
-    INFO("white cube albedo " << wa[0] << " " << wa[1] << " " << wa[2] << " " << wa[3] << ", material " << wm[0] << " " << wm[1] << " "
-                              << wm[2] << " " << wm[3] << "; covered " << covered(alb));
+    INFO("white cube albedo " << wa[0] << " " << wa[1] << " " << wa[2] << " " << wa[3] << ", material " << wm[0] << " "
+                              << wm[1] << " " << wm[2] << " " << wm[3] << "; covered " << covered(alb));
     CHECK(near_f(wa[0], 1.0f, 0.02f));
     CHECK(near_f(wa[1], 1.0f, 0.02f));
     CHECK(near_f(wa[2], 1.0f, 0.02f));
@@ -314,7 +317,8 @@ TEST_CASE("gbuffer: a scene with no opaque mesh makes no G-buffer, the request i
     CHECK_FALSE(RendererTestAccess::read_gbuffer(o.r, 0, none, rw, rh, nullptr));
 }
 
-TEST_CASE("gbuffer: the Ray Reconstruction guide programs, the albedo one that reads the G-buffer included, build on this GPU") {
+TEST_CASE("gbuffer: the Ray Reconstruction guide programs, the albedo one that reads the G-buffer included, build on "
+          "this GPU") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Own o(g, false);

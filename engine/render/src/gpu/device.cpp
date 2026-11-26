@@ -50,11 +50,12 @@ std::string accel_unavailable_reason(Backend backend) {
                    "features (Device::ray_tracing_status names what this device lacks; Mesa's lavapipe has them from "
                    "Mesa 24.1, MoltenVK has none)";
         case Backend::Metal:
-            return "the metal backend does not build acceleration structures yet (Metal ray tracing inside the sokol "
-                   "device is package P1m of milestone 79)";
+            return "the metal backend traces rays only on a GPU and an OS that support Metal ray tracing "
+                   "(MTLDevice.supportsRaytracing, and macOS 13 or iOS 16 for the shader language the ray queries are "
+                   "written in); the iOS simulator and older GPUs do not";
         case Backend::Recording:
             return "this RecordingDevice was made without ray tracing: set DeviceInit::recordingRayTracing (or "
-                   "recordingFeatures rayQuery, accelerationStructure and bufferDeviceAddress with recordingLimits "
+                   "recordingFeatures rayQuery and accelerationStructure with recordingLimits "
                    "maxAccelInstances, maxAccelGeometries and maxAccelPrimitives, with recordingDefaultCaps false)";
     }
     return "this backend has no ray tracing";
