@@ -149,20 +149,27 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
     }
     g.rtJobs.clear();
     g.rtPrevSerial.clear();
+    g.rtBounceLog.clear();
     g.rtReason.clear();
     g.rtBudget = 0;
+    g.rtInsured = false;
     g.rtWanted = supported && rtSettings.enabled && rtSettings.gi == render::RtGi::Probes;
     if (!g.rtWanted) {  // turned off (and on again later): the next try starts clean
         g.rtMisses = 0;
         g.rtFallbackUntil = 0;
+        g.rtRetry = false;
     }
     if (!supported) return;
 
     ++g.frame;
     // The ray traced mode (render.rayTracing.gi "probes"): the kernel updates the probes of every grid and the raster captures rest this frame.
     // When it cannot (the reason is kept for `render.ray_tracing`) the grids are captured the way they always were.
-    if (g.wants.size() && g.rtWanted && gi_plan_rays()) return;
-    for (auto& [id, gr] : g.grids) gr.rtMode = false;
+    const bool rays = g.wants.size() && g.rtWanted && gi_plan_rays();
+    // A frame whose rays may not run (the retry after a failure, the frame after one that did not run) also plans the raster captures of the
+    // same probes: gi_finish drops them when the rays ran and keeps them when they did not, so that frame updates the grids too.
+    if (rays && !g.rtInsured) return;
+    if (!rays)
+        for (auto& [id, gr] : g.grids) gr.rtMode = false;
 
     // The probes captured this frame, grid by grid in entity order, each as six face jobs.
     int left = kGiMaxFrameProbes;
@@ -172,7 +179,18 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
         if (!gr.valid || gr.base < 0 || left <= 0) continue;
         const RealtimeGI* c = world.get<RealtimeGI>(gr.entity);
         if (!c) continue;
-        const std::vector<int> picks = gi_pick(gr.last, gr.retry, g.frame, std::min(gr.probesPerFrame, left));
+        std::vector<int> picks;
+        std::vector<char> firsts;  // insured: whether the rays' pick was the probe's first update
+        if (g.rtInsured) {
+            const std::size_t most = std::size_t(std::max(0, std::min(gr.probesPerFrame, left)));
+            for (const GiSystem::RtJob& rj : g.rtJobs) {
+                if (rj.grid != id || picks.size() >= most) continue;
+                picks.push_back(rj.probe);
+                firsts.push_back(rj.first ? 1 : 0);
+            }
+        } else {
+            picks = gi_pick(gr.last, gr.retry, g.frame, std::min(gr.probesPerFrame, left));
+        }
         ReflectionProbe rp;  // what probe_face_frame reads: the planes and the tags of the capture
         rp.nearPlane = gr.layout.nearPlane;
         rp.farPlane = gr.layout.maxDistance;
@@ -180,7 +198,8 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
         rp.showTags = c->showTags;
         rp.hideTags = c->hideTags;
         const int res = gr.layout.resolution;
-        for (int probe : picks) {
+        for (std::size_t pk = 0; pk < picks.size(); ++pk) {
+            const int probe = picks[pk];
             // Every picture of the probe first: a probe that cannot be drawn in full is not drawn at all, and tried again later.
             bool ok = true;
             std::vector<TextureAsset*> pictures;
@@ -200,8 +219,9 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
                     "the images of a capture could not be created (out of GPU memory?); the probe is tried again later";
                 continue;
             }
-            const bool first = gr.last[std::size_t(probe)] == 0;
-            gr.last[std::size_t(probe)] = ++gr.serial;
+            // Insured: the rays already took the pick (gr.last, gr.serial); gi_finish gives the probe its order when they did not run.
+            const bool first = g.rtInsured ? firsts[pk] != 0 : gr.last[std::size_t(probe)] == 0;
+            if (!g.rtInsured) gr.last[std::size_t(probe)] = ++gr.serial;
             const Vec3 position = gi_probe_position(gr.layout, probe);
             for (int face = 0; face < 6; ++face) {
                 const std::uint64_t key = kGiViewKeyBit | std::uint64_t(index);
@@ -223,6 +243,7 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
                 job.distIndex = index;
                 job.last = face == 5;
                 job.first = first;
+                job.insurance = g.rtInsured;
                 job.picture = pictures[std::size_t(face)]->view;
                 g.jobs.push_back(job);
                 ++index;
@@ -297,7 +318,11 @@ bool Renderer::Impl::gi_plan_rays() {
         p.grid2[3] = l.intensity;
         p.grid3[0] = l.bounce;
         p.grid3[1] = l.backfaceTolerance;
-        p.grid3[2] = l.bounce > 0.0f ? 1.0f : 0.0f;
+        // The multi-bounce reads the grid's own probes in the atlas: only once every probe was updated once (the atlas of a grid that is still
+        // filling, was made again or whose layout changed holds nothing of it, or the old grid's light), as the lit shader reads ready grids only.
+        const bool ready = gr.captured >= gr.layout.count;
+        p.grid3[2] = l.bounce > 0.0f && ready ? 1.0f : 0.0f;
+        g.rtBounceLog.push_back(p.grid3[2]);
         p.grid3[3] = l.nearPlane;
         p.frame[0] = std::uint32_t(g.frame & 0xffffffffu);
         p.frame[1] = rt_effect_seed(g.frame);
@@ -333,6 +358,7 @@ bool Renderer::Impl::gi_plan_rays() {
         return false;
     }
     // Declared: the picks are taken now (a pass that does not run puts them back in gi_finish).
+    g.rtInsured = g.rtRetry || g.rtMisses > 0;
     for (Pick& pick : picks) {
         GiGrid& gr = *pick.grid;
         g.rtPrevSerial[gr.id] = gr.serial;
@@ -363,18 +389,21 @@ void Renderer::Impl::gi_finish() {
     }
     int calls = 0;
     int rtUpdated = 0, rtGrids = 0;
+    bool rtRan = false;
     if (!g.rtJobs.empty()) {
         // The kernel wrote the new value of each probe's block, with its weight in alpha, into the band image: blend it into the atlas. A
         // pass that did not run (the scene had no TLAS yet, the driver refused the pipeline) gives the picks back.
         const RtGiImage* img = rtGi.image();
         const bool ran = img && img->ran;
+        rtRan = ran;
         std::uint64_t lastGrid = 0;
+        std::vector<int> blocks;  // the blocks the kernel wrote: one pass of the atlas blends them all
         for (const GiSystem::RtJob& job : g.rtJobs) {
             auto it = g.grids.find(job.grid);
             if (it == g.grids.end()) continue;
             GiGrid& gr = it->second;
             if (ran) {
-                ps.gpu.blit_gi(gpu, ps.atlas, img->texture, job.block, &calls);
+                blocks.push_back(job.block);
                 if (job.first) ++gr.captured;
                 gr.lastCaptureFrame = g.frame;
                 ++gr.lastFrameRtUpdates;
@@ -385,12 +414,15 @@ void Renderer::Impl::gi_finish() {
                 lastGrid = job.grid;
             } else {
                 gr.last[std::size_t(job.probe)] = job.prevLast;
+                gr.rtMode = false;  // the grid was not updated by rays this frame (an insured capture may update it)
                 const auto prev = g.rtPrevSerial.find(job.grid);
                 if (prev != g.rtPrevSerial.end()) gr.serial = prev->second;
             }
         }
         if (ran) {
+            ps.gpu.blit_gi(gpu, ps.atlas, img->texture, blocks, &calls);
             g.rtMisses = 0;
+            g.rtRetry = false;
         } else {
             // The pass was declared and did not run. A reason it declared (a refused pipeline) hands the grids to the raster captures at once; a
             // pass with no reason (the traced scene had no instance yet) gets kGiRtMissFrames frames to start, a scene may need one to build.
@@ -401,6 +433,7 @@ void Renderer::Impl::gi_finish() {
                 g.rtFallbackReason =
                     g.rtReason + " (the raster captures update the grids; the rays are tried again in 120 frames)";
                 g.rtMisses = 0;
+                g.rtRetry = true;  // the next try is insured by the raster captures of the same probes
             }
         }
         g.rtJobs.clear();
@@ -426,6 +459,8 @@ void Renderer::Impl::gi_finish() {
     int captured = rtUpdated;
     for (std::size_t i = 0; i < g.jobs.size(); ++i) {
         const GiSystem::Job& job = g.jobs[i];
+        if (job.insurance && rtRan)
+            continue;  // the rays updated this probe: the capture planned beside them is not needed
         auto it = g.grids.find(job.grid);
         if (it == g.grids.end()) continue;
         GiGrid& gr = it->second;
@@ -446,6 +481,8 @@ void Renderer::Impl::gi_finish() {
         ps.gpu.face_gi(gpu, kGiScratchSlot, job.face, job.picture,
                        drawn ? ps.gpu.dist_view(job.distIndex) : gpu::View{}, gr.layout.maxDistance, &calls);
         if (!job.last) continue;
+        if (job.insurance)
+            gr.last[std::size_t(job.probe)] = ++gr.serial;  // the rays did not run: the capture is this probe's update
         const float blend = job.first ? 1.0f : std::clamp(1.0f - gr.layout.hysteresis, 0.01f, 1.0f);
         ps.gpu.filter_gi(gpu, ps.atlas, kGiScratchSlot, gr.base + job.probe, gr.layout.resolution, blend,
                          gr.layout.maxDistance, &calls);

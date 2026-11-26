@@ -1188,7 +1188,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         ctx.postPlan.ssr.rt = ctx.postPlan.ssr.any();
     }
     ctx.rtAo = {};
-    ctx.rtAo.want = wantRtAo && ctx.doPrepass;
+    // The path tracer's picture replaces the lit colour of the opaque meshes and has its own occlusion: a frame it draws traces no ambient
+    // occlusion (its kernel and denoiser) for nothing. It is known only a frame late whether the path tracer works on this device, so the
+    // occlusion comes back the frame after a refusal (ptState.status.failure).
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass &&
+                    !(wantPathTrace && ctx.doPrepass && rtScene.active() && ptState.status.failure.empty());
     ctx.giPixel = {};
     if (wantRtGiPixel) {
         // A fallback is running (the kernel was refused, or did not run for a few frames): the probe and ambient term lights the surfaces until the retry.
@@ -6262,7 +6266,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         const bool lightsUsed = cfg.lights && req.lights.count[0] > 0;
         const std::uint64_t settingsHash = path_trace_settings_hash(cfg, req.hit, req.lights);
         PathTraceJobState* job =
-            &ptState.jobs[plan.name];  // std::map: the node stays while the state is not cleared (rt_begin_frame)
+            &ptState.jobs[plan.name];  // std::map: the node stays until rt_begin_frame purges it or clears the state
+        job->lastFrame = frameSerial;
         render::PathTracerStatus* status = &ptState.status;
         RtScene* scene = &rtScene;
         req.prepare = [cfg, lightsUsed, settingsHash, job, status, scene](RtEffectParams& params,
@@ -6298,8 +6303,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
-    if (!ctx.rtAo.on && ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled &&
-        ctx.postPlan.prepass.valid())
+    // A frame the path tracer draws (its pass is declared, its image is drawn over the opaque picture, which has its own occlusion) makes none.
+    if (!ctx.rtAo.on && !ctx.pathTrace.res.valid() && ctx.doMainPass && ctx.doPrepass && fr.wantWorld &&
+        ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
                         ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
                         &ctx.ssaoApply);

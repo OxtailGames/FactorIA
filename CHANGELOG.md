@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Polish of the GI probes and the path tracer (M79-P4a/P5a):** the probes the rays update are blended into the atlas in one pass instead of one
+  pass a probe (a tiled GPU loads and stores the atlas once); the multi-bounce reads a grid's own probes only once the grid is full; the retry frame
+  and the frames after a missed pass are insured by the raster captures of the same probes, so they update the grids too; the path tracer skips the
+  screen-space and ray traced occlusion it replaces, caps the samples one dispatch adds by the image's pixels (16.7 million paths: 8 samples a
+  frame at 1080p) and forgets the state of a camera no frame draws. The GI tests share one scene (`tests/rt_gi_test_scene.h`).
 - **What ray tracing costs, and when to use it (M79-P6b):** docs/RAY_TRACING.md has a "What it costs" table, measured on an Apple M5 on Metal at
   1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.8 ms, soft +32, ambient occlusion +18, reflections +26, translucency +3,
   per-pixel GI +22, the path tracer 29 ms a sample; the denoiser, not the rays, is the price; D3D12 and Vulkan not measured) and an "effect by backend"

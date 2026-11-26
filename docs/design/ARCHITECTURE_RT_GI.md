@@ -33,11 +33,20 @@ pass: the raster captures update the grids as before and the status says why (`g
    thread group per probe (`dispatch(probes, 1, 1)`), 64 threads per group.
 3. The kernel writes the new estimate of each probe's block into the **band image**, an RGBA16F storage image of `kProbeAtlasSize x kGiBandHeight`
    (1024 x 132: the atlas's block rows without the first 1024 rows), with the blend weight in alpha.
-4. After the graph has run, `gi_finish` draws each probe's block of the band image into the atlas with `ProbeGpu::blit_gi` (the Blit program with
-   `SrcAlpha, OneMinusSrcAlpha` blending, one draw a probe, counted in the draw calls). The lit shader samples the grids exactly as before.
+4. After the graph has run, `gi_finish` draws each probe's block of the band image into the atlas with `ProbeGpu::blit_gi`: **one pass** of the
+   atlas (`probe-atlas`, load and store) with the Blit program and `SrcAlpha, OneMinusSrcAlpha` blending, and for each block a viewport, a scissor,
+   its source rectangle and one draw (counted in the draw calls). The blocks do not overlap, so the result is the one of a pass a block, which
+   would load and store the whole atlas for each probe on a tiled GPU. The lit shader samples the grids exactly as before.
 5. A pass that did not run (the scene has no TLAS yet, the driver refused the compute pipeline) gives the picks back (`last` and the serial of
    the grid are restored), says why in the status and the raster captures do the frame. A kernel or image the device refuses is kept as refused
    and logged once at WARN (`RtGiProbes::note_failure`).
+6. **Insurance.** A frame whose rays may not run also plans the raster captures of the **same probes** (`GiSystem::rtInsured`, the jobs carry
+   `insurance`): the retry frame after a failure (`rtRetry`, the first try after the 120 frames of `kGiRtRetryFrames`) and the frames after a
+   miss (`rtMisses > 0`). `gi_finish` drops those captures when the rays ran and keeps them as the probes' update when they did not (the order of
+   the probes, `gr.last` and `gr.serial`, is the one the rays' pick already took), so those frames update the grids as the others do, and no
+   probe is counted twice. The cost is the raster captures of up to the frame's budget on a frame that is tried, once a retry. **The first
+   frame of a miss is not insured** (nothing says yet that the pass will not run: a scene may need one frame to build its TLAS): it updates no
+   probe, as before.
 
 ## The kernel (`rt_gi`)
 
@@ -50,9 +59,11 @@ the first uniform block is `RtGiParams` (the `paramsSize` of the kernel's spec r
   from a PCG hash of the frame seed (`rt_effect_seed(frame)`) and the probe's index: a different rotation in every update, the same for the same
   frame and probe. `rt_gi_pcg`, `rt_gi_rotation`, `rt_gi_fibonacci` and `rt_gi_direction` in `rt_gi.h` are the CPU twin (the tests trace the same rays).
 - **A hit** is shaded by `rt_trace_surface` and `rt_shade_hit` of the hit include (the sun, its shadow ray, the emission, the environment's
-  gradient, [ARCHITECTURE_RT_EFFECTS.md](ARCHITECTURE_RT_EFFECTS.md), "Hit shading"). With `bounce` above 0 the kernel adds the light that the
-  grid's own probes (the atlas, as it stood at the start of the frame) give at the hit point, times `bounce` and the albedo: the multi-bounce, one
-  bounce more each time a probe is updated. **A miss** returns the environment (the sky).
+  gradient, [ARCHITECTURE_RT_EFFECTS.md](ARCHITECTURE_RT_EFFECTS.md), "Hit shading"). With `bounce` above 0 **and the grid ready** (every probe
+  updated once: `RtGiParams.grid3.z` is set by `gi_plan_rays` from `gr.captured >= gr.layout.count`, as the lit shader reads ready grids only) the
+  kernel adds the light that the grid's own probes (the atlas, as it stood at the start of the frame) give at the hit point, times `bounce` and
+  the albedo: the multi-bounce, one bounce more each time a probe is updated. While the grid fills, its blocks hold nothing (or the light of a
+  grid that was there before) and are not read. **A miss** returns the environment (the sky).
 - **The projection.** The radiance of each ray is projected onto nine SH coefficients (`4 pi / n` weight) and written to the probe's SH row
   (row 10 of its block, texels 0 to 8). The hit distance of each ray, normalised by `maxDistance`, goes into the 10 x 10 depth map (the
   8 x 8 octahedral map and its border) as the two Chebyshev moments, weighted by a cosine lobe of `4 + n / 16` around each texel's direction.
@@ -68,7 +79,8 @@ the first uniform block is `RtGiParams` (the `paramsSize` of the kernel's spec r
   it, `rt_gi_front_sense(backend)`: +1 on Metal, **measured** by `rt_gi_front_tests.cpp` (a probe in the open reads 0 back faces, one inside a box
   reads 1); **0 on D3D12 and Vulkan**, which have not been measured: with 0 the kernel counts no back faces at all (the probes inside walls are
   not discarded, a light leak, but no probe goes black because of a guessed sign). `rt_gi_front_tests.cpp` runs the
-  same two probes on the backend of the build (on a machine with ray tracing), prints the sign it measures and checks it against `rt_gi_front_sense` once that is not 0; put the
+  same two probes on the backend of the build (on a machine with ray tracing), prints the sign it measures and checks it against
+  `rt_gi_front_sense` once that is not 0; on a failure its `INFO` line says the sense it measured and the fractions it read. Put the
   measured value in `rt_gi_front_sense` to turn the discard on. A two-sided instance (`kRtFlagTwoSided`) never counts as a back face.
 
 ## Status
@@ -91,7 +103,13 @@ kernel table, the spec and the shader description in every backend; one `interse
 same for the same seed, different for another, uniform on the sphere); `gi = "off"` records nothing and spends nothing; with `probes` one compute
 pass after the TLAS build with a 1120-byte uniform and `dispatch 4 1 1` for four probes; the cap of 64 probes; two runs record the same stream; a
 device that cannot trace falls back to the raster captures and says why; turning the mode off frees the kernel and the image; a scene without
-a `RealtimeGI` says so.
+a `RealtimeGI` says so; the blend into the atlas is one pass with one draw and one viewport a probe; the multi-bounce flag is 0 until the grid is
+full and 1 after (`RendererTestAccess::gi_rt_bounce_flags`); with a scene that never builds, no frame after the first of the misses updates no probe
+(the insurance, the retry frames included).
+
+The two real-device tests share their scene and rig in `tests/rt_gi_test_scene.h` (`fa::test::gi`: the quad and the box, `Place`, `Rig` with the
+acceleration structures, the kernel, the records, one dispatch and the readback of the band image): `rt_gi_metal_tests.cpp` and
+`rt_gi_front_tests.cpp` include it.
 
 `rt_gi_metal_tests.cpp` (macOS, `#if defined(__APPLE__)`; a placeholder case elsewhere): two probes (one in the open above a floor, one inside an
 emissive box), the records of the instances, a zero atlas and the engine's own `RtGiParams`; the SH row (9 coefficients x RGB), the meta

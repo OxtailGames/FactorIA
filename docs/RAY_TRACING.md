@@ -387,7 +387,7 @@ itself: `render.rayTracing.enabled` does not have to be on. Off (the default) it
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The main camera shows the path traced colour. |
 | `maxBounces` | 1 to 32 | `4` | The length of a path. 1 = direct light only (the sun and the lights, no bounce). More bounces add the light that bounces off walls, glass and mirrors; Russian roulette ends a dark path sooner. |
-| `samplesPerFrame` | 1 to 64 | `1` | Paths per pixel each frame adds. More makes the picture converge in fewer frames at a slower frame rate. |
+| `samplesPerFrame` | 1 to 64 | `1` | Paths per pixel each frame adds. More makes the picture converge in fewer frames at a slower frame rate. A frame adds at most 16.7 million paths divided by the image's pixels, so a 1080p image adds at most 8 samples a frame and a 4K one 2 (the rest comes over more frames, so the picture needs the same samples and more frames). |
 | `maxSamples` | 0 to 16777216 | `0` | The accumulation stops (and the GPU rests) after this many samples per pixel; `0` = never. |
 | `fireflyClamp` | 0 or more | `0` | Clamps the brightness of one path to this value: fewer white dots, a little energy lost. `0` = off. |
 | `lights` | `true`, `false` | `true` | Direct light from up to 8 point and spot lights of the frame. The sun is always sampled. |
@@ -400,6 +400,8 @@ A number outside its range is **clamped**; a wrong name or type is an error with
 Snell's law, the tint of `attenuationColor`). The pixels where the rays hit nothing keep the raster's sky, and a surface the raster draws and the rays
 do not trace (terrain, impostors, meshes over `maxInstances`) stays as the raster drew it. The post stack and the tonemap apply to the result as to
 the raster's picture.
+
+**Occlusion.** A frame the path tracer draws makes no screen-space and no ray traced ambient occlusion: the picture has its own.
 
 **Progressive.** Every frame that nothing changes adds `samplesPerFrame` samples and the picture gets cleaner. It **starts over** when the camera
 moves, the scene changes (an object moves, a light or material changes), a setting changes or the window is resized; `render.path_tracer` returns

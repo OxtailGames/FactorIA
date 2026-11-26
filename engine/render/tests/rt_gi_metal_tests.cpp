@@ -27,12 +27,18 @@
 #include "rt_gi.h"
 #include "rt_kernels.h"
 #include "rt_records.h"
+#include "rt_gi_test_scene.h"
 #include "test_util.h"
 
 #if defined(__APPLE__)
 
 using namespace fa;
 using namespace fa::gpu;
+using fa::test::gi::make_box;
+using fa::test::gi::make_quad;
+using fa::test::gi::Mesh;
+using fa::test::gi::Place;
+using fa::test::gi::Rig;
 
 namespace {
 
@@ -76,29 +82,6 @@ Nearest nearest(const std::vector<Tri>& tris, Vec3 o, Vec3 d, float grow, float 
 }
 
 float comp(Vec3 v, int c) { return c == 0 ? v.x : (c == 1 ? v.y : v.z); }
-
-struct Mesh {
-    std::vector<Vec3> vertices;
-    std::vector<std::uint16_t> indices;
-    Buffer vb{}, ib{};
-    AccelStructure blas{};
-    Buffer scratch{};
-};
-
-Mesh make_quad() {
-    Mesh m;
-    m.vertices = {{-20, 0, -20}, {20, 0, -20}, {20, 0, 20}, {-20, 0, 20}};
-    m.indices = {0, 2, 1, 0, 3, 2};
-    return m;
-}
-
-Mesh make_box() {  // [-1, 1] x [0, 2] x [-1, 1]
-    Mesh m;
-    m.vertices = {{-1, 0, -1}, {1, 0, -1}, {1, 2, -1}, {-1, 2, -1}, {-1, 0, 1}, {1, 0, 1}, {1, 2, 1}, {-1, 2, 1}};
-    m.indices = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 4, 7, 0, 7, 3,
-                 1, 2, 6, 1, 6, 5, 3, 7, 6, 3, 6, 2, 0, 1, 5, 0, 5, 4};
-    return m;
-}
 
 // ---- the CPU port of rt_hit.hlsli ------------------------------------------------------------------------------------------------------
 
@@ -173,96 +156,6 @@ Vec3 shade_hit(const Scene& sc, const std::vector<Tri>& tris, const Material& m,
     return color + m.emissive;
 }
 
-struct Rig {
-    std::unique_ptr<Device> owner;
-    Device* dev = nullptr;
-    Pipeline pipeline{};
-    Sampler nearestSampler{};
-
-    bool open(std::string& skip) {
-        auto& g = fa::test::gfx();
-        if (!g.ok) {
-            skip = "no GPU here (" + g.error + ")";
-            return false;
-        }
-        if (built_sokol_backend() != Backend::Metal) {
-            skip = std::string("the sokol backend of this build is ") + backend_name(built_sokol_backend());
-            return false;
-        }
-        auto made = make_device(built_sokol_backend());
-        REQUIRE_MESSAGE(made, (made ? "" : made.error().message));
-        owner = std::move(made.value());
-        dev = owner.get();
-        std::string why;
-        if (!dev->ray_tracing_status(&why)) {
-            skip = "this GPU or OS cannot trace rays: " + why;
-            return false;
-        }
-        return true;
-    }
-
-    void upload(Mesh& m) {
-        BufferDesc vb;
-        vb.size = m.vertices.size() * sizeof(Vec3);
-        vb.usage.accelBuildInput = true;
-        vb.data = Range{m.vertices.data(), vb.size};
-        vb.label = "rt gi mesh vertices";
-        m.vb = dev->make_buffer(vb);
-        BufferDesc ib;
-        ib.size = m.indices.size() * sizeof(std::uint16_t);
-        ib.usage.accelBuildInput = true;
-        ib.data = Range{m.indices.data(), ib.size};
-        ib.label = "rt gi mesh indices";
-        m.ib = dev->make_buffer(ib);
-    }
-
-    AccelStructure make_as(AccelKind kind, std::uint64_t size, const char* label) {
-        AccelStructureDesc d;
-        d.kind = kind;
-        d.size = size;
-        d.label = label;
-        auto r = dev->make_accel_structure(d);
-        REQUIRE_MESSAGE(r.ok(), r.error().message);
-        return r.value();
-    }
-
-    Buffer make_scratch(std::uint64_t size, const char* label) {
-        BufferDesc d;
-        d.size = std::size_t(std::max<std::uint64_t>(size, 256));
-        d.usage.accelScratch = true;
-        d.label = label;
-        return dev->make_buffer(d);
-    }
-
-    AccelTriangles geometry_of(const Mesh& m) {
-        AccelTriangles g{};
-        g.vertexBuffer = m.vb;
-        g.vertexStride = sizeof(Vec3);
-        g.vertexCount = std::uint32_t(m.vertices.size());
-        g.indexBuffer = m.ib;
-        g.indexType = IndexType::Uint16;
-        g.indexCount = std::uint32_t(m.indices.size());
-        return g;
-    }
-
-    void make_pipeline() {
-        const fa::rt_kernels::RtKernel* k = fa::rt_kernels::find_rt_kernel("rt_gi");
-        REQUIRE(k != nullptr);
-        const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_gi");
-        REQUIRE(spec != nullptr);
-        SamplerDesc sd;
-        sd.label = "rt gi nearest";
-        nearestSampler = dev->make_sampler(sd);
-        PipelineDesc pd;
-        pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
-        pd.label = "rt_gi";
-        pipeline = dev->make_pipeline(pd);
-        REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
-        REQUIRE(dev->state(pipeline) == ResourceState::Valid);
-    }
-};
-
 float sh_basis(int k, Vec3 d) {
     switch (k) {
         case 0: return 0.282094792f;
@@ -321,7 +214,8 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
           "rays") {
     Rig rig;
     std::string skip;
-    if (!rig.open(skip)) {
+    const Backend metal = Backend::Metal;
+    if (!rig.open(skip, &metal)) {
         MESSAGE("skipped: " << skip);
         return;
     }
@@ -329,101 +223,30 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
     MESSAGE("Metal ray tracing: vendor " << std::string(gpu_vendor_name(dev.info().gpu.vendor)));
 
     Mesh ground = make_quad(), box = make_box();
-    rig.upload(ground);
-    rig.upload(box);
-    struct Place {
-        Mesh* mesh;
-        Vec3 at;
-        Material material;
-    };
-    const std::array<Place, 2> places = {
-        Place{&ground, {0, 0, 0}, Material{{0.5f, 0.5f, 0.5f}, 0.0f, 0.5f, {0, 0, 0}}},
-        Place{&box, {3.0f, 0.5f, 0}, Material{{0.2f, 0.2f, 0.2f}, 0.0f, 0.8f, {0.6f, 0.15f, 0.05f}}}};
-    constexpr std::uint8_t kMask = fa::render::kRtMaskOpaque | fa::render::kRtMaskCastsShadow;
+    // What the CPU port shades with: the same numbers the records get.
+    const std::array<Material, 2> materials = {Material{{0.5f, 0.5f, 0.5f}, 0.0f, 0.5f, {0, 0, 0}},
+                                               Material{{0.2f, 0.2f, 0.2f}, 0.0f, 0.8f, {0.6f, 0.15f, 0.05f}}};
+    const std::vector<Place> places = {Place{&ground,
+                                             {0, 0, 0},
+                                             materials[0].albedo,
+                                             materials[0].roughness,
+                                             materials[0].metalness,
+                                             materials[0].emissive},
+                                       Place{&box,
+                                             {3.0f, 0.5f, 0},
+                                             materials[1].albedo,
+                                             materials[1].roughness,
+                                             materials[1].metalness,
+                                             materials[1].emissive}};
     std::vector<Tri> tris;
     for (std::size_t pi = 0; pi < places.size(); ++pi) {
         const Place& p = places[pi];
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
             tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
-                            p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, kMask, int(pi)});
+                            p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, fa::test::gi::kMask, int(pi)});
     }
-
-    AccelBuildFlags flags;
-    for (Mesh* m : {&ground, &box}) {
-        const AccelTriangles g = rig.geometry_of(*m);
-        auto bs = dev.blas_sizes(std::span<const AccelTriangles>(&g, 1), flags);
-        REQUIRE_MESSAGE(bs.ok(), bs.error().message);
-        m->blas = rig.make_as(AccelKind::Blas, bs->structure, "rt gi blas");
-        m->scratch = rig.make_scratch(std::max(bs->buildScratch, bs->updateScratch), "rt gi blas scratch");
-    }
-    std::vector<AccelInstance> instances(places.size());
-    std::vector<fa::render::RtInstanceRecord> records(places.size());
-    for (std::size_t i = 0; i < places.size(); ++i) {
-        AccelInstance& in = instances[i];
-        in.transform[3] = places[i].at.x;
-        in.transform[7] = places[i].at.y;
-        in.transform[11] = places[i].at.z;
-        in.blas = places[i].mesh->blas;
-        in.mask = kMask;
-        in.customIndex = std::uint32_t(i);
-        fa::render::RtInstanceRecord& r = records[i];
-        std::memset(&r, 0, sizeof r);
-        r.objectToWorld[0] = r.objectToWorld[5] = r.objectToWorld[10] = 1.0f;
-        r.objectToWorld[3] = places[i].at.x;
-        r.objectToWorld[7] = places[i].at.y;
-        r.objectToWorld[11] = places[i].at.z;
-        for (int c = 0; c < 3; ++c) {
-            r.albedo[c] = comp(places[i].material.albedo, c);
-            r.emissive[c] = comp(places[i].material.emissive, c);
-        }
-        r.albedo[3] = 1.0f;
-        r.roughness = places[i].material.roughness;
-        r.metalness = places[i].material.metalness;
-        r.flags = fa::render::kRtFlagOpaque | fa::render::kRtFlagCastsShadow;
-    }
-    auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
-    REQUIRE_MESSAGE(ts.ok(), ts.error().message);
-    const AccelStructure tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt gi tlas");
-    const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt gi tlas scratch");
-    BufferDesc rbd;
-    rbd.size = records.size() * sizeof(fa::render::RtInstanceRecord);
-    rbd.usage.storageBuffer = true;
-    rbd.data = Range{records.data(), rbd.size};
-    rbd.label = "rt gi records";
-    const Buffer recordBuffer = dev.make_buffer(rbd);
-    ViewDesc rvd;
-    rvd.storageBuffer.buffer = recordBuffer;
-    rvd.label = "rt gi records view";
-    const View recordsView = dev.make_view(rvd);
-
-    // The atlas the kernel reads at a hit (the multi-bounce): nothing captured in it (meta.g = 0), so no probe lends light.
-    const int atlasW = fa::render::kProbeAtlasSize, atlasH = fa::render::kProbeAtlasSize + 11 * 2;
-    std::vector<std::uint16_t> atlasData(std::size_t(atlasW) * atlasH * 4, 0);
-    ImageDesc ad;
-    ad.width = atlasW;
-    ad.height = atlasH;
-    ad.pixelFormat = PixelFormat::Rgba16F;
-    ad.data.mipLevels[0] = Range{atlasData.data(), atlasData.size() * sizeof(std::uint16_t)};
-    ad.label = "rt gi atlas";
-    const gpu::Image atlasImg = dev.make_image(ad);
-    ViewDesc atv;
-    atv.texture.image = atlasImg;
-    atv.label = "rt gi atlas view";
-    const View atlasView = dev.make_view(atv);
-    REQUIRE(dev.state(atlasView) == ResourceState::Valid);
-
-    ImageDesc od;
-    od.width = fa::render::kProbeAtlasSize;
-    od.height = fa::render::kGiBandHeight;
-    od.pixelFormat = PixelFormat::Rgba16F;
-    od.usage.storageImage = true;
-    od.label = "rt gi band";
-    const gpu::Image outImg = dev.make_image(od);
-    ViewDesc ov;
-    ov.storageImage.image = outImg;
-    ov.label = "rt gi band view";
-    const View outView = dev.make_view(ov);
+    rig.build_scene(places);
     rig.make_pipeline();
 
     Scene sc;
@@ -482,55 +305,19 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
         return p;
     };
 
+    // `builds`: the command list that already holds the builds of the structures; the pass is appended to it (else a list of its own).
     auto trace = [&](const fa::render::RtGiParams& params, CommandList* builds) {
         CommandList& cl = builds ? *builds : dev.begin_commands("rt gi frame");
-        cl.begin_compute_pass("rt gi");
-        cl.set_pipeline(rig.pipeline);
-        Bindings b;
-        b.views[fa::render::RtEffectBindings::kViewOut] = outView;
-        b.views[fa::render::RtEffectBindings::kViewPrepass] = atlasView;
-        b.views[fa::render::RtEffectBindings::kViewRecords] = recordsView;
-        b.samplers[fa::render::RtEffectBindings::kSampler] = rig.nearestSampler;
-        b.accelStructures[0] = tlas;
-        cl.set_bindings(b);
-        cl.set_uniforms(fa::render::RtEffectBindings::kUniformParams, Range{&params, sizeof params});
-        cl.set_uniforms(fa::render::RtEffectBindings::kUniformHit, Range{&hit, sizeof hit});
-        cl.dispatch(kProbes, 1, 1);
-        cl.end_pass();
-        dev.submit(cl);
-        dev.commit();
-        std::vector<std::uint8_t> bytes;
-        auto r = dev.read_storage_image(outImg, PixelFormat::Rgba16F, 0, 0, fa::render::kProbeAtlasSize,
-                                        fa::render::kGiBandHeight, bytes);
-        REQUIRE_MESSAGE(r.ok(), r.error().message);
-        const std::size_t count = std::size_t(fa::render::kProbeAtlasSize) * fa::render::kGiBandHeight * 4;
-        REQUIRE(bytes.size() == count * sizeof(std::uint16_t));
-        std::vector<std::uint16_t> halves(count);
-        std::memcpy(halves.data(), bytes.data(), bytes.size());
+        rig.record_trace(cl, params, hit, rig.recordsView, kProbes);
+        const std::vector<std::uint16_t> halves = rig.submit_and_read(cl);
         Band band;
-        band.px.resize(count);
-        for (std::size_t i = 0; i < count; ++i) band.px[i] = fa::render::half_to_float(halves[i]);
+        band.px.resize(halves.size());
+        for (std::size_t i = 0; i < halves.size(); ++i) band.px[i] = fa::render::half_to_float(halves[i]);
         return band;
     };
 
     CommandList& cl = dev.begin_commands("rt gi frame");
-    for (Mesh* m : {&ground, &box}) {
-        BlasBuild bb;
-        const AccelTriangles g = rig.geometry_of(*m);
-        bb.dst = m->blas;
-        bb.geometries = std::span<const AccelTriangles>(&g, 1);
-        bb.flags = flags;
-        bb.scratch = m->scratch;
-        auto r = cl.build_blas(bb);
-        REQUIRE_MESSAGE(r.ok(), r.error().message);
-    }
-    TlasBuild tb;
-    tb.dst = tlas;
-    tb.instances = instances;
-    tb.flags = flags;
-    tb.scratch = tlasScratch;
-    auto built = cl.build_tlas(tb);
-    REQUIRE_MESSAGE(built.ok(), built.error().message);
+    rig.record_builds(cl);
     const fa::render::RtGiParams params = make_params(0x1234u, 0.0f);
     const Band first = trace(params, &cl);
 
@@ -557,8 +344,7 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
             const bool facesRay = dot(nn, d) < 0.0f;  // the mesh's front face (counter-clockwise) turned to the ray
             if (!facesRay) nn = nn * -1.0f;
             const Vec3 p = pos + d * n.t;
-            radiance[std::size_t(r)] =
-                shade_hit(sc, tris, places[std::size_t(t.instance)].material, p, nn, d * -1.0f, n.t);
+            radiance[std::size_t(r)] = shade_hit(sc, tris, materials[std::size_t(t.instance)], p, nn, d * -1.0f, n.t);
             dist[std::size_t(r)] = std::min(n.t / kMaxDistance, 1.0f);
             back[std::size_t(r)] = facesRay ? 0.0f : 1.0f;
         }
