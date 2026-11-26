@@ -2187,22 +2187,32 @@ Json Engine::ray_tracing_status() {
     j["supported"] = supported;
     // The sun's shadows, the ambient occlusion and the sharp reflections draw with rays so far (M79-P2a-1, P2b, P3a-1): an effect that is on,
     // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
+    // An effect whose kernel the driver rejected (or whose prepass does not match the output) draws its raster version: it is not active.
+    const std::string failure = impl_->renderer ? impl_->renderer->ray_tracing_failure() : std::string();
     const bool shadowsOn = impl_->rayTracing.shadows != render::RtShadows::Off;
     const bool aoOn = impl_->rayTracing.ao;
     const bool reflectionsOn = impl_->rayTracing.reflections;
-    const bool active = impl_->rayTracing.enabled && supported && (shadowsOn || aoOn || reflectionsOn);
+    const bool active =
+        impl_->rayTracing.enabled && supported && (shadowsOn || aoOn || reflectionsOn) && failure.empty();
     j["active"] = active;
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)
         j["reason"] =
             why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why;
+    else if (!failure.empty())
+        j["reason"] =
+            "This device can trace rays, but an effect could not run and draws its raster version: " + failure;
     else if (active) {
         std::string what;
         const auto add = [&what](const std::string& part) { what += (what.empty() ? "" : " and ") + part; };
         if (shadowsOn)
-            add("the shadow of the directional light that has castShadows, on the main camera (the one whose "
-                "meshes are the traced scene's; shadows \"soft\" draws the hard one for now)");
+            add(std::string("the shadow of the directional light that has castShadows, on the main camera (the one "
+                            "whose meshes are the traced scene's; ") +
+                (impl_->rayTracing.shadows == render::RtShadows::Soft
+                     ? "shadows \"soft\" casts raysPerPixel rays over the sun's angular size and denoises them"
+                     : "shadows \"hard\" casts one ray per pixel") +
+                "; point, spot and area lights keep their raster shadow maps)");
         if (aoOn)
             add("the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
                 "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)");

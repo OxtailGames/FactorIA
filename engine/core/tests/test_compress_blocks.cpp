@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include "fa/core/fs.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -515,9 +516,8 @@ TEST_CASE("lz4: hand-made damaged blocks are errors") {
 TEST_CASE("zstd: round trip through the zstd command line tool when it is on the PATH") {
     if (std::system("zstd --version > /dev/null 2>&1") != 0) return;
     namespace fs = std::filesystem;
-    const fs::path dir = fs::temp_directory_path() / "fa_test_zstd_cli";
+    const fs::path dir = fa::fs::make_temp_dir_until_exit("fa_test_zstd_cli").value();
     std::error_code ec;
-    fs::remove_all(dir, ec);
     fs::create_directories(dir);
     auto write_bytes = [](const fs::path& path, const Bytes& data) {
         std::ofstream f(path, std::ios::binary);

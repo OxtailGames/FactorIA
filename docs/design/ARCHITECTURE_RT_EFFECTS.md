@@ -1,13 +1,13 @@
-# Rendering: the ray traced effects (M79, package P2a-1)
+# Rendering: the ray traced effects (M79, packages P2a-1 and P2a-2)
 
-The scaffold every ray traced effect shares, and the first effect on it, the hard shadow of the sun. One effect is one inline ray query compute
+The scaffold every ray traced effect shares, and the first effect on it, the shadow of the sun (hard, and soft with the denoiser). One effect is one inline ray query compute
 kernel that reads the camera's prepass and writes one image; the scaffold declares its pass, binds the same resources for every kernel, owns the
 image and the shader, and frees them when the effect stops. Hard shadows (P2a), the ambient occlusion (P2b), the reflections (P3a) and the
 translucency (P3b) are rows of one table, not four copies of the same plumbing. The user-facing description (the settings, what is traced, the
 fallbacks) is docs/RAY_TRACING.md.
 
 Code: `engine/render/src/rt_effect.h` and `rt_effect.cpp` (the scaffold), `engine/render/src/rt_kernels.h` (the kernel table, the blobs),
-`engine/render/shaders/rt/rt_shadow.hlsl` and `rt_shadow.metal` (the first kernel), `renderer_draw.cpp` (the pass in the frame graph and the
+`engine/render/shaders/rt/rt_shadow.hlsl`, `rt_shadow.metal`, `rt_shadow_pack.hlsl` and `rt_shadow_pack.metal` (the first kernels), `renderer_draw.cpp` (the pass in the frame graph and the
 lit pass's use of the image), `engine/render/shaders/mesh_common.glsl` (`fa_shadow_factor`), `renderer_rt.cpp` (the settings and the messages).
 The scene's TLAS it traces is [ARCHITECTURE_RT_SCENE.md](ARCHITECTURE_RT_SCENE.md); the seam is
 [ARCHITECTURE_RENDERING_RAYTRACING.md](ARCHITECTURE_RENDERING_RAYTRACING.md); how the kernels are compiled and committed is
@@ -111,7 +111,9 @@ the G-buffer. The probe kernel of the tests is not an effect and has no spec.
 
 | Kernel | Effect | Reads | Output (Rgba32F) |
 | --- | --- | --- | --- |
-| `rt_shadow` | `render.rayTracing.shadows` = hard | prepass | r: linear view depth (1e30 on the sky); g: the sun's visibility (1 lit, 0 shadowed); b: 0; a: 1 on a mesh, 0 on the sky |
+| `rt_shadow` | `render.rayTracing.shadows` = hard (`user1.y` = 0) | prepass | r: linear view depth (1e30 on the sky); g: the sun's visibility (1 lit, 0 shadowed); b: 0; a: 1 on a mesh, 0 on the sky |
+| `rt_shadow` | `shadows` = soft (`user1.y` = 1), effect `shadows-trace` | prepass | r: the visibility, the fraction of the rays that reached the sun (a multiple of 1 / rays; 1 on the sky); g: linear view depth (1e30 on the sky); b: 0; a: 1 on a mesh, 0 on the sky. The noisy input of the denoiser |
+| `rt_shadow_pack` | `shadows` = soft, the last pass | no TLAS (`usesTlas` false); the trace image and the denoised one (`usesAux`) | the hard layout above: r: depth, g: the denoised visibility clamped to 0..1, a: the mesh flag |
 | `rt_reflect` | `render.rayTracing.reflections` | prepass, G-buffer, records, `RtHitParams` | rgb: the radiance of the mirror ray times the tint; a: 0 not traced, > 0 the hit distance in metres, -1 a miss |
 | `rt_ao` | `render.rayTracing.ao` | prepass | r: the share of the pixel's rays that got out (1 open, 0 closed in; 1 on the sky); g, b: 0; a: 1 on a mesh, 0 on the sky |
 
@@ -132,15 +134,63 @@ the position and the world normal, and starts the ray at `pos + n (user0.x + use
 depth (the prepass's depth is as exact as a pixel, so the offset grows with the distance); `TMin = user0.z = 0`, `TMax = user0.w = 10000`
 metres; the direction is `lightDir`. It uses `accept_any_intersection` (a shadow ray needs a hit, not the nearest one) and the instance mask
 `0x08` (CastsShadow, rt_records.h), so only the instances that cast a shadow in the raster pass block the ray. A candidate that is not opaque (a
-cutout material) is never committed: **cutouts do not cast ray traced shadows yet** (TODO P2a-2, where the any-hit alpha test and the records
-come in; the first version reads no records). A blended caster casts a solid shadow, as it does in the cascades. The brief's "Opaque" mask bit was
+cutout material) is never committed: **a cutout casts no ray of its own** (the kernel binds no alpha texture, so it cannot run the alpha test; the
+lit pass takes the cascades' shadow too wherever the frame holds one, "No caster loses its shadow" below). A blended caster casts a solid shadow, as it does in the cascades. The brief's "Opaque" mask bit was
 not used because it would leave out the casters the cascades draw.
 
 The kernel writes `float4(depth, visible, 0, 1)` on a mesh and `float4(1e30, 1, 0, 0)` on the sky. It puts the depth in `r` so the image can stand
 in for the prepass where the contact shadows read depth and the mesh flag (below).
 
-`soft` is treated as `hard`: the renderer says so once (INFO, `rtInformedSoft`, re-armed when ray tracing goes off) and draws one ray per pixel.
-The soft version (the sun's angular size, several rays per pixel and the denoiser) is a later package.
+`soft` is the next section; it adds the sun's angular size, several rays per pixel and the denoiser to this kernel.
+
+## Soft shadows (P2a-2)
+
+`shadows = "soft"` runs the same `rt_shadow` kernel with `user1.y = 1`, `raysPerPixel` rays (the renderer clamps the setting to 1..16, the kernel
+to 1..64 in `frame.z`) and the sun's size in `user1.x`, the tangent of its angular radius (`SceneSettings.skySunSize` is the diameter in degrees,
+0.1..10, default 0.53, so a real sun has a penumbra of well under a pixel unless the setting is raised). Ray `k` of a pixel goes to the point
+of the sun's disc `lightDir + (t cos a + b sin a) r tan`, with `r` and `a` from the R2 low discrepancy sequence of `k` shifted per pixel by an
+interleaved gradient noise and per frame by the seed (`frame.y`, a hash of the frame serial): the same frame is the same image, a new frame
+has new noise for the denoiser to average. A pixel's visibility is the fraction of its rays that reached the sun. A sun of no size is the hard
+ray, bit for bit (a test checks it on Metal).
+
+The pass sequence is `rt-shadows-trace` (the kernel, into the persistent image `<job>/shadows-trace`), the `RtDenoiser`'s passes for
+`DenoiseKind::Visibility` (rtd-guide, rtd-temporal, five rtd-atrous: [ARCHITECTURE_DENOISE.md](ARCHITECTURE_DENOISE.md)), and `rt-shadows-pack`
+(`rt_shadow_pack`, the effect `shadows`, no TLAS: it reads the trace image through `srcImage`, bound where the prepass goes, and the denoised
+image as `aux`, binding `kViewAux`). The denoiser keeps its own layout (the visibility in `r`); the pack kernel writes the layout the lit pass reads
+(depth in `r`, visibility in `g`, the mesh flag in `a`), so the lit pass and `fa_shadow_factor` do not know which version ran. Hard stays one
+ray and no denoiser: no extra pass, no extra image. A denoiser that cannot be used is said once, with its reason, and the sun keeps the cascades.
+
+### No caster loses its shadow
+
+The ray traced shadow sees only what the scene's TLAS holds, and some casters are not in it or cannot block a ray. `RtSceneStats::untracedCasters`
+counts, each frame, the parts that cast a shadow in the raster pass and that the rays miss: terrain nodes, impostor cards, meshes drawn from GPU
+buffers, parts with no triangles or no vertex buffer, skinned parts over the skinning budget, the farthest instances over `maxInstances`, parts
+whose BLAS failed or waits for its build (the instances the frame's `record` found not ready), and cutouts (in the TLAS, but their triangles never
+commit a hit). The design is one bit per frame, not a per-pixel mask:
+
+- `untracedCasters == 0`: the lit pass takes the ray traced visibility alone (`fa_ct_b.z` = 0). Nothing casts a shadow that the rays do not see,
+  and the rays see no shadow the cascades would not draw (the casters of the TLAS are the ones of the shadow pass).
+- `untracedCasters > 0`: the lit pass takes `min(rt.g, cascade)` (`fa_ct_b.z` = 1). The ray traced result keeps its soft or exact edges where it
+  is darker; wherever a caster the rays miss shadows the pixel, the cascade shadow darkens it, so that caster keeps its shadow. A cutout's
+  shadow is therefore the cascade's (the alpha-tested texture in the shadow map), with the cascades' resolution and seams.
+
+The trade-off: with one untraced caster anywhere in the frame, every pixel of every mesh with a mask also takes the cascade's shadow, so a
+soft edge the rays made is hardened wherever the cascade is dark (a cascade shadow is a hard-ish map edge; `min` never lights a pixel the
+cascade shadows). A per-caster answer would need the kernel to know which instances are traced for each ray's origin, which is not worth a
+second image. The count is of the frame's collected scene, so a frame with no such caster has the pure ray traced shadow, and the cascade passes
+stay drawn either way (they are needed for the edges and the other lights). Point, spot and area light shadows are not ray traced in this package:
+they keep their raster shadow maps (planned for P2a-3).
+
+### The sun's constants and the status
+
+`kRtShadowUser0` (`rt_effect.h`: `{0.02, 0.002, 0.0, 10000}`, the normal offset, its growth per metre of depth, TMin, TMax) is the one set of
+constants the renderer and the real Metal test send; `kRtShadowLayoutHard` and `kRtShadowLayoutSoft` are the two values of `user1.y`. The kernels
+and the pack kernel are created by `RtEffects` each frame (a pipeline handle is never cached) and a kernel unused for two frames is freed, so
+turning soft off frees the trace image and the `rt_shadow_pack` kernel; the `rt_shadow` kernel stays (hard uses it), and the denoiser frees its images
+when the soft shadows go off but keeps its shaders until ray tracing is off. When the driver rejects a compute pipeline, or the prepass does
+not have the size of the output, the effect does not run: `RtEffects::failure` keeps the reason, the renderer warns once, the lit pass keeps the
+cascades and `render.ray_tracing` answers `active: false` with that reason (`Renderer::ray_tracing_failure`). With the shadows or the cascades
+off (`doShadows` false or no cascade) no ray pass is made at all.
 
 ### How the lit pass uses the image
 
@@ -163,7 +213,7 @@ ambient occlusion still read the screen slot where they run (they read depth in 
 
 ### The denoiser hookup
 
-A hard shadow needs no denoiser. A later effect that does (the soft shadows, the ambient occlusion) imports the image the same way: it lists
+A hard shadow needs no denoiser; the soft one runs it (above). A later effect that does (the ambient occlusion) imports the image the same way: it lists
 `RtEffectOutput::res` in the reads of its own pass, samples `RtEffectImage::texture`, and checks `ran` when it executes, as the lit pass does. The
 effect's own `user0` and `user1` and the `frame` constants hold what the denoiser needs to be the same every frame (the seed, the serial); the
 unjittered camera fields are what its history reprojects with.
@@ -244,8 +294,12 @@ dispatches the kernel twice and compares the two images.
 - the lit shader: only `fa_shadow_factor` reads the mask;
 - the renderer: with the setting off nothing is declared, made or kept; with "hard" one compute pass is recorded after the TLAS and the prepass
   with `dispatch`, `set_uniforms` of 400 bytes and the right views; the same frame is the same every time; no pass without a casting sun or
-  without a light; turning the setting off frees the kernel and the image and ray tracing off frees all; "soft" says so once; a device that cannot
-  trace says so once and draws the raster frame.
+  without a light; turning the setting off frees the kernel and the image and ray tracing off frees all; "soft" adds the trace, the denoiser's passes and the pack
+  pass (and "hard" none of them), the same frame twice is the same stream; no ray pass is recorded when the shadows or the cascades are off; a rejected compute
+  pipeline and a prepass of another size are said once and shown by the status; a frame with an untraced caster (terrain, a cutout, a mesh over
+  `maxInstances`, a BLAS not built yet) sets `fa_ct_b.z` for the draws that read the mask, and a frame without them does not (the draw counters
+  `RendererTestAccess::rt_shadow_draws`, since the recording does not keep uniform contents); the render scale remakes the image; two cameras
+  trace the main one only; a device that cannot trace says so once and draws the raster frame.
 
 `rt_shadow_metal_tests.cpp` (macOS, `#if defined(__APPLE__)`; a placeholder case elsewhere) makes a real Metal device, a scene of a ground, casters and
 non-casters, builds the TLAS, runs the kernel and compares the visibility of every sampled pixel with a CPU ray caster, within the pixels at a
@@ -253,6 +307,12 @@ shadow boundary; the casters-only mask is checked by moving a non-caster in the 
 It skips, with a reason, on a machine with no GPU, no Metal or no ray tracing. The D3D12 and Vulkan kernels are compiled (DXIL with DXC, SPIR-V) and
 checked for the contract by the tests above; they were not run by this package (no device of those backends was available), so their first run is
 on the Windows and Linux CI machines that trace.
+
+The same file's soft case runs the kernel with a sun of no size (the hard image in the soft layout, to the bit), three sun sizes against a CPU
+reference (the umbra, the fully lit pixels and the count of penumbra pixels, which grows with the size), two seeds (fewer rays change more
+between them), the same serial twice (bit-identical) and the pack kernel (the denoised visibility clamped, the depth passed on, the sky). Nothing
+of the MSAA depth tolerance of `fa_shadow_factor` (`0.002 d + 0.01 + min(1.5 fwidth(d), 0.1 d)`) runs on a real GPU in this package: a text test
+checks the shader.
 
 `rt_effect_tests.cpp` also covers `rt_ao` (M79-P2b): the table, the spec and the shader description of the kernel; the frame with `ao` on (one
 `rt-ao` compute pass between the TLAS and the main pass, the denoiser's passes after it, no `ssao-*` pass, the apply still drawn); the same

@@ -12589,7 +12589,7 @@ declare module "factoria" {
      */
     skyModel: "gradient" | "physical";
     /**
-     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
+     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical. It is also the sun's size for the penumbra of the ray traced soft shadows (render.rayTracing shadows soft), whatever the skyModel.
      * @since 0.33.0
      */
     skySunSize: number;

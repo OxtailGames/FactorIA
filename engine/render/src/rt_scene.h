@@ -48,6 +48,12 @@ struct RtSceneStats {
     std::uint32_t skippedUntraceable =
         0;  // a mesh with no vertex buffer a build can read (a placeholder), or with no triangle
     std::uint32_t skippedNoBlas = 0;  // instances whose BLAS failed or waits for a later frame's build budget
+    // M79-P2a-2: the parts that cast a shadow (MeshRenderer.castShadows) in the scene's candidates that the ray traced sun shadow does NOT see this
+    // frame: terrain nodes, impostor cards, GPU-driven meshes, untraceable parts, skinned parts over the budget, the farthest over the cap, parts
+    // whose BLAS fails or waits for its build, and the cutout (alpha-tested) parts, which are in the TLAS but never commit a hit (the kernel has no
+    // alpha texture). A count of parts, but only whether it is zero matters: the lit pass then takes the cascades' shadow too (min), so none of
+    // them loses its shadow (docs/design/ARCHITECTURE_RT_EFFECTS.md, "No caster loses its shadow").
+    std::uint32_t untracedCasters = 0;
     std::uint32_t blasLive = 0;       // BLASes alive
     std::uint32_t blasBuilt = 0;      // BLASes built by the last record()
     std::uint32_t blasCompacted = 0;  // compaction copies the last record() made
@@ -303,6 +309,7 @@ private:
     };
     std::vector<Retired> graveyard_;  // in retirement order
     // One flag per cause of a warning: each says itself once.
+    std::uint32_t untracedCollected_ = 0;  // RtSceneStats::untracedCasters as collect() left it
     bool warnedCap_ = false, warnedSkinned_ = false, warnedBlasMake_ = false, warnedBlasBuild_ = false,
          warnedTlasMake_ = false, warnedTlasBuild_ = false, warnedBuffers_ = false, warnedRead_ = false,
          warnedSkinKernel_ = false;

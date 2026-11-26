@@ -207,7 +207,7 @@ TEST_CASE("skins: every mesh keeps its own skin and the Animator writes one pale
     CHECK_FALSE(sk.skinVertices[0].rigid);
 
     // Through the Animator, from a file in a scratch project.
-    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "fa_rigid_animation_test";
+    const std::filesystem::path dir = fa::fs::make_temp_dir_until_exit("fa_rigid_animation_test").value();
     std::filesystem::create_directories(dir);
     const std::filesystem::path old = fs::project_root();
     fs::set_project_root(dir);
