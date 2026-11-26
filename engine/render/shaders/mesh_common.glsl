@@ -518,6 +518,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
                                 // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce),
                                 // w = the LOD cross-fade of the draw (fa_lod_dither): 0 = none, +a = the level fading in, -a = the level fading out
+    vec4 fa_gi_px;              // x = 1 when view 26 (fa_lightmap) holds the per-pixel ray traced GI of the camera (M79-P4b-1; fa_indirect_diffuse reads it
+                                // at the pixel the fragment's world position projects to, with the fa_ct_vp* rows and size), 0 = not; yzw = 0
 };
 
 // The texture LOD bias of the frame (M76-P4b, docs/UPSCALING.md "Texture mip bias"): negative while the temporal upscaler or the temporal
@@ -1098,6 +1100,17 @@ vec3 fa_realtime_or_ambient(vec3 n) {
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    if (fa_gi_px.x > 0.5) {
+        // The ray traced per-pixel GI (M79-P4b-1): the denoised irradiance / pi of the camera's image (view 26 holds it on a draw with no lightmap)
+        // at this fragment's pixel, in place of the probes and the ambient light below. It is bound only on opaque draws of the main camera's pass that the prepass drew
+        // and that have no baked light probes (fill_fs sets fa_gi_px).
+        vec4 pv = vec4(fa_world_pos, 1.0);
+        float w = max(dot(fa_ct_vpw, pv), 1e-4);
+        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+        vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+        return texelFetch(sampler2D(fa_lightmap, fa_env_smp), px, 0).rgb;  // the image is RGBA16F, or RGBA32F on a device that filters it (main_pass); a new sampler pair would pass the 16 of WebGL2
     }
     if (fa_probe_sh[0].w > 0.0) {
         // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the ambient

@@ -4,7 +4,7 @@
 are updated: a compute kernel with inline ray queries replaces the six raster captures of a probe. What the lit shader reads does not change at all:
 the same atlas, the same blocks, the same meta texel. The user-facing description (the settings, what is shown by `render.ray_tracing`) is
 docs/RAY_TRACING.md, "Global illumination"; the per-grid settings are the doc strings of `RealtimeGI` (`raysPerProbe`, `rtProbesPerFrame`).
-`gi = "perPixel"` is not made yet (P4b extends this page; see the last section).
+`gi = "perPixel"` (M79-P4b-1, the section "Per pixel") traces a bounce for every pixel instead; the two modes do not run together.
 
 Code: `engine/render/src/rt_gi.h` and `rt_gi.cpp` (the constants block, the CPU twin of the ray set, the pass and the band image),
 `engine/render/shaders/rt/rt_gi.hlsl` and `rt_gi.metal` (the kernel), `renderer_gi.cpp` (`gi_plan_rays`: which probes, the constants and the pass;
@@ -102,11 +102,74 @@ changes nothing. It skips, with a reason, on a machine with no GPU, no Metal or 
 Vulkan (DXC compiled it: DXIL and SPIR-V in `rt_gi.rt.h`), the blit into the atlas on a real GPU (RecordingDevice only), and a bounce that reads
 captured probes.
 
-## Extending it (P4b: `gi = "perPixel"`)
+## Per pixel
 
-What the next package can reuse: `RtGiProbes` is the pattern for a kernel with its own constants block and output format (add a row to the kernel
-table with `paramsSize` and `outHalf`, a pass declared after `rt-accel`); `rt_trace_surface`, `rt_shade_hit` and `RtSurface.front` for what a ray
-sees; `gi_grid_light` in `rt_gi.hlsl`/`rt_gi.metal` is the kernel's port of the lit shader's grid sampling (trilinear over the eight probes,
-with the backface and Chebyshev visibility weights), so a per-pixel bounce can ask the same function for the light a ray's hit receives; the
-atlas is bound as a texture at the "prepass" slot. Free denoiser signal ids: 7 and up (6 is the local shadows). What stays: the key `gi`,
-`giProbes` in the status (a `giPerPixel` object next to it), the rule that the lit shader reads the grids unchanged.
+`render.rayTracing.gi = "perPixel"` (M79-P4b-1; user doc: docs/RAY_TRACING.md, "Global illumination") draws the indirect diffuse light of every pixel
+of the main camera with rays and gives it to the lit shader in place of the probe and ambient term. Code: `shaders/rt/rt_gi_pixel.hlsl` and
+`.metal` (the kernel), `rt_gi_grid.hlsli` and `.msli` (the grid sampling, shared with `rt_gi`: `gi_grid_light`), `rt_effect.h` / `.cpp`
+(`RtGiPixelParams`, `usesAtlas`), `renderer_draw.cpp` (`plan_job`, the block of `build_graph`, `main_pass`, `fill_fs`, `bind_textures`),
+`renderer_rt.cpp` (`rt_gi_pixel_finish`, `ray_tracing_gi_pixel_status`), `mesh_common.glsl` (`fa_indirect_diffuse`, `fa_gi_px`).
+Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` (a real Metal device, macOS only) and
+`rt_gi_pixel_picture_tests.cpp` (the whole renderer on the real device of the build).
+
+- **The pass.** `rt-gipixel` is an ordinary `RtEffects` pass (kernel table row `rt_gi_pixel`, effect `gipixel`), declared after the camera's
+  `rt-accel`: the prepass (depth, normal), the records, `RtHitParams`, and the probe atlas as a texture at `kViewAlbedo` (`usesAtlas`: t3 /
+  binding 5 / texture(2); a kernel with `usesGbuffer` cannot use it). The constants are `RtGiPixelParams` (672 bytes): the common
+  `RtEffectParams` and the **tail**, the realtime GI grids (up to four) the lit pass reads, copied from `probes.gi.records` (rebuilt at the start of the
+  frame by `gi_build_records`: the same rows the lit shader gets). The atlas view is asked when the pass runs (`RtEffectRequest::atlas`), because the
+  atlas is made again when the probes change size; a view that is not valid makes the pass not run (`ran` false). The image is RGBA32F.
+- **The rays.** `raysPerPixel` (1 to 16) per pixel. `state = pcg(x + pcg(y + pcg(frame.y)))`, then for ray i two draws `u1 = (i + unit) / n` and `u2`
+  (stratified in u1) give the cosine-weighted direction in the frame of the normal (`sqrt(u1)` radius, `2 pi u2` angle); the origin is the surface
+  point moved along the normal by `user0.y + user0.z * depth` (2 cm and 2 mm per metre). The seed is the frame serial, never the clock.
+- **A hit** is `rt_trace_surface` plus `rt_shade_hit` (the sun, its shadow ray, the emission and the environment, as the reflections). With grids in
+  the tail and a lit surface it adds `diffuse * (grids' light * intensity * bounce - ambient * covered)`: what the grids give at the hit replaces the
+  ambient the hit shading already counts, as in `rt_gi`'s own multi-bounce. There is **no recursion**: one traced bounce and the cached tail. A
+  **miss** is `rt_miss_color` (the environment). The output is the mean of the rays: the cosine-weighted mean of the incoming radiance (the
+  irradiance over pi), **without** the surface's albedo, alpha 1; a sky pixel writes 0.
+- **One query site** (Metal): `rt_trace_surface` and `rt_shade_hit` go through `rt_closest_hit_ff`, as in every kernel.
+- **Denoise.** One function, the `denoise` lambda of the `build_graph` block, calls `RtDenoiser::add_passes` with `DenoiseKind::Diffuse`, signal id
+  `kRtGiPixelSignalId` (7) and the name `gipixel`. The image is already demodulated (it has no albedo), so the denoiser needs no albedo input and the
+  lit shader multiplies the result by the surface's albedo as it does the ambient. `DenoiseSignal::enabled = false` there (a vendor denoiser taking
+  the signal: the DLSS Ray Reconstruction package) makes the main pass read the noisy image.
+- **The composite.** `main_pass` takes the image view (the denoised transient, else the kernel's) when `img->ran` is true, so a pass that did not run
+  never gives the lit shader an image it did not write. For the opaque draws with no lightmap `fill_fs` sets `fa_gi_px.x` and `bind_textures`
+  binds the view at the **lightmap slot** (the mesh shader has no free texture unit: 16 are used): `fa_indirect_diffuse` returns the texel at
+  the pixel (`fa_ct_vp*` project the world position, `fa_ct_a.zw` is the image size, `fa_ct_a.y` flips the rows on GL) before it reads the
+  lightmap or the grids, and the existing code multiplies it by the albedo and the occlusion. The branch changes only `fa_indirect_diffuse`,
+  and the `fa_mesh_fs_params` block grew by one `vec4` (`fa_gi_px`) in `mesh_common.glsl` and `mesh_full_common.glsl`. `fill_fs` sets `fa_gi_px.x` once the draw's
+  baked light is known, so a baked lightmap or baked light probes (`fa_probe_sh[0].w > 0`) keep priority, and only for a draw the prepass drew
+  (`prepass_draws_part`, the function `prepass_pass` skips with, so the two never differ: the image holds the surface of the prepass at each pixel, and a
+  draw it skipped would read the one behind it) that is not a terrain node or an impostor card (`gi_pixel_receiver_for`). The full-shader materials
+  (their own template), blended draws and the meshes the subsurface pass scatters (`ctx.sssOn && sss_scatters`: that pass runs before the main
+  pass and lights its A image with the probes, and its delta `strength * (blur(A) - A)` is added over that same light) keep the probes and the
+  ambient. The image is read with a texel fetch on the `fa_env_smp` sampler of the lightmap slot, not a dedicated nearest sampler: a new
+  (view, sampler) pair would be the 17th of the mesh shader and WebGL2/GLES3 allow 16. The denoiser's RGBA16F image is always filterable; the
+  kernel's own RGBA32F one is bound only where `pixel_format_caps(Rgba32F).filter` is true, else the draws keep the probes (`fa_gi_px` 1 only
+  where the view was bound) and `giPixel.active` is false with the reason saying so (`rtGiPixelFrame.bound`).
+- **Free when off.** Without `perPixel` (or `enabled`, or a device that traces) `plan_job` asks for no prepass normals, declares no pass, and
+  `rt_begin_frame` lets the image and the denoiser slot go through the usual sweep; `fa_gi_px` stays 0 and the lightmap slot keeps what it had.
+- **Fallback** (counted in frames, `frameSerial`, never in time). A failed `add_pass` (the kernel or the image refused, the request invalid) sets
+  `rtGiPixelFallbackUntil = frameSerial + kGiRtRetryFrames` (120) at once and logs once at WARN (`rtWarnedGiPixel`). A pass that was declared but
+  did not run (`img->ran` false: no TLAS, the atlas not valid) counts `rtGiPixelMisses`; at `kGiRtMissFrames` (2) in a row it starts the same
+  fallback. While the fallback runs `plan_job` does not declare the pass and the lit shader keeps the probes and the ambient; after it the rays are
+  tried again. `rt_gi_pixel_finish` (after the graph has run) sets the status; `ray_tracing_gi_pixel_status` reads it under `rtGiStatusMutex`.
+- **Status.** `render.ray_tracing` answers `giPixel {active, wanted, reason}` (`Engine::ray_tracing_status`): `active` is true when the last frame's
+  pass ran and the main pass bound its image (`rtGiPixelFrame.bound`). `gi = "perPixel"` also counts for `active` of the whole setting.
+- **Limits and what was not measured.** Not made: the kernel in a second camera, the terrain's own bounce, a recursion deeper than one traced
+  bounce, a debug view of the raw image. The D3D12 and Vulkan kernels (DXIL, SPIR-V in `rt_gi_pixel.rt.h`) were compiled by DXC and never ran. On
+  Metal the kernel is compared with a CPU reference; the picture-level test shows a lit wall's colour on a white floor with the mode on.
+  Whether the Apple GPU compiler accepts the early return of `fa_indirect_diffuse` on every driver is verified by the render tests on the Mac only.
+- **Tests.** `rt_gi_pixel_tests.cpp`: the HLSL, MSL and C++ field lists of the constants (sizes 672), the spec row and the bindings of every
+  backend, one `intersection_query` site, the pass sequence (`rt-gipixel` after `build_tlas`, before the denoiser and `begin_pass 'game'`),
+  free when off, the fallback with `RecordingDevice::inject_faults` (a refused pipeline at once, a TLAS that never comes after two frames,
+  the retry after 120), a device that cannot trace, determinism (two runs record the same stream), the `giPixel` status, and the two GLSL
+  blocks. `rt_gi_pixel_metal_tests.cpp`: the kernel on the real GPU against the CPU port of the same rays (about 2000 pixels of a floor and a box,
+  worst error 1e-4; a normal with n.z of 1e-8 picks one of two tangent frames, so the test accepts either), the sky pixels at zero, two runs with the
+  same bytes, another seed, and a far grid that changes nothing. `rt_gi_pixel_picture_tests.cpp`: a grey floor beside a red wall under a black sky,
+  through the renderer: with `perPixel` the floor beside the wall turns red (0.22 to 0.29 on Metal), the farther floor less, and turning the mode off
+  gives the first picture back bit for bit; a device that cannot trace skips it.
+
+## Next (P4b-2)
+
+DLSS Ray Reconstruction takes the signal through `DenoiseSignal::enabled = false` in the `denoise` lambda. Free denoiser signal ids: 8 and up
+(7 is this one, 6 the local shadows).

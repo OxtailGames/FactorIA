@@ -80,14 +80,6 @@ const std::vector<std::string>& ray_tracing_gi_modes() {
     return v;
 }
 
-std::string ray_tracing_gi_coming(const std::string& mode) {
-    // The modes no renderer draws yet (the parser accepts them). Empty when every mode draws.
-    if (mode == "perPixel")
-        return "Coming: a bounce traced for every pixel is not drawn yet. The file may name it; until it is made it "
-               "changes nothing in the picture.";
-    return {};
-}
-
 RayTracingSupport ray_tracing_support(const Json& supportsReport) {
     RayTracingSupport r;
     const auto features = supportsReport.is_object() ? supportsReport.find("features") : supportsReport.end();

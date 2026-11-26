@@ -31,6 +31,14 @@ struct MeshBufferUse {
 // Assets::note_failure (JSON pointer, the entity, what to change). A material without buffers answers `active` false.
 MeshBufferUse resolve_mesh_buffers(Assets& assets, Compute* compute, const MeshItem& mi);
 
+// Whether the depth and normal prepass draws a part (renderer_draw.cpp: prepass_pass, and fill_fs for the per-pixel GI, which reads the image the prepass
+// made, so the two never differ). `fullWithoutPrepass`: a full shader that keeps out of the image (prepass false); `use`: the part's mesh buffers;
+// `hasPrepassProgram`: the material has a prepass program for this part (else the engine's program draws, and it cannot place what buffers place).
+inline bool prepass_draws(bool fullWithoutPrepass, const MeshBufferUse& use, bool hasPrepassProgram) {
+    if (fullWithoutPrepass || use.skip) return false;
+    return !(use.active && !hasPrepassProgram);
+}
+
 // Binds the views to the slots `prog` declares for them (the vertex stage's copy and the fragment stage's copy of each
 // buffer).
 void bind_mesh_buffers(gpu::Bindings& b, const MeshBufferUse& use, const MaterialProgram& prog);

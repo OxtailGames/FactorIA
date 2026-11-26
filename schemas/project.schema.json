@@ -320,7 +320,7 @@
                 "perPixel"
               ],
               "default": "off",
-              "description": "Global illumination: off = the engine's own (light probes and the ambient); probes = the probes of the RealtimeGI grids updated with rays instead of raster captures (raysPerProbe and rtProbesPerFrame of the component set the cost); perPixel = a bounce traced for every pixel (the most expensive; not made yet, draws nothing). Default off."
+              "description": "Global illumination: off = the engine's own (light probes and the ambient); probes = the probes of the RealtimeGI grids updated with rays instead of raster captures (raysPerProbe and rtProbesPerFrame of the component set the cost); perPixel = one bounce traced for every pixel of the main camera, denoised, in place of the probes' and the ambient light of the lit meshes (the most expensive: raysPerPixel rays per pixel). Default off."
             },
             "raysPerPixel": {
               "type": "integer",

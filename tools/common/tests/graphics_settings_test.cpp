@@ -781,12 +781,9 @@ TEST_CASE("project.graphics reads and writes the rayTracing and pathTracer keys,
     CHECK(d.read().find("pathTracer") == std::string::npos);
 }
 
-TEST_CASE("ray tracing in the window: the lists, the support row, the preset's note and the coming modes") {
+TEST_CASE("ray tracing in the window: the lists, the support row, the preset's note") {
     CHECK(ray_tracing_shadow_modes() == std::vector<std::string>{"off", "hard", "soft"});
     CHECK(ray_tracing_gi_modes() == std::vector<std::string>{"off", "probes", "perPixel"});
-    CHECK(ray_tracing_gi_coming("probes").empty());
-    CHECK(ray_tracing_gi_coming("off").empty());
-    CHECK(ray_tracing_gi_coming("perPixel").find("Coming") == 0);
 
     const Json yes = Json::parse(R"({"features":[{"name":"raytracing","supported":true,"status":"supported"}]})");
     const Json no =

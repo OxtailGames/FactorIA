@@ -201,6 +201,7 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_rpb_bz;
     // The realtime GI grids and the LOD cross-fade (w): see mesh_common.glsl. A full shader never fades (the renderer switches its levels at once).
     vec4 fa_gi;
+    vec4 fa_gi_px;  // see mesh_common.glsl (a full shader does not read it)
 };
 
 // The texture LOD bias of the frame (M76-P4b): negative while the temporal upscaler or the temporal antialiasing accumulates jittered

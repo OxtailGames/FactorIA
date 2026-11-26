@@ -9,11 +9,11 @@ default, and free when off.
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
 > The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
-> **Five effects draw with rays so far: `shadows`** (the sun's shadow, hard or soft, "Shadows", below), **`ao`** (ambient
+> **Six effects draw with rays so far: `shadows`** (the sun's shadow, hard or soft, "Shadows", below), **`ao`** (ambient
 > occlusion, "Ambient occlusion", below), **`reflections`** (mirror and glossy reflections, "Reflections", below), **`translucency`**
-> (refraction through glass and liquids, "Translucency", below) and **`gi` = `probes`** (the light probes of the `RealtimeGI` grids updated
-> with rays, "Global illumination", below). `gi` = `perPixel` changes nothing in the picture yet, and `render.ray_tracing` says what is
-> traced (`active`, with the reason). The sections below say what each part will do and mark what is planned.
+> (refraction through glass and liquids, "Translucency", below) **`gi` = `probes`** (the light probes of the `RealtimeGI` grids updated
+> with rays) and **`gi` = `perPixel`** (a bounce traced for every pixel, "Global illumination", below). `render.ray_tracing` says what is
+> traced (`active`, with the reason). The sections below say what each part does and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
 > an effect is on ("Which objects are traced", below). Direct3D 12, Vulkan and Metal run them; the shadow kernel reads them.
@@ -35,7 +35,7 @@ default) writes nothing to `factoria.json`.
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel; one from 0.25 to 0.65 gets `raysPerPixel` rays spread by its roughness, denoised, and fades into the screen-space reflections and the probes towards 0.65 ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Refraction through glass and liquids traced with rays: a ray bent at every interface of the closed mesh, tinted by the volume, instead of the screen-space refraction ("Translucency", below). Coloured shadows are not made. |
-| `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = the probes of the `RealtimeGI` grids updated with rays instead of raster captures ("Global illumination", below). `perPixel` = a bounce traced for every pixel (the most expensive; not made yet: it draws nothing). |
+| `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = the probes of the `RealtimeGI` grids updated with rays instead of raster captures ("Global illumination", below). `perPixel` = one bounce traced for every pixel of the main camera, denoised, in place of the probes' and the ambient light of the lit meshes (the most expensive: `raysPerPixel` rays per pixel; "Global illumination", below). |
 | `raysPerPixel` | whole number, 1 to 16 | `1` | Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside the range is **clamped**, not an error. |
 | `maxInstances` | whole number, 1 to 1048576 | `65536` | The most instances the top-level acceleration structure holds; when a scene has more, the nearest to the camera come first. Clamped like `raysPerPixel`. |
 
@@ -60,7 +60,7 @@ with `render.rayTracing.enabled` false traces nothing at any preset.
 |---|---|---|---|
 | `low`, `medium` | nothing: the shadow maps, the screen-space occlusion and reflections, the probes | | A trace costs a top-level structure build and a pass per effect every frame; the two presets are for a GPU that has little to spare, or none that traces. |
 | `high` | `shadows: "hard"` and `ao` | 2 | The two cheapest effects: one ray per pixel towards the sun, and the ambient occlusion with a short ray. |
-| `ultra`, `custom` | everything the project asks for | no limit | The soft shadows (`raysPerPixel` rays), reflections and translucency cost several rays per pixel; `gi: "probes"` is a ray pass over the probes. `gi: "perPixel"` is not drawn yet (a bounce per pixel needs its own package), so no preset names it. |
+| `ultra`, `custom` | everything the project asks for | no limit | The soft shadows (`raysPerPixel` rays), reflections and translucency cost several rays per pixel; `gi: "probes"` is a ray pass over the probes, and `gi: "perPixel"` (rays per pixel, a denoiser; the most expensive effect) is only allowed here: no lower preset names it. |
 
 A device that cannot trace (Direct3D 11, OpenGL, OpenGL ES 3, WebGL2, or a GPU without the ray queries) behaves as before: the presets
 change nothing there, because there is nothing to cap. The cap is applied by the renderer, so the order of `graphics.preset` and
@@ -73,7 +73,7 @@ settings window") has a **Ray tracing** group (the switch, `shadows`, `ao`, `ref
 tracer** group (the switch, `samplesPerFrame`, `maxSamples`) that write `render.rayTracing` and `render.pathTracer` of `factoria.json`. A
 line at the top of the group says whether this machine can trace; where it cannot, it gives the reason, a hint to choose a backend that
 traces with `graphics.backend` and a note that the window cannot show the effect, and the controls stay editable, because a project is
-written for the players' machines (the editor draws with Direct3D 11 on Windows, the game may ship d3d12): the file asks for rays all the same. `gi: "perPixel"` is listed greyed out ("coming").
+written for the players' machines (the editor draws with Direct3D 11 on Windows, the game may ship d3d12): the file asks for rays all the same. `gi` lists `off`, `probes` and `perPixel`, all of them drawn.
 
 The menu kit's Graphics tab ([MENUS.md](MENUS.md)) has a fifth page, **Ray tracing**: an on/off switch and a quality that cycles `high`
 (hard shadows and ambient occlusion) and `ultra` (everything above), the two tiers of the presets. A player's choice is saved in
@@ -93,10 +93,11 @@ It returns the settings plus:
 | field | meaning |
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
-| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off`, or `ao`, `reflections`, `translucency` or `gi` = `probes` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
+| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off`, or `ao`, `reflections`, `translucency` or `gi` = `probes` or `perPixel` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `localShadows` | `{cap, candidates, traced}`: the most point, spot and area lights traced per camera and frame (3), how many asked for a shadow in the last frame, and how many of them were traced (the rest keep their maps). 0 and 0 while `shadows` is `off` or nothing is active. |
 | `giProbes` | `{active, wanted, reason, grids, probesPerFrame, budget}` for `gi` = `probes`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for the probes (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether rays updated at least one probe in the last frame, why not when they did not (no `RealtimeGI` in the scene, no probe due, the device refused the kernel, no traced scene yet), the grids updated, the probes updated and the most the settings allow per frame. All zero and empty while `gi` is not `probes`. |
+| `giPixel` | `{active, wanted, reason}` for `gi` = `perPixel`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for it (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, no image the lit shader can read on this device, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -327,6 +328,37 @@ six scene renders.
   by DXC and have not run on a device yet, and neither has their rule for which side of a triangle is its front (until it is measured they
   discard no probe inside a wall, which can leak light). docs/design/ARCHITECTURE_RT_GI.md (repository only) has the details.
 
+### Per pixel: `gi: "perPixel"`
+
+```json
+{ "render": { "rayTracing": { "enabled": true, "gi": "perPixel", "raysPerPixel": 2 } } }
+```
+
+For every pixel of the **main camera** (the one whose meshes are the traced scene's) a compute shader sends `raysPerPixel` rays (1 to 16, 1 by
+default) from the surface, spread over the hemisphere around its normal with a cosine weight, seeded from the frame and the pixel (the same
+frame draws the same rays). What a ray hits is lit like the reflections' hits (the sun and its shadow, the emissive colour, the environment) plus
+the light the `RealtimeGI` grids hold at that point; a ray that leaves the scene sees the sky. The average is the **indirect diffuse light** of the
+pixel: the denoiser (the diffuse one, its own history) filters it, and the lit meshes use it in place of the term they read from the probes and the
+ambient, multiplied by the surface's own albedo, so textures stay sharp. The direct light, the specular and the reflections do not change.
+
+- **Cost.** Off, nothing, and no denoiser history. On: one compute dispatch (`raysPerPixel` rays per pixel, plus a shadow ray at every hit), one
+  image (RGBA32F, the camera's size: 16 bytes a pixel), the denoiser's passes (a temporal accumulation and a few filter iterations, full-screen
+  passes, the camera's guide pass shared with the other denoised effects) and its history (four images and the transient filter buffers), the
+  prepass with its normals (the camera draws one if nothing else asked for it), plus the acceleration structures. It is the most expensive effect:
+  with 1 ray per pixel it costs about as much as the glossy reflections, and it grows with `raysPerPixel`.
+- **What it replaces.** Only the term of the probes and the ambient, on opaque meshes the camera's prepass draws. **Unchanged:** the meshes with a baked
+  lightmap or baked light probes (baked light keeps priority), the terrain and the impostor cards, meshes with a custom shader that is not the engine's
+  own lit shader (a full-shader material) and any draw the prepass leaves out (a full shader that keeps out of it, a mesh drawn from compute buffers
+  without a prepass program of its material: the image holds the surface behind them at their pixels), blended and transparent meshes, and the meshes the
+  subsurface pass scatters (while it is on: its image is lit with the probes before the main pass): all of them keep the probes and the ambient.
+- **The grids.** With a `RealtimeGI` in the scene a hit also receives the light of its grids (times their `bounce` and intensity): one traced
+  bounce plus a cached tail. In this mode the grids are filled by the raster captures (the rays of `gi: "probes"` are not used at the same time).
+- **Fallbacks.** On a device that cannot trace, with no prepass, or when the device refuses the kernel or its image, the probes and the ambient
+  keep lighting and `giPixel.reason` says why. A refused kernel falls back at once for 120 frames, then the rays are tried again; a pass that does
+  not run for two frames in a row does the same (counted in frames, never in time). If only the denoiser is refused the noisy image is used, where the device can filter a 32-bit float image; else the probes stay and `giPixel.active` is false.
+- **Where it runs.** The Metal kernel is tested on a real GPU against a CPU reference; the D3D12 and Vulkan kernels are the same HLSL compiled by
+  DXC and have not run on a device. docs/design/ARCHITECTURE_RT_GI.md, "Per pixel" (repository only), has the details.
+
 ## The path tracer
 
 `render.pathTracer` is a **reference mode**: instead of the raster's lit colour, the main camera shows a progressive path trace of the same
@@ -397,7 +429,7 @@ thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md 
 |---|---|---|
 | Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
 | Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, lists them from Mesa 24.1 according to its release notes, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The shadows (`shadows: "hard"`, `"soft"`), the ambient occlusion (`ao`), the reflections (`reflections`), the translucency and the GI probes (`gi: "probes"`) trace; `gi: "perPixel"` does not yet |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The shadows (`shadows: "hard"`, `"soft"`), the ambient occlusion (`ao`), the reflections (`reflections`), the translucency and the GI probes (`gi: "probes"`) and the per-pixel GI (`gi: "perPixel"`) trace |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 

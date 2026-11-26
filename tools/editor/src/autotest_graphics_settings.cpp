@@ -5,7 +5,7 @@
 // and refused, auto and its boost are saved as render.latency, off removes the key. The Frame generation group the same way: dlss and xess are
 // greyed out and refused on the fixed table, fsr and its minimum base frame rate are saved as render.frameGeneration, the advice for a low-latency
 // mode shows while none is set, off removes the key. The Ray tracing and Path tracer groups the same way: on a table that traces, the master switch, the
-// shadows combo, the effects and the gi combo (perPixel is listed greyed out, "coming") are driven with real clicks, the graphics preset's
+// shadows combo, the effects and the gi combo (all three modes can be picked) are driven with real clicks, the graphics preset's
 // caps are named, Save writes render.rayTracing and render.pathTracer and the default removes them; on a table whose device cannot trace the
 // controls stay editable, with the reason that names graphics.backend and a note that the window cannot show the effect. The test project's factoria.json is put back at the end. Every wait counts frames.
 #include <memory>
@@ -382,20 +382,17 @@ void Editor::at_section_Q4(AtScript& at) {
     step(4, [this] {
         at_check(at_visible("gfx:rtGi:off") && at_visible("gfx:rtGi:probes") && at_visible("gfx:rtGi:perPixel"),
                  "the gi combo lists off, probes and perPixel");
-        at_check(at_enabled("gfx:rtGi:probes") && !at_enabled("gfx:rtGi:perPixel"),
-                 "...with perPixel, which no renderer draws yet, greyed out (its tooltip says it is coming)");
+        at_check(at_enabled("gfx:rtGi:probes") && at_enabled("gfx:rtGi:perPixel"),
+                 "...and every one of them can be picked: perPixel is drawn since M79-P4b-1");
     });
     click("gfx:rtGi:probes");
     step(4, [this] {
         at_check(graphicsWork_.rayTracing.gi == render::RtGi::Probes, "picking probes sets the working copy");
-        at_check(graphicsRayTracingGiComing_.empty(), "...and probes has no \"coming\" line");
         graphicsWork_.rayTracing.raysPerPixel = 4;  // the slider itself is not driven: the model is what Save writes
         graphicsWork_.rayTracing.gi = render::RtGi::PerPixel;  // as a project file that names it would be
     });
     step(4, [this] {
-        at_check(graphicsRayTracingGiComing_.find("Coming") == 0,
-                 "a project that names gi perPixel shows that it is coming");
-        at_check(check_graphics_settings(graphicsWork_).empty(), "...but the value is valid, the file may name it");
+        at_check(check_graphics_settings(graphicsWork_).empty(), "...and the value is valid");
         graphicsWork_.rayTracing.gi = render::RtGi::Probes;
         graphicsWork_.preset = "ultra";
     });
