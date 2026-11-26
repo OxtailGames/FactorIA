@@ -92,7 +92,7 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
         latency != render::LatencySettings{} || frameGeneration != render::FrameGenSettings{} ||
-        rayTracing != render::RayTracingSettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
+        rayTracing != render::RayTracingSettings{} || pathTracer != render::PathTracerSettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
         graphicsPreset != render::GraphicsPreset::Custom || renderBackend != "auto" || !renderAsyncCompute ||
         !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
@@ -120,6 +120,10 @@ Json ProjectSettings::to_json() const {
             render["rayTracing"] = render::ray_tracing_to_json(rayTracing);
         else
             render.erase("rayTracing");
+        if (pathTracer != render::PathTracerSettings{})
+            render["pathTracer"] = render::path_tracer_to_json(pathTracer);
+        else
+            render.erase("pathTracer");
         if (dynamicResolution != render::DynamicResolutionSettings{})
             render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
         else
@@ -148,6 +152,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("latency");
         j["render"].erase("frameGeneration");
         j["render"].erase("rayTracing");
+        j["render"].erase("pathTracer");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
@@ -720,6 +725,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
                 render::parse_ray_tracing_settings(*rt, at("/render/rayTracing"), render::RayTracingSettings{});
             if (!rayTracingSet.ok()) return rayTracingSet.error();
             s.rayTracing = rayTracingSet.value();
+        }
+        if (auto pt = it->find("pathTracer"); pt != it->end() && !pt->is_null()) {
+            Result<render::PathTracerSettings> pathTracerSet =
+                render::parse_path_tracer_settings(*pt, at("/render/pathTracer"), render::PathTracerSettings{});
+            if (!pathTracerSet.ok()) return pathTracerSet.error();
+            s.pathTracer = pathTracerSet.value();
         }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
             Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(

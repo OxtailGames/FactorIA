@@ -1846,6 +1846,8 @@ public:
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
     gpu::Pipeline blit_keep_pipeline(const TargetFormat& format);
     gpu::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
+    // The same copy, blended over the target as a premultiplied image (One, OneMinusSrcAlpha): the path tracer's picture over the raster's.
+    gpu::Pipeline blit_keep_over_pipeline(const TargetFormat& format);
     static TargetFormat blit_keep_target_format() { return {gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white

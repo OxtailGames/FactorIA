@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "shaders/rt/rt_ao.rt.h"
+#include "shaders/rt/rt_pathtrace.rt.h"
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_reflect.rt.h"
 #include "shaders/rt/rt_refract.rt.h"
@@ -49,6 +50,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_refract", kRtRefractDxil, kRtRefractSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtRefractMsl), sizeof(kRtRefractMsl) - 1),
          kRtRefractDxcVersion, kRtRefractHlslSha256, kRtRefractMslSha256},
+        {"rt_pathtrace", kRtPathtraceDxil, kRtPathtraceSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtPathtraceMsl), sizeof(kRtPathtraceMsl) - 1),
+         kRtPathtraceDxcVersion, kRtPathtraceHlslSha256, kRtPathtraceMslSha256},
     };
     return kernels;
 }

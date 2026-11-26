@@ -864,6 +864,24 @@ gpu::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+// The same copy blended over what the target holds as a premultiplied image: One, OneMinusSrcAlpha (the path tracer's picture over the raster's).
+gpu::Pipeline Gpu::blit_keep_over_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x1100u};
+    gpu::PipelineDesc d{};
+    d.shader = blitKeepShader_;
+    d.layout.attrs[ATTR_blit_blit_keep_pos].format = gpu::VertexFormat::Float2;
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.faceWinding = gpu::FaceWinding::Ccw;
+    d.colors[0].blend.enabled = true;
+    d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.label = "blit-keep-over";
+    return find_or_make(key, format, d);
+}
+
 gpu::Pipeline Gpu::bloom_pipeline(BloomStage stage, const TargetFormat& format) {
     PipelineKey key{0x600u | std::uint32_t(stage)};
     gpu::PipelineDesc d{};

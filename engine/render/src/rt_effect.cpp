@@ -11,13 +11,15 @@ namespace fa::render {
 namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
-    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux}
+    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, readsOut, usesLights}
     {"rt_shadow", false, false, false, true, false},
     // Moves the soft sun shadow's denoised visibility into the layout the lit pass reads (no ray query: no TLAS).
     {"rt_shadow_pack", false, false, false, false, true},
     {"rt_ao", false, false, false, true, false},
     {"rt_reflect", true, true, true, true, false},
     {"rt_refract", true, false, true, true, false},
+    // The path tracer: it reads the prepass (what the raster hides), the records and the hit constants, its own image and the lights.
+    {"rt_pathtrace", true, false, true, true, false, true, true},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
@@ -127,7 +129,7 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     out.stage = ShaderStage::Compute;
     out.imageType = ImageType::Tex2d;
     out.accessFormat = PixelFormat::Rgba32F;
-    out.writeonly = true;
+    out.writeonly = !spec.readsOut;
     out.binding.hlslRegister = 0;
     out.binding.mslIndex = 0;
     out.binding.spirvSet = 0;
@@ -165,6 +167,15 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         h.binding.mslIndex = 3;
         h.binding.spirvSet = 0;
         h.binding.spirvBinding = 7;
+    }
+    if (spec.usesLights) {  // b2 / binding 8 / buffer(4)
+        ShaderUniformBlock& l = d.uniformBlocks[RtEffectBindings::kUniformLights];
+        l.stage = ShaderStage::Compute;
+        l.size = std::uint32_t(sizeof(RtLightParams));
+        l.binding.hlslRegister = 2;
+        l.binding.mslIndex = 4;
+        l.binding.spirvSet = 0;
+        l.binding.spirvBinding = 8;
     }
     if (rt_effect_needs_sampler(backend)) {
         // Sokol (Metal) wants every texture view paired with a sampler slot even when the kernel reads the texel with `read`: the nearest one.
@@ -271,7 +282,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     if (!req.camera || !req.scene || !(fromImage ? req.srcRes.valid() : req.prepass.valid()) || req.width < 1 ||
         req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
-        (spec->usesAux && !req.aux.valid())) {
+        (spec->usesAux && !req.aux.valid()) || (spec->readsOut && !req.prepass.valid())) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
         return result;
     }
@@ -299,6 +310,11 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         const gpu::PixelFormatCaps caps = device.pixel_format_caps(gpu::PixelFormat::Rgba32F);
         if (!caps.write || !caps.sample) {
             result.why = "this device cannot write a 32-bit float RGBA image from a compute shader and sample it";
+            images_.erase(key);
+            return result;
+        }
+        if (spec->readsOut && !caps.read) {
+            result.why = "this device cannot read a 32-bit float RGBA image from a compute shader (the path tracer accumulates in one)";
             images_.erase(key);
             return result;
         }
@@ -335,6 +351,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         }
         img.width = req.width;
         img.height = req.height;
+        img.serial = ++imageSerial_;
     }
     img.ran = false;
     img.lastUsed = req.frameSerial;
@@ -371,6 +388,9 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer, usesHit = spec->usesHit,
                usesTlas = spec->usesTlas, usesAux = spec->usesAux;
     const RtHitParams hit = req.hit;
+    const RtLightParams lights = req.lights;
+    const bool usesLights = spec->usesLights;
+    const std::function<RtPrepare(RtEffectParams&, const RtEffectImage&)> prepare = req.prepare;
     const RtEffectImage* srcImage = req.srcImage;
     const PrepassRef aux = req.aux;
     const bool needsSampler = rt_effect_needs_sampler(gpu.device().backend());
@@ -381,7 +401,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
     pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, usesRecords,
-                    usesGbuffer, usesHit, usesTlas, usesAux, needsSampler, params, hit, key,
+                    usesGbuffer, usesHit, usesTlas, usesAux, usesLights, needsSampler, params, hit, lights, prepare, key,
                     name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
@@ -439,11 +459,21 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             return;
         }
         clear_failure(key);
+        RtEffectParams frameParams = params;
+        if (prepare) {
+            const RtPrepare what = prepare(frameParams, *out);
+            if (what == RtPrepare::Skip) return;
+            if (what == RtPrepare::Hold) {
+                out->ran = true;
+                return;
+            }
+        }
         list->begin_compute_pass(name.c_str());
         list->set_pipeline(pip);
         list->set_bindings(b);
-        list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&params, sizeof params});
+        list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&frameParams, sizeof frameParams});
         if (usesHit) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&hit, sizeof hit});
+        if (usesLights) list->set_uniforms(RtEffectBindings::kUniformLights, gpu::Range{&lights, sizeof lights});
         list->dispatch((out->width + 7) / 8, (out->height + 7) / 8, 1);
         list->end_pass();
         if (drawCalls) ++*drawCalls;

@@ -207,6 +207,14 @@ struct Renderer::Impl::DrawContext {
         const RtEffectImage* img = nullptr;
         ResourceId res;
     } rtTranslucency;
+    // M79-P5a: the path traced reference mode (rt_pathtrace.hlsl, ARCHITECTURE_RT_PATHTRACER.md). plan_job sets `want` (render.pathTracer on, the scene
+    // collected by this job, the prepass); build_graph declares the kernel and sets `img` and `res`; main_pass draws the image over the opaque
+    // picture only while `img->ran` is true when it draws (the scene had a TLAS this frame), else the raster picture stays.
+    struct {
+        bool want = false;
+        const RtEffectImage* img = nullptr;
+        ResourceId res;
+    } pathTrace;
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
@@ -1083,6 +1091,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     const bool wantRtTranslucency = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld &&
                                     rtSettings.translucency && transmissive_mesh_count(ctx) > 0;
     if (wantRtTranslucency) ctx.postPlan.needsDepth = true;
+    // The path tracer (M79-P5a) reads the prepass: the surface the raster hides is not drawn over.
+    const bool wantPathTrace = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && ptSettings.enabled;
+    if (wantPathTrace) ctx.postPlan.needsDepth = true;
     // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
     // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
     bool wantSss = false;
@@ -1139,6 +1150,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The traced image replaces the refraction copy's level 0, so it needs the copy (ctx.xmit.want) as well as the prepass.
     ctx.rtTranslucency = {};
     ctx.rtTranslucency.want = wantRtTranslucency && ctx.doPrepass && ctx.xmit.want && rtScene.active();
+    ctx.pathTrace = {};
+    ctx.pathTrace.want = wantPathTrace && ctx.doPrepass && rtScene.active();
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -5007,9 +5020,28 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
         // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
         bool fogDrawn = false;
+        // The path tracer's picture over the opaque one (premultiplied: where its primary rays missed or the raster has something nearer, the
+        // raster stays). It has its own occlusion, so the ambient occlusion below is not applied over it; the fog is.
+        bool pathTraceDrawn = false;
+        if (ctx.pathTrace.img && ctx.pathTrace.img->ran && ctx.pathTrace.img->texture.id) {
+            if (partial) apply_view(cl, camPx);
+            cl.set_pipeline(gpu.blit_keep_over_pipeline(mp.format));
+            gpu::Bindings b;
+            b.vertexBuffers[0] = gpu.fullscreen_triangle();
+            b.views[VIEW_blit_tex] = ctx.pathTrace.img->texture;
+            b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+            cl.set_bindings(b);
+            blit_blit_vs_params_t vu{};
+            apply_uniforms(cl, UB_blit_blit_vs_params, vu);
+            blit_blit_fs_params_t fu{};  // encode 0: the image holds the scene's own values
+            apply_uniforms(cl, UB_blit_blit_fs_params, fu);
+            cl.draw(0, 3, 1);
+            ++stats.drawCalls;
+            pathTraceDrawn = true;
+        }
         if (preT && preT->texView.id) {
             if (partial) apply_view(cl, camPx);
-            if (ctx.ssaoApply.valid && (!ctx.rtAo.on || (ctx.rtAo.img && ctx.rtAo.img->ran))) {
+            if (ctx.ssaoApply.valid && !pathTraceDrawn && (!ctx.rtAo.on || (ctx.rtAo.img && ctx.rtAo.img->ran))) {
                 // The ray traced occlusion is applied only when its kernel ran this frame (it has a TLAS); the SSAO's image is a transient.
                 const Target* aoT =
                     ctx.ssaoApply.aoView.id ? nullptr : transient_targets().get(pc.handle(ctx.ssaoApply.ao));
@@ -5790,6 +5822,60 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 out.why);
         }
     }
+    // The path tracer (M79-P5a, rt_pathtrace.hlsl): one compute pass after the TLAS and the prepass accumulates the samples; the main pass draws the
+    // image over the opaque picture. A device that refuses the kernel or the image keeps the raster picture, said once.
+    ctx.pathTrace.img = nullptr;
+    ctx.pathTrace.res = ResourceId{};
+    if (ptSettings.enabled) ptState.status.active = false;
+    if (ctx.pathTrace.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_pathtrace";
+        req.effect = "pathtrace";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        fill_rt_hit_request(ctx, req);
+        fill_path_trace_lights(req.lights, ctx.lights);
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const render::PathTracerSettings cfg = ptSettings;
+        const bool lightsUsed = cfg.lights && req.lights.count[0] > 0;
+        const std::uint64_t settingsHash = path_trace_settings_hash(cfg, req.hit, req.lights);
+        PathTraceJobState* job = &ptState.jobs[plan.name];  // std::map: the node stays while the state is not cleared (rt_begin_frame)
+        render::PathTracerStatus* status = &ptState.status;
+        RtScene* scene = &rtScene;
+        req.prepare = [cfg, lightsUsed, settingsHash, job, status, scene](RtEffectParams& params, const RtEffectImage& image) {
+            const PathTraceStep step = path_trace_step(*job, cfg, path_trace_camera_hash(params), scene->content_hash(),
+                                                       settingsHash, image.serial, image.width, image.height);
+            path_trace_fill_params(params, cfg, step, lightsUsed);
+            status->active = true;
+            status->samples = job->samples;
+            status->width = image.width;
+            status->height = image.height;
+            if (!step.reset.empty()) {
+                status->lastReset = step.reset;
+                if (step.reset != "start") ++status->resets;
+            }
+            return step.what;
+        };
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.pathTrace.img = out.out;
+            ctx.pathTrace.res = out.res;
+        } else if (!rtWarnedPathTrace) {
+            rtWarnedPathTrace = true;
+            FA_WARN("render",
+                    "render.pathTracer is on but the path tracer cannot run on this device ({}). The frame is the raster one. Hint: set "
+                    "render.pathTracer.enabled to false to silence this.",
+                    out.why);
+        }
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     if (!ctx.rtAo.on && ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled &&
@@ -5802,6 +5888,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
         if (rtShadowRes.valid()) reads.push_back(rtShadowRes);
         if (ctx.rtTranslucency.res.valid()) reads.push_back(ctx.rtTranslucency.res);
+        if (ctx.pathTrace.res.valid()) reads.push_back(ctx.pathTrace.res);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (cookieRes.valid()) reads.push_back(cookieRes);
