@@ -6,9 +6,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <system_error>
 
 #include "authoring_internal.h"
 #include "fa/core/capability.h"
@@ -16,6 +18,7 @@
 #include "fa/core/strings.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/lightmap_manifest.h"
+#include "lightmap_bake_helper.h"
 #include "lightmap_bake_job.h"
 
 namespace fa {
@@ -501,7 +504,9 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "(lightmap_job::plan_to_json); the job traces its texels in THIS process, never starts a helper of its "
          "own, writes the files with the same code as lightmap.bake and is followed with lightmap.bake_status "
          "{\"job\":...,\"apply\":false} and stopped with lightmap.bake_cancel. It does not change the scene. Nobody "
-         "calls it by hand: an invalid plan is refused with a JSON pointer. Result: lightmap.bake_start's. "
+         "calls it by hand: a process that is not that helper refuses it (internal_command), and an invalid plan, or "
+         "one that "
+         "writes outside the project, is refused with a JSON pointer. Result: lightmap.bake_start's. "
          "Example: lightmap.bake_plan_start {\"plan\":{...}}",
          parse_schema(
              R"({"type":"object","required":["plan"],"properties":{"plan":{"type":"object","description":"The bake plan: options, scene, manifest paths, meshes, lights, probes, sky (what lightmap_job::plan_to_json writes)."}}})"),
@@ -510,8 +515,36 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
             if (!a.contains("plan") || !a["plan"].is_object())
                 bad("/plan", "is missing or not an object.",
                     "This command is for the helper process of a GPU bake; call lightmap.bake_start instead.");
+            // Only the helper process of a bake takes a plan: a plan names where the job writes, so a caller that could pass its own
+            // would pick the files. run_in_helper puts this variable in the child's environment and nowhere else.
+            if (!lightmap_job::in_helper_session())
+                throw CommandError(
+                    "internal_command",
+                    "lightmap.bake_plan_start is the command of the helper process of a GPU bake, not one to call.",
+                    "Call lightmap.bake_start {\"device\":\"gpu\"} (or lightmap.bake): it starts the helper process "
+                    "itself when this "
+                    "process needs one.");
             auto plan = lightmap_job::plan_from_json(a["plan"]);
             if (!plan.ok()) throw CommandError("invalid_argument", plan.error().message, plan.error().hint);
+            // The same rules as lightmap.bake's `path` (x-fa-path write): the manifest is a .lightmap.json inside the project, resolved
+            // by the project's write sandbox, and the absolute path the plan carries is that very file.
+            const lightmap_job::Plan& pl = *plan;
+            if (!ends_with(to_lower(pl.manifestProject), ".lightmap.json"))
+                bad("/plan/manifestProject", "'" + pl.manifestProject + "' does not end in .lightmap.json.",
+                    "Name the manifest like scenes/main.lightmap.json.");
+            const std::string resolved = resolve_caller_write_path(pl.manifestProject, "lightmap.bake_plan_start");
+            if (fs::is_absolute(fs::project_spelling(fs::path_from_utf8(resolved))))
+                bad("/plan/manifestProject", "'" + pl.manifestProject + "' is outside the project.",
+                    "The manifest and its pages must be inside the project.");
+            std::error_code canonEc1,
+                canonEc2;  // the sandbox's spelling is canonical (/private/var on macOS): compare like with like
+            const bool same = std::filesystem::weakly_canonical(fs::path_from_utf8(pl.manifestAbs), canonEc1) ==
+                              std::filesystem::weakly_canonical(fs::path_from_utf8(resolved), canonEc2);
+            if (!same || canonEc1 || canonEc2)
+                bad("/plan/manifestAbs",
+                    "'" + pl.manifestAbs + "' is not where '" + pl.manifestProject + "' lies in this project ('" +
+                        resolved + "').",
+                    "manifestAbs and manifestProject must name the same file; lightmap.bake_start makes both.");
             return start_job(*reg, std::move(*plan), false, true);
         });
 

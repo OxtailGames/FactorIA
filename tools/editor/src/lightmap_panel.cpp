@@ -335,7 +335,11 @@ void Editor::draw_lightmap_panel() {
             ImGui::TextWrapped("%s", line.c_str());
             at_track("lm:device_used");
             const std::string devNote = dev.value("note", std::string());
-            if (!devNote.empty()) ImGui::TextDisabled("%s", devNote.c_str());
+            if (!devNote.empty()) {  // the panel is 440 wide and a note can be a sentence: wrap it
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("%s", devNote.c_str());
+                ImGui::PopStyleColor();
+            }
         }
         if (res.contains("probes") && res["probes"].is_object()) {
             const Json& pr = res["probes"];

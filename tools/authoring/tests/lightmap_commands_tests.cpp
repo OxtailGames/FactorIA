@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <limits>
 #include <map>
 #include <set>
 #include <thread>
@@ -1208,7 +1210,14 @@ TEST_CASE(
     CHECK(badLight.error().message.find("/lights/0/intensity") != std::string::npos);
     CHECK_FALSE(lightmap_job::plan_from_json(Json::array()).ok());
 
-    // The internal command takes the same plan and refuses a broken one with the pointer.
+    // A process that is not the helper of a bake refuses the internal command, whatever the plan (nothing is written, no job starts).
+    auto notHelper = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", *parsed}}));
+    REQUIRE_FALSE(notHelper.ok);
+    CHECK(notHelper.error.dump().find("internal_command") != std::string::npos);
+    CHECK(notHelper.error.dump().find("lightmap.bake_start") != std::string::npos);
+
+    // The helper's session (run_in_helper sets this variable in the child) takes the same plan and refuses a broken one with the pointer.
+    const EnvVar helperSession("FA_LIGHTMAP_HELPER_SESSION", "1");
     auto refused = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", broken}}));
     REQUIRE_FALSE(refused.ok);
     CHECK(refused.error.dump().find("/lights/0/intensity") != std::string::npos);
@@ -1217,6 +1226,91 @@ TEST_CASE(
     const Json done = wait_done(e, started.result["job"].get<std::string>());
     CHECK(done["state"] == "done");
     CHECK(done["result"]["device"]["process"] == "here");
+    e.shutdown();
+}
+
+TEST_CASE("lightmap bake plan: a plan that writes outside the project, or has numbers out of range, is refused with a "
+          "JSON pointer") {
+    const std::string group =
+        R"(, { "id": "probes", "name": "probes", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [4, 2, 4], "spacing": 2 } } })";
+    TempProject p("planguard", scene_text(group));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto plan = plan_of(e, p);
+    REQUIRE_MESSAGE(plan.ok(), plan.error().message);
+    const Json good = lightmap_job::plan_to_json(*plan);
+    REQUIRE_MESSAGE(lightmap_job::plan_from_json(good).ok(), "the plan of the test is valid");
+    const EnvVar helperSession("FA_LIGHTMAP_HELPER_SESSION", "1");
+    const stdfs::path outside = p.dir.parent_path() / "planguard_evil.lightmap.json";
+    std::error_code ec;
+    stdfs::remove(outside, ec);
+
+    // The command: where the plan writes is the project's own write sandbox, the same as lightmap.bake's `path`.
+    auto refuse = [&](Json plan, const std::string& pointer) {
+        auto r = e.commands().call("lightmap.bake_plan_start", Json::object({{"plan", plan}}));
+        CHECK_FALSE(r.ok);
+        CHECK_MESSAGE(r.error.dump().find(pointer) != std::string::npos, pointer << " in " << r.error.dump());
+        CHECK_MESSAGE(!r.error.value("hint", std::string()).empty(), "a hint in " << r.error.dump());
+    };
+    Json bad = good;
+    bad["manifestAbs"] = fs::path_to_utf8(outside);  // an absolute path outside the project, project spelling untouched
+    refuse(bad, "/plan/manifestAbs");
+    bad = good;
+    bad["manifestProject"] = "../planguard_evil.lightmap.json";
+    bad["manifestAbs"] = fs::path_to_utf8(outside);
+    refuse(bad, "outside");  // the sandbox's own error: path_outside_root
+    bad = good;
+    bad["manifestProject"] = fs::path_to_utf8(outside);
+    bad["manifestAbs"] = fs::path_to_utf8(outside);
+    refuse(bad, "/plan/manifestProject");
+    bad = good;
+    bad["manifestProject"] = "scenes/evil.json";
+    bad["manifestAbs"] = fs::path_to_utf8(p.dir / "scenes" / "evil.json");
+    refuse(bad, "/plan/manifestProject");
+    bad = good;
+    bad["manifestProject"] = "scenes/other.lightmap.json";  // inside the project, but not the file manifestAbs names
+    refuse(bad, "/plan/manifestAbs");
+    CHECK_FALSE(stdfs::exists(outside));
+    CHECK_FALSE(stdfs::exists(p.dir / "scenes" / "evil.json"));
+
+    // The numbers and indices of the plan.
+    auto pointer_of = [&](const std::function<void(Json&)>& change) {
+        Json j = good;
+        change(j);
+        auto r = lightmap_job::plan_from_json(j);
+        return r.ok() ? std::string("<accepted>") : r.error().message;
+    };
+    REQUIRE(good["probes"]["groups"].size() == 1);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["count"] = 100000; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["first"] = -1; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["nx"] = 99; }).find("/probes/groups/0/count") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["probes"]["groups"][0]["nz"] = 0; }).find("/probes/groups/0") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["maxPageSize"] = 1000000; }).find("/options/maxPageSize") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["texelsPerMeter"] = 1e9; }).find("/options/texelsPerMeter") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["samples"] = 0; }).find("/options/settings") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["bounces"] = 99; }).find("/bounces") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["shadowSamples"] = 100000; }).find("/shadowSamples") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) {
+              j["options"]["settings"]["denoiseSigma"] = std::numeric_limits<double>::infinity();
+          }).find("/options/settings/denoiseSigma") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["options"]["settings"]["denoiseSigma"] = 1e300; }).find("denoiseSigma") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) {
+              j["sky"]["intensity"] = std::numeric_limits<double>::quiet_NaN();
+          }).find("/sky/intensity") != std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["environmentMap"] = "../../secret.hdr"; }).find("/environmentMap") !=
+          std::string::npos);
+    CHECK(pointer_of([](Json& j) { j["meshes"][0]["mesh"] = "C:/x/m.glb"; }).find("/meshes/0/mesh") !=
+          std::string::npos);
     e.shutdown();
 }
 
@@ -1269,7 +1363,9 @@ echo '{"ready":true}'
 cancelled=0
 while read line; do
   case "$line" in
-    *lightmap.bake_plan_start*) echo '{"ok":true,"result":{"job":"bake:1","state":"running"}}' ;;
+    *lightmap.bake_plan_start*)  # only a child that was told it is the helper takes a plan
+      if [ "$FA_LIGHTMAP_HELPER_SESSION" = 1 ]; then echo '{"ok":true,"result":{"job":"bake:1","state":"running"}}';
+      else echo '{"ok":false,"error":{"message":"the helper session variable is not set"}}'; fi ;;
     *lightmap.bake_cancel*) cancelled=1; echo '{"ok":true,"result":{"state":"running"}}' ;;
     *lightmap.bake_status*)
       if [ "$cancelled" = 1 ]; then echo '{"ok":true,"result":{"state":"cancelled","error":"cancelled"}}';

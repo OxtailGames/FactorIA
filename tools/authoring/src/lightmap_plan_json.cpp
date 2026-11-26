@@ -1,16 +1,33 @@
 // A bake Plan as JSON and back (lightmap_bake_job.h): what the bake's helper process is given. The Plan is plain data (the World was already read), so
 // the child needs nothing of the editor's memory: the same Plan gives the same bake. Floats are written as doubles, which a float converts to and
 // from exactly, so the child sees the numbers the parent planned with.
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <string>
 
 #include "fa/core/strings.h"
+#include "fa/scene/lightmap_manifest.h"
 #include "lightmap_bake_job.h"
 
 namespace fa::lightmap_job {
 
 namespace {
+
+// A name the job may read through the project's file API: not absolute, no drive, no ".." segment ("mesh:3" and "cube" pass).
+bool is_project_relative_name(const std::string& name) {
+    if (name.empty()) return true;
+    if (name[0] == '/' || name[0] == '\\') return false;
+    if (name.size() >= 2 && name[1] == ':' && std::isalpha(static_cast<unsigned char>(name[0]))) return false;
+    std::size_t start = 0;
+    while (start <= name.size()) {
+        std::size_t end = name.find_first_of("/\\", start);
+        if (end == std::string::npos) end = name.size();
+        if (name.compare(start, end - start, "..") == 0) return false;
+        start = end + 1;
+    }
+    return true;
+}
 
 Json vec3_json(Vec3 v) { return Json::array({v.x, v.y, v.z}); }
 
@@ -43,7 +60,11 @@ struct Reader {
         if (!std::isfinite(d)) fail(base + "/" + key, "must be finite.");
         return d;
     }
-    float f(const Json& o, const std::string& base, const char* key) { return float(number(o, base, key)); }
+    float f(const Json& o, const std::string& base, const char* key) {
+        const float v = float(number(o, base, key));
+        if (!std::isfinite(v)) fail(base + "/" + key, "does not fit a float.");
+        return std::isfinite(v) ? v : 0.0f;
+    }
     int i(const Json& o, const std::string& base, const char* key) {
         const double d = number(o, base, key);
         if (std::fabs(d) > 2147483647.0 || d != std::floor(d)) {
@@ -86,7 +107,12 @@ struct Reader {
             fail(base + "/" + key, "must be three numbers.");
             return {};
         }
-        return {(*v)[0].get<float>(), (*v)[1].get<float>(), (*v)[2].get<float>()};
+        const Vec3 out{(*v)[0].get<float>(), (*v)[1].get<float>(), (*v)[2].get<float>()};
+        if (!std::isfinite(out.x) || !std::isfinite(out.y) || !std::isfinite(out.z)) {
+            fail(base + "/" + key, "must be finite numbers.");
+            return {};
+        }
+        return out;
     }
     const Json* array(const Json& o, const std::string& base, const char* key) {
         const Json* v = member(o, base, key);
@@ -99,7 +125,8 @@ struct Reader {
     // An enum stored as its number, checked against the last valid one.
     int en(const Json& o, const std::string& base, const char* key, int last) {
         const int v = i(o, base, key);
-        if (ok() && (v < 0 || v > last)) fail(base + "/" + key, "is not a known value (0.." + std::to_string(last) + ").");
+        if (ok() && (v < 0 || v > last))
+            fail(base + "/" + key, "is not a known value (0.." + std::to_string(last) + ").");
         return v;
     }
 };
@@ -210,27 +237,26 @@ Json plan_to_json(const Plan& plan) {
     for (const Vec3& p : plan.probes.positions) positions.push_back(vec3_json(p));
     Json warnings = Json::array();
     for (const std::string& w : plan.warnings) warnings.push_back(w);
-    return Json::object(
-        {{"options", Json::object({{"texelsPerMeter", o.texelsPerMeter},
-                                   {"maxPageSize", o.maxPageSize},
-                                   {"sky", int(o.sky)},
-                                   {"device", int(o.device)},
-                                   {"settings", settings_json(o.settings)}})},
-         {"scene", plan.scene},
-         {"manifestAbs", plan.manifestAbs},
-         {"manifestProject", plan.manifestProject},
-         {"meshes", meshes},
-         {"lights", lights},
-         {"probes", Json::object({{"groups", groups}, {"positions", positions}})},
-         {"sky", Json::object({{"zenith", vec3_json(plan.sky.zenith)},
-                               {"horizon", vec3_json(plan.sky.horizon)},
-                               {"ground", vec3_json(plan.sky.ground)},
-                               {"intensity", plan.sky.intensity}})},
-         {"environmentMap", plan.environmentMap},
-         {"environmentScale", plan.environmentScale},
-         {"environmentRotation", plan.environmentRotation},
-         {"settingsHash", plan.settingsHash},
-         {"warnings", warnings}});
+    return Json::object({{"options", Json::object({{"texelsPerMeter", o.texelsPerMeter},
+                                                   {"maxPageSize", o.maxPageSize},
+                                                   {"sky", int(o.sky)},
+                                                   {"device", int(o.device)},
+                                                   {"settings", settings_json(o.settings)}})},
+                         {"scene", plan.scene},
+                         {"manifestAbs", plan.manifestAbs},
+                         {"manifestProject", plan.manifestProject},
+                         {"meshes", meshes},
+                         {"lights", lights},
+                         {"probes", Json::object({{"groups", groups}, {"positions", positions}})},
+                         {"sky", Json::object({{"zenith", vec3_json(plan.sky.zenith)},
+                                               {"horizon", vec3_json(plan.sky.horizon)},
+                                               {"ground", vec3_json(plan.sky.ground)},
+                                               {"intensity", plan.sky.intensity}})},
+                         {"environmentMap", plan.environmentMap},
+                         {"environmentScale", plan.environmentScale},
+                         {"environmentRotation", plan.environmentRotation},
+                         {"settingsHash", plan.settingsHash},
+                         {"warnings", warnings}});
 }
 
 Result<Plan> plan_from_json(const Json& j) {
@@ -243,7 +269,8 @@ Result<Plan> plan_from_json(const Json& j) {
         op.maxPageSize = r.i(*o, "/options", "maxPageSize");
         op.sky = SkyChoice(r.en(*o, "/options", "sky", int(SkyChoice::None)));
         op.device = DeviceChoice(r.en(*o, "/options", "device", int(DeviceChoice::Auto)));
-        if (const Json* s = r.member(*o, "/options", "settings"); s) op.settings = settings_from(r, *s, "/options/settings");
+        if (const Json* s = r.member(*o, "/options", "settings"); s)
+            op.settings = settings_from(r, *s, "/options/settings");
     }
     plan.scene = r.s(j, "", "scene");
     plan.manifestAbs = r.s(j, "", "manifestAbs");
@@ -258,8 +285,12 @@ Result<Plan> plan_from_json(const Json& j) {
             if (const Json* w = r.array(m, base, "world"); w) {
                 if (w->size() != 16) r.fail(base + "/world", "must be 16 numbers.");
                 for (std::size_t c = 0; c < 16 && r.ok(); ++c) {
-                    if (!(*w)[c].is_number()) r.fail(base + "/world/" + std::to_string(c), "must be a number.");
-                    else pm.world.m[c] = (*w)[c].get<float>();
+                    if (!(*w)[c].is_number())
+                        r.fail(base + "/world/" + std::to_string(c), "must be a number.");
+                    else if (!std::isfinite((*w)[c].get<float>()))
+                        r.fail(base + "/world/" + std::to_string(c), "must be finite.");
+                    else
+                        pm.world.m[c] = (*w)[c].get<float>();
                 }
             }
             pm.albedo = r.v3(m, base, "albedo");
@@ -294,9 +325,30 @@ Result<Plan> plan_from_json(const Json& j) {
                 const Json& v = (*ps)[k];
                 if (!v.is_array() || v.size() != 3 || !v[0].is_number() || !v[1].is_number() || !v[2].is_number())
                     r.fail("/probes/positions/" + std::to_string(k), "must be three numbers.");
+                else if (!std::isfinite(v[0].get<float>()) || !std::isfinite(v[1].get<float>()) ||
+                         !std::isfinite(v[2].get<float>()))
+                    r.fail("/probes/positions/" + std::to_string(k), "must be finite numbers.");
                 else
                     plan.probes.positions.push_back({v[0].get<float>(), v[1].get<float>(), v[2].get<float>()});
             }
+        if (r.ok()) {  // every group must lie inside the positions it indexes, and a grid must hold nx * ny * nz probes
+            const std::int64_t total = std::int64_t(plan.probes.positions.size());
+            for (std::size_t k = 0; k < plan.probes.groups.size() && r.ok(); ++k) {
+                const ProbeGroup& g = plan.probes.groups[k];
+                const std::string base = "/probes/groups/" + std::to_string(k);
+                if (g.first < 0 || g.count < 0 || std::int64_t(g.first) + g.count > total)
+                    r.fail(base, "indexes probes " + std::to_string(g.first) + ".." +
+                                     std::to_string(std::int64_t(g.first) + g.count) + " but /probes/positions has " +
+                                     std::to_string(total) + ": first and count must stay inside it.");
+                else if (g.kind == ProbeGroupKind::Grid) {
+                    if (g.nx < 1 || g.ny < 1 || g.nz < 1)
+                        r.fail(base, "nx, ny and nz of a grid must be at least 1.");
+                    else if (std::int64_t(g.nx) * g.ny * g.nz != std::int64_t(g.count))
+                        r.fail(base + "/count", "is " + std::to_string(g.count) + " but nx * ny * nz is " +
+                                                    std::to_string(std::int64_t(g.nx) * g.ny * g.nz) + ".");
+                }
+            }
+        }
         plan.probes.build_bounds();
     }
     if (const Json* s = r.member(j, "", "sky"); s) {
@@ -316,6 +368,27 @@ Result<Plan> plan_from_json(const Json& j) {
             else
                 plan.warnings.push_back((*ws)[k].get<std::string>());
         }
+    if (r.ok()) {  // the ranges lightmap.bake_start holds its arguments to, and the names the job will read
+        const Options& op = plan.options;
+        if (!(op.texelsPerMeter >= 0.01 && op.texelsPerMeter <= 4096))
+            r.fail("/options/texelsPerMeter", "is " + std::to_string(op.texelsPerMeter) + ", the range is 0.01..4096.");
+        else if (op.maxPageSize < 16 || op.maxPageSize > kLightmapMaxPageSize)
+            r.fail("/options/maxPageSize", "is " + std::to_string(op.maxPageSize) + ", the range is 16.." +
+                                               std::to_string(kLightmapMaxPageSize) + ".");
+        else if (auto st = check_bake_settings(op.settings); !st)
+            r.fail("/options/settings", st.error().message + " (" + st.error().hint + ")");
+        for (std::size_t k = 0; k < plan.meshes.size() && r.ok(); ++k)
+            if (!(plan.meshes[k].texelsPerMeter >= 0 && plan.meshes[k].texelsPerMeter <= 1e6))
+                r.fail("/meshes/" + std::to_string(k) + "/texelsPerMeter", "must be between 0 and 1e6.");
+        if (r.ok() && !(plan.environmentScale >= 0)) r.fail("/environmentScale", "must be 0 or more.");
+        if (r.ok() && !plan.environmentMap.empty() && !is_project_relative_name(plan.environmentMap))
+            r.fail("/environmentMap",
+                   "must be a path inside the project, relative to it (no leading slash, drive or '..').");
+        for (std::size_t k = 0; k < plan.meshes.size() && r.ok(); ++k)
+            if (!is_project_relative_name(plan.meshes[k].mesh))
+                r.fail("/meshes/" + std::to_string(k) + "/mesh",
+                       "must be a mesh name or a path inside the project (no leading slash, drive or '..').");
+    }
     if (!r.ok()) return make_error("the bake plan is not valid: " + r.error, "Pass what plan_to_json wrote.");
     return plan;
 }
