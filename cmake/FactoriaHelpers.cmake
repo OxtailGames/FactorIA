@@ -75,16 +75,18 @@ function(fa_add_module name)
     target_compile_definitions(fa_${name} PUBLIC FA_PLATFORM_NAME="${FA_PLATFORM}")
 endfunction()
 
-# fa_add_tests(<name> [DEPS ...] [LABELS ...])
+# fa_add_tests(<name> [DEPS ...] [LABELS ...] [ARGS ...])
 #   Builds tests/*.cpp of the current module into fa_test_<name> (doctest) and
 #   registers it with CTest. Tests run from the repo root so fixtures resolve.
 #   LABELS: e.g. `gpu` for tests needing a (software) GPU; CI on hosts without
 #   one runs `ctest -LE gpu`.
+#   ARGS: arguments of the whole-module ctest entry (e.g. --fa-files-exclude=a.cpp, for the files that have a ctest
+#   entry of their own: cmake/doctest_main.cpp).
 function(fa_add_tests name)
     if(NOT FA_BUILD_TESTS)
         return()
     endif()
-    cmake_parse_arguments(ARG "" "" "DEPS;LABELS" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "DEPS;LABELS;ARGS" ${ARGN})
     file(GLOB_RECURSE tsrcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     list(FILTER tsrcs EXCLUDE REGEX "/tests/programs/")  # programs the tests run (their own main()), built by the module
     if(NOT tsrcs)
@@ -94,7 +96,7 @@ function(fa_add_tests name)
     add_executable(fa_test_${name} ${tsrcs} ${FA_ROOT}/cmake/doctest_main.cpp)
     target_link_libraries(fa_test_${name} PRIVATE fa_${name} ${ARG_DEPS} fa_ext_doctest fa_warnings)
     target_include_directories(fa_test_${name} PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT...
-    add_test(NAME ${name} COMMAND fa_test_${name} WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME ${name} COMMAND fa_test_${name} ${ARG_ARGS} WORKING_DIRECTORY ${FA_ROOT})
     if(ARG_LABELS)
         set_tests_properties(${name} PROPERTIES LABELS "${ARG_LABELS}")
     endif()
