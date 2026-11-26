@@ -8,6 +8,7 @@
 #include <cstring>
 #include <string>
 
+#include "rt_effect.h"
 #include "rt_kernels.h"
 
 using namespace fa::rt_kernels;
@@ -36,10 +37,13 @@ TEST_CASE("rt kernels: every kernel has DXIL, SPIR-V with ray query and MSL") {
             std::memcpy(&w1, k.spirv.data() + i + 4, 4);
             if (w0 == ((2u << 16) | 17u) && w1 == 4472u) rayQuery = true;
         }
-        CHECK(rayQuery);
+        // A kernel that only reads images (the soft shadow's pack pass, spec usesTlas = false) has no ray query.
+        const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec(k.name);
+        const bool traces = !spec || spec->usesTlas;
+        CHECK(rayQuery == traces);
 
         CHECK(k.msl.find("kernel void " + std::string(k.name)) != std::string::npos);
-        CHECK(k.msl.find("intersection_query") != std::string::npos);
+        CHECK((k.msl.find("intersection_query") != std::string::npos) == traces);
         CHECK(k.msl.back() == '\n');
         CHECK(!k.dxcVersion.empty());
         CHECK(k.hlslSha256.size() == 64);

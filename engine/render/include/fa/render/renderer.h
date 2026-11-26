@@ -493,6 +493,9 @@ public:
     // that cannot, it makes no buffer and does no work (a device that cannot says why once in the log). Applied at the start of the next frame.
     void set_ray_tracing(const render::RayTracingSettings& settings);
     const render::RayTracingSettings& ray_tracing() const;
+    // Why an effect that is on is drawing its raster version this frame although the device traces (a kernel the driver rejected, a prepass
+    // that does not match the output): one line per effect, empty when every effect that is on runs. Thread-safe.
+    std::string ray_tracing_failure() const;
     const render::FrameGenSettings& frame_generation() const;
     render::FrameGenSlot effective_frame_generation() const;
     // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:

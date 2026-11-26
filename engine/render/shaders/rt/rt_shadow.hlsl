@@ -14,15 +14,21 @@
 //   binding 4  g_records  StructuredBuffer of RtInstanceRecord            (Metal: buffer(2))   t2   (not used here)
 //   binding 5  g_albedo   Texture2D, the G-buffer's albedo                (Metal: texture(2))   t3   (not used here)
 //   binding 6  g_material Texture2D, the G-buffer's roughness and metal   (Metal: texture(3))   t4   (not used here)
+//   binding 7  g_aux      Texture2D, a kernel's second input image        (Metal: texture(4))   t5   (not used here)
 //
-// Output (Rgba32F, the size of the prepass): r = the linear view depth of the surface (kRtNoMesh where no mesh was drawn; the contact
-// shadows of the lit pass read it from the same image), g = the visibility of the sun, 1 lit and 0 in shadow, b = 0, a = 1 where a mesh
-// was drawn (0 for the sky), the prepass's own convention.
+// Output (Rgba32F, the size of the prepass), two layouts, chosen by user1.y:
+//   hard (0, one ray at the sun's centre): r = the linear view depth of the surface (kRtNoMesh where no mesh was drawn; the contact shadows of
+//     the lit pass read it from the same image), g = the visibility of the sun, 1 lit and 0 in shadow, b = 0, a = 1 where a mesh was drawn
+//     (0 for the sky), the prepass's own convention. The lit pass reads this image as it is.
+//   soft (1, frame.z rays at points of the sun's disc, user1.x = the tangent of its angular radius): r = the visibility (the fraction of the
+//     rays that reached the sun), g = the depth, b = 0, a as above. The denoiser (DenoiseKind::Visibility) reads r; rt_shadow_pack then puts
+//     the denoised visibility in the hard layout for the lit pass.
 //
 // What casts: the instances with the CastsShadow bit (MeshRenderer.castShadows). The instances of a cutout (alpha-tested) material are
-// not forced opaque, so their triangles are only candidates, and the loop below never commits one: a cutout casts no ray traced shadow
-// yet (TODO P2a-2: test the alpha of the candidate with the record and the texture). A blended mesh is opaque to the ray and casts the
-// shadow of its whole surface, as it does in the shadow map.
+// not forced opaque, so their triangles are only candidates, and the loop below never commits one: a cutout casts no ray traced shadow. The
+// kernels see no UVs and no texture of a mesh (the record has neither, docs/design/ARCHITECTURE_RT_EFFECTS.md "Alpha-tested casters"), so the
+// alpha cannot be tested here; the renderer keeps the cascade shadow of those casters instead (it counts them: RtSceneStats::untracedCasters).
+// A blended mesh is opaque to the ray and casts the shadow of its whole surface, as it does in the shadow map.
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure g_tlas : register(t0);
 [[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> g_out : register(u0);
 
@@ -55,12 +61,31 @@ float3 oct_decode(float2 e) {
     return normalize(n);
 }
 
+// The cone sampling of the soft shadow (user1.y = 1). The sun is a disc of angular diameter D; the rays go to points of that disc, seen from the
+// surface: direction = normalize(l + tanHalf * (x t + y b)) with (x, y) a point of the unit disc and t, b a basis of the plane across l.
+// The points are the R2 low-discrepancy sequence (the plastic number's two reciprocals), shifted for each pixel by the interleaved gradient noise
+// of the pixel and the frame's seed (a Cranley-Patterson rotation: the pixels' offsets are blue-noise-like, so the denoiser's blur removes them),
+// and the same inputs always give the same rays (the seed is a hash of the frame serial, never the clock).
+float ign(float2 p, uint seed) {
+    p += 5.588238 * float(seed & 63u);
+    return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
+}
+
+float2 sun_disc_point(uint2 id, uint seed, uint k) {
+    const float2 shift = float2(ign(float2(id), seed), ign(float2(id) + float2(37.0, 17.0), seed ^ 0x9E3779B9u));
+    const float2 u = frac(shift + float(k + 1u) * float2(0.7548776662466927, 0.5698402909980532));
+    const float r = sqrt(u.x), a = 6.283185307179586 * u.y;
+    return r * float2(cos(a), sin(a));
+}
+
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= (uint)g_params.image.x || id.y >= (uint)g_params.image.y) return;
+    // user1: x = tan of the sun's angular radius (the cone's half angle), y = 0 for the hard layout, 1 for the soft one (see the header).
+    const bool soft = g_params.user1.y > 0.5;
     const float4 pre = g_prepass.Load(int3(id.xy, 0));
     if (pre.a < 0.5) {  // the sky: no surface, nothing to shadow
-        g_out[id.xy] = float4(kRtNoMesh, 1.0, 0.0, 0.0);
+        g_out[id.xy] = soft ? float4(1.0, kRtNoMesh, 0.0, 0.0) : float4(kRtNoMesh, 1.0, 0.0, 0.0);
         return;
     }
     const float depth = pre.r;
@@ -72,14 +97,26 @@ void main(uint3 id : SV_DispatchThreadID) {
     // user0: x = the normal offset in metres, y = more of it per metre of view depth (a pixel covers more world far away), z = TMin, w = TMax.
     const float3 l = g_params.lightDir.xyz;
     const float offset = g_params.user0.x + g_params.user0.y * depth;
-    RayDesc ray;
-    ray.Origin = pos + n * offset;
-    ray.TMin = g_params.user0.z;
-    ray.Direction = l;
-    ray.TMax = g_params.user0.w;
-    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-    q.TraceRayInline(g_tlas, RAY_FLAG_NONE, kRtMaskCastsShadow, ray);
-    while (q.Proceed()) {}  // a non-opaque candidate (a cutout) is never committed here
-    const float visible = q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 0.0 : 1.0;
-    g_out[id.xy] = float4(depth, visible, 0.0, 1.0);
+    const uint rays = soft ? clamp(g_params.frame.z, 1u, 64u) : 1u;
+    float3 t = normalize(abs(l.y) < 0.99 ? cross(l, float3(0.0, 1.0, 0.0)) : cross(l, float3(1.0, 0.0, 0.0)));
+    const float3 b = cross(l, t);
+    float lit = 0.0;
+    for (uint k = 0u; k < rays; ++k) {
+        float3 dir = l;
+        if (soft) {
+            const float2 d = sun_disc_point(id.xy, g_params.frame.y, k) * g_params.user1.x;
+            dir = normalize(l + t * d.x + b * d.y);
+        }
+        RayDesc ray;
+        ray.Origin = pos + n * offset;
+        ray.TMin = g_params.user0.z;
+        ray.Direction = dir;
+        ray.TMax = g_params.user0.w;
+        RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+        q.TraceRayInline(g_tlas, RAY_FLAG_NONE, kRtMaskCastsShadow, ray);
+        while (q.Proceed()) {}  // a non-opaque candidate (a cutout) is never committed here
+        lit += q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 0.0 : 1.0;
+    }
+    const float visible = lit / float(rays);
+    g_out[id.xy] = soft ? float4(visible, depth, 0.0, 1.0) : float4(depth, visible, 0.0, 1.0);
 }
