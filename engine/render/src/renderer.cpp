@@ -1413,6 +1413,10 @@ RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& 
     if (!r.impl_) return {};
     return {r.impl_->rtShadowDraws.mask, r.impl_->rtShadowDraws.withCascades, r.impl_->rtShadowDraws.local};
 }
+RendererTestAccess::GiPixelDraws RendererTestAccess::rt_gi_pixel_draws(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->giPixelDraws.on, r.impl_->giPixelDraws.off};
+}
 std::string RendererTestAccess::rt_effect_failure(Renderer& r) {
     return r.impl_ ? r.impl_->rtEffects.failure() : std::string();
 }
@@ -2259,6 +2263,7 @@ void Renderer::Impl::render(World& world, float dt) {
     probes_plan(
         world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
     run_frame_graph();
+    rt_gi_pixel_finish();
     probes_finish();  // before release_unused_views(): the faces' images are read here
     update_editor_copy();
     graphFromCapture = false;

@@ -13,6 +13,7 @@
 #include "shaders/rt/rt_ao.rt.h"
 #include "shaders/rt/rt_bake.rt.h"
 #include "shaders/rt/rt_gi.rt.h"
+#include "shaders/rt/rt_gi_pixel.rt.h"
 #include "shaders/rt/rt_pathtrace.rt.h"
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_reflect.rt.h"
@@ -63,6 +64,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_gi", kRtGiDxil, kRtGiSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtGiMsl), sizeof(kRtGiMsl) - 1), kRtGiDxcVersion,
          kRtGiHlslSha256, kRtGiMslSha256},
+        {"rt_gi_pixel", kRtGiPixelDxil, kRtGiPixelSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtGiPixelMsl), sizeof(kRtGiPixelMsl) - 1),
+         kRtGiPixelDxcVersion, kRtGiPixelHlslSha256, kRtGiPixelMslSha256},
         {"rt_refract", kRtRefractDxil, kRtRefractSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtRefractMsl), sizeof(kRtRefractMsl) - 1),
          kRtRefractDxcVersion, kRtRefractHlslSha256, kRtRefractMslSha256},

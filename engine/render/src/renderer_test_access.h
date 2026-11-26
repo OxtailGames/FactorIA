@@ -83,6 +83,11 @@ struct RendererTestAccess {
         int mask = 0, withCascades = 0, local = 0;
     };
     static RtShadowDraws rt_shadow_draws(Renderer& r);
+    // M79-P4b-1: the opaque draws of the last frame that read the per-pixel GI image (`on`) and those drawn with it bound that kept the probes (`off`).
+    struct GiPixelDraws {
+        int on = 0, off = 0;
+    };
+    static GiPixelDraws rt_gi_pixel_draws(Renderer& r);
     static render::RtDenoiser* rt_denoiser(Renderer& r);  // the soft sun shadow's denoiser; null before init
     static std::string rt_effect_failure(Renderer& r);    // RtEffects::failure()
     static int hiz_cameras(Renderer& r);

@@ -76,6 +76,15 @@ struct RtGiStatus {
     int budget = 0;          // the most probes a frame updates (the grids' budgets, at most 64 together)
 };
 
+// M79-P4b-1: what the per-pixel ray traced GI did in the last whole frame (Renderer::ray_tracing_gi_pixel_status; docs/design/ARCHITECTURE_RT_GI.md,
+// "Per pixel").
+struct RtGiPixelStatus {
+    bool wanted = false;  // render.rayTracing.gi is "perPixel"
+    bool active =
+        false;  // the last whole frame lit the main camera's opaque surfaces with the traced result (the pass ran and the main pass bound its image)
+    std::string reason;  // why not, when wanted and not active (empty when active or not wanted)
+};
+
 // Whether any effect asks for rays: enabled and at least one effect on. The renderer pays for ray tracing only then.
 constexpr bool rt_any_effect(const RayTracingSettings& s) {
     return s.enabled && (s.shadows != RtShadows::Off || s.ao || s.reflections || s.translucency || s.gi != RtGi::Off);

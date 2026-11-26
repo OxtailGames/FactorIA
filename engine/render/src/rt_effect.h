@@ -127,6 +127,31 @@ static_assert(sizeof(RtLocalLight) == 5 * 16 && sizeof(RtLocalParams) == 16 * 16
               "RtLocalParams is 16 float4 (rt_shadow_local.hlsl and .metal say the same)");
 inline constexpr std::string_view kRtLocalLightNames[] = {"posReach", "axisCos", "kind", "right", "up"};
 
+// M79-P4b-1: the constants block of rt_gi_pixel (rt_gi_pixel.hlsl / .metal: `// BEGIN RtGiPixelTail` ... `// END RtGiPixelTail` and `// BEGIN
+// RtGiPixelParams` ... `// END RtGiPixelParams`) at uniform slot RtEffectBindings::kUniformParams: the common RtEffectParams, then the realtime GI grids the
+// further bounces of a hit read (the tail), 17 float4 = 272 bytes: the block is 42 float4, 672 bytes. Up to kRtGiPixelMaxGrids grids, the ones the lit
+// pass reads (the first that reaches a point takes its cover, the next ones what is left); the atlas they live in is the kernel's texture at
+// RtEffectBindings::kViewAlbedo (RtEffectKernelSpec::usesAtlas).
+inline constexpr int kRtGiPixelMaxGrids = 4;
+struct RtGiPixelTail {
+    std::uint32_t count
+        [4];  // x: the grids of the tail (0 .. kRtGiPixelMaxGrids; 0: a hit's further bounces see the ambient light only)
+    // per grid: grid0: xyz the origin of probe (0, 0, 0), w the spacing; grid1: x, y, z the probe counts per axis, w their product; grid2: x the grid's
+    // first block, y the blocks per band row, z maxDistance, w intensity; grid3: x bounce, y backfaceTolerance, zw 0 (RtGiParams has the same four)
+    float grid0[kRtGiPixelMaxGrids][4];
+    float grid1[kRtGiPixelMaxGrids][4];
+    float grid2[kRtGiPixelMaxGrids][4];
+    float grid3[kRtGiPixelMaxGrids][4];
+};
+struct RtGiPixelParams {
+    RtEffectParams e;
+    RtGiPixelTail tail;
+};
+static_assert(sizeof(RtGiPixelTail) == (1 + 4 * kRtGiPixelMaxGrids) * 16 && sizeof(RtGiPixelParams) == 42 * 16,
+              "RtGiPixelParams is 42 float4 (rt_gi_pixel.hlsl and .metal say the same)");
+inline constexpr std::string_view kRtGiPixelTailNames[] = {"count", "grid0", "grid1", "grid2", "grid3"};
+inline constexpr std::string_view kRtGiPixelParamNames[] = {"e", "tail"};
+
 // The binding numbers of every effect kernel in each backend's own numbering (the contract the .hlsl and .metal files repeat in their header
 // comments). A kernel declares only the resources it reads; the numbers never change. The view slots are the engine's slots (Bindings::views).
 struct RtEffectBindings {
@@ -168,9 +193,13 @@ struct RtEffectKernelSpec {
     // image, which needs a device that reads RGBA32F storage images) and the RtLightParams block of the request.
     bool readsOut = false;
     bool usesLights = false;
-    // M79-P4a (rt_gi.h): a kernel with its own constants block (the size in bytes at b0; 0 = RtEffectParams) and an RGBA16F output image.
+    // M79-P4a (rt_gi.h): a kernel with its own constants block (the size in bytes at b0; 0 = RtEffectParams) and an RGBA16F output image
+    // (RtGiProbes; RtEffects makes RGBA32F images only, so a kernel it runs does not set outHalf).
     std::uint32_t paramsSize = 0;
     bool outHalf = false;
+    // M79-P4b-1 (rt_gi_pixel): the probe atlas as the kernel's texture at kViewAlbedo (t3 / binding 5 / texture(2): not with usesGbuffer) and the
+    // constants block RtGiPixelParams (RtEffectRequest::giTail after the common block; paramsSize is its size).
+    bool usesAtlas = false;
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the
@@ -237,6 +266,10 @@ struct RtEffectRequest {
     // thread that runs the graph, once per pass that runs, after the checks that could skip the pass and before the dispatch.
     std::function<RtPrepare(RtEffectParams& params, const RtEffectImage& image)> prepare;
     RtLocalParams local{};  // set at kUniformHit when the kernel's spec has usesLocal
+    // The kernel's spec has usesAtlas: the grids of the tail, and the atlas view, asked when the pass runs (the atlas is made again when the probes
+    // change size; an image that is not valid (id 0) makes the pass not run: `ran` stays false).
+    RtGiPixelTail giTail{};
+    std::function<gpu::View()> atlas;
     RtScene* scene = nullptr;
     int* drawCalls = nullptr;  // each dispatch adds one when it runs (may be null)
 };

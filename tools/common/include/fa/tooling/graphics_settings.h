@@ -60,9 +60,6 @@ bool latency_mode_has_boost(const std::string& mode);
 // The values of render.rayTracing.shadows and .gi in the order the combos list them.
 const std::vector<std::string>& ray_tracing_shadow_modes();
 const std::vector<std::string>& ray_tracing_gi_modes();
-// A mode of render.rayTracing.gi the file may name (the parser accepts it) but no renderer draws yet: "" when it is drawn, else the sentence
-// the editor shows next to it. perPixel waits for its package (M79-P4b); take its name out of the list in graphics_settings.cpp when it lands.
-std::string ray_tracing_gi_coming(const std::string& mode);
 
 // Whether this machine's renderer can trace rays (the row `raytracing` of render.supports, `report` being what Renderer::supports_report()
 // returns), with the row's own reason when it cannot, followed by how to get a device that does (graphics.backend). Without a report (no

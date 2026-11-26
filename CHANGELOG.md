@@ -16,6 +16,17 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `graphics.backend`. The menu kit's Graphics tab has a fifth page with an on/off switch and a quality that follows the High and Ultra
   tiers (docs/RAY_TRACING.md, "Graphics presets, the editor and the menu kit"; docs/UPSCALING.md; docs/MENUS.md).
 
+- **Per-pixel ray traced global illumination (M79-P4b-1):** `render.rayTracing.gi = "perPixel"` now draws. For every pixel of the main camera a
+  compute kernel (`rt_gi_pixel`, HLSL with a Metal twin) traces `raysPerPixel` cosine-weighted rays from the surface (seeded from the frame
+  serial and the pixel), shades what they hit like the reflections do (the sun and its shadow, the emission, the environment) plus the light of the
+  `RealtimeGI` grids at the hit (one traced bounce and a cached tail, no recursion), and a ray that leaves the scene sees the sky. The result is
+  denoised (the diffuse denoiser, its own signal) and the lit meshes use it in place of the probes' and the ambient term, multiplied by their albedo;
+  the direct light and the specular do not change, and a mesh with a baked lightmap, a full-shader material, a blended draw or a subsurface mesh keeps
+  the probes. Off, nothing is made. A device that cannot trace, a refused kernel or a pass that does not run keeps the probes and the ambient (a
+  refusal at once, a pass that does not run after two frames, the retry after 120 frames, counted in frames); `render.ray_tracing` answers `giPixel
+  {active, wanted, reason}` (`active` is true only when the lit meshes could read the image). The Metal kernel is tested on a real GPU against a CPU reference and with a picture of a lit wall bouncing colour onto a white
+  floor; the D3D12 and Vulkan kernels are the same HLSL compiled by DXC and have not run on a device. The lit shader's constants block gained `fa_gi_px`
+  (the custom-material fixtures were regenerated).
 - **Graphics window and `project.graphics` polish (M79):** the Ray tracing and Path tracer controls of the editor's Graphics window stay editable
   where this machine cannot trace (with a note that the window cannot show the effect: the settings are saved for the players' machines), and
   the window and `project.graphics` write only the keys of each block that differ from their defaults (`"rayTracing": {"enabled": true}`, not eight
@@ -29,7 +40,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   the lit shader reads the grids exactly as before. A budget of `rtProbesPerFrame` probes per grid and frame (new field, default 16; 64 for all
   grids together; round robin, camera priority is not made) bounds the cost by a count, never by a time. Off, or on a device that cannot trace,
   nothing changes and nothing is spent: the raster captures update the grids and `render.ray_tracing` (`giProbes {active, reason, grids,
-  probesPerFrame, budget}`) and `render.gi_grid` (`updatedBy`, `rtUpdatesLastFrame`) say why. `gi = "perPixel"` still draws nothing. The Metal
+  probesPerFrame, budget}`) and `render.gi_grid` (`updatedBy`, `rtUpdatesLastFrame`) say why. The Metal
   kernel is tested on a real GPU against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet, and the sense
   of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
   (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).

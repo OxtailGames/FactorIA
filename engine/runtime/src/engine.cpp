@@ -2267,10 +2267,16 @@ Json Engine::ray_tracing_status() {
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
     const bool translucencyOn = rt.translucency;
     const bool giProbesOn = rt.gi == render::RtGi::Probes;
+    const bool giPixelOn = rt.gi == render::RtGi::PerPixel;
     render::RtGiStatus giStatus;
-    if (impl_->renderer) giStatus = impl_->renderer->ray_tracing_gi_status();
+    render::RtGiPixelStatus giPixelStatus;
+    if (impl_->renderer) {
+        giStatus = impl_->renderer->ray_tracing_gi_status();
+        giPixelStatus = impl_->renderer->ray_tracing_gi_pixel_status();
+    }
     const bool active = rt.enabled && supported &&
-                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn) && failure.empty();
+                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn || giPixelOn) &&
+                        failure.empty();
     j["active"] = active;
     // M79-P6a: what the graphics preset allows. `effective` is the setting after the caps (the same keys as the setting itself); it is
     // the setting when `capped` is false (custom, ultra, or a project that asks for less than the preset allows).
@@ -2302,6 +2308,23 @@ Json Engine::ray_tracing_status() {
                                       {"grids", giActive ? giStatus.grids : 0},
                                       {"probesPerFrame", giActive ? giStatus.probesPerFrame : 0},
                                       {"budget", giActive ? giStatus.budget : 0}});
+    }
+    // M79-P4b-1: the bounce traced for every pixel (gi "perPixel"), as of the last whole frame. `active` is true when that frame's
+    // lit meshes read the denoised bounce (or the noisy one while the denoiser refused).
+    {
+        const bool pixelActive = rt.enabled && supported && giPixelOn && giPixelStatus.active;
+        std::string pixelReason;
+        if (giPixelOn && rt.enabled && !pixelActive)
+            pixelReason = !supported                     ? std::string("this device cannot trace rays")
+                          : giPixelStatus.reason.empty() ? std::string("no frame has been drawn yet")
+                                                         : giPixelStatus.reason;
+        else if (rt.enabled && impl_->rayTracing.gi == render::RtGi::PerPixel)
+            pixelReason = "the graphics preset \"" + std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                          "\" does not allow gi \"perPixel\" (presetCap.effective.gi); the probes and the ambient "
+                          "light the meshes";
+        // `wanted`: gi "perPixel" is on after the preset's caps (a preset that caps gi leaves it false, presetCap says so).
+        j["giPixel"] =
+            Json::object({{"active", pixelActive}, {"wanted", rt.enabled && giPixelOn}, {"reason", pixelReason}});
     }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
@@ -2343,12 +2366,17 @@ Json Engine::ray_tracing_status() {
                            "no probe updated by rays in the last frame (the raster captures keep the grids): ") +
                            giStatus.reason) +
                 "; the lit meshes read the grids as they always did)");
-        j["reason"] =
-            "Traced: " + what + "." +
-            (rt.gi == render::RtGi::PerPixel ? " gi \"perPixel\" is not made yet and draws nothing." : std::string());
+        if (giPixelOn)
+            add(std::string("the indirect diffuse light of every pixel of the main camera (raysPerPixel cosine "
+                            "rays bounce once, a hit adds the probe grids' or the ambient light, the result is "
+                            "denoised and replaces the probes' and the ambient term of the lit meshes; ") +
+                (giPixelStatus.active ? std::string("the last frame drew it")
+                                      : "the last frame kept the probes and the ambient: " + giPixelStatus.reason) +
+                ")");
+        j["reason"] = "Traced: " + what + ".";
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
-                      "reflections, translucency and gi \"probes\" are made so far).";
+                      "reflections, translucency and gi \"probes\" or \"perPixel\" are made so far).";
     if (presetCapped && impl_->rayTracing.enabled && supported)
         j["reason"] = j["reason"].get<std::string>() + " The graphics preset \"" +
                       std::string(render::graphics_preset_name(impl_->graphicsPreset)) +

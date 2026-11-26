@@ -83,6 +83,12 @@ render::RtGiStatus Renderer::ray_tracing_gi_status() const {
     return impl_->rtGiStatus;
 }
 
+render::RtGiPixelStatus Renderer::ray_tracing_gi_pixel_status() const {
+    if (!impl_) return {};
+    std::lock_guard<std::mutex> lock(impl_->rtGiStatusMutex);
+    return impl_->rtGiPixelStatus;
+}
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -92,8 +98,10 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
     rtShadowDraws = {};
+    giPixelDraws = {};
     rtAccelPass.clear();
     rtGiHitValid = false;
+    rtGiPixelFrame = {};
     rtLocalCandidatesShown = rtLocalFrame.candidates;
     rtLocalTracedShown = rtLocalFrame.traced;
     rtLocalFrame = {};
@@ -126,6 +134,7 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedLocal = false;
         rtWarnedTranslucency = false;
     }
+    if (!wanted || rtSettings.gi != render::RtGi::PerPixel) rtWarnedGiPixel = false;
     if (!wanted || !ptSettings.enabled) {
         rtWarnedPathTrace = false;
         ptState.clear();  // off (or nothing traces here): the accumulation starts over when it is turned on
@@ -158,6 +167,44 @@ void Renderer::Impl::rt_begin_frame() {
             gpu.note_commit();
         }
     });
+}
+
+// After the frame graph ran (Renderer::render, next to probes_finish): did the per-pixel GI light the main camera's surfaces this frame? A pass that was
+// declared and did not run is counted: a reason it declared (the driver refused the kernel) falls back to the probe and ambient term at once, a pass
+// with none (the traced scene had no instance yet) gets kGiRtMissFrames frames; the term then holds for kGiRtRetryFrames frames before the next try.
+void Renderer::Impl::rt_gi_pixel_finish() {
+    render::RtGiPixelStatus st;
+    st.wanted = rtSettings.enabled && rtSettings.gi == render::RtGi::PerPixel;
+    if (!st.wanted) {  // turned off (and on again later): the next try starts clean
+        rtGiPixelMisses = 0;
+        rtGiPixelFallbackUntil = 0;
+        rtGiPixelFallbackReason.clear();
+    } else if (rtGiPixelFrame.declared) {
+        if (rtGiPixelFrame.img && rtGiPixelFrame.img->ran) {
+            rtGiPixelMisses = 0;
+            st.active = rtGiPixelFrame.bound;
+            if (!st.active)  // traced, but no pass could read the image: the surfaces keep the probe and ambient light
+                st.reason = "the traced image was not bound to the lit meshes (the denoiser did not make its image and "
+                            "this device cannot "
+                            "filter a 32-bit float image): the surfaces use the probe and ambient light";
+        } else {
+            const std::string why = rtEffects.failure_of("gipixel");
+            st.reason = why.empty() ? "the traced scene was not ready this frame (it has no instance yet)" : why;
+            if (!why.empty() || ++rtGiPixelMisses >= kGiRtMissFrames) {
+                rtGiPixelFallbackUntil = frameSerial + std::uint64_t(kGiRtRetryFrames);
+                rtGiPixelFallbackReason = st.reason +
+                                          " (the probe and ambient light is used; the rays are tried again in " +
+                                          std::to_string(kGiRtRetryFrames) + " frames)";
+                rtGiPixelMisses = 0;
+            }
+        }
+    } else {
+        st.reason = !rtGiPixelFrame.why.empty()            ? rtGiPixelFrame.why
+                    : frameSerial < rtGiPixelFallbackUntil ? rtGiPixelFallbackReason
+                                                           : std::string("no camera drew the scene this frame");
+    }
+    std::lock_guard<std::mutex> lock(rtGiStatusMutex);
+    rtGiPixelStatus = std::move(st);
 }
 
 }  // namespace fa

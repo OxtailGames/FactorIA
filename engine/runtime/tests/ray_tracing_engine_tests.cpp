@@ -206,6 +206,39 @@ TEST_CASE(
     e.shutdown();
 }
 
+TEST_CASE(
+    "render.ray_tracing: giPixel is inactive and empty until gi is perPixel, then follows the device and says what is "
+    "traced") {
+    TempProject p("gipixel");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("render.ray_tracing", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["giPixel"].is_object());
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK(r.result["giPixel"]["reason"] == "");
+    r = c.call("render.ray_tracing", Json::parse(R"({"enabled":true,"gi":"perPixel"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["gi"] == "perPixel");
+    CHECK(r.result["active"] == r.result["supported"]);  // the per-pixel GI is an effect that draws with rays
+    // No frame has been drawn in this engine: not active, and it says why instead of staying silent.
+    CHECK(r.result["giPixel"]["wanted"] == true);
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK_FALSE(r.result["giPixel"]["reason"].get<std::string>().empty());
+    const std::string reason = r.result["reason"].get<std::string>();
+    REQUIRE_FALSE(reason.empty());
+    CHECK_FALSE(contains(reason, "not made yet"));
+    if (r.result["supported"].get<bool>()) CHECK(contains(reason, "indirect diffuse"));
+    // Another gi value: the per-pixel status is empty again.
+    r = c.call("render.ray_tracing", Json::parse(R"({"gi":"off"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK(r.result["giPixel"]["reason"] == "");
+    e.shutdown();
+}
+
 // ---- M79-P5a: render.pathTracer, render.path_tracer and render.pathtrace (docs/RAY_TRACING.md, "The path tracer") ----------------------------------------------
 
 TEST_CASE(
@@ -381,6 +414,21 @@ TEST_CASE("render.ray_tracing: presetCap says what the graphics preset allows, i
     CHECK(contains(r["giProbes"]["reason"].get<std::string>(), "graphics preset \"high\""));
     CHECK(r["active"] == r["supported"]);  // hard shadows and ao are left: traced where the device traces
     if (r["supported"].get<bool>()) CHECK(contains(r["reason"].get<std::string>(), "graphics preset \"high\""));
+
+    // M79-P4b-1 x P6a: the same for gi perPixel: high does not allow it, so the per-pixel GI is not wanted, not active, and says the preset.
+    set = c.call("render.ray_tracing", Json::parse(R"({"gi":"perPixel"})"));
+    REQUIRE_MESSAGE(set.ok, set.error.dump());
+    r = set.result;
+    CHECK(r["gi"] == "perPixel");
+    CHECK(r["presetCap"]["capped"] == true);
+    CHECK(r["presetCap"]["effective"]["gi"] == "off");
+    REQUIRE(r["giPixel"].is_object());
+    CHECK(r["giPixel"]["wanted"] == false);
+    CHECK(r["giPixel"]["active"] == false);
+    CHECK(contains(r["giPixel"]["reason"].get<std::string>(), "graphics preset \"high\""));
+    CHECK(r["giProbes"]["wanted"] == false);
+    REQUIRE(
+        c.call("render.ray_tracing", Json::parse(R"({"gi":"probes"})")).ok);  // back to what the rest of the case reads
 
     // low and medium trace nothing: not active, whatever the device.
     for (const char* preset : {"low", "medium"}) {

@@ -653,6 +653,11 @@ struct Renderer::Impl {
             local =
                 0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
     } rtShadowDraws;
+    // Tests (RendererTestAccess::rt_gi_pixel_draws): while the per-pixel GI image is bound, the opaque draws that read it (`on`) and those that keep the
+    // probes and the ambient light (`off`: baked light, no prepass image of their own, a terrain node, an impostor card). Reset by rt_begin_frame.
+    struct GiPixelDraws {
+        int on = 0, off = 0;
+    } giPixelDraws;
     // M79-P2a-3 (rt_local_shadows.h): which light holds each of the kRtLocalMaxLights slots of a camera (by camera entity bits), kept from frame to
     // frame so a light keeps its slot and the denoiser its history; what the frame did for `render.ray_tracing` (the lights that asked, the lights
     // traced; the highest over the frame's cameras, reset by rt_begin_frame) and the one-time message of a pipeline the device refused.
@@ -672,6 +677,22 @@ struct Renderer::Impl {
     bool rtGiHitValid = false;
     mutable std::mutex rtGiStatusMutex;
     render::RtGiStatus rtGiStatus;
+    // M79-P4b-1 (rt_gi_pixel, ARCHITECTURE_RT_GI.md "Per pixel"): the main camera's per-pixel traced GI. `rtGiPixelFrame` is what build_graph did this
+    // frame (reset by rt_begin_frame); the fallback state counts frames like the probes' (kGiRtMissFrames, kGiRtRetryFrames); rt_gi_pixel_finish, after
+    // the frame graph ran, settles it and writes `rtGiPixelStatus` (under rtGiStatusMutex).
+    struct RtGiPixelFrame {
+        bool declared = false;  // the kernel's pass is in the graph
+        bool bound = false;     // the main pass bound the image at the lightmap slot (the surfaces can read it)
+        const RtEffectImage* img = nullptr;
+        std::string why;  // why nothing was declared (empty: no camera drew the scene)
+    } rtGiPixelFrame;
+    int rtGiPixelMisses = 0;                   // frames in a row the declared pass did not run
+    std::uint64_t rtGiPixelFallbackUntil = 0;  // frameSerial: the probe and ambient term lights the surfaces until then
+    std::string rtGiPixelFallbackReason;
+    render::RtGiPixelStatus rtGiPixelStatus;
+    bool rtWarnedGiPixel = false;                           // the one-time message of the kernel
+    static constexpr std::uint32_t kRtGiPixelSignalId = 7;  // DenoiseSignal::id of the per-pixel GI (Diffuse)
+    void rt_gi_pixel_finish();
     static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
     bool rtWarnedEffect = false;
     bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages

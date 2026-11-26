@@ -240,10 +240,9 @@ std::string command_field_doc(const CommandRegistry& commands, const char* comma
 }
 
 // What the "Ray tracing" group shows, for the autotest: the line about this machine, the note that this window cannot show the effect (empty
-// when the device traces), the line about the graphics preset's caps (empty when none) and the sentence under the gi mode when it is one
-// that is not drawn yet (empty otherwise).
+// when the device traces) and the line about the graphics preset's caps (empty when none).
 struct RayTracingLines {
-    std::string device, cannotShow, presetNote, giComing;
+    std::string device, cannotShow, presetNote;
 };
 
 // The "Ray tracing" and "Path tracer" groups (render.rayTracing and render.pathTracer, docs/RAY_TRACING.md): whether this machine's
@@ -307,24 +306,13 @@ RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support
         if (open) {
             for (int i = 0; i < render::kRtGiCount; ++i) {
                 const std::string name(render::kRtGiNames[std::size_t(i)]);
-                const std::string coming = ray_tracing_gi_coming(name);
-                // A mode that is not drawn yet is listed and greyed out, with what it will do: the file may still name it.
-                ImGui::BeginDisabled(!coming.empty());
                 if (ImGui::Selectable(name.c_str(), int(rt.gi) == i)) rt.gi = render::RtGi(i);
-                ImGui::EndDisabled();
-                track("gfx:rtGi:" + name, coming.empty());
-                if (!coming.empty()) gfx_tip_always(coming.c_str());
+                track("gfx:rtGi:" + name, true);
             }
             ImGui::EndCombo();
         }
         gfx_tip_always(rt_doc("gi").c_str());
         show_problem("/render/rayTracing/gi");
-        out.giComing = ray_tracing_gi_coming(std::string(render::rt_gi_name(rt.gi)));
-        if (!out.giComing.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("%s", out.giComing.c_str());
-            ImGui::PopStyleColor();
-        }
     }
     int rays = rt.raysPerPixel;
     if (ImGui::SliderInt("Rays per pixel##rt", &rays, render::kRtMinRaysPerPixel, render::kRtMaxRaysPerPixel))
@@ -533,7 +521,6 @@ void Editor::draw_graphics_settings_panel() {
     graphicsRayTracingLine_ = rtLines.device;
     graphicsRayTracingCannotShow_ = rtLines.cannotShow;
     graphicsRayTracingPresetNote_ = rtLines.presetNote;
-    graphicsRayTracingGiComing_ = rtLines.giComing;
     ImGui::EndChild();
 
     ImGui::Separator();

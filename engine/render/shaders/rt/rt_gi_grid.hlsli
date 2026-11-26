@@ -1,0 +1,120 @@
+// The light the realtime GI grids give at a point (M79-P4a, P4b-1): the octahedral map of gi.h and `gi_grid_light`, the lit shader's fa_gi_grid with
+// texel fetches instead of samples. Shared by rt_gi.hlsl (the grid's own multi-bounce) and rt_gi_pixel.hlsl (the tail of a hit of the per-pixel
+// GI); tools/shaders/compile_rt_shaders.sh and DXC expand it where it is included. The caller declares nothing before it but the atlas
+// (a Texture2D<float4> it passes as `atlas`).
+#ifndef FA_RT_GI_GRID_HLSLI
+#define FA_RT_GI_GRID_HLSLI
+
+// The octahedral map of probe.h: the pole is +Y, the map's two axes are x and z; a coordinate past [-1, 1] is folded back.
+float2 gi_oct_fold(float2 e) {
+    if (e.x > 1.0) {
+        e.x = 2.0 - e.x;
+        e.y = -e.y;
+    } else if (e.x < -1.0) {
+        e.x = -2.0 - e.x;
+        e.y = -e.y;
+    }
+    if (e.y > 1.0) {
+        e.y = 2.0 - e.y;
+        e.x = -e.x;
+    } else if (e.y < -1.0) {
+        e.y = -2.0 - e.y;
+        e.x = -e.x;
+    }
+    return e;
+}
+float3 gi_oct_decode(float2 e) {
+    e = gi_oct_fold(e);
+    float x = e.x, z = e.y;
+    float y = 1.0 - abs(x) - abs(z);
+    if (y < 0.0) {
+        const float nx = (1.0 - abs(z)) * (x >= 0.0 ? 1.0 : -1.0);
+        const float nz = (1.0 - abs(x)) * (z >= 0.0 ? 1.0 : -1.0);
+        x = nx;
+        z = nz;
+    }
+    const float len = sqrt(x * x + y * y + z * z);
+    return len > 0.0 ? float3(x, y, z) / len : float3(0.0, 1.0, 0.0);
+}
+float2 gi_oct_encode(float3 d) {
+    const float sum = abs(d.x) + abs(d.y) + abs(d.z);
+    if (!(sum > 0.0)) return float2(0.0, 0.0);
+    float x = d.x / sum, y = d.y / sum, z = d.z / sum;
+    if (y < 0.0) {
+        const float nx = (1.0 - abs(z)) * (x >= 0.0 ? 1.0 : -1.0);
+        const float nz = (1.0 - abs(x)) * (z >= 0.0 ? 1.0 : -1.0);
+        x = nx;
+        z = nz;
+    }
+    return float2(x, z);
+}
+
+float4 gi_fetch(Texture2D<float4> atlas, float2 texel) { return atlas.Load(int3(int2(floor(texel)), 0)); }
+
+// The light the grid's probes give at `p` for a surface facing `n` (the lit shader's fa_gi_grid, with texel fetches instead of samples): the
+// irradiance / pi from the SH of the eight probes around the point, weighted by trilinear x back-face x Chebyshev. `cover` is how much of the
+// point the grid answers for (1 inside, 0 outside or where no probe sees it).
+float3 gi_grid_light(Texture2D<float4> atlas, float4 grid0, float4 grid1, float4 grid2, float4 grid3, float3 p, float3 n, out float cover) {
+    cover = 0.0;
+    const float spacing = max(grid0.w, 1.0e-4);
+    const float3 cnt = grid1.xyz;
+    const float3 rel = (p - grid0.xyz) / spacing;
+    const float3 inner = min(rel + 0.5, cnt - 0.5 - rel);
+    const float edge = min(inner.x, min(inner.y, inner.z));
+    if (!(edge > 0.0)) return float3(0.0, 0.0, 0.0);
+    const float box = smoothstep(0.0, 1.0, clamp(edge * 2.0, 0.0, 1.0));
+    const float3 g = clamp(rel, 0.0, cnt - 1.0);
+    const float3 i0 = min(floor(g), max(cnt - 2.0, 0.0));
+    const float3 f = g - i0;
+    const float3 pb = p + n * (0.2 * spacing);
+    const int bpr = int(grid2.y + 0.5);
+    const float b0 = 0.282094792;
+    const float b1 = 0.325735008 * n.y;
+    const float b2 = 0.325735008 * n.z;
+    const float b3 = 0.325735008 * n.x;
+    const float b4 = 0.273137108 * n.x * n.y;
+    const float b5 = 0.273137108 * n.y * n.z;
+    const float b6 = 0.078847891 * (3.0 * n.z * n.z - 1.0);
+    const float b7 = 0.273137108 * n.x * n.z;
+    const float b8 = 0.136568554 * (n.x * n.x - n.y * n.y);
+    float3 acc = float3(0.0, 0.0, 0.0);
+    float wsum = 0.0;
+    for (int k = 0; k < 8; ++k) {
+        const float3 d = float3(float(k & 1), float((k >> 1) & 1), float((k >> 2) & 1));
+        const float tri = (d.x > 0.5 ? f.x : 1.0 - f.x) * (d.y > 0.5 ? f.y : 1.0 - f.y) * (d.z > 0.5 ? f.z : 1.0 - f.z);
+        if (!(tri > 0.0)) continue;
+        const float3 pr = min(i0 + d, cnt - 1.0);
+        const int blk = int(grid2.x + pr.x + cnt.x * (pr.y + cnt.y * pr.z) + 0.5);
+        const float2 org = float2(float(blk % bpr) * 10.0, 1024.0 + float(blk / bpr) * 11.0);
+        const float4 meta = gi_fetch(atlas, org + float2(9.5, 10.5));
+        if (meta.g < 0.5 || meta.r > grid3.y) continue;
+        const float3 toPoint = pb - (grid0.xyz + pr * spacing);
+        const float dist = length(toPoint);
+        const float3 dir = toPoint / max(dist, 1.0e-4);
+        float w = tri;
+        const float back = max(0.0001, (dot(-dir, n) + 1.0) * 0.5);
+        w *= back * back;
+        const float2 e = gi_oct_encode(dir);
+        const float2 mom = gi_fetch(atlas, org + 1.0 + (e * 0.5 + 0.5) * 8.0).rg;
+        const float dn = dist / max(grid2.z, 1.0e-4);
+        if (dn > mom.x) {
+            const float variance = max(mom.y - mom.x * mom.x, 0.0);
+            const float dd = dn - mom.x;
+            const float cheb = variance / max(variance + dd * dd, 1.0e-12);
+            w *= cheb * cheb * cheb;
+        }
+        if (!(w > 0.0)) continue;
+        const float2 sh = org + float2(0.5, 10.5);
+        const float3 irr = gi_fetch(atlas, sh).rgb * b0 + gi_fetch(atlas, sh + float2(1.0, 0.0)).rgb * b1 + gi_fetch(atlas, sh + float2(2.0, 0.0)).rgb * b2 +
+                           gi_fetch(atlas, sh + float2(3.0, 0.0)).rgb * b3 + gi_fetch(atlas, sh + float2(4.0, 0.0)).rgb * b4 +
+                           gi_fetch(atlas, sh + float2(5.0, 0.0)).rgb * b5 + gi_fetch(atlas, sh + float2(6.0, 0.0)).rgb * b6 +
+                           gi_fetch(atlas, sh + float2(7.0, 0.0)).rgb * b7 + gi_fetch(atlas, sh + float2(8.0, 0.0)).rgb * b8;
+        acc += irr * w;
+        wsum += w;
+    }
+    if (!(wsum > 1.0e-5)) return float3(0.0, 0.0, 0.0);
+    cover = box * smoothstep(0.0, 0.02, wsum);
+    return max(acc / wsum, 0.0);
+}
+
+#endif
