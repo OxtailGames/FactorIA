@@ -1045,8 +1045,15 @@ TEST_CASE("rt local shadows: the volumetric fog's march reads the maps, so a tra
     };
     {
         Rig probe;
-        if (!probe.renderer.supports("volumetricFog"))
-            return;  // the march is not made on this device: nothing reads the maps
+        World w;
+        make_room(w);
+        add_lights(w, 1);
+        w.each<Light>([](Entity, Light& l) { l.volumetric = 1.0f; });
+        w.settings().volumetricFog = true;
+        w.settings().volumetricDensity = 0.05f;
+        probe.frame(w);
+        REQUIRE(probe.renderer.stats().volumetricCameras ==
+                1);  // the camera draws the fog: without it nothing would be tested
     }
     const int raster = draws_of(render::RtShadows::Off, true, 1.0f);
     const int shining = draws_of(render::RtShadows::Hard, true, 1.0f);
