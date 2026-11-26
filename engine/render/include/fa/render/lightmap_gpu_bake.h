@@ -31,7 +31,9 @@ public:
 
     // Opens a GPU that traces rays (a few hundred milliseconds). Create, use and destroy the tracer on ONE thread. The error says why no device
     // can ("D3D12: ...; Vulkan: ...") and the hint what to do: the caller falls back to the CPU baker with it.
-    static Result<std::unique_ptr<LightmapGpuTracer>> open();
+    // `allowSoftware` false skips a device that is a CPU rasteriser (WARP, llvmpipe, lavapipe): the "auto" choice of the bake command, which
+    // must not run a software ray tracer in place of the CPU baker; `gpu` passes true.
+    static Result<std::unique_ptr<LightmapGpuTracer>> open(bool allowSoftware = true);
 
     // "Metal (Apple)", "D3D12 (NVIDIA)": what the bake ran on.
     const std::string& device_name() const;

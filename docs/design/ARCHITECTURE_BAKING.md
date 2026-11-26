@@ -214,7 +214,8 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   bake in the editor or in `factoria call` without `--no-graphics` (the answer says so); D3D12 and Vulkan devices are independent of it and
   work next to a window. The commands run the tracer on the job thread that bakes.
 - **No device, no failure of `auto`.** `device: "gpu"` with no GPU that traces rays (or a tracer that fails: a scene too big, a refused
-  buffer) fails with the reason and the hint `device: "cpu"`; `"auto"` bakes on the CPU and puts the reason in the result's `device.note` and
+  buffer) fails with the reason and the hint `device: "cpu"`; `"auto"` bakes on the CPU (it also leaves out a software
+  rasteriser, WARP or lavapipe: `open(allowSoftware=false)`; only `"gpu"` takes one, and no CI test asks for it) and puts the reason in the result's `device.note` and
   `warnings` once. The result's `device` is `{requested, used, name, note}`. The `settingsHash` includes the requested device when it is
   not `"cpu"` (the CPU's hash is what it was), so `lightmap.status` calls a GPU preview stale once a CPU bake is asked for. The light
   probes (`sample_probes`) always bake on the CPU, and the result says so in `warnings`.
