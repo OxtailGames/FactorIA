@@ -29,6 +29,7 @@
 
 @image_sample_type tex_n unfilterable_float
 @image_sample_type tex_p unfilterable_float
+@image_sample_type tex_g unfilterable_float
 @image_sample_type tex_v unfilterable_float
 @image_sample_type tex_hc unfilterable_float
 @image_sample_type tex_hm unfilterable_float
@@ -324,34 +325,43 @@ void main() {
 // ---------------------------------------------------------------------------------------------------------------------------------------
 @fs fs_atrous
 layout(binding=6) uniform texture2D tex_c;
-layout(binding=1) uniform texture2D tex_p;
+layout(binding=1) uniform texture2D tex_g;
 layout(binding=4) uniform texture2D tex_hm;
 layout(binding=7) uniform texture2D tex_r;
 layout(binding=0) uniform sampler smp_pt;
 layout(binding=1) uniform rtd_atrous_params {
     vec4 a;     // x = 1 when render targets are bottom-up (OpenGL), yz = the size of every image in pixels, w = the step of this iteration in pixels
     vec4 s;     // x = channels (1 or 3), y = signal kind, z = the share of the depth a neighbour may be off the plane, w = the exponent of the normal weight
-    vec4 f;     // x = the width of the luminance weight in standard deviations, y = 1 when the roughness is bound, z = the roughness of a pixel without one, w = 0
-    vec4 cam;   // xy = what a unit of normalised device coordinates is in view space at depth 1, z = 1 for an orthographic camera
+    vec4 f;     // x = the width of the luminance weight in standard deviations, y = 1 when the roughness is bound, z = the roughness of a pixel without one, w = the kernel's radius: 2 = the 5x5 B3 spline, 1 = a 3x3 [1 2 1]
+    vec4 cam;   // xy = what a unit of normalised device coordinates is in view space at depth 1, z = 1 for an orthographic camera, w = the standard deviation (relative to 0.25 + the luminance) under which the pixel is left as it is (0 = never)
+    vec4 wx;    // the rotation of the view matrix, as in rtd_guide_params (the pixel's world normal becomes a view-space one again with it)
+    vec4 wy;
+    vec4 wz;
 };
 in vec2 uv;
 out vec4 out_color;
 @include_block rtd_common
 
-vec2 rtd_uv(vec2 ip) {
-    vec2 t = (ip + 0.5) / a.yz;
-    return vec2(t.x, mix(t.y, 1.0 - t.y, a.x));
-}
-
+// The camera's guide of THIS frame (the fs_guide pass wrote it): r = linear view depth (0 where nothing was drawn), gba = the world-space unit
+// normal. Every tap reads it instead of decoding the prepass's octahedral normal, and the normal's cosine is a plain dot product.
 void main() {
-    vec4 pre = textureLod(sampler2D(tex_p, smp_pt), uv, 0.0);
+    vec4 gc = textureLod(sampler2D(tex_g, smp_pt), uv, 0.0);
     vec4 cc = textureLod(sampler2D(tex_c, smp_pt), uv, 0.0);
-    if (pre.a < 0.5) {
+    if (!(gc.r > 0.0)) {
         out_color = cc;
         return;
     }
-    float dp = pre.r;
-    vec3 np = rtd_oct_decode(pre.gb);
+    // A pixel whose estimate is already clean (a long history and the iterations before it) is left as it is: the filter would change it by less
+    // than the eye tells apart (cam.w), and the pass that reads only the pixel's own two texels costs next to nothing there.
+    float lp = rtd_luma(cc.rgb, s.x);
+    float calm = cam.w * (0.25 + lp);
+    if (cam.w > 0.0 && cc.a <= calm * calm) {
+        out_color = cc;
+        return;
+    }
+    float dp = gc.r;
+    vec3 nwp = gc.gba;
+    vec3 np = nwp.x * wx.xyz + nwp.y * wy.xyz + nwp.z * wz.xyz;   // the view-space normal: the plane test is made in view space
     vec2 ip = floor(vec2(uv.x, mix(uv.y, 1.0 - uv.y, a.x)) * a.yz);
     vec3 pp = rtd_view_pos((ip + 0.5) / a.yz, dp, cam);
 
@@ -381,38 +391,47 @@ void main() {
             vec2 q = ip + vec2(float(x), float(y));
             if (q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
             float w = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25);
-            varSum += w * max(textureLod(sampler2D(tex_c, smp_pt), rtd_uv(q), 0.0).a, 0.0);
+            vec2 t = (q + 0.5) / a.yz;
+            varSum += w * max(textureLod(sampler2D(tex_c, smp_pt), vec2(t.x, mix(t.y, 1.0 - t.y, a.x)), 0.0).a, 0.0);
             varW += w;
         }
     }
     float sigmaL = f.x * sqrt(varSum / max(varW, 1e-6)) + 1e-4;
-    float lp = rtd_luma(cc.rgb, s.x);
     float ptol = max(s.z * dp * (1.0 + 0.1 * st), 1e-5);
 
+    // A neighbour's weight is the product of four terms, each an exponential or a power: kernel * exp(-plane^2) * cos^p * exp(-|dL| / sigma)
+    // * exp(-8 |dRoughness|). One exp2 of the sum of their logarithms is the same number with one transcendental instead of four.
+    const float LOG2E = 1.4426950408889634;
+    float invSigma = LOG2E / sigmaL;
+    float invPtol = 1.0 / ptol;
     vec3 acc = vec3(0.0);
     float wsum = 0.0;
     float vacc = 0.0;
+    const int rad = f.w > 1.5 ? 2 : 1;   // the kernel's radius: the first iterations are 5x5, the wide ones 3x3 (a quarter of the taps)
     for (int y = -2; y <= 2; y++) {
+        if (abs(y) > rad) continue;
         for (int x = -2; x <= 2; x++) {
+            if (abs(x) > rad) continue;
+            if (rad == 2 && abs(x) == 2 && abs(y) == 2) continue;   // the four corners of the 5x5 weigh 1/256 each (1.6% together)
             vec2 off = vec2(float(x), float(y)) * st;
             off = sign(off) * floor(abs(off) + 0.5);
             vec2 q = ip + off;
             if (q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
-            float hk = rtd_kernel(x) * rtd_kernel(y);
+            float hk = rad == 2 ? rtd_kernel(x) * rtd_kernel(y) : (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25);
             float w = hk;
             vec4 cq = cc;
             if (x != 0 || y != 0) {
-                vec2 tq = rtd_uv(q);
-                vec4 pq = textureLod(sampler2D(tex_p, smp_pt), tq, 0.0);
-                if (pq.a < 0.5) continue;
+                vec2 sq = (q + 0.5) / a.yz;
+                vec2 tq = vec2(sq.x, mix(sq.y, 1.0 - sq.y, a.x));
+                vec4 gq = textureLod(sampler2D(tex_g, smp_pt), tq, 0.0);
+                if (!(gq.r > 0.0)) continue;
                 cq = textureLod(sampler2D(tex_c, smp_pt), tq, 0.0);
-                vec3 pn = rtd_view_pos((q + 0.5) / a.yz, pq.r, cam);
-                float dist = dot(pn - pp, np) / ptol;
-                float wz = exp(-dist * dist);
-                float wn = pow(max(dot(np, rtd_oct_decode(pq.gb)), 0.0), s.w);
-                float wl = exp(-abs(lp - rtd_luma(cq.rgb, s.x)) / sigmaL);
-                w = hk * wz * wn * wl;
-                if (roughP >= 0.0) w *= exp(-abs(textureLod(sampler2D(tex_r, smp_pt), tq, 0.0).r - roughP) * 8.0);
+                vec3 pn = rtd_view_pos(sq, gq.r, cam);
+                float dist = dot(pn - pp, np) * invPtol;
+                float cosN = dot(nwp, gq.gba);
+                float e = -dist * dist * LOG2E - abs(lp - rtd_luma(cq.rgb, s.x)) * invSigma;
+                if (roughP >= 0.0) e -= abs(textureLod(sampler2D(tex_r, smp_pt), tq, 0.0).r - roughP) * (8.0 * LOG2E);
+                w = cosN > 0.0 ? hk * exp2(e + s.w * log2(cosN)) : 0.0;
             }
             acc += w * cq.rgb;
             wsum += w;

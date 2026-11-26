@@ -22,11 +22,19 @@ static_assert(UB_rt_denoise_rtd_guide_params == 1 && UB_rt_denoise_rtd_temporal_
               "the denoise fragment uniform slots");
 static_assert(VIEW_rt_denoise_tex_n == 0 && VIEW_rt_denoise_tex_p == 1 && VIEW_rt_denoise_tex_v == 2 &&
                   VIEW_rt_denoise_tex_hc == 3 && VIEW_rt_denoise_tex_hm == 4 && VIEW_rt_denoise_tex_hg == 5 &&
-                  VIEW_rt_denoise_tex_c == 6 && VIEW_rt_denoise_tex_r == 7,
+                  VIEW_rt_denoise_tex_c == 6 && VIEW_rt_denoise_tex_r == 7 && VIEW_rt_denoise_tex_g == 1,
               "the denoise view slots");
 static_assert(SMP_rt_denoise_smp_pt == 0, "the denoise sampler slot");
 
 constexpr gpu::PixelFormat kColorFormat = gpu::PixelFormat::Rgba16F;
+// The a-trous filter of the iterations from kWideFrom on is a 3x3 (the steps are 4, 8 and 16 pixels there: the taps are far apart, the
+// B3 spline's outer ring adds little), the first ones a 5x5. From kCalmFrom on (the input of those iterations is already filtered, its
+// variance is a neighbourhood's, not one pixel's) a pixel whose standard deviation is under kCalmSd of its own brightness (+ 0.25) is
+// left as it is: less than one level of an 8-bit picture. The first iteration never skips: a pixel whose own history has no spread yet
+// (a Bernoulli signal that was 0 every frame so far) still takes its value from the neighbours.
+constexpr int kWideFrom = 2;
+constexpr int kCalmFrom = 1;
+constexpr float kCalmSd = 0.003f;
 constexpr float kMinNormalDot =
     0.9f;  // the cosine between two normals below which the temporal pass and the variance estimate see two surfaces
 
@@ -414,7 +422,7 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
                                      const DenoiseSignal& signal, const DenoiseInputs& in, int* drawCalls,
                                      const std::string& job) {
     DenoiseOutput out;
-    auto fail = [&](const char* why) {
+    auto fail = [&](const std::string& why) {
         out.valid = false;
         out.why = why;
         return out;
@@ -464,18 +472,21 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         const std::uint64_t used = used_bytes(needGuide ? &g : nullptr, needSignal ? sig.get() : nullptr);
         const std::uint64_t wanted = sat_add(needGuide ? plan.guideBytes : 0, needSignal ? plan.historyBytes : 0);
         if (sat_add(used, wanted) > budget) {
+            const std::uint64_t wantedMb = (wanted >> 20) + ((wanted & ((std::uint64_t(1) << 20) - 1)) ? 1 : 0);
             if (!refused_) {
                 refused_ = true;
                 FA_ERROR("render",
-                         "Ray tracing denoiser: signal '{}' of camera '{}' needs history images of {}x{} and the "
-                         "renderer cannot hold "
-                         "them (the histories take at most {} MB). The signal is shown without denoising. Hint: lower "
-                         "the render scale "
-                         "or the window size.",
-                         signal.name.empty() ? kind_label(signal.kind) : signal.name, job, w, h, budget >> 20);
+                         "Ray tracing denoiser: signal '{}' of camera '{}' needs {} MB of history images ({}x{}) and "
+                         "the renderer may hold {} MB of them in all ({} MB are in use by the other signals and "
+                         "cameras). The signal is shown without denoising. Hint: lower the render scale or the window "
+                         "size, or turn off a ray traced effect that is denoised (every one keeps its own images; "
+                         "docs/design/ARCHITECTURE_DENOISE.md, \"Memory\").",
+                         signal.name.empty() ? kind_label(signal.kind) : signal.name, job, wantedMb, w, h, budget >> 20,
+                         used >> 20);
             }
             cleanup_empty();
-            return fail("the history images do not fit the budget");
+            return fail("the history images do not fit the budget of " + std::to_string(budget >> 20) + " MB (" +
+                        std::to_string(wantedMb) + " MB wanted, " + std::to_string(used >> 20) + " MB in use)");
         }
         bool ok = true;
         if (needGuide) {
@@ -637,6 +648,7 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         const ResourceId guideOut = graph.import_target(
             (job.empty() ? std::string() : job + "/") + "denoise-guide-out", g.img[guideWrite].color.id,
             desc_of((job.empty() ? std::string() : job + "/") + "denoise-guide-out", kColorFormat));
+        g.frameRes = guideOut;
         add((job.empty() ? std::string() : job + "/") + "denoise-guide", std::move(reads), {guideOut},
             [=](const PassContext& c) {
                 const gpu::View pre = prepass.get(c);
@@ -710,32 +722,35 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         });
     }
 
+    const ResourceId guideRes = g.frameRes;
+
     // 2. the a-trous iterations. The first one's result is the history (the filter of step 1); the last one's is what the caller gets.
     ResourceId src = accum, last = accum;
     for (int it = 0; it < st.iterations; ++it) {
         rt_denoise_rtd_atrous_params_t u{};
         set4(u.a, glFlip, fw, fh, float(1 << it));
         set4(u.s, float(plan.channels), float(int(plan.kind)), st.depthTolerance, st.normalPower);
-        set4(u.f, st.lumaSigma, roughness.valid() ? 1.0f : 0.0f, st.roughness, 0.0f);
-        set4(u.cam, cam.halfX, cam.halfY, cam.ortho ? 1.0f : 0.0f, 0.0f);
+        set4(u.f, st.lumaSigma, roughness.valid() ? 1.0f : 0.0f, st.roughness, it < kWideFrom ? 2.0f : 1.0f);
+        set4(u.cam, cam.halfX, cam.halfY, cam.ortho ? 1.0f : 0.0f, it >= kCalmFrom ? kCalmSd : 0.0f);
+        world_columns(cam.view, u.wx, u.wy, u.wz);
         const ResourceId dst = it == 0 ? colOut : (it % 2 == 1 ? bufA : bufB);
-        std::vector<ResourceId> reads{src, momOut};
-        push_if(reads, prepass);
+        std::vector<ResourceId> reads{src, momOut,
+                                      guideRes};  // the guide of this frame: depth and world normal of every tap
         push_if(reads, roughness);
         const bool dstIsHistory = it == 0, srcIsHistory = it == 1;
         const ResourceId from = src;
         add(base + "-atrous" + std::to_string(it), std::move(reads), {dst}, [=](const PassContext& c) {
-            const gpu::View pre = prepass.get(c);
             SignalSlot& s = *sig;
+            const gpu::View guide = camHold->guide.img[guideWrite].texView;
             const Target* srcT = srcIsHistory ? &s.col[writeIdx] : tt->get(c.handle(from));
             const Target* dstT = dstIsHistory ? &s.col[writeIdx] : tt->get(c.handle(dst));
-            if (!pre.id || !srcT || !dstT || !srcT->texView.id) return;
+            if (!guide.id || !srcT || !dstT || !srcT->texView.id) return;
             DrawArgs a;
             a.views[VIEW_rt_denoise_tex_c] = srcT->texView;
-            a.views[VIEW_rt_denoise_tex_p] = pre;
+            a.views[VIEW_rt_denoise_tex_g] = guide;
             a.views[VIEW_rt_denoise_tex_hm] = s.mom[writeIdx].texView;
             const gpu::View rough = roughness.valid() ? roughness.get(c) : gpu::View{};
-            a.views[VIEW_rt_denoise_tex_r] = rough.id ? rough : pre;
+            a.views[VIEW_rt_denoise_tex_r] = rough.id ? rough : guide;
             a.params = &u;
             a.paramBytes = sizeof(u);
             a.paramSlot = UB_rt_denoise_rtd_atrous_params;
