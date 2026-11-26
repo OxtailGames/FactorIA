@@ -896,6 +896,44 @@ TEST_CASE("rt effect: a device that cannot trace says so once and draws the fram
     CHECK(log.count("cannot run on this device") == 0);
 }
 
+// M79-P6b: the cost budget that a runner without ray tracing can check. Every effect asked for at once and the most rays, on a
+// device that cannot trace: the frame is the frame of ray tracing off, command for command (so its cost stays inside
+// the raster budget), and no kernel, image or acceleration structure is made. What the effects cost on a GPU that traces is a number of
+// docs/RAY_TRACING.md, "What it costs", measured by hand.
+TEST_CASE("rt effect: every effect on, on a device that cannot trace, draws exactly the frame of ray tracing off and "
+          "makes nothing") {
+    Logs log;
+    auto stream = [&](bool setting) {
+        Rig r(false);
+        if (setting) {
+            render::RayTracingSettings all;
+            all.enabled = true;
+            all.shadows = render::RtShadows::Soft;
+            all.ao = true;
+            all.reflections = true;
+            all.translucency = true;
+            all.gi = render::RtGi::PerPixel;
+            all.raysPerPixel = 16;
+            r.renderer.set_ray_tracing(all);
+        }
+        World w;
+        make_scene(w);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        return r.lines();
+    };
+    const std::vector<std::string> off = stream(false);
+    const std::vector<std::string> allOn = stream(true);
+    REQUIRE(off.size() > 5);
+    CHECK(off == allOn);
+    CHECK(log.count("cannot trace rays") == 1);
+}
+
 // ---- M79-P2b: ray traced ambient occlusion (shaders/rt/rt_ao.{hlsl,metal}, docs/design/ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)") ---------
 
 namespace {
