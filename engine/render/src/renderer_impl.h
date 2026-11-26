@@ -658,7 +658,8 @@ struct Renderer::Impl {
     // The denoiser of the ray traced effects (rt_denoise.h), empty and free until an effect asks: the soft sun shadow (P2a-2, signal id 1) and the
     // ambient occlusion (P2b, signal id 2); each signal keeps its own history per camera.
     RtDenoiser rtDenoiser;
-    bool rtWarnedAo = false;  // M79-P2b: the one-time message of the occlusion kernel
+    bool rtWarnedTranslucency = false;  // M79-P3b: the one-time message of the translucency kernel
+    bool rtWarnedAo = false;            // M79-P2b: the one-time message of the occlusion kernel
     static constexpr std::uint32_t kRtShadowSignalId = 1;
     static constexpr std::uint32_t kRtAoSignalId =
         2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)

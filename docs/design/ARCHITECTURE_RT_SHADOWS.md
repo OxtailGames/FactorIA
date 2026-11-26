@@ -63,7 +63,10 @@ full shader keeps its shadow maps.
 
 A traced light's maps are skipped at execution (`skipView` in the shadow pass; the atlas is still allocated and cleared, so the layout and the
 sun's cascades do not change) only when nothing would read them: the traced pass is declared, the TLAS is valid, `untracedCasters == 0`, no RT effect has
-failed, and the job has no blended mesh, decal, terrain, transmissive or subsurface draw and no full-shader material (those draws read the map). With any
+failed, and the job has no blended mesh, decal, terrain, transmissive or subsurface draw and no full-shader material (those draws read the map).
+The **volumetric fog** reads the maps too (its march, `vol_shadow_local` in `volumetric.glsl`): the map of a traced light is skipped only when
+the camera does not draw the fog (`postPlan.vol.on`) or that light's `Light.volumetric` is 0; a traced light that shines in the fog keeps its map
+(one light is decided apart from the others: a traced light with no volumetric share still skips it). With any
 of them the maps are drawn and the lit pass still takes the traced value (`min` with the map where the untraced casters are). CPU culling of the
 shadow casters still runs (it is cheap and the maps' budget needs it).
 

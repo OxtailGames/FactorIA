@@ -2185,7 +2185,7 @@ Json Engine::ray_tracing_status() {
         }
     }
     j["supported"] = supported;
-    // The sun's shadows, the ambient occlusion and the sharp reflections draw with rays so far (M79-P2a-1, P2b, P3a-1): an effect that is on,
+    // The sun's shadows, the ambient occlusion, the sharp reflections and the translucency draw with rays so far (M79-P2a-1, P2b, P3a-1, P3b): an effect that is on,
     // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
     // An effect whose kernel the driver rejected (or whose prepass does not match the output) draws its raster version: it is not active.
     const std::string failure = impl_->renderer ? impl_->renderer->ray_tracing_failure() : std::string();
@@ -2194,8 +2194,9 @@ Json Engine::ray_tracing_status() {
     const bool reflectionsOn = impl_->rayTracing.reflections;
     int localCandidates = 0, localTraced = 0;
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
-    const bool active =
-        impl_->rayTracing.enabled && supported && (shadowsOn || aoOn || reflectionsOn) && failure.empty();
+    const bool translucencyOn = impl_->rayTracing.translucency;
+    const bool active = impl_->rayTracing.enabled && supported &&
+                        (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
     j["active"] = active;
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
@@ -2230,10 +2231,13 @@ Json Engine::ray_tracing_status() {
             add("the reflections of the surfaces smoother than roughness 0.65 (one mirror ray per pixel under 0.25, "
                 "raysPerPixel denoised glossy rays up to 0.65; the rougher ones, and the pixels whose rays leave the "
                 "scene, keep the screen-space reflections and the probes)");
-        j["reason"] = "Traced: " + what + ". The other effects are not made yet.";
+        if (translucencyOn)
+            add("the refraction through glass and liquids (a ray bent at every interface, up to six, tinted by the "
+                "volume; where it cannot trace a pixel the screen-space refraction stays)");
+        j["reason"] = "Traced: " + what + ". The other effects (gi) are not made yet.";
     } else
-        j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao and "
-                      "reflections are made so far).";
+        j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
+                      "reflections and translucency are made so far).";
     return j;
 }
 

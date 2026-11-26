@@ -12,10 +12,21 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   light (the angular size of its `shadowSoftness`) or to points of an area light's emitter (rectangle, disc, tube), denoised by the `RtDenoiser`
   as one signal (id 6, a light that enters or leaves a slot starts it again). The three visibilities are packed into the image the sun's shadow
   uses and the lit shader reads them (`min` with the map where a caster the rays miss exists, as for the sun); the maps of the traced lights are
-  not drawn when nothing else reads them. Lights beyond the cap keep their maps. Off, or on a device that cannot trace: nothing changes, nothing is
+  not drawn when nothing else reads them (the volumetric fog's light shafts do: a traced light with `volumetric` above 0 keeps its map while the fog is drawn). Lights beyond the cap keep their maps. Off, or on a device that cannot trace: nothing changes, nothing is
   allocated. `render.ray_tracing` answers `localShadows {cap, candidates, traced}` and its reason says it. The Metal kernel is tested on a real GPU
   against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet. The committed twins of the render tests'
   fixture materials were regenerated (the mesh template changed). docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_SHADOWS.md.
+- **Ray traced translucency (M79-P3b):** `render.rayTracing.translucency = true` now draws: a camera that draws glass or a liquid (a mesh with
+  `transmission` above 0) casts one ray per pixel through it, bent by Snell's law with the material's `ior` where it enters and leaves the closed mesh
+  (up to six interfaces, total internal reflection stays inside) and tinted by Beer-Lambert absorption (`attenuationColor`, `attenuationDistance`);
+  a `thickness` of 0 is a thin sheet the ray passes straight through. Where the ray ends, the camera's own picture is read if it shows that surface
+  (textures, lights and shadows included), else the kernel shades the hit as the reflections do. `roughness` widens the ray into one cone sample per
+  pixel from the frame's seed (the glass shader's own box filter smooths it; no denoiser). It replaces the screen-space refraction per pixel: a pixel
+  the kernel did not trace, a device that cannot trace and a mesh outside the traced scene keep it. Glass is in the traced scene (mask `0x40`, traced
+  from both sides, still casts a solid shadow and is a solid in a reflection); the instance record grew from 96 to 128 bytes (`volume`, `attenuation`)
+  and `rt_trace_surface_mask` was added to the hit include (additive). `render.ray_tracing` counts translucency as active once it draws. The Metal
+  kernel is tested on a real GPU against a CPU port; the D3D12 and Vulkan kernels have only been compiled. docs/RAY_TRACING.md,
+  docs/design/ARCHITECTURE_RT_TRANSLUCENCY.md.
 - **Glossy ray traced reflections, denoised, with a per-pixel fallback (M79-P3a-2):** `render.rayTracing.reflections` now traces rough
   surfaces too: under roughness 0.25 one mirror ray, as before (the same bits); from 0.25 to 0.65 `raysPerPixel` rays (1 to 16) sampled from the
   GGX distribution of visible normals with a deterministic per-pixel sequence from the frame serial. The glossy pixels are denoised by the

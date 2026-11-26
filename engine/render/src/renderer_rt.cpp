@@ -89,6 +89,7 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedReflect = rtWarnedReflectGbuffer = false;
         rtWarnedAo = false;
         rtWarnedLocal = false;
+        rtWarnedTranslucency = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
