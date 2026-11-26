@@ -18,7 +18,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 - **Ray tracing, the scene's acceleration structures (M79-P1s):** with `render.rayTracing` enabled, an effect on and a device that can trace
   rays, the renderer builds one bottom-level structure per submesh of every mesh the main camera draws (once per mesh asset, compacted
   after the first build, freed when the mesh goes) and rebuilds the top-level structure every frame from meshes, instanced batches and
-  foliage (one level of detail per instance; terrain, impostors, skinned meshes and the fading-out level of a LOD cross-fade are left
+  foliage (one level of detail per instance; terrain, impostors and the fading-out level of a LOD cross-fade are left
   out). The scene holds at most `maxInstances` instances (or what the GPU allows): over it, the nearest to the main camera stay and the
   log says once how many were left out. A per-instance record buffer (colour, roughness, metalness, emissive, flags; layout shared with
   the kernels) is written beside it, and the floating origin moves the cached records. Off, or on a device that cannot trace, nothing is
@@ -32,6 +32,13 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   itself, so `AccelStructureDesc::storage` is refused there; `bufferDeviceAddress` now means explicit GPU addresses only, and the
   acceleration structure buffer usages no longer need it. Nothing in the frame traces yet. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
   "Metal".
+- **Ray tracing, skinned meshes (M79-P1k):** a skinned mesh (an `Animator`) is now in the ray tracing scene in the pose it is drawn in. A
+  compute kernel (`rt_skin.glsl`) blends the same four joints with the same palette as the vertex shader into a position buffer, and each
+  skinned instance has its own bottom-level structure built from it (never compacted): a refit every frame, a full rebuild every 60 frames
+  or when the extent of its bones jumps, freed after the frames in flight when the instance leaves. The scene skins at most 4096 instances
+  and 4194304 vertices a frame (the nearest to the main camera stay; the log says once what was left out). The records have a new `Skinned`
+  flag. With ray tracing off nothing is allocated or dispatched. `RtSceneStats.skippedSkinned` now counts only what the budget leaves out.
+  docs/design/ARCHITECTURE_RT_SCENE.md, "Skinned meshes".
 - **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
   written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
   MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New

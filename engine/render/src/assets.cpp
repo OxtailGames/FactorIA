@@ -199,24 +199,26 @@ void compute_bounds(const std::vector<MeshVertex>& v, Vec3& bmin, Vec3& bmax) {
 }
 
 // A buffer of immutable contents: a vertex buffer, or an index buffer when `index`.
-// `accel` (ray tracing is on: Assets::set_accel_input) also lets an acceleration structure build read it.
+// `accel` (ray tracing is on: Assets::set_accel_input) also lets an acceleration structure build read it. `storage` lets a compute shader
+// read it too (the skinning kernel of the ray tracing scene reads the vertices and the skin weights of a skinned part).
 gpu::Buffer make_data_buffer(gpu::Device& device, const void* data, std::size_t bytes, const char* label,
-                             bool index = false, bool accel = false) {
+                             bool index = false, bool accel = false, bool storage = false) {
     gpu::BufferDesc d;
     d.size = bytes;
     d.usage.vertexBuffer =
         !index;  // said, not implied: a backend that checks the usage of a bound buffer reads the flag
     d.usage.indexBuffer = index;
     d.usage.accelBuildInput = accel;
+    d.usage.storageBuffer = storage;
     d.data = gpu::Range{data, bytes};
     d.label = label;
     return device.make_buffer(d);
 }
 
 SubMesh upload_submesh(gpu::Device& device, const std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx,
-                       const char* label, bool accel = false) {
+                       const char* label, bool accel = false, bool storage = false) {
     SubMesh m;
-    m.vb = make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label, false, accel);
+    m.vb = make_data_buffer(device, v.data(), v.size() * sizeof(MeshVertex), label, false, accel, storage);
     m.ib = make_data_buffer(device, idx.data(), idx.size() * sizeof(std::uint32_t), label, true, accel);
     m.vertexCount = int(v.size());
     m.indexCount = int(idx.size());
@@ -618,7 +620,12 @@ public:
         for (const std::string& w : p.warnings) FA_WARN("render", "{}", w);
         std::uint64_t bytes = 0;
         for (PreparedPart& part : p.parts) {
-            SubMesh sm = upload_submesh(assets_.gpu_.device(), part.verts, part.idx, path.c_str(), assets_.accelInput_);
+            // A skinned part of a scene that is ray traced is also read by the skinning kernel (rt_skin.glsl): its vertices and weights are
+            // storage buffers too.
+            const bool skinStorage =
+                assets_.accelInput_ && !part.skin.empty() && assets_.gpu_.device().features().compute;
+            SubMesh sm = upload_submesh(assets_.gpu_.device(), part.verts, part.idx, path.c_str(), assets_.accelInput_,
+                                        skinStorage);
             bytes += part.verts.size() * sizeof(MeshVertex) + part.idx.size() * sizeof(std::uint32_t);
             const SubMesh& m = part.material;
             sm.materialName = m.materialName;
@@ -641,7 +648,7 @@ public:
             sm.emissiveTex = texture(part.emissive);
             if (!part.skin.empty()) {
                 sm.skinVb = make_data_buffer(assets_.gpu_.device(), part.skin.data(),
-                                             part.skin.size() * sizeof(SkinVertex), "skin");
+                                             part.skin.size() * sizeof(SkinVertex), "skin", false, false, skinStorage);
                 sm.skin = part.skinIndex;
                 bytes += part.skin.size() * sizeof(SkinVertex);
             }
