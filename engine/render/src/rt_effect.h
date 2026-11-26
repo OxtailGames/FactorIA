@@ -39,9 +39,9 @@ class RtScene;
 // The constants block of every effect kernel: 25 float4, 400 bytes, the same struct in rt_*.hlsl and rt_*.metal between the lines `// BEGIN
 // RtEffectParams` and `// END RtEffectParams` (a test compares the field names with these). A kernel reads the fields it needs.
 struct RtEffectParams {
-    float camera[4];    // xyz: the camera's position (the renderer's space); w: 1 for an orthographic camera
-    float lightDir[4];  // xyz: the unit vector from a surface toward the light (the sun's); w: 0
-    float image[4];     // xy: the size of the output image in pixels; zw: 1 / size
+    float camera[4];         // xyz: the camera's position (the renderer's space); w: 1 for an orthographic camera
+    float lightDir[4];       // xyz: the unit vector from a surface toward the light (the sun's); w: 0
+    float image[4];          // xy: the size of the output image in pixels; zw: 1 / size
     std::uint32_t frame[4];  // x: the frame serial; y: the seed of the frame; z: rays per pixel; w: 0
     // The camera the prepass was drawn with (jittered): the world position of pixel (x, y) with ndc = (2 (x + 0.5) / w - 1, 1 - 2 (y + 0.5) / h)
     // and d the linear view depth is rayO0 + ndc.x rayOX + ndc.y rayOY + (rayD0 + ndc.x rayDX + ndc.y rayDY) d. The directions are scaled so
@@ -49,18 +49,19 @@ struct RtEffectParams {
     float rayO0[4], rayOX[4], rayOY[4], rayD0[4], rayDX[4], rayDY[4];
     // The same for the camera without the temporal jitter (what history and reprojection use).
     float uRayO0[4], uRayOX[4], uRayOY[4], uRayD0[4], uRayDX[4], uRayDY[4];
-    float viewRight[4], viewUp[4], viewBack[4];  // xyz: the camera's axes; a view-space normal (x, y, z) is right x + up y + back z
+    float viewRight[4], viewUp[4],
+        viewBack[4];  // xyz: the camera's axes; a view-space normal (x, y, z) is right x + up y + back z
     float viewProj0[4], viewProj1[4], viewProj2[4], viewProj3[4];  // the rows of the unjittered view-projection matrix
-    float user0[4], user1[4];                                       // the effect's own numbers
+    float user0[4], user1[4];                                      // the effect's own numbers
 };
 static_assert(sizeof(RtEffectParams) == 25 * 16, "RtEffectParams is 25 float4 (the HLSL and MSL structs say the same)");
 static_assert(alignof(RtEffectParams) == 4);
 
 // The field names of RtEffectParams in order, one per float4 (a test reads the HLSL and the MSL struct and compares).
 inline constexpr std::string_view kRtEffectParamNames[] = {
-    "camera",    "lightDir",  "image",     "frame",     "rayO0",     "rayOX",     "rayOY",     "rayD0",     "rayDX",
-    "rayDY",     "uRayO0",    "uRayOX",    "uRayOY",    "uRayD0",    "uRayDX",    "uRayDY",    "viewRight", "viewUp",
-    "viewBack",  "viewProj0", "viewProj1", "viewProj2", "viewProj3", "user0",     "user1"};
+    "camera",   "lightDir",  "image",     "frame",     "rayO0",     "rayOX",  "rayOY",  "rayD0",     "rayDX",
+    "rayDY",    "uRayO0",    "uRayOX",    "uRayOY",    "uRayD0",    "uRayDX", "uRayDY", "viewRight", "viewUp",
+    "viewBack", "viewProj0", "viewProj1", "viewProj2", "viewProj3", "user0",  "user1"};
 static_assert(sizeof(kRtEffectParamNames) / sizeof(kRtEffectParamNames[0]) == 25);
 
 // The binding numbers of every effect kernel in each backend's own numbering (the contract the .hlsl and .metal files repeat in their header
@@ -69,7 +70,8 @@ struct RtEffectBindings {
     // Bindings::views: 0 the output (storage image), 1 the prepass, 2 the scene's records (storage buffer), 3 and 4 the G-buffer.
     static constexpr int kViewOut = 0, kViewPrepass = 1, kViewRecords = 2, kViewAlbedo = 3, kViewMaterial = 4;
     static constexpr int kUniformParams = 0;  // set_uniforms(0, RtEffectParams)
-    static constexpr int kSampler = 0;        // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
+    static constexpr int kSampler =
+        0;  // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
     // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material.
     // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material.
     // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(2) records, texture(2) albedo, texture(3) material.
@@ -77,9 +79,10 @@ struct RtEffectBindings {
 
 // What a kernel of the table declares beyond the common four (the TLAS, the output, the constants, the prepass).
 struct RtEffectKernelSpec {
-    std::string_view kernel;  // the name in rt_kernels.h
+    std::string_view kernel;   // the name in rt_kernels.h
     bool usesRecords = false;  // the scene's RtInstanceRecord buffer (t2 / binding 4 / buffer(2))
-    bool usesGbuffer = false;  // the thin G-buffer's albedo and material images (t3, t4 / bindings 5, 6 / texture(2), texture(3))
+    bool usesGbuffer =
+        false;  // the thin G-buffer's albedo and material images (t3, t4 / bindings 5, 6 / texture(2), texture(3))
 };
 // The specs of the kernels the renderer runs as effects (every kernel except the probe of the tests).
 const RtEffectKernelSpec* find_rt_effect_spec(std::string_view kernel);
@@ -87,7 +90,8 @@ const RtEffectKernelSpec* find_rt_effect_spec(std::string_view kernel);
 // The ShaderDesc of one effect kernel for `backend`: the blob the backend takes (DXIL on D3D12, SPIR-V on Vulkan, the MSL text on Metal and on
 // the recording device) and the reflection of the contract above. Pure: no device is touched. Empty `computeFunc` (compute() false) when the
 // kernel has no blob for the backend.
-gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const RtEffectKernelSpec& spec, gpu::Backend backend);
+gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const RtEffectKernelSpec& spec,
+                                      gpu::Backend backend);
 
 // True for the backends whose shader description pairs each texture view with a sampler slot (kSampler): Metal, through Sokol, which refuses a
 // texture view no texture-sampler pair names even when the kernel reads it with `read`, and the recording device that stands for it. D3D12 and
@@ -104,10 +108,10 @@ std::uint32_t rt_effect_seed(std::uint64_t frameSerial);
 
 // What one effect of one camera needs this frame.
 struct RtEffectRequest {
-    std::string kernel;  // "rt_shadow"
-    std::string effect;  // "shadows": names the pass (`<job>/rt-<effect>`), the image and the resource
-    std::string job;     // the camera's job (JobPlan::name): with `effect` it keys the output image
-    std::string after;   // the pass that builds the TLAS (`<job>/rt-accel`); empty = no explicit order
+    std::string kernel;         // "rt_shadow"
+    std::string effect;         // "shadows": names the pass (`<job>/rt-<effect>`), the image and the resource
+    std::string job;            // the camera's job (JobPlan::name): with `effect` it keys the output image
+    std::string after;          // the pass that builds the TLAS (`<job>/rt-accel`); empty = no explicit order
     int width = 0, height = 0;  // the output's size: the prepass's
     PrepassRef prepass;         // required
     PrepassRef gbufferAlbedo, gbufferMaterial;  // required when the kernel uses the G-buffer
@@ -133,9 +137,9 @@ struct RtEffectImage {
 };
 
 struct RtEffectOutput {
-    bool valid = false;               // the pass is declared
-    std::string why;                  // not valid: the reason, one sentence
-    ResourceId res;                   // the imported resource of the image: list it in the reads of a pass that samples it
+    bool valid = false;  // the pass is declared
+    std::string why;     // not valid: the reason, one sentence
+    ResourceId res;      // the imported resource of the image: list it in the reads of a pass that samples it
     const RtEffectImage* out = nullptr;  // stays alive until sweep() or release() frees it
 };
 
