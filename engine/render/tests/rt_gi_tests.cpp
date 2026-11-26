@@ -332,8 +332,21 @@ TEST_CASE("rt gi: gi probes declare one compute pass after the TLAS and blend th
     CHECK(block);
     CHECK(dispatch);
     CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
-    // Four probes blended into the atlas, after the graph: one draw each, no raster capture of the grid.
-    CHECK(r.passes_named("probe-atlas") >= 4);
+    // Four probes blended into the atlas, after the graph: ONE pass of the atlas with one draw (viewport, scissor, uniforms) each, no raster
+    // capture of the grid.
+    CHECK(r.passes_named("probe-atlas") == 1);
+    {
+        const int atlasPass = index_of(lines, "begin_pass 'probe-atlas'");
+        REQUIRE(atlasPass >= 0);
+        int draws = 0, viewports = 0, ends = 0;
+        for (std::size_t i = std::size_t(atlasPass) + 1; i < lines.size() && ends == 0; ++i) {
+            draws += lines[i].find(": draw ") != std::string::npos ? 1 : 0;
+            viewports += lines[i].find(": set_viewport") != std::string::npos ? 1 : 0;
+            ends += lines[i].find(": end_pass") != std::string::npos ? 1 : 0;
+        }
+        CHECK(draws == 4);
+        CHECK(viewports == 4);
+    }
     CHECK(r.passes_named("gi:") == 0);
     const render::RtGiStatus st = r.renderer.ray_tracing_gi_status();
     CHECK(st.wanted);
@@ -475,6 +488,57 @@ TEST_CASE("rt gi: a traced scene that never builds hands the grids to the raster
     st = r.renderer.ray_tracing_gi_status();
     INFO(st.reason);
     CHECK(st.active);
+}
+
+TEST_CASE("rt gi: the multi-bounce reads the grid's own probes only once every probe was updated once") {
+    Rig r;
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 4);  // 9 probes, 4 a frame: three frames fill the grid; RealtimeGI.bounce is 1
+    int zeros = 0, ones = 0;
+    for (int i = 0; i < 8; ++i) {
+        const Json before = r.renderer.gi_report();
+        const Json* grid = grid_json(before, "gi");
+        const int captured = grid ? (*grid)["captured"].get<int>() : 0;
+        r.frame(w);
+        const std::vector<float> flags = RendererTestAccess::gi_rt_bounce_flags(r.renderer);
+        INFO("frame " << i << ", probes captured before it: " << captured);
+        if (flags.empty()) continue;  // the frame the scene had no TLAS yet declares nothing
+        REQUIRE(flags.size() == 1);
+        CHECK(flags[0] == (captured >= 9 ? 1.0f : 0.0f));
+        zeros += flags[0] == 0.0f ? 1 : 0;
+        ones += flags[0] == 1.0f ? 1 : 0;
+    }
+    CHECK(zeros >= 1);  // the frames that fill the grid read nothing of it
+    CHECK(ones >= 1);   // and the full grid is read
+}
+
+TEST_CASE("rt gi: the retry frame and the frames after a miss update the grids by the raster captures when the rays do "
+          "not run") {
+    Rig r;
+    r.dev->inject_faults(false, true);  // the scene never builds: the pass is declared and never runs
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 4);
+    double last = 0.0;
+    int idle = 0, frames = 0;
+    const int total = 2 * render::kGiRtRetryFrames + 20;  // two retries of the rays, each after the delay
+    for (int i = 0; i < total; ++i) {
+        r.frame(w);
+        const double captures = r.renderer.gi_report()["captures"].get<double>();
+        // The first frame of a miss has nothing planned beside the rays (documented); every other frame updates 4 probes.
+        if (i >= 2) {
+            ++frames;
+            if (captures <= last) {
+                ++idle;
+                MESSAGE("frame " << i << " updated no probe");
+            }
+        }
+        last = captures;
+    }
+    CHECK(frames == total - 2);
+    CHECK(idle == 0);
+    CHECK(r.renderer.gi_report()["rtUpdates"].get<double>() == 0.0);
 }
 
 TEST_CASE("rt gi: the recorded frame is the same every run (the seed is the frame's, no clock, no random number)") {

@@ -42,6 +42,12 @@ std::uint64_t path_trace_settings_hash(const PathTracerSettings& s, const RtHitP
     return f.h;
 }
 
+std::uint32_t path_trace_samples_cap(std::uint32_t wanted, int width, int height) {
+    const std::uint64_t pixels = std::uint64_t(std::max(width, 1)) * std::uint64_t(std::max(height, 1));
+    const std::uint64_t most = std::max<std::uint64_t>(kPtMaxPathsPerDispatch / pixels, 1);
+    return std::uint32_t(std::min<std::uint64_t>(wanted, most));
+}
+
 PathTraceStep path_trace_step(PathTraceJobState& state, const PathTracerSettings& settings, std::uint64_t cameraHash,
                               std::uint64_t sceneHash, std::uint64_t settingsHash, std::uint64_t imageSerial, int width,
                               int height) {
@@ -74,8 +80,9 @@ PathTraceStep path_trace_step(PathTraceJobState& state, const PathTracerSettings
         step.what = RtPrepare::Hold;
         return step;
     }
-    const std::uint32_t perFrame =
-        std::uint32_t(std::clamp(settings.samplesPerFrame, kPtMinSamplesPerFrame, kPtMaxSamplesPerFrame));
+    const std::uint32_t perFrame = path_trace_samples_cap(
+        std::uint32_t(std::clamp(settings.samplesPerFrame, kPtMinSamplesPerFrame, kPtMaxSamplesPerFrame)), width,
+        height);
     step.count = std::min(perFrame, cap - state.samples);
     state.samples += step.count;
     return step;

@@ -270,13 +270,42 @@ void ProbeGpu::filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolu
     }
 }
 
-void ProbeGpu::blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, int block, int* drawCalls) {
-    if (!band.id || giState_ != 1) return;
-    const GiTexel o = gi_block_origin(block);
-    const float none[4] = {};
-    const float blit[4] = {float(o.x), float(o.y - kProbeAtlasSize), float(kGiBlockH), 0.0f};
-    pass_rect(gpu, atlas, Prog::BlitBlend, o.x, o.y, kGiBlockW, kGiBlockH, band, sampler_, none, none, none, blit,
-              drawCalls);
+void ProbeGpu::blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, const std::vector<int>& blocks, int* drawCalls) {
+    if (!band.id || giState_ != 1 || blocks.empty()) return;
+    // One pass for all the blocks (a pass for each block would load and store the whole atlas for each, on a tiled GPU): the
+    // pipeline and the bindings are set once, each block is a viewport, a scissor, its source rectangle and one draw. The rectangles do not
+    // overlap, so the result is the one of a pass a block.
+    gpu::PassDesc pd;
+    pd.label = "probe-atlas";
+    pd.color = atlas.att;
+    pd.format = gpu::TargetFormat{format_, gpu::PixelFormat::None, 1};
+    pd.colorLoad = gpu::LoadAction::Load;  // the other tiles stay
+    pd.colorStore = gpu::StoreAction::Store;
+    gpu::CommandList& cmd = gpu.commands();
+    cmd.begin_pass(pd);
+    cmd.set_pipeline(pipelines_[int(Prog::BlitBlend)]);
+    gpu::Bindings b{};
+    b.vertexBuffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_probe_probe_cube] = band;
+    b.samplers[SMP_probe_probe_smp] = sampler_;
+    cmd.set_bindings(b);
+    for (int block : blocks) {
+        const GiTexel o = gi_block_origin(block);
+        // The rectangle in MEMORY rows: OpenGL counts its window from the bottom (see pass_rect).
+        cmd.set_viewport(o.x, o.y, kGiBlockW, kGiBlockH, !isGl_);
+        cmd.set_scissor(o.x, o.y, kGiBlockW, kGiBlockH, !isGl_);
+        probe_probe_blit_params_t u{};
+        u.dst[0] = float(o.x);
+        u.dst[1] = float(o.y);
+        u.src[0] = float(o.x);
+        u.src[1] = float(o.y - kProbeAtlasSize);
+        u.src[2] = float(kGiBlockH);
+        u.src[3] = 0.0f;
+        cmd.set_uniforms(UB_probe_probe_blit_params, gpu::Range{&u, sizeof(u)});
+        cmd.draw(0, 3, 1);
+        if (drawCalls) ++*drawCalls;
+    }
+    cmd.end_pass();
 }
 
 }  // namespace fa::render

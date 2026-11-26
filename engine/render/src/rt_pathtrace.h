@@ -28,7 +28,19 @@ struct PathTraceJobState {
     std::uint64_t imageSerial = 0;  // RtEffectImage::serial the samples are in
     std::uint64_t cameraHash = 0, sceneHash = 0, settingsHash = 0;
     int width = 0, height = 0;
+    std::uint64_t lastFrame =
+        0;  // the frameSerial of the last frame that planned this camera's pass (PathTraceState::purge)
 };
+
+// The most paths (pixels x samples) one dispatch traces: a frame's samples are capped by the image's area, so a big image adds fewer samples a
+// frame (the accumulation spreads the rest over the next frames) and no single submit runs long enough for a driver's watchdog (Windows TDR,
+// about two seconds). A pixel count, never a time, so the picture a number of frames gives does not depend on the machine.
+inline constexpr std::uint64_t kPtMaxPathsPerDispatch = std::uint64_t(1)
+                                                        << 24;  // 16.7 million: 8.1 samples of a 1080p image
+
+// The samples one dispatch of an image of `width` x `height` may add: `wanted` (samplesPerFrame), at most kPtMaxPathsPerDispatch / pixels, never
+// less than 1.
+std::uint32_t path_trace_samples_cap(std::uint32_t wanted, int width, int height);
 
 // What a frame does with the image.
 struct PathTraceStep {
@@ -64,6 +76,20 @@ struct PathTraceState {
     void clear() {
         jobs.clear();
         status = PathTracerStatus{};
+    }
+    // Forgets the cameras no frame planned since `serial - 2` (a camera that went away, a job renamed): the same two frames after which the
+    // effect's image is freed (RtEffects::sweep), so a camera that comes back starts over with a new image anyway. Returns how many went.
+    std::size_t purge(std::uint64_t serial) {
+        std::size_t gone = 0;
+        for (auto it = jobs.begin(); it != jobs.end();) {
+            if (it->second.lastFrame + 2 < serial) {
+                it = jobs.erase(it);
+                ++gone;
+            } else {
+                ++it;
+            }
+        }
+        return gone;
     }
 };
 

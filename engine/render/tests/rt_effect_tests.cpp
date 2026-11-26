@@ -1891,6 +1891,105 @@ TEST_CASE("rt pathtrace: path_trace_step starts, holds and resets for the reason
     CHECK(s0.count == 4);
 }
 
+TEST_CASE("rt pathtrace: a frame it draws traces and draws no ambient occlusion, screen-space or ray traced") {
+    // The path tracer's image replaces the lit colour of the opaque meshes and has its own occlusion: the passes of both occlusions are
+    // dropped on the frames it draws, and they are back when it is off.
+    for (bool traced : {false, true}) {
+        INFO("ray traced occlusion " << traced);
+        Rig r;
+        if (traced) ao_rays(r, true);
+        path_rays(r, true);
+        World w;
+        make_scene(w, true, false);
+        add_ssao_to_camera(w);
+        r.frame(w);  // the first frames build the BLASes: the path tracer joins when the scene is traceable
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        INFO(r.errors());
+        CHECK(r.errors().empty());
+        const std::vector<std::string> lines = r.lines();
+        REQUIRE(r.renderer.path_tracer_status().active);
+        CHECK(count_labels(lines, "rt-pathtrace") >= 1);
+        CHECK(count_labels(lines, "rt-ao") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-") == 0);
+        CHECK(count_labels(lines, "begin_pass 'ssao-") == 0);
+        CHECK(count_labels(lines, "set_pipeline 'ssao-apply'") == 0);
+        CHECK(r.compute_passes().size() == 1);
+        // With the path tracer off the same scene draws its occlusion again.
+        path_rays(r, false);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        const std::vector<std::string> back = r.lines();
+        CHECK(count_labels(back, "rt-pathtrace") == 0);
+        if (traced)
+            CHECK(count_labels(back, "rt-ao") >= 1);
+        else
+            CHECK(count_labels(back, "begin_pass 'ssao-") >= 1);
+    }
+}
+
+TEST_CASE(
+    "rt pathtrace: the samples of one dispatch are capped by the image's pixels, the rest comes over the next frames") {
+    using fa::render::kPtMaxPathsPerDispatch;
+    using fa::render::path_trace_samples_cap;
+    // Small images keep what was asked, a big one gets fewer samples a frame, never fewer than one.
+    CHECK(path_trace_samples_cap(64, 160, 96) == 64);
+    CHECK(path_trace_samples_cap(64, 1920, 1080) == std::uint32_t(kPtMaxPathsPerDispatch / (1920u * 1080u)));
+    CHECK(path_trace_samples_cap(64, 1920, 1080) >= 4);
+    CHECK(path_trace_samples_cap(2, 1920, 1080) == 2);
+    CHECK(path_trace_samples_cap(64, 16384, 16384) == 1);
+    CHECK(path_trace_samples_cap(64, 0, 0) <= 64);  // a degenerate size is one pixel, never a division by zero
+    // The step uses it, and the accumulation reaches the samples asked for over more frames.
+    render::PathTracerSettings cfg;
+    cfg.samplesPerFrame = 64;
+    cfg.maxSamples = 0;
+    fa::render::PathTraceJobState st;
+    const int w = 3840, h = 2160;
+    const std::uint32_t cap = path_trace_samples_cap(64, w, h);
+    REQUIRE(cap >= 1);
+    REQUIRE(cap < 64);
+    auto s = fa::render::path_trace_step(st, cfg, 1, 2, 3, 7, w, h);
+    CHECK(s.count == cap);
+    CHECK(s.firstSample == 0);
+    s = fa::render::path_trace_step(st, cfg, 1, 2, 3, 7, w, h);
+    CHECK(s.count == cap);
+    CHECK(s.firstSample == cap);  // the sample indices go on: no sample is traced twice
+    // maxSamples still holds the image.
+    cfg.maxSamples = 2 * cap + 1;  // two dispatches added 2 * cap
+    s = fa::render::path_trace_step(st, cfg, 1, 2, 3, 7, w, h);
+    CHECK(s.count == 1);
+}
+
+TEST_CASE("rt pathtrace: the state of a camera that no frame draws any more is forgotten after two frames") {
+    using fa::render::PathTraceState;
+    PathTraceState ps;
+    ps.jobs["camera:0"].lastFrame = 10;
+    ps.jobs["camera:1"].lastFrame = 7;
+    ps.jobs["camera:2"].lastFrame = 8;
+    CHECK(ps.purge(10) == 1);  // 7 + 2 < 10: gone; 8 + 2 < 10 is not
+    CHECK(ps.jobs.size() == 2);
+    CHECK(ps.jobs.count("camera:1") == 0);
+    CHECK(ps.purge(11) == 1);
+    CHECK(ps.jobs.count("camera:0") == 1);
+    // In the renderer: the camera draws, then no camera does.
+    Rig r;
+    path_rays(r, true);
+    World w;
+    make_scene(w);
+    for (int i = 0; i < 3; ++i) r.frame(w);
+    CHECK(RendererTestAccess::path_trace_jobs(r.renderer) == 1);
+    World empty;
+    for (int i = 0; i < 4; ++i) r.frame(empty);
+    CHECK(RendererTestAccess::path_trace_jobs(r.renderer) == 0);
+    // It comes back from the start.
+    for (int i = 0; i < 2; ++i) r.frame(w);
+    CHECK(RendererTestAccess::path_trace_jobs(r.renderer) == 1);
+    CHECK(r.renderer.path_tracer_status().samples == 2);
+}
+
 TEST_CASE("rt pathtrace: the kernel table has rt_pathtrace, and the lights block, the hit block and the image are "
           "bound in every backend's numbering") {
     const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_pathtrace");
