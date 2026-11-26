@@ -186,6 +186,13 @@ struct Renderer::Impl::DrawContext {
         bool want = false;
         const RtEffectImage* img = nullptr;
     } rtShadow;
+    // M79-P2b: ray traced ambient occlusion (rt_ao, ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)"). plan_job sets `want` (rayTracing.ao on, the scene
+    // collected by this job, the prepass with its normals); build_graph declares the kernel, the denoiser and sets `img` and `on` (the SSAO passes are
+    // then not declared). The main pass applies the result only while `img->ran` is true when it draws, else the picture is not darkened.
+    struct {
+        bool want = false, on = false;
+        const RtEffectImage* img = nullptr;
+    } rtAo;
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
@@ -995,6 +1002,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster &&
                               rtSettings.shadows != render::RtShadows::Off;
     if (wantRtShadow) ctx.postPlan.needsDepth = true;
+    // Ray traced ambient occlusion (M79-P2b) reads the prepass with its normals, from the camera that has the scene's meshes. It draws in place of the
+    // camera's SSAO (the radius and the intensity of the SSAO stay), so it is asked for by the setting alone; a camera that cannot make the prepass
+    // keeps whatever the stack has.
+    const bool wantRtAo = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && rtSettings.ao;
+    if (wantRtAo) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
     // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
     // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
     bool wantSss = false;
@@ -1018,6 +1030,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.contactOn = wantContact && ctx.doPrepass;
     ctx.rtShadow = {};
     ctx.rtShadow.want = wantRtShadow && ctx.doPrepass;
+    ctx.rtAo = {};
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass;
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
     if (ctx.sssOn)
         ++stats.subsurfaceCameras;
@@ -4904,10 +4918,14 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         bool fogDrawn = false;
         if (preT && preT->texView.id) {
             if (partial) apply_view(cl, camPx);
-            if (ctx.ssaoApply.valid) {
-                const Target* aoT = transient_targets().get(pc.handle(ctx.ssaoApply.ao));
-                if (aoT && aoT->texView.id) {
-                    Ssao::draw_apply(cl, gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
+            if (ctx.ssaoApply.valid && (!ctx.rtAo.on || (ctx.rtAo.img && ctx.rtAo.img->ran))) {
+                // The ray traced occlusion is applied only when its kernel ran this frame (it has a TLAS); the SSAO's image is a transient.
+                const Target* aoT =
+                    ctx.ssaoApply.aoView.id ? nullptr : transient_targets().get(pc.handle(ctx.ssaoApply.ao));
+                const gpu::View aoView =
+                    ctx.ssaoApply.aoView.id ? ctx.ssaoApply.aoView : (aoT ? aoT->texView : gpu::View{});
+                if (aoView.id) {
+                    Ssao::draw_apply(cl, gpu, ctx.ssaoApply, aoView, preT->texView, mp.format);
                     ++stats.drawCalls;
                 }
             }
@@ -5393,10 +5411,77 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     out.why);
         }
     }
+    // Ray traced ambient occlusion (M79-P2b, rt_effect.h): the kernel after the scene's TLAS and the prepass, then the denoiser (Occlusion), whose result
+    // the main pass applies in place of the SSAO's (the same apply, the same radius and intensity). A kernel the device refuses is said once and leaves
+    // the camera's SSAO in place; so does a device that cannot trace (the scene is not active).
+    ctx.rtAo.img = nullptr;
+    ctx.rtAo.on = false;
+    ctx.ssaoApply = SsaoApply{};
+    if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        const SsaoSettings aoS = ssao_rt_settings(ctx.postPlan.ssao);
+        RtEffectRequest req;
+        req.kernel = "rt_ao";
+        req.effect = "ao";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
+        // user0: the ray's reach (the SSAO's radius, in metres), the normal offset in metres and per metre of view depth, TMin.
+        req.user0[0] = aoS.radius;
+        req.user0[1] = 0.02f;
+        req.user0[2] = 0.002f;
+        req.user0[3] = 0.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.rtAo.img = out.out;
+            ctx.rtAo.on = true;
+            const std::uint64_t camKey = fr.cam.entity.bits();
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                           ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            DenoiseSignal sig;
+            sig.kind = DenoiseKind::Occlusion;
+            sig.id = kRtAoSignalId;
+            sig.name = "ao";
+            DenoiseInputs din;
+            din.noisy.res = out.res;  // the imported image: the denoiser's passes read it after the kernel wrote it
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            const DenoiseOutput den =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls, plan.name);
+            const SsaoCamera sc = ssao_camera(fr.cam);
+            if (den.valid)
+                ctx.ssaoApply = ssao_apply_for_image(aoS, sc, ctx.postPlan.sceneLinear, gpu.is_gl(), den.res,
+                                                     gpu::View{}, ctx.postPlan.prepass.res, ctx.camPx.w, ctx.camPx.h);
+            else  // the denoiser cannot run: the noisy image is applied as it is (still the traced occlusion)
+                ctx.ssaoApply =
+                    ssao_apply_for_image(aoS, sc, ctx.postPlan.sceneLinear, gpu.is_gl(), out.res, out.out->texture,
+                                         ctx.postPlan.prepass.res, ctx.camPx.w, ctx.camPx.h);
+        } else if (!rtWarnedAo) {
+            rtWarnedAo = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.ao is on but the ray traced ambient occlusion cannot run on this device ({}). The "
+                "camera keeps its screen-space occlusion (PostProcess.ssaoEnabled), if it has one. Hint: set "
+                "render.rayTracing.ao to false to silence this.",
+                out.why);
+        }
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
-    ctx.ssaoApply = SsaoApply{};
-    if (ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+    if (!ctx.rtAo.on && ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled &&
+        ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
                         ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
                         &ctx.ssaoApply);

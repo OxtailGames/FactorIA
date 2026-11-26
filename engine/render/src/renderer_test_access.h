@@ -21,6 +21,7 @@ class Gpu;
 class FrameGraph;
 class RtScene;
 class RtEffects;
+class RtDenoiser;
 
 // The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats).
 struct TransientPoolStats {
@@ -74,6 +75,8 @@ struct RendererTestAccess {
     static render::RtScene* rt_scene(Renderer& r);
     // M79-P2a-1: the shaders and images of the ray traced effects (rt_effect.h); null before init.
     static render::RtEffects* rt_effects(Renderer& r);
+    // M79-P2b: the denoiser of the ray traced effects (rt_denoise.h); null before init.
+    static render::RtDenoiser* rt_denoiser(Renderer& r);
     static int hiz_cameras(Renderer& r);
     // The view-projection the renderer keeps of `camera`'s last frame (what motion blur reprojects from); false when it keeps none.
     static bool prev_view_proj(Renderer& r, Entity camera, Mat4& out);

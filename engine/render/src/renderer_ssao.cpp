@@ -91,6 +91,35 @@ SsaoSettings ssao_debug_settings(const SsaoSettings& own) {
     return s;
 }
 
+SsaoSettings ssao_rt_settings(const SsaoSettings& own) {
+    SsaoSettings s = own;
+    if (!own.enabled) {
+        const PostProcess defaults;
+        s.quality = int(defaults.ssaoQuality);
+        s.intensity = defaults.ssaoIntensity;
+        s.radius = defaults.ssaoRadius;
+    }
+    s.enabled = true;
+    return s;
+}
+
+SsaoApply ssao_apply_for_image(const SsaoSettings& s, const SsaoCamera& cam, bool linear, bool gl, ResourceId ao,
+                               gpu::View aoView, ResourceId prepass, int w, int h) {
+    SsaoApply a;
+    a.valid = true;
+    a.ao = ao;
+    a.aoView = aoView;
+    a.prepass = prepass;
+    a.power = s.intensity * kPower * (linear || s.view ? 1.0f : 1.0f / kGamma);
+    a.scale = 1.0f;
+    const float sizes[4] = {float(w), float(h), float(w), float(h)};
+    const float cam4[4] = {cam.halfX, cam.halfY, cam.ortho ? 1.0f : 0.0f, gl ? 1.0f : 0.0f};
+    std::copy(sizes, sizes + 4, a.sz);
+    std::copy(cam4, cam4 + 4, a.cam);
+    a.view = s.view;
+    return a;
+}
+
 SsaoCamera ssao_camera(const CameraGeometry& cam) {
     SsaoCamera c;
     const float p00 = std::fabs(cam.proj.at(0, 0)), p11 = std::fabs(cam.proj.at(1, 1));
