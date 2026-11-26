@@ -99,6 +99,10 @@ Result<GiLayout> gi_layout(const RealtimeGI& c, Vec3 worldPosition, const std::s
     g.bounce = c.bounce;
     g.hysteresis = c.hysteresis;
     g.backfaceTolerance = c.backfaceTolerance;
+    // Only the ray traced mode reads these two, so a value outside the range is clamped (never an error: it would invalidate a grid the
+    // raster captures draw fine).
+    g.raysPerProbe = std::clamp(c.raysPerProbe, 16, 256);
+    g.rtProbesPerFrame = std::clamp(c.rtProbesPerFrame, 1, 64);
     const Vec3 centre = worldPosition + c.offset;
     g.origin = {centre.x - 0.5f * float(nx - 1) * c.spacing, centre.y - 0.5f * float(ny - 1) * c.spacing,
                 centre.z - 0.5f * float(nz - 1) * c.spacing};

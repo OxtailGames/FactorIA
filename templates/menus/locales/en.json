@@ -162,7 +162,7 @@
       "rtq": { "high": "High", "ultra": "Ultra" },
       "rtTier": { "high": "Traces hard shadows and ambient occlusion with rays.", "ultra": "Traces soft shadows, ambient occlusion, reflections, glass refraction and global illumination probes with rays." },
       "rtUnsupported": "This device cannot trace rays. It needs a GPU that can, drawn with Direct3D 12 or Vulkan on Windows, Vulkan on Linux and Android, or Metal on macOS and iOS (the game's graphics.backend setting chooses it).",
-      "rtCap": { "none": "The graphics preset {preset} traces nothing, whatever is asked. Choose High or Ultra on the preset page.", "high": "The graphics preset {preset} limits ray tracing to hard shadows and ambient occlusion. Ultra traces everything.", "ultra": "The graphics preset {preset} limits ray tracing to what it allows." },
+      "rtCap": { "none": "The graphics preset {preset} traces nothing, whatever is asked. Choose High or Ultra on the preset page.", "high": "The graphics preset {preset} limits ray tracing to hard shadows and ambient occlusion. Ultra traces everything." },
       "unsupNote": "Not available here: {modes}.",
       "listSep": ", ",
       "groupSep": "; ",

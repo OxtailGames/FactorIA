@@ -372,6 +372,13 @@ TEST_CASE("render.ray_tracing: presetCap says what the graphics preset allows, i
     CHECK(r["presetCap"]["effective"]["translucency"] == false);
     CHECK(r["presetCap"]["effective"]["gi"] == "off");
     CHECK(r["presetCap"]["effective"]["raysPerPixel"] == 2);
+    // M79-P4a x P6a: the project asked for gi probes and high does not allow them: the probes are not wanted, not active, and the reason
+    // says the preset (the setting itself still says "probes").
+    CHECK(r["gi"] == "probes");
+    REQUIRE(r["giProbes"].is_object());
+    CHECK(r["giProbes"]["wanted"] == false);
+    CHECK(r["giProbes"]["active"] == false);
+    CHECK(contains(r["giProbes"]["reason"].get<std::string>(), "graphics preset \"high\""));
     CHECK(r["active"] == r["supported"]);  // hard shadows and ao are left: traced where the device traces
     if (r["supported"].get<bool>()) CHECK(contains(r["reason"].get<std::string>(), "graphics preset \"high\""));
 
@@ -394,6 +401,7 @@ TEST_CASE("render.ray_tracing: presetCap says what the graphics preset allows, i
         CHECK(r["presetCap"]["effective"]["shadows"] == "soft");
         CHECK(r["presetCap"]["effective"]["reflections"] == true);
         CHECK(r["presetCap"]["effective"]["gi"] == "probes");
+        CHECK(r["giProbes"]["wanted"] == true);
         CHECK(r["presetCap"]["effective"]["raysPerPixel"] == 8);
     }
 

@@ -422,7 +422,7 @@ numbers, but it blocks the frame it is called in, from a script's `update` too (
 | `terrainLodQuality` | 0.5 | 0.75 | 1 | 1 |
 | `gi2d` (quality, resolution scale) | off | on (low, 0.25) | on (medium, 0.5) | on (high, 1) |
 | `lightScale` (2D light buffer) | 0.5 | 0.75 | 1 | 1 |
-| `realtimeGiProbesPerFrame` | 2 | 4 | 8 | 32 |
+| `realtimeGiProbesPerFrame` (the raster captures' rate; the rays' budget is not capped by it) | 2 | 4 | 8 | 32 |
 | `rtShadows` (the most ray traced shadows may be) | off | off | hard | no limit (soft) |
 | `rtAo` / `rtReflections` / `rtTranslucency` | off / off / off | off / off / off | on / off / off | no limit (on / on / on) |
 | `rtGi` | off | off | off | no limit (perPixel) |

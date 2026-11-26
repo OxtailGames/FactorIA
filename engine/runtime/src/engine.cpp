@@ -1466,7 +1466,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Start scene (errors are kept for game.state / script.errors; they do not abort init).
     std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
     if (config.sceneProps.is_object()) I.nextProps = config.sceneProps;
-    if (!scenePath.empty()) {
+    if (!scenePath.empty() && !config.noStartScene) {
         std::string serrText;
         if (!fs::exists(scenePath) && !fs::is_absolute(scenePath)) {
             std::string msg = "Start scene '" + scenePath + "' not found";
@@ -2266,8 +2266,11 @@ Json Engine::ray_tracing_status() {
     int localCandidates = 0, localTraced = 0;
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
     const bool translucencyOn = rt.translucency;
-    const bool active =
-        rt.enabled && supported && (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
+    const bool giProbesOn = rt.gi == render::RtGi::Probes;
+    render::RtGiStatus giStatus;
+    if (impl_->renderer) giStatus = impl_->renderer->ray_tracing_gi_status();
+    const bool active = rt.enabled && supported &&
+                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn) && failure.empty();
     j["active"] = active;
     // M79-P6a: what the graphics preset allows. `effective` is the setting after the caps (the same keys as the setting itself); it is
     // the setting when `capped` is false (custom, ultra, or a project that asks for less than the preset allows).
@@ -2280,6 +2283,26 @@ Json Engine::ray_tracing_status() {
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
                                       {"candidates", shadowsOn && active ? localCandidates : 0},
                                       {"traced", shadowsOn && active ? localTraced : 0}});
+    // M79-P4a: the realtime GI probes updated by rays (gi "probes"), as of the last whole frame. `active` is true when that frame updated probes.
+    {
+        const bool giActive = rt.enabled && supported && giProbesOn && giStatus.active;
+        std::string giReason;
+        if (giProbesOn && rt.enabled && !giActive)
+            giReason = !supported ? std::string("this device cannot trace rays")
+                       : giStatus.reason.empty()
+                           ? std::string("no frame has been drawn yet with a RealtimeGI component in the scene")
+                           : giStatus.reason;
+        else if (rt.enabled && impl_->rayTracing.gi == render::RtGi::Probes)
+            giReason = "the graphics preset \"" + std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                       "\" does not allow gi \"probes\" (presetCap.effective.gi); the raster captures update the grids";
+        // `wanted`: gi "probes" is on after the preset's caps (a preset that caps gi leaves it false, presetCap says so).
+        j["giProbes"] = Json::object({{"active", giActive},
+                                      {"wanted", rt.enabled && giProbesOn},
+                                      {"reason", giReason},
+                                      {"grids", giActive ? giStatus.grids : 0},
+                                      {"probesPerFrame", giActive ? giStatus.probesPerFrame : 0},
+                                      {"budget", giActive ? giStatus.budget : 0}});
+    }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)
@@ -2294,7 +2317,7 @@ Json Engine::ray_tracing_status() {
         if (shadowsOn)
             add(std::string("the shadow of the directional light that has castShadows, on the main camera (the one "
                             "whose meshes are the traced scene's; ") +
-                (impl_->rayTracing.shadows == render::RtShadows::Soft
+                (rt.shadows == render::RtShadows::Soft
                      ? "shadows \"soft\" casts raysPerPixel rays over the sun's angular size and denoises them"
                      : "shadows \"hard\" casts one ray per pixel") +
                 "; the point, spot and area lights that cast shadows are traced too, the " +
@@ -2312,10 +2335,20 @@ Json Engine::ray_tracing_status() {
         if (translucencyOn)
             add("the refraction through glass and liquids (a ray bent at every interface, up to six, tinted by the "
                 "volume; where it cannot trace a pixel the screen-space refraction stays)");
-        j["reason"] = "Traced: " + what + ". The other effects (gi) are not made yet.";
+        if (giProbesOn)
+            add(std::string("the realtime GI probes of the RealtimeGI components (rays update ") +
+                (giStatus.active
+                     ? std::to_string(giStatus.probesPerFrame) + " probes in the last frame"
+                     : std::string(
+                           "no probe updated by rays in the last frame (the raster captures keep the grids): ") +
+                           giStatus.reason) +
+                "; the lit meshes read the grids as they always did)");
+        j["reason"] =
+            "Traced: " + what + "." +
+            (rt.gi == render::RtGi::PerPixel ? " gi \"perPixel\" is not made yet and draws nothing." : std::string());
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
-                      "reflections and translucency are made so far).";
+                      "reflections, translucency and gi \"probes\" are made so far).";
     if (presetCapped && impl_->rayTracing.enabled && supported)
         j["reason"] = j["reason"].get<std::string>() + " The graphics preset \"" +
                       std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
