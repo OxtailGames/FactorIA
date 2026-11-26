@@ -218,7 +218,10 @@ kernel void rt_gi(instance_acceleration_structure tlas [[buffer(0)]],
                 if (!s.unlit) color = max(color + diffuse * cover * (light * gain - hit.ambient.xyz), 0.0);
             }
             dist = saturate(s.t / maxDistance);
-            back = (s.front == (params.flags.x > 0.0)) ? 0.0 : 1.0;
+            // flags.x == 0: the sense of the front flag is not measured on this backend, nothing counts as a back face. A two-sided
+            // instance (a leaf, a curtain) has no back face a probe could be inside of.
+            if (params.flags.x != 0.0 && (records[s.record].flags & kRtFlagTwoSided) == 0u)
+                back = (s.front == (params.flags.x > 0.0)) ? 0.0 : 1.0;
         } else {
             color = rt_miss_color(hit, dir);
         }

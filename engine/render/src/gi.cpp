@@ -77,12 +77,6 @@ Result<GiLayout> gi_layout(const RealtimeGI& c, Vec3 worldPosition, const std::s
     if (!in_range(c.backfaceTolerance, 0.02, 0.9))
         return make_error(who + ": /backfaceTolerance " + num(c.backfaceTolerance) + " is outside 0.02..0.9",
                           "Use 0.25: a probe with a quarter of its rays on back faces is inside geometry.");
-    if (c.raysPerProbe < 16 || c.raysPerProbe > 256)
-        return make_error(who + ": /raysPerProbe " + std::to_string(c.raysPerProbe) + " is outside 16..256",
-                          "Use 64: more rays smooth the probe and cost proportionally more.");
-    if (c.rtProbesPerFrame < 1 || c.rtProbesPerFrame > 64)
-        return make_error(who + ": /rtProbesPerFrame " + std::to_string(c.rtProbesPerFrame) + " is outside 1..64",
-                          "Use 16: the probes the ray traced mode updates a frame.");
     const int nx = gi_axis_count(c.size.x, c.spacing), ny = gi_axis_count(c.size.y, c.spacing),
               nz = gi_axis_count(c.size.z, c.spacing);
     const double total = double(nx) * double(ny) * double(nz);
@@ -105,8 +99,10 @@ Result<GiLayout> gi_layout(const RealtimeGI& c, Vec3 worldPosition, const std::s
     g.bounce = c.bounce;
     g.hysteresis = c.hysteresis;
     g.backfaceTolerance = c.backfaceTolerance;
-    g.raysPerProbe = c.raysPerProbe;
-    g.rtProbesPerFrame = c.rtProbesPerFrame;
+    // Only the ray traced mode reads these two, so a value outside the range is clamped (never an error: it would invalidate a grid the
+    // raster captures draw fine).
+    g.raysPerProbe = std::clamp(c.raysPerProbe, 16, 256);
+    g.rtProbesPerFrame = std::clamp(c.rtProbesPerFrame, 1, 64);
     const Vec3 centre = worldPosition + c.offset;
     g.origin = {centre.x - 0.5f * float(nx - 1) * c.spacing, centre.y - 0.5f * float(ny - 1) * c.spacing,
                 centre.z - 0.5f * float(nz - 1) * c.spacing};

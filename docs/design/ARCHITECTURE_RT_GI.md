@@ -64,9 +64,10 @@ the first uniform block is `RtGiParams` (the `paramsSize` of the kernel's spec r
   (`RtSurface.front`, additive: the other kernels are unchanged).
 - **The front-face sense.** The back-face fraction needs to know which side of a triangle the flag calls the front. `flags.x` of the constants says
   it, `rt_gi_front_sense(backend)`: +1 on Metal, **measured** by `rt_gi_metal_tests.cpp` (a probe in the open reads 0 back faces, one inside a box
-  reads 1); -1 on D3D12 and Vulkan, which is their documented default ("clockwise as seen from the ray origin") and has **not been measured**
-  by any test. A wrong sign cannot crash or change the colours: it only counts the wrong faces as back faces, so probes lose or keep their
-  backface discard; check it first when probes near walls look wrong on those backends.
+  reads 1); **0 on D3D12 and Vulkan**, which have not been measured: with 0 the kernel counts no back faces at all (the probes inside walls are
+  not discarded, a light leak, but no probe goes black because of a guessed sign). `rt_gi_d3d12_tests.cpp` and `rt_gi_vulkan_tests.cpp` run the
+  same two probes on a machine with ray tracing, print the sign they measure and check it against `rt_gi_front_sense` once that is not 0; put the
+  measured value in `rt_gi_front_sense` to turn the discard on. A two-sided instance (`kRtFlagTwoSided`) never counts as a back face.
 
 ## Status
 

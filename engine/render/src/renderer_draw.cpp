@@ -5280,7 +5280,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             },
             true);
     // The GI probes updated by rays (renderer_gi.cpp, gi_plan, after the jobs) order their pass after this one and shade a hit with this job's sun.
-    if (ctx.rtCollected && rtSettings.gi == render::RtGi::Probes) {
+    // Only the job that collected the scene (the main camera's: rtScene.collect runs once a frame) names the pass and the sun; a later job
+    // with rtCollected set (there is none today) must not replace them.
+    if (ctx.rtCollected && rtSettings.gi == render::RtGi::Probes && !rtGiHitValid) {
         RtEffectRequest hitOnly;
         fill_rt_hit_request(ctx, hitOnly);
         rtGiHit = hitOnly.hit;

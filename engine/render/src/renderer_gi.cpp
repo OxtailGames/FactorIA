@@ -152,6 +152,10 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
     g.rtReason.clear();
     g.rtBudget = 0;
     g.rtWanted = supported && rtSettings.enabled && rtSettings.gi == render::RtGi::Probes;
+    if (!g.rtWanted) {  // turned off (and on again later): the next try starts clean
+        g.rtMisses = 0;
+        g.rtFallbackUntil = 0;
+    }
     if (!supported) return;
 
     ++g.frame;
@@ -246,6 +250,11 @@ bool Renderer::Impl::gi_plan_rays() {
         g.rtReason = "no camera drew the scene this frame, so the traced scene was not built";
         return false;
     }
+    if (g.frame < g.rtFallbackUntil) {
+        g.rtReason =
+            g.rtFallbackReason;  // the rays failed a moment ago: the raster captures update the grids until the next try
+        return false;
+    }
     struct Pick {
         GiGrid* grid = nullptr;
         std::vector<int> probes;
@@ -253,13 +262,22 @@ bool Renderer::Impl::gi_plan_rays() {
     std::vector<Pick> picks;
     RtGiRequest req;
     int left = kGiRtMaxFrameProbes;
-    for (auto& [id, gr] : g.grids) {
-        if (!gr.valid || gr.base < 0) continue;
-        g.rtBudget += std::min(gr.layout.rtProbesPerFrame, kGiRtMaxFrameProbes);
+    // The grids in a fixed order, starting at a grid that changes every frame: the 64 probes of the frame go to the first grids, so a fixed
+    // start would starve the last ones when the grids ask for more than 64 together.
+    std::vector<GiGrid*> order;
+    for (auto& [id, gr] : g.grids)
+        if (gr.valid && gr.base >= 0) order.push_back(&gr);
+    const std::size_t first = order.empty() ? 0 : g.rtStart++ % order.size();
+    for (std::size_t k = 0; k < order.size(); ++k) {
+        GiGrid& gr = *order[(first + k) % order.size()];
+        // The same rate cap as the raster path (gi_plan): the graphics preset limits how fast a grid updates.
+        const int want = qualityOn ? std::max(1, std::min(gr.layout.rtProbesPerFrame, quality.realtimeGiProbesPerFrame))
+                                   : gr.layout.rtProbesPerFrame;
+        g.rtBudget += std::min(want, kGiRtMaxFrameProbes);
         if (left <= 0) continue;
         Pick pick;
         pick.grid = &gr;
-        pick.probes = gi_pick(gr.last, gr.retry, g.frame, std::min(gr.layout.rtProbesPerFrame, left));
+        pick.probes = gi_pick(gr.last, gr.retry, g.frame, std::min(want, left));
         if (pick.probes.empty()) continue;
         left -= int(pick.probes.size());
         const GiLayout& l = gr.layout;
@@ -285,7 +303,7 @@ bool Renderer::Impl::gi_plan_rays() {
         p.frame[1] = rt_effect_seed(g.frame);
         p.frame[2] = std::uint32_t(std::clamp(l.raysPerProbe, kGiRtMinRays, kGiRtMaxRays));
         p.frame[3] = std::uint32_t(pick.probes.size());
-        p.flags[0] = gpu.has_device() ? rt_gi_front_sense(gpu.device().backend()) : -1.0f;
+        p.flags[0] = gpu.has_device() ? rt_gi_front_sense(gpu.device().backend()) : 0.0f;
         const float blend = std::clamp(1.0f - l.hysteresis, 0.01f, 1.0f);
         for (std::size_t j = 0; j < pick.probes.size(); ++j) {
             const int probe = pick.probes[j];
@@ -371,9 +389,19 @@ void Renderer::Impl::gi_finish() {
                 if (prev != g.rtPrevSerial.end()) gr.serial = prev->second;
             }
         }
-        if (!ran) {
+        if (ran) {
+            g.rtMisses = 0;
+        } else {
+            // The pass was declared and did not run. A reason it declared (a refused pipeline) hands the grids to the raster captures at once; a
+            // pass with no reason (the traced scene had no instance yet) gets kGiRtMissFrames frames to start, a scene may need one to build.
             const std::string why = rtGi.failure();
             g.rtReason = why.empty() ? "the traced scene was not ready this frame (it has no instance yet)" : why;
+            if (!why.empty() || ++g.rtMisses >= kGiRtMissFrames) {
+                g.rtFallbackUntil = g.frame + std::uint64_t(kGiRtRetryFrames);
+                g.rtFallbackReason =
+                    g.rtReason + " (the raster captures update the grids; the rays are tried again in a moment)";
+                g.rtMisses = 0;
+            }
         }
         g.rtJobs.clear();
         g.rtPrevSerial.clear();
