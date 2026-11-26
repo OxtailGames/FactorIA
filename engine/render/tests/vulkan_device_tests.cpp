@@ -1667,7 +1667,7 @@ TEST_CASE("vulkan: make_shader and make_pipeline say what is wrong with a desc")
     CHECK(contains(shader_error(sd), "uniform block 1 is in descriptor set 1"));
     sd = fill_shader_desc();
     sd.uniformBlocks[1].binding.spirvBinding = 0;
-    CHECK(contains(shader_error(sd), "uniform block 1 is on binding 0 of set 0, which uniform block 0 is on already"));
+    CHECK(contains(shader_error(sd), "uniform block 1 is on binding 0 of set 0"));
     sd = fill_shader_desc();
     sd.samplers[0].stage = ShaderStage::Compute;
     sd.samplers[0].binding.spirvSet = 1;

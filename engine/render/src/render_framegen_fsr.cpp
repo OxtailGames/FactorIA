@@ -9,6 +9,7 @@
 #include <limits>
 #include <mutex>
 #include <span>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -25,6 +26,14 @@
 #endif
 #include <dxgi.h>
 #endif
+
+// The Vulkan headers' own names for the handles of vkDestroySwapchainKHR (this file includes no Vulkan header): the engine
+// calls the destroy function of a swapchain through PFN_vkDestroySwapchainKHR, and a function it reaches that way must
+// have exactly that type (clang's -fsanitize=function compares the two). VkSwapchainKHR is a pointer type on 64-bit
+// targets and a uint64_t on the others, as in vulkan_core.h.
+struct VkDevice_T;
+struct VkSwapchainKHR_T;
+struct VkAllocationCallbacks;
 
 namespace fa::render {
 
@@ -186,6 +195,28 @@ abi::Resource make_resource(void* handle, std::uint32_t format, int w, int h, bo
 }
 
 void* swap_pointer(std::uint64_t handle) { return reinterpret_cast<void*>(std::uintptr_t(handle)); }  // NOLINT
+
+#if defined(__LP64__) || defined(_WIN64) || defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) ||          \
+    defined(__ia64) || defined(_M_IA64) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
+using VkSwapchainKHR = VkSwapchainKHR_T*;
+VkSwapchainKHR swapchain_handle(std::uint64_t bits) {
+    // NOLINTNEXTLINE
+    return reinterpret_cast<VkSwapchainKHR>(std::uintptr_t(bits));
+}
+std::uint64_t swapchain_bits(VkSwapchainKHR h) {
+    // NOLINTNEXTLINE
+    return std::uint64_t(reinterpret_cast<std::uintptr_t>(h));
+}
+#else
+using VkSwapchainKHR = std::uint64_t;
+VkSwapchainKHR swapchain_handle(std::uint64_t bits) { return bits; }
+std::uint64_t swapchain_bits(VkSwapchainKHR h) { return h; }
+#endif
+
+// vkDestroySwapchainKHR as the engine calls it (PFN_vkDestroySwapchainKHR) ...
+using VkDestroySwapchainFn = void (*)(VkDevice_T*, VkSwapchainKHR, const VkAllocationCallbacks*);
+// ... and FidelityFX's own destroy function of a swapchain it made: the same, with the context the SDK says it ignores.
+using VkDestroyProxyFn = void (*)(VkDevice_T*, VkSwapchainKHR, const VkAllocationCallbacks*, void* context);
 
 // ---- the state both the hook and the provider use -------------------------------------------------------------------------------------
 
@@ -422,9 +453,10 @@ std::string Core::check_present_support(std::uint64_t surface) const {
 }
 
 void Core::destroy_swapchain_proxy(std::uint64_t handle) const {
-    using DestroyProxyFn = void (*)(void* device, void* swapchain, const void* allocator, void* context);
     if (!vkDestroyFn || !vkDevice || handle == 0) return;
-    reinterpret_cast<DestroyProxyFn>(vkDestroyFn)(vkDevice, swap_pointer(handle), nullptr, nullptr);  // NOLINT
+    reinterpret_cast<VkDestroyProxyFn>(vkDestroyFn)(static_cast<VkDevice_T*>(vkDevice),
+                                                    swapchain_handle(handle),  // NOLINT
+                                                    nullptr, nullptr);
 }
 
 // ---- the Vulkan replacement functions ---------------------------------------------------------------------------------------------------
@@ -441,8 +473,8 @@ void set_active(const std::shared_ptr<Core>& core) {
 }
 
 // vkDestroySwapchainKHR of a swapchain FidelityFX made: its own destroy function, after the context is gone (the SDK's order), with no context.
-void vk_destroy_swapchain(void* device, void* swapchain, const void* allocator) {
-    using DestroyFn = void (*)(void*, void*, const void*, void*);
+// Its type is PFN_vkDestroySwapchainKHR's (checked below): the engine calls it through that type.
+void vk_destroy_swapchain(VkDevice_T* device, VkSwapchainKHR swapchain, const VkAllocationCallbacks* allocator) {
     std::shared_ptr<Core> core;
     {
         std::lock_guard<std::mutex> lock(g_active_mutex);
@@ -454,7 +486,7 @@ void vk_destroy_swapchain(void* device, void* swapchain, const void* allocator) 
         // The retired flag and the handle are written by the hook under Core::mutex (the render thread, which is also the caller here), so they
         // are read under it too. The engine calls this after the hook returned: the mutex is not held by this thread.
         std::lock_guard<std::mutex> lock(core->mutex);
-        const auto handle = std::uint64_t(reinterpret_cast<std::uintptr_t>(swapchain));  // NOLINT
+        const std::uint64_t handle = swapchain_bits(swapchain);
         if (core->retired != Retired::None && core->retiredHandle == handle) {
             const bool skip = core->retired == Retired::Skip;
             core->retired = Retired::None;
@@ -463,8 +495,9 @@ void vk_destroy_swapchain(void* device, void* swapchain, const void* allocator) 
         }
         fn = core->vkDestroyFn;
     }
-    if (fn) reinterpret_cast<DestroyFn>(fn)(device, swapchain, allocator, nullptr);  // NOLINT
+    if (fn) reinterpret_cast<VkDestroyProxyFn>(fn)(device, swapchain, allocator, nullptr);  // NOLINT
 }
+static_assert(std::is_same_v<decltype(&vk_destroy_swapchain), VkDestroySwapchainFn>);
 
 // ---- the hook --------------------------------------------------------------------------------------------------------------------------
 

@@ -59,7 +59,10 @@ if(APPLE)
     set_source_files_properties(src/readback_metal.mm src/gpu_info_metal.mm src/metalfx_apple.mm src/gpu/metal_accel_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
-fa_add_tests(render LABELS gpu)  # REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`
+# REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`. The Vulkan ray tracing cases are left out of this
+# whole-module run: they have the ctest entry render_vulkan_raytracing below (lavapipe compiles and runs their kernels on
+# the CPU, so a second run there is time spent twice).
+fa_add_tests(render LABELS gpu ARGS --fa-files-exclude=vulkan_raytracing_tests.cpp)
 # The CPU core of the frame graph needs no GPU: its tests also run on a host that runs `ctest -LE gpu`.
 if(TARGET fa_test_render)
     add_test(NAME render_frame_graph_core
@@ -100,7 +103,8 @@ if(TARGET fa_test_render)
     # refusals of a device without ray tracing, and on one with VK_KHR_acceleration_structure and VK_KHR_ray_query the
     # rt_probe kernel against a CPU trace. A device without them skips the tracing cases, a failure under
     # FA_VULKAN_REQUIRE_RT=1 (the Linux CI job: Mesa 25.2's lavapipe). Lavapipe compiles and runs the kernels on the CPU
-    # of a loaded 4-vCPU runner: the timeout is a safety net far above the seconds the cases take.
+    # of a loaded 4-vCPU runner: the timeout is a safety net far above the seconds the cases take (measured on Mesa 25.2.8
+    # lavapipe: about 1 s with every core and 2 s on one core, against 600 s).
     add_test(NAME render_vulkan_raytracing
         COMMAND fa_test_render --fa-files=vulkan_raytracing_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
