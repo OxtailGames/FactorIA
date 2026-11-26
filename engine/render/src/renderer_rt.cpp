@@ -75,6 +75,7 @@ void Renderer::Impl::rt_begin_frame() {
     if (!wanted) {
         rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
         rtWarnedEffect = false;
+        rtWarnedReflect = rtWarnedReflectGbuffer = false;
         rtInformedSoft = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.

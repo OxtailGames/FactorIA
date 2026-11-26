@@ -18,6 +18,12 @@
 // most 0.75.
 // The fresnel term is the only "material": there is no roughness or metalness image, so F = 0.2 + 0.8 (1 - N.V)^5, whatever the surface.
 //
+// With render.rayTracing.reflections (M79-P3a-1) the pass has a third image, the ray traced reflections of the camera (rt_reflect.hlsl, Rgba32F, the size of
+// the prepass; b.w = 1 when it is bound). A pixel the kernel traced (its alpha is not 0) takes no screen-space ray: where the ray hit a surface
+// (alpha > 0) the mix is the same fresnel term (no intensity, at most SSR_MAX_MIX) of the hit's colour; where it left the scene (alpha < 0) the
+// picture is left as it is, it already holds the environment's reflection. The other pixels (the sky, a surface rougher than the kernel's cutoff)
+// follow the rules above, with ssrIntensity 0 (the stack has no reflections) they are left alone.
+//
 // Coordinates: `uv` is the texture coordinate of an image of the pass's own size (the same orientation on every backend, as bloom.glsl).
 // `s` is the same point in camera-local top-left uv; the picture is read at fl(s * rc.zw + rc.xy), where rc is the camera's rectangle.
 // View space: the camera looks down -z; the prepass depth is -z. The projection terms come from the camera's matrix (as motion_blur.glsl).
@@ -41,14 +47,16 @@ void main() {
 @fs fs_trace
 layout(binding=0) uniform texture2D tex_c;
 layout(binding=1) uniform texture2D tex_p;
+layout(binding=2) uniform texture2D tex_r;
 layout(binding=0) uniform sampler smp_lin;
 layout(binding=1) uniform sampler smp_pt;
 @image_sample_type tex_p unfilterable_float
+@image_sample_type tex_r unfilterable_float
 @sampler_type smp_pt nonfiltering
 layout(binding=1) uniform ssr_params {
     vec4 a;         // x = 1 when render targets are bottom-up (OpenGL), yz = the camera's rectangle in pixels, w = steps (8 .. 128)
     vec4 rc;        // the rectangle of the source picture the pass covers (top-left, fractions of the picture): xy corner, zw size
-    vec4 b;         // x = intensity (0 .. 1), y = longest ray in world units, z = thickness in world units, w = 0
+    vec4 b;         // x = intensity (0 .. 1), y = longest ray in world units, z = thickness in world units, w = 1 when tex_r is the ray traced image
     vec4 pa;        // the projection of the camera: P00, P11, P02, P12 (what the view-space position of a pixel needs)
     vec4 pb;        // P03, P13, P32, P33
 };
@@ -103,7 +111,7 @@ void main() {
     vec4 here = textureLod(sampler2D(tex_c, smp_lin), game_uv(s), 0.0);
     frag_color = here;
     vec4 pre = pre_at(s);
-    if (pre.a < 0.5 || b.x <= 0.0) return;  // the sky, a sprite: nothing to reflect off
+    if (pre.a < 0.5 || (b.x <= 0.0 && b.w < 0.5)) return;  // the sky, a sprite: nothing to reflect off
 
     float d0 = pre.r;
     vec3 P = view_pos(s, d0);
@@ -112,6 +120,17 @@ void main() {
     vec3 V = persp ? normalize(P) : vec3(0.0, 0.0, -1.0);  // from the camera into the scene
     vec3 R = reflect(V, N);
     float fres = 0.2 + 0.8 * pow(1.0 - clamp(dot(N, -V), 0.0, 1.0), 5.0);
+    if (b.w > 0.5) {
+        vec4 rt = textureLod(sampler2D(tex_r, smp_pt), fl(s), 0.0);
+        if (rt.a != 0.0) {  // the kernel traced this pixel: no screen-space ray
+            if (rt.a > 0.0) {
+                vec3 rc3 = vec3(sane(rt.r), sane(rt.g), sane(rt.b));
+                frag_color = vec4(mix(here.rgb, rc3, min(fres, SSR_MAX_MIX)), here.a);
+            }
+            return;
+        }
+    }
+    if (b.x <= 0.0) return;
     float toward = smoothstep(-0.1, 0.15, dot(R, V));      // a ray back to the camera finds nothing the screen shows
     float k0 = b.x * fres * toward;
     if (k0 < 0.002) return;

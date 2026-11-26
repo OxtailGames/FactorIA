@@ -53,9 +53,15 @@ A kernel declares only the resources it reads; the numbers never change. The eng
 | view 0 | the output, a storage image | `u0` | binding 1 | `texture(0)` |
 | uniform 0 | `RtEffectParams`, 400 bytes | `b0` | binding 2 | `buffer(1)` |
 | view 1 | the prepass | `t1` | binding 3 | `texture(1)` |
-| view 2 | the scene's `RtInstanceRecord` buffer (kernels with `usesRecords`) | `t2` | binding 4 | `buffer(2)` |
+| view 2 | the scene's `RtInstanceRecord` buffer (kernels with `usesRecords`) | `t2` | binding 4 | `buffer(8)` |
 | view 3 | the G-buffer's albedo (kernels with `usesGbuffer`) | `t3` | binding 5 | `texture(2)` |
 | view 4 | the G-buffer's material (kernels with `usesGbuffer`) | `t4` | binding 6 | `texture(3)` |
+| uniform 1 | `RtHitParams`, 96 bytes (kernels with `usesHit`) | `b1` | binding 7 | `buffer(3)` |
+
+**Metal's buffer numbers.** Sokol numbers the uniform blocks `buffer(0)` to `buffer(7)` and the storage buffers `buffer(8)` to `buffer(23)`, so the
+records are `buffer(8)` (a kernel that declared `buffer(2)` fails at pipeline creation, `METAL_STORAGEBUFFER_MSL_BUFFER_SLOT_OUT_OF_RANGE`; no
+kernel read the records before the reflections, so the first contract's `buffer(2)` was never run). The acceleration structure is `buffer(0)` and
+the constants `buffer(1)`, the same as the table says, because they are not storage buffers.
 
 `rt_effect_shader_desc` builds the `ShaderDesc` of a kernel for a backend from its `RtKernelSpec`: the blob the backend takes (DXIL on D3D12,
 SPIR-V on Vulkan, the MSL text on Metal and on the RecordingDevice), `usesRayQuery`, the acceleration structure, the views, the uniform block and,
@@ -106,6 +112,7 @@ the G-buffer. The probe kernel of the tests is not an effect and has no spec.
 | Kernel | Effect | Reads | Output (Rgba32F) |
 | --- | --- | --- | --- |
 | `rt_shadow` | `render.rayTracing.shadows` = hard | prepass | r: linear view depth (1e30 on the sky); g: the sun's visibility (1 lit, 0 shadowed); b: 0; a: 1 on a mesh, 0 on the sky |
+| `rt_reflect` | `render.rayTracing.reflections` | prepass, G-buffer, records, `RtHitParams` | rgb: the radiance of the mirror ray times the tint; a: 0 not traced, > 0 the hit distance in metres, -1 a miss |
 
 To add an effect (P2b, P3a, P3b):
 
@@ -185,3 +192,63 @@ shadow boundary; the casters-only mask is checked by moving a non-caster in the 
 It skips, with a reason, on a machine with no GPU, no Metal or no ray tracing. The D3D12 and Vulkan kernels are compiled (DXIL with DXC, SPIR-V) and
 checked for the contract by the tests above; they were not run by this package (no device of those backends was available), so their first run is
 on the Windows and Linux CI machines that trace.
+
+## Hit shading (`rt_hit.hlsli`, `rt_hit.msli`) and the reflections (P3a-1)
+
+What a ray that ends on a surface sees there is one include, not a copy per kernel: `engine/render/shaders/rt/rt_hit.hlsli` (HLSL) and its
+twin `rt_hit.msli` (MSL; a `#include "rt_hit.msli"` line of a `.metal` file is expanded by `compile_rt_shaders.sh` into the blob, and the hash of
+both blobs is taken over the expanded text). The reflections use it first; the translucency (P3b), the global illumination (P4a, P4b) and the
+path tracer (P5a) are the next readers. A kernel that includes it gets, in one place, the bindings of the part of the contract hit shading reads
+and declares the rest itself. `rt_shadow` does not include it and is unchanged.
+
+**Bindings the include declares.** The acceleration structure `g_tlas` (binding 0), the records `g_records` (binding 4, `t2`) and the block
+`RtHitParams` `g_hit` (binding 7, `b1`; Metal `buffer(3)`, uniform slot 1). A kernel that includes it asks for them in its table row
+(`usesRecords`, `usesHit`), declares `g_out` (binding 1), `RtEffectParams` (binding 2), the prepass (3) and, if it reads the G-buffer, 5 and 6.
+MSL has no global resources, so each function takes `tlas`, `records` and `hit` as arguments.
+
+**`RtHitParams`** (96 bytes, the renderer fills it each frame from the scene's settings and the lit pass's sun; `RtEffectRequest::hit`):
+`sunDir` (toward the sun), `sunColor` (colour times intensity, 0 = no sun that lights), `ambient`, `sky` (`w` = 1 when the environment is a
+texture the kernel cannot read), `horizon`, `limits` (x, y: the shadow ray's offset along the normal in metres and per metre of ray length; z: its
+TMax; w: the differential rays' offset as a fraction of the hit distance).
+
+**Functions.**
+
+| Function | Returns |
+| --- | --- |
+| `rt_trace_surface(origin, dir, tmin, tmax, s)` | `false` for a miss; otherwise the closest surface of mask `Opaque \| Cutout \| Blended` as an `RtSurface`: position, normal, albedo, roughness, metalness, emissive, unlit, distance `t` and the record's index |
+| `rt_shade_hit(s, toViewer)` | the colour of the surface: ambient times diffuse, the environment times the environment BRDF, the sun (Lambert and GGX) when a shadow ray (mask `0x08`) finds nothing, plus the emission; an unlit surface is its albedo plus its emission |
+| `rt_miss_color(dir)` | the environment's gradient in that direction |
+
+**Limits.** A hit has the record's constants only, no texel (a textured mesh is its flat colour). There is no vertex buffer, so the normal is the
+face's: two more rays parallel to the first, offset by `limits.w` of the distance, give two more points of the plane; when they land on another
+triangle or instance (an edge, a thin mesh) the surface faces the ray. A cutout is never a hit (its triangles are candidates and the kernels commit
+none); a blended mesh is solid. One shadow ray, for the sun only; no fog, decals, probes or second bounce. The Metal twin makes all of a kernel's
+rays through one function (`rt_closest_hit`, with an `anyHit` flag for the shadow ray): a second `intersection_query` with other parameters in the
+same kernel made Apple's GPU compiler service crash (`XPC_ERROR_CONNECTION_INTERRUPTED` at pipeline creation).
+
+**Using it from a later kernel.** Write `rt_<name>.hlsl` with `#include "rt_hit.hlsli"` first, declare `g_out`, `RtEffectParams` and the views the
+kernel reads, call `rt_trace_surface` and `rt_shade_hit`; write the `.metal` twin with `#include "rt_hit.msli"` and pass `tlas`, `records` and
+`hit` to the same functions; give the table row `usesRecords` and `usesHit` and fill `RtEffectRequest::hit`; run `compile_rt_shaders.sh`.
+
+### What the reflections do
+
+`render.rayTracing.reflections` runs `rt_reflect` after the TLAS, the prepass and the G-buffer (`<job>/rt-reflections`). It reads the G-buffer's
+roughness (material `r`), metalness (`g`) and albedo, and the prepass's depth and normal. A pixel whose roughness is under `user0.z = 0.25`
+casts one ray from `pos + n (user0.x + user0.y d)` along `reflect(view, n)` with `TMax = user0.w = 10000`. Output: `a = 0` where nothing was
+traced (the sky, no G-buffer texel, a rougher surface), `a > 0` the hit distance (at least 1e-4; the denoiser's hook), `a = -1` a miss; `rgb`
+is the shaded hit (or the environment, for a miss) times `lerp(1, albedo, metalness)`. The request needs the G-buffer: a frame that draws none
+(a GPU that cannot make its images) keeps the old reflections and warns once (`rtWarnedReflectGbuffer`), a device that refuses the kernel or
+the image warns once (`rtWarnedReflect`); both are re-armed when ray tracing goes off.
+
+**The composite** is the screen-space reflections' trace pass (`renderer_ssr.cpp`): it samples the image (`tex_r`, `b.w` = 1). Where `rt.a > 0`
+the reflection colour is `rt.rgb` mixed into the lit colour by the same Fresnel weight, capped at the same `SSR_MAX_MIX`, and the pixel returns
+without the march; where `rt.a < 0` the picture is not changed (the lit pass already holds the environment's reflection); everywhere else the march
+runs as before, so the probes and the screen-space reflections serve the rough surfaces. A camera whose stack has no screen-space reflections gets
+the same pass with intensity 0 (`make_ssr_rt_plan`), which only changes the traced pixels.
+
+**Tests.** `rt_effect_tests.cpp` ("rt reflect: ...", the RecordingDevice, every host): the G-buffer request and the pass when on, nothing when off,
+the fallback on a device that cannot trace, the shader description (the bindings of the table above in HLSL, Vulkan and Metal numbering, including
+the `RtHitParams` block) and the `RtHitParams` fields against the HLSL and the MSL. `rt_reflect_metal_tests.cpp` (macOS, a real GPU): a mirror floor
+under a red and a green box and the sky, every traced pixel against a CPU port of the kernel (the same ray caster and shading) and a rough floor
+that is not traced. D3D12 and Vulkan did not run this kernel (their DXIL and SPIR-V are built with DXC on the Windows PC and checked for the
+contract by the tests above).

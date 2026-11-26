@@ -34,6 +34,8 @@
 namespace fa::render {
 
 // The LUT strip the final pass binds (Assets::lut): the view and the layout of its slices.
+struct RtEffectImage;
+
 struct LutInfo {
     gpu::View view{};
     int size = 0, cols = 0, rows = 0;
@@ -210,6 +212,10 @@ struct PostPlan {
     PrepassRef reactive;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
+    // M79-P3a-1: the camera's ray traced reflections (rt_reflect.hlsl; null when none were declared this frame) and its imported resource: the
+    // reflections' trace pass reads it. Set by build_graph before the stack is declared.
+    const RtEffectImage* rtReflectImg = nullptr;
+    ResourceId rtReflectRes;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
     // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has

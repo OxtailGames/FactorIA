@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "shaders/rt/rt_probe.rt.h"
+#include "shaders/rt/rt_reflect.rt.h"
 #include "shaders/rt/rt_shadow.rt.h"
 
 namespace fa::rt_kernels {
@@ -30,6 +31,9 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_probe", kRtProbeDxil, kRtProbeSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtProbeMsl), sizeof(kRtProbeMsl) - 1), kRtProbeDxcVersion,
          kRtProbeHlslSha256, kRtProbeMslSha256},
+        {"rt_reflect", kRtReflectDxil, kRtReflectSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtReflectMsl), sizeof(kRtReflectMsl) - 1),
+         kRtReflectDxcVersion, kRtReflectHlslSha256, kRtReflectMslSha256},
         {"rt_shadow", kRtShadowDxil, kRtShadowSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtShadowMsl), sizeof(kRtShadowMsl) - 1), kRtShadowDxcVersion,
          kRtShadowHlslSha256, kRtShadowMslSha256},
