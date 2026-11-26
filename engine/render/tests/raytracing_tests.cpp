@@ -19,6 +19,7 @@
 #include "gpu/accel.h"
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
+#include "gpu/sokol_device.h"
 #include "render_features.h"
 
 using namespace fa;
@@ -162,6 +163,18 @@ TEST_CASE("ray tracing: a RecordingDevice has none until it is asked, and every 
     const Buffer scratch = dev.make_buffer(b);
     CHECK(dev.state(scratch) == ResourceState::Failed);
     CHECK(has_error(dev.take_errors(), {"accelScratch", "without acceleration structures"}));
+}
+
+TEST_CASE("ray tracing: a SokolDevice on sokol's dummy backend says there is no GPU, not recordingRayTracing") {
+    // The dummy backend exists only in a build with no GPU backend (built_sokol_backend() is Recording): a RecordingDevice
+    // is another class, with the recordingRayTracing reason (the case above). Any other build skips this case.
+    if (built_sokol_backend() != Backend::Recording) return;
+    auto made = SokolDevice::create({});
+    REQUIRE_MESSAGE(made.ok(), made.error().message);
+    std::string why;
+    CHECK_FALSE(made.value()->ray_tracing_status(&why));
+    CHECK(contains(why, "no GPU"));
+    CHECK_FALSE(contains(why, "recordingRayTracing"));
 }
 
 TEST_CASE("ray tracing: the reason names where it can run and the package that brings it, per backend") {

@@ -352,7 +352,11 @@ traces.
   so neither the acceleration structure encoder nor `useResource:` keeps a structure alive while a command buffer in flight still
   uses it. `destroy_accel_structure`, and a rebuild or copy that replaces the BLAS array of a TLAS, therefore do not release the
   Metal objects at once: the references move into a completion handler of the current command buffer (it completes after every
-  earlier one on the queue), and go when the GPU has finished the work recorded so far. With no command buffer they go at once.
+  earlier one on the queue), and go when the GPU has finished the work recorded so far. `command_buffer()` makes one when the frame has none (a destroy
+  outside a frame waits at most one frame of GPU time); it is null only when the queue is lost, and then they go at once.
+  `~SokolDevice` (context it opened or not) runs `split_commit()` (commits the open frame's buffer, which a wait would
+  otherwise never see finish), `wait_idle()` (an empty buffer queued behind everything on sokol's queue) and only then frees
+  `accel_`, all before `sg_shutdown`; a context that is already closed was waited for by its `sg_shutdown`.
 - **Compaction.** `query_compacted_size` writes the size (a `uint64`) into the `storageBuffer` the caller names, with
   `MTLAccelerationStructureCommandEncoder writeCompactedAccelerationStructureSize:`; the caller reads it after the frame, makes a
   smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies into a structure at least as large.

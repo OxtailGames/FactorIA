@@ -1461,7 +1461,9 @@ SokolDevice::~SokolDevice() {
     // under the GPU (sg_shutdown waits for the frames, but a context this device does not own stays open). The open frame's
     // buffer is committed first (an enqueued, uncommitted buffer would hold the wait below back forever).
     if (accel_) {
-        native_metal()->split_commit();
+        // A destructor runs between frames, never inside a pass; a pass left open (a shared context's caller broke the
+        // rule) must not be cut by a commit, so it is only committed outside one (sg_commit with no buffer is a no-op).
+        if (sg_query_pass_state() == SG_PASSSTATE_NONE) native_metal()->split_commit();
         accel_->wait_idle();
         accel_.reset();
     }

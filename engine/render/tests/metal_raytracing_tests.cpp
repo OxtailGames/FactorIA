@@ -485,10 +485,12 @@ TEST_CASE("metal ray tracing: structures destroyed and rebuilt on consecutive fr
     CHECK(hits > 30);
 }
 
-TEST_CASE("metal ray tracing: a device destroyed right after the frames that trace its structures waits for them") {
+TEST_CASE("metal ray tracing: a device destroyed right after the frames that trace its structures neither hangs nor "
+          "crashes") {
     // sokol's command buffers retain nothing: ~SokolDevice commits the open frame's buffer and waits for the queue before
-    // it releases the structures, so frames still tracing them (never read back here) finish first. Under Metal's API
-    // validation or a GPU capture a structure freed under a running trace is a fault; here it is a crash or a hang.
+    // it releases the structures. This case proves only that the destructor returns (no hang on the enqueued buffer) and
+    // that the device after it works; it cannot see a structure freed under a running trace, which is a fault only
+    // under Metal's API validation or a GPU capture (not on in the suite).
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
