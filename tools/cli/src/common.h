@@ -79,6 +79,7 @@ enum class Gfx { Auto, None, Required };
 struct SessionOptions {
     Gfx gfx = Gfx::Auto;  // Auto: headless GPU when available, else logic-only
     std::string scene;
+    bool noScene = false;  // EngineConfig::noStartScene: an empty world, no scene script runs (--no-scene)
     int width = 0, height = 0;
     u64 seed = 1;
     std::string date;  // game.today() for the run, "YYYY-MM-DD" ("" = the fixed default 2026-01-01); --date

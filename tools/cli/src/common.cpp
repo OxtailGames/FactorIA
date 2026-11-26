@@ -203,6 +203,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.projectDir = s->projectDir_;
     cfg.shaderCompiler = make_engine_shader_compiler(s->projectDir_);
     cfg.scene = opt.scene;
+    cfg.noStartScene = opt.noScene;
     cfg.headless = true;
     cfg.audioDevice = false;
     cfg.width = opt.width;

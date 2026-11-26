@@ -187,7 +187,13 @@ void RtScene::forget(const MeshAsset* mesh) {
 }
 
 void RtScene::release() {
-    if (device_) {
+    // Anything the GPU may still read or write: the TLAS, a BLAS, a retired object, one of the buffers and views, a read in flight, a
+    // source view of a skinned mesh. A scene that never built anything (ray tracing turned on and off before a frame, a device
+    // that failed to make its objects) has nothing to wait for.
+    bool anyAlive = tlas_.id || !blas_.empty() || !graveyard_.empty() || recordsBuffer_.id || scratch_.id ||
+                    sizeBuffer_.id || paletteBuffer_.id || paletteView_.id || readTicket_.valid();
+    for (const auto& [mesh, e] : meshes_) anyAlive = anyAlive || !e.sources.empty();
+    if (device_ && anyAlive) {
         // The frames in flight may still trace the TLAS and the BLASes: wait for the GPU once (turning ray tracing off, a new device, the
         // renderer's shutdown; never per frame) so everything can go now. A device that orders its work itself does nothing here.
         if (const Result<void> idle = device_->wait_idle(); !idle)
@@ -343,6 +349,9 @@ void RtScene::poll_compaction(bool headless, const std::function<void()>& commit
         give_up(asked.error().message);
         return;
     }
+    // The synchronous read BLOCKS the render thread until the GPU has finished the frames before (the commit above sent them). It is
+    // only reached where the device cannot read asynchronously (the RecordingDevice, a headless run, a backend with no ticket
+    // support), where the wait is what makes a result independent of the GPU's speed; on a window the asynchronous read above is used.
     const Result<void> got = device_->read_buffer(sizeBuffer_, 0, bytesToRead, bytes);
     if (!got) {
         give_up(got.error().message);
@@ -543,10 +552,11 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 if (matOk) flags |= kRtFlagCustomMaterial;
                 if (skinnedPart) flags |= kRtFlagSkinned;
                 // Transmission (M79-P3b): the part the mesh pass draws with the refraction (the draw's own test, fill_fs: not unlit, not a full
-                // shader, a transmission above 0) is a surface the translucency kernel bends rays at. It is traced from both sides (a closed
+                // shader, a transmission above 0, and a metalness below 1: the shader lets through `transmission * (1 - metallic)`, so a full metal bends nothing) is a surface the translucency kernel bends rays at. It is traced from both sides (a closed
                 // glass has to be left through its far wall), which makes the shadow and reflection rays hit its back faces too.
                 const PartTransmission pt = resolve_part_transmission(mr, part, linear);
-                const bool refractive = isBlended && !unlit && !(matOk && mat->full) && pt.transmission > 0.0f;
+                const bool refractive =
+                    isBlended && !unlit && !(matOk && mat->full) && pt.transmission > 0.0f && rec.metalness < 1.0f;
                 rec.volume[0] = pt.ior;
                 rec.volume[1] = refractive ? pt.thickness : 0.0f;
                 rec.volume[2] = refractive ? pt.attenuationDistance : 0.0f;
@@ -720,7 +730,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
     // when it is built, a frame or more later.
     std::vector<std::uint32_t> building;
     for (std::uint32_t id : pending_) {
-        if (building.size() >= kMaxBuildsPerFrame) break;
+        if (building.size() >= buildsPerFrame_) break;
         building.push_back(id);
     }
     const auto is_building = [&](std::uint32_t id) { return std::binary_search(building.begin(), building.end(), id); };
@@ -728,7 +738,7 @@ void RtScene::record_frame(gpu::CommandList& list) {
     // The skinned BLASes this frame builds or refits (the skinning dispatches come first), in id order.
     std::vector<SkinWork> skinWork;
     std::uint64_t skinScratch = 0;
-    plan_skin(skinWork, std::uint32_t(kMaxBuildsPerFrame - building.size()), skinScratch);
+    plan_skin(skinWork, std::uint32_t(buildsPerFrame_ - building.size()), skinScratch);
     const auto skin_ready = [&](std::uint32_t id) {
         const auto at = std::lower_bound(skinWork.begin(), skinWork.end(), id,
                                          [](const SkinWork& w, std::uint32_t v) { return w.id < v; });

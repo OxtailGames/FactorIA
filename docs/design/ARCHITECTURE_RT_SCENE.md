@@ -68,7 +68,9 @@ Every BLAS is built with `allowCompaction` and `preferFastTrace`, then compacted
 1. Frame N: `build_blas`, then `query_compacted_size` into one of 4096 8-byte slots of a storage buffer.
 2. Frame N+1, `begin_frame`: the slots are read (`request_buffer_read`/`poll_buffer_read` where the device reads asynchronously;
    otherwise, as on the `RecordingDevice` and headless runs, the work is committed and the slots read at once, so a result never depends on
-   the GPU's speed). A smaller structure is made for each answer.
+   the GPU's speed). A smaller structure is made for each answer. That synchronous `read_buffer` **blocks the render thread** until the GPU has
+   finished the frames before it: it is the path of the `RecordingDevice` and of headless runs (where it costs nothing or is what makes a
+   result deterministic); a device that reads asynchronously never takes it, so a window never waits here.
 3. Frame N+1, the pass: `copy_accel_structure(Compact)` into it.
 4. Frame N+2, `begin_frame`: the compacted structure replaces the original (the instances of this frame's TLAS name it) and the original
    is retired (the TLAS of frame N+1 names it, so it is destroyed `kRetireFrames` frames later). State names for a test: `pending`, `built`, `queried`, `reading`, `compact-pending`, `swap`, `compacted`, `failed`, `gone`.
@@ -142,7 +144,9 @@ are what shadow and reflection rays hit too: it casts a solid shadow and is a so
 
 Buffers: the records buffer (`storageBuffer` + `writeTransient`, grown by powers of two, at least 256 records) is written with one
 `write_buffer` before the TLAS build; the TLAS is made again when its capacity grows; the scratch buffer (`accelScratch`) is the larger of
-the builds' needs. The records and the TLAS are valid (`tlas()`, `records_buffer()`) once a frame has an instance; with none they are the
+the builds' needs (the static BLAS builds of a frame all use its start: their large builds are few and each one fills the GPU, and the
+backend derives a barrier between two builds on the same scratch; keeping the buffer at the largest need instead of the sum is what stops it
+growing with the number of builds a frame. The skinned builds, many small ones, are laid side by side, see "Skinned meshes"). The records and the TLAS are valid (`tlas()`, `records_buffer()`) once a frame has an instance; with none they are the
 invalid handles.
 
 ## Skinned meshes
@@ -178,7 +182,10 @@ but makes the structure worse the more the mesh moves from the pose it was built
 `kSkinRebuildFrames` (60) frames (from then on, at the first frame whose number plus the BLAS id is a multiple of `kSkinRebuildSpread` = 16, so
 BLASes made in one frame do not all rebuild in one: a crowd's rebuilds are spread over 16 frames), and at once when the box of its bones' reach jumps by more than `kSkinExtentJump` (0.35) of the largest side
 of the box it was built for (a teleported bone, a changed clip; NaN counts as a jump). A rebuild spends the frame's build budget
-(`kMaxBuildsPerFrame` minus the static builds) and is a refit when none is left (the rebuild is a later frame's). Every choice depends on the frame count and the palettes only, never on the clock.
+(`kMaxBuildsPerFrame` minus the static builds) and is a refit when none is left (the rebuild is a later frame's). First builds take the budget
+first (id order); the rebuilds that are due share the rest, a box jump first and then the oldest build first, and a BLAS that is a whole
+spread (`kSkinRebuildSpread` frames) past its due frame no longer waits for its phase: a crowd whose rebuilds outnumber the budget (4096
+instances over 16 frames of 256 builds) is rebuilt oldest first, and no id waits for ever. Every choice depends on the frame count and the palettes only, never on the clock.
 
 **Budget** (deterministic work counts): at most `kMaxSkinnedInstances` (4096) instances and `kMaxSkinnedVertices` (2^22) skinned vertices a
 frame, the nearest to the main camera first (a stable sort, ties in the order the items came), and parts of at most `kRtSkinMaxPartVertices`

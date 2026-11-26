@@ -190,6 +190,7 @@ struct Rig {
     std::unique_ptr<Device> owner;
     Device* dev = nullptr;
     Pipeline pipeline{};
+    Shader shader{};
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -283,11 +284,26 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = shader;
         pd.label = "rt_reflect";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
+    }
+
+    // Everything the rig made that the test body does not destroy itself: the pipeline, its shader, the sampler, a mesh's
+    // buffers and the scratch of its BLAS. The device is the process's only one on this context, and it owns nothing
+    // after this, so a direct run of the binary (no ctest) has nothing left to wait for at exit.
+    void release(Mesh& m) {
+        dev->destroy_buffer(m.vb);
+        dev->destroy_buffer(m.ib);
+        dev->destroy_buffer(m.scratch);
+    }
+    void release_pipeline() {
+        dev->destroy_pipeline(pipeline);
+        dev->destroy_shader(shader);
+        dev->destroy_sampler(nearestSampler);
     }
 };
 
@@ -802,9 +818,13 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
     for (const View v : {outView, prepassView, albedoView, materialView, roughView, recordsView}) dev.destroy_view(v);
     for (const gpu::Image im : {outImg, prepassImg, albedoImg, materialImg, roughImg}) dev.destroy_image(im);
     dev.destroy_buffer(recordBuffer);
+    dev.destroy_buffer(tlasScratch);
     dev.destroy_accel_structure(tlas);
     dev.destroy_accel_structure(ground.blas);
     dev.destroy_accel_structure(box.blas);
+    rig.release(ground);
+    rig.release(box);
+    rig.release_pipeline();
 }
 
 #else
