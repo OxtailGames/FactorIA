@@ -76,7 +76,6 @@ TEST_CASE("parse_releases offers the newest release with the notes of every newe
 
 TEST_CASE("install_update replaces the files and keeps the old ones until the next start") {
     stdfs::path root = fa::fs::make_temp_dir_until_exit("fa_update_test").value();
-    stdfs::remove_all(root);
 #ifdef _WIN32
     const std::string exe = "factoria.exe";
 #else
@@ -189,7 +188,6 @@ TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=
     REQUIRE(info->available());
 
     stdfs::path install = fa::fs::make_temp_dir_until_exit("fa_update_live_test").value();
-    stdfs::remove_all(install);
 #ifdef _WIN32
     const std::string exe = "factoria.exe";
 #else
