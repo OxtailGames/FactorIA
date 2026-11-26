@@ -8,6 +8,12 @@
 #include <fstream>
 #include <map>
 
+#if defined(__APPLE__)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
+
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/export.h"
@@ -542,8 +548,31 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
     const std::string proj = tmp.sub("proj");
     ScaffoldOptions so;
     so.name = "Sandbox Probe";
-    so.id =
-        "com.factoria.sandboxprobe";  // its container is removed at the end (macOS keeps an empty folder of its own in it)
+    // Checkouts running their suites at once must not share one container (~/Library/Containers/<id>: they would delete
+    // each other's log.txt), so a run takes the first free slot (an flock on a file in the temp folder, held until the
+    // test ends) and its id carries the slot number. Slots, not pids: macOS protects the empty folder it keeps for a
+    // container, so the folder cannot be removed afterwards and ids by pid would pile up without end (16 at most here).
+    struct SlotLock {
+        int fd = -1;
+        int slot = -1;
+        ~SlotLock() {
+            if (fd >= 0) ::close(fd);  // closing releases the flock
+        }
+    } slotLock;
+    for (int slot = 0; slot < 16 && slotLock.fd < 0; ++slot) {
+        const std::string lockPath =
+            (stdfs::temp_directory_path() / ("fa_sandboxprobe_slot" + std::to_string(slot) + ".lock")).string();
+        const int fd = ::open(lockPath.c_str(), O_CREAT | O_RDWR, 0600);
+        if (fd < 0) continue;
+        if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
+            slotLock.fd = fd;
+            slotLock.slot = slot;
+        } else {
+            ::close(fd);
+        }
+    }
+    REQUIRE_MESSAGE(slotLock.fd >= 0, "all 16 sandbox probe slots are in use");
+    so.id = "com.factoria.sandboxprobe" + std::to_string(slotLock.slot);
     auto created = create_project(proj, "2d-platformer", so);
     REQUIRE_MESSAGE(created.ok(), (created.ok() ? "" : created.error().to_string()));
     ExportOptions eo;
