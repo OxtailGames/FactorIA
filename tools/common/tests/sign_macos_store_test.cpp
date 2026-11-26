@@ -3,7 +3,9 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -549,9 +551,15 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
     ScaffoldOptions so;
     so.name = "Sandbox Probe";
     // Checkouts running their suites at once must not share one container (~/Library/Containers/<id>: they would delete
-    // each other's log.txt), so a run takes the first free slot (an flock on a file in the temp folder, held until the
-    // test ends) and its id carries the slot number. Slots, not pids: macOS protects the empty folder it keeps for a
-    // container, so the folder cannot be removed afterwards and ids by pid would pile up without end (16 at most here).
+    // each other's log.txt), so a run takes the first free slot (an flock on a file under ~/Library/Caches/FactorIA,
+    // held until the test ends; the containers are per user, so the locks are too, whatever TMPDIR each checkout has)
+    // and its id carries the slot number. Slots, not pids: macOS protects the empty folder it keeps for a container, so
+    // the folder cannot be removed afterwards and ids by pid would pile up without end (16 at most here).
+    const char* home = std::getenv("HOME");
+    REQUIRE(home != nullptr);
+    const stdfs::path lockDir = stdfs::path(home) / "Library" / "Caches" / "FactorIA";
+    std::error_code lockEc;
+    stdfs::create_directories(lockDir, lockEc);
     struct SlotLock {
         int fd = -1;
         int slot = -1;
@@ -559,11 +567,15 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
             if (fd >= 0) ::close(fd);  // closing releases the flock
         }
     } slotLock;
+    std::string openError;
     for (int slot = 0; slot < 16 && slotLock.fd < 0; ++slot) {
-        const std::string lockPath =
-            (stdfs::temp_directory_path() / ("fa_sandboxprobe_slot" + std::to_string(slot) + ".lock")).string();
-        const int fd = ::open(lockPath.c_str(), O_CREAT | O_RDWR, 0600);
-        if (fd < 0) continue;
+        const std::string lockPath = (lockDir / ("sandboxprobe-slot" + std::to_string(slot) + ".lock")).string();
+        // O_CLOEXEC: the signed app is started by a fork, and must not inherit the lock.
+        const int fd = ::open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        if (fd < 0) {
+            openError = "cannot open " + lockPath + ": " + std::strerror(errno);
+            break;
+        }
         if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
             slotLock.fd = fd;
             slotLock.slot = slot;
@@ -571,8 +583,17 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
             ::close(fd);
         }
     }
-    REQUIRE_MESSAGE(slotLock.fd >= 0, "all 16 sandbox probe slots are in use");
+    REQUIRE_MESSAGE(openError.empty(), openError);
+    const std::string busy = "all 16 sandbox probe slots (" + (lockDir / "sandboxprobe-slot<N>.lock").string() +
+                             ") are locked by other runs of this test: wait for them to end";
+    REQUIRE_MESSAGE(slotLock.fd >= 0, busy);
     so.id = "com.factoria.sandboxprobe" + std::to_string(slotLock.slot);
+    const stdfs::path container = stdfs::path(home) / "Library" / "Containers" / so.id;
+    {
+        // The slot is ours: whatever an earlier run (crashed) left in its container must not pass the log check.
+        std::error_code ec;
+        stdfs::remove_all(container, ec);
+    }
     auto created = create_project(proj, "2d-platformer", so);
     REQUIRE_MESSAGE(created.ok(), (created.ok() ? "" : created.error().to_string()));
     ExportOptions eo;
@@ -584,9 +605,6 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
     REQUIRE_MESSAGE(exported.ok(), (exported.ok() ? "" : exported.error().to_string()));
     const stdfs::path app = stdfs::path(exported->outputDir) / "Sandbox Probe.app";
 
-    const char* home = std::getenv("HOME");
-    REQUIRE(home != nullptr);
-    const stdfs::path container = stdfs::path(home) / "Library" / "Containers" / so.id;
     struct Cleanup {
         stdfs::path dir;
         ~Cleanup() {

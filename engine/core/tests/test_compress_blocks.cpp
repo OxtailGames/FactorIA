@@ -518,7 +518,6 @@ TEST_CASE("zstd: round trip through the zstd command line tool when it is on the
     namespace fs = std::filesystem;
     const fs::path dir = fa::fs::make_temp_dir_until_exit("fa_test_zstd_cli").value();
     std::error_code ec;
-    fs::remove_all(dir, ec);
     fs::create_directories(dir);
     auto write_bytes = [](const fs::path& path, const Bytes& data) {
         std::ofstream f(path, std::ios::binary);
