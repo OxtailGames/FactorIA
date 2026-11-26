@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
+  `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
+  is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so
+  `graphics.preset` and `render.ray_tracing` work in either order, and `render.ray_tracing` reports `presetCap` `{preset, capped, effective}`. The probes of `gi = "probes"` follow the same cap (`giProbes.wanted` is false under `low`, `medium` and `high`, and `giProbes.reason` names the preset); the preset's `realtimeGiProbesPerFrame` now caps only the raster captures, not the rays' budget of 64 probes a frame.
+  The editor's Graphics settings window has a **Ray tracing** group (the switch and each effect, with this machine's ability and the reason) and a
+  **Path tracer** group (the switch, samples per frame and maximum samples), written to `render.rayTracing` and `render.pathTracer` through
+  `project.graphics`, which takes `rayTracing` and `pathTracer`; the controls are greyed out where the device cannot trace, with a hint to
+  `graphics.backend`. The menu kit's Graphics tab has a fifth page with an on/off switch and a quality that follows the High and Ultra
+  tiers (docs/RAY_TRACING.md, "Graphics presets, the editor and the menu kit"; docs/UPSCALING.md; docs/MENUS.md).
+
 - **Realtime GI probes updated by rays (M79-P4a):** `render.rayTracing.gi = "probes"` now draws: a compute kernel with inline ray queries
   updates the probes of the `RealtimeGI` grids instead of the six raster captures of each probe. Each update traces `raysPerProbe` rays (new
   field on `RealtimeGI`, 16 to 256, default 64) on a spherical Fibonacci set rotated deterministically from the frame's seed, shades the hits with
