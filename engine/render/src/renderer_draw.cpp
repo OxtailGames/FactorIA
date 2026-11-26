@@ -179,6 +179,13 @@ struct Renderer::Impl::DrawContext {
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
     gpu::View screenView{};
+    // M79-P2a-1: ray traced hard shadows. plan_job sets `want` (the sun's shadow is asked of the kernel: ray tracing on, the scene collected by this
+    // job, a sun that casts, the prepass); build_graph declares the pass and sets `img` (rt_effect.h: valid until the next sweep). The lit pass
+    // reads the mask only while `img->ran` is true when it draws (the scene had a TLAS this frame), else the cascades answer.
+    struct {
+        bool want = false;
+        const RtEffectImage* img = nullptr;
+    } rtShadow;
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
@@ -983,6 +990,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (draws && !fr.cam.studio)
         for (const LightData& l : ctx.lights) wantContact = wantContact || l.contactLength > 0.0f;
     if (wantContact) ctx.postPlan.needsDepth = true;
+    // Ray traced hard shadows (M79-P2a-1) read the prepass too: the camera whose meshes are the ray tracing scene's, with a sun that casts.
+    // A camera that cannot make the prepass keeps the cascades.
+    const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster &&
+                              rtSettings.shadows != render::RtShadows::Off;
+    if (wantRtShadow) ctx.postPlan.needsDepth = true;
     // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
     // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
     bool wantSss = false;
@@ -1004,6 +1016,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     plan_prepass(ctx);
     plan_quad_motion(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
+    ctx.rtShadow = {};
+    ctx.rtShadow.want = wantRtShadow && ctx.doPrepass;
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
     if (ctx.sssOn)
         ++stats.subsurfaceCameras;
@@ -2590,7 +2604,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
     // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
     // subsurface draw reads the same view for its visibility test against the prepass.
-    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
+    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want || ctx.rtShadow.want) {
         const Mat4& vp = fr.cam.drawViewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
@@ -3019,6 +3033,11 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // they (and a main pass whose prepass image is missing) draw with it off: the slot there holds the white image, not a prepass.
     fu.fa_ct_a[0] =
         (ctx.contactOn && ctx.screenView.id && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
+    // The sun's shadow from the ray traced mask (view 28 holds the kernel's image, set by main_pass when it ran): the same draws take it.
+    fu.fa_ct_b[1] = (ctx.rtShadow.img && ctx.rtShadow.img->ran && ctx.screenView.id == ctx.rtShadow.img->texture.id &&
+                     !blended && mr.receiveShadows && !(d.mat && d.mat->full))
+                        ? 1.0f
+                        : 0.0f;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}
@@ -3164,7 +3183,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
     // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
     gpu::View screenSlot = white->view;
     if (!shadowPass) {
-        if (opaquePhase && ctx.contactOn && ctx.screenView.id)
+        if (opaquePhase && (ctx.contactOn || ctx.rtShadow.img) && ctx.screenView.id)
             screenSlot = ctx.screenView;
         else if (!opaquePhase && ctx.xmit.on && ctx.xmit.atlasView.id)
             screenSlot = ctx.xmit.atlasView;
@@ -4684,6 +4703,10 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // read by the effects after them (below).
         const Target* preT = ctx.postPlan.prepass.target(pc);
         ctx.screenView = preT ? preT->texView : gpu::View{};
+        // The ray traced shadow image has the prepass's depth in r and its mesh flag in a: it stands in for the prepass at the screen slot
+        // (the contact shadows read the same two), and holds the sun's visibility in g.
+        if (ctx.rtShadow.img && ctx.rtShadow.img->ran && ctx.rtShadow.img->texture.id)
+            ctx.screenView = ctx.rtShadow.img->texture;
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
@@ -5329,6 +5352,47 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (at && bt && pt) sss_draw_pass(ctx, *at, *bt, *pt);
             });
     }
+    // Ray traced hard shadows (rt_effect.h, ARCHITECTURE_RT_EFFECTS.md): one compute pass after the scene's TLAS and the prepass, before the main
+    // pass, which reads the image it writes. A kernel or an image the device refuses is said once and leaves the cascades in place.
+    ctx.rtShadow.img = nullptr;
+    ResourceId rtShadowRes;
+    if (ctx.rtShadow.want && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_shadow";
+        req.effect = "shadows";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        const Vec3 toLight = normalize(-ctx.lightDirForShadow);
+        req.lightDir[0] = toLight.x;
+        req.lightDir[1] = toLight.y;
+        req.lightDir[2] = toLight.z;
+        // user0: the normal offset in metres and per metre of view depth, TMin, TMax (the ray's reach; the scene's size is far below it).
+        req.user0[0] = 0.02f;
+        req.user0[1] = 0.002f;
+        req.user0[2] = 0.0f;
+        req.user0[3] = 10000.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.rtShadow.img = out.out;
+            rtShadowRes = out.res;
+        } else if (!rtWarnedEffect) {
+            rtWarnedEffect = true;
+            FA_WARN("render",
+                    "render.rayTracing.shadows is on but the ray traced shadows cannot run on this device ({}). The "
+                    "sun keeps its shadow "
+                    "maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
+                    out.why);
+        }
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     ctx.ssaoApply = SsaoApply{};
@@ -5339,6 +5403,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     if (ctx.doMainPass) {
         std::vector<ResourceId> reads;
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
+        if (rtShadowRes.valid()) reads.push_back(rtShadowRes);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (cookieRes.valid()) reads.push_back(cookieRes);

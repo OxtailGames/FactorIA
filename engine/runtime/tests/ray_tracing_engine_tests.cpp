@@ -104,7 +104,7 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["raysPerPixel"] == 1);
     CHECK(r.result["maxInstances"] == 65536);
     // Whether this machine's GPU can trace rays (a Mac with Metal ray tracing says true, a runner without says false and why):
-    // `active` is false either way, because no effect draws with rays yet.
+    // `active` is false while no effect is on, whatever the device.
     REQUIRE(r.result["supported"].is_boolean());
     CHECK(r.result["active"] == false);
     CHECK(r.result["changed"] == false);
@@ -116,9 +116,8 @@ TEST_CASE("render.ray_tracing: reads, sets and refuses without changing anything
     CHECK(r.result["shadows"] == "hard");
     CHECK(r.result["raysPerPixel"] == 4);
     CHECK(r.result["changed"] == true);
-    CHECK(r.result["active"] == false);
-    CHECK_FALSE(
-        r.result["reason"].get<std::string>().empty());  // the device's reason, or that no effect draws with rays yet
+    CHECK(r.result["active"] == r.result["supported"]);          // the shadows are on: traced where the device traces
+    CHECK_FALSE(r.result["reason"].get<std::string>().empty());  // the device's reason, or what is traced
     // A device that cannot trace says why (its own reason, never an empty string).
     if (!r.result["supported"].get<bool>()) CHECK(r.result["reason"].get<std::string>().size() > 10);
     CHECK(e.ray_tracing().shadows == render::RtShadows::Hard);

@@ -72,7 +72,23 @@ void Renderer::Impl::rt_begin_frame() {
                     why.empty() ? std::string("(the device gave no reason)") : why);
         }
     }
-    if (!wanted) rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
+    if (!wanted) {
+        rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
+        rtWarnedEffect = false;
+        rtInformedSoft = false;
+    }
+    // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
+    if (!on) {
+        if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
+    } else {
+        rtEffects.sweep(gpu, frameSerial + 1);
+        if (rtSettings.shadows == render::RtShadows::Soft && !rtInformedSoft) {
+            rtInformedSoft = true;
+            FA_INFO("render", "render.rayTracing.shadows is \"soft\": the ray traced soft shadows are not made yet, "
+                              "the sun's shadow is the hard "
+                              "one (one ray per pixel). Set it to \"hard\" to say what you get.");
+        }
+    }
     // Mesh buffers carry the usage a build reads only while the scene is on (Assets::set_accel_input reloads the meshes made before).
     if (assets) assets->set_accel_input(on);
     if (!rtScene.configure(on ? &gpu.device() : nullptr, on, std::uint32_t(std::max(1, rtSettings.maxInstances))))
