@@ -132,6 +132,73 @@ TEST_CASE("lightmap gpu bake: a RecordingDevice with ray tracing takes the whole
     CHECK((*tracer)->dispatches() >= 1);
 }
 
+TEST_CASE("lightmap gpu bake: every dispatch stays within the ray budget, whatever the lights and the shadow samples") {
+    using render::kBakeDispatchWork;
+    // The work of the first dispatch of a plan: every texel of the batch traces the direct light and the first chunk of samples.
+    auto work = [](const render::BakeDispatchPlan& p, std::uint64_t lights, std::uint32_t shadow,
+                   std::uint32_t bounces) {
+        return p.batch * (lights * shadow + p.sampleChunk * std::uint64_t(bounces + 1) * (lights + 1));
+    };
+    struct Case {
+        std::uint64_t texels, lights;
+        std::uint32_t shadow, bounces, samples;
+    };
+    const Case cases[] = {{1 << 20, 1, 4, 2, 64},    {1 << 20, 8, 16, 3, 256},   {1 << 20, 100, 1024, 2, 64},
+                          {100000, 128, 1024, 0, 1}, {5000, 4000, 16, 4, 65536}, {1, 1, 1, 0, 1},
+                          {70, 120, 1024, 16, 1000}, {1 << 22, 0, 1, 2, 64},     {1 << 22, 1000, 8, 16, 8}};
+    for (const Case& c : cases) {
+        INFO("texels " << c.texels << " lights " << c.lights << " shadow " << c.shadow << " bounces " << c.bounces);
+        auto p = render::plan_bake_dispatches(c.texels, c.lights, c.shadow, c.bounces, c.samples);
+        REQUIRE_MESSAGE(p, (p ? "" : p.error().message));
+        CHECK(p->batch >= 1);
+        CHECK(p->batch <= render::kBakeMaxBatchTexels);
+        CHECK((p->batch < 1024 || p->batch % 1024 == 0));  // whole rows, or one partial row
+        CHECK(p->sampleChunk >= 1);
+        CHECK(p->sampleChunk <= c.samples);
+        CHECK(work(*p, c.lights, c.shadow, c.bounces) <= kBakeDispatchWork);
+    }
+    // The plan is the counts' alone, so it is the same on every machine; a small scene still fills a row of the image.
+    auto small = render::plan_bake_dispatches(1 << 20, 1, 4, 2, 64);
+    REQUIRE(small);
+    CHECK(small->batch == 16384);
+    // Many lights times many shadow samples: the old floor of 1024 texels would have been 100 times the budget; now the batch is partial.
+    auto heavy = render::plan_bake_dispatches(1 << 20, 100, 1024, 2, 64);
+    REQUIRE(heavy);
+    CHECK(heavy->batch < 1024);
+    // One texel over the budget cannot be cut: a teaching error that names the CPU.
+    auto none = render::plan_bake_dispatches(1000, 9000, 1024, 2, 64);
+    REQUIRE_FALSE(none);
+    CHECK(none.error().message.find("rays") != std::string::npos);
+    CHECK(none.error().hint.find("cpu") != std::string::npos);
+}
+
+TEST_CASE("lightmap gpu bake: settings outside the CPU baker's ranges are an error, never clamped") {
+    gpu::DeviceInit init;
+    init.recordingRayTracing = true;
+    auto made = gpu::make_device(gpu::Backend::Recording, init);
+    REQUIRE(made);
+    auto tracer = render::make_lightmap_gpu_tracer_on(**made);
+    REQUIRE_MESSAGE(tracer, (tracer ? "" : tracer.error().message));
+    BakeTraceScene scene;
+    scene.samples = 70000;
+    scene.bounces = 2;
+    scene.shadowSamples = 4;
+    auto r = (*tracer)->begin(scene);
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message.find("samples") != std::string::npos);
+    CHECK(r.error().message.find("65536") != std::string::npos);
+    scene.samples = 64;
+    scene.bounces = 17;
+    r = (*tracer)->begin(scene);
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message.find("bounces") != std::string::npos);
+    scene.bounces = 2;
+    scene.shadowSamples = 2000;
+    r = (*tracer)->begin(scene);
+    REQUIRE_FALSE(r);
+    CHECK(r.error().message.find("shadowSamples") != std::string::npos);
+}
+
 #if defined(__APPLE__)
 namespace {
 

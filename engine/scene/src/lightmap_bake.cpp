@@ -828,6 +828,8 @@ Result<void> denoise_atlas(const std::string& label, int width, int height, int 
 
 }  // namespace
 
+Result<void> check_bake_settings(const BakeSettings& settings) { return check_settings(settings); }
+
 void sh_basis(Vec3 d, float y[9]) {
     y[0] = 0.282094792f;
     y[1] = 0.488602512f * d.y;
