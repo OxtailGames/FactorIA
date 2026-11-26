@@ -2014,6 +2014,8 @@ public:
 
     gpu::Shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
         blitKeepShader_{}, blitKeepOverShader_{};
+    bool blitKeepOverFailed_ =
+        false;  // the shader of blit_keep_over_pipeline could not be made: said once, not tried again
     gpu::Shader meshSkinShader_{}, shadowSkinShader_{};
     gpu::Shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
         prepassSkinLodShader_{};  // made on the first fade

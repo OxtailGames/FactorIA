@@ -58,7 +58,12 @@ const render::PathTracerSettings& Renderer::path_tracer() const {
 render::PathTracerStatus Renderer::path_tracer_status() const {
     if (!impl_) return {};
     render::PathTracerStatus s = impl_->ptState.status;
-    s.failure = impl_->ptSettings.enabled ? impl_->rtEffects.failure() : std::string();
+    // Only the path tracer's own pass (a shadow kernel that failed is not its business); what the kernel or the image could not be made with
+    // (add_pass refused) is in the status already.
+    if (!impl_->ptSettings.enabled)
+        s.failure.clear();
+    else if (std::string f = impl_->rtEffects.failure_of("pathtrace"); !f.empty())
+        s.failure = std::move(f);
     return s;
 }
 

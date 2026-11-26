@@ -1485,7 +1485,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                 return (long long)std::llround(d);
             };
             const int samples = int(int_arg("samples", 64, 1, 16384));
-            const double scale = a.contains("scale") && a["scale"].is_number() ? a["scale"].get<double>() : 1.0;
+            if (a.contains("scale") && !a["scale"].is_number())
+                throw CommandError("invalid_argument", "/scale must be a number.",
+                                   "scale is the image size over the design size: 1.5 on 1280x720 gives 1920x1080.");
+            const double scale = a.contains("scale") ? a["scale"].get<double>() : 1.0;
             if (a.contains("scale") && !(scale >= 0.25 && scale <= 4.0))
                 throw CommandError("invalid_argument",
                                    "/scale " + std::to_string(scale) + " is out of range (0.25 to 4).",

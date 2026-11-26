@@ -128,7 +128,18 @@ Json path_tracer_to_json(const PathTracerSettings& s) {
     j["maxBounces"] = s.maxBounces;
     j["samplesPerFrame"] = s.samplesPerFrame;
     j["maxSamples"] = s.maxSamples;
-    j["fireflyClamp"] = std::round(double(s.fireflyClamp) * 1000.0) / 1000.0;
+    // Not rounded to a fixed step: a value read back (render.pathtrace puts the setting back as it was) must be the same float, or the
+    // accumulation would restart for a settings change that is none. The fewest decimals that read back as the same float, so 0.1 is written 0.1.
+    double clampText = double(s.fireflyClamp);
+    double k = 1.0;
+    for (int decimals = 0; decimals <= 9; ++decimals, k *= 10.0) {
+        const double candidate = std::round(double(s.fireflyClamp) * k) / k;
+        if (float(candidate) == s.fireflyClamp) {
+            clampText = candidate;
+            break;
+        }
+    }
+    j["fireflyClamp"] = clampText;
     j["lights"] = s.lights;
     j["seed"] = s.seed;
     return j;
