@@ -374,6 +374,9 @@ struct MeshAsset {
     std::vector<SubMesh> parts;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     bool placeholder = false;
+    // Counts the times the vertices or the buffers of the parts were replaced in place (a procedural mesh updated, a mesh loaded again): the
+    // acceleration structures of the ray tracing scene (rt_scene.h) built from an older count are built again.
+    std::uint64_t geometryVersion = 0;
     std::vector<std::string> untraced;  // as TextureAsset::untraced (its parts' textures are reported after it)
     std::unique_ptr<MeshLightmap>
         lightmap;  // built by Assets::lightmap_use for a mesh a manifest lists; dropped when the mesh reloads
@@ -1314,6 +1317,14 @@ public:
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
+    // Ray tracing (M79): while on, the vertex and index buffers of every mesh uploaded are made with usage.accelBuildInput, so a BLAS can be
+    // built from them. Off (the default) changes nothing. Turning it on loads again the meshes already uploaded (in place: their pointers stay)
+    // and drops the buffers of the procedural ones, which the next use uploads again; the meshes of the next uploads are made with it.
+    void set_accel_input(bool on);
+    bool accel_input() const { return accelInput_; }
+    // Called with a mesh asset just before its buffers are destroyed (the asset goes, is loaded again, or a procedural mesh leaves the
+    // store): the ray tracing scene frees the BLASes it built from them. Main thread; empty = none.
+    void set_mesh_release_hook(std::function<void(const MeshAsset*)> hook) { meshRelease_ = std::move(hook); }
     void reload(const std::string& path);
     // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and asks whether one of its own
     // textures was reloaded since a generation (`paths` are normalised keys). True too when the log of the last reloads no longer reaches
@@ -1391,6 +1402,8 @@ private:
     std::unique_ptr<LightmapSetAsset> lightmapSet_;
     std::string
         lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
+    bool accelInput_ = false;                            // set_accel_input
+    std::function<void(const MeshAsset*)> meshRelease_;  // set_mesh_release_hook
     gpu::Buffer zeroUv1_{};
     std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {

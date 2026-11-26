@@ -11,6 +11,10 @@ default, and free when off.
 > acceleration structure yet and no effect draws with rays**: turning the settings on changes nothing in the picture, and
 > `render.ray_tracing` says so (`active` is false, with the reason). The sections below say what each part will do and mark what is
 > planned.
+>
+> **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
+> an effect is on ("Which objects are traced", below). The backends that run them come with their own packages, and no effect reads them
+> yet, so the picture is still the same.
 
 ## The settings
 
@@ -90,6 +94,27 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 Every effect has a fallback that does not need rays (the shadow maps, the screen-space occlusion and reflections, the light probes), so a
 game that turns ray tracing on still looks right on a GPU that cannot do it; only the effects that need rays are missing.
 
+## Which objects are traced, and the instance cap
+
+When rays are asked for (see above) on a device that traces, the renderer builds one bottom-level structure per **submesh** of every mesh
+the main camera draws (once per mesh asset, shared by all its instances, compacted a frame or two later, freed when the mesh goes) and
+rebuilds the top-level structure every frame with one instance per drawn submesh. Meshes you draw with `MeshRenderer`, instanced
+batches and the instances of a `Foliage` are traced, one level of detail per instance (the level the main camera sees). Not traced:
+
+- **terrain** (`Terrain` nodes);
+- **impostors**: while a far tree is drawn as a card it is left out (it casts no ray-traced shadow and is not in a reflection);
+- **skinned meshes** (an `Animator`): not yet, a later package skins them on the GPU; the log says so once;
+- the level of a LOD cross-fade that is fading out, and meshes drawn from compute buffers (a material with GPU buffers);
+- meshes that are still loading (the placeholder).
+
+**The cap.** The structure holds at most `render.rayTracing.maxInstances` instances (and no more than the GPU allows, which the log
+names when it is the lower). One mesh with three submeshes is three instances. When the scene has more, the **nearest to the main
+camera** are kept and the log says once how many were left out and which setting to raise; the ones left out cast no ray-traced shadow
+and are in no reflection. Raise `maxInstances` (up to 1048576) or draw fewer objects.
+
+A custom material (`material`) is not evaluated by the rays: they see the `MeshRenderer`'s colour, roughness and metallic. A cutout
+(alpha clip) is traced as a cutout, never as a solid. A GPU that cannot trace rays logs one message with the reason and nothing is built.
+
 ## How the renderer will use it
 
 The design (docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md, repository only, not in the binary) is **inline ray query only**: a compute pass binds one top-level
@@ -97,8 +122,8 @@ acceleration structure (a **TLAS**: one instance of a bottom-level structure, a 
 and the compute shader of each effect casts its rays and shades the hit itself. There are no ray tracing pipelines, no shader binding
 tables and no hit shaders, so one kernel runs unchanged on Direct3D 12, Vulkan and Metal.
 
-The renderer will build one BLAS per mesh when the mesh loads, rebuild the TLAS when instances move or appear (instances are re-sorted
-nearest-first and capped by `maxInstances`), and add the effects' compute passes to the frame graph only when `enabled` and an effect
+The renderer builds one BLAS per submesh, rebuilds the TLAS every frame (capped by `maxInstances`, nearest first), and will add the
+effects' compute passes to the frame graph only when `enabled` and an effect
 are on. With the master switch off no acceleration structure exists and the frame graph has the same passes as before.
 
 ## For engine developers

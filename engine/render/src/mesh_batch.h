@@ -79,6 +79,26 @@ struct MeshItem {
     std::uint32_t prevIdx = 0;
 };
 
+// The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
+// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
+// The draw (fill_fs) and the ray tracing scene (rt_scene.cpp) both ask it.
+inline Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
+    if (authored) *authored = false;
+    if (!part.materialName.empty() && mr.materialColors.is_object()) {
+        auto it = mr.materialColors.find(part.materialName);
+        if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
+            float v[4] = {1, 1, 1, 1};
+            for (std::size_t i = 0; i < it->size(); ++i) {
+                if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
+                v[i] = (*it)[i].get<float>();
+            }
+            if (authored) *authored = true;
+            return Color{v[0], v[1], v[2], v[3]};
+        }
+    }
+    return part.baseColor;
+}
+
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
 // 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
 inline int decal_recv(const MeshRenderer& mr) {

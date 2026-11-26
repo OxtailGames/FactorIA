@@ -230,5 +230,7 @@ Until P1m lands, Metal answers "the metal backend does not build acceleration st
 - **P1d** (Direct3D 12): DXR 1.1 (`D3D12_RAYTRACING_TIER_1_1`), `ID3D12GraphicsCommandList4`, structures in
   `ACCELERATION_STRUCTURE` state buffers.
 - **P1m** (Metal): the route above.
-- After them, the renderer builds one BLAS per mesh, a TLAS per frame, and adds the effects' compute passes to the frame graph
+- **P1s** (done, ARCHITECTURE_RT_SCENE.md): the renderer builds one BLAS per submesh, a TLAS per frame and the per-instance records, when
+  `rt_any_effect` is true on a device that traces.
+- After them, the renderer adds the effects' compute passes to the frame graph
   only when `rt_any_effect` is true; with the switch off the frame graph is what it was (`raytracing_frame_tests.cpp` guards it).
