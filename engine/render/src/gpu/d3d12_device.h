@@ -574,6 +574,7 @@ public:
     void end_timed_scope() override;
     // The queue it runs on: the one begin_commands asked for, or the queue that stands in for it (map_queue).
     QueueKind queue() const override { return kind_; }
+    Backend backend() const override { return Backend::D3d12; }  // the ray tracing refusals name it
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
     Result<void> end_native(std::span<const NativeUse> leftIn) override;
     using CommandList::end_native;

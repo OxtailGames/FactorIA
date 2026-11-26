@@ -833,6 +833,7 @@ public:
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
     QueueKind queue() const override { return queue_; }
+    Backend backend() const override { return Backend::Vulkan; }  // the ray tracing refusals name it
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
     Result<void> end_native(std::span<const NativeUse> leftIn) override;
     using CommandList::end_native;

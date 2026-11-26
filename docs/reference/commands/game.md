@@ -676,6 +676,29 @@ The first ask for a mesh draws one more frame (the renderer keeps the picks of t
 |---|---|---|---|
 | `entity` | string | no | A mesh entity (id or name): the result also says which probes it reflects. |
 
+## `render.ray_tracing` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Reads or changes the ray tracing setting: which effects the renderer traces with rays.
+
+Capabilities: read, state
+
+The ray tracing seam of M79 (docs/RAY_TRACING.md): `enabled` (the master switch, default false), `shadows` (off, hard, soft), `ao`, `reflections`, `translucency` (booleans), `gi` (off, probes, perPixel), `raysPerPixel` (a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, reason, changed}: `supported` is renderer.supports("raytracing") of this device, `active` whether any effect is traced, `reason` says why not. Example: render.ray_tracing {"enabled":true,"shadows":"soft"}
+
+Ray tracing is off by default and free when off. This version has the shared interface only (acceleration structures, ray queries in compute shaders, the supports rows): no backend traces rays yet and no effect draws with the setting, so `active` is false and `reason` names that. A wrong name or type fails with `invalid_argument`, a JSON pointer and a "did you mean", and changes nothing. The start value is factoria.json "render": {"rayTracing": {...}}. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | The master switch. Default false. |
+| `shadows` | string ["off","hard","soft"] | no | off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off. |
+| `ao` | boolean | no | Ambient occlusion with rays. Default false. |
+| `reflections` | boolean | no | Reflections with rays. Default false. |
+| `translucency` | boolean | no | Light through glass and thin surfaces. Default false. |
+| `gi` | string ["off","probes","perPixel"] | no | Global illumination: off, probes updated with rays, or a bounce per pixel. Default off. |
+| `raysPerPixel` | integer | no | Rays of each effect per pixel and frame, clamped to 1..16. Default 1. |
+| `maxInstances` | integer | no | The most instances the top-level structure holds, clamped to 1..1048576. Default 65536. |
+
 ## `render.reset_post_history` (modifies state)
 
 Since 0.32.0.

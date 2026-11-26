@@ -40,6 +40,7 @@
 #include "fa/render/dynamic_resolution.h"
 #include "fa/render/framegen.h"
 #include "fa/render/latency.h"
+#include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
 
 namespace fa {
@@ -137,6 +138,10 @@ struct ProjectSettings {
     // fsr, xess); the command render.frame_generation changes it at run time (a provider needs the start of the run: the swapchain is made then).
     // Off (the default) is the swapchain of every earlier version.
     render::FrameGenSettings frameGeneration;
+    // "render": {"rayTracing": {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"}} (M79,
+    // docs/RAY_TRACING.md): the ray traced effects a run asks for. Off (the default) is the renderer of every earlier version and costs
+    // nothing. In this version only the interface exists: no backend traces rays yet and the renderer does not read these settings.
+    render::RayTracingSettings rayTracing;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.
     render::DynamicResolutionSettings dynamicResolution;
