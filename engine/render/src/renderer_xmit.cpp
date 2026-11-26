@@ -166,8 +166,8 @@ bool Xmit::can_make(TransientTargets& targets, Gpu& gpu, int w, int h) {
     return true;
 }
 
-bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-                 XmitImages& out, gpu::View traced) {
+bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, XmitImages& out,
+                 gpu::View traced) {
     out = XmitImages{};
     const XmitLayout lay = xmit_layout(w, h);
     gpu::Device& device = gpu.device();
@@ -210,8 +210,7 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
         list.begin_pass(pd);
         list.set_pipeline(pipeline(device, pd.format));
         if (k == 1)
-            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, 1, 0, 0, lay.level[1].w,
-                      lay.level[1].h);
+            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, 1, 0, 0, lay.level[1].w, lay.level[1].h);
         else
             draw_rect(gpu, list, red[k - 1]->texView, red[k - 1]->w, red[k - 1]->h, 0, 0, lay.level[k - 1].w,
                       lay.level[k - 1].h, 1, 0, 0, lay.level[k].w, lay.level[k].h);

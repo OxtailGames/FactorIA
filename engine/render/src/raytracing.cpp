@@ -96,7 +96,8 @@ Result<RayTracingSettings> parse_ray_tracing_settings(const Json& j, std::string
         s.reflections = v.value();
     }
     if (auto it = j.find("translucency"); it != j.end()) {
-        auto v = parse_bool(*it, w + "/translucency", "translucency traces light through glass and thin surfaces.");
+        auto v = parse_bool(*it, w + "/translucency",
+                            "translucency traces the refraction through glass and liquids with rays.");
         if (!v) return v.error();
         s.translucency = v.value();
     }

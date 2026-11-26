@@ -43,7 +43,8 @@ struct RayTracingSettings {
     bool ao = false;  // ambient occlusion traced with rays, instead of the screen-space one
     bool reflections =
         false;  // sharp reflections traced with rays (roughness under 0.25), instead of the screen-space ones
-    bool translucency = false;  // light through glass and thin surfaces (refraction and coloured shadows)
+    bool translucency =
+        false;  // refraction through glass and liquids traced with rays, instead of the screen-space refraction
     RtGi gi = RtGi::Off;
     int raysPerPixel =
         kRtDefaultRaysPerPixel;  // rays of each effect per pixel and frame (1 to 16); the denoiser makes up the rest

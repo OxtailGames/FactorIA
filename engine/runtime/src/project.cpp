@@ -1199,7 +1199,7 @@ constexpr const char* kSchemaText =
         },
         "rayTracing": {
           "type": "object",
-          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays, and so is the ambient occlusion (ao, in place of the screen-space one); the other effects do not draw with rays yet.",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays, and so are the ambient occlusion (ao, in place of the screen-space one), the sharp reflections (reflections) and the refraction through glass and liquids (translucency, in place of the screen-space one); global illumination does not draw with rays yet.",
           "additionalProperties": false,
           "properties": {
             "enabled": {
@@ -1226,7 +1226,7 @@ constexpr const char* kSchemaText =
             "translucency": {
               "type": "boolean",
               "default": false,
-              "description": "Light through glass and thin surfaces (refraction and coloured shadows). Default false."
+              "description": "Refraction through glass and liquids traced with rays instead of the screen-space refraction: a ray bent by the material's ior at every interface of the closed mesh (up to six), tinted by its attenuation colour and distance. Glass casts a solid shadow; coloured shadows are not made. Default false."
             },
             "gi": {
               "type": "string",
