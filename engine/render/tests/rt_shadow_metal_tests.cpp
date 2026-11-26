@@ -1,4 +1,4 @@
-// M79-P2a-1: the hard shadow kernel (shaders/rt/rt_shadow.metal) run for real on a Mac whose GPU traces rays, through the SokolDevice. A
+// M79-P2a-1 and P2a-2: the hard and soft shadow kernels (shaders/rt/rt_shadow.metal, rt_shadow_pack.metal) run for real on a Mac whose GPU traces rays, through the SokolDevice. A
 // ground plane, a box that casts and a box that does not (its instance lacks the CastsShadow bit) under the sun; the prepass image is made
 // on the CPU from the camera's own rays, the constants block by the engine's fill_rt_effect_camera, and the visibility the kernel writes is
 // compared with a CPU ray caster over the same triangles. A machine without ray tracing (an older OS, the iOS simulator, a virtualised
@@ -228,6 +228,75 @@ struct Rig {
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
     }
 
+    // The soft shadow's last pass (rt_shadow_pack): the trace image (`out`) and a denoised image the test fills, into the layout the lit pass reads.
+    gpu::Image aux{}, packOut{};
+    View auxView{}, srcView{}, packOutView{};
+    Pipeline packPipeline{};
+
+    void make_pack(const std::vector<float>& auxData) {
+        ImageDesc ad;
+        ad.width = kW;
+        ad.height = kH;
+        ad.pixelFormat = PixelFormat::Rgba32F;
+        ad.data.mipLevels[0] = Range{auxData.data(), auxData.size() * sizeof(float)};
+        ad.label = "rt shadow pack aux";
+        aux = dev->make_image(ad);
+        ViewDesc av;
+        av.texture.image = aux;
+        av.label = "rt shadow pack aux view";
+        auxView = dev->make_view(av);
+        ViewDesc sv;
+        sv.texture.image = out;
+        sv.label = "rt shadow pack src view";
+        srcView = dev->make_view(sv);
+        ImageDesc od;
+        od.width = kW;
+        od.height = kH;
+        od.pixelFormat = PixelFormat::Rgba32F;
+        od.usage.storageImage = true;
+        od.label = "rt shadow pack out";
+        packOut = dev->make_image(od);
+        ViewDesc ov;
+        ov.storageImage.image = packOut;
+        ov.label = "rt shadow pack out view";
+        packOutView = dev->make_view(ov);
+        const fa::rt_kernels::RtKernel* k = fa::rt_kernels::find_rt_kernel("rt_shadow_pack");
+        REQUIRE(k != nullptr);
+        const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_shadow_pack");
+        REQUIRE(spec != nullptr);
+        PipelineDesc pd;
+        pd.compute = true;
+        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.label = "rt_shadow_pack";
+        packPipeline = dev->make_pipeline(pd);
+        REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
+        REQUIRE(dev->state(packPipeline) == ResourceState::Valid);
+    }
+
+    std::vector<float> pack(const fa::render::RtEffectParams& params) {
+        CommandList& cl = dev->begin_commands("rt shadow pack");
+        cl.begin_compute_pass("rt shadow pack");
+        cl.set_pipeline(packPipeline);
+        Bindings b;
+        b.views[fa::render::RtEffectBindings::kViewOut] = packOutView;
+        b.views[fa::render::RtEffectBindings::kViewPrepass] = srcView;
+        b.views[fa::render::RtEffectBindings::kViewAux] = auxView;
+        b.samplers[fa::render::RtEffectBindings::kSampler] = nearestSampler;
+        cl.set_bindings(b);
+        cl.set_uniforms(0, Range{&params, sizeof params});
+        cl.dispatch(kW / 8, kH / 8, 1);
+        cl.end_pass();
+        dev->submit(cl);
+        dev->commit();
+        std::vector<std::uint8_t> bytes;
+        auto r = dev->read_storage_image(packOut, PixelFormat::Rgba32F, 0, 0, kW, kH, bytes);
+        REQUIRE_MESSAGE(r.ok(), r.error().message);
+        REQUIRE(bytes.size() == std::size_t(kW) * kH * 4 * sizeof(float));
+        std::vector<float> v(std::size_t(kW) * kH * 4);
+        std::memcpy(v.data(), bytes.data(), bytes.size());
+        return v;
+    }
+
     std::vector<float> trace(AccelStructure tlas, const fa::render::RtEffectParams& params,
                              CommandList* builds = nullptr) {
         CommandList& cl = builds ? *builds : dev->begin_commands("rt shadow frame");
@@ -277,7 +346,7 @@ CameraGeometry make_camera() {
 }  // namespace
 
 TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray caster, casters only, and is the same "
-          "every frame") {
+          "every frame; the soft one widens its penumbra with the sun's size and keeps the umbra") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -382,10 +451,9 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     params.frame[0] = 12;
     params.frame[1] = fa::render::rt_effect_seed(12);
     params.frame[2] = 1;
-    params.user0[0] = 0.02f;    // normal offset (metres)
-    params.user0[1] = 0.004f;   // more of it per metre of view depth
-    params.user0[2] = 0.0005f;  // TMin
-    params.user0[3] = 1000.0f;  // TMax
+    // The constants the renderer sends (rt_effect.h kRtShadowUser0: normal offset in metres, more of it per metre of view depth, TMin, TMax).
+    for (int i = 0; i < 4; ++i) params.user0[i] = fa::render::kRtShadowUser0[i];
+    params.user1[1] = fa::render::kRtShadowLayoutHard;
 
     // One frame builds the BLASes and the TLAS and traces, like the renderer's.
     CommandList& cl = dev.begin_commands("rt shadow frame");
@@ -455,6 +523,166 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     later.frame[0] = 13;
     later.frame[1] = fa::render::rt_effect_seed(13);
     CHECK(rig.trace(tlas, later) == first);
+
+    // ---- soft shadows (P2a-2): the same kernel with user1.y = 1: `rays` rays over the sun's disc, (visibility, depth, 0, mesh) --------------------
+    const auto soft_params = [&](float tanHalf, std::uint32_t rays, std::uint64_t serial) {
+        fa::render::RtEffectParams sp = params;
+        sp.frame[0] = std::uint32_t(serial);
+        sp.frame[1] = fa::render::rt_effect_seed(serial);
+        sp.frame[2] = rays;
+        sp.user1[0] = tanHalf;
+        sp.user1[1] = fa::render::kRtShadowLayoutSoft;
+        return sp;
+    };
+    // A sun of no size: every ray is the hard ray, so the soft image is the hard one in the other layout, to the bit.
+    {
+        const std::vector<float> point = rig.trace(tlas, soft_params(0.0f, 4, 21));
+        int same = 0;
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                const std::size_t i = std::size_t(y) * kW + x;
+                if (primary[i] == -2) continue;
+                CHECK(point[i * 4 + 0] == first[i * 4 + 1]);  // visibility
+                CHECK(point[i * 4 + 1] == first[i * 4 + 0]);  // depth (kNoMesh for the sky)
+                CHECK(point[i * 4 + 3] == first[i * 4 + 3]);
+                ++same;
+            }
+        CHECK(same > kW * kH / 2);
+    }
+    // The CPU reference: a point of the sun's disc is `sun + (t * cos + b * sin) * tan * r`; a pixel is in the umbra when the centre and a ring
+    // of points just outside the disc are all blocked (a convex caster blocks a convex set of directions, so the whole disc is blocked), and
+    // in the full light when the centre, the ring and an inner ring are all free.
+    const Vec3 tangent = normalize(std::fabs(sun.y) < 0.99f ? cross(sun, Vec3{0, 1, 0}) : cross(sun, Vec3{1, 0, 0}));
+    const Vec3 bitangent = cross(sun, tangent);
+    const auto blocked_at = [&](std::size_t i, float rr, float angle, float tanHalf) {
+        const float offset = params.user0[0] + params.user0[1] * depths[i];
+        const Vec3 o = positions[i] + normals[i] * offset;
+        const Vec3 dir = normalize(sun + (tangent * std::cos(angle) + bitangent * std::sin(angle)) * (rr * tanHalf));
+        return nearest(tris, o, dir, -1e-3f, params.user0[2], 1000.0f, 0x08).tri >= 0;
+    };
+    struct SoftStats {
+        int umbra = 0, full = 0, partial = 0, compared = 0;
+        double meanChange = 0.0;  // the mean |visibility(seed A) - visibility(seed B)| over the partial pixels
+        std::vector<float> vis;
+    };
+    const auto measure = [&](float tanHalf, std::uint32_t rays) {
+        SoftStats st;
+        const std::vector<float> a = rig.trace(tlas, soft_params(tanHalf, rays, 31));
+        const std::vector<float> b = rig.trace(tlas, soft_params(tanHalf, rays, 32));
+        double change = 0.0;
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                const std::size_t i = std::size_t(y) * kW + x;
+                st.vis.push_back(a[i * 4]);
+                if (primary[i] < 0) {
+                    CHECK(a[i * 4] == 1.0f);  // the sky: lit, no surface
+                    CHECK(a[i * 4 + 3] == 0.0f);
+                    continue;
+                }
+                CHECK(a[i * 4 + 1] == doctest::Approx(depths[i]).epsilon(1e-5));
+                CHECK(a[i * 4 + 3] == 1.0f);
+                CHECK(a[i * 4] >= 0.0f);
+                CHECK(a[i * 4] <= 1.0f);
+                // A visibility of N rays is a multiple of 1 / N.
+                CHECK(std::fabs(a[i * 4] * float(rays) - std::round(a[i * 4] * float(rays))) < 1e-3f);
+                bool allBlocked = blocked_at(i, 0.0f, 0.0f, tanHalf), allFree = !allBlocked;
+                for (int k = 0; k < 16; ++k) {
+                    const float ang = float(k) * 0.39269908f;
+                    const bool ring = blocked_at(i, 1.04f, ang, tanHalf);
+                    const bool inner = blocked_at(i, 0.5f, ang + 0.2f, tanHalf);
+                    allBlocked = allBlocked && ring;
+                    allFree = allFree && !ring && !inner;
+                }
+                if (allBlocked) {
+                    ++st.umbra;
+                    CHECK(a[i * 4] == 0.0f);
+                } else if (allFree) {
+                    ++st.full;
+                    CHECK(a[i * 4] == 1.0f);
+                }
+                if (a[i * 4] > 0.0f && a[i * 4] < 1.0f) {
+                    ++st.partial;
+                    change += std::fabs(a[i * 4] - b[i * 4]);
+                }
+                ++st.compared;
+            }
+        st.meanChange = st.partial ? change / st.partial : 0.0;
+        return st;
+    };
+    const SoftStats realSun = measure(0.0046f, 16);  // the real sun: 0.53 degrees
+    const SoftStats bigSun = measure(0.05f, 16);
+    const SoftStats hugeSun = measure(0.25f, 16);
+    MESSAGE("soft shadows: penumbra pixels " << realSun.partial << " / " << bigSun.partial << " / " << hugeSun.partial
+                                             << " (tan 0.0046 / 0.05 / 0.25), umbra " << realSun.umbra << " / "
+                                             << bigSun.umbra << " / " << hugeSun.umbra);
+    // The umbra of the real sun is the hard shadow (the pixels that are in the shadow however the disc is sampled), and the open ground is lit.
+    CHECK(realSun.umbra > 100);
+    CHECK(realSun.full > 300);
+    CHECK(bigSun.umbra > 50);
+    CHECK(bigSun.full > 200);
+    // The penumbra widens with the sun's angular size, and the umbra shrinks.
+    CHECK(realSun.partial <= bigSun.partial);
+    CHECK(bigSun.partial < hugeSun.partial);
+    CHECK(hugeSun.partial > 2 * realSun.partial + 20);
+    CHECK(hugeSun.umbra < realSun.umbra);
+    // Every pixel the hard test compared as lit or shadowed has the same umbra and full light with the real sun (the penumbra of a 0.5 degree
+    // sun is under a pixel here): its disc agrees with the centre ray except on the shadows' edges.
+    {
+        int agree = 0, disagree = 0;
+        for (int i = 0; i < kW * kH; ++i) {
+            if (primary[std::size_t(i)] < 0) continue;
+            const float hard = first[std::size_t(i) * 4 + 1];
+            const float v = realSun.vis[std::size_t(i)];
+            (std::fabs(hard - v) < 0.5f ? agree : disagree)++;
+        }
+        CHECK(agree > 20 * disagree);
+    }
+    // More rays, less noise: the visibility of a penumbra pixel changes less from one frame's seed to the next with 32 rays than with 4.
+    const SoftStats few = measure(0.25f, 4);
+    const SoftStats many = measure(0.25f, 32);
+    MESSAGE("soft shadows: mean change between two seeds: 4 rays " << few.meanChange << ", 32 rays "
+                                                                   << many.meanChange);
+    CHECK(few.meanChange > 0.0);
+    CHECK(many.meanChange < few.meanChange);
+    // The same frame serial gives the same image, bit for bit; the umbra and the lit ground do not depend on the seed, the penumbra does.
+    const std::vector<float> sa = rig.trace(tlas, soft_params(0.25f, 8, 40));
+    CHECK(rig.trace(tlas, soft_params(0.25f, 8, 40)) == sa);
+    CHECK(rig.trace(tlas, soft_params(0.25f, 8, 41)) != sa);
+    // More than the 64 rays the kernel allows is 64: the same image.
+    CHECK(rig.trace(tlas, soft_params(0.25f, 64, 42)) == rig.trace(tlas, soft_params(0.25f, 640, 42)));
+
+    // ---- the pack pass: the denoised visibility into the layout the lit pass reads -----------------------------------------------------------
+    {
+        std::vector<float> denoised(std::size_t(kW) * kH * 4, 0.0f);
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                float* d = &denoised[(std::size_t(y) * kW + x) * 4];
+                d[0] = d[1] = d[2] =
+                    float(x) / float(kW - 1) * 1.2f - 0.1f;  // from below 0 to above 1: the kernel clamps
+                d[3] = 0.5f;                                 // the variance
+            }
+        rig.make_pack(denoised);
+        const std::vector<float> trace = rig.trace(tlas, soft_params(0.0046f, 8, 50));
+        const std::vector<float> packed = rig.pack(soft_params(0.0046f, 8, 50));
+        int checked = 0;
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                const std::size_t i = std::size_t(y) * kW + x;
+                if (primary[i] == -2) continue;
+                const float* p = &packed[i * 4];
+                if (primary[i] == -1) {  // the sky: no mesh, lit, in the layout the lit pass reads
+                    CHECK(p[0] == kNoMesh);
+                    CHECK(p[1] == 1.0f);
+                    CHECK(p[3] == 0.0f);
+                    continue;
+                }
+                CHECK(p[0] == doctest::Approx(trace[i * 4 + 1]).epsilon(1e-6));  // the depth the trace wrote
+                CHECK(p[1] == doctest::Approx(std::clamp(denoised[i * 4], 0.0f, 1.0f)).epsilon(1e-6));
+                CHECK(p[3] == 1.0f);
+                ++checked;
+            }
+        CHECK(checked > kW * kH / 2);
+    }
 
     dev.destroy_accel_structure(tlas);
     dev.destroy_accel_structure(ground.blas);

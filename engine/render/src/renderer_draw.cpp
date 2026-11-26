@@ -1004,8 +1004,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (wantContact) ctx.postPlan.needsDepth = true;
     // Ray traced hard shadows (M79-P2a-1) read the prepass too: the camera whose meshes are the ray tracing scene's, with a sun that casts.
     // A camera that cannot make the prepass keeps the cascades.
-    const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster &&
-                              rtSettings.shadows != render::RtShadows::Off;
+    // A frame without shadows or without cascades takes no mask (the lit pass ignores it), so it asks for no rays either.
+    const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster && ctx.doShadows &&
+                              ctx.cascades > 0 && rtSettings.shadows != render::RtShadows::Off;
     if (wantRtShadow) ctx.postPlan.needsDepth = true;
     // Ray traced reflections (M79-P3a-1) read the prepass and the thin G-buffer's roughness, metalness and albedo.
     const bool wantRtReflect = draws && !fr.cam.studio && ctx.rtCollected && rtSettings.reflections;
@@ -3075,6 +3076,11 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
                      !blended && mr.receiveShadows && !(d.mat && d.mat->full))
                         ? 1.0f
                         : 0.0f;
+    // When the scene has casters the rays do not see (terrain, impostors, GPU-driven meshes, cutouts, instances over the cap, BLASes not built yet) the
+    // lit pass takes the darker of the mask and the cascades, so those casters keep their shadow (mesh_common.glsl fa_shadow_factor).
+    fu.fa_ct_b[2] = (fu.fa_ct_b[1] > 0.5f && (rtScene.stats().untracedCasters > 0)) ? 1.0f : 0.0f;
+    rtShadowDraws.mask += fu.fa_ct_b[1] > 0.5f ? 1 : 0;
+    rtShadowDraws.withCascades += fu.fa_ct_b[2] > 0.5f ? 1 : 0;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}
@@ -5393,14 +5399,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (at && bt && pt) sss_draw_pass(ctx, *at, *bt, *pt);
             });
     }
-    // Ray traced hard shadows (rt_effect.h, ARCHITECTURE_RT_EFFECTS.md): one compute pass after the scene's TLAS and the prepass, before the main
-    // pass, which reads the image it writes. A kernel or an image the device refuses is said once and leaves the cascades in place.
+    // Ray traced sun shadows (rt_effect.h, ARCHITECTURE_RT_EFFECTS.md "Soft shadows"). Hard: one compute pass after the scene's TLAS and the prepass,
+    // before the main pass, which reads the image it writes. Soft: the same kernel with raysPerPixel rays over the sun's disc into a noisy image, the
+    // RtDenoiser's passes (Visibility) and a pack pass that puts the denoised visibility in the layout the lit pass reads. A kernel, an image or a
+    // denoiser the device refuses is said once and leaves the cascades in place.
     ctx.rtShadow.img = nullptr;
     ResourceId rtShadowRes;
     if (ctx.rtShadow.want && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        const bool soft = rtSettings.shadows == render::RtShadows::Soft;
         RtEffectRequest req;
         req.kernel = "rt_shadow";
-        req.effect = "shadows";
+        req.effect = soft ? "shadows-trace" : "shadows";
         req.job = plan.name;
         req.after = plan.name + "/rt-accel";
         req.width = ctx.camPx.w;
@@ -5409,19 +5418,61 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         req.camera = &fr.cam;
         req.zeroToOne = ctx.z01;
         req.frameSerial = frameSerial;
-        req.raysPerPixel = 1;
+        req.raysPerPixel = soft ? std::clamp(rtSettings.raysPerPixel, 1, 16) : 1;
         const Vec3 toLight = normalize(-ctx.lightDirForShadow);
         req.lightDir[0] = toLight.x;
         req.lightDir[1] = toLight.y;
         req.lightDir[2] = toLight.z;
-        // user0: the normal offset in metres and per metre of view depth, TMin, TMax (the ray's reach; the scene's size is far below it).
-        req.user0[0] = 0.02f;
-        req.user0[1] = 0.002f;
-        req.user0[2] = 0.0f;
-        req.user0[3] = 10000.0f;
+        for (int i = 0; i < 4; ++i) req.user0[i] = kRtShadowUser0[i];
+        // user1: the tangent of the sun's angular radius (SceneSettings.skySunSize is its diameter in degrees) and the layout of the image.
+        const float sunDeg = ctx.world.settings().skySunSize;
+        const float sunDiameter = std::isfinite(sunDeg) ? std::clamp(sunDeg, 0.1f, 10.0f) : 0.53f;
+        req.user1[0] = std::tan(0.5f * sunDiameter * 3.14159265f / 180.0f);
+        req.user1[1] = soft ? kRtShadowLayoutSoft : kRtShadowLayoutHard;
         req.scene = &rtScene;
         req.drawCalls = &stats.drawCalls;
-        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        std::string why = out.why;
+        if (out.valid && soft) {
+            // The denoiser reads the visibility in r of the trace image (a persistent image: its resource orders the passes) and the prepass.
+            DenoiseSignal sig;
+            sig.kind = DenoiseKind::Visibility;
+            sig.id = kRtShadowSignalId;
+            sig.name = "sun-shadow";
+            DenoiseInputs din;
+            din.noisy.res = out.res;
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            if (ctx.postPlan.velocity.valid()) {
+                din.velocity.res = ctx.postPlan.velocity.res;
+                din.velocity.targets = ctx.postPlan.velocity.targets;
+            }
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam =
+                make_denoise_camera(fr.cam, fr.cam.entity.bits(), postSerial, sceneKey, originShifts,
+                                    ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            const DenoiseOutput den =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls, plan.name);
+            out.valid = false;
+            if (den.valid) {
+                RtEffectRequest pack = req;
+                pack.kernel = "rt_shadow_pack";
+                pack.effect = "shadows";
+                pack.prepass = PrepassRef{};
+                pack.srcImage = out.out;
+                pack.srcRes = out.res;
+                pack.aux = PrepassRef{den.res, &transient_targets()};
+                pack.after.clear();
+                out = rtEffects.add_pass(graph, gpu, pack);
+                why = out.why;
+            } else {
+                why = "the denoiser could not be used: " + den.why;
+            }
+        }
         if (out.valid) {
             ctx.rtShadow.img = out.out;
             rtShadowRes = out.res;
@@ -5431,7 +5482,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     "render.rayTracing.shadows is on but the ray traced shadows cannot run on this device ({}). The "
                     "sun keeps its shadow "
                     "maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
-                    out.why);
+                    why);
         }
     }
     // Ray traced sharp reflections (M79-P3a-1, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer; the screen-space

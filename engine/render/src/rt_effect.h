@@ -18,6 +18,8 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +37,7 @@
 namespace fa::render {
 
 class RtScene;
+struct RtEffectImage;
 
 // The constants block of every effect kernel: 25 float4, 400 bytes, the same struct in rt_*.hlsl and rt_*.metal between the lines `// BEGIN
 // RtEffectParams` and `// END RtEffectParams` (a test compares the field names with these). A kernel reads the fields it needs.
@@ -83,20 +86,25 @@ inline constexpr std::string_view kRtHitParamNames[] = {"sunDir", "sunColor", "a
 // The binding numbers of every effect kernel in each backend's own numbering (the contract the .hlsl and .metal files repeat in their header
 // comments). A kernel declares only the resources it reads; the numbers never change. The view slots are the engine's slots (Bindings::views).
 struct RtEffectBindings {
-    // Bindings::views: 0 the output (storage image), 1 the prepass, 2 the scene's records (storage buffer), 3 and 4 the G-buffer.
-    static constexpr int kViewOut = 0, kViewPrepass = 1, kViewRecords = 2, kViewAlbedo = 3, kViewMaterial = 4;
+    // Bindings::views: 0 the output (storage image), 1 the prepass, 2 the scene's records (storage buffer), 3 and 4 the G-buffer, 5 the second
+    // input image of a kernel that has one (M79-P2a-2: the denoiser's output for rt_shadow_pack).
+    static constexpr int kViewOut = 0, kViewPrepass = 1, kViewRecords = 2, kViewAlbedo = 3, kViewMaterial = 4,
+                         kViewAux = 5;
     static constexpr int kUniformParams = 0;  // set_uniforms(0, RtEffectParams)
     static constexpr int kUniformHit =
         1;  // set_uniforms(1, RtHitParams): the kernels that use rt_hit.hlsli (RtEffectKernelSpec::usesHit)
     static constexpr int kSampler =
         0;  // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
-    // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material.
-    // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material.
-    // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(8) records (Sokol: storage buffers are 8 .. 23), texture(2) albedo, texture(3) material.
-    // The hit constants (usesHit): b1 / binding 7 / buffer(3).
+    // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material, t5 aux.
+    // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material, 7 aux.
+    // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(8) records (Sokol: storage buffers are 8 .. 23),
+    // texture(2) albedo, texture(3) material, texture(4) aux.
+    // The hit constants (usesHit): b1 / binding 7 / buffer(3). Vulkan binding 7 is the aux image of a kernel with usesAux and the hit constants of
+    // one with usesHit: no kernel has both (add_pass refuses a spec that does).
+    // The numbers of the sun shadow's own constants (RtEffectParams::user0, user1) are in rt_shadow_params below.
 };
 
-// What a kernel of the table declares beyond the common four (the TLAS, the output, the constants, the prepass).
+// What a kernel of the table declares beyond the common three (the output, the constants, the prepass).
 struct RtEffectKernelSpec {
     std::string_view kernel;   // the name in rt_kernels.h
     bool usesRecords = false;  // the scene's RtInstanceRecord buffer (t2 / binding 4 / buffer(8))
@@ -104,7 +112,18 @@ struct RtEffectKernelSpec {
         false;  // the thin G-buffer's albedo and material images (t3, t4 / bindings 5, 6 / texture(2), texture(3))
     bool usesHit =
         false;  // the kernel shades what its rays hit (rt_hit.hlsli): RtHitParams at b1 / binding 7 / buffer(3); it needs usesRecords
+    bool usesTlas =
+        true;  // the TLAS (t0 / binding 0 / buffer(0)); false: a kernel that only moves pixels, no ray query
+    bool usesAux =
+        false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
 };
+
+// The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the
+// engine does): the normal offset in metres, more of it per metre of view depth (a pixel covers more world far away), TMin, TMax (the ray's
+// reach; the scene's size is far below it).
+inline constexpr float kRtShadowUser0[4] = {0.02f, 0.002f, 0.0f, 10000.0f};
+// user1.y of rt_shadow: 0 = the hard layout (depth, visibility), 1 = the soft one (visibility, depth) that the denoiser reads.
+inline constexpr float kRtShadowLayoutHard = 0.0f, kRtShadowLayoutSoft = 1.0f;
 // The specs of the kernels the renderer runs as effects (every kernel except the probe of the tests).
 const RtEffectKernelSpec* find_rt_effect_spec(std::string_view kernel);
 
@@ -134,7 +153,13 @@ struct RtEffectRequest {
     std::string job;            // the camera's job (JobPlan::name): with `effect` it keys the output image
     std::string after;          // the pass that builds the TLAS (`<job>/rt-accel`); empty = no explicit order
     int width = 0, height = 0;  // the output's size: the prepass's
-    PrepassRef prepass;         // required
+    PrepassRef prepass;         // required, unless `srcImage` takes its place
+    // A kernel that reads the image another effect wrote (rt_shadow_pack) gives it here instead of a prepass: its view is bound at kViewPrepass,
+    // `srcRes` (RtEffectOutput::res of that effect) is read by the pass and the image's size is the output's. The pass does not run (and its output's
+    // `ran` stays false) while the image's `ran` is false.
+    const RtEffectImage* srcImage = nullptr;
+    ResourceId srcRes;
+    PrepassRef aux;  // required when the kernel uses the aux image: any transient (the denoiser's output)
     PrepassRef gbufferAlbedo, gbufferMaterial;  // required when the kernel uses the G-buffer
     const CameraGeometry* camera = nullptr;
     bool zeroToOne = false;
@@ -181,6 +206,10 @@ public:
     // Frees everything (ray tracing went off, the renderer shuts down); the device must be open.
     void release(Gpu& gpu);
 
+    // Why an effect that was declared did not run when its pass came (the driver refused the pipeline, the prepass changed size...): the first
+    // reason of the frames so far that was not cleared by a later run of the same effect, or empty. Each reason is also a warning, once.
+    std::string failure() const;
+
     // Tests and the debug output.
     int image_count() const { return int(images_.size()); }
     int kernel_count() const { return int(kernels_.size()); }
@@ -191,10 +220,19 @@ private:
         gpu::Shader shader{};
         int state = 0;  // 0 not made, 1 made, -1 refused
         std::string why;
+        std::uint64_t lastUsed =
+            0;  // the frame serial of the last request: a kernel nothing asks for any more is freed with its image
     };
     Kernel* kernel_for(Gpu& gpu, const rt_kernels::RtKernel& k, const RtEffectKernelSpec& spec, std::string* why);
     gpu::View records_view(Gpu& gpu, gpu::Buffer records);
 
+    void note_failure(const std::string& key,
+                      const std::string& why);  // the effect could not run: warns once per reason
+    void clear_failure(const std::string& key);
+
+    mutable std::mutex failureMutex_;
+    std::map<std::string, std::string> failures_;  // by "<job>/<effect>": what stopped the pass the last time it came
+    std::set<std::string> warned_;                 // key + reason, said once
     std::map<std::string, Kernel> kernels_;
     std::map<std::string, std::unique_ptr<RtEffectImage>> images_;  // by "<job>/<effect>"
     gpu::Buffer recordsBuffer_{};  // the buffer recordsView_ is a view of (the scene reallocates it when it grows)

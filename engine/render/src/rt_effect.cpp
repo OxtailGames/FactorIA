@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/log.h"
 #include "rt_scene.h"
 
 namespace fa::render {
@@ -10,10 +11,13 @@ namespace fa::render {
 namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
-    {"rt_shadow", false, false, false},
-    {"rt_ao", false, false, false},
-    {"rt_reflect", true, true, true},
-    {"rt_refract", true, false, true},
+    // {kernel, usesRecords, usesGbuffer, usesHit, usesTlas, usesAux}
+    {"rt_shadow", false, false, false, true, false},
+    // Moves the soft sun shadow's denoised visibility into the layout the lit pass reads (no ray query: no TLAS).
+    {"rt_shadow_pack", false, false, false, false, true},
+    {"rt_ao", false, false, false, true, false},
+    {"rt_reflect", true, true, true, true, false},
+    {"rt_refract", true, false, true, true, false},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
@@ -102,13 +106,15 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
             break;
         default: return d;  // no ray queries on the other backends
     }
-    d.usesRayQuery = true;
-    // The TLAS: t0 / binding 0 / buffer(0).
-    d.accelStructures[0].stage = ShaderStage::Compute;
-    d.accelStructures[0].binding.hlslRegister = 0;
-    d.accelStructures[0].binding.mslIndex = 0;
-    d.accelStructures[0].binding.spirvSet = 0;
-    d.accelStructures[0].binding.spirvBinding = 0;
+    if (spec.usesTlas) {
+        d.usesRayQuery = true;
+        // The TLAS: t0 / binding 0 / buffer(0).
+        d.accelStructures[0].stage = ShaderStage::Compute;
+        d.accelStructures[0].binding.hlslRegister = 0;
+        d.accelStructures[0].binding.mslIndex = 0;
+        d.accelStructures[0].binding.spirvSet = 0;
+        d.accelStructures[0].binding.spirvBinding = 0;
+    }
     // The constants: b0 / binding 2 / buffer(1).
     d.uniformBlocks[RtEffectBindings::kUniformParams].stage = ShaderStage::Compute;
     d.uniformBlocks[RtEffectBindings::kUniformParams].size = std::uint32_t(sizeof(RtEffectParams));
@@ -150,7 +156,8 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         texture(RtEffectBindings::kViewAlbedo, 3, 2, 5);    // t3 / binding 5 / texture(2)
         texture(RtEffectBindings::kViewMaterial, 4, 3, 6);  // t4 / binding 6 / texture(3)
     }
-    if (spec.usesHit) {  // b1 / binding 7 / buffer(3)
+    if (spec.usesAux) texture(RtEffectBindings::kViewAux, 5, 4, 7);  // t5 / binding 7 / texture(4)
+    if (spec.usesHit) {                                              // b1 / binding 7 / buffer(3)
         ShaderUniformBlock& h = d.uniformBlocks[RtEffectBindings::kUniformHit];
         h.stage = ShaderStage::Compute;
         h.size = std::uint32_t(sizeof(RtHitParams));
@@ -260,9 +267,11 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         result.why = "the ray traced kernel \"" + req.kernel + "\" is not in the kernel table";
         return result;
     }
-    if (!req.camera || !req.scene || !req.prepass.valid() || req.width < 1 || req.height < 1 ||
-        (spec->usesHit && !spec->usesRecords) ||
-        (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid()))) {
+    const bool fromImage = req.srcImage != nullptr;
+    if (!req.camera || !req.scene || !(fromImage ? req.srcRes.valid() : req.prepass.valid()) || req.width < 1 ||
+        req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
+        (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
+        (spec->usesAux && !req.aux.valid())) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
         return result;
     }
@@ -273,6 +282,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     gpu::Device& device = gpu.device();
     Kernel* kn = kernel_for(gpu, *kernel, *spec, &result.why);
     if (!kn) return result;
+    kn->lastUsed = req.frameSerial;
 
     // The output image: one per effect and camera, made again when the camera's rectangle changes size.
     const std::string key = req.job + "/" + req.effect;
@@ -350,15 +360,19 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
 
     GraphPass pass;
     pass.name = req.job + "/rt-" + req.effect;
-    pass.reads.push_back(req.prepass.res);
+    pass.reads.push_back(fromImage ? req.srcRes : req.prepass.res);
+    if (spec->usesAux) pass.reads.push_back(req.aux.res);
     if (spec->usesGbuffer) {
         pass.reads.push_back(req.gbufferAlbedo.res);
         pass.reads.push_back(req.gbufferMaterial.res);
     }
     pass.writes.push_back(result.res);
     if (!req.after.empty()) pass.after.push_back(req.after);
-    const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer, usesHit = spec->usesHit;
+    const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer, usesHit = spec->usesHit,
+               usesTlas = spec->usesTlas, usesAux = spec->usesAux;
     const RtHitParams hit = req.hit;
+    const RtEffectImage* srcImage = req.srcImage;
+    const PrepassRef aux = req.aux;
     const bool needsSampler = rt_effect_needs_sampler(gpu.device().backend());
     const PrepassRef prepass = req.prepass, albedo = req.gbufferAlbedo, material = req.gbufferMaterial;
     RtScene* scene = req.scene;
@@ -366,20 +380,46 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     const gpu::Shader shader = kn->shader;
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
-    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, usesRecords, usesGbuffer,
-                    usesHit, needsSampler, params, hit, name = pass.name](const PassContext& c) {
+    pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, usesRecords,
+                    usesGbuffer, usesHit, usesTlas, usesAux, needsSampler, params, hit, key,
+                    name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;
-        const gpu::AccelStructure tlas =
-            scene->tlas();  // none while the scene has no instance: the lit pass keeps its own shadows
-        if (!tlas.valid()) return;
-        const Target* pre = prepass.target(c);
-        if (!pre || !pre->texView.id || pre->w != out->width || pre->h != out->height) return;
+        gpu::AccelStructure tlas{};
+        if (usesTlas) {
+            tlas = scene->tlas();  // none while the scene has no instance: the lit pass keeps its own shadows
+            if (!tlas.valid()) return;
+        }
+        gpu::View inView{};
+        if (srcImage) {
+            // The image of another effect: nothing to do when that one did not run this frame (it says why itself).
+            if (!srcImage->ran || srcImage->width != out->width || srcImage->height != out->height) return;
+            inView = srcImage->texture;
+        } else {
+            const Target* pre = prepass.target(c);
+            if (!pre || !pre->texView.id) return;
+            if (pre->w != out->width || pre->h != out->height) {
+                // The prepass has another size than the image this pass was declared for (a resize between the plan and the frame): the
+                // next frame makes the image again; say so once so a mismatch that lasts is not silent.
+                note_failure(key, "the prepass is " + std::to_string(pre->w) + " x " + std::to_string(pre->h) +
+                                      " but the effect's image is " + std::to_string(out->width) + " x " +
+                                      std::to_string(out->height));
+                return;
+            }
+            inView = pre->texView;
+        }
+        gpu::View auxView{};
+        if (usesAux) {
+            const Target* a = aux.target(c);
+            if (!a || !a->texView.id) return;
+            auxView = a->texView;
+        }
         gpu::Bindings b{};
         b.views[RtEffectBindings::kViewOut] = out->storage;
-        b.views[RtEffectBindings::kViewPrepass] = pre->texView;
-        b.accelStructures[0] = tlas;
+        b.views[RtEffectBindings::kViewPrepass] = inView;
+        if (usesAux) b.views[RtEffectBindings::kViewAux] = auxView;
+        if (usesTlas) b.accelStructures[0] = tlas;
         if (needsSampler) b.samplers[RtEffectBindings::kSampler] = gpuPtr->sampler(SamplerKind::Nearest);
         if (usesRecords) {
             const gpu::View rv = records_view(*gpuPtr, scene->records_buffer());
@@ -394,7 +434,11 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             b.views[RtEffectBindings::kViewMaterial] = m->texView;
         }
         const gpu::Pipeline pip = gpuPtr->compute_pipeline(shader);
-        if (gpuPtr->device().state(pip) != gpu::ResourceState::Valid) return;
+        if (gpuPtr->device().state(pip) != gpu::ResourceState::Valid) {
+            note_failure(key, "the graphics driver refused the compute pipeline of the kernel " + name);
+            return;
+        }
+        clear_failure(key);
         list->begin_compute_pass(name.c_str());
         list->set_pipeline(pip);
         list->set_bindings(b);
@@ -411,6 +455,33 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     return result;
 }
 
+void RtEffects::note_failure(const std::string& key, const std::string& why) {
+    bool say = false;
+    {
+        std::lock_guard<std::mutex> lock(failureMutex_);
+        failures_[key] = why;
+        say = warned_.insert(key + "\n" + why).second;
+    }
+    if (say)
+        FA_WARN("render",
+                "A ray traced effect ({}) could not run: {}. The raster version of the effect is drawn instead. Hint: "
+                "`factoria call "
+                "render.ray_tracing` shows the reason; set render.rayTracing.shadows to \"off\" to silence this.",
+                key, why);
+}
+
+void RtEffects::clear_failure(const std::string& key) {
+    std::lock_guard<std::mutex> lock(failureMutex_);
+    failures_.erase(key);
+}
+
+std::string RtEffects::failure() const {
+    std::lock_guard<std::mutex> lock(failureMutex_);
+    for (const auto& [key, why] : failures_)
+        if (!why.empty()) return key + ": " + why;
+    return std::string();
+}
+
 void RtEffects::sweep(Gpu& gpu, std::uint64_t serial) {
     if (!gpu.has_device()) return;
     gpu::Device& device = gpu.device();
@@ -420,27 +491,35 @@ void RtEffects::sweep(Gpu& gpu, std::uint64_t serial) {
             if (img.storage.id) device.destroy_view(img.storage);
             if (img.texture.id) device.destroy_view(img.texture);
             if (img.image.id) device.destroy_image(img.image);
+            clear_failure(it->first);
             it = images_.erase(it);
         } else {
             ++it;
         }
     }
-    if (!images_.empty()) return;
-    // Nothing asks any more: the kernels and the records view go too (a kernel the device refused stays, so it is not tried every frame).
+    // A kernel no request used for two frames goes (the soft shadows' pack kernel when the setting goes back to hard); a kernel the device
+    // refused stays, so it is not tried every frame.
     for (auto it = kernels_.begin(); it != kernels_.end();) {
-        if (it->second.state >= 0) {
+        if (it->second.state >= 0 && it->second.lastUsed + 2 < serial) {
             if (it->second.shader.id) gpu.destroy_shader(it->second.shader);
             it = kernels_.erase(it);
         } else {
             ++it;
         }
     }
+    if (!images_.empty()) return;
+    // Nothing asks any more: the records view goes too.
     if (recordsView_.id) device.destroy_view(recordsView_);
     recordsView_ = {};
     recordsBuffer_ = {};
 }
 
 void RtEffects::release(Gpu& gpu) {
+    {
+        std::lock_guard<std::mutex> lock(failureMutex_);
+        failures_.clear();
+        warned_.clear();  // turned off and on again: the reasons are said again
+    }
     if (!gpu.has_device()) {
         images_.clear();
         kernels_.clear();
