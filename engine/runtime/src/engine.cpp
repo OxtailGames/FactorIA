@@ -2262,10 +2262,16 @@ Json Engine::ray_tracing_status() {
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
     const bool translucencyOn = impl_->rayTracing.translucency;
     const bool giProbesOn = impl_->rayTracing.gi == render::RtGi::Probes;
+    const bool giPixelOn = impl_->rayTracing.gi == render::RtGi::PerPixel;
     render::RtGiStatus giStatus;
-    if (impl_->renderer) giStatus = impl_->renderer->ray_tracing_gi_status();
+    render::RtGiPixelStatus giPixelStatus;
+    if (impl_->renderer) {
+        giStatus = impl_->renderer->ray_tracing_gi_status();
+        giPixelStatus = impl_->renderer->ray_tracing_gi_pixel_status();
+    }
     const bool active = impl_->rayTracing.enabled && supported &&
-                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn) && failure.empty();
+                        (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn || giPixelOn) &&
+                        failure.empty();
     j["active"] = active;
     j["pathTracer"] = path_tracer_status();
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
@@ -2286,6 +2292,17 @@ Json Engine::ray_tracing_status() {
                                       {"grids", giActive ? giStatus.grids : 0},
                                       {"probesPerFrame", giActive ? giStatus.probesPerFrame : 0},
                                       {"budget", giActive ? giStatus.budget : 0}});
+    }
+    // M79-P4b-1: the bounce traced for every pixel (gi "perPixel"), as of the last whole frame. `active` is true when that frame's
+    // lit meshes read the denoised bounce (or the noisy one while the denoiser refused).
+    {
+        const bool pixelActive = impl_->rayTracing.enabled && supported && giPixelOn && giPixelStatus.active;
+        std::string pixelReason;
+        if (giPixelOn && impl_->rayTracing.enabled && !pixelActive)
+            pixelReason = !supported                     ? std::string("this device cannot trace rays")
+                          : giPixelStatus.reason.empty() ? std::string("no frame has been drawn yet")
+                                                         : giPixelStatus.reason;
+        j["giPixel"] = Json::object({{"active", pixelActive}, {"reason", pixelReason}});
     }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
@@ -2327,13 +2344,17 @@ Json Engine::ray_tracing_status() {
                            "no probe updated by rays in the last frame (the raster captures keep the grids): ") +
                            giStatus.reason) +
                 "; the lit meshes read the grids as they always did)");
-        j["reason"] =
-            "Traced: " + what + "." +
-            (impl_->rayTracing.gi == render::RtGi::PerPixel ? " gi \"perPixel\" is not made yet and draws nothing."
-                                                            : std::string());
+        if (giPixelOn)
+            add(std::string("the indirect diffuse light of every pixel of the main camera (raysPerPixel cosine "
+                            "rays bounce once, a hit adds the probe grids' or the ambient light, the result is "
+                            "denoised and replaces the probes' and the ambient term of the lit meshes; ") +
+                (giPixelStatus.active ? std::string("the last frame drew it")
+                                      : "the last frame kept the probes and the ambient: " + giPixelStatus.reason) +
+                ")");
+        j["reason"] = "Traced: " + what + ".";
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
-                      "reflections, translucency and gi \"probes\" are made so far).";
+                      "reflections, translucency and gi \"probes\" or \"perPixel\" are made so far).";
     return j;
 }
 

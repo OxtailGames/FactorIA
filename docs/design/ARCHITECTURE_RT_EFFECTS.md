@@ -120,6 +120,7 @@ the G-buffer. The probe kernel of the tests is not an effect and has no spec.
 | `rt_reflect` | `render.rayTracing.reflections` | prepass, G-buffer, records, `RtHitParams` | rgb: the radiance of the mirror ray times the tint; a: 0 not traced, > 0 the hit distance in metres, -1 a miss |
 | `rt_ao` | `render.rayTracing.ao` | prepass | r: the share of the pixel's rays that got out (1 open, 0 closed in; 1 on the sky); g, b: 0; a: 1 on a mesh, 0 on the sky |
 | `rt_gi` | `render.rayTracing.gi` = probes ([ARCHITECTURE_RT_GI.md](ARCHITECTURE_RT_GI.md)) | the probe atlas (at the prepass slot), records, `RtHitParams`; its own 1120-byte constants (`paramsSize`) | **Rgba16F** (`outHalf`), 1024 x 132: the new blocks of the probes of this frame, the blend weight in alpha. It is not an `RtEffects` pass: `RtGiProbes` owns it |
+| `rt_gi_pixel` | `render.rayTracing.gi` = perPixel ([ARCHITECTURE_RT_GI.md](ARCHITECTURE_RT_GI.md), "Per pixel") | prepass, records, `RtHitParams`, the probe atlas at the albedo slot (`usesAtlas`); its own 672-byte constants (`paramsSize`: `RtEffectParams` and the grids' tail, `RtEffectRequest::giTail` and `atlas`) | rgb: the cosine-weighted mean of the incoming radiance of `raysPerPixel` rays, no albedo (the irradiance over pi); a: 1 on a mesh, 0 on the sky |
 
 To add an effect (P2b, P3a, P3b):
 

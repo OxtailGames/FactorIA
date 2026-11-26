@@ -509,6 +509,8 @@ public:
     void ray_tracing_local_shadows(int& candidates, int& traced) const;
     // M79-P4a: the realtime GI probes updated by rays, as of the last whole frame (RtGiStatus). Thread-safe.
     render::RtGiStatus ray_tracing_gi_status() const;
+    // M79-P4b-1: the per-pixel ray traced GI (gi "perPixel"), as of the last whole frame (RtGiPixelStatus). Thread-safe.
+    render::RtGiPixelStatus ray_tracing_gi_pixel_status() const;
     const render::FrameGenSettings& frame_generation() const;
     render::FrameGenSlot effective_frame_generation() const;
     // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:

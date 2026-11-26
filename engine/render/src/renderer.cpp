@@ -2258,6 +2258,7 @@ void Renderer::Impl::render(World& world, float dt) {
     probes_plan(
         world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
     run_frame_graph();
+    rt_gi_pixel_finish();
     probes_finish();  // before release_unused_views(): the faces' images are read here
     update_editor_copy();
     graphFromCapture = false;
