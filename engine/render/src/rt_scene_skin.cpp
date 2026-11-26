@@ -51,30 +51,14 @@ void RtScene::warn_skin_budget(const std::string& key, std::uint32_t vertices) {
     if (warnedSkinned_) return;
     warnedSkinned_ = true;
     FA_WARN("render",
-            "Ray tracing scene: skinned meshes over the budget are left out of the acceleration structure (e.g. '{}', {} vertices): the scene "
-            "skins at most {} vertices of one part, {} vertices and {} instances in a frame (the nearest to the main camera stay), so what is "
-            "left out casts no ray-traced shadow and appears in no reflection. Hint: use a mesh with fewer vertices (a lower LOD) for the "
+            "Ray tracing scene: skinned meshes over the budget are left out of the acceleration structure (e.g. '{}', "
+            "{} vertices): the scene "
+            "skins at most {} vertices of one part, {} vertices and {} instances in a frame (the nearest to the main "
+            "camera stay), so what is "
+            "left out casts no ray-traced shadow and appears in no reflection. Hint: use a mesh with fewer vertices (a "
+            "lower LOD) for the "
             "skinned crowd, or fewer animated characters in view.",
             key, vertices, kRtSkinMaxPartVertices, kMaxSkinnedVertices, kMaxSkinnedInstances);
-}
-
-void RtScene::retire_blas(gpu::AccelStructure structure) {
-    if (!structure.id) return;
-    retired_.push_back({structure, frameCounter_});
-}
-
-void RtScene::collect_retired(bool all) {
-    if (!device_) return;
-    std::size_t out = 0;
-    for (std::size_t i = 0; i < retired_.size(); ++i) {
-        if (all || frameCounter_ >= retired_[i].frame + kRetireFrames) {
-            device_->destroy_accel_structure(retired_[i].structure);
-        } else {
-            if (out != i) retired_[out] = retired_[i];
-            ++out;
-        }
-    }
-    retired_.resize(out);
 }
 
 void RtScene::release_skin() {
@@ -94,15 +78,15 @@ void RtScene::release_skin() {
     }
     if (paletteView_.id) device_->destroy_view(paletteView_);
     if (paletteBuffer_.id) device_->destroy_buffer(paletteBuffer_);
-    collect_retired(true);
     skinned_.clear();
     paletteRows_.clear();
     paletteCount_ = 0;
     paletteCapacity_ = 0;
     paletteView_ = {};
     paletteBuffer_ = {};
-    skinPipeline_ = {};
 }
+
+gpu::Pipeline RtScene::skin_kernel() const { return skinKernel ? skinKernel() : gpu::Pipeline{}; }
 
 void RtScene::free_unseen_skinned() {
     if (skinned_.empty()) return;
@@ -137,14 +121,15 @@ std::uint32_t RtScene::skinned_blas(MeshEntry& entry, const MeshAsset& mesh, std
     b.label = std::format("blas:{}#{}@{}", mesh.key, part, entity & 0xffffffffull);
     const auto fail = [&](const std::string& why) {
         b.state = State::Failed;
-        warn_once(warnedBlas_, "a skinned mesh could not get an acceleration structure",
+        warn_once(warnedBlasMake_, "a skinned mesh could not get an acceleration structure",
                   std::format("'{}' part {}: {} Its instances are not traced.", mesh.key, part, why));
     };
     gpu::BufferDesc bd;
     bd.size = std::size_t(b.vertexCount) * 3 * sizeof(float);
-    bd.usage.storageBuffer = true;     // the kernel writes it
-    bd.usage.accelBuildInput = true;   // the build reads it
-    bd.usage.copyDst = true;           // sokol: a storage buffer with no initial data is made with copy_dst (the shader fills it)
+    bd.usage.storageBuffer = true;    // the kernel writes it
+    bd.usage.accelBuildInput = true;  // the build reads it
+    bd.usage.copyDst =
+        true;  // sokol: a storage buffer with no initial data is made with copy_dst (the shader fills it)
     bd.label = b.label.c_str();
     b.positions = device_->make_buffer(bd);
     if (device_->state(b.positions) != gpu::ResourceState::Valid) {
@@ -174,7 +159,8 @@ std::uint32_t RtScene::skinned_blas(MeshEntry& entry, const MeshAsset& mesh, std
         b.triangles.indexOffset = std::size_t(std::max(sm.ibOffset, 0));
         b.triangles.indexType = gpu::IndexType::Uint32;
         b.triangles.indexCount = std::uint32_t(indices);
-        b.triangles.opaque = false;  // the instance forces it opaque where the material has no alpha test (like the static BLASes)
+        b.triangles.opaque =
+            false;  // the instance forces it opaque where the material has no alpha test (like the static BLASes)
         const std::array<gpu::AccelTriangles, 1> geometry{b.triangles};
         const Result<gpu::AccelSizes> sizes = device_->blas_sizes(geometry, skin_flags());
         if (!sizes) {
@@ -217,19 +203,24 @@ void RtScene::prepare_skinned(const Vec3&) {
         free_unseen_skinned();
         return;
     }
-    if (!skinPipeline_.id && skinKernel) skinPipeline_ = skinKernel();
+    // Asked for again every frame that skins: the renderer's pipeline cache destroys one that nobody asked for in a while (Gpu::sweep_pipelines),
+    // so a handle kept from an earlier frame may be dead.
+    const gpu::Pipeline pipeline = skin_kernel();
     std::vector<char> keep(items_.size(), 1);
     std::uint32_t dropped = 0;
-    if (!skinPipeline_.id || !device_->features().compute) {
+    if (!pipeline.id || !device_->features().compute) {
         for (std::uint32_t i : skinned) keep[i] = 0;
         dropped = std::uint32_t(skinned.size());
         if (!warnedSkinKernel_) {
             warnedSkinKernel_ = true;
             FA_WARN("render",
-                    "Ray tracing scene: the skinning program is not available ({}), so the skinned meshes (e.g. '{}') are not traced: they cast no "
-                    "ray-traced shadow and appear in no reflection. Hint: the program is a compute shader (rt_skin.glsl); a driver that refuses "
+                    "Ray tracing scene: the skinning program is not available ({}), so the skinned meshes (e.g. '{}') "
+                    "are not traced: they cast no "
+                    "ray-traced shadow and appear in no reflection. Hint: the program is a compute shader "
+                    "(rt_skin.glsl); a driver that refuses "
                     "it is named in the log lines above.",
-                    device_->features().compute ? "the graphics driver refused it" : "this device has no compute shaders",
+                    device_->features().compute ? "the graphics driver refused it"
+                                                : "this device has no compute shaders",
                     items_[skinned.front()].mesh->key);
         }
     } else {
@@ -340,7 +331,7 @@ bool RtScene::ensure_palette_buffer() {
     }
     if (paletteBuffer_.id) device_->destroy_buffer(paletteBuffer_);
     paletteBuffer_ = {};
-    warn_once(warnedBlas_, "the palette buffer of the skinned meshes could not be made",
+    warn_once(warnedBuffers_, "the palette buffer of the skinned meshes could not be made",
               "The skinned meshes are not traced.");
     return false;
 }
@@ -356,8 +347,9 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
         if (it.skinned) firsts.push_back(&it);
     if (firsts.empty()) return;
     std::stable_sort(firsts.begin(), firsts.end(), [](const Item* a, const Item* b) { return a->blasId < b->blasId; });
-    firsts.erase(std::unique(firsts.begin(), firsts.end(), [](const Item* a, const Item* b) { return a->blasId == b->blasId; }),
-                 firsts.end());
+    firsts.erase(
+        std::unique(firsts.begin(), firsts.end(), [](const Item* a, const Item* b) { return a->blasId == b->blasId; }),
+        firsts.end());
     if (!ensure_palette_buffer()) return;
     const std::uint64_t alignment = std::max<std::uint32_t>(1, device_->accel_scratch_alignment());
     std::uint64_t offset = 0, high = 0;
@@ -369,8 +361,9 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
         if (me == meshes_.end()) continue;
         if (!skin_sources(me->second, *b.mesh, b.part)) {
             b.state = State::Failed;
-            warn_once(warnedBlas_, "a skinned mesh's buffers could not be read by the skinning program",
-                      std::format("'{}' part {}: the storage views could not be made. Its instances are not traced.", b.mesh->key, b.part));
+            warn_once(warnedBlasMake_, "a skinned mesh's buffers could not be read by the skinning program",
+                      std::format("'{}' part {}: the storage views could not be made. Its instances are not traced.",
+                                  b.mesh->key, b.part));
             continue;
         }
         SkinWork w;
@@ -382,7 +375,10 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
             if (buildBudget == 0) continue;  // the builds of a frame are bounded: it joins the TLAS in a later frame
             --buildBudget;
             w.full = true;
-        } else if (frameCounter_ >= b.builtFrame + kSkinRebuildFrames || extent_jumped(b.builtMin, b.builtMax, w.boneMin, w.boneMax)) {
+        } else if ((frameCounter_ >= b.builtFrame + kSkinRebuildFrames &&
+                    (frameCounter_ + b.id) % kSkinRebuildSpread == 0) ||
+                   extent_jumped(b.builtMin, b.builtMax, w.boneMin, w.boneMax)) {
+            // The periodic rebuild waits for its phase (the id mod kSkinRebuildSpread): BLASes made in one frame do not all rebuild in one.
             if (buildBudget > 0) {
                 --buildBudget;
                 w.full = true;
@@ -390,7 +386,8 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
         }
         const std::uint64_t need = std::max<std::uint64_t>(1, w.full ? b.buildScratch : b.updateScratch);
         offset = round_up(offset, alignment);
-        if (offset + need > kSkinScratchBytes) offset = 0;  // past the budget the builds share the start: the backend serializes them
+        if (offset + need > kSkinScratchBytes)
+            offset = 0;  // past the budget the builds share the start: the backend serializes them
         w.scratchOffset = std::size_t(offset);
         offset += need;
         high = std::max(high, offset);
@@ -409,7 +406,7 @@ void RtScene::record_skin_dispatches(gpu::CommandList& list, const std::vector<S
     wr.size = bytes;
     list.write_buffer(wr);
     list.begin_compute_pass("rt-skin");
-    list.set_pipeline(skinPipeline_);
+    list.set_pipeline(skin_kernel());
     for (const SkinWork& w : work) {
         const Blas& b = blas_.at(w.id);
         const SkinSource& src = meshes_.at(b.mesh).sources[b.part];
@@ -419,7 +416,8 @@ void RtScene::record_skin_dispatches(gpu::CommandList& list, const std::vector<S
         bind.views[kRtSkinViewPalette] = paletteView_;
         bind.views[kRtSkinViewOut] = b.outView;
         list.set_bindings(bind);
-        const std::int32_t params[4] = {std::int32_t(b.vertexCount), std::int32_t(w.paletteIndex * kRtSkinPaletteRows), 0, 0};
+        const std::int32_t params[4] = {std::int32_t(b.vertexCount), std::int32_t(w.paletteIndex * kRtSkinPaletteRows),
+                                        0, 0};
         list.set_uniforms(kRtSkinUniformParams, gpu::Range{params, sizeof(params)});
         list.dispatch(int((b.vertexCount + kRtSkinGroupSize - 1) / kRtSkinGroupSize), 1, 1);
         ++stats_.skinnedDispatches;
@@ -441,7 +439,7 @@ std::uint32_t RtScene::record_skin_builds(gpu::CommandList& list, const std::vec
         bb.scratchOffset = w.scratchOffset;
         if (const Result<void> r = list.build_blas(bb); !r) {
             b.state = State::Failed;
-            warn_once(warnedBlas_, "a BLAS could not be built", b.label + ": " + r.error().message);
+            warn_once(warnedBlasBuild_, "a BLAS could not be built", b.label + ": " + r.error().message);
             continue;
         }
         if (w.full) {

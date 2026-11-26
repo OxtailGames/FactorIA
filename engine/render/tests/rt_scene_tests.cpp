@@ -89,19 +89,68 @@ std::vector<std::string> lines_of(const gpu::RecordingDevice& dev) {
 
 // ---- the scene on its own ----------------------------------------------------------------------------------------------------------
 
+// The path the real backends take: the compacted sizes are read in the background. A ticket answers on its `pollsNeeded`th poll (a wait
+// answers at once, as the real ones do); the device can say "every slot is in flight" (an invalid ticket) or refuse.
+class AsyncRecordingDevice : public gpu::RecordingDevice {
+public:
+    using gpu::RecordingDevice::RecordingDevice;
+    int pollsNeeded = 2;
+    int busyRequests = 0;  // the next requests answer with an invalid ticket
+    bool failRequests = false;
+    int requests = 0, polls = 0, releases = 0;
+    bool async_read_supported() const override { return true; }
+    Result<gpu::ReadTicket> request_buffer_read(gpu::Buffer buffer, std::size_t offset, std::size_t bytes) override {
+        ++requests;
+        if (failRequests)
+            return make_error("gpu: request_buffer_read: the test device refuses reads", "this is a test");
+        if (busyRequests > 0) {
+            --busyRequests;
+            return gpu::ReadTicket{};
+        }
+        pending_.push_back({buffer, offset, bytes, 0});
+        gpu::ReadTicket t;
+        t.slot = int(pending_.size() - 1);
+        t.generation = 1;
+        return t;
+    }
+    bool poll_buffer_read(gpu::ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override {
+        ++polls;
+        Pending& p = pending_.at(std::size_t(ticket.slot));
+        if (++p.polls < pollsNeeded && !wait) return false;
+        return read_buffer(p.buffer, p.offset, p.bytes, out).ok();
+    }
+    void release_buffer_read(gpu::ReadTicket) override { ++releases; }
+
+private:
+    struct Pending {
+        gpu::Buffer buffer;
+        std::size_t offset, bytes;
+        int polls;
+    };
+    std::vector<Pending> pending_;
+};
+
 struct Rig {
     std::unique_ptr<gpu::Device> owned;
     gpu::RecordingDevice* dev = nullptr;
+    AsyncRecordingDevice* async = nullptr;
+    bool headless = true;
     RtScene scene;
     std::vector<std::unique_ptr<render::MeshAsset>> meshes;
     std::vector<MeshRenderer> renderers;  // reserved up front: the items point into it
 
-    explicit Rig(bool rayTracing = true) {
+    explicit Rig(bool rayTracing = true, bool asyncReads = false) {
         gpu::DeviceInit init;
         init.recordingRayTracing = rayTracing;
-        auto made = gpu::make_device(gpu::Backend::Recording, init);
-        REQUIRE_MESSAGE(made.ok(), (made.ok() ? "" : made.error().message));
-        owned = std::move(made.value());
+        if (asyncReads) {
+            owned = std::make_unique<AsyncRecordingDevice>(init);
+            async = static_cast<AsyncRecordingDevice*>(owned.get());
+            headless = false;  // a read-back is polled, not waited for
+        } else {
+            auto made = gpu::make_device(gpu::Backend::Recording, init);
+            REQUIRE_MESSAGE(made.ok(), (made.ok() ? "" : made.error().message));
+            owned = std::move(made.value());
+        }
         dev = dynamic_cast<gpu::RecordingDevice*>(owned.get());
         REQUIRE(dev != nullptr);
         renderers.reserve(256);
@@ -198,7 +247,7 @@ struct Rig {
     // One frame of the scene as the renderer drives it: begin, collect, record on a list, submit and commit.
     void frame(const std::vector<render::MeshItem>& opaque, const std::vector<render::MeshItem>& blended = {},
                Vec3 camera = {0, 0, 0}) {
-        scene.begin_frame(true, [this] { dev->commit(); });
+        scene.begin_frame(headless, [this] { dev->commit(); });
         scene.collect(opaque, blended, camera, true);
         gpu::CommandList& cl = dev->begin_commands("rt");
         scene.record(cl);
@@ -549,11 +598,193 @@ TEST_CASE("rt scene: a BLAS that cannot be built is reported once and its instan
     REQUIRE(rig.scene.configure(rig.dev, true, 100));
     render::MeshAsset* bad = rig.mesh("noInput", 1, false);  // buffers made without accelBuildInput
     render::MeshAsset* good = rig.mesh("good");
-    rig.frame({rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)});
-    rig.frame({rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)});
-    CHECK(rig.scene.instance_count() >= 1);
-    for (const auto& f : rig.scene.frame_instances()) CHECK(f.entityId == 2);
-    CHECK(log.count("could not") <= 2);
+    const std::vector<render::MeshItem> items{rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)};
+    rig.frame(items);
+    // The frame whose build failed: the TLAS of that very frame has the good instance only (the failed BLAS was never built).
+    CHECK(rig.scene.instance_count() == 1);
+    REQUIRE(rig.scene.frame_instances().size() == 1);
+    CHECK(rig.scene.frame_instances()[0].entityId == 2);
+    CHECK(rig.scene.frame_instances()[0].instance.customIndex == 0);
+    int tlasBuilds = 0;
+    for (const gpu::RecordedCommand& c : rig.dev->commands())
+        if (c.kind == gpu::CommandKind::BuildTlas) {
+            ++tlasBuilds;
+            CHECK(c.args[0] == 1);  // instances
+        }
+    CHECK(tlasBuilds == 1);
+    // The device reported the refused build and nothing else: no TLAS over a structure that was never built.
+    for (const std::string& e : rig.dev->errors()) CHECK(e.find("instances[") == std::string::npos);
+    rig.frame(items);
+    CHECK(rig.scene.instance_count() == 1);
+    CHECK(rig.scene.stats().skippedNoBlas == 1);
+    CHECK(log.count("a BLAS could not be built") == 1);  // once, not a line per frame
+}
+
+TEST_CASE("rt scene: the BLASes of the instances the cap leaves out are never made") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 2));
+    std::vector<render::MeshAsset*> assets;
+    std::vector<render::MeshItem> items;
+    for (int d = 1; d <= 6; ++d) {
+        assets.push_back(rig.mesh(("m" + std::to_string(d)).c_str()));
+        items.push_back(rig.item(assets.back(), {0, 0, -float(d)}, std::uint32_t(d)));
+    }
+    rig.frame(items);
+    CHECK(rig.scene.instance_count() == 2);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildBlas) == 2);
+    CHECK(rig.scene.stats().blasLive == 2);
+    CHECK(rig.scene.blas_has_asset(assets[0]));
+    CHECK(rig.scene.blas_has_asset(assets[1]));
+    for (std::size_t i = 2; i < assets.size(); ++i) CHECK_FALSE(rig.scene.blas_has_asset(assets[i]));
+}
+
+TEST_CASE(
+    "rt scene: a BLAS that goes is destroyed after the frames in flight, and the TLAS of those frames still names it") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 100));
+    render::MeshAsset* a = rig.mesh("a");
+    render::MeshAsset* b = rig.mesh("b");
+    const std::vector<render::MeshItem> both{rig.item(a, {0, 0, 0}, 1), rig.item(b, {2, 0, 0}, 2)};
+    const std::vector<render::MeshItem> onlyB{rig.item(b, {2, 0, 0}, 2)};
+    for (int f = 0; f < 6; ++f) rig.frame(both);  // built, compacted, the originals retired and destroyed
+    CHECK(rig.scene.retired_count() == 0);
+    const std::uint32_t idA = rig.scene.blas_ids_of(a)[0];
+    const gpu::AccelStructure structureA = rig.scene.blas_structure(idA);
+    REQUIRE(structureA.id != 0);
+    // The last TLAS built before the asset goes names it.
+    bool named = false;
+    for (const auto& f : rig.scene.frame_instances()) named = named || f.instance.blas.id == structureA.id;
+    CHECK(named);
+    rig.scene.forget(a);  // the asset is destroyed between two frames
+    CHECK(rig.scene.blas_state(idA) == "gone");
+    CHECK(rig.scene.retired_count() == 1);
+    for (int f = 0; f < gpu::kInflightFrames; ++f) {
+        rig.frame(onlyB);  // the TLASes of the frames before may still be executing: the structure is alive
+        CHECK(rig.dev->accel_structure_state(structureA) == gpu::ResourceState::Valid);
+    }
+    rig.frame(onlyB);  // one frame more than the frames in flight
+    CHECK(rig.dev->accel_structure_state(structureA) != gpu::ResourceState::Valid);
+    CHECK(rig.scene.retired_count() == 0);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt scene: a mesh whose geometry changes every frame retires its BLAS each frame and destroys it later") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 100));
+    render::MeshAsset* a = rig.mesh("animated");
+    const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+    std::vector<gpu::AccelStructure> seen;
+    for (int f = 0; f < 8; ++f) {
+        ++a->geometryVersion;
+        rig.frame(items);
+        seen.push_back(rig.scene.blas_structure(rig.scene.blas_ids_of(a)[0]));
+        // Each earlier structure is alive while a frame in flight may still name it.
+        for (std::size_t i = 0; i + 1 < seen.size(); ++i) {
+            const bool old = i + 1 + std::size_t(gpu::kInflightFrames) + 1 <= std::size_t(f) + 1;
+            if (!old) CHECK(rig.dev->accel_structure_state(seen[i]) == gpu::ResourceState::Valid);
+        }
+    }
+    // Bounded, nothing piles up: at most the BLAS and its compaction target of each of the frames in flight and the one being recorded.
+    CHECK(rig.scene.retired_count() <= 2 * (std::size_t(gpu::kInflightFrames) + 1));
+    CHECK(rig.dev->accel_structure_state(seen[0]) != gpu::ResourceState::Valid);
+    CHECK(rig.dev->errors().empty());
+    // Turning the scene off frees everything at once, retired ones included.
+    rig.scene.release();
+    for (const gpu::AccelStructure& s : seen) CHECK(rig.dev->accel_structure_state(s) != gpu::ResourceState::Valid);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt scene: the compacted sizes read in the background (the path the real backends take)") {
+    Warnings log;
+    SUBCASE("a ticket that takes polls: reading until it answers, then compaction") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        CHECK(rig.scene.blas_state(id) == "queried");
+        rig.frame(items);  // the size is asked for
+        CHECK(rig.async->requests == 1);
+        CHECK(rig.scene.blas_state(id) == "reading");
+        rig.frame(items);  // poll 1 of 2
+        CHECK(rig.scene.blas_state(id) == "reading");
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 0);
+        rig.frame(items);  // poll 2: the answer, the smaller structure, the copy
+        CHECK(rig.async->polls == 2);
+        CHECK(rig.scene.blas_state(id) == "swap");
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 1);
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "compacted");
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("every slot in flight (an invalid ticket): the BLAS asks again on a later frame") {
+        Rig rig(true, true);
+        rig.async->busyRequests = 2;
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "queried");
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "queried");
+        CHECK(rig.async->requests == 2);
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "reading");
+        for (int f = 0; f < 4; ++f) rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "compacted");
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("a read the device refuses: the BLAS stays as built, one warning") {
+        Rig rig(true, true);
+        rig.async->failRequests = true;
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        for (int f = 0; f < 5; ++f) rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        CHECK(rig.scene.blas_state(id) == "built");
+        CHECK(rig.scene.instance_count() == 1);  // still traced
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 0);
+        CHECK(log.count("could not be read back") == 1);
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("a BLAS freed while its size is being read: the answer is dropped, the others go on") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        render::MeshAsset* b = rig.mesh("b");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1), rig.item(b, {2, 0, 0}, 2)};
+        rig.frame(items);
+        rig.frame(items);
+        const std::uint32_t idA = rig.scene.blas_ids_of(a)[0];
+        const std::uint32_t idB = rig.scene.blas_ids_of(b)[0];
+        CHECK(rig.scene.blas_state(idA) == "reading");
+        rig.scene.forget(a);
+        CHECK(rig.scene.blas_state(idA) == "gone");
+        const std::vector<render::MeshItem> onlyB{items[1]};
+        for (int f = 0; f < 6; ++f) rig.frame(onlyB);
+        CHECK(rig.scene.blas_state(idB) == "compacted");
+        CHECK(rig.scene.instance_count() == 1);
+        INFO(joined(rig.dev->errors()));
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("release() with a ticket in flight releases it") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        rig.frame(items);
+        CHECK(rig.async->requests == 1);
+        CHECK(rig.async->releases == 0);
+        rig.scene.release();
+        CHECK(rig.async->releases == 1);
+        CHECK(rig.dev->errors().empty());
+    }
 }
 
 // ---- the layout the kernels read ------------------------------------------------------------------------------------------------------
@@ -1017,18 +1248,62 @@ TEST_CASE("rt skin: a skinned item is skinned once a frame, built with update in
         CHECK(rig.scene.stats().skinnedBuilds == 0);
         CHECK(rig.scene.frame_instances()[0].blasId == id);  // the same BLAS all along
     }
-    rig.dev->clear_commands();
-    rig.frame(items);  // frame N + 1: a full rebuild
-    {
+    // From frame N + 1 on, the rebuild waits for its phase (the BLAS id mod kSkinRebuildSpread): exactly one full build in the next
+    // kSkinRebuildSpread frames, at the frame whose number plus the id is a multiple of the spread, refits in the others.
+    int rebuilds = 0;
+    for (int f = N + 1; f <= N + int(RtScene::kSkinRebuildSpread); ++f) {
+        rig.dev->clear_commands();
+        rig.frame(items);
+        CAPTURE(f);
         const auto b = commands_of(*rig.dev, gpu::CommandKind::BuildBlas);
         REQUIRE(b.size() == 1);
-        CHECK(b[0].args[3] == 0);
-        CHECK(rig.scene.stats().skinnedBuilds == 1);
+        const bool phase = (std::uint32_t(f) + id) % RtScene::kSkinRebuildSpread == 0;
+        CHECK((b[0].args[3] == 0) == phase);
+        CHECK(rig.scene.stats().skinnedBuilds == (phase ? 1u : 0u));
+        rebuilds += phase ? 1 : 0;
     }
+    CHECK(rebuilds == 1);
     rig.dev->clear_commands();
     rig.frame(items);  // and refits again
     CHECK(commands_of(*rig.dev, gpu::CommandKind::BuildBlas)[0].args[3] == 1);
     INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt skin: the kernel is asked for in every frame that skins, so a pipeline the cache destroyed in between is "
+          "not used") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    int asked = 0;
+    rig.scene.skinKernel = [&] {
+        ++asked;
+        return rig.kernel;
+    };
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1)};
+    rig.frame(items);
+    CHECK(asked > 0);
+    // No animated character for longer than the cache keeps an idle pipeline: the kernel is destroyed, a new one is made when asked for.
+    for (int f = 0; f < 3; ++f) rig.frame({});
+    rig.dev->destroy_pipeline(rig.kernel);
+    const gpu::Pipeline stale = rig.kernel;
+    gpu::PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = rig.dev->make_shader(gpu::generated_shader_desc(*rig.dev, &rt_skin_rt_skin_shader_desc));
+    pd.label = "rt skin again";
+    rig.kernel = rig.dev->make_pipeline(pd);
+    REQUIRE(rig.dev->state(rig.kernel) == gpu::ResourceState::Valid);
+    CHECK(rig.kernel.id != stale.id);
+    const int before = asked;
+    rig.dev->clear_commands();
+    rig.frame(items);
+    CHECK(asked > before);  // asked again, not remembered
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 1);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+    rig.frame(items);
     CHECK(rig.dev->errors().empty());
 }
 
@@ -1129,7 +1404,7 @@ TEST_CASE("rt skin: an instance that leaves frees its BLAS after the frames in f
     CHECK(rig.dev->state(leaving) == gpu::ResourceState::Invalid);  // a stale handle is Invalid
     // The structure is kept while a TLAS of a frame in flight can still name it, then destroyed.
     CHECK(rig.dev->accel_structure_state(structOf[2]) == gpu::ResourceState::Valid);
-    for (std::uint64_t f = 0; f < RtScene::kRetireFrames; ++f) rig.frame(one);
+    for (std::uint64_t f = 0; f < std::uint64_t(gpu::kInflightFrames) + 1; ++f) rig.frame(one);
     CHECK(rig.dev->accel_structure_state(structOf[2]) == gpu::ResourceState::Invalid);
     CHECK(rig.dev->accel_structure_state(structOf[1]) == gpu::ResourceState::Valid);
     // The same entity coming back gets a new BLAS, built from scratch.

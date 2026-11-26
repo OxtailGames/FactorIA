@@ -43,12 +43,20 @@ with messages that name the field); `ibOffset` of a part is always a multiple of
 
 A BLAS is rebuilt when the asset's `geometryVersion` or the buffer ids of its parts change (a procedural mesh updated, a mesh loaded
 again) and freed when the asset goes: `Assets` calls the release hook (`set_mesh_release_hook`) at the start of `destroy_mesh` and
-`destroy_procedural`, before the buffers are destroyed, and `RtScene::forget` frees the asset's BLASes. A TLAS never keeps a BLAS alive,
-so a BLAS that goes is destroyed with `Device::destroy_accel_structure`, which defers the release until no submitted list uses it; the next
-TLAS build (the next frame's) no longer names it.
+`destroy_procedural`, before the buffers are destroyed, and `RtScene::forget` frees the asset's BLASes. A TLAS never keeps a BLAS alive
+(`Device::destroy_accel_structure` defers only for lists that use the structure directly, and a BLAS built long ago is used by no recent
+list), so **a BLAS is never destroyed at once**: `RtScene::retire_blas` puts its structure in a graveyard with the frame number, and
+`begin_frame` destroys it `kRetireFrames` = `kInflightFrames` + 1 frames later, when no TLAS of a frame in flight can name it. The same
+goes for the original of a compaction after the swap and for every BLAS an asset or a geometry change frees. Only `release()` (ray tracing
+turned off, another device, the renderer's shutdown) destroys everything at once, after one `Device::wait_idle()`. An animated procedural
+mesh whose geometry changes every frame rebuilds its BLAS every frame (and the retired ones wait their frames); a skinned mesh does not: it
+has the refit of "Skinned meshes".
 
 A part with no vertex buffer a build can read (a placeholder while a mesh loads, no triangle) is `untraceable`: its instances are left out.
-A build the device refuses logs one `WARN` with the device's message and leaves the part's instances out; the others go on.
+A build the device refuses logs one `WARN` with the device's message (one flag per cause: sizing or making, building a BLAS, making or
+building the TLAS, making a buffer) and leaves the part's instances out **of that very frame's TLAS** (the instance list is filtered again
+after the builds; `skippedNoBlas` counts them); the others go on. A buffer of the scene (scratch, records) the device could not make gives
+the frame up with one `WARN`: nothing is built and the next frame tries again.
 
 ### Build budget and compaction
 
@@ -63,7 +71,7 @@ Every BLAS is built with `allowCompaction` and `preferFastTrace`, then compacted
    the GPU's speed). A smaller structure is made for each answer.
 3. Frame N+1, the pass: `copy_accel_structure(Compact)` into it.
 4. Frame N+2, `begin_frame`: the compacted structure replaces the original (the instances of this frame's TLAS name it) and the original
-   is destroyed. State names for a test: `pending`, `built`, `queried`, `reading`, `compact-pending`, `swap`, `compacted`, `failed`, `gone`.
+   is retired (the TLAS of frame N+1 names it, so it is destroyed `kRetireFrames` frames later). State names for a test: `pending`, `built`, `queried`, `reading`, `compact-pending`, `swap`, `compacted`, `failed`, `gone`.
 
 A BLAS with no free slot is not compacted (it stays valid and `built`). A read that cannot be asked for logs one `WARN`, and the BLAS stays
 as it is built.
@@ -72,7 +80,8 @@ as it is built.
 
 `Renderer::gather_meshes` of the **main camera's job** (the one named `camera:`, never a shadow or a probe job, never the LOD-follow job)
 calls `RtScene::collect` with its opaque and blended lists, after the LOD pick and before the view culling decides what to draw: every item
-is offered, including the ones outside the view (a ray may hit them). Because the items come from the same pick the draw makes, **one LOD
+is offered, including the ones outside the view (a ray may hit them). The cap cut comes first and the BLASes after it: an item the cap
+leaves out makes no BLAS. Because the items come from the same pick the draw makes, **one LOD
 level per instance** is traced: the level the main camera sees. A foliage's instances and the instances of a GPU-instanced batch are mesh
 items like the others.
 
@@ -146,8 +155,9 @@ does not have are the identity), the rows blended first and the three dots after
 into a buffer the BLAS is built from; the instance keeps its own `mi.model`. `rt_skin_position` in `rt_skin.h` is the same maths on the CPU; a
 test checks it against the formula. The kernel reads the part's vertex and skin buffers as storage: `Assets` gives them `storageBuffer` usage
 (next to `accelBuildInput`) while the scene is on and the device has compute. The program is made on first use by
-`Renderer::Impl::rt_skin_pipeline` and handed to the scene (`RtScene::skinKernel`); a driver that refuses it leaves the skinned instances out
-(`skippedSkinned`, one `WARN`).
+`Renderer::Impl::rt_skin_pipeline` and handed to the scene as a provider (`RtScene::skinKernel`); the scene asks for it **in every frame that
+skins** and never keeps the handle, because the renderer's pipeline cache destroys one nobody asked for in a while (`Gpu::sweep_pipelines`). A
+driver that refuses it leaves the skinned instances out (`skippedSkinned`, one `WARN`).
 
 **One BLAS per instance** (key: entity, mesh asset, part), not per asset: two characters of one asset have two poses. Its geometry is the
 output buffer (stride 12, `Float3`) and the asset's index buffer, of the LOD level the item draws. It is built with `allowUpdate`,
@@ -161,10 +171,10 @@ the compaction copies and records, the TLAS. Scratch is per build: the builds ar
 
 **Refit or rebuild.** A first build is a build from scratch; after it every frame is a refit (`update`, in place, same counts), which is cheap
 but makes the structure worse the more the mesh moves from the pose it was built for. So an instance is **rebuilt** from scratch every
-`kSkinRebuildFrames` (60) frames, and at once when the box of its bones' reach jumps by more than `kSkinExtentJump` (0.35) of the largest side
+`kSkinRebuildFrames` (60) frames (from then on, at the first frame whose number plus the BLAS id is a multiple of `kSkinRebuildSpread` = 16, so
+BLASes made in one frame do not all rebuild in one: a crowd's rebuilds are spread over 16 frames), and at once when the box of its bones' reach jumps by more than `kSkinExtentJump` (0.35) of the largest side
 of the box it was built for (a teleported bone, a changed clip; NaN counts as a jump). A rebuild spends the frame's build budget
-(`kMaxBuildsPerFrame` minus the static builds) and is a refit when none is left, so a crowd's rebuilds spread over the frames instead of
-landing together. Every choice depends on the frame count and the palettes only, never on the clock.
+(`kMaxBuildsPerFrame` minus the static builds) and is a refit when none is left (the rebuild is a later frame's). Every choice depends on the frame count and the palettes only, never on the clock.
 
 **Budget** (deterministic work counts): at most `kMaxSkinnedInstances` (4096) instances and `kMaxSkinnedVertices` (2^22) skinned vertices a
 frame, the nearest to the main camera first (a stable sort, ties in the order the items came), and parts of at most `kRtSkinMaxPartVertices`
@@ -172,14 +182,19 @@ frame, the nearest to the main camera first (a stable sort, ties in the order th
 limits and the fix (fewer vertices, a lower LOD, fewer animated characters in view).
 
 **Freeing.** An instance that stops coming, or an asset that goes (`forget`), frees its BLAS: the structure goes to the **graveyard**
-(`retire_blas`) and is destroyed `kRetireFrames` (4) frames later, because a TLAS built in an earlier frame may still name it (a TLAS never
-keeps its BLASes alive, see "One BLAS per submesh"); the output buffer and its view are destroyed at once (the device defers them). A
-BLAS whose mesh changed (buffers or LOD) is freed and made again. `release()` empties the graveyard.
+(`retire_blas`, the one of "One BLAS per submesh": destroyed `kInflightFrames` + 1 frames later, because a TLAS built in an earlier frame may
+still name it); the output buffer and its view are destroyed at once (the device defers them). A BLAS whose mesh changed (its buffers) is freed
+and made again.
+
+**Known gaps.** (1) When the LOD level of an instance changes, the BLAS of the old level is freed at once and the new one waits for its build:
+with the frame's build budget spent (`kMaxBuildsPerFrame`) the instance is out of the TLAS (`skippedNoBlas`) until it is built, a frame or more
+later. (2) A skinned BLAS whose build the device refused stays `failed` (and out of the TLAS, with one `WARN`) while its mesh is unchanged, like
+a static one: a refusal is a size, memory or limit answer that does not change by asking again, and an instance that leaves the frame and comes back is tried again.
 
 Counters of `RtSceneStats`: `skinnedInstances`, `skinnedDispatches`, `skinnedBuilds`, `skinnedRefits`, `skinnedVertices` (of the last frame).
 
-Tests (`rt_scene_tests.cpp`, "rt skin: ..."): one dispatch and one build with `allowUpdate` in the first frame, refits to frame 60 and a rebuild
-in 61, an extent jump rebuilds and a small move does not, two instances of one asset have two BLASes (and a static one a third), removal frees
+Tests (`rt_scene_tests.cpp`, "rt skin: ..."): one dispatch and one build with `allowUpdate` in the first frame, refits to frame 60 and one rebuild
+at its phase in the 16 frames after, an extent jump rebuilds and a small move does not, two instances of one asset have two BLASes (and a static one a third), the kernel is asked for in every frame that skins (a pipeline destroyed in between is not used), removal frees
 the buffer at once and the structure after the frames in flight, off allocates and records nothing, no program and over the budget warn once,
 the same stream twice, the CPU twin against the formula, and a real skinned glTF through the renderer with rays on and off.
 The kernel itself is not run in these tests (the `RecordingDevice` runs nothing, and the suite has no compute readback on a real device):

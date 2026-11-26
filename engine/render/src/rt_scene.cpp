@@ -2,6 +2,7 @@
 #include "rt_scene.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -20,6 +21,14 @@ namespace {
 
 constexpr std::uint32_t kMinRecordCapacity = 256;  // records the buffer holds at least (24 KB)
 constexpr std::uint32_t kMinTlasCapacity = 256;
+// A retired BLAS is destroyed this many frames after the frame it was retired in: the TLAS of every frame the GPU may still be executing
+// names it (a TLAS does not keep its BLASes alive), and the CPU runs kInflightFrames ahead.
+constexpr std::uint64_t kRetireFrames = std::uint64_t(gpu::kInflightFrames) + 1;
+
+// Whether a part has anything a build can read.
+bool traceable_part(const SubMesh& sm) {
+    return sm.vb.id && sm.ib.id && sm.vertexCount >= 3 && sm.indexCount - sm.indexCount % 3 >= 3;
+}
 
 float saturate01(float v) { return v > 0.0f ? (v < 1.0f ? v : 1.0f) : 0.0f; }  // NaN gives 0
 
@@ -116,6 +125,19 @@ std::int32_t RtScene::take_slot() {
     return slotHigh_++;
 }
 
+void RtScene::retire_blas(gpu::AccelStructure structure) {
+    if (device_ && structure.id) graveyard_.push_back({structure, frameCounter_});
+}
+
+void RtScene::drain_graveyard(bool all) {
+    std::size_t n = 0;
+    while (n < graveyard_.size() && (all || graveyard_[n].frame + kRetireFrames <= frameCounter_)) {
+        device_->destroy_accel_structure(graveyard_[n].structure);
+        ++n;
+    }
+    graveyard_.erase(graveyard_.begin(), graveyard_.begin() + std::ptrdiff_t(n));
+}
+
 void RtScene::free_blas(std::uint32_t id) {
     auto it = blas_.find(id);
     if (it == blas_.end()) return;
@@ -130,8 +152,8 @@ void RtScene::free_blas(std::uint32_t id) {
     }
     if (b.slot >= 0 && b.state == State::Queried)
         freeSlots_.push_back(b.slot);  // a Reading one frees its slot when the answer comes
-    if (b.structure.id) device_->destroy_accel_structure(b.structure);
-    if (b.compact.id) device_->destroy_accel_structure(b.compact);
+    retire_blas(b.structure);
+    retire_blas(b.compact);
     const auto drop = [id](std::vector<std::uint32_t>& v) { v.erase(std::remove(v.begin(), v.end(), id), v.end()); };
     drop(pending_);
     drop(queried_);
@@ -166,12 +188,20 @@ void RtScene::forget(const MeshAsset* mesh) {
 
 void RtScene::release() {
     if (device_) {
+        // The frames in flight may still trace the TLAS and the BLASes: wait for the GPU once (turning ray tracing off, a new device, the
+        // renderer's shutdown; never per frame) so everything can go now. A device that orders its work itself does nothing here.
+        if (const Result<void> idle = device_->wait_idle(); !idle)
+            FA_WARN(
+                "render",
+                "Ray tracing scene: the GPU could not be waited for before the acceleration structures are freed: {}",
+                idle.error().message);
         release_skin();
         if (readTicket_.valid()) device_->release_buffer_read(readTicket_);
         for (auto& [id, b] : blas_) {
             if (b.structure.id) device_->destroy_accel_structure(b.structure);
             if (b.compact.id) device_->destroy_accel_structure(b.compact);
         }
+        drain_graveyard(true);
         if (tlas_.id) device_->destroy_accel_structure(tlas_);
         for (gpu::Buffer* b : {&recordsBuffer_, &scratch_, &sizeBuffer_})
             if (b->id) device_->destroy_buffer(*b);
@@ -193,7 +223,6 @@ void RtScene::release() {
     scratch_ = {};
     sizeBuffer_ = {};
     slotHigh_ = 0;
-    readSlots_ = 0;
     tlasCapacity_ = 0;
     recordsCapacity_ = 0;
     scratchSize_ = 0;
@@ -204,7 +233,9 @@ void RtScene::release() {
     cap_ = 0;
     maxInstances_ = 0;
     stats_ = {};
-    warnedCap_ = warnedSkinned_ = warnedBlas_ = warnedRead_ = warnedSkinKernel_ = false;
+    warnedCap_ = warnedSkinned_ = warnedBlasMake_ = warnedBlasBuild_ = warnedTlasMake_ = warnedTlasBuild_ =
+        warnedBuffers_ = warnedRead_ = warnedSkinKernel_ = false;
+    graveyard_.clear();
 }
 
 void RtScene::shift(const Vec3& offset) {
@@ -326,14 +357,14 @@ void RtScene::begin_frame(bool headless, const std::function<void()>& commit) {
     collected_ = false;
     if (!device_) return;
     ++frameCounter_;
-    collect_retired(false);
-    // The compacted copies the frame before recorded are done: the compact BLAS takes the place of the original (which goes once no
-    // submitted list uses it: Device::destroy_accel_structure defers).
+    drain_graveyard(false);
+    // The compacted copies the frame before recorded are done: the compact BLAS takes the place of the original. The TLAS of the frames
+    // in flight still names the original, so it is retired (destroyed kRetireFrames frames from now), not destroyed.
     for (std::uint32_t id : swap_) {
         auto it = blas_.find(id);
         if (it == blas_.end()) continue;
         Blas& b = it->second;
-        if (b.structure.id) device_->destroy_accel_structure(b.structure);
+        retire_blas(b.structure);
         b.structure = b.compact;
         b.compact = {};
         b.size = b.compactedSize;
@@ -347,7 +378,7 @@ std::uint32_t RtScene::blas_for(const MeshAsset& mesh, std::size_t part, const s
     untraceable = false;
     const SubMesh& sm = mesh.parts[part];
     const int indices = sm.indexCount - sm.indexCount % 3;
-    if (!sm.vb.id || !sm.ib.id || sm.vertexCount < 3 || indices < 3) {
+    if (!traceable_part(sm)) {
         untraceable = true;
         return 0;
     }
@@ -370,7 +401,7 @@ std::uint32_t RtScene::blas_for(const MeshAsset& mesh, std::size_t part, const s
     const Result<gpu::AccelSizes> sizes = device_->blas_sizes(geometry, blas_flags());
     if (!sizes) {
         b.state = State::Failed;
-        warn_once(warnedBlas_, "a mesh could not get an acceleration structure",
+        warn_once(warnedBlasMake_, "a mesh could not get an acceleration structure",
                   std::format("'{}' part {}: {} Its instances are not traced.", key, part, sizes.error().message));
     } else {
         gpu::AccelStructureDesc d;
@@ -380,7 +411,7 @@ std::uint32_t RtScene::blas_for(const MeshAsset& mesh, std::size_t part, const s
         const Result<gpu::AccelStructure> made = device_->make_accel_structure(d);
         if (!made) {
             b.state = State::Failed;
-            warn_once(warnedBlas_, "a mesh could not get an acceleration structure",
+            warn_once(warnedBlasMake_, "a mesh could not get an acceleration structure",
                       std::format("'{}' part {}: {} Its instances are not traced.", key, part, made.error().message));
         } else {
             b.structure = made.value();
@@ -433,30 +464,6 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 ++stats_.skippedUntraceable;
                 continue;
             }
-            // The BLASes of the asset: made on first sight, made again when its geometry changed.
-            MeshEntry& e = meshes_[mi.mesh];
-            if (e.checkedFrame != frameCounter_) {
-                e.checkedFrame = frameCounter_;
-                const std::uint64_t sig = mesh_signature(mesh);
-                if (e.blas.size() != mesh.parts.size() || e.version != mesh.geometryVersion || e.signature != sig) {
-                    free_mesh_entry(e);
-                    e.version = mesh.geometryVersion;
-                    e.signature = sig;
-                    e.blas.assign(mesh.parts.size(), 0);
-                    e.untraceable.assign(mesh.parts.size(), 0);
-                    for (std::size_t p = 0; p < mesh.parts.size(); ++p) {
-                        if (mesh.parts[p]
-                                .skinVb
-                                .id) {  // a skinned part: its BLAS is the instance's own; a static one only if an item draws it unskinned
-                            e.untraceable[p] = 2;
-                            continue;
-                        }
-                        bool bad = false;
-                        e.blas[p] = blas_for(mesh, p, mesh.key, bad);
-                        e.untraceable[p] = bad ? 1 : 0;
-                    }
-                }
-            }
             const MeshRenderer& mr = *mi.mr;
             const MaterialAsset* mat = mi.material;
             const bool matOk = mat && mat->ok;
@@ -470,35 +477,18 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 const SubMesh& part = mesh.parts[p];
                 // A part the Animator's palette deforms (the draw's own test): traced from its own BLAS, made after the cap (prepare_skinned).
                 const bool skinnedPart = mi.anim && part.skinVb.id;
-                std::uint32_t id = 0;
-                if (skinnedPart) {
-                    const int indices = part.indexCount - part.indexCount % 3;
-                    if (!part.vb.id || !part.ib.id || part.vertexCount < 3 || indices < 3) {
-                        ++stats_.skippedUntraceable;
-                        continue;
-                    }
-                    if (std::uint32_t(part.vertexCount) > kRtSkinMaxPartVertices) {
-                        ++stats_.skippedSkinned;
-                        warn_skin_budget(mesh.key, std::uint32_t(part.vertexCount));
-                        continue;
-                    }
-                } else {
-                    if (e.untraceable[p] ==
-                        2) {  // a skinned part drawn in its bind pose (an item with no palette): the static BLAS, made now
-                        bool bad = false;
-                        e.blas[p] = blas_for(mesh, p, mesh.key, bad);
-                        e.untraceable[p] = bad ? 1 : 0;
-                    }
-                    id = e.blas[p];
-                    if (!id) {
-                        ++stats_.skippedUntraceable;
-                        continue;
-                    }
+                if (!traceable_part(part)) {
+                    ++stats_.skippedUntraceable;
+                    continue;
+                }
+                if (skinnedPart && std::uint32_t(part.vertexCount) > kRtSkinMaxPartVertices) {
+                    ++stats_.skippedSkinned;
+                    warn_skin_budget(mesh.key, std::uint32_t(part.vertexCount));
+                    continue;
                 }
                 Item it;
                 it.mesh = mi.mesh;
                 it.part = std::uint32_t(p);
-                it.blasId = id;
                 if (skinnedPart) {
                     it.skinned = true;
                     it.entity = mi.entity.bits();
@@ -543,7 +533,6 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 if (matOk) flags |= kRtFlagCustomMaterial;
                 if (skinnedPart) flags |= kRtFlagSkinned;
                 rec.flags = flags;
-                rec.blasId = id;
                 std::uint8_t mask = isBlended ? kRtMaskBlended : (cutout ? kRtMaskCutout : kRtMaskOpaque);
                 if (mr.castShadows) mask |= kRtMaskCastsShadow;
                 if (mi.foliage) mask |= kRtMaskFoliage;
@@ -591,38 +580,113 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                             : kRtMaxInstanceIndex + 1));
         }
     }
+    // The BLASes of the instances that stay (an item the cap left out makes none): made on first sight, made again when the geometry of
+    // the asset changed (the old ones are retired, not destroyed: a TLAS of a frame in flight names them).
+    std::size_t out = 0;
+    for (std::size_t i = 0; i < items_.size(); ++i) {
+        Item& it = items_[i];
+        const MeshAsset& mesh = *it.mesh;
+        MeshEntry& e = meshes_[it.mesh];
+        if (e.checkedFrame != frameCounter_ || e.blas.size() != mesh.parts.size()) {
+            e.checkedFrame = frameCounter_;
+            const std::uint64_t sig = mesh_signature(mesh);
+            if (e.blas.size() != mesh.parts.size() || e.version != mesh.geometryVersion || e.signature != sig) {
+                free_mesh_entry(e);
+                e.version = mesh.geometryVersion;
+                e.signature = sig;
+                e.blas.assign(mesh.parts.size(), 0);
+                e.untraceable.assign(mesh.parts.size(), 0);
+            }
+        }
+        if (it.skinned) {  // its BLAS is the instance's own (prepare_skinned); a static one only if an item draws the part unskinned
+            if (out != i) items_[out] = std::move(items_[i]);
+            ++out;
+            continue;
+        }
+        std::uint32_t& id = e.blas[it.part];
+        if (!id && !e.untraceable[it.part]) {
+            bool bad = false;
+            id = blas_for(mesh, it.part, mesh.key, bad);
+            e.untraceable[it.part] = bad ? 1 : 0;
+        }
+        if (!id) {
+            ++stats_.skippedUntraceable;
+            continue;
+        }
+        it.blasId = id;
+        it.record.blasId = id;
+        if (out != i) items_[out] = std::move(items_[i]);
+        ++out;
+    }
+    items_.resize(out);
     prepare_skinned(camera);
     stats_.blasLive = std::uint32_t(blas_.size());
 }
 
 // ---- the pass --------------------------------------------------------------------------------------------------------------------
 
-void RtScene::ensure_buffers(std::uint64_t scratchNeed, std::uint32_t instances) {
-    if (scratchNeed > scratchSize_ || !scratch_.id) {
+bool RtScene::ensure_buffers(std::uint64_t scratchNeed, std::uint32_t instances) {
+    // A buffer the device could not make is destroyed and left empty (the next frame tries again), and the frame builds nothing.
+    const auto make = [&](gpu::Buffer& buffer, const gpu::BufferDesc& desc) {
+        buffer = device_->make_buffer(desc);
+        if (device_->state(buffer) == gpu::ResourceState::Valid) return true;
+        if (buffer.id) device_->destroy_buffer(buffer);
+        buffer = {};
+        warn_once(
+            warnedBuffers_, "a buffer of the scene could not be made",
+            std::format(
+                "'{}' of {} bytes. Nothing is built or traced until it can be made (the picture is the one without "
+                "ray tracing); the device's own message is in its log.",
+                desc.label ? desc.label : "", desc.size));
+        return false;
+    };
+    if (scratchNeed > scratchSize_ || !scratch_.id || device_->state(scratch_) != gpu::ResourceState::Valid) {
         if (scratch_.id) device_->destroy_buffer(scratch_);
+        scratch_ = {};
         scratchSize_ = round_up_u64(std::max<std::uint64_t>(scratchNeed, 1), 1u << 20);
         gpu::BufferDesc bd;
         bd.size = std::size_t(scratchSize_);
         bd.usage.accelScratch = true;
         bd.label = "rt scratch";
-        scratch_ = device_->make_buffer(bd);
+        if (!make(scratch_, bd)) {
+            scratchSize_ = 0;
+            return false;
+        }
     }
-    if (instances > recordsCapacity_ || !recordsBuffer_.id) {
+    if (instances > recordsCapacity_ || !recordsBuffer_.id ||
+        device_->state(recordsBuffer_) != gpu::ResourceState::Valid) {
         if (recordsBuffer_.id) device_->destroy_buffer(recordsBuffer_);
-        recordsCapacity_ = std::max(kMinRecordCapacity, next_pow2(instances));
+        recordsBuffer_ = {};
+        const std::uint32_t capacity = std::max(kMinRecordCapacity, next_pow2(instances));
         gpu::BufferDesc bd;
-        bd.size = std::size_t(recordsCapacity_) * sizeof(RtInstanceRecord);
+        bd.size = std::size_t(capacity) * sizeof(RtInstanceRecord);
         bd.usage.storageBuffer = true;
         bd.usage.writeTransient = true;
         bd.label = "rt instance records";
-        recordsBuffer_ = device_->make_buffer(bd);
+        if (!make(recordsBuffer_, bd)) {
+            recordsCapacity_ = 0;
+            return false;
+        }
+        recordsCapacity_ = capacity;
     }
+    return true;
 }
 
 void RtScene::record(gpu::CommandList& list) {
+    record_frame(list);
+    // The memory the structures hold, whether or not this frame built anything.
+    std::uint64_t bytes = 0;
+    for (const auto& [id, b] : blas_) bytes += b.state == State::Failed ? 0 : b.size;
+    stats_.blasBytes = bytes;
+    stats_.blasLive = std::uint32_t(blas_.size());
+    if (!tlas_.id) stats_.tlasBytes = 0;
+}
+
+void RtScene::record_frame(gpu::CommandList& list) {
     tlasBuilt_ = false;
     tlasInstances_ = 0;
     frame_.clear();
+    stats_.instances = stats_.blasBuilt = stats_.blasCompacted = 0;
     if (!device_ || !collected_) return;
     // The builds of the frame: the first kMaxBuildsPerFrame BLASes waiting (creation order). An instance of one that waits joins the TLAS
     // when it is built, a frame or more later.
@@ -679,18 +743,14 @@ void RtScene::record(gpu::CommandList& list) {
     if (n > 0) {
         const Result<gpu::AccelSizes> ts = device_->tlas_sizes(capacity, tlas_flags());
         if (!ts) {
-            warn_once(warnedBlas_, "the top level structure could not be sized", ts.error().message);
+            warn_once(warnedTlasMake_, "the top level structure could not be sized", ts.error().message);
             return;
         }
         tsizes = ts.value();
         scratchNeed = std::max(scratchNeed, tsizes.buildScratch);
     }
-    if (building.empty() && n == 0) {
-        stats_.blasBuilt = stats_.blasCompacted = 0;
-        stats_.instances = 0;
-        return;
-    }
-    ensure_buffers(scratchNeed, n);
+    if (building.empty() && n == 0) return;
+    if (!ensure_buffers(scratchNeed, n)) return;
     if (n > 0 && (capacity != tlasCapacity_ || !tlas_.id)) {
         if (tlas_.id) device_->destroy_accel_structure(tlas_);
         tlas_ = {};
@@ -700,7 +760,7 @@ void RtScene::record(gpu::CommandList& list) {
         d.label = "rt tlas";
         const Result<gpu::AccelStructure> made = device_->make_accel_structure(d);
         if (!made) {
-            warn_once(warnedBlas_, "the top level structure could not be made", made.error().message);
+            warn_once(warnedTlasMake_, "the top level structure could not be made", made.error().message);
             tlasCapacity_ = 0;
             return;
         }
@@ -722,7 +782,7 @@ void RtScene::record(gpu::CommandList& list) {
         bb.scratchOffset = 0;
         if (const Result<void> r = list.build_blas(bb); !r) {
             b.state = State::Failed;
-            warn_once(warnedBlas_, "a BLAS could not be built", b.label + ": " + r.error().message);
+            warn_once(warnedBlasBuild_, "a BLAS could not be built", b.label + ": " + r.error().message);
             continue;
         }
         b.state = State::Built;
@@ -755,21 +815,30 @@ void RtScene::record(gpu::CommandList& list) {
         ++compacted;
     }
     copyPending_.clear();
-    // The records and the TLAS.
-    std::uint64_t blasBytes = 0;
-    for (const auto& [id, b] : blas_) blasBytes += b.state == State::Failed ? 0 : b.size;
     stats_.blasBuilt = built;
     stats_.blasCompacted = compacted;
-    stats_.blasBytes = blasBytes;
-    stats_.blasLive = std::uint32_t(blas_.size());
-    if (n == 0) {
+    // The records and the TLAS. A BLAS whose build failed just now stays out of it (its instances would name a structure that was never
+    // built): `kept` was chosen before the builds, so it is filtered again.
+    kept.erase(std::remove_if(kept.begin(), kept.end(),
+                              [&](const Item* it) {
+                                  const auto b = blas_.find(it->blasId);
+                                  const bool failed = b == blas_.end() || b->second.state == State::Failed;
+                                  waiting += failed ? 1 : 0;
+                                  return failed;
+                              }),
+               kept.end());
+    stats_.skippedNoBlas = waiting;
+    stats_.skinnedInstances =
+        std::uint32_t(std::count_if(kept.begin(), kept.end(), [](const Item* it) { return it->skinned; }));
+    const std::uint32_t count = std::uint32_t(kept.size());
+    if (count == 0) {
         previous_.clear();
         return;
     }
-    std::vector<gpu::AccelInstance> instances(n);
-    std::vector<RtInstanceRecord> records(n);
-    frame_.reserve(n);
-    for (std::uint32_t i = 0; i < n; ++i) {
+    std::vector<gpu::AccelInstance> instances(count);
+    std::vector<RtInstanceRecord> records(count);
+    frame_.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
         const Item& it = *kept[i];
         instances[i] = it.instance;
         instances[i].customIndex = i;
@@ -783,10 +852,10 @@ void RtScene::record(gpu::CommandList& list) {
         frame_.push_back(f);
     }
     gpu::BufferWrite w;
-    w.data = gpu::Range{records.data(), std::size_t(n) * sizeof(RtInstanceRecord)};
+    w.data = gpu::Range{records.data(), std::size_t(count) * sizeof(RtInstanceRecord)};
     w.buffer = recordsBuffer_;
     w.dstOffset = 0;
-    w.size = std::size_t(n) * sizeof(RtInstanceRecord);
+    w.size = std::size_t(count) * sizeof(RtInstanceRecord);
     list.write_buffer(w);
     gpu::TlasBuild tb;
     tb.dst = tlas_;
@@ -795,13 +864,13 @@ void RtScene::record(gpu::CommandList& list) {
     tb.scratch = scratch_;
     tb.scratchOffset = 0;
     if (const Result<void> r = list.build_tlas(tb); !r) {
-        warn_once(warnedBlas_, "the top level structure could not be built", r.error().message);
+        warn_once(warnedTlasBuild_, "the top level structure could not be built", r.error().message);
         frame_.clear();
         return;
     }
     tlasBuilt_ = true;
-    tlasInstances_ = n;
-    stats_.instances = n;
+    tlasInstances_ = count;
+    stats_.instances = count;
     previous_ = std::move(records);
 }
 
