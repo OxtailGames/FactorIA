@@ -1,4 +1,5 @@
 // fa/scene/bones2d.h: 2D bones, skinned sprites (SpriteSkin) and IK2D.
+#include "fa/core/fs.h"
 #include <doctest.h>
 
 #include <atomic>
@@ -354,7 +355,7 @@ TEST_CASE("bones2d: an outline mesh keeps the cells that hold opaque pixels") {
     img.rgba.assign(64 * 64 * 4, 0);
     for (int y = 0; y < 24; ++y)
         for (int x = 0; x < 24; ++x) img.rgba[(std::size_t(y) * 64 + std::size_t(x)) * 4 + 3] = 255;
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "fa_bones2d_outline_test.png";
+    const std::filesystem::path path = fa::fs::make_temp_dir_until_exit("fa_bones2d_outline").value() / "outline.png";
     REQUIRE(save_png(img, path.string()).ok());
 
     invalidate_sprite_outlines();
