@@ -196,12 +196,77 @@ struct BakeProgress {
 // Called on the thread that runs the bake, at the start of every phase and after each batch of texels (about 40 per atlas): it must be fast.
 using BakeProgressFn = std::function<void(const BakeProgress&)>;
 
+// ---- a device that traces the texels (the GPU bake) ---------------------------------------------------------------------------------
+
+// A light as the tracer sees it: the BakeLight of the scene made ready (colour times intensity, unit vectors, the cosines of the spot's cone).
+// Only the lights the bake keeps (mode Baked or IndirectOnly) are listed.
+struct BakeTraceLight {
+    BakeLightKind kind = BakeLightKind::Directional;
+    bool direct = false;  // lights the texels (mode Baked)
+    bool bounce = true;   // lights the surfaces the paths hit
+    BakeFalloff falloff = BakeFalloff::Engine;
+    Vec3 color{};        // colour * intensity
+    Vec3 position{};     // point, spot, area (the centre)
+    Vec3 direction{};    // unit: directional, spot, area
+    Vec3 right{}, up{};  // area: the rectangle's axes (unit)
+    float range = 0;
+    float cosOuter = 0, cosInner = 0;  // spot (cosInner 0 = the realtime rule)
+    float softRadius = 0;              // point, spot
+    float tanSoft = 0;                 // directional: tan of the sun's angular radius, 0 = a hard sun
+    float width = 1, height = 1;       // area
+};
+
+// The flattened scene the bake traces in, as bake_lightmap prepared it: the triangles that cast a shadow (every mesh in order, the ones with
+// castsShadow = false and the degenerate triangles left out) with what a ray that hits one needs, the lights, the sky and the numbers of the
+// settings. Valid for the call of BakeTexelTracer::begin only: a tracer copies what it keeps.
+struct BakeTraceScene {
+    std::vector<Vec3> casterCorners;  // three per caster triangle, world space
+    std::vector<Vec3>
+        casterNormal;  // the unit face normal of each caster (either side: the tracer turns it toward the ray)
+    std::vector<Vec3> casterAlbedo;  // the material of each caster
+    std::vector<Vec3> casterEmissive;
+    std::vector<BakeTraceLight> lights;
+    const BakeSky* sky = nullptr;
+    float eps = 0;  // the offset of a ray from its surface (meters), as the CPU baker uses it
+    int samples = 64, bounces = 2, shadowSamples = 4;
+};
+
+// One texel to trace: where it is, the normal its light is gathered around, the face normal it is offset along, and its index in the atlas
+// (the random numbers are a hash of the atlas key and this index, as in the CPU baker).
+struct BakeTraceTexel {
+    Vec3 position, shadingNormal, faceNormal;
+    std::uint32_t index = 0;
+};
+
+// Called by a tracer after each batch of texels it finished (`done` of `texels.size()`); false = stop (the bake was cancelled): the tracer
+// returns an error and its output is dropped. The callback reports the progress and looks at the cancel flag.
+using BakeTraceProgressFn = std::function<bool(std::uint64_t done)>;
+
+// A device that traces the light of the texels in place of the CPU path tracer (bake_lightmap's `tracer`; the GPU lightmap bake,
+// fa/render/lightmap_gpu_bake.h). The rest of the bake (rasterizing the atlases, the denoise, the gutter) stays the CPU's. A tracer is used
+// from one thread, the one that calls bake_lightmap.
+class BakeTexelTracer {
+public:
+    virtual ~BakeTexelTracer() = default;
+    // Called once, after the scene is flattened and the budgets are checked: build whatever the device needs. An error ends the bake with it.
+    virtual Result<void> begin(const BakeTraceScene& scene) = 0;
+    // The value of every texel of one atlas: `rgb` gets 3 floats per entry of `texels`, the direct light of its Baked lights plus the mean of
+    // the gather rays, the number the CPU path computes for it (up to the device's rounding). `atlasKey` is the key of the atlas (the CPU baker's
+    // hash of seed and atlas number): a texel's random numbers come from combine(atlasKey, texel.index).
+    virtual Result<void> trace_atlas(std::uint64_t atlasKey, const std::vector<BakeTraceTexel>& texels,
+                                     const BakeTraceProgressFn& progress, std::vector<float>& rgb) = 0;
+};
+
 // Bakes the lightmaps. Progress goes to report_command_progress() ("lightmap bake: atlas 1/2, texels 2048/4096 (50%)") after each batch of
 // texels, and to `progress` when given; a cancelled command (command_cancelled()) ends it with the error "cancelled" and no result. Cancel is
 // looked at in every phase: while the BVH is built (once per tree node), while the atlases are rasterized (every 256 triangles), inside every
 // chunk of rays, and while the gutter is filled (every row).
+//
+// With a `tracer` the texels are traced by it instead of the CPU path tracer (the result is then close to the CPU's, not the same bits);
+// everything else, the validation, the budgets, the progress phases, the cancel and the denoise and the gutter, is the same. `BakeStats::rays`
+// is then the upper bound of the budget check (the device does not count).
 Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& settings,
-                                 const BakeProgressFn& progress = {});
+                                 const BakeProgressFn& progress = {}, BakeTexelTracer* tracer = nullptr);
 
 // Fills the empty texels next to filled ones (8 neighbours, their mean) `passes` times, each pass one texel further; the new texels get kBakeDilated.
 // Returns how many it filled. rgb is width * height * 3, mask width * height.

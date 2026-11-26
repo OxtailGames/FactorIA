@@ -177,6 +177,8 @@ TEST_CASE("lightmap.bake: arguments are checked with a JSON pointer and a hint b
     bad(Json::object({{"path", "scenes/main.json"}}), ".lightmap.json");
     bad(Json::object({{"path", "../outside.lightmap.json"}}), "outside");
     bad(Json::object({{"apply", "yes"}}), "/apply");
+    bad(Json::object({{"device", "gpuu"}}), "gpu");
+    bad(Json::object({{"device", 3}}), "/device");
     bad(Json::object({{"sky", "environment"}}), "environmentMap");
     // A scene with nothing that receives light.
     CHECK(c.call("scene.set_component", Json::object({{"id", "floor"},
@@ -825,4 +827,64 @@ TEST_CASE("lightmap jobs: with no worker threads the first status answers a fini
     CHECK(status.result["state"] == "done");  // never "running": there is nobody to run it while the caller waits
     CHECK(status.result["handOver"]["applied"] == true);
     e.shutdown();
+}
+
+namespace {
+
+// The sum of every value of the pages the manifest lists.
+double page_sum(const std::string& manifestPath) {
+    auto manifest = load_lightmap_manifest(manifestPath);
+    REQUIRE_MESSAGE(manifest.ok(), manifest.error().message);
+    double sum = 0;
+    for (const LightmapPage& pg : manifest->pages) {
+        auto img = load_hdr(pg.file);
+        REQUIRE_MESSAGE(img.ok(), img.error().message);
+        for (float v : img->data) sum += v;
+    }
+    return sum;
+}
+
+}  // namespace
+
+TEST_CASE("lightmap.bake device: the CPU is the default and says so; auto and gpu say which device baked, and why not "
+          "the GPU") {
+    TempProject p("device");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto cpu = c.call("lightmap.bake", small());
+    REQUIRE_MESSAGE(cpu.ok, cpu.error.dump());
+    CHECK(cpu.result["device"]["requested"] == "cpu");
+    CHECK(cpu.result["device"]["used"] == "cpu");
+    CHECK(cpu.result["device"]["note"] == "");
+    const double cpuSum = page_sum("scenes/main.lightmap.json");
+    const std::string cpuHash = cpu.result["settingsHash"].get<std::string>();
+
+    // auto: the GPU when this machine traces rays (Metal on a Mac without a window), else the CPU with the reason as a note and a warning.
+    auto autoBake = c.call("lightmap.bake", small(Json::object({{"device", "auto"}})));
+    REQUIRE_MESSAGE(autoBake.ok, autoBake.error.dump());
+    const std::string used = autoBake.result["device"]["used"].get<std::string>();
+    MESSAGE("auto baked on " << autoBake.result["device"].dump());
+    CHECK(autoBake.result["device"]["requested"] == "auto");
+    CHECK(autoBake.result["settingsHash"].get<std::string>() !=
+          cpuHash);  // another device is another bake (the status sees it)
+    if (used == "cpu") {
+        const std::string note = autoBake.result["device"]["note"].get<std::string>();
+        CHECK_MESSAGE(note.find("baked on the CPU") != std::string::npos, note);
+        CHECK(autoBake.result["warnings"].dump().find("baked on the CPU") != std::string::npos);
+        // The GPU was asked for by name: an error that says why and what to do.
+        auto gpu = c.call("lightmap.bake", small(Json::object({{"device", "gpu"}})));
+        if (!gpu.ok) {
+            CHECK(gpu.error.dump().find("device \\\"gpu\\\"") != std::string::npos);
+            CHECK(gpu.error.dump().find("cpu") != std::string::npos);
+        }
+    } else {
+        CHECK(used == "gpu");
+        CHECK(autoBake.result["device"]["name"].get<std::string>().size() > 0);
+        CHECK(autoBake.result["device"]["note"] == "");
+        // The same scene, the same random numbers: the light on the pages is the CPU's up to the GPU's rounding.
+        const double gpuSum = page_sum("scenes/main.lightmap.json");
+        CHECK(gpuSum == doctest::Approx(cpuSum).epsilon(0.01));
+    }
 }
