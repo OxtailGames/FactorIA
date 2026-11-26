@@ -111,9 +111,9 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-23):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+**What comes next (2026-11-26):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
 M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
-(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0), M76 (0.36.0) and M77 (0.37.0) are done. Next M78-M89 in their own order. M99 waits for the
+(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0), M76 (0.36.0), M77 (0.37.0) and M78 (0.38.0) are done. M79 is under way; then M80-M89 in their own order. M99 waits for the
 user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -857,7 +857,7 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
 - M77.6 (M) DirectStorage on Windows (GPU decompression of `game.pak` blocks) behind the M70 storage layer, and a
   backend choice in `project.json` and the launcher with automatic fallback.
 
-## M78. Vendor upscalers, frame generation and latency (M; 4 packages) — the user, 2026-11-06
+## M78. Vendor upscalers, frame generation and latency (M; 4 packages) — the user, 2026-11-06 — DONE in 0.38.0
 
 - M78.1 (S) Licences and setup: NVIDIA DLSS/Streamline, Intel XeSS, AMD FidelityFX terms checked; the SDK binaries are
   fetched by `factoria setup` on demand and shipped with exported games when used, never committed.
