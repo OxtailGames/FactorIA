@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **What ray tracing costs, and when to use it (M79-P6b):** docs/RAY_TRACING.md has a "What it costs" table, measured on an Apple M5 on Metal at
+  1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.8 ms, soft +32, ambient occlusion +18, reflections +26, translucency +3,
+  per-pixel GI +22, the path tracer 29 ms a sample; the denoiser, not the rays, is the price; D3D12 and Vulkan not measured) and an "effect by backend"
+  table that says what is traced, what falls back and what has run on a real GPU, on CI only (WARP, lavapipe) or never. The AI guide has a short
+  section 9.20.3 (which effect for which look, the preset tiers, the fallbacks, the path tracer as a reference tool). A new test checks that every
+  effect asked for on a device that cannot trace draws the frame of ray tracing off, command for command, and makes nothing.
 - **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
   `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
   is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so

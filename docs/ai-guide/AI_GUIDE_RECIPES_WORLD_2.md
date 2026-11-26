@@ -73,6 +73,26 @@ Reach for these when the user asks for smoother edges, a faster game on weak or 
 
 Check before you promise: `render.supports {"feature": "temporalAA"}` (also `temporalUpscaler`, `spatialUpscaler`, `metalfx`, `dlss`, `xess`, `fsr`, `dynamicResolution`, `motionVectors`) says whether this GPU draws it and why not; `window.upscaler.effectiveMode` says which mode really draws (a mode the GPU cannot draw falls back to the next best one, never to nothing). A headless run (`graphics=false`) draws none of this: judge it from a windowed run or from `game.screenshot` with graphics, and tell the user the numbers (`game.renderStats()` has `width`, `height`, `dynamicScale`, `frameMs`) came from this machine. `render.debug_view {"view":"motionVectors"}` shows what the temporal passes read. Rendering reference: docs/RENDERING.md, "Temporal effects and upscaling at a glance".
 
+### 9.20.3 Ray tracing: when to use it, what it costs
+
+Ray tracing (`render.rayTracing` in `factoria.json`, command `render.ray_tracing`; [RAY_TRACING.md](../RAY_TRACING.md)) is for a **3D** game that wants sharper light than the shadow maps and the screen-space effects give, on a PC or Mac with a GPU that traces. It is off by default and free when off. Every effect has a fallback, so the game looks right on a GPU that cannot trace (`render.supports {"feature":"raytracing"}` says which); it only lacks the effect. Never make a game depend on it: it is a polish tier, offered as an option.
+
+| The look | Set | Costs at 1080p (an Apple M5, added to a 14 ms frame) |
+|---|---|---|
+| Sharp, exact sun and lamp shadows, no cascade seams | `"shadows": "hard"` | +1 ms. The cheapest, no denoiser: the first one to turn on |
+| Contact shadows in creases and corners | `"ao": true` | +18 ms |
+| Soft shadows that widen with the distance to the caster | `"shadows": "soft"` | +32 ms (4 rays: +37 ms) |
+| Mirrors, wet floors, polished metal that shows the scene | `"reflections": true` | +26 ms |
+| Glass and water that bend what is behind them | `"translucency": true` | +3 ms; needs a mesh with `transmission` above 0 |
+| Light that bounces and follows a moving sun or an emissive surface | `"gi": "probes"` with a `RealtimeGI` grid | no more than the raster probes it replaces |
+| The same, for every pixel, not only per probe | `"gi": "perPixel"` | +22 ms; the dearest indirect light |
+
+Rules of thumb:
+- The effects **add up** (a frame with soft shadows, occlusion and reflections is about 90 ms there), and the denoiser, not the rays, is the price: 4 rays cost 1 to 5 ms more than 1. Turn on the one or two the look needs; never all. The numbers are from one GPU (D3D12 and Vulkan are not measured), so offer the choice to the player (the menu kit's Ray tracing page) instead of fixing it.
+- The graphics preset caps it and never turns it on: `low` and `medium` trace nothing, `high` allows `shadows: "hard"` and `ao` with 2 rays, `ultra` and `custom` everything the project asks for (soft shadows, `reflections`, `translucency` and `gi`, probes or perPixel, only there).
+- The path tracer (`render.pathTracer`, `render.pathtrace`) is a **reference tool**, not a game mode: about 29 ms per sample, a clean picture needs dozens. Use it to check that your lighting is right or to take a clean screenshot; it ignores textures and normal maps.
+- A headless run (`--no-graphics`) traces nothing. Judge an effect from a windowed run or `game.screenshot` with graphics, and say which GPU the numbers came from.
+
 ### 9.21 Sweep a shape instead of a ray: will it fit, how far can it go
 
 A ray is a line. When the thing that has to fit has a size (a character stepping into a gap, a crate being pushed, a dash, a placement preview), sweep its shape with `physics.shapeCast(shape, from, to, opts)`. It returns the same `{ entity, point, normal, distance } | null` as `raycast`; `distance` is how far the centre of the shape travels before it touches something.
