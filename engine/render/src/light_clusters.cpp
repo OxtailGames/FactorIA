@@ -308,7 +308,8 @@ void pack_light_texture(const std::vector<LightData>& lights, int directional, c
         }
         for (std::size_t i = 0; i < lights.size(); ++i) {
             t[(std::size_t(out.shadowBase) + i) * 4 + 1] = std::max(lights[i].contactLength, 0.0f);
-            t[(std::size_t(out.shadowBase) + i) * 4 + 2] = float(std::clamp(lights[i].rtSlot, 0, 3));  // M79-P2a-3: the traced slot
+            t[(std::size_t(out.shadowBase) + i) * 4 + 2] =
+                float(std::clamp(lights[i].rtSlot, 0, 3));  // M79-P2a-3: the traced slot
         }
     }
     if (giCount > 0) {

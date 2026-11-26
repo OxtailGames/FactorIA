@@ -827,8 +827,19 @@ TEST_CASE("rt effect: only the sun's shadow factor of the lit shader takes the c
     // The depth match between the mask's pixel and the fragment follows the surface's slope (MSAA grazing angles): no pixel flips between
     // the mask and the cascades.
     CHECK(body.find("fwidth(") != std::string::npos);
-    // fa_ct_b.z is read in that function and nowhere else: the local lights never see the mask or the min.
-    CHECK(glsl.find("fa_ct_b.z", fn + body.size()) == std::string::npos);
+    // fa_ct_b.z is read in that function and in the local lights' fa_shadow_local_rt (M79-P2a-3) and nowhere else: the maps' factor of a local
+    // light (fa_shadow_local) and the full shaders never see the mask or the min.
+    const std::size_t local = glsl.find("float fa_shadow_local_rt(");
+    REQUIRE(local != std::string::npos);
+    const std::size_t localEnd = glsl.find("\n}\n", local);
+    for (std::size_t at = glsl.find("fa_ct_b.z", fn + body.size()); at != std::string::npos;
+         at = glsl.find("fa_ct_b.z", at + 1)) {
+        const std::size_t lineStart = glsl.rfind('\n', at) + 1;
+        const std::size_t comment = glsl.substr(lineStart, at - lineStart).find("//");
+        if (comment != std::string::npos) continue;  // a comment
+        CHECK(at > local);
+        CHECK(at < localEnd);
+    }
 }
 
 TEST_CASE("rt effect: a compute pipeline the driver refuses is said once, shown by the status, and the cascades stay") {

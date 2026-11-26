@@ -30,7 +30,7 @@ default) writes nothing to `factoria.json`.
 | key | values | default | meaning |
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
-| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = `raysPerPixel` rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; "Soft shadows", below). |
+| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows`, and of up to three point, spot and area lights (a sharp edge; "Shadows", below). `soft` = `raysPerPixel` rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; "Soft shadows", below). |
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel; one from 0.25 to 0.65 gets `raysPerPixel` rays spread by its roughness, denoised, and fades into the screen-space reflections and the probes towards 0.65 ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
@@ -64,6 +64,7 @@ It returns the settings plus:
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
 | `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off`, or `ao`, or `reflections` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
+| `localShadows` | `{cap, candidates, traced}`: the most point, spot and area lights traced per camera and frame (3), how many asked for a shadow in the last frame, and how many of them were traced (the rest keep their maps). 0 and 0 while `shadows` is `off` or nothing is active. |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -85,7 +86,7 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 ## Shadows
 
 `"shadows": "hard"` makes the shadow of the **directional light** with rays. It needs the light's `castShadows` on (the default is off, as
-for the shadow maps) and a device that traces rays (the table below); the other lights, point, spot and area, keep their shadow maps.
+for the shadow maps) and a device that traces rays (the table below); the point, spot and area lights are traced too, three at most (below).
 
 ```
 factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"shadows":"hard"}'
@@ -127,7 +128,15 @@ its rays pass through it: its shadow is the cascade's, with the shadow map's res
 such a frame the soft edge of every ray traced shadow is cut where the cascade is darker; to keep the full softness, avoid those casters or turn
 their `castShadows` off.
 
-**Lights other than the sun.** Point, spot and area lights keep their raster shadow maps in every mode; the rays are for the directional light.
+**Point, spot and area lights.** With `shadows` on, the point, spot and area lights that have `castShadows` are traced too, **up to three per
+camera and frame**: the most important ones (brightness, range and distance from the camera; a light keeps its slot while it stays among the
+best, so the shadows do not flicker). The lights beyond the three keep their shadow maps, and a map no traced light needs is not drawn. In
+`hard` every ray goes to the light's centre; in `soft` a point or spot light's rays spread over a cone as wide as the penumbra of its shadow
+map (`shadowSoftness`) and an area light's rays go to points of its emitter, so its penumbra is the real one; a light with no softness is hard
+in both. The result is denoised like the sun's. A caster the rays do not see (the list above) keeps its shadow from the map, as for the sun.
+`render.ray_tracing` answers `localShadows` (`cap`, `candidates`, `traced`: the last frame) and its `reason` says it. A light with a full-shader
+material, or a frame with a blended mesh, a decal, terrain, a transmissive or a subsurface draw still draws its maps (those draws read them).
+Design: docs/design/ARCHITECTURE_RT_SHADOWS.md (repository only, not in the binary).
 
 **Without ray tracing.** On a device that cannot trace rays (OpenGL, OpenGL ES 3, WebGL2, Direct3D 11, or a GPU or OS without ray queries)
 the setting changes nothing: the renderer logs **one** message that names the reason (the same one for every effect) and draws the shadow maps,

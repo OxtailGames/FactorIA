@@ -7,7 +7,8 @@
 namespace fa::render {
 
 namespace {
-constexpr float kRtLocalShorter = 0.02f;  // the ray stops this fraction short of its target: a light inside a mesh's skin does not shadow itself
+constexpr float kRtLocalShorter =
+    0.02f;  // the ray stops this fraction short of its target: a light inside a mesh's skin does not shadow itself
 
 bool usable(float v) { return v == v && v > 0.0f; }
 }  // namespace
@@ -50,7 +51,8 @@ RtLocalPick pick_rt_local_lights(RtLocalSlots& slots, std::span<const RtLocalCan
             int weakest = 0;
             for (int s = 1; s < kRtLocalMaxLights; ++s)
                 if (held[std::size_t(s)] < held[std::size_t(weakest)]) weakest = s;
-            if (!(ranked[r].importance > kRtLocalSwapFactor * held[std::size_t(weakest)])) break;  // the rest are weaker
+            if (!(ranked[r].importance > kRtLocalSwapFactor * held[std::size_t(weakest)]))
+                break;  // the rest are weaker
             target = weakest;
         }
         slots.used[std::size_t(target)] = true;
@@ -81,7 +83,9 @@ RtLocalLight make_rt_local_light(const LightData& l) {
     out.posReach[3] = std::max(l.pos.w + l.extent, 0.0f);
     const bool area = l.color.w > 2.5f;
     const bool spot = !area && l.color.w > 1.5f;
-    const float softness = l.shadow.filter == 1 ? 0.0f : std::clamp(std::isfinite(l.shadow.softness) ? l.shadow.softness : 0.0f, 0.0f, 10.0f);
+    const float softness = l.shadow.filter == 1
+                               ? 0.0f
+                               : std::clamp(std::isfinite(l.shadow.softness) ? l.shadow.softness : 0.0f, 0.0f, 10.0f);
     out.axisCos[3] = -2.0f;
     if (area) {
         const int shape = int(l.ext[2].w + 0.5f);  // 0 rectangle, 1 disc, 2 tube

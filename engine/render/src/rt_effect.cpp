@@ -388,8 +388,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
     pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, auxImage,
-                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, needsSampler, params, hit, local, key,
-                    name = pass.name](const PassContext& c) {
+                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, needsSampler, params, hit, local,
+                    key, name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;

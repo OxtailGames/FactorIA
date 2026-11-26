@@ -178,8 +178,8 @@ The trade-off: with one untraced caster anywhere in the frame, every pixel of ev
 soft edge the rays made is hardened wherever the cascade is dark (a cascade shadow is a hard-ish map edge; `min` never lights a pixel the
 cascade shadows). A per-caster answer would need the kernel to know which instances are traced for each ray's origin, which is not worth a
 second image. The count is of the frame's collected scene, so a frame with no such caster has the pure ray traced shadow, and the cascade passes
-stay drawn either way (they are needed for the edges and the other lights). Point, spot and area light shadows are not ray traced in this package:
-they keep their raster shadow maps (planned for P2a-3).
+stay drawn either way (they are needed for the edges and the other lights). The shadows of the point, spot and area lights are traced by their own
+kernels and read the same `untracedCasters` rule: [ARCHITECTURE_RT_SHADOWS.md](ARCHITECTURE_RT_SHADOWS.md).
 
 ### The sun's constants and the status
 

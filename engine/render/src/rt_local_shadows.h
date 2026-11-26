@@ -15,9 +15,10 @@ namespace fa::render {
 // A light the frame could trace: a point, spot or area light that casts a shadow, that a caster can reach and that is within its shadow distance
 // (the lights shadow_bounds gives a LocalShadowInput).
 struct RtLocalCandidate {
-    std::uint64_t id = 0;     // the light's entity (LightData::id): what a slot is kept by
-    int light = 0;            // its index in the frame's light table
-    float importance = 0.0f;  // local_shadow_importance: brightness times the share of its range the camera is inside of
+    std::uint64_t id = 0;  // the light's entity (LightData::id): what a slot is kept by
+    int light = 0;         // its index in the frame's light table
+    float importance =
+        0.0f;  // local_shadow_importance: brightness times the share of its range the camera is inside of
 };
 
 // Which light holds each slot, kept per camera from frame to frame. A slot's denoiser history is the history of the light that holds it, so a
@@ -32,10 +33,11 @@ inline constexpr float kRtLocalSwapFactor = 1.25f;
 
 struct RtLocalPick {
     std::array<int, kRtLocalMaxLights> light{-1, -1, -1};  // the light table index of each slot (-1 = no light)
-    int count = 0;       // the highest slot in use + 1 (what the kernel loops over)
-    int traced = 0;      // how many slots hold a light
-    int candidates = 0;  // how many lights asked
-    bool changed = false;  // a slot holds another light than in the frame before (or none where it held one): its history is not the light's
+    int count = 0;                                         // the highest slot in use + 1 (what the kernel loops over)
+    int traced = 0;                                        // how many slots hold a light
+    int candidates = 0;                                    // how many lights asked
+    bool changed =
+        false;  // a slot holds another light than in the frame before (or none where it held one): its history is not the light's
 };
 
 // Chooses the traced lights among `candidates` (any order; ties go to the lower light index) and updates `slots`:

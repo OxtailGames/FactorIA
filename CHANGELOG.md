@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray traced shadows of point, spot and area lights (M79-P2a-3):** with `render.rayTracing.shadows` on, up to three shadow-casting lights per
+  camera and frame (the most important by brightness, range and distance; a light keeps its slot with a hysteresis of 25%) get their shadow from
+  rays instead of their shadow maps: `hard` casts one ray to the light's centre, `soft` casts `raysPerPixel` rays over the cone of a point or spot
+  light (the angular size of its `shadowSoftness`) or to points of an area light's emitter (rectangle, disc, tube), denoised by the `RtDenoiser`
+  as one signal (id 6, a light that enters or leaves a slot starts it again). The three visibilities are packed into the image the sun's shadow
+  uses and the lit shader reads them (`min` with the map where a caster the rays miss exists, as for the sun); the maps of the traced lights are
+  not drawn when nothing else reads them. Lights beyond the cap keep their maps. Off, or on a device that cannot trace: nothing changes, nothing is
+  allocated. `render.ray_tracing` answers `localShadows {cap, candidates, traced}` and its reason says it. The Metal kernel is tested on a real GPU
+  against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet. The committed twins of the render tests'
+  fixture materials were regenerated (the mesh template changed). docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_SHADOWS.md.
 - **Glossy ray traced reflections, denoised, with a per-pixel fallback (M79-P3a-2):** `render.rayTracing.reflections` now traces rough
   surfaces too: under roughness 0.25 one mirror ray, as before (the same bits); from 0.25 to 0.65 `raysPerPixel` rays (1 to 16) sampled from the
   GGX distribution of visible normals with a deterministic per-pixel sequence from the frame serial. The glossy pixels are denoised by the
