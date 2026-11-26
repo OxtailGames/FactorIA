@@ -277,6 +277,11 @@ public:
     bool poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) override { return false; }
     void release_buffer_read(ReadTicket) override {}
 
+    // Fault injection for tests of a caller's failure path: the next `count` make_buffer calls whose label is `label` ("" = any
+    // label) fail as a driver that is out of memory would (the handle is Failed, a "gpu: make_buffer" line goes to errors()).
+    // count 0 clears it. The faults are used up in call order.
+    void fail_next_make_buffer(const std::string& label, int count = 1);
+
     struct State;  // the resource pools and the facts the checks need (recording_device.cpp)
 
 private:
@@ -309,6 +314,8 @@ private:
     std::unique_ptr<State> state_;
     mutable std::mutex mutex_;  // guards state_, the lists, the stream and the errors (lists record on any thread)
     std::vector<std::unique_ptr<RecordingCommandList>> lists_;
+    std::string failBufferLabel_;  // fail_next_make_buffer
+    int failBufferCount_ = 0;
 };
 
 }  // namespace fa::gpu

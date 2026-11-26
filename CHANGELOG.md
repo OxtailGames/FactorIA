@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Review leftovers of the M79 ray tracing and bake work (POLISH-2):** `RtScene`: a skinned instance that is due for its periodic rebuild now
+  waits by age (the oldest first, an instance that jumped first of all) when the due rebuilds outnumber the frame's build budget, so none starves;
+  a refractive instance never takes a metallic 1.0 material (it is a mirror); `release()` waits for the GPU only when something is alive; the
+  docs say where a synchronous read blocks and why one scratch buffer serves the static builds. Metal: the device waits for the traced
+  structures also on the path where the renderer closed the context first; `command_buffer()` and `retire()` say they may block on sokol's frame
+  semaphore outside a frame; the Metal reflection test frees what it made. Tests: a `make_buffer` fault of the scene's buffers, the retire of a
+  BLAS the TLAS no longer lists, the build budget counting a shared BLAS once, the starvation of rebuilds, the skin kernel through `Gpu`'s pipeline
+  cache, and ray tracing switched on after a mesh was loaded from disk. The lightmap bake's helper process starts with `factoria session --project
+  <root> --no-graphics --no-scene` (new flag `--no-scene`, `EngineConfig.noStartScene`: an empty world, no scene script runs; not with `--scene`),
+  and the plan's request line, megabytes in a big scene, is written by a thread of its own: a Cancel or the helper's 2-minute limit ends the wait
+  and kills a helper that stopped reading. docs/CLI.md, docs/design/ARCHITECTURE_BAKING.md, docs/design/ARCHITECTURE_RT_SCENE.md.
 - **The GPU lightmap bake works from the editor, MCP and `factoria call` with graphics (M79-P5c):** a process that already holds the Mac's only
   Metal context cannot open the GPU tracer's own, so a `device` `"gpu"` or `"auto"` bake there now runs in a child `factoria session
   --no-graphics` that is given the bake's plan (new command `lightmap.bake_plan_start`), streams its progress back and is cancelled by the same

@@ -441,9 +441,14 @@ TEST_CASE("rt scene: a transmissive part is refractive (flag, mask, volume, both
         rig.item(m, {6, 0, 0}, 22);  // an unlit surface transmits nothing (the draw's own rule)
     rig.renderers.back().transmission = 1.0f;
     rig.renderers.back().unlit = true;
-    rig.frame({}, {glass, tinted, unlitGlass});
+    render::MeshItem metalGlass =
+        rig.item(m, {9, 0, 0}, 23);  // a full metal lets nothing through: transmission * (1 - metallic)
+    rig.renderers.back().transmission = 1.0f;
+    rig.renderers.back().metallic = 1.0f;
+    rig.renderers.back().color = Color{1, 1, 1, 0.5f};
+    rig.frame({}, {glass, tinted, unlitGlass, metalGlass});
     const auto& fi = rig.scene.frame_instances();
-    REQUIRE(fi.size() == 3);
+    REQUIRE(fi.size() == 4);
     const auto& g = fi[0];
     CHECK((g.record.flags & render::kRtFlagRefractive) != 0);
     CHECK((g.record.flags & render::kRtFlagBlended) != 0);
@@ -747,16 +752,83 @@ TEST_CASE(
     CHECK(rig.dev->errors().empty());
 }
 
+TEST_CASE("rt scene: a buffer of the scene the device cannot make leaves the frame untraced, warns once, and the next "
+          "frame that "
+          "can make it builds everything") {
+    Warnings log;
+    for (const char* label : {"rt scratch", "rt instance records"}) {
+        CAPTURE(label);
+        Rig rig;
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1), rig.item(a, {2, 0, 0}, 2)};
+        rig.dev->fail_next_make_buffer(label, 3);  // three frames in a row the device is out of memory
+        const int warningsBefore = log.count("a buffer of the scene could not be made");
+        for (int f = 0; f < 3; ++f) {
+            rig.frame(items);
+            CHECK(rig.scene.frame_instances().empty());  // nothing is traced, nothing half built
+            CHECK(rig.scene.stats().blasBuilt == 0);
+            CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildTlas) == 0);
+        }
+        CHECK(log.count("a buffer of the scene could not be made") == warningsBefore + 1);  // once, not every frame
+        const auto errors = rig.dev->take_errors();
+        CHECK(errors.size() == 3);
+        for (const std::string& e : errors) CHECK(e.find("injected fault") != std::string::npos);
+        const std::vector<std::uint32_t> ids = rig.scene.blas_ids_of(a);
+        REQUIRE(ids.size() == 1);
+        CHECK(rig.scene.blas_state(ids[0]) == "pending");  // waits for a frame that can build it
+        // The device recovers: the same scene is built in the next frame.
+        rig.frame(items);
+        CHECK(rig.scene.frame_instances().size() == 2);
+        CHECK(rig.scene.stats().blasBuilt == 1);
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildTlas) == 1);
+        CHECK(rig.dev->errors().empty());
+    }
+}
+
+TEST_CASE("rt scene: instances of one BLAS count once in the build budget") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.scene.set_builds_per_frame(2);
+    render::MeshAsset* shared = rig.mesh("shared");
+    render::MeshAsset* b = rig.mesh("b");
+    render::MeshAsset* c = rig.mesh("c");
+    std::vector<render::MeshItem> items;
+    for (std::uint32_t i = 0; i < 100; ++i) items.push_back(rig.item(shared, {float(i), 0, 0}, i + 1));
+    items.push_back(rig.item(b, {0, 5, 0}, 200));
+    items.push_back(rig.item(c, {0, 6, 0}, 201));
+    rig.frame(items);
+    // 102 instances need 3 BLASes; the budget of 2 builds `shared` (its hundred instances cost one) and one of the others.
+    CHECK(rig.scene.stats().blasBuilt == 2);
+    CHECK(rig.scene.frame_instances().size() >= 101);
+    CHECK(rig.scene.stats().skippedNoBlas <= 1);
+    rig.frame(items);
+    CHECK(rig.scene.frame_instances().size() == 102);
+    CHECK(rig.scene.stats().skippedNoBlas == 0);
+    CHECK(rig.dev->errors().empty());
+}
+
 TEST_CASE("rt scene: a mesh whose geometry changes every frame retires its BLAS each frame and destroys it later") {
     Rig rig;
     REQUIRE(rig.scene.configure(rig.dev, true, 100));
     render::MeshAsset* a = rig.mesh("animated");
     const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
     std::vector<gpu::AccelStructure> seen;
-    for (int f = 0; f < 8; ++f) {
+    // The last frame whose TLAS names each structure, and the first frame it was destroyed in: a structure must be gone only once no TLAS
+    // that may still be in flight names it (the delay alone could be right while the scene kept naming a retired structure).
+    std::vector<int> lastNamed, destroyedAt;
+    for (int f = 0; f < 12; ++f) {
         ++a->geometryVersion;
         rig.frame(items);
         seen.push_back(rig.scene.blas_structure(rig.scene.blas_ids_of(a)[0]));
+        lastNamed.push_back(-1);
+        destroyedAt.push_back(-1);
+        for (const auto& fi : rig.scene.frame_instances())
+            for (std::size_t i = 0; i < seen.size(); ++i)
+                if (fi.instance.blas.id == seen[i].id) lastNamed[i] = f;
+        for (std::size_t i = 0; i < seen.size(); ++i)
+            if (destroyedAt[i] < 0 && rig.dev->accel_structure_state(seen[i]) != gpu::ResourceState::Valid)
+                destroyedAt[i] = f;
         // Each earlier structure is alive while a frame in flight may still name it.
         for (std::size_t i = 0; i + 1 < seen.size(); ++i) {
             const bool old = i + 1 + std::size_t(gpu::kInflightFrames) + 1 <= std::size_t(f) + 1;
@@ -766,6 +838,13 @@ TEST_CASE("rt scene: a mesh whose geometry changes every frame retires its BLAS 
     // Bounded, nothing piles up: at most the BLAS and its compaction target of each of the frames in flight and the one being recorded.
     CHECK(rig.scene.retired_count() <= 2 * (std::size_t(gpu::kInflightFrames) + 1));
     CHECK(rig.dev->accel_structure_state(seen[0]) != gpu::ResourceState::Valid);
+    for (std::size_t i = 0; i < seen.size(); ++i) {
+        CHECK_MESSAGE(lastNamed[i] == int(i), "frame " << i << " names its own BLAS, and the next frames name another");
+        if (destroyedAt[i] >= 0)  // the TLAS that named it left the frames in flight before it was destroyed
+            CHECK_MESSAGE(destroyedAt[i] - lastNamed[i] > int(gpu::kInflightFrames),
+                          "structure " << i << " destroyed in frame " << destroyedAt[i] << ", named in "
+                                       << lastNamed[i]);
+    }
     CHECK(rig.dev->errors().empty());
     // Turning the scene off frees everything at once, retired ones included.
     rig.scene.release();
@@ -1391,6 +1470,77 @@ TEST_CASE("rt skin: the kernel is asked for in every frame that skins, so a pipe
     CHECK(rig.dev->errors().empty());
 }
 
+TEST_CASE("rt skin: the kernel comes from Gpu's pipeline cache, and a sweep that destroyed it while no character was "
+          "in view is "
+          "answered by a new one") {
+    // The path of the renderer (Renderer::Impl::rt_skin_pipeline): Gpu::compute_pipeline, swept by Gpu::sweep_pipelines.
+    render::Gpu gpu;  // before the rig: the rig releases the scene while the device still lives
+    Rig rig;
+    std::string error;
+    REQUIRE_MESSAGE(gpu.init(1, &error, std::move(rig.owned)), error);
+    gpu.set_pipeline_cache_limits(0, 4);  // every pipeline idle for 4 frames goes at the next sweep (every 16 frames)
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    gpu::Shader shader = rig.dev->make_shader(gpu::generated_shader_desc(*rig.dev, &rt_skin_rt_skin_shader_desc));
+    REQUIRE(rig.dev->state(shader) == gpu::ResourceState::Valid);
+    rig.scene.skinKernel = [&] { return gpu.compute_pipeline(shader); };
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator a = posed(1.0f);
+    const std::vector<render::MeshItem> items{rig.skinned_item(m, &a, {0, 0, -3}, 1)};
+    const auto frame = [&](const std::vector<render::MeshItem>& list) {
+        gpu.begin_frame();
+        rig.scene.begin_frame(true, [&] { gpu.commit_frame(); });
+        rig.scene.collect(list, {}, {0, 0, 0}, true);
+        gpu::CommandList& cl = rig.dev->begin_commands("rt");
+        rig.scene.record(cl);
+        rig.dev->submit(cl);
+        gpu.commit_frame();  // submits Gpu's own list and commits
+        gpu.note_commit();
+    };
+    frame(items);
+    REQUIRE(gpu.pipelines_made() == 1);
+    CHECK(gpu.pipelines_evicted() == 0);
+    const gpu::Pipeline first = gpu.compute_pipeline(shader);
+    // No character in view for longer than the cache keeps an idle pipeline: the sweep destroys the kernel.
+    for (int f = 0; f < 40; ++f) frame({});
+    CHECK(gpu.pipelines_evicted() == 1);
+    CHECK(rig.dev->state(first) != gpu::ResourceState::Valid);
+    // The character is back: the scene asks the cache again and gets a pipeline that lives, and the dispatch uses it.
+    rig.dev->clear_commands();
+    frame(items);
+    CHECK(gpu.pipelines_made() == 2);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::Dispatch) == 1);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+    frame(items);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt skin: when the rebuilds that are due outnumber the build budget, the oldest build goes first and no "
+          "instance waits "
+          "for ever") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    rig.use_kernel();
+    rig.scene.set_builds_per_frame(
+        1);  // 100 instances rebuilt every 60 frames want 1.7 builds a frame: more than the budget
+    render::MeshAsset* m = rig.skinned_mesh("rig");
+    Animator anim = posed(1.0f);
+    std::vector<render::MeshItem> items;
+    for (std::uint32_t i = 0; i < 100; ++i) items.push_back(rig.skinned_item(m, &anim, {float(i), 0, -3}, i + 1));
+    for (int f = 0; f < 700; ++f) {
+        rig.dev->clear_commands();
+        rig.frame(items);
+    }
+    CHECK(rig.scene.stats().skinnedInstances == 100);
+    // Rebuilt in turn, the oldest first: the age of the oldest build stays near a turn of the crowd (100 builds at one a frame), where an
+    // order by id would leave the last ids at the age of the scene.
+    std::uint64_t oldest = 0;
+    for (const auto& f : rig.scene.frame_instances())
+        oldest = std::max(oldest, rig.scene.frame_counter() - rig.scene.blas_built_frame(f.blasId));
+    CHECK_MESSAGE(oldest <= 260, "the oldest BLAS was built " << oldest << " frames ago");
+    CHECK(rig.dev->errors().empty());
+}
+
 TEST_CASE("rt skin: with no skinning program the skinned meshes leave the TLAS and count as untraced casters") {
     Warnings log;
     Rig rig;
@@ -1701,6 +1851,40 @@ TEST_CASE("rt renderer: a skinned glTF is skinned and traced from its own BLAS, 
         CHECK(r.dev->stream_text().find("rt-skin") == std::string::npos);
         CHECK(r.dev->stream_text().find("build_blas") == std::string::npos);
     }
+}
+
+TEST_CASE("rt renderer: ray tracing turned on after a mesh was loaded from disk reloads it in place and traces it") {
+    // Assets::set_accel_input: the meshes uploaded before the switch had no accelBuildInput, so they are loaded again from their files.
+    Warnings log;
+    install_rig_file("engine/render/tests/data/skinned_two_bone.gltf", "assets/rig.gltf");
+    RtRenderer r;
+    World w;
+    add_camera(w, {0, 1, 8});
+    Entity e = make(w, "rig", {0, 0, 0});
+    w.add<MeshRenderer>(e).mesh = "assets/rig.gltf";
+    r.frame(w);  // ray tracing is off: the file is read once, its buffers have no build usage
+    CHECK_FALSE(r.scene().active());
+    CHECK(r.dev->errors().empty());
+    r.rays();
+    r.frame(w);  // on: the mesh is read again (the same asset, new buffers) and the scene builds it
+    REQUIRE(r.scene().active());
+    INFO(joined(r.dev->errors()));
+    CHECK(r.dev->errors().empty());
+    CHECK(r.scene().stats().instances == 1);
+    CHECK(r.scene().stats().blasLive >= 1);
+    CHECK(r.scene().stats().skippedUntraceable == 0);
+    CHECK(count_kind(*r.dev, gpu::CommandKind::BuildBlas) >= 1);
+    CHECK(log.count("unknown mesh") == 0);
+    CHECK(log.count("not found") == 0);
+    // Off and on again: the frame is still the traced one.
+    render::RayTracingSettings off;
+    r.renderer.set_ray_tracing(off);
+    r.frame(w);
+    CHECK_FALSE(r.scene().active());
+    r.rays();
+    r.frame(w);
+    CHECK(r.scene().stats().instances == 1);
+    CHECK(r.dev->errors().empty());
 }
 
 }  // namespace

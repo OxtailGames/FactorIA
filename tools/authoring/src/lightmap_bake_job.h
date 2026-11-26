@@ -87,7 +87,7 @@ using ReportFn = std::function<void(const std::string& phase, double progress, s
 //
 // device.process is "here" (this process traced the texels) or "helper": a process that already has a graphics context on a Mac (the editor, a
 // session with graphics) cannot open the GPU tracer's own context (LightmapGpuTracer::open_needs_helper_process), so a device "gpu" or "auto"
-// bake runs in a child `factoria session --no-graphics` that is given the Plan (plan_to_json), streams its progress back, is cancelled
+// bake runs in a child `factoria session --no-graphics --no-scene` that is given the Plan (plan_to_json), streams its progress back, is cancelled
 // by the same flag and writes the files with this same code. A helper that cannot start or that dies (a driver crash, a GPU reset) never takes this
 // process down: "auto" bakes on the CPU with the reason in device.note, "gpu" fails with it.
 Result<Json> execute(const Plan& plan, const ReportFn& report);

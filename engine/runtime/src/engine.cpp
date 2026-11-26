@@ -1460,7 +1460,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // Start scene (errors are kept for game.state / script.errors; they do not abort init).
     std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
     if (config.sceneProps.is_object()) I.nextProps = config.sceneProps;
-    if (!scenePath.empty()) {
+    if (!scenePath.empty() && !config.noStartScene) {
         std::string serrText;
         if (!fs::exists(scenePath) && !fs::is_absolute(scenePath)) {
             std::string msg = "Start scene '" + scenePath + "' not found";

@@ -41,6 +41,9 @@ const std::vector<FlagSpec>& engine_flags() {
     static const std::vector<FlagSpec> f = {
         {"project", "DIR", "Project folder (default: the project containing the current directory)."},
         {"scene", "PATH", "Start scene (default: the project's mainScene)."},
+        {"no-scene", "",
+         "Start with an empty world: no scene is loaded, so no script of a scene runs (for sessions that only need the "
+         "commands; not with --scene)."},
         {"seed", "N", "World RNG seed (default 1)."},
         kDateFlag,
         {"frames-before", "N", "Step N headless frames before the first command."},
@@ -57,6 +60,10 @@ const std::vector<FlagSpec>& engine_flags() {
 SessionOptions session_options(const Context& ctx) {
     SessionOptions so;
     so.scene = ctx.args.str("scene");
+    so.noScene = ctx.args.has("no-scene");
+    if (so.noScene && !so.scene.empty())
+        throw UsageError("--no-scene and --scene together: no scene is loaded, so there is no scene to start.",
+                         "Drop one of them.");
     so.seed = ctx.args.uinteger("seed", 1);
     so.date = date_flag(ctx.args);
     so.gfx = ctx.args.has("no-graphics") ? Gfx::None : Gfx::Auto;
