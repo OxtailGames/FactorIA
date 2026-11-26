@@ -2624,7 +2624,7 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<RealtimeGI>(
          "RealtimeGI",
-         "Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world "
+         "Realtime global illumination: a grid of probes over an axis-aligned box of the world "
          "(centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the "
          "renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six "
          "small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine "
@@ -2634,7 +2634,10 @@ void register_builtin_components(TypeRegistry& r) {
          "blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit "
          "the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without "
          "this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the "
-         "game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the "
+         "game runs. With ray tracing on (render.rayTracing.gi \"probes\", docs/RAY_TRACING.md) the probes are updated "
+         "by "
+         "rays instead of captures (`raysPerProbe`, `rtProbesPerFrame`); the lit meshes read the grid the same way. "
+         "The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the "
          "sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands "
          "render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene "
          "shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\".",
@@ -2688,6 +2691,19 @@ void register_builtin_components(TypeRegistry& r) {
                "0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction "
                "of its directions hit the back of a surface before the front of any. Default 0.25.")
         .range(0.02f, 0.9f)
+        .field("raysPerProbe", &RealtimeGI::raysPerProbe,
+               "16..256: the rays a probe traces in one update when the project turns on ray traced GI "
+               "(render.rayTracing.gi \"probes\", needs a GPU with ray tracing; the raster captures ignore this). The "
+               "rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up "
+               "to more directions over time; more rays make a smoother probe per update and cost proportionally more. "
+               "A value outside is clamped. Default 64.")
+        .range(16, 256)
+        .field("rtProbesPerFrame", &RealtimeGI::rtProbesPerFrame,
+               "1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago "
+               "updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids "
+               "together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is "
+               "clamped. Default 16.")
+        .range(1, 64)
         .field("showTags", &RealtimeGI::showTags,
                "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "
                "empty a capture draws only the entities that have one of these tags or a parent that does.")

@@ -74,6 +74,12 @@ void Renderer::ray_tracing_local_shadows(int& candidates, int& traced) const {
     traced = impl_ ? impl_->rtLocalTracedShown.load() : 0;
 }
 
+render::RtGiStatus Renderer::ray_tracing_gi_status() const {
+    if (!impl_) return {};
+    std::lock_guard<std::mutex> lock(impl_->rtGiStatusMutex);
+    return impl_->rtGiStatus;
+}
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -83,6 +89,8 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
     rtShadowDraws = {};
+    rtAccelPass.clear();
+    rtGiHitValid = false;
     rtLocalCandidatesShown = rtLocalFrame.candidates;
     rtLocalTracedShown = rtLocalFrame.traced;
     rtLocalFrame = {};
@@ -124,10 +132,16 @@ void Renderer::Impl::rt_begin_frame() {
     if (!on) {
         rtLocalSlots.clear();
         if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
+        if (gpu.has_device() && !rtGi.empty()) rtGi.release(gpu);
         if (gpu.has_device() && (rtDenoiser.shaders_made() || rtDenoiser.history_image_count() > 0))
             rtDenoiser.release();
     } else {
         rtEffects.sweep(gpu, frameSerial + 1);
+        if (rtSettings.gi != render::RtGi::Probes && gpu.has_device() && !rtGi.empty())
+            rtGi.release(gpu);
+        else
+            rtGi.sweep(gpu,
+                       frameSerial + 1);   // the band image and the kernel go when no frame used them for two frames
         rtDenoiser.sweep(postSerial + 1);  // a signal no camera asked for in the frame before frees its history
     }
     // Mesh buffers carry the usage a build reads only while the scene is on (Assets::set_accel_input reloads the meshes made before).

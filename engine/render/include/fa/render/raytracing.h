@@ -25,7 +25,7 @@ inline constexpr int kRtLocalShadowMaxLights = 3;
 inline constexpr int kRtShadowsCount = 3;
 inline constexpr std::array<std::string_view, kRtShadowsCount> kRtShadowsNames = {"off", "hard", "soft"};
 
-// Global illumination: off = the engine's own (light probes and the ambient), probes = light probes updated with rays, perPixel = a
+// Global illumination: off = the engine's own (light probes and the ambient), probes = the RealtimeGI grids' probes updated with rays (M79-P4a), perPixel = a
 // bounce traced for every pixel (the most expensive).
 enum class RtGi : std::int32_t { Off, Probes, PerPixel };
 inline constexpr int kRtGiCount = 3;
@@ -65,6 +65,16 @@ constexpr std::string_view rt_gi_name(RtGi m) {
     const int i = int(m);
     return (i >= 0 && i < kRtGiCount) ? kRtGiNames[std::size_t(i)] : std::string_view("off");
 }
+
+// M79-P4a: what the ray traced GI probes did in the last whole frame (Renderer::ray_tracing_gi_status; docs/design/ARCHITECTURE_RT_GI.md).
+struct RtGiStatus {
+    bool wanted = false;     // render.rayTracing.gi is "probes"
+    bool active = false;     // the last whole frame updated probes with rays
+    std::string reason;      // why not, when wanted and not active (empty when active or not wanted)
+    int grids = 0;           // RealtimeGI grids the rays updated in that frame
+    int probesPerFrame = 0;  // probes updated in that frame (all grids together)
+    int budget = 0;          // the most probes a frame updates (the grids' budgets, at most 64 together)
+};
 
 // Whether any effect asks for rays: enabled and at least one effect on. The renderer pays for ray tracing only then.
 constexpr bool rt_any_effect(const RayTracingSettings& s) {

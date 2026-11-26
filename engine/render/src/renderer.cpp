@@ -712,6 +712,7 @@ void Renderer::shutdown() {
         im.hiz_release();
         im.rtEffects.release(
             im.gpu);  // the effects' shaders and images (the pass reads the scene's records buffer): before the scene's buffers go
+        im.rtGi.release(im.gpu);  // its band image and kernel (the pass reads the scene's records buffer too)
         im.rtDenoiser.release();
         im.rtScene
             .release();  // its BLASes, TLAS and buffers, while the device is open and before the assets that its BLASes read
@@ -1405,6 +1406,7 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
 int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
 render::RtScene* RendererTestAccess::rt_scene(Renderer& r) { return r.impl_ ? &r.impl_->rtScene : nullptr; }
 render::RtEffects* RendererTestAccess::rt_effects(Renderer& r) { return r.impl_ ? &r.impl_->rtEffects : nullptr; }
+render::RtGiProbes* RendererTestAccess::rt_gi(Renderer& r) { return r.impl_ ? &r.impl_->rtGi : nullptr; }
 render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {
     if (!r.impl_) return {};
