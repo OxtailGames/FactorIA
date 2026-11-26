@@ -6,9 +6,15 @@ developers: the vocabulary and the calls that `fa::gpu` gained in package M79 P0
 backend takes. Read "The GPU interface" (ARCHITECTURE_RENDERING_GPU.md) first: handles, `Result<T>`, the barrier rule and the
 `RecordingDevice` are used here as that page describes them.
 
-**What exists.** Only the interface: types, calls with refusing defaults, the `RecordingDevice` model and its checks, the
-supports rows, the settings and the command. **No backend builds an acceleration structure and no frame pass traces a ray.**
-The packages that come next fill the backends in (P1v Vulkan, P1d Direct3D 12, P1m Metal) and then the effects.
+**What exists.** The interface: types, calls with refusing defaults, the `RecordingDevice` model and its checks, the
+supports rows, the settings and the command. The Direct3D 12 backend builds, refits, compacts and binds acceleration structures
+on a device with DXR tier 1.1 (P1d, "Direct3D 12" below). **No frame pass traces a ray yet.** The packages that come next fill
+the other backends in (P1v Vulkan, P1m Metal) and then the effects.
+
+## Pages
+
+- [The ray tracing kernels](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md): HLSL through DXC, the generated DXIL headers,
+  what CI runs (the WARP DXR probe, `FA_WARP_DIR`) and what a contributor does.
 
 ## Decision D1: inline ray query only
 
@@ -79,7 +85,8 @@ whose package has landed overrides it to say what its GPU lacks ("this GPU lacks
 - A caller asks the sizes, makes the scratch `Buffer` (usage `accelScratch`, at least `buildScratch` or `updateScratch` bytes
   from the offset) and the structure (`make_accel_structure` with `size = AccelSizes::structure`), then builds. A size is never
   guessed: a backend rounds it as its API needs.
-- `make_accel_structure` allocates the memory itself when `storage` is invalid. **Open design point, left to P1v and P1d:**
+- `make_accel_structure` allocates the memory itself when `storage` is invalid. **Open design point, left to P1v and P1d**
+  (D3D12's answer is in "Direct3D 12" below):
   with a valid `storage` (a buffer with usage `accelStorage`, offset aligned to `accel_alignment()`) the caller sub-allocates
   and may alias structures that are never live together. The `RecordingDevice` validates the buffer, the offset and the range;
   a real backend decides whether to take a `storage` of its own kind of memory (Vulkan: a buffer with the
@@ -115,7 +122,7 @@ at `CommandList::build_blas` in `gpu/device.h`):
 | backend | `Features::accelerationStructure` | the refusal says |
 |---|---|---|
 | OpenGL, GLES3, WebGL2, Direct3D 11 (`SokolDevice`) | false, for good | the API cannot trace rays; use the d3d12 or vulkan backend, or Metal on Apple |
-| Direct3D 12 | false until P1d | "the d3d12 backend does not build acceleration structures yet (package P1d of milestone 79)" |
+| Direct3D 12 | true on a device with DXR tier 1.1 and shader model 6.5 (P1d) | "the d3d12 device on '<adapter>' has DXR tier <t> and shader model <m>: inline ray query needs DXR tier 1.1 and shader model 6.5" and what to do |
 | Vulkan | false until P1v | the same with "vulkan" and "package P1v" |
 | Metal (`SokolDevice` on Apple) | false until P1m | the same with "metal" and "package P1m" |
 | `RecordingDevice` | what it was made with (`DeviceInit::recordingRayTracing`) | a plain one refuses and says it was made without ray tracing |
@@ -196,6 +203,55 @@ never touched ray tracing is byte-identical. `Engine` holds the settings (`set_r
 `ray_tracing_status`) and applies the project's at start; `render.ray_tracing` reads and changes them
 (`changes_state` capability). **`active` is always false in this version**, because nothing reads the settings yet.
 
+## Direct3D 12 (package P1d)
+
+The calls are in `gpu/d3d12_raytracing_win32.cpp`; what needs no D3D12 header (the capabilities, the instance bytes, the build
+flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_accel.cpp`, whose tests run on every host.
+
+- **Capabilities** (`init_ray_tracing`, after the device hooks). `OPTIONS5.RaytracingTier` and the highest shader model (asked from
+  the newest value down). `ID3D12Device5` and `ID3D12GraphicsCommandList4` are queried only at tier 1.1 with shader model 6.5. `rayQuery` and
+  `accelerationStructure` are true when all of them are there. `rayTracingPipeline` is true from tier 1.0 (reported, never used).
+  `bufferDeviceAddress` is always true (every D3D12 buffer has a GPU virtual address). The Limits are the API's: 2^24 instances,
+  2^24 geometries, 2^29 triangles. Without ray tracing nothing fails: the device is made as before (feature level 11_0
+  included), the features stay false, and `ray_tracing_status` names the adapter, the tier and the shader model it found.
+- **Shaders.** A compute stage takes DXIL (a DXBC container with a `DXIL` part, from DXC) on a device with shader model 6.0 or
+  more; a render stage keeps DXBC or HLSL source. `usesRayQuery` and the `accelStructures` slots are refused on a device without
+  them and on a render shader, and a declared slot needs `usesRayQuery`. Each declared slot is a root SRV (`t<n>`, space `hlslSpace`) after
+  the constant buffers, so root signature 1.0 is enough. `set_bindings` sets it to the TLAS's GPU address and refuses a slot that
+  is not a live, built TLAS.
+- **Memory.** Every structure lives in a buffer created in `D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE` with
+  `ALLOW_UNORDERED_ACCESS`, and D3D12 allows no transition into or out of that state. The device makes one of its own when
+  `storage` is invalid. A caller's `storage` must be a buffer made with `usage.accelStorage` only (no other usage, no initial
+  data), and the structure takes its range at an offset aligned to 256. Such a buffer (`TrackedResource::accel`) is refused by
+  `write_buffer`, `copy_buffer_to_buffer`, `copy_buffer_to_image`, `read_buffer`, `request_buffer_read`, the DirectStorage reads
+  and a native section. Structures are copied with `copy_accel_structure`. `accelScratch` buffers get `ALLOW_UNORDERED_ACCESS`
+  and are used in the UAV state; `accelBuildInput` buffers are read in `NON_PIXEL_SHADER_RESOURCE`. Destroying a structure is
+  deferred to the end of the frames that may still use it.
+- **Calls.** `blas_sizes` and `tlas_sizes` answer `GetRaytracingAccelerationStructurePrebuildInfo`, each size rounded up to 256.
+  `build_blas` and `build_tlas` record `BuildRaytracingAccelerationStructure`. A refit adds `PERFORM_UPDATE` and must give the
+  flags of the build. The instances are converted to `D3D12_RAYTRACING_INSTANCE_DESC` (`InstanceContributionToHitGroupIndex` 0:
+  there are no hit groups) and copied into upload memory that lives until the frame ends. `query_compacted_size` writes the
+  `COMPACTED_SIZE` postbuild info, 8 bytes at an 8-byte aligned offset of a storage buffer. `copy_accel_structure` is a `CLONE`
+  or a `COMPACT`. Beyond the `RecordingDevice`'s checks, D3D12 also refuses a `vertexOffset` that is not a multiple of 4 and an
+  `indexOffset` that is not a multiple of the index size.
+- **Barriers** (how D3D12 does the list in "Barriers" above). A structure never changes state, so its order is kept by UAV
+  barriers. The command list tracks the last access of each structure buffer (`accel_access`). It inserts a UAV barrier before
+  a write that follows any access (a refit after a trace, a rebuild, a copy into it). It also inserts one before a read that
+  follows a write: the TLAS build that reads its BLASes, the dispatch that traces a TLAS bound with `set_bindings`, a compaction
+  query or a copy from it. The scratch buffer takes a UAV barrier before a build when an earlier command of the list wrote it. The tracking
+  starts again with each list: across lists the backend relies on each list being its own `ExecuteCommandLists` call, whose
+  writes D3D12 finishes before the next call's work.
+- **Tests.** `d3d12_raytracing_tests.cpp` (ctest `render_d3d12_raytracing`). The neutral half runs everywhere. On Windows a WARP
+  device builds a BLAS and a TLAS of two instances and dispatches `rt_probe`. Every pixel of the result is checked against the
+  same rays on the CPU. On the frames after, it refits both, compacts the BLAS and rebuilds the TLAS over the copy, then rebuilds
+  both from scratch. It also checks that the kernel given as HLSL text is refused (RayQuery needs DXIL). When the WARP has no
+  tier 1.1 the case says so and passes, unless `FA_D3D12_REQUIRE_RT=1` (set by the Windows CI job; `FA_D3D12_REQUIRE` alone
+  does not), which fails it with the tier, the shader model and the `d3d10warp.dll` the process loaded. With `FA_WARP_DIR`
+  (exported by every Windows CI shard when the runner's WARP is older, "What CI runs" in
+  ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md), the case loads that `d3d10warp.dll` before its first device. That works in
+  its own ctest, where nothing loaded a WARP before. In the whole-suite ctest `render` an earlier D3D12 case may have loaded
+  the system's WARP: the case then skips there even with `FA_D3D12_REQUIRE_RT=1`, and says so.
+
 ## The Metal route (package P1m; documented here, not implemented)
 
 Metal is driven by `SokolDevice` (sokol_gfx owns the `MTLDevice`, the queue and the command buffers). Ray tracing on Metal
@@ -227,8 +283,7 @@ Until P1m lands, Metal answers "the metal backend does not build acceleration st
 
 - **P1v** (Vulkan): `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` (required by the first),
   `bufferDeviceAddress`; the extension and feature request goes through the device hooks (ARCHITECTURE_RENDERING_HOOKS.md).
-- **P1d** (Direct3D 12): DXR 1.1 (`D3D12_RAYTRACING_TIER_1_1`), `ID3D12GraphicsCommandList4`, structures in
-  `ACCELERATION_STRUCTURE` state buffers.
+- **P1d** (Direct3D 12): landed, "Direct3D 12" above.
 - **P1m** (Metal): the route above.
 - After them, the renderer builds one BLAS per mesh, a TLAS per frame, and adds the effects' compute passes to the frame graph
   only when `rt_any_effect` is true; with the switch off the frame graph is what it was (`raytracing_frame_tests.cpp` guards it).
