@@ -668,6 +668,33 @@ TEST_CASE("graphics settings: only the keys that differ from the defaults are wr
     CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
 }
 
+TEST_CASE("project.graphics writes only the keys that differ from the defaults, in every block it is given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call(
+        "project.graphics",
+        Json::parse(R"({"rayTracing":{"enabled":true},"pathTracer":{"samplesPerFrame":2},"latency":{"mode":"auto"},)"
+                    R"("frameGeneration":{"mode":"fsr"},"upscaler":{"mode":"spatial"},)"
+                    R"("dynamicResolution":{"enabled":true,"minScale":0.333}})"));
+    REQUIRE(r.ok);
+    const Json file = Json::parse(d.read());
+    CHECK(file["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    CHECK(file["render"]["pathTracer"] == Json::parse(R"({"samplesPerFrame":2})"));
+    CHECK(file["render"]["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK(file["render"]["frameGeneration"] == Json::parse(R"({"mode":"fsr"})"));
+    CHECK(file["render"]["upscaler"] == Json::parse(R"({"mode":"spatial"})"));
+    CHECK(file["render"]["dynamicResolution"] == Json::parse(R"({"enabled":true,"minScale":0.333})"));  // as written
+    // A second key joins its block; a value back at its default leaves it; the last one takes the block along.
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"ao":true}})"));
+    REQUIRE(r.ok);
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"enabled":false,"ao":false}})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
 TEST_CASE("project.graphics: every property of rayTracing and pathTracer in the input schema has a description") {
     Dir d;
     d.write(kBare);
