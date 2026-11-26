@@ -416,12 +416,55 @@ TEST_CASE("rt scene: the records and the instances (transform, mask, customIndex
     CHECK(gl.entityId == 13);
     CHECK(gl.instance.mask == (render::kRtMaskBlended | render::kRtMaskCastsShadow));
     CHECK((gl.record.flags & render::kRtFlagBlended) != 0);
-    // The record buffer holds what the frame says: one 96-byte record per instance, written before the TLAS build.
+    // The record buffer holds what the frame says: one 128-byte record per instance, written before the TLAS build.
     int writes = 0;
     for (const gpu::RecordedCommand& cmd : rig.dev->commands())
         if (cmd.kind == gpu::CommandKind::WriteBuffer && cmd.args[0] == int(4 * sizeof(render::RtInstanceRecord)))
             ++writes;
     CHECK(writes == 1);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt scene: a transmissive part is refractive (flag, mask, volume, both faces); a plain blended one is not") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    render::MeshAsset* m = rig.mesh("m");
+    render::MeshItem glass = rig.item(m, {0, 0, 0}, 20);
+    rig.renderers.back().transmission = 0.8f;
+    rig.renderers.back().thickness = 0.5f;
+    rig.renderers.back().ior = 1.33f;
+    rig.renderers.back().attenuationDistance = 2.0f;
+    rig.renderers.back().attenuationColor = Color{0.5f, 1.0f, 0.25f, 1.0f};
+    render::MeshItem tinted = rig.item(m, {3, 0, 0}, 21);  // blended by its alpha, nothing transmitted
+    rig.renderers.back().color = Color{1, 1, 1, 0.5f};
+    render::MeshItem unlitGlass =
+        rig.item(m, {6, 0, 0}, 22);  // an unlit surface transmits nothing (the draw's own rule)
+    rig.renderers.back().transmission = 1.0f;
+    rig.renderers.back().unlit = true;
+    rig.frame({}, {glass, tinted, unlitGlass});
+    const auto& fi = rig.scene.frame_instances();
+    REQUIRE(fi.size() == 3);
+    const auto& g = fi[0];
+    CHECK((g.record.flags & render::kRtFlagRefractive) != 0);
+    CHECK((g.record.flags & render::kRtFlagBlended) != 0);
+    CHECK((g.instance.mask & render::kRtMaskRefractive) != 0);
+    CHECK((g.instance.mask & render::kRtMaskBlended) != 0);
+    CHECK((g.instance.mask & render::kRtMaskCastsShadow) != 0);  // glass casts a solid shadow (castShadows decides)
+    CHECK(g.instance.cullDisable);                               // a ray leaves a closed glass through its far wall
+    CHECK(g.record.volume[0] == doctest::Approx(1.33f));
+    CHECK(g.record.volume[1] == doctest::Approx(0.5f));
+    CHECK(g.record.volume[2] == doctest::Approx(2.0f));
+    CHECK(g.record.volume[3] == doctest::Approx(0.8f));
+    CHECK(g.record.attenuation[1] == doctest::Approx(1.0f));
+    CHECK(g.record.attenuation[0] < 1.0f);  // the colour, in the scene's colour space
+    for (std::size_t i = 1; i < fi.size(); ++i) {
+        CHECK((fi[i].record.flags & render::kRtFlagRefractive) == 0);
+        CHECK((fi[i].instance.mask & render::kRtMaskRefractive) == 0);
+        CHECK(fi[i].record.volume[3] == 0.0f);
+        CHECK(fi[i].record.volume[1] == 0.0f);
+        CHECK(fi[i].record.attenuation[0] == 1.0f);
+    }
+    CHECK_FALSE(fi[1].instance.cullDisable);
     CHECK(rig.dev->errors().empty());
 }
 
@@ -825,7 +868,7 @@ TEST_CASE("rt scene: the compacted sizes read in the background (the path the re
 // ---- the layout the kernels read ------------------------------------------------------------------------------------------------------
 
 TEST_CASE("rt records: the HLSL twin has the same fields, flags and masks as the C++ header") {
-    static_assert(sizeof(render::RtInstanceRecord) == 96);
+    static_assert(sizeof(render::RtInstanceRecord) == 128);
     std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/shaders/rt/rt_records.hlsli", std::ios::binary);
     REQUIRE(in.good());
     std::stringstream ss;
@@ -851,26 +894,30 @@ TEST_CASE("rt records: the HLSL twin has the same fields, flags and masks as the
     CHECK(value_of("kRtFlagCastsShadow") == long(render::kRtFlagCastsShadow));
     CHECK(value_of("kRtFlagCustomMaterial") == long(render::kRtFlagCustomMaterial));
     CHECK(value_of("kRtFlagSkinned") == long(render::kRtFlagSkinned));
+    CHECK(value_of("kRtFlagRefractive") == long(render::kRtFlagRefractive));
     CHECK(value_of("kRtMaskOpaque") == long(render::kRtMaskOpaque));
     CHECK(value_of("kRtMaskCutout") == long(render::kRtMaskCutout));
     CHECK(value_of("kRtMaskBlended") == long(render::kRtMaskBlended));
     CHECK(value_of("kRtMaskCastsShadow") == long(render::kRtMaskCastsShadow));
     CHECK(value_of("kRtMaskFoliage") == long(render::kRtMaskFoliage));
     CHECK(value_of("kRtMaskEmissive") == long(render::kRtMaskEmissive));
+    CHECK(value_of("kRtMaskRefractive") == long(render::kRtMaskRefractive));
     CHECK(value_of("kRtMaskSurfaces") == long(render::kRtMaskSurfaces));
-    // The members, in order, with the sizes that make 96 bytes (a float4 is 16, a scalar 4).
+    // The members, in order, with the sizes that make 128 bytes (a float4 is 16, a scalar 4).
     const std::size_t body = hlsl.find("struct RtInstanceRecord");
     REQUIRE(body != std::string::npos);
     const std::string s = hlsl.substr(body, hlsl.find("};", body) - body);
-    const std::array<const char*, 9> members = {"float4 objectToWorldRow0",
-                                                "float4 objectToWorldRow1",
-                                                "float4 objectToWorldRow2",
-                                                "float4 albedo",
-                                                "float4 emissive",
-                                                "float roughness",
-                                                "float metalness",
-                                                "uint flags",
-                                                "uint blasId"};
+    const std::array<const char*, 11> members = {"float4 objectToWorldRow0",
+                                                 "float4 objectToWorldRow1",
+                                                 "float4 objectToWorldRow2",
+                                                 "float4 albedo",
+                                                 "float4 emissive",
+                                                 "float roughness",
+                                                 "float metalness",
+                                                 "uint flags",
+                                                 "uint blasId",
+                                                 "float4 volume",
+                                                 "float4 attenuation"};
     std::size_t at = 0;
     for (const char* m : members) {
         const std::size_t found = s.find(m, at);
@@ -881,6 +928,8 @@ TEST_CASE("rt records: the HLSL twin has the same fields, flags and masks as the
     CHECK(offsetof(render::RtInstanceRecord, emissive) == 64);
     CHECK(offsetof(render::RtInstanceRecord, roughness) == 80);
     CHECK(offsetof(render::RtInstanceRecord, blasId) == 92);
+    CHECK(offsetof(render::RtInstanceRecord, volume) == 96);
+    CHECK(offsetof(render::RtInstanceRecord, attenuation) == 112);
 }
 
 TEST_CASE("recording device: a geometry's vertex and index offsets must be aligned, and the error names the field") {

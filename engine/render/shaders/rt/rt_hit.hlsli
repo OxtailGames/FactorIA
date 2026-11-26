@@ -106,11 +106,12 @@ float rt_sun_visibility(float3 p, float3 n, float rayLength) {
     return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 0.0 : 1.0;
 }
 
-bool rt_trace_surface(float3 origin, float3 dir, float tmin, float tmax, out RtSurface s) {
+// The closest surface of the instances `mask` selects (the translucency kernel asks for kRtMaskRefractive); rt_trace_surface is the mask of every surface.
+bool rt_trace_surface_mask(float3 origin, float3 dir, float tmin, float tmax, uint mask, out RtSurface s) {
     s = (RtSurface)0;
     float t0;
     uint rec0, prim0;
-    if (!rt_closest_hit(origin, dir, tmin, tmax, kRtMaskSurfaces, t0, rec0, prim0)) return false;
+    if (!rt_closest_hit(origin, dir, tmin, tmax, mask, t0, rec0, prim0)) return false;
     const RtInstanceRecord r = g_records[rec0];
     s.position = origin + dir * t0;
     s.t = t0;
@@ -129,8 +130,8 @@ bool rt_trace_surface(float3 origin, float3 dir, float tmin, float tmax, out RtS
     const float eps = max(g_hit.limits.w * t0, 0.001);
     float t1, t2;
     uint rec1, rec2, prim1, prim2;
-    const bool h1 = rt_closest_hit(origin + u * eps, dir, tmin, tmax, kRtMaskSurfaces, t1, rec1, prim1);
-    const bool h2 = rt_closest_hit(origin + v * eps, dir, tmin, tmax, kRtMaskSurfaces, t2, rec2, prim2);
+    const bool h1 = rt_closest_hit(origin + u * eps, dir, tmin, tmax, mask, t1, rec1, prim1);
+    const bool h2 = rt_closest_hit(origin + v * eps, dir, tmin, tmax, mask, t2, rec2, prim2);
     if (h1 && h2 && rec1 == rec0 && rec2 == rec0 && prim1 == prim0 && prim2 == prim0) {
         const float3 e1 = u * eps + dir * (t1 - t0);
         const float3 e2 = v * eps + dir * (t2 - t0);
@@ -142,6 +143,10 @@ bool rt_trace_surface(float3 origin, float3 dir, float tmin, float tmax, out RtS
         }
     }
     return true;
+}
+
+bool rt_trace_surface(float3 origin, float3 dir, float tmin, float tmax, out RtSurface s) {
+    return rt_trace_surface_mask(origin, dir, tmin, tmax, kRtMaskSurfaces, s);
 }
 
 // The environment's gradient in direction `d` for a surface of `rough` (the lit pass's own, fa_environment, without a texture): blurrier and
