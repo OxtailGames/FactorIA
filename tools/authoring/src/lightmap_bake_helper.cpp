@@ -156,8 +156,8 @@ Reply ask(ChildProcess& child, const char* command, const Json& args, double tim
             reply.kind = Ask::Failed;
             reply.error = make_error(
                 "the plan could not be sent to the helper process: the system has no thread left to write it",
-                "Close other programs or lower this process's thread count, then bake again; device cpu "
-                "needs no helper.");
+                "Bake with device \"cpu\" (it needs no helper process), or close other programs and bake "
+                "again.");
             return reply;
     }
     const auto deadline =

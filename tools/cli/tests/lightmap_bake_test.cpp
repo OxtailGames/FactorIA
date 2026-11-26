@@ -196,7 +196,7 @@ TEST_CASE(
 
 // ---- the GPU bake in a helper process (M79-P5c) ----------------------------------------------------------------------------------------------------
 // A process that already has a graphics context (the editor, a window, `factoria call` with graphics) cannot open the GPU tracer's own context on a
-// Mac, so it runs the bake in a child `factoria session --no-graphics`. FA_LIGHTMAP_HELPER=always makes any process do so, which is how these cases
+// Mac, so it runs the bake in a child `factoria session --no-graphics --no-scene`. FA_LIGHTMAP_HELPER=always makes any process do so, which is how these cases
 // run the helper path on a machine that does not need it. They need the real `factoria` (ctest gives it in FA_FACTORIA_EXE).
 
 namespace {
