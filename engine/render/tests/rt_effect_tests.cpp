@@ -1958,7 +1958,7 @@ TEST_CASE(
     CHECK(s.count == cap);
     CHECK(s.firstSample == cap);  // the sample indices go on: no sample is traced twice
     // maxSamples still holds the image.
-    cfg.maxSamples = 2 * cap + 1;  // two dispatches added 2 * cap
+    cfg.maxSamples = int(2 * cap + 1);  // two dispatches added 2 * cap
     s = fa::render::path_trace_step(st, cfg, 1, 2, 3, 7, w, h);
     CHECK(s.count == 1);
 }
