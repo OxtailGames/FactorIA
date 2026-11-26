@@ -209,12 +209,22 @@ struct Renderer::Impl::DrawContext {
         bool want = false, on = false;
         const RtEffectImage* img = nullptr;
     } rtAo;
+    // M79-P3b: ray traced translucency (rt_refract, ARCHITECTURE_RT_TRANSLUCENCY.md). plan_job sets `want` (rayTracing.translucency on, the scene
+    // collected by this job, a transmissive draw whose refraction image can be made, the prepass); build_graph declares the kernel and sets `img`;
+    // main_pass hands the image to the refraction copy (Xmit::build) only while `img->ran` is true when it draws, else the glass keeps its
+    // screen-space refraction.
+    struct {
+        bool want = false;
+        const RtEffectImage* img = nullptr;
+        ResourceId res;
+    } rtTranslucency;
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
     struct {
         bool want = false, on = false;
         int levels = 0;
+        bool traced = false;  // level 0 of the atlas holds the ray traced translucency (M79-P3b)
         gpu::View atlasView{};
     } xmit;
     // M74.4: the picture drawn so far, which Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() read (water2d.h).
@@ -723,6 +733,56 @@ bool Renderer::Impl::decide_hud_at_output(World& world) {
     return !glows && ensure_hud_output(anyFinal, filter, false);
 }
 
+// The constants of the kernels that shade what a ray hits (rt_hit.hlsli): the sun the lit pass shadows, else the first directional light (rank 0
+// or 1), the scene's ambient and sky colours and the shadow rays' limits. Fills req.hit and, with a sun, req.lightDir.
+static void fill_rt_hit_request(const Renderer::Impl::DrawContext& ctx, RtEffectRequest& req) {
+    const LightData* sunLight = nullptr;
+    for (const LightData& l : ctx.lights)
+        if (l.rank <= 1) {
+            sunLight = &l;
+            break;
+        }
+    RtHitParams& hp = req.hit;
+    if (sunLight) {
+        const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});
+        hp.sunDir[0] = toSun.x;
+        hp.sunDir[1] = toSun.y;
+        hp.sunDir[2] = toSun.z;
+        hp.sunColor[0] = sunLight->color.x;
+        hp.sunColor[1] = sunLight->color.y;
+        hp.sunColor[2] = sunLight->color.z;
+        for (int i = 0; i < 3; ++i) req.lightDir[i] = hp.sunDir[i];
+    } else {
+        hp.sunDir[1] = 1.0f;
+    }
+    hp.ambient[0] = ctx.ss.ambientLight.r;
+    hp.ambient[1] = ctx.ss.ambientLight.g;
+    hp.ambient[2] = ctx.ss.ambientLight.b;
+    hp.sky[0] = ctx.ss.skyColor.r;
+    hp.sky[1] = ctx.ss.skyColor.g;
+    hp.sky[2] = ctx.ss.skyColor.b;
+    hp.sky[3] = ctx.fuScene.fa_env_sky[3] > 0.5f ? 1.0f : 0.0f;
+    hp.horizon[0] = ctx.ss.horizonColor.r;
+    hp.horizon[1] = ctx.ss.horizonColor.g;
+    hp.horizon[2] = ctx.ss.horizonColor.b;
+    hp.limits[0] = 0.02f;
+    hp.limits[1] = 0.002f;
+    hp.limits[2] = 10000.0f;
+    hp.limits[3] = 0.002f;
+}
+
+// The meshes of the job's blended batches that refract (MeshRenderer.transmission, KHR_materials_transmission): the draws the refraction image
+// (plan_transmission) and the ray traced translucency (plan_job) are made for. Reads: ctx.blendedBatches, ctx.blended.
+static int transmissive_mesh_count(const Renderer::Impl::DrawContext& ctx) {
+    int meshes = 0;
+    for (const MeshBatch& b : ctx.blendedBatches) {
+        if (b.mainCount == 0) continue;
+        const MeshItem& mi = ctx.blended[b.rep];
+        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
+    }
+    return meshes;
+}
+
 // Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also gets the post effects.
 // The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
@@ -1035,6 +1095,10 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // keeps whatever the stack has.
     const bool wantRtAo = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && rtSettings.ao;
     if (wantRtAo) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // Ray traced translucency (M79-P3b) reads the prepass: the glass in view (a transmissive mesh) is what it traces. A job with none asks for nothing.
+    const bool wantRtTranslucency = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld &&
+                                    rtSettings.translucency && transmissive_mesh_count(ctx) > 0;
+    if (wantRtTranslucency) ctx.postPlan.needsDepth = true;
     // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
     // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
     bool wantSss = false;
@@ -1108,6 +1172,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     }
     plan_outline(ctx);
     plan_transmission(ctx);
+    // The traced image replaces the refraction copy's level 0, so it needs the copy (ctx.xmit.want) as well as the prepass.
+    ctx.rtTranslucency = {};
+    ctx.rtTranslucency.want = wantRtTranslucency && ctx.doPrepass && ctx.xmit.want && rtScene.active();
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -3004,18 +3071,14 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
         rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
                                                             : g.anisotropyRotation;
         spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
-        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
         for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
         // Transmission and volume (M73.6b): a MeshRenderer field that is not at its default replaces the model's value, as above.
-        transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
-        thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
-        attDistance = std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance),
-                                 0.0f, 100000.0f);
-        const Color ac = to_scene(mr.attenuationColor, linear);
-        const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
-        attColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
-        attColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
-        attColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
+        const PartTransmission pt = resolve_part_transmission(mr, part, linear);
+        ior = pt.ior;
+        transmission = pt.transmission;
+        thickness = pt.thickness;
+        attDistance = pt.attenuationDistance;
+        for (int i = 0; i < 3; ++i) attColor[i] = pt.attenuationColor[i];
     }
     fu.fa_layers_a[0] = coat;
     fu.fa_layers_a[1] = coatRough;
@@ -3157,7 +3220,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
         fu.fa_tr_a[0] = 0.0f;
         fu.fa_tr_a[3] = 0.0f;
     } else {
-        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? 1.0f : 2.0f;
+        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? (ctx.xmit.traced ? 3.0f : 1.0f) : 2.0f;
         fu.fa_tr_b[3] = float(ctx.xmit.levels);
     }
     // Baked light probes (M73.4d): the SH the mesh receives (coverage 0 = none: the shader keeps the sky's ambient).
@@ -3550,9 +3613,14 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
             onlyEngineMaterials = onlyEngineMaterials && !(it.material && it.material->ok && it.material->full);
         if (onlyEngineMaterials) {
             ctx.rtLocal.skipView.assign(ctx.viewProj.size(), 0);
-            for (const render::LocalShadowLight& l : ctx.localPlan.lights)
-                if (ctx.lights[std::size_t(l.light)].rtSlot > 0)
+            // The volumetric fog's march reads the local maps too (vol_shadow_local): the map of a traced light that the march lights (the fog is on for this
+            // camera and the light's `volumetric` is above 0, the test renderer_volumetric.cpp's usable-light check makes) is drawn, or its shafts would go
+            // through the casters. A traced light with no volumetric share skips its map as before.
+            for (const render::LocalShadowLight& l : ctx.localPlan.lights) {
+                const LightData& ld = ctx.lights[std::size_t(l.light)];
+                if (ld.rtSlot > 0 && !(ctx.postPlan.vol.on && ld.volumetric > 0.0f))
                     for (int f = 0; f < l.tiles; ++f) ctx.rtLocal.skipView[std::size_t(l.firstTile + f)] = 1;
+            }
         }
     }
     std::vector<int> placed;  // the views shadow_views draws
@@ -3914,12 +3982,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
 void Renderer::Impl::plan_transmission(DrawContext& ctx) {
     ctx.xmit = {};
     if (!ctx.fr.wantWorld || !ctx.doMainPass || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
-    int meshes = 0;
-    for (const MeshBatch& b : ctx.blendedBatches) {
-        if (b.mainCount == 0) continue;
-        const MeshItem& mi = ctx.blended[b.rep];
-        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
-    }
+    const int meshes = transmissive_mesh_count(ctx);
     if (meshes == 0) return;
     stats.transmissiveMeshes += meshes;
     if (xmit.can_make(transient_targets(), gpu, ctx.camPx.w, ctx.camPx.h))
@@ -5047,8 +5110,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         if (ctx.xmit.want) {
             cl.end_pass();
             const int row = gpu.is_gl() ? gameTarget.h - camPx.y - camPx.h : camPx.y;  // image rows (xmit.h)
-            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages)) {
+            // The ray traced translucency's image, when the kernel ran this frame (a device or a scene without a TLAS leaves `ran` false).
+            gpu::View traced{};
+            if (ctx.rtTranslucency.img && ctx.rtTranslucency.img->ran && ctx.rtTranslucency.img->texture.id)
+                traced = ctx.rtTranslucency.img->texture;
+            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages, traced)) {
                 ctx.xmit.on = true;
+                ctx.xmit.traced = xmitImages.traced;
                 ctx.xmit.levels = xmitImages.levels;
                 ctx.xmit.atlasView = xmitImages.atlasView;
                 ++stats.transmissionCopies;
@@ -5865,6 +5933,45 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 out.why);
         }
     }
+    // Ray traced translucency (M79-P3b, rt_refract.hlsl): one compute pass after the TLAS and the prepass; the main pass hands its image to the
+    // refraction copy. A device that refuses the kernel or the image leaves the screen-space refraction, said once.
+    ctx.rtTranslucency.img = nullptr;
+    ctx.rtTranslucency.res = ResourceId{};
+    if (ctx.rtTranslucency.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_refract";
+        req.effect = "translucency";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        fill_rt_hit_request(ctx, req);
+        // user0: the offset after an interface in metres and per metre of the segment, the widest cone's tangent, the rays' TMax.
+        req.user0[0] = 0.02f;
+        req.user0[1] = 0.002f;
+        req.user0[2] = 0.35f;
+        req.user0[3] = 10000.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.rtTranslucency.img = out.out;
+            ctx.rtTranslucency.res = out.res;
+        } else if (!rtWarnedTranslucency) {
+            rtWarnedTranslucency = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.translucency is on but the ray traced translucency cannot run on this device ({}). "
+                "Glass and liquids keep the screen-space refraction. Hint: set render.rayTracing.translucency to false "
+                "to silence this.",
+                out.why);
+        }
+    }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     if (!ctx.rtAo.on && ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled &&
@@ -5876,6 +5983,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         std::vector<ResourceId> reads;
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
         if (rtShadowRes.valid()) reads.push_back(rtShadowRes);
+        if (ctx.rtTranslucency.res.valid()) reads.push_back(ctx.rtTranslucency.res);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (cookieRes.valid()) reads.push_back(cookieRes);

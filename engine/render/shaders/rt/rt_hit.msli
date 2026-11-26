@@ -9,8 +9,10 @@
 
 // RtInstanceRecord::flags and the instance masks (rt_records.hlsli).
 constant uint kRtFlagUnlit = 1u << 4;
+constant uint kRtFlagRefractive = 1u << 9;
 constant uint kRtMaskSurfaces = 0x07;
 constant uint kRtMaskCastsShadow = 0x08;
+constant uint kRtMaskRefractive = 0x40;
 
 struct RtInstanceRecord {
     float4 objectToWorldRow0;
@@ -22,6 +24,8 @@ struct RtInstanceRecord {
     float metalness;
     uint flags;
     uint blasId;
+    float4 volume;
+    float4 attenuation;
 };
 
 // BEGIN RtHitParams
@@ -82,12 +86,12 @@ float rt_sun_visibility(instance_acceleration_structure tlas, constant RtHitPara
     return blocked ? 0.0 : 1.0;
 }
 
-bool rt_trace_surface(instance_acceleration_structure tlas, const device RtInstanceRecord* records, constant RtHitParams& hit,
-                      float3 origin, float3 dir, float tmin, float tmax, thread RtSurface& s) {
+bool rt_trace_surface_mask(instance_acceleration_structure tlas, const device RtInstanceRecord* records, constant RtHitParams& hit,
+                           float3 origin, float3 dir, float tmin, float tmax, uint mask, thread RtSurface& s) {
     s = RtSurface();
     float t0;
     uint rec0, prim0;
-    if (!rt_closest_hit(tlas, origin, dir, tmin, tmax, kRtMaskSurfaces, false, t0, rec0, prim0)) return false;
+    if (!rt_closest_hit(tlas, origin, dir, tmin, tmax, mask, false, t0, rec0, prim0)) return false;
     const device RtInstanceRecord& r = records[rec0];
     s.position = origin + dir * t0;
     s.t = t0;
@@ -104,8 +108,8 @@ bool rt_trace_surface(instance_acceleration_structure tlas, const device RtInsta
     const float eps = max(hit.limits.w * t0, 0.001);
     float t1, t2;
     uint rec1, rec2, prim1, prim2;
-    const bool h1 = rt_closest_hit(tlas, origin + u * eps, dir, tmin, tmax, kRtMaskSurfaces, false, t1, rec1, prim1);
-    const bool h2 = rt_closest_hit(tlas, origin + v * eps, dir, tmin, tmax, kRtMaskSurfaces, false, t2, rec2, prim2);
+    const bool h1 = rt_closest_hit(tlas, origin + u * eps, dir, tmin, tmax, mask, false, t1, rec1, prim1);
+    const bool h2 = rt_closest_hit(tlas, origin + v * eps, dir, tmin, tmax, mask, false, t2, rec2, prim2);
     if (h1 && h2 && rec1 == rec0 && rec2 == rec0 && prim1 == prim0 && prim2 == prim0) {
         const float3 e1 = u * eps + dir * (t1 - t0);
         const float3 e2 = v * eps + dir * (t2 - t0);
@@ -117,6 +121,11 @@ bool rt_trace_surface(instance_acceleration_structure tlas, const device RtInsta
         }
     }
     return true;
+}
+
+bool rt_trace_surface(instance_acceleration_structure tlas, const device RtInstanceRecord* records, constant RtHitParams& hit,
+                      float3 origin, float3 dir, float tmin, float tmax, thread RtSurface& s) {
+    return rt_trace_surface_mask(tlas, records, hit, origin, dir, tmin, tmax, kRtMaskSurfaces, s);
 }
 
 float3 rt_environment(constant RtHitParams& hit, float3 d, float rough) {

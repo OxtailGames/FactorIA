@@ -1020,3 +1020,39 @@ TEST_CASE("rt local shadows: a terrain keeps the maps of the lights (the rays do
     CHECK(drawsWithTerrain > 0);
     CHECK(r.errors().empty());
 }
+
+TEST_CASE("rt local shadows: the volumetric fog's march reads the maps, so a traced light that shines in the fog keeps "
+          "its map") {
+    // The march (volumetric.glsl, vol_shadow_local) samples the local maps of the atlas: a traced light with Light.volumetric above 0, in a camera that
+    // draws the fog, has its map drawn; a traced light with none, or any light with the fog off, skips it as before.
+    const auto draws_of = [](render::RtShadows mode, bool fog, float volumetric) {
+        Rig r;
+        r.rays(mode);
+        World w;
+        make_room(w);
+        add_lights(w, 3);
+        w.each<Light>([&](Entity, Light& l) { l.volumetric = volumetric; });
+        w.settings().volumetricFog = fog;
+        w.settings().volumetricDensity = 0.05f;
+        r.frames(w, 5);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        int candidates = 0, traced = 0;
+        r.status(candidates, traced);
+        CHECK(traced == (mode == render::RtShadows::Off ? 0 : 3));
+        return r.count(gpu::CommandKind::Draw);
+    };
+    {
+        Rig probe;
+        if (!probe.renderer.supports("volumetricFog"))
+            return;  // the march is not made on this device: nothing reads the maps
+    }
+    const int raster = draws_of(render::RtShadows::Off, true, 1.0f);
+    const int shining = draws_of(render::RtShadows::Hard, true, 1.0f);
+    const int dark = draws_of(render::RtShadows::Hard, true, 0.0f);
+    const int noFog = draws_of(render::RtShadows::Hard, false, 1.0f);
+    CHECK(shining == raster);  // every map is drawn: the march reads them
+    CHECK(dark < shining);     // no light shines in the fog: the maps are not drawn
+    CHECK(noFog < shining);    // no fog: the same
+}

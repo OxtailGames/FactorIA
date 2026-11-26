@@ -496,7 +496,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     // Transmission and volume (M73.6b; brdf_layers.glsl, block fa_transmission). fa_ct_vp*, fa_ct_a.yzw hold the camera's view of the frame
     // for a transmissive draw too (the atlas has the prepass's size, the camera's rectangle).
     vec4 fa_tr_a;               // x transmission, y thickness (metres), z attenuation distance (metres, 0 = no tint), w = how the draw is
-                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas)
+                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas),
+                                // 3 as 1 and level 0 of the atlas also holds what the ray traced translucency saw (alpha 1 where it traced)
     vec4 fa_tr_b;               // rgb attenuation colour, w = the levels of the atlas (1 = the picture only)
     vec4 fa_probe_sh[9];        // baked light probes (M73.4d) of a mesh without a lightmap: coefficient k of the SH in [k].xyz (the order of
                                 // ShL2), [0].w = the coverage (0 = no probe reaches the mesh: the sky's ambient, nothing else changes)

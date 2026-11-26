@@ -348,7 +348,8 @@ render::LightData make_disc(Vec3 pos, float halfSize, float softness, bool hard)
 
 }  // namespace
 
-TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light matches a CPU ray caster, hard and soft, is the same every frame, "
+TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light matches a CPU ray caster, hard and "
+          "soft, is the same every frame, "
           "and the pack keeps the sun's image") {
     Rig rig;
     std::string skip;
@@ -373,7 +374,8 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
     std::vector<Tri> tris;
     for (const Place& p : places)
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, p.mask});
 
     AccelBuildFlags flags;
@@ -403,7 +405,8 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
     const CameraGeometry cam = make_camera();
     const Vec2 targetSize{float(kW), float(kH)};
     std::vector<float> prepass(std::size_t(kW) * kH * 4, 0.0f);
-    std::vector<int> primary(std::size_t(kW) * kH, -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
+    std::vector<int> primary(std::size_t(kW) * kH,
+                             -2);  // the triangle of each pixel, -1 the sky, -2 an edge (not compared)
     std::vector<float> depths(std::size_t(kW) * kH, 0.0f);
     std::vector<Vec3> positions(std::size_t(kW) * kH), normals(std::size_t(kW) * kH);
     for (int y = 0; y < kH; ++y)
@@ -539,13 +542,16 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
                 if (bigHit != smallHit) continue;  // on the edge of a shadow
                 ++compared[s];
                 if (outA) ++outside[s];
-                if (smallHit) ++shadowed[s]; else ++lit[s];
+                if (smallHit)
+                    ++shadowed[s];
+                else
+                    ++lit[s];
                 CHECK(g[s] == (smallHit ? 0.0f : 1.0f));
             }
         }
-    MESSAGE("spot: compared " << compared[0] << ", shadowed " << shadowed[0] << ", lit " << lit[0] << ", outside the cone " << outside[0]
-                              << "; area: compared " << compared[1] << ", shadowed " << shadowed[1] << ", lit " << lit[1]
-                              << "; sky " << sky);
+    MESSAGE("spot: compared " << compared[0] << ", shadowed " << shadowed[0] << ", lit " << lit[0]
+                              << ", outside the cone " << outside[0] << "; area: compared " << compared[1]
+                              << ", shadowed " << shadowed[1] << ", lit " << lit[1] << "; sky " << sky);
     for (int s = 0; s < 2; ++s) {
         CHECK(compared[s] > kW * kH / 3);
         CHECK(shadowed[s] > 20);  // the box's shadow and its dark sides
@@ -585,10 +591,11 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
                     const Vec3 axis{l.axisCos[0], l.axisCos[1], l.axisCos[2]};
                     const int kind = int(l.kind[0] + 0.5f);
                     float f = 1.0f;
-                    const bool traced = !(dist > l.posReach[3] || (kind == 2 && dot(dirToLight * -1.0f, axis) < l.axisCos[3] - 0.02f));
+                    const bool traced =
+                        !(dist > l.posReach[3] || (kind == 2 && dot(dirToLight * -1.0f, axis) < l.axisCos[3] - 0.02f));
                     if (traced) {
                         const Vec3 t = normalize(std::fabs(dirToLight.y) < 0.99f ? cross(dirToLight, Vec3{0, 1, 0})
-                                                                                  : cross(dirToLight, Vec3{1, 0, 0}));
+                                                                                 : cross(dirToLight, Vec3{1, 0, 0}));
                         const Vec3 b = cross(dirToLight, t);
                         const float offset = params.user0[0] + params.user0[1] * depths[i];
                         const Vec3 o = positions[i] + normals[i] * offset;
@@ -604,7 +611,8 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
                             }
                             const Vec3 v = target - o;
                             const float len = length(v);
-                            if (!any_hit(tris, o, v / len, -1e-3f, params.user0[2], len * (1.0f - L.header[1]), 0x08)) ++free;
+                            if (!any_hit(tris, o, v / len, -1e-3f, params.user0[2], len * (1.0f - L.header[1]), 0x08))
+                                ++free;
                         }
                         f = float(free) / float(kSamples);
                     }
@@ -614,7 +622,8 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
                     CAPTURE(s);
                     CHECK(k >= 0.0f);
                     CHECK(k <= 1.0f);
-                    CHECK(std::fabs(k * float(rays) - std::round(k * float(rays))) < 1e-3f);  // a visibility of N rays is a multiple of 1 / N
+                    CHECK(std::fabs(k * float(rays) - std::round(k * float(rays))) <
+                          1e-3f);  // a visibility of N rays is a multiple of 1 / N
                     const double err = std::fabs(double(k) - double(f));
                     sumErr += err;
                     ++n;
@@ -637,11 +646,12 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
     };
     const SoftStats narrow = measure(1.0f, 16, 31);
     const SoftStats wide = measure(4.0f, 16, 31);
-    MESSAGE("soft: softness 1: umbra " << narrow.umbra << ", full " << narrow.full << ", penumbra " << narrow.partial << ", mean error "
-                                       << narrow.meanError << " (penumbra " << narrow.meanPenumbraError << ", max " << narrow.maxError
-                                       << "); softness 4: umbra " << wide.umbra << ", full " << wide.full << ", penumbra " << wide.partial
-                                       << ", mean error " << wide.meanError << " (penumbra " << wide.meanPenumbraError << ", max "
-                                       << wide.maxError << ")");
+    MESSAGE("soft: softness 1: umbra " << narrow.umbra << ", full " << narrow.full << ", penumbra " << narrow.partial
+                                       << ", mean error " << narrow.meanError << " (penumbra "
+                                       << narrow.meanPenumbraError << ", max " << narrow.maxError
+                                       << "); softness 4: umbra " << wide.umbra << ", full " << wide.full
+                                       << ", penumbra " << wide.partial << ", mean error " << wide.meanError
+                                       << " (penumbra " << wide.meanPenumbraError << ", max " << wide.maxError << ")");
     for (const SoftStats* st : {&narrow, &wide}) {
         CHECK(st->umbra > 10);
         CHECK(st->full > 300);
@@ -661,7 +671,8 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
     for (int i = 0; i < kW * kH; ++i)
         for (int s = 0; s < 2; ++s) {
             const float va = a[std::size_t(i) * 4 + std::size_t(s)], vb = b[std::size_t(i) * 4 + std::size_t(s)];
-            if (va == 0.0f || va == 1.0f) CHECK(std::fabs(va - vb) <= 0.5f);  // a pixel in the umbra is not in the full light the next frame
+            if (va == 0.0f || va == 1.0f)
+                CHECK(std::fabs(va - vb) <= 0.5f);  // a pixel in the umbra is not in the full light the next frame
         }
     // More than the 16 rays the kernel allows is 16: the same image.
     CHECK(rig.trace(tlas, frame_params(true, 42, 16), L1) == rig.trace(tlas, frame_params(true, 42, 160), L1));

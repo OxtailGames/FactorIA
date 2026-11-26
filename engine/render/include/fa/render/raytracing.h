@@ -47,7 +47,8 @@ struct RayTracingSettings {
     bool reflections =
         false;  // reflections traced with rays (mirror under roughness 0.25, glossy and denoised up to 0.65), with the
                 // screen-space ones and the probes as the per-pixel fallback
-    bool translucency = false;  // light through glass and thin surfaces (refraction and coloured shadows)
+    bool translucency =
+        false;  // refraction through glass and liquids traced with rays, instead of the screen-space refraction
     RtGi gi = RtGi::Off;
     int raysPerPixel =
         kRtDefaultRaysPerPixel;  // rays of each effect per pixel and frame (1 to 16); the denoiser makes up the rest

@@ -29,15 +29,17 @@ TransientDesc desc_of(int w, int h, gpu::PixelFormat fmt, const char* label) {
 }
 
 // One full-screen triangle into the rectangle (x, row, w, h) of the pass's target, in image rows. `src`: the source rectangle (image rows) of
-// the image `view` (`imgW` x `imgH`), `reduce`: 4-tap reduction instead of the copy.
+// the image `view` (`imgW` x `imgH`), `mode`: 0 the copy, 1 the 4-tap reduction, 2 the copy with the traced image `rt` (shaders/xmit.glsl).
 void draw_rect(Gpu& gpu, gpu::CommandList& list, gpu::View view, int imgW, int imgH, int sx, int sy, int sw, int sh,
-               bool reduce, int x, int row, int w, int h) {
+               int mode, int x, int row, int w, int h, gpu::View rt = {}) {
     list.set_viewport(x, row, w, h, !gpu.is_gl());
     list.set_scissor(x, row, w, h, !gpu.is_gl());
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_xmit_tex_src] = view;
+    b.views[VIEW_xmit_tex_rt] = rt.id ? rt : view;  // a slot is never left empty (the copies read nothing there)
     b.samplers[SMP_xmit_smp_lin] = gpu.sampler(SamplerKind::LinearClamp);
+    b.samplers[SMP_xmit_smp_pt] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     xmit_xmit_vs_params_t vu{};
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
@@ -49,7 +51,7 @@ void draw_rect(Gpu& gpu, gpu::CommandList& list, gpu::View view, int imgW, int i
     fu.src[3] = float(sh);
     fu.info[0] = float(imgW);
     fu.info[1] = float(imgH);
-    fu.info[2] = reduce ? 1.0f : 0.0f;
+    fu.info[2] = float(mode);
     list.set_uniforms(UB_xmit_xmit_params, gpu::Range{&fu, sizeof(fu)});
     list.draw(0, 3, 1);
 }
@@ -164,8 +166,8 @@ bool Xmit::can_make(TransientTargets& targets, Gpu& gpu, int w, int h) {
     return true;
 }
 
-bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h,
-                 XmitImages& out) {
+bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, XmitImages& out,
+                 gpu::View traced) {
     out = XmitImages{};
     const XmitLayout lay = xmit_layout(w, h);
     gpu::Device& device = gpu.device();
@@ -208,11 +210,10 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
         list.begin_pass(pd);
         list.set_pipeline(pipeline(device, pd.format));
         if (k == 1)
-            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, true, 0, 0, lay.level[1].w,
-                      lay.level[1].h);
+            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, 1, 0, 0, lay.level[1].w, lay.level[1].h);
         else
             draw_rect(gpu, list, red[k - 1]->texView, red[k - 1]->w, red[k - 1]->h, 0, 0, lay.level[k - 1].w,
-                      lay.level[k - 1].h, true, 0, 0, lay.level[k].w, lay.level[k].h);
+                      lay.level[k - 1].h, 1, 0, 0, lay.level[k].w, lay.level[k].h);
         list.end_pass();
     }
     // The atlas: every level into its rectangle; what no level covers is black.
@@ -225,13 +226,15 @@ bool Xmit::build(TransientTargets& targets, Gpu& gpu, const Target& game, int x,
     for (int k = 0; k < lay.levels; ++k) {
         const XmitLayout::Level& v = lay.level[k];
         if (k == 0)
-            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, false, v.x, v.y, v.w, v.h);
+            draw_rect(gpu, list, game.texView, game.w, game.h, x, row, w, h, traced.id ? 2 : 0, v.x, v.y, v.w, v.h,
+                      traced);
         else
-            draw_rect(gpu, list, red[k]->texView, red[k]->w, red[k]->h, 0, 0, v.w, v.h, false, v.x, v.y, v.w, v.h);
+            draw_rect(gpu, list, red[k]->texView, red[k]->w, red[k]->h, 0, 0, v.w, v.h, 0, v.x, v.y, v.w, v.h);
     }
     list.end_pass();
     out.atlasView = atlas->texView;
     out.levels = lay.levels;
+    out.traced = traced.id != 0;
     return true;
 }
 

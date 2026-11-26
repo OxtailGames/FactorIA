@@ -1342,8 +1342,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "Ray tracing is off by default and free when off. This version has the shared interface (acceleration "
          "structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a "
          "device that builds and traces "
-         "them; so far `shadows` (the sun's hard shadow), `ao` (ambient occlusion) and `reflections` (sharp mirror "
-         "reflections) draw with rays, so `active` is true "
+         "them; so far `shadows` (the sun's shadow), `ao` (ambient occlusion), `reflections` (sharp mirror "
+         "reflections) and `translucency` (refraction through glass) draw with rays, so `active` is true "
          "when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or "
          "type fails with "
          "`invalid_argument`, a JSON pointer and a \"did you mean\", and changes nothing. The start value is "
@@ -1354,7 +1354,7 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                "shadows":{"type":"string","enum":["off","hard","soft"],"description":"off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off."},
                "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
                "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
-               "translucency":{"type":"boolean","description":"Light through glass and thin surfaces. Default false."},
+               "translucency":{"type":"boolean","description":"Refraction through glass and liquids traced with rays (a ray bent at every interface, tinted by the volume), instead of the screen-space refraction. Default false."},
                "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes updated with rays, or a bounce per pixel. Default off."},
                "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame, clamped to 1..16. Default 1."},
                "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds, clamped to 1..1048576. Default 65536."}}})"),
