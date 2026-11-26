@@ -113,9 +113,10 @@ public:
     // with weight `blend` (1 replaces it: a probe's first capture; 1 - hysteresis afterwards).
     void filter_gi(Gpu& gpu, Atlas& atlas, int slot, int block, int resolution, float blend, float maxDistance,
                    int* drawCalls);
-    // Block `block` of the band from the RGBA16F image `band` (the ray traced probes' kernel wrote it, rt_gi.h): the block's texels at
-    // (block origin x, block origin y - kProbeAtlasSize) blended into the atlas, each with the weight its own alpha holds.
-    void blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, int block, int* drawCalls);
+    // The blocks `blocks` of the band from the RGBA16F image `band` (the ray traced probes' kernel wrote it, rt_gi.h): each block's texels at
+    // (block origin x, block origin y - kProbeAtlasSize) blended into the atlas, each with the weight its own alpha holds. One pass of the
+    // atlas for all of them, one draw (counted in `drawCalls`) a block.
+    void blit_gi(Gpu& gpu, Atlas& atlas, gpu::View band, const std::vector<int>& blocks, int* drawCalls);
 
     void release();
 
@@ -238,6 +239,9 @@ struct GiSystem {
         int probe = 0, face = 0, distIndex = 0;
         bool last = false;   // the sixth face of the capture: the block is filtered after it
         bool first = false;  // the probe's first capture: it replaces the block instead of blending into it
+        // A capture planned next to the ray traced update of the same probe (`rtInsured`): gi_finish drops it when the rays ran, and makes it
+        // the probe's update when they did not.
+        bool insurance = false;
         gpu::View picture{};
     };
     std::vector<Job> jobs;
@@ -254,6 +258,13 @@ struct GiSystem {
     std::string
         rtReason;  // why the ray traced mode did not update the grids this frame (empty: it did, or it is not wanted)
     int rtMisses = 0;  // consecutive frames whose planned pass did not run
+    // The rays are being tried again after a failure (set when the raster fallback starts, cleared by a frame whose pass ran).
+    bool rtRetry = false;
+    // This frame: the pass is declared on a frame that may fail (a retry, or the frame after one that did not run), so the raster captures of
+    // the same probes are planned too (Job::insurance): no frame goes without an update of the grids.
+    bool rtInsured = false;
+    std::vector<float>
+        rtBounceLog;  // this frame: the "the kernel reads the atlas" flag of each dispatch (tests, RendererTestAccess)
     std::uint64_t rtFallbackUntil =
         0;  // the raster captures run while `frame` is below this (the rays failed); then the rays are tried once
     std::string rtFallbackReason;  // why (what `render.ray_tracing` says while the fallback lasts)

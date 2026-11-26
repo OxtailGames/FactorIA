@@ -114,7 +114,7 @@ hashes of what the image was drawn from, and its size. The effect pass calls the
 | `camera` | `path_trace_camera_hash` changed (the rays of the unjittered camera, the position) | same |
 | `scene` | the TLAS content hash changed (an instance moved, appeared, changed material) | same |
 | `settings` | `path_trace_settings_hash` changed (the setting, the hit constants, the lights block) | same |
-| (none) | nothing changed | dispatch `min(samplesPerFrame, maxSamples - samples)` samples starting at `samples` |
+| (none) | nothing changed | dispatch `min(samplesPerFrame capped by the image, maxSamples - samples)` samples starting at `samples` |
 | hold | `maxSamples` samples reached | `RtPrepare::Hold`: no dispatch, the image is kept as it is |
 
 The order of the table is the order of the checks. Every reset but `start` increments `PathTracerStatus::resets` and sets `lastReset`
@@ -122,6 +122,16 @@ The order of the table is the order of the checks. Every reset but `start` incre
 FNV-1a 64 over the bytes the kernel's picture depends on; the `seed` is part of the settings hash, **the frame number is not**: the same samples
 are drawn however many frames it took to draw them, so a run is reproducible (`render.pathtrace` twice gives the same bytes on a device).
 A frame the renderer draws with the path tracer on but no TLAS (the scene is empty) dispatches nothing and the raster picture stays.
+
+**The samples a dispatch adds are capped by the image's pixels** (`path_trace_samples_cap`): at most `kPtMaxPathsPerDispatch` (2^24, 16.7 million
+paths) divided by `width x height`, never fewer than 1, so a 1080p image adds at most 8 samples a frame and a 4K one 2, whatever `samplesPerFrame`
+asks (64 at most). One submit then never runs long enough for a driver's watchdog (a Windows TDR is about two seconds), and the accumulation
+spreads the samples over more frames: the picture after N samples is the same, only the number of frames it takes changes. The cap is a pixel
+count, never a time. `render.pathtrace` asks for `min(samples, 4)` a frame; on a very big image it gets fewer, still at least one a frame, so its bound of `samples + 64` frames holds.
+
+**The state of a camera is forgotten when it goes.** `PathTraceState::jobs` has one `PathTraceJobState` per camera (`plan.name`), stamped with
+the frame that planned it (`lastFrame`); `PathTraceState::purge`, called by `rt_begin_frame`, erases the cameras no frame planned for two
+frames, the delay after which `RtEffects::sweep` frees their image. A camera that comes back starts over (`"start"`).
 
 ## From the image to the screen
 
@@ -135,7 +145,9 @@ filtering blit's shader. The pass reads the image's resource, so the frame graph
 
 What follows is the raster's own: the post stack and the tonemap treat the path traced colour as the lit colour (it is HDR in the scene's linear
 space, drawn into the scene target). The SSAO apply is skipped when the path tracer drew (the occlusion is part of the picture; applying it again
-would darken it twice). The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
+would darken it twice), and so are its passes: a frame whose path tracer pass is declared (`ctx.pathTrace.res`) adds no SSAO passes, and one that
+traces the pass also asks no ray traced ambient occlusion (`ctx.rtAo.want` is false while `ptState.status.failure` is empty, so the occlusion
+comes back the frame after a device refuses the path tracer). The reflections, the per-pixel GI and the shadows are not skipped: they are other effects' passes (not this package's to drop) and the blended draws over the picture read them. The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
 picture** (they are not in the kernel's picture as raster draws): glass the path tracer already refracted shows twice, which is a known limit of
 this version.
 
