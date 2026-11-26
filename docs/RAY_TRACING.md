@@ -8,12 +8,12 @@ default, and free when off.
 > **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface**: the
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
-> The Direct3D 12 backend builds acceleration structures on a GPU with DXR tier 1.1 (the table below). **No effect draws with rays yet**: turning the settings on changes nothing in the picture, and
+> The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below). **No effect draws with rays yet**: turning the settings on changes nothing in the picture, and
 > `render.ray_tracing` says so (`active` is false, with the reason). The sections below say what each part will do and mark what is
 > planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
-> an effect is on ("Which objects are traced", below). The backends that run them come with their own packages, and no effect reads them
+> an effect is on ("Which objects are traced", below). Direct3D 12, Vulkan and Metal run them, and no effect reads them
 > yet, so the picture is still the same.
 
 ## The settings
@@ -62,7 +62,7 @@ It returns the settings plus:
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
 | `active` | whether any effect is traced right now. **Always false in this version.** |
-| `reason` | empty while `enabled` is false; otherwise why nothing is traced (the device's reason, or that this version has the interface only). |
+| `reason` | empty while `enabled` is false; otherwise why nothing is traced (the device's reason, or that no effect draws with rays yet). |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -71,7 +71,7 @@ Two rows of `render.supports` (the same answer as `Renderer::supports("raytracin
 
 | row | true when | reason when false |
 |---|---|---|
-| `raytracing` | the device has **ray queries** and **acceleration structures** (Direct3D 12 with DXR 1.1, Vulkan with `VK_KHR_ray_query`, Metal on a GPU with ray tracing) and the engine's backend builds them | names the backend and what is missing: the package that will bring it, or what the GPU lacks |
+| `raytracing` | the device has **ray queries** and **acceleration structures** (Direct3D 12 with DXR 1.1, Vulkan with `VK_KHR_ray_query`, Metal on a GPU with ray tracing) and the engine's backend builds them | names the backend and what is missing: what the GPU, the driver or the OS lacks |
 | `raytracingPipeline` | the GPU also has ray tracing **pipelines** and shader binding tables. **Reported only**: the engine traces with inline ray queries in compute shaders and never uses pipelines, so a GPU without them still traces | the same reason, or "no ray tracing pipelines" on a GPU with ray queries only |
 
 Ask before you turn an effect on, and draw without it when the answer is false:
@@ -87,7 +87,7 @@ if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 |---|---|---|
 | Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; no effect traces yet | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
 | Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (no effect traces yet) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS, iOS) | planned (Metal ray tracing, `intersector`) | not built yet: "package P1m of milestone 79" |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. Only the structures are built and traced for now; no effect draws with them yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 

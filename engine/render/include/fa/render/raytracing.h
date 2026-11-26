@@ -44,8 +44,10 @@ struct RayTracingSettings {
     bool reflections = false;   // mirror and glossy reflections traced with rays, instead of the screen-space ones
     bool translucency = false;  // light through glass and thin surfaces (refraction and coloured shadows)
     RtGi gi = RtGi::Off;
-    int raysPerPixel = kRtDefaultRaysPerPixel;  // rays of each effect per pixel and frame (1 to 16); the denoiser makes up the rest
-    int maxInstances = kRtDefaultMaxInstances;  // the most instances the TLAS holds (1 to 1048576); the nearest to the camera first
+    int raysPerPixel =
+        kRtDefaultRaysPerPixel;  // rays of each effect per pixel and frame (1 to 16); the denoiser makes up the rest
+    int maxInstances =
+        kRtDefaultMaxInstances;  // the most instances the TLAS holds (1 to 1048576); the nearest to the camera first
     bool operator==(const RayTracingSettings&) const = default;
 };
 
@@ -60,8 +62,7 @@ constexpr std::string_view rt_gi_name(RtGi m) {
 
 // Whether any effect asks for rays: enabled and at least one effect on. The renderer pays for ray tracing only then.
 constexpr bool rt_any_effect(const RayTracingSettings& s) {
-    return s.enabled &&
-           (s.shadows != RtShadows::Off || s.ao || s.reflections || s.translucency || s.gi != RtGi::Off);
+    return s.enabled && (s.shadows != RtShadows::Off || s.ao || s.reflections || s.translucency || s.gi != RtGi::Off);
 }
 
 // {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"} (every key always present).

@@ -140,7 +140,7 @@ struct ProjectSettings {
     render::FrameGenSettings frameGeneration;
     // "render": {"rayTracing": {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"}} (M79,
     // docs/RAY_TRACING.md): the ray traced effects a run asks for. Off (the default) is the renderer of every earlier version and costs
-    // nothing. In this version only the interface exists: no backend traces rays yet and the renderer does not read these settings.
+    // nothing. In this version the renderer does not read these settings yet: only the interface and the Metal device exist.
     render::RayTracingSettings rayTracing;
     // "render": {"dynamicResolution": {"enabled", "targetMs", "minScale", "maxScale"}} (M76-P6c, docs/UPSCALING.md, "Dynamic resolution"): the render
     // scale follows the frame time. Off (the default) draws at the fixed render scale.
