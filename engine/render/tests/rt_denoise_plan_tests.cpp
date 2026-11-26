@@ -58,6 +58,15 @@ TEST_CASE("denoise plan: the passes and images of each kind") {
     CHECK(sp.hitDistance);
     CHECK(sp.signalPasses == 1 + 2 + 1);  // the debug view is one more pass and one more image
     CHECK(sp.transients == 1 + 1 + 1);
+
+    // M79-P3a-2: the coverage of a reflection is one channel with the hit distance's moments (the reprojection follows the virtual point).
+    s.kind = DenoiseKind::Coverage;
+    s.debug = DenoiseDebug::None;
+    const DenoisePlan cv = make_denoise_plan(s, 640, 360, true);
+    CHECK(cv.on);
+    CHECK(cv.channels == 1);
+    CHECK(cv.hitDistance);
+    CHECK(cv.historyImages == 4);
 }
 
 TEST_CASE("denoise plan: a disabled signal or an empty image costs nothing") {
@@ -128,6 +137,12 @@ TEST_CASE("denoise plan: the config key follows what the history's numbers mean,
     b = a;
     b.kind = DenoiseKind::Specular;
     CHECK(make_denoise_plan(a, 8, 8, true).configKey != make_denoise_plan(b, 8, 8, true).configKey);
+    // A signal that changes kind (a coverage that was a specular one) starts a new history: the key differs, so the reset is Settings.
+    DenoiseSignal c = b;
+    c.kind = DenoiseKind::Coverage;
+    const std::uint64_t kb = make_denoise_plan(b, 8, 8, true).configKey, kc = make_denoise_plan(c, 8, 8, true).configKey;
+    CHECK(kb != kc);
+    CHECK(denoise_reset_reason(state_of(1, kb), cam_at(2), 64, 48, kc) == DenoiseReset::Settings);
 }
 
 TEST_CASE("denoise history: the first rule that breaks it names the reason") {
@@ -159,7 +174,8 @@ TEST_CASE("denoise history: the first rule that breaks it names the reason") {
 }
 
 TEST_CASE("denoise: every kind and reason has a name") {
-    for (DenoiseKind k : {DenoiseKind::Visibility, DenoiseKind::Occlusion, DenoiseKind::Diffuse, DenoiseKind::Specular})
+    for (DenoiseKind k : {DenoiseKind::Visibility, DenoiseKind::Occlusion, DenoiseKind::Diffuse, DenoiseKind::Specular,
+                         DenoiseKind::Coverage})
         CHECK(std::string(denoise_kind_name(k)).size() > 2);
     for (DenoiseReset r : {DenoiseReset::None, DenoiseReset::Fresh, DenoiseReset::Resize, DenoiseReset::Gap,
                            DenoiseReset::Scene, DenoiseReset::Origin, DenoiseReset::Settings, DenoiseReset::Cut})
