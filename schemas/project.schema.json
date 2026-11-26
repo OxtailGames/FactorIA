@@ -277,6 +277,67 @@
             }
           }
         },
+        "rayTracing": {
+          "type": "object",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version only the interface exists: no backend traces rays yet and the renderer does not read these settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "The master switch. false = nothing below is read and nothing is paid. Default false."
+            },
+            "shadows": {
+              "type": "string",
+              "enum": [
+                "off",
+                "hard",
+                "soft"
+              ],
+              "default": "off",
+              "description": "off = the shadow maps of the lighting; hard = one ray per light towards its centre (a sharp edge); soft = rays towards a point of the light's disc (the edge softens with the distance to the caster). Default off."
+            },
+            "ao": {
+              "type": "boolean",
+              "default": false,
+              "description": "Ambient occlusion traced with rays instead of the screen-space one. Default false."
+            },
+            "reflections": {
+              "type": "boolean",
+              "default": false,
+              "description": "Mirror and glossy reflections traced with rays instead of the screen-space ones. Default false."
+            },
+            "translucency": {
+              "type": "boolean",
+              "default": false,
+              "description": "Light through glass and thin surfaces (refraction and coloured shadows). Default false."
+            },
+            "gi": {
+              "type": "string",
+              "enum": [
+                "off",
+                "probes",
+                "perPixel"
+              ],
+              "default": "off",
+              "description": "Global illumination: off = the engine's own (light probes and the ambient); probes = light probes updated with rays; perPixel = a bounce traced for every pixel (the most expensive). Default off."
+            },
+            "raysPerPixel": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "default": 1,
+              "description": "Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside 1 to 16 is clamped. Default 1."
+            },
+            "maxInstances": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576,
+              "default": 65536,
+              "description": "The most instances the top-level acceleration structure holds; the nearest to the camera come first. A value outside 1 to 1048576 is clamped. Default 65536."
+            }
+          }
+        },
         "dynamicResolution": {
           "type": "object",
           "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",

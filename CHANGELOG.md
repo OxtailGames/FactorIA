@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray tracing, the shared interface (M79):** `fa::gpu` gains acceleration structures for inline ray queries in compute passes
+  (decision: no ray tracing pipelines): `Device::blas_sizes`, `tlas_sizes`, `make_accel_structure`, and `CommandList::build_blas`,
+  `build_tlas`, `query_compacted_size`, `copy_accel_structure`. Every backend refuses them with a reason that names the package
+  that will bring it (Direct3D 12, Vulkan, Metal), and the `RecordingDevice` made with `recordingRayTracing` records and checks
+  them, so the code that builds structures is tested without a GPU. `render.supports` has the rows `raytracing` and
+  `raytracingPipeline` (capability only), the project setting `render.rayTracing` (`enabled`, `shadows`, `ao`, `reflections`,
+  `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
+  and change it. **No backend builds an acceleration structure yet and nothing is traced:** turning the settings on changes no
+  picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+
 ## 0.38.0
 
 Vendor upscaling, frame generation and low latency (M78): `render.upscaler` modes `dlss` (NVIDIA DLSS Super Resolution through

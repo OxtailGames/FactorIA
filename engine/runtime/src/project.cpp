@@ -92,8 +92,9 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
         latency != render::LatencySettings{} || frameGeneration != render::FrameGenSettings{} ||
-        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
-        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
+        rayTracing != render::RayTracingSettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
+        graphicsPreset != render::GraphicsPreset::Custom || renderBackend != "auto" || !renderAsyncCompute ||
+        !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -115,6 +116,10 @@ Json ProjectSettings::to_json() const {
             render["frameGeneration"] = render::frame_gen_to_json(frameGeneration);
         else
             render.erase("frameGeneration");
+        if (rayTracing != render::RayTracingSettings{})
+            render["rayTracing"] = render::ray_tracing_to_json(rayTracing);
+        else
+            render.erase("rayTracing");
         if (dynamicResolution != render::DynamicResolutionSettings{})
             render["dynamicResolution"] = render::dynamic_resolution_to_json(dynamicResolution);
         else
@@ -142,6 +147,7 @@ Json ProjectSettings::to_json() const {
         j["render"].erase("upscaler");
         j["render"].erase("latency");
         j["render"].erase("frameGeneration");
+        j["render"].erase("rayTracing");
         j["render"].erase("dynamicResolution");
         j["render"].erase("graphicsPreset");
         j["render"].erase("backend");
@@ -709,6 +715,12 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!frameGenSet.ok()) return frameGenSet.error();
             s.frameGeneration = frameGenSet.value();
         }
+        if (auto rt = it->find("rayTracing"); rt != it->end() && !rt->is_null()) {
+            Result<render::RayTracingSettings> rayTracingSet =
+                render::parse_ray_tracing_settings(*rt, at("/render/rayTracing"), render::RayTracingSettings{});
+            if (!rayTracingSet.ok()) return rayTracingSet.error();
+            s.rayTracing = rayTracingSet.value();
+        }
         if (auto dr = it->find("dynamicResolution"); dr != it->end() && !dr->is_null()) {
             Result<render::DynamicResolutionSettings> dynamicSet = render::parse_dynamic_resolution_settings(
                 *dr, at("/render/dynamicResolution"), render::DynamicResolutionSettings{});
@@ -1182,6 +1194,59 @@ constexpr const char* kSchemaText =
               "maximum": 1000,
               "default": 60,
               "description": "The frame rate the game renders at (generated frames not counted) below which generation is switched off: a generated frame between two slow ones adds delay and shows artefacts. It turns on again at 10% above it. 0 = never switch off. Default 60."
+            }
+          }
+        },
+        "rayTracing": {
+          "type": "object",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version only the interface exists: no backend traces rays yet and the renderer does not read these settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "The master switch. false = nothing below is read and nothing is paid. Default false."
+            },
+            "shadows": {
+              "type": "string",
+              "enum": ["off", "hard", "soft"],
+              "default": "off",
+              "description": "off = the shadow maps of the lighting; hard = one ray per light towards its centre (a sharp edge); soft = rays towards a point of the light's disc (the edge softens with the distance to the caster). Default off."
+            },
+            "ao": {
+              "type": "boolean",
+              "default": false,
+              "description": "Ambient occlusion traced with rays instead of the screen-space one. Default false."
+            },
+            "reflections": {
+              "type": "boolean",
+              "default": false,
+              "description": "Mirror and glossy reflections traced with rays instead of the screen-space ones. Default false."
+            },
+            "translucency": {
+              "type": "boolean",
+              "default": false,
+              "description": "Light through glass and thin surfaces (refraction and coloured shadows). Default false."
+            },
+            "gi": {
+              "type": "string",
+              "enum": ["off", "probes", "perPixel"],
+              "default": "off",
+              "description": "Global illumination: off = the engine's own (light probes and the ambient); probes = light probes updated with rays; perPixel = a bounce traced for every pixel (the most expensive). Default off."
+            },
+            "raysPerPixel": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "default": 1,
+              "description": "Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside 1 to 16 is clamped. Default 1."
+            },
+            "maxInstances": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576,
+              "default": 65536,
+              "description": "The most instances the top-level acceleration structure holds; the nearest to the camera come first. A value outside 1 to 1048576 is clamped. Default 65536."
             }
           }
         },

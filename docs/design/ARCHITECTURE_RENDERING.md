@@ -10,7 +10,7 @@ renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU i
 [rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md). How the renderer uses several queues and threads on
 those two (the shadow views recorded on job threads, the depth pyramid on the async compute queue) is on the page
 [rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md). How a vendor SDK takes part in making those
-two devices and their swapchains is on the page [rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md).
+two devices and their swapchains is on the page [rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md). Ray tracing (M79): [the seam](ARCHITECTURE_RENDERING_RAYTRACING.md).
 
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design

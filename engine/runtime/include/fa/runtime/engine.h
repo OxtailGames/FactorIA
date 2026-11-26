@@ -358,6 +358,13 @@ public:
     Json frame_generation_status();
     // The base and presented frame rates and the generated frames of the last frames ({} without a renderer).
     Json frame_generation_report();
+    // render.ray_tracing (M79, docs/RAY_TRACING.md): the ray tracing setting {enabled, shadows, ao, reflections, translucency, gi, raysPerPixel,
+    // maxInstances}. An error is returned and nothing changes. The setting is only stored: no backend traces rays yet.
+    std::string set_ray_tracing(const Json& value, const std::string& where = "render.ray_tracing");
+    const render::RayTracingSettings& ray_tracing() const;
+    // The setting, whether this device could trace (renderer.supports("raytracing") and its reason) and whether anything is traced
+    // ("active": always false in this version), as render.ray_tracing returns it.
+    Json ray_tracing_status();
     // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
     // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
     std::string set_dynamic_resolution(const Json& value,
