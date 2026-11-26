@@ -15,6 +15,14 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
   and change it. **No backend builds an acceleration structure yet and nothing is traced:** turning the settings on changes no
   picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+- **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
+  written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
+  MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New
+  `factoria setup dxc` installs the pinned DXC 1.9.2609 (Windows x64/arm64, Linux x86_64; SHA-256 checked, licences kept, `$FA_DXC_DIR`
+  for your own) into `~/.factoria/tools/dxc/`, for contributors who edit those kernels (`tools/shaders/compile_rt_shaders.sh`, with
+  `--check`); macOS and Linux Arm are `unsupported` and the install says where the DXIL comes from. The Linux CI job regenerates the
+  headers and fails with the regenerated files as an artifact when they are stale; CI also reports lavapipe's and WARP's ray tracing
+  support. Design: `docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md`.
 
 ## 0.38.0
 
