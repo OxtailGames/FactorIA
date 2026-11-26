@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray traced hard shadows (M79-P2a-1):** `render.rayTracing.shadows = "hard"` now draws: with ray tracing on, a device that can trace
+  and a sun with `castShadows`, one compute pass per camera casts one ray per pixel from the surface toward the sun against the scene's
+  top-level structure (the meshes that cast a shadow in the shadow pass), and the lit pass takes the sun's shadow of an opaque mesh from
+  that mask instead of the cascades, wherever the mask holds the same surface; on a silhouette edge, for a full-shader material, a blended
+  draw and every other light, the shadow is the one it was (a cutout does not cast a ray traced shadow yet: the rays pass through it). The
+  cascades are still drawn. `"soft"` draws the hard shadow and says so once; a device that traces but refuses the kernel says so once and keeps the cascades.
+  Off, nothing is made. The effects share one scaffold (`rt_effect.h`: the pass, the bindings, a 400-byte constants block, the output
+  image, freed when the effect stops) that the ambient occlusion, reflections and translucency packages build on. `render.ray_tracing`
+  reports `active: true` with the shadows on a device that traces, and its reason says so. The DXIL and SPIR-V blobs are built, the Metal
+  kernel is tested against a CPU ray caster on a real GPU; the D3D12 and Vulkan kernels have run nowhere yet. docs/RAY_TRACING.md,
+  docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray tracing, the shared interface (M79):** `fa::gpu` gains acceleration structures for inline ray queries in compute passes
   (decision: no ray tracing pipelines): `Device::blas_sizes`, `tlas_sizes`, `make_accel_structure`, and `CommandList::build_blas`,
   `build_tlas`, `query_compacted_size`, `copy_accel_structure`. A device that cannot trace rays (OpenGL, GLES3, WebGL2, Direct3D 11, or a
