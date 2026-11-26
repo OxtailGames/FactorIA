@@ -90,13 +90,16 @@ inline constexpr std::string_view kRtHitParamNames[] = {"sunDir", "sunColor", "a
 // (RtEffectKernelSpec::usesLights). `count` is the number of the first lights that are filled (0 .. kRtMaxLights).
 inline constexpr int kRtMaxLights = 8;
 struct RtLightParams {
-    std::uint32_t count[4];  // x: the number of lights
-    float pos[kRtMaxLights][4];    // xyz: the position (the renderer's space), w: the range
-    float color[kRtMaxLights][4];  // rgb: colour * intensity, w: the type (1 point, 2 spot; an area light is a point light at its centre)
+    std::uint32_t count[4];      // x: the number of lights
+    float pos[kRtMaxLights][4];  // xyz: the position (the renderer's space), w: the range
+    float color
+        [kRtMaxLights]
+        [4];  // rgb: colour * intensity, w: the type (1 point, 2 spot; an area light is a point light at its centre)
     float dir[kRtMaxLights][4];    // xyz: a spot's axis, w: cos(outer angle)
     float extra[kRtMaxLights][4];  // x: cos(inner angle) of a spot (above 1.5: the lit pass's default fade)
 };
-static_assert(sizeof(RtLightParams) == 33 * 16, "RtLightParams is 33 float4 (rt_pathtrace.hlsl and .metal say the same)");
+static_assert(sizeof(RtLightParams) == 33 * 16,
+              "RtLightParams is 33 float4 (rt_pathtrace.hlsl and .metal say the same)");
 inline constexpr std::string_view kRtLightParamNames[] = {"count", "pos", "color", "dir", "extra"};
 // M79-P2a-3: the lights the local shadow kernel (rt_shadow_local) traces. At most kRtLocalMaxLights per frame: the three visibilities share one
 // image (r, g, b), one denoiser signal and the three bytes of one float of the lit pass's image (docs/design/ARCHITECTURE_RT_SHADOWS.md).
@@ -224,7 +227,7 @@ struct RtEffectRequest {
     int raysPerPixel = 1;
     float lightDir[3] = {0, 1, 0};  // toward the light
     float user0[4] = {}, user1[4] = {};
-    RtHitParams hit{};  // set at kUniformHit when the kernel's spec has usesHit
+    RtHitParams hit{};       // set at kUniformHit when the kernel's spec has usesHit
     RtLightParams lights{};  // set at kUniformLights when the kernel's spec has usesLights
     // What the pass does with its image this frame, decided when the pass runs (the TLAS and the prepass are known to be there): the path tracer
     // counts its samples here (rt_pathtrace.h). It may change the constants (`params`: the sample counters) and says what to do. Called on the
@@ -244,7 +247,8 @@ struct RtEffectImage {
     int width = 0, height = 0;
     bool ran = false;
     std::uint64_t lastUsed = 0;
-    std::uint64_t serial = 0;  // the same while this image lives: a made-again image has another (the path tracer's accumulation starts over)
+    std::uint64_t serial =
+        0;  // the same while this image lives: a made-again image has another (the path tracer's accumulation starts over)
 };
 
 struct RtEffectOutput {

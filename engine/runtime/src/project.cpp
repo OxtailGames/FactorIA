@@ -92,9 +92,9 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     if (renderInterpolation || renderInterpolationSnapDistance > 0.0f || upscaler != render::UpscalerSettings{} ||
         latency != render::LatencySettings{} || frameGeneration != render::FrameGenSettings{} ||
-        rayTracing != render::RayTracingSettings{} || pathTracer != render::PathTracerSettings{} || dynamicResolution != render::DynamicResolutionSettings{} ||
-        graphicsPreset != render::GraphicsPreset::Custom || renderBackend != "auto" || !renderAsyncCompute ||
-        !renderMultiThreadRecording) {
+        rayTracing != render::RayTracingSettings{} || pathTracer != render::PathTracerSettings{} ||
+        dynamicResolution != render::DynamicResolutionSettings{} || graphicsPreset != render::GraphicsPreset::Custom ||
+        renderBackend != "auto" || !renderAsyncCompute || !renderMultiThreadRecording) {
         Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
         if (renderInterpolation || renderInterpolationSnapDistance > 0.0f)
             render["interpolation"] = renderInterpolation;
@@ -1258,6 +1258,58 @@ constexpr const char* kSchemaText =
               "maximum": 1048576,
               "default": 65536,
               "description": "The most instances the top-level acceleration structure holds; the nearest to the camera come first. A value outside 1 to 1048576 is clamped. Default 65536."
+            }
+          }
+        },
+)JSON"
+    R"JSON(        "pathTracer": {
+          "type": "object",
+          "description": "The path traced reference mode (M79, docs/RAY_TRACING.md, \"The path tracer\"): instead of the raster's lit colour the main camera shows a progressive unidirectional path trace of the same scene (the same materials, the sun and up to 8 point or spot lights sampled directly, the sky as the environment), accumulated over frames while nothing changes; the post stack and the tonemap apply. For comparing the raster against a converged picture, not for play. It needs a device that traces rays (D3D12, Vulkan or Metal) and builds the scene's acceleration structures by itself. Off by default and free when off. The command render.path_tracer reads and changes it at run time; render.pathtrace writes a converged image to a file.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true shows the path traced picture in place of the lit one. false (default) traces nothing and costs nothing."
+            },
+            "maxBounces": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32,
+              "default": 4,
+              "description": "The longest path in segments: 1 = the direct light only, 2 adds one bounce, and so on; Russian roulette ends a dark path sooner. Default 4."
+            },
+            "samplesPerFrame": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "default": 1,
+              "description": "Paths per pixel that each frame adds to the accumulation. More converges faster per frame and costs more per frame. Default 1."
+            },
+            "maxSamples": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16777216,
+              "default": 0,
+              "description": "The accumulation stops, and the picture is kept without tracing more, after this many samples per pixel. 0 (default) = never."
+            },
+            "fireflyClamp": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0,
+              "description": "The largest luminance one path may carry (0 = no clamp): trades a little energy for fewer white dots. 5 to 20 is usual. Default 0."
+            },
+            "lights": {
+              "type": "boolean",
+              "default": true,
+              "description": "Direct light from the point and spot lights (the 8 strongest of the frame; an area light counts as a point). The sun is always sampled. Default true."
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1073741824,
+              "default": 0,
+              "description": "Changes the noise pattern; the same seed on the same device gives the same picture. Never the wall clock. Default 0."
             }
           }
         },

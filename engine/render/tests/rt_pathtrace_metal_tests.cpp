@@ -341,7 +341,8 @@ struct Scene {
         auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
         REQUIRE_MESSAGE(ts.ok(), ts.error().message);
         tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt pathtrace tlas");
-        const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt pathtrace tlas scratch");
+        const Buffer tlasScratch =
+            rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt pathtrace tlas scratch");
         BufferDesc rbd;
         rbd.size = records.size() * sizeof(fa::render::RtInstanceRecord);
         rbd.usage.storageBuffer = true;
@@ -441,8 +442,8 @@ void zero_hit(fa::render::RtHitParams& hit) {
 }
 
 // frame.x = the first sample, frame.y = the seed, frame.z = the samples of the dispatch, frame.w = the indirect bounces | 256 with lights.
-void set_frame(fa::render::RtEffectParams& p, std::uint32_t first, std::uint32_t seed, std::uint32_t count, int maxBounces,
-               bool lights, float clamp = 0.0f) {
+void set_frame(fa::render::RtEffectParams& p, std::uint32_t first, std::uint32_t seed, std::uint32_t count,
+               int maxBounces, bool lights, float clamp = 0.0f) {
     fa::render::PathTracerSettings s;
     s.maxBounces = maxBounces;
     s.seed = int(seed);
@@ -456,7 +457,8 @@ void set_frame(fa::render::RtEffectParams& p, std::uint32_t first, std::uint32_t
 
 }  // namespace
 
-TEST_CASE("rt pathtrace on Metal: a closed room of emitting walls gives the emission at one bounce and the geometric series of the albedo "
+TEST_CASE("rt pathtrace on Metal: a closed room of emitting walls gives the emission at one bounce and the geometric "
+          "series of the albedo "
           "at more, the same bits twice, and a firefly clamp caps the luminance") {
     Rig rig;
     std::string skip;
@@ -483,7 +485,8 @@ TEST_CASE("rt pathtrace on Metal: a closed room of emitting walls gives the emis
     fa::render::fill_rt_effect_camera(params, cam, kW, kH, true);
     fa::render::RtHitParams hit{};
     zero_hit(hit);
-    hit.sunColor[0] = hit.sunColor[1] = hit.sunColor[2] = 0.0f;  // no sun, no ambient, no sky: the walls are the only light
+    hit.sunColor[0] = hit.sunColor[1] = hit.sunColor[2] =
+        0.0f;  // no sun, no ambient, no sky: the walls are the only light
     const fa::render::RtLightParams noLights{};
 
     const auto mean_of = [&](const std::vector<float>& img, int c) {
@@ -556,7 +559,8 @@ TEST_CASE("rt pathtrace on Metal: a closed room of emitting walls gives the emis
     }
 }
 
-TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a floor and two boxes match a CPU ray caster at one bounce, "
+TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a floor and two boxes match a CPU ray "
+          "caster at one bounce, "
           "and a surface the raster draws nearer stays empty") {
     Rig rig;
     std::string skip;
@@ -600,7 +604,8 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
                 continue;
             }
             primary[i] = n.tri;
-            Vec3 nn = normalize(cross(cpu[std::size_t(n.tri)].b - cpu[std::size_t(n.tri)].a, cpu[std::size_t(n.tri)].c - cpu[std::size_t(n.tri)].a));
+            Vec3 nn = normalize(cross(cpu[std::size_t(n.tri)].b - cpu[std::size_t(n.tri)].a,
+                                      cpu[std::size_t(n.tri)].c - cpu[std::size_t(n.tri)].a));
             if (dot(nn, d) > 0.0f) nn = nn * -1.0f;
             const Vec3 hitp = o + d * n.t;
             const float depth = dot(cam.forward, hitp - cam.position);
@@ -660,7 +665,8 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
     spot.extra[0][0] = cosInner;
 
     // The radiance at a point of the CPU scene, at one bounce: the emission, the sun and the one light (all with their shadow rays).
-    const auto expect_at = [&](float px, float py, int& triOut, float& distOut, const fa::render::RtLightParams* lightOpt, bool sun, bool isSpot) {
+    const auto expect_at = [&](float px, float py, int& triOut, float& distOut,
+                               const fa::render::RtLightParams* lightOpt, bool sun, bool isSpot) {
         Vec3 o, d;
         cam.screen_ray({px, py}, targetSize, o, d);
         d = normalize(d);
@@ -708,7 +714,8 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
         const fa::render::RtLightParams* lights;
         bool isSpot;
     };
-    const Mode modes[] = {{"the sun", true, nullptr, false}, {"the sun and a point light", true, &point, false},
+    const Mode modes[] = {{"the sun", true, nullptr, false},
+                          {"the sun and a point light", true, &point, false},
                           {"a spot light", false, &spot, true}};
     for (const Mode& mode : modes) {
         fa::render::RtHitParams h = hit;
@@ -728,13 +735,15 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
                 // the same instance) and on the colour, else an edge or a shadow's edge is in it and the pixel is not compared.
                 const float fx = float(x) + 0.5f, fy = float(y) + 0.5f;
                 constexpr int kN = 9;
-                const float offs[kN][2] = {{0, 0},         {0.65f, 0.65f}, {-0.65f, 0.65f}, {0.65f, -0.65f}, {-0.65f, -0.65f},
-                                           {0.65f, 0},     {-0.65f, 0},    {0, 0.65f},       {0, -0.65f}};
+                const float offs[kN][2] = {{0, 0},          {0.65f, 0.65f},   {-0.65f, 0.65f},
+                                           {0.65f, -0.65f}, {-0.65f, -0.65f}, {0.65f, 0},
+                                           {-0.65f, 0},     {0, 0.65f},       {0, -0.65f}};
                 Vec3 v[kN];
                 int tris[kN];
                 float dist[kN];
                 for (int k = 0; k < kN; ++k)
-                    v[k] = expect_at(fx + offs[k][0], fy + offs[k][1], tris[k], dist[k], mode.lights, mode.sun, mode.isSpot);
+                    v[k] = expect_at(fx + offs[k][0], fy + offs[k][1], tris[k], dist[k], mode.lights, mode.sun,
+                                     mode.isSpot);
                 // A silhouette (a neighbour pixel sees the other side) has partial coverage that depends on the jitter: not compared.
                 bool silhouette = false;
                 for (int dy = -1; dy <= 1; ++dy)
@@ -768,7 +777,8 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
                 for (int k = 1; k < kN; ++k) {
                     smooth = smooth && cpu[std::size_t(tris[k])].instance == cpu[std::size_t(tris[0])].instance;
                     for (int c = 0; c < 3; ++c)
-                        smooth = smooth && std::fabs(comp(v[k], c) - comp(v[0], c)) <= 0.02f * std::fabs(comp(v[0], c)) + 0.005f;
+                        smooth = smooth &&
+                                 std::fabs(comp(v[k], c) - comp(v[0], c)) <= 0.02f * std::fabs(comp(v[0], c)) + 0.005f;
                 }
                 if (!smooth) {
                     ++skipped;
@@ -785,7 +795,8 @@ TEST_CASE("rt pathtrace on Metal: the sun, a point light and a spot light on a f
                 CHECK(px[3] == doctest::Approx(1.0f));
             }
         MESSAGE(mode.name << ": compared " << compared << " pixels (" << lit << " lit, " << dark << " dark, " << skipped
-                          << " on an edge, " << empty << " empty), mean error " << (magSum > 0 ? errSum / magSum : 0.0));
+                          << " on an edge, " << empty << " empty), mean error "
+                          << (magSum > 0 ? errSum / magSum : 0.0));
         CHECK(compared > 300);
         CHECK(lit > (mode.isSpot ? 10 : 100));  // the spot's cone is narrow
         CHECK(errSum <= 0.01 * magSum + 1e-3);
@@ -806,7 +817,8 @@ TEST_CASE("rt pathtrace on Metal: the one-bounce picture of the sky: a ray that 
     constexpr std::uint8_t kMask = fa::render::kRtMaskOpaque | fa::render::kRtMaskCastsShadow;
     Scene scene(rig);
     std::vector<float> prepass(std::size_t(kW) * kH * 4, 0.0f);
-    scene.build(&ground, nullptr, {Place{&ground, {0, 0, 0}, 1.0f, Material{{0.8f, 0.8f, 0.8f}, 1.0f, 0.0f, {0, 0, 0}}}}, kMask, prepass);
+    scene.build(&ground, nullptr,
+                {Place{&ground, {0, 0, 0}, 1.0f, Material{{0.8f, 0.8f, 0.8f}, 1.0f, 0.0f, {0, 0, 0}}}}, kMask, prepass);
     const CameraGeometry cam = make_camera({0.0f, 3.0f, 6.0f}, {-60.0f, 0.0f, 0.0f});
     fa::render::RtEffectParams params{};
     fa::render::fill_rt_effect_camera(params, cam, kW, kH, true);

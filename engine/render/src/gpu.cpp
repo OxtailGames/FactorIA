@@ -460,8 +460,8 @@ void Gpu::shutdown() {
     pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
     for (gpu::Shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_,
-                           &blit_shader_, &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_, &meshLodShader_,
-                           &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
+                           &blit_shader_, &blitKeepShader_, &blitKeepOverShader_, &meshSkinShader_, &shadowSkinShader_,
+                           &meshLodShader_, &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
         drop_shader(*s);
     for (gpu::Shader& s : bloom_shaders_) {
         if (s.id) device_->destroy_shader(s);
@@ -868,7 +868,15 @@ gpu::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
 gpu::Pipeline Gpu::blit_keep_over_pipeline(const TargetFormat& format) {
     PipelineKey key{0x1100u};
     gpu::PipelineDesc d{};
-    d.shader = blitKeepShader_;
+    // The path tracer's image is RGBA32F, which no device filters: the same program, its texture declared unfilterable and its sampler
+    // non-filtering (the nearest one the caller binds), made on first use.
+    if (!blitKeepOverShader_.id) {
+        gpu::ShaderDesc sd = gpu::generated_shader_desc(*device_, blit_blit_keep_shader_desc);
+        sd.views[VIEW_blit_tex].texture.sampleType = gpu::ImageSampleType::UnfilterableFloat;
+        sd.samplers[SMP_blit_smp].samplerType = gpu::SamplerType::Nonfiltering;
+        blitKeepOverShader_ = make_shader(*device_, sd, "blit_blit_keep_over");
+    }
+    d.shader = blitKeepOverShader_;
     d.layout.attrs[ATTR_blit_blit_keep_pos].format = gpu::VertexFormat::Float2;
     d.depth.compare = gpu::CompareFunc::Always;
     d.depth.writeEnabled = false;

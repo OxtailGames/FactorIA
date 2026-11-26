@@ -134,13 +134,16 @@ Json path_tracer_to_json(const PathTracerSettings& s) {
     return j;
 }
 
-Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string_view where, const PathTracerSettings& base) {
+Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string_view where,
+                                                      const PathTracerSettings& base) {
     if (!j.is_object())
-        return make_error(std::string(where) + ": expected an object like {\"enabled\": true, \"maxBounces\": 6}, got " +
-                              describe_json_value(j),
-                          "Every key is optional: enabled, maxBounces (1 to 32), samplesPerFrame (1 to 64), maxSamples (0 = never "
-                          "stop), fireflyClamp (0 = off), lights, seed.");
-    static const std::vector<std::string> keys = {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"};
+        return make_error(
+            std::string(where) + ": expected an object like {\"enabled\": true, \"maxBounces\": 6}, got " +
+                describe_json_value(j),
+            "Every key is optional: enabled, maxBounces (1 to 32), samplesPerFrame (1 to 64), maxSamples (0 = never "
+            "stop), fireflyClamp (0 = off), lights, seed.");
+    static const std::vector<std::string> keys = {
+        "enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"};
     for (auto e = j.begin(); e != j.end(); ++e)
         if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
             return make_error(std::string(where) + "/" + e.key() + ": '" + e.key() + "' is not a path tracer setting",
@@ -148,7 +151,8 @@ Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string
     PathTracerSettings s = base;
     const std::string w(where);
     if (auto it = j.find("enabled"); it != j.end()) {
-        auto v = parse_bool(*it, w + "/enabled", "enabled turns the path traced reference picture on: false (the default) traces nothing.");
+        auto v = parse_bool(*it, w + "/enabled",
+                            "enabled turns the path traced reference picture on: false (the default) traces nothing.");
         if (!v) return v.error();
         s.enabled = v.value();
     }
@@ -173,16 +177,19 @@ Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string
     if (auto it = j.find("fireflyClamp"); it != j.end()) {
         if (!it->is_number())
             return make_error(w + "/fireflyClamp: expected a number, got " + describe_json_value(*it),
-                              "fireflyClamp is the largest radiance one path may carry (0 = no clamp); a value of 5 to 20 removes white dots.");
+                              "fireflyClamp is the largest radiance one path may carry (0 = no clamp); a value of 5 to "
+                              "20 removes white dots.");
         s.fireflyClamp = float(std::clamp(it->get<double>(), 0.0, 1.0e6));
     }
     if (auto it = j.find("lights"); it != j.end()) {
-        auto v = parse_bool(*it, w + "/lights", "lights samples the point and spot lights directly (the sun is always sampled).");
+        auto v = parse_bool(*it, w + "/lights",
+                            "lights samples the point and spot lights directly (the sun is always sampled).");
         if (!v) return v.error();
         s.lights = v.value();
     }
     if (auto it = j.find("seed"); it != j.end()) {
-        auto v = parse_clamped_int(*it, w + "/seed", 0, kPtMaxSeed, "seed changes the noise pattern; the same seed gives the same picture.");
+        auto v = parse_clamped_int(*it, w + "/seed", 0, kPtMaxSeed,
+                                   "seed changes the noise pattern; the same seed gives the same picture.");
         if (!v) return v.error();
         s.seed = v.value();
     }

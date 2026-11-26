@@ -23,7 +23,7 @@ static_assert(kRtMaxLights == kPtMaxLights, "the lights block holds the lights t
 
 // The accumulation of one camera's image.
 struct PathTraceJobState {
-    bool started = false;           // the image holds (or will hold after this frame's dispatch) samples of the hashes below
+    bool started = false;  // the image holds (or will hold after this frame's dispatch) samples of the hashes below
     std::uint32_t samples = 0;      // the samples in the image
     std::uint64_t imageSerial = 0;  // RtEffectImage::serial the samples are in
     std::uint64_t cameraHash = 0, sceneHash = 0, settingsHash = 0;
@@ -35,12 +35,13 @@ struct PathTraceStep {
     RtPrepare what = RtPrepare::Dispatch;
     std::uint32_t firstSample = 0;  // the index of the first sample of the frame (the samples already in the image)
     std::uint32_t count = 0;        // the samples of the frame (0 when the image is held)
-    std::string reset;              // why the image started over this frame: "", "start", "image", "camera", "scene", "settings"
+    std::string reset;  // why the image started over this frame: "", "start", "image", "camera", "scene", "settings"
 };
 
 // FNV-1a 64 of the bytes the kernel's picture depends on.
 std::uint64_t path_trace_camera_hash(const RtEffectParams& params);
-std::uint64_t path_trace_settings_hash(const PathTracerSettings& settings, const RtHitParams& hit, const RtLightParams& lights);
+std::uint64_t path_trace_settings_hash(const PathTracerSettings& settings, const RtHitParams& hit,
+                                       const RtLightParams& lights);
 
 // Decides the frame of one camera and updates its counter: a changed hash (or image) starts over (samples = 0, a `reset` reason), `maxSamples`
 // holds the image once it has that many samples, else the frame draws min(samplesPerFrame, what is left until maxSamples) samples.

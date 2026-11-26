@@ -97,12 +97,15 @@ inline constexpr int kPtMaxSeed = 1 << 30;
 // traces rays (render.supports raytracing); it asks for the scene's acceleration structures by itself (render.rayTracing needs no effect on).
 struct PathTracerSettings {
     bool enabled = false;
-    int maxBounces = kPtDefaultMaxBounces;  // path length: 1 = direct light only, up to 32 (Russian roulette ends a dark path sooner)
+    int maxBounces =
+        kPtDefaultMaxBounces;  // path length: 1 = direct light only, up to 32 (Russian roulette ends a dark path sooner)
     int samplesPerFrame = kPtDefaultSamplesPerFrame;  // paths per pixel each frame adds to the accumulation (1 to 64)
-    int maxSamples = 0;       // the accumulation stops (the picture is kept) after this many samples per pixel; 0 = never
-    float fireflyClamp = 0.0f;  // clamps the radiance of one path to this value (0 = off): trades a little energy for fewer white dots
-    bool lights = true;       // direct light from the point and spot lights (at most kPtMaxLights of the frame); the sun is always sampled
-    int seed = 0;             // changes the noise pattern (the same seed gives the same picture on a device); never the wall clock
+    int maxSamples = 0;  // the accumulation stops (the picture is kept) after this many samples per pixel; 0 = never
+    float fireflyClamp =
+        0.0f;  // clamps the radiance of one path to this value (0 = off): trades a little energy for fewer white dots
+    bool lights =
+        true;  // direct light from the point and spot lights (at most kPtMaxLights of the frame); the sun is always sampled
+    int seed = 0;  // changes the noise pattern (the same seed gives the same picture on a device); never the wall clock
     bool operator==(const PathTracerSettings&) const = default;
 };
 
@@ -112,7 +115,8 @@ inline constexpr int kPtMaxLights = 8;
 // {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"} (every key always present).
 Json path_tracer_to_json(const PathTracerSettings& s);
 // Reads the keys of `j` that are present over `base` (the errors of parse_ray_tracing_settings: a JSON pointer, what is wrong, did you mean).
-Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string_view where, const PathTracerSettings& base);
+Result<PathTracerSettings> parse_path_tracer_settings(const Json& j, std::string_view where,
+                                                      const PathTracerSettings& base);
 
 // What the path tracer did, for render.ray_tracing and render.pathtrace.
 struct PathTracerStatus {
@@ -120,7 +124,7 @@ struct PathTracerStatus {
     std::uint32_t samples = 0;  // samples per pixel accumulated so far (0 after a reset)
     int width = 0, height = 0;  // the accumulation image's size
     std::uint32_t resets = 0;   // how many times the accumulation restarted since the path tracer went on
-    std::string lastReset;      // why the last restart: "first frame", "camera moved", "scene changed", "settings changed", "resized"
+    std::string lastReset;      // why the last restart: "start", "image" (resized), "camera", "scene" or "settings"
     std::string failure;        // why the kernel could not run (the device refused it...), or empty
 };
 
