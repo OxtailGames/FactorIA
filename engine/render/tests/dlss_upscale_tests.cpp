@@ -1688,6 +1688,38 @@ TEST_CASE(
     CHECK(sx.constants.reset == sl::kTrue);
 }
 
+TEST_CASE("dlss ray reconstruction D3D12: the specular hit distance of the ray traced reflections is an eighth, "
+          "optional buffer") {
+    Rig rig(gpu::Backend::D3d12);
+    RrFx fx(rig);
+    // Without it (no ray traced reflections left to Ray Reconstruction) the seven buffers of the frame before are tagged: nothing changes.
+    REQUIRE(rig.draw());
+    REQUIRE(rig.frame.usedRayReconstruction);
+    CHECK(sx.tags.size() == 7);
+    // With it: tagged as the specular hit distance, the render size, read by DLSS; the other seven are where they were.
+    const gpu::Image hit = rig.dev.image(rig.renderW, rig.renderH, gpu::PixelFormat::R32F);
+    rig.frame.hitDistance = hit;
+    rig.in.hitDistance = rig.dev.view(hit);
+    REQUIRE(rig.draw());
+    CHECK(rig.frame.usedRayReconstruction);
+    REQUIRE(sx.tags.size() == 8);
+    CHECK(sx.tags[6].type == sl::kBufferNormalRoughness);
+    CHECK(sx.tags[7].type == sl::kBufferSpecularHitDistance);
+    CHECK(sx.resources[7].native == reinterpret_cast<void*>(std::uintptr_t(hit.id) * 16));
+    CHECK(sx.resources[7].state == 0xC0);
+    CHECK(sx.tags[7].extent.width == 160);
+    CHECK(sx.tags[7].extent.height == 90);
+    CHECK(sx.tags[7].lifecycle == sl::kOnlyValidNow);
+    REQUIRE(rig.list.declared.size() == 8);
+    CHECK(rig.list.declared[7].image == hit);
+    CHECK(rig.list.declared[7].state == gpu::NativeState::ShaderRead);
+    // Super Resolution never gets it: a frame without Ray Reconstruction tags its three buffers and the output only.
+    rig.in.rayReconstruction = false;
+    REQUIRE(rig.draw());
+    CHECK(sx.tags.size() == 4);
+    rig.dev.destroy_image(hit);
+}
+
 TEST_CASE("dlss ray reconstruction: a frame it cannot draw falls to Super Resolution and says why") {
     Rig rig(gpu::Backend::D3d12);
     RrFx fx(rig);

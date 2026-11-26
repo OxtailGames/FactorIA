@@ -391,6 +391,70 @@ bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
     return false;
 }
 
+// What stops DLSS Ray Reconstruction from drawing a frame, in the order vendor_upscale checks it; empty when nothing known here does. `linear`: the
+// frame's colour is linear HDR light (no final pass encoded it), `dynamicResolution`: the dynamic resolution moves the render size, `perspective`:
+// the camera's lens. `permanent`: the reason belongs to the machine (the plugin is not there), not to this frame or to a refused one. The same
+// answer decides the frame's ray traced signals (rr_signals) before the passes are recorded and the frame's guides (vendor_upscale) when it runs.
+std::string Renderer::Impl::rr_refusal(bool linear, bool dynamicResolution, bool perspective, bool* permanent) {
+    if (permanent) *permanent = false;
+    if (rrFailed) return rrFailedWhy;
+    if (!rr_probe().available) {
+        if (permanent) *permanent = true;
+        return rr_probe().reason;
+    }
+    if (!linear)
+        return "the frame is not in linear HDR light (the picture is display values: a final pass or a "
+               "display-referred "
+               "pipeline), and Ray Reconstruction reads linear colour";
+    if (dynamicResolution)
+        return "the dynamic resolution is changing the render size, which Ray Reconstruction does not support";
+    if (!perspective) return "the camera is orthographic, and Ray Reconstruction needs a perspective one";
+    return {};
+}
+
+// M79-P4b-2: which ray traced signals Ray Reconstruction takes from the engine's denoiser on this camera's frame. Decided once, before the RT passes of
+// the camera are recorded, from what vendor_upscale will check (rr_refusal) with what plan_job knows: `upscaleCamera` is the camera the upscaler
+// resolves (its jittered, full-viewport one, with DLSS as this frame's vendor), `postFinal` whether its final pass will encode the picture (then the
+// frame is not linear when the upscaler runs), `wantReflect` / `wantGi` the effects this camera runs. Free when off: nothing is asked of the provider
+// unless the setting is on AND a signal is wanted. The guides' images and the provider's own evaluation are not known yet: a frame that fails there
+// shows the noisy signals once (rrFailed turns the decision off for the next frame).
+Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool postFinal, bool wantReflect,
+                                                     bool wantGi) {
+    RrSignals s;
+    if (!upscaler.rayReconstruction) rrSignalsLost = false;
+    if (!upscaler.rayReconstruction || !(wantReflect || wantGi) || !gpu.has_device()) return s;
+    s.asked = true;
+    if (rrSignalsLost) {
+        s.why = "a frame whose signals were left to Ray Reconstruction was drawn without it, so the engine's denoiser "
+                "keeps them (switch "
+                "render.upscaler rayReconstruction off and on to try again)";
+        return s;
+    }
+    if (!upscaleCamera || render::vendor_impl_index(upscaleImpl) != 0 || vendorFailed[0]) {
+        s.why = "this camera is not the one DLSS resolves (a split screen or several cameras, a frame the renderer did "
+                "not jitter, or another upscaler: render.upscaler mode)";
+        return s;
+    }
+    bool permanent = false;
+    const std::string refusal =
+        rr_refusal(gpu.linear() && !postFinal, renderScale != renderBaseScale, upscaleTaa.perspective, &permanent);
+    if (!refusal.empty()) {
+        s.why = refusal;
+        return s;
+    }
+    s.reflections = wantReflect;
+    s.gi = wantGi;
+    // The per-pixel GI's noisy image is the kernel's own RGBA32F image, read through the lit shader's filtering sampler: a device that cannot filter
+    // it needs the denoiser's RGBA16F one, so the engine keeps that signal.
+    if (wantGi && !gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba32F).filter) {
+        s.gi = false;
+        s.why = "the per-pixel GI keeps the engine's denoiser: this device cannot filter the 32-bit float image the "
+                "kernel writes, and the lit "
+                "meshes read the denoiser's 16-bit one";
+    }
+    return s;
+}
+
 // The guides pass of DLSS Ray Reconstruction (shaders/upscale_rr.glsl): from the depth prepass, the world normal with a roughness and the
 // hardware depth of the camera's projection (Ray Reconstruction is told that projection, so it cannot read the prepass's d / (d + 1)), and
 // the two albedos. The roughness and the albedos come from the thin G-buffer (M79-P0c: `gbAlbedo` and `gbMaterial`, which the renderer asks
@@ -398,7 +462,7 @@ bool Renderer::Impl::vendor_fail(int index, const std::string& why) {
 // refused its images, or they are not the picture's size), have constants (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"). A null
 // `prepass` means every pixel is sky. False when the four images cannot be made. The caller made sure rrPrep is ready.
 bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c, const Target* prepass,
-                                   const Target* gbAlbedo, const Target* gbMaterial) {
+                                   const Target* gbAlbedo, const Target* gbMaterial, const RtEffectImage* reflect) {
     if (!ensure_mfx_target(rrNormal, "rr-normal-roughness", gpu::PixelFormat::Rgba16F, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrDiffuse, "rr-diffuse-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
         !ensure_mfx_target(rrSpecular, "rr-specular-albedo", gpu::PixelFormat::Rgba8, in.renderW, in.renderH) ||
@@ -410,6 +474,28 @@ bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c,
                       gbAlbedo->w == in.renderW && gbAlbedo->h == in.renderH && gbMaterial->w == in.renderW &&
                       gbMaterial->h == in.renderH;
     gpu::CommandList& list = pass_list(c, gpu);
+    // M79-P4b-2: the hit distance of the ray traced reflections, only when they were left to Ray Reconstruction (`reflect`, whose kernel ran this frame at
+    // the render size); a frame without them gives the image back, and a pass that cannot be made leaves the guide out (it is optional).
+    const bool hit = reflect && reflect->ran && reflect->texture.id && reflect->width == in.renderW &&
+                     reflect->height == in.renderH &&
+                     ensure_mfx_target(rrHit, "rr-hit-distance", gpu::PixelFormat::R32F, in.renderW, in.renderH);
+    if (!hit) destroy_target(gpu.device(), rrHit);
+    if (hit) {
+        PassDesc p = pass_into(rrHit, "upscale-rr-hit");
+        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+        p.colorStore = gpu::StoreAction::Store;
+        const gpu::Pipeline pipeline = rrPrep.hit_pipeline(p.format);
+        list.begin_pass(p);
+        list.set_pipeline(pipeline);
+        gpu::Bindings b;
+        b.vertexBuffers[0] = gpu.fullscreen_triangle();
+        b.views[VIEW_upscale_rr_tex_refl] = reflect->texture;
+        b.samplers[SMP_upscale_rr_smp_refl] = gpu.sampler(SamplerKind::Nearest);
+        list.set_bindings(b);
+        list.draw(0, 3, 1);
+        list.end_pass();
+        ++stats.drawCalls;
+    }
     {
         PassDesc p = pass_into(rrNormal, "upscale-rr-guides");
         p.color1 = rrDepth.colorAtt;
@@ -490,6 +576,7 @@ void Renderer::Impl::free_rr_images() {
     destroy_target(gpu.device(), rrDiffuse);
     destroy_target(gpu.device(), rrSpecular);
     destroy_target(gpu.device(), rrDepth);
+    destroy_target(gpu.device(), rrHit);
 }
 
 // The vendor implementation into `out` (M78): the provider of `impl` is given the frame's images and the pass's command list. False
@@ -559,32 +646,22 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
     // The guide images stay while the setting is on and a later frame may use them (a frame that cannot use them, a final pass).
     bool keepGuides = false;
     if (index == 0 && upscaler.rayReconstruction) {
-        std::string why;
-        bool permanent =
-            false;  // the reason belongs to the machine or to a refused frame: the setting stays unusable for this run
-        if (rrFailed) {
-            why = rrFailedWhy;
-        } else if (!rr_probe().available) {
-            why = rr_probe().reason;
-            permanent = true;
-        } else if (!in.linear) {
-            why = "the frame is not in linear HDR light (the picture is display values: a final pass or a "
-                  "display-referred pipeline), "
-                  "and Ray Reconstruction reads linear colour";
-        } else if (in.dynamicResolution) {
-            why = "the dynamic resolution is changing the render size, which Ray Reconstruction does not support";
-        } else if (!upscaleTaa.perspective) {
-            why = "the camera is orthographic, and Ray Reconstruction needs a perspective one";
-        } else if (!rrPrep.ready(gpu.device())) {
-            why = "the guides shader did not compile";
-            rrFailed = true;
-            rrFailedWhy = why;
-        } else if (!run_rr_guides(in, c, prepass, upscaleGbufAlbedo.target(c), upscaleGbufMaterial.target(c))) {
-            why = "the guide images of the render size could not be made";
-            rrFailed = true;
-            rrFailedWhy = why;
-        } else {
-            in.rayReconstruction = true;
+        // The reasons it cannot run are rr_refusal's (the ray traced signals' decision of plan_job asks the same before the frame is recorded).
+        bool permanent = false;  // the reason belongs to the machine: the setting stays unusable for this run
+        std::string why = rr_refusal(in.linear, in.dynamicResolution, upscaleTaa.perspective, &permanent);
+        if (why.empty()) {
+            if (!rrPrep.ready(gpu.device())) {
+                why = "the guides shader did not compile";
+                rrFailed = true;
+                rrFailedWhy = why;
+            } else if (!run_rr_guides(in, c, prepass, upscaleGbufAlbedo.target(c), upscaleGbufMaterial.target(c),
+                                      rrSignalsFrame.reflections ? upscaleReflectImg : nullptr)) {
+                why = "the guide images of the render size could not be made";
+                rrFailed = true;
+                rrFailedWhy = why;
+            } else {
+                in.rayReconstruction = true;
+            }
         }
         keepGuides = !permanent && !rrFailed;
         if (!in.rayReconstruction) {
@@ -624,11 +701,18 @@ bool Renderer::Impl::vendor_upscale(UpscaleImpl impl, UpscaleInput& in, const Ta
         in.diffuseAlbedo = rrDiffuse.texView;
         in.specularAlbedo = rrSpecular.texView;
         in.rrDepth = rrDepth.texView;
+        // The hit distance of the reflections Ray Reconstruction denoises (an optional guide: only a frame that made it).
+        if (rrHit.color.id && rrHit.texView.id) {
+            f.hitDistance = rrHit.color;
+            in.hitDistance = rrHit.texView;
+        }
     }
     mfxLastWrote = false;  // until the provider has drawn: a frame it refuses leaves no history behind
     if (!provider.upscale(in, f)) return vendor_fail(index, f.error);
     mfxLastWrote = true;
     if (index == 0) rrLastUsed = f.usedRayReconstruction;
+    // Ray Reconstruction drew this frame: the signals rr_signals left to it were denoised (rt_gi_pixel_finish tells the status).
+    if (index == 0 && f.usedRayReconstruction) rrDrewFrame = true;
     if (in.rayReconstruction && !f.usedRayReconstruction) {
         // DLSS drew the frame with Super Resolution: Ray Reconstruction is off for the rest of the run (fail once, stay off).
         rrFailed = true;

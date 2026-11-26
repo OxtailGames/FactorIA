@@ -297,6 +297,30 @@ struct Renderer::Impl {
     // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
     render::RrGuidesPrep rrPrep;
     Target rrNormal, rrDiffuse, rrSpecular, rrDepth;
+    // M79-P4b-2: the specular hit distance guide (R32F, the render size), made only on a frame whose ray traced reflections went to Ray Reconstruction
+    // and given back on the next frame that has none.
+    Target rrHit;
+    // M79-P4b-2: which ray traced signals DLSS Ray Reconstruction takes from the engine's denoiser this frame (rr_signals, decided once per camera before
+    // the RT passes are recorded), what the last whole frame did (rrSignalsFrame: reset by rt_begin_frame, settled by rt_gi_pixel_finish into
+    // rtDenoiserStatus under rtGiStatusMutex) and whether DLSS really drew the frame with it (rrDrewFrame).
+    struct RrSignals {
+        bool asked = false;        // render.upscaler rayReconstruction is on and an effect that makes a signal is on
+        bool reflections = false;  // the reflections (Specular and Coverage) go to Ray Reconstruction
+        bool gi = false;           // the per-pixel GI (Diffuse) goes to Ray Reconstruction
+        std::string why;           // asked and not (fully) taken: what stops it
+    };
+    RrSignals rr_signals(bool upscaleCamera, bool postFinal, bool wantReflect, bool wantGi);
+    // The conditions of one frame that stop Ray Reconstruction, shared by the decision above and by vendor_upscale: empty when none does.
+    std::string rr_refusal(bool linear, bool dynamicResolution, bool perspective, bool* permanent);
+    RrSignals rrSignalsFrame;
+    bool rrSignalsDeclared = false;  // some camera declared its RT signals with the decision above this frame
+    bool rrDrewFrame = false;
+    bool rrSignalsLost =
+        false;  // a frame given the signals was not drawn by Ray Reconstruction: they stay with the engine's denoiser
+    render::RtDenoiserStatus rtDenoiserStatus;
+    // The reflections' raw image of the camera the upscaler resolves, while they go to Ray Reconstruction (its hit distance is a guide).
+    const RtEffectImage* upscaleReflectImg = nullptr;
+    ResourceId upscaleReflectRes;
     render::VendorProbe rrProbe;
     bool rrProbed = false;
     bool rrFailed = false;
@@ -305,7 +329,7 @@ struct Renderer::Impl {
     bool rrLastUsed = false;
     const render::VendorProbe& rr_probe();  // asked once; a refused frame says so
     bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
-                       const Target* gbAlbedo, const Target* gbMaterial);
+                       const Target* gbAlbedo, const Target* gbMaterial, const RtEffectImage* reflect);
     void free_rr_images();
     // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
     // at init and detached before the device goes.

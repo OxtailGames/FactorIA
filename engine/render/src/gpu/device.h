@@ -285,6 +285,9 @@ struct DeviceInit {
     // 1 << 20 instances, 1 << 28 triangles. With recordingDefaultCaps false the test sets recordingFeatures and
     // recordingLimits itself and this is ignored. Off by default: a plain RecordingDevice has no ray tracing, like GL.
     bool recordingRayTracing = false;
+    // RecordingDevice (M79-P4b-2): the 32-bit float formats (R32F, Rg32F, Rgba32F) filter, as they do on the desktop GPUs that trace rays (the NVIDIA, AMD and
+    // Intel ones on D3D12 and Vulkan). Off by default (the common subset of every backend, GL ES included: no filtering of 32-bit floats).
+    bool recordingFilterFloat32 = false;
     // Vendor SDKs' part in making the device and its swapchain (gpu/device_hooks.h): called by the D3D12 and Vulkan
     // backends only; make_device() adds the registered hooks (register_device_hook) and marks every hook unavailable
     // on a backend that calls none.

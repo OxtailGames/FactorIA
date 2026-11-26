@@ -357,6 +357,7 @@ RecordingDevice::RecordingDevice(const DeviceInit& init) : state_(std::make_uniq
     features_ = init.recordingDefaultCaps ? desktop_features() : init.recordingFeatures;
     limits_ = init.recordingDefaultCaps ? desktop_limits() : init.recordingLimits;
     if (init.recordingDefaultCaps && init.recordingRayTracing) add_ray_tracing(features_, limits_);
+    filterFloat32_ = init.recordingFilterFloat32;
     defaults_ = init.environment.defaults;
     if (defaults_.colorFormat == PixelFormat::Default) defaults_.colorFormat = PixelFormat::Rgba8;
     if (defaults_.depthFormat == PixelFormat::Default) defaults_.depthFormat = PixelFormat::DepthStencil;
@@ -424,7 +425,11 @@ void RecordingDevice::clear_commands() {
 }
 
 PixelFormatCaps RecordingDevice::pixel_format_caps(PixelFormat format) const {
-    return desktop_caps(format, features_.compute);
+    PixelFormatCaps c = desktop_caps(format, features_.compute);
+    if (filterFloat32_ && c.sample && !c.compressed && !c.depth &&
+        (format == PixelFormat::R32F || format == PixelFormat::Rg32F || format == PixelFormat::Rgba32F))
+        c.filter = true;
+    return c;
 }
 
 // ---- resources ------------------------------------------------------------------------------------------------------

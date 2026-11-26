@@ -32,8 +32,14 @@ denoiser.sweep(serial);                                // once a frame, after ev
   view-space normal, a = 1 where a mesh was drawn), `velocity` (optional: rg = uvPrev - uvCurr of moved objects, the sentinel
   1024 where none moved), `roughness` (optional, specular: r). A `DenoiseImage` is either a transient of the frame graph (`res`
   and `targets`: the passes list it in their reads) or a texture view the caller keeps (`view`).
-- `DenoiseSignal::enabled = false` is how a vendor denoiser takes over a signal (DLSS Ray Reconstruction replaces this denoiser
-  for reflections and GI): `add_passes` declares nothing, returns `valid = false` and frees that signal's history now. A call
+- `DenoiseSignal::enabled = false` is how a vendor denoiser takes over a signal, and it is in use (M79-P4b-2): when DLSS Ray
+  Reconstruction will draw the frame, `Renderer::Impl::rr_signals` (renderer_upscale.cpp, decided once per frame in `build_graph` before the RT
+  passes are recorded, from the state `vendor_upscale` uses) hands it the reflections (`Specular` and `Coverage`, signal ids from
+  `rt_reflect_signal_id`) and the per-pixel GI (`Diffuse`, `kRtGiPixelSignalId`), and those calls pass `enabled = false`: `add_passes` declares nothing,
+  returns `valid = false` and frees that signal's history now, and the composites read the noisy images. The AO and the shadow masks never take
+  this path: they are visibility (a darkening and a mask applied before the upscaler), not radiance, and Ray Reconstruction has no guide for them. Frames that decided "take" and were not drawn by Ray Reconstruction show
+  one noisy frame (a Super Resolution fall back) and the next frame's `add_passes` finds no history, so it reports `DenoiseReset::Fresh`
+  (test: `rt_rr_signals_tests.cpp`). `add_passes` is not the place that decides: it only honours `enabled`. A call
   that cannot run also returns `valid = false` with `why`: an input is missing, the shaders did not compile
   (`unavailable()`), the history is over the budget (`refused()`), or the same signal was already declared for this camera in
   this graph. In every case the caller shows the signal undenoised.

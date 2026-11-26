@@ -317,6 +317,7 @@ private:
 
     DeviceInfo info_{};
     Features features_{};
+    bool filterFloat32_ = false;  // DeviceInit::recordingFilterFloat32
     Limits limits_{};
     EnvironmentDefaults defaults_{};
     std::unique_ptr<State> state_;
