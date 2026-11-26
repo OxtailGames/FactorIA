@@ -51,11 +51,14 @@ or the kind's name and `id` the signal's (two signals of a camera with one name 
 |---|---|---|
 | `denoise-guide` | the prepass | the camera's guide history (Rgba16F, two images): r linear depth (0 where nothing was drawn), gba the WORLD-space normal |
 | `-temporal` | noisy, prepass, velocity, guide history, colour and moment history | the accumulated colour (transient, a = the variance of the estimate) and the moments (history, two outputs of one pass) |
-| `-atrous0` .. `-atrous<N-1>` | the previous iteration, prepass, moments, roughness | a transient; step 1, 2, 4, ... pixels |
+| `-atrous0` .. `-atrous<N-1>` | the previous iteration, moments, the camera's guide of this frame (not the prepass), roughness | a transient; step 1, 2, 4, ... pixels |
 | `-debug` | the last iteration or the moments | a grey picture (only when `DenoiseSignal::debug` asks) |
 
 The guide history is the previous frame's depth and normal in world space, so a camera that turned still compares like with like
-(a view-space normal would differ between frames).
+(a view-space normal would differ between frames). The guide image this frame writes is also what every filter iteration reads for
+the depth and the normal of its taps: one fetch of an already decoded world normal instead of the prepass's octahedral code decoded
+again in every tap of every iteration, and the normals' cosine is a plain dot product (the pixel's own normal is turned back into
+view space with the view's rotation, for the plane test).
 
 Passes of a signal: `1 + iterations + (debug ? 1 : 0)`; the camera's guide pass is one more for the first signal of a camera in a
 graph. Transient images: the accumulation, one or two filter buffers (the iterations alternate) and the debug picture.
@@ -89,11 +92,24 @@ Persistent images per signal: four (colour history and moments, two each, flippe
 
 ### A-trous iterations
 
-Each iteration is a 5x5 B3-spline kernel with holes (`step` pixels apart). A neighbour's weight is the kernel weight times
+Each iteration is a kernel with holes (`step` pixels apart): a 5x5 B3 spline in the first two iterations (without its four corners,
+1/256 each and 1.6% of the weight together: the weights of the other 21 taps are normalised without them) and a 3x3 `[1 2 1]/4` per
+axis from the third on (`kWideFrom`; those steps are 4, 8 and 16 pixels, the taps are far apart and the outer ring of a B3 adds little
+there: a quarter of the taps). A neighbour's weight is the kernel weight times
 - a plane term, `exp(-d^2)` with `d` the distance of the neighbour's view-space position to this pixel's tangent plane over
   `depthTolerance * depth * (1 + 0.1 * step)`,
-- the cosine of the normals to the power `normalPower`,
-- a luminance term `exp(-|dL| / sigma)`, with `sigma = lumaSigma * sqrt(3x3 Gaussian of the variance) + 1e-4`.
+- the cosine of the normals to the power `normalPower` (a neighbour facing away has no weight),
+- a luminance term `exp(-|dL| / sigma)`, with `sigma = lumaSigma * sqrt(3x3 Gaussian of the variance) + 1e-4`,
+- for the signals that have one, the roughness term below.
+
+The four terms are one `exp2` of the sum of their logarithms (one transcendental a tap instead of four).
+
+A pixel that is already clean is not filtered: from the second iteration on (`kCalmFrom`; the variance it reads is then the filtered
+one of a neighbourhood, not one pixel's, which is what makes it safe) a pixel whose standard deviation is under 0.003 of its
+brightness plus 0.25 (`kCalmSd`: less than one level of an 8-bit picture) is copied, which costs its own two texels. The first iteration
+never does: a pixel whose own history has no spread yet (a Bernoulli signal that was 0 every frame so far has a variance of exactly
+0) must still take the signal from its neighbours (a test covers it). A converged static scene is mostly such pixels: the later
+iterations of AO cost 0.1 to 0.3 ms at 1080p on an M5 instead of 2 ms each.
 
 The variance is filtered with the squared weights, so each iteration's output carries the variance of its own estimate. The
 result of iteration 0 is written to the colour history (that is why there are at least two iterations: the history stays
@@ -140,8 +156,32 @@ does not make the next frame believe it blended with a history that was never wr
   no image. A signal switched off frees its history at once; `sweep(serial)` frees a signal that did not run on the frame before
   `serial` and a camera that did not ask.
 - The histories of all cameras together may take 1 GB (256 MB on wasm32). The check runs before an image is allocated, in 64-bit
-  with saturation. A refused signal is logged once ("Ray tracing denoiser: signal ... needs history images of WxH and the
-  renderer cannot hold them ...") and returns `valid = false`. `set_budget` is for tests.
+  with saturation. A refused signal is logged once ("Ray tracing denoiser: signal ... needs N MB of history images (WxH) and the
+  renderer may hold M MB of them in all (K MB are in use by the other signals and cameras) ... Hint: lower the render scale or the
+  window size, or turn off a ray traced effect that is denoised") and returns `valid = false` with the same numbers in `why`
+  ("the history images do not fit the budget of M MB (N MB wanted, K MB in use)"); the caller shows the noisy image. Nothing stays
+  allocated for it. `set_budget` is for tests.
+
+### Memory
+
+Every pixel of a signal's history is 48 bytes (two colour images of Rgba16F, 8 bytes, and two moment images of Rgba32F, 16 bytes;
+32 bytes when the GPU cannot render to Rgba32F and the moments are Rgba16F), and every camera's guide 16 bytes (two Rgba16F images).
+The budget counts these persistent images only. The frame's transient images (the accumulation and the two filter buffers, Rgba16F,
+8 bytes a pixel each, the debug picture when asked) come from the frame graph's pool and alias with its other transients; they are not
+in the budget.
+
+| Size | Pixels | One signal (moments 32-bit) | A camera's guide | Signals that fit 1 GB with one guide |
+|---|---|---|---|---|
+| 1920x1080 | 2.07 M | 94.9 MiB | 31.6 MiB | 10 |
+| 2560x1440 | 3.69 M | 168.8 MiB | 56.3 MiB | 5 |
+| 3840x2160 (4K) | 8.29 M | 379.7 MiB | 126.6 MiB | 2 (3 with 16-bit moments, 253 MiB each) |
+
+The signals of one camera (`renderer_impl.h`, `kRt*SignalId`): the sun's soft shadow 1, the local lights' visibilities 1 (up to three
+lights packed in the three channels of one signal), reflections 2 (the radiance and the coverage), ambient occlusion 1, per-pixel
+global illumination 1: six at most. The effects declare their signals in that order within a frame, so at 4K the third one that asks
+is refused (the later effects are the ones shown noisy) and the log says so once; at 1440p five fit (56 + 6 x 169 = 1070 MiB is over
+1024), at 1080p all six. Lowering the render scale or leaving an effect out brings the camera back under the budget.
+`rt_denoise_plan_tests.cpp` checks these numbers.
 
 ## Debug views
 
@@ -160,7 +200,7 @@ The guide and the filtered colours are Rgba16F; the moments Rgba32F (Rgba16F on 
 ## Tests
 
 `engine/render/tests/rt_denoise_plan_tests.cpp` (CPU, in `render_postprocess_core`): passes and images per kind, nothing for a
-disabled signal, saturating byte counts, settings clamping, the config key, the reset rule order, the free-when-unused state.
+disabled signal, saturating byte counts, the 4K memory and how many signals fit the budget, settings clamping, the config key, the reset rule order, the free-when-unused state.
 
 `engine/render/tests/rt_denoise_tests.cpp` (the host GPU, 64x48 images, the whole file takes about a tenth of a second on Metal (an Apple M5), not measured elsewhere; thresholds sit
 5 to 10 times from what Metal measures, and each says its reasoning in a comment):
@@ -179,7 +219,10 @@ disabled signal, saturating byte counts, settings clamping, the config key, the 
   16-bit moments: every colour and debug value is finite, none is above the brightest sample and the mean stays within 10% (on Metal
   this passes with and without the bounds, since it saturates a 16-bit write; the case guards the platforms that write an infinity);
 - the same inputs give the same bytes; the variance view is dark on a clean and bright on a noisy signal;
+- every filter iteration reads the guide image the guide pass writes (the compiled graph's reads, not the prepass);
+- a region without noise is left as it is, and a pixel whose history saw only zeros (variance exactly 0) still takes the signal from its
+  neighbours (the first iteration never skips: 127 of 880 pixels stayed dark when it did);
 - free when unused: no shader, pipeline or image before a signal asks, a disabled signal declares nothing, a camera is swept, the
-  budget refuses with a reason, a signal declared twice in a graph is refused.
+  budget refuses with a reason that gives the MB wanted, in use and allowed, a signal declared twice in a graph is refused.
 
 Only Metal (an Apple M5) has run these tests so far: the llvmpipe and D3D11/WARP numbers are not measured yet.
