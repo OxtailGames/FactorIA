@@ -635,6 +635,59 @@ TEST_CASE("graphics settings: render.rayTracing and render.pathTracer are saved 
     CHECK(text2.find("\"graphicsPreset\": \"high\"") != std::string::npos);
 }
 
+TEST_CASE("graphics settings: only the keys that differ from the defaults are written, in every block") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.rayTracing.enabled = true;
+    g.rayTracing.ao = true;
+    g.pathTracer.samplesPerFrame = 3;
+    g.latencyMode = "auto";
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    auto text = Json::parse(d.read());
+    const Json& render = text["render"];
+    REQUIRE(render.contains("rayTracing"));
+    CHECK(render["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    CHECK(render["pathTracer"] == Json::parse(R"({"samplesPerFrame":3})"));
+    CHECK(render["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK_FALSE(render.contains("upscaler"));
+    CHECK_FALSE(render.contains("frameGeneration"));
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == g);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->rayTracing == g.rayTracing);
+    CHECK(project->pathTracer == g.pathTracer);
+    // A key that comes back to its default leaves the block; the last one takes the block with it.
+    g.rayTracing.ao = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    g.rayTracing.enabled = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
+TEST_CASE("project.graphics: every property of rayTracing and pathTracer in the input schema has a description") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    const CommandInfo* info = registry.info("project.graphics");
+    REQUIRE(info != nullptr);
+    for (const char* block : {"rayTracing", "pathTracer"}) {
+        const Json& props = info->inputSchema["properties"][block]["properties"];
+        REQUIRE(props.is_object());
+        CHECK(props.size() >= 7);
+        for (auto it = props.begin(); it != props.end(); ++it) {
+            INFO(block << "." << it.key());
+            REQUIRE(it.value().contains("description"));
+            CHECK(it.value()["description"].is_string());
+            CHECK_FALSE(it.value()["description"].get<std::string>().empty());
+        }
+    }
+}
+
 TEST_CASE("graphics settings: a number that is not finite in the ray tracing keys is named by pointer") {
     GraphicsSettings g;
     CHECK(check_graphics_settings(g).empty());
