@@ -1599,6 +1599,8 @@
     "render.material_cost": "0.33.0",
     "render.occlusion": "0.35.0",
     "render.output": "0.31.0",
+    "render.path_tracer": "unreleased",
+    "render.pathtrace": "unreleased",
     "render.pick": "0.4.0",
     "render.probe_refresh": "0.33.0",
     "render.probes": "0.33.0",

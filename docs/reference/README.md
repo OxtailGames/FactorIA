@@ -457,6 +457,8 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Since 0.33.0._
 - [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG. _Since 0.35.0._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
+- [`render.path_tracer`](commands/game.md#renderpath_tracer-modifies-state): Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera. _Not released yet._
+- [`render.pathtrace`](commands/game.md#renderpathtrace-modifies-state): Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG). _Not released yet._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Since 0.33.0._
 - [`render.probes`](commands/game.md#renderprobes): The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture. _Since 0.33.0._

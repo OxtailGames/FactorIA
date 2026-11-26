@@ -205,3 +205,132 @@ TEST_CASE(
     if (r.result["supported"].get<bool>()) CHECK_FALSE(contains(r.result["reason"].get<std::string>(), "occlusion"));
     e.shutdown();
 }
+
+// ---- M79-P5a: render.pathTracer, render.path_tracer and render.pathtrace (docs/RAY_TRACING.md, "The path tracer") ----------------------------------------------
+
+TEST_CASE(
+    "project: render.pathTracer loads, round-trips, defaults to off (writes nothing) and teaches with the pointer") {
+    TempProject plain("pt_plain");
+    auto s = load_project(plain.path());
+    REQUIRE(s.ok());
+    CHECK(s->pathTracer == render::PathTracerSettings{});
+    CHECK_FALSE(s->to_json().contains("render"));
+
+    TempProject set(
+        "pt_set",
+        R"(, "render": { "pathTracer": { "enabled": true, "maxBounces": 99, "samplesPerFrame": 8, "fireflyClamp": 12.5, "seed": 3 } })");
+    auto t = load_project(set.path());
+    REQUIRE_MESSAGE(t.ok(), t.error().message);
+    CHECK(t->pathTracer.enabled);
+    CHECK(t->pathTracer.maxBounces == render::kPtMaxMaxBounces);  // clamped
+    CHECK(t->pathTracer.samplesPerFrame == 8);
+    CHECK(t->pathTracer.fireflyClamp == doctest::Approx(12.5f));
+    CHECK(t->pathTracer.seed == 3);
+    const Json j = t->to_json();
+    REQUIRE(j.contains("render"));
+    CHECK(j["render"]["pathTracer"]["samplesPerFrame"] == 8);
+    CHECK_FALSE(j["render"].contains("rayTracing"));  // the two settings are independent
+
+    TempProject bad("pt_bad", R"(, "render": { "pathTracer": { "maxBounce": 3 } })");
+    auto u = load_project(bad.path());
+    REQUIRE_FALSE(u.ok());
+    CHECK(contains(u.error().message, "/render/pathTracer"));
+    CHECK(contains(u.error().hint, "maxBounces"));
+}
+
+TEST_CASE("render.path_tracer: reads, sets, clamps and refuses without changing anything; the project's start value is "
+          "what it starts with") {
+    TempProject p("pt_command", R"(, "render": { "pathTracer": { "maxBounces": 6 } })");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    CHECK(c.info("render.path_tracer") != nullptr);
+    CHECK(c.info("render.pathtrace") != nullptr);
+    auto r = c.call("render.path_tracer", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["enabled"] == false);
+    CHECK(r.result["maxBounces"] == 6);
+    CHECK(r.result["samplesPerFrame"] == 1);
+    CHECK(r.result["active"] == false);
+    CHECK(r.result["samples"] == 0);
+    REQUIRE(r.result["supported"].is_boolean());
+    CHECK(r.result["changed"] == false);
+
+    r = c.call("render.path_tracer", Json::parse(R"({"enabled":true,"samplesPerFrame":500,"seed":9})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["enabled"] == true);
+    CHECK(r.result["samplesPerFrame"] == 64);  // clamped
+    CHECK(r.result["maxBounces"] == 6);        // kept
+    CHECK(r.result["changed"] == true);
+    // On a device that cannot trace, the reason names the way out; on one that can, the picture is on.
+    const std::string reason = r.result["reason"].get<std::string>();
+    REQUIRE_FALSE(reason.empty());
+    if (!r.result["supported"].get<bool>()) CHECK(contains(reason, "graphics.backend"));
+    CHECK(e.path_tracer().enabled);
+    // The ray tracing status reports it too.
+    auto rt = c.call("render.ray_tracing", Json::object());
+    REQUIRE(rt.ok);
+    REQUIRE(rt.result.contains("pathTracer"));
+    CHECK(rt.result["pathTracer"]["enabled"] == true);
+
+    r = c.call("render.path_tracer", Json::parse(R"({"maxBounce":3})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "maxBounces"));
+    r = c.call("render.path_tracer", Json::parse(R"({"enabled":"yes"})"));
+    REQUIRE_FALSE(r.ok);
+    r = c.call("render.path_tracer", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["samplesPerFrame"] == 64);
+    CHECK(r.result["seed"] == 9);
+    e.shutdown();
+}
+
+TEST_CASE("render.pathtrace: teaches where no device traces rays; where one does it writes a PNG, twice the same, and "
+          "puts the settings back") {
+    TempProject p("pt_render");
+    // A floor and a sun, so the main camera has something to trace.
+    std::ofstream(p.dir / "scenes" / "main.scene.json", std::ios::binary | std::ios::trunc)
+        << R"({ "format": "factoria.scene/1", "entities": [
+  { "id": "cam", "components": { "Transform": { "position": [0, 3, 8], "rotation": [-20, 0, 0] }, "Camera": {} } },
+  { "id": "floor", "components": { "Transform": { "scale": [10, 1, 10] }, "MeshRenderer": { "mesh": "plane" } } },
+  { "id": "box", "components": { "Transform": { "position": [0, 1, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+  { "id": "sun", "components": { "Transform": { "rotation": [-50, 30, 0] }, "Light": { "type": "Directional" } } } ] })";
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    const Json status = e.ray_tracing_status();
+    const std::string file = (p.dir / "pt.png").generic_string();
+    auto r = c.call("render.pathtrace", Json::parse(R"({"samples":8,"path":")" + file + R"("})"));
+    if (!status.value("supported", false)) {
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(r.error.dump(), "graphics.backend"));
+        CHECK_FALSE(e.path_tracer().enabled);
+        MESSAGE("skipped the picture: this machine's device cannot trace rays ("
+                << status.value("reason", std::string()) << ")");
+        e.shutdown();
+        return;
+    }
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["samples"] == 8);
+    CHECK(r.result["converged"] == true);
+    CHECK_FALSE(r.result["device"].get<std::string>().empty());
+    CHECK(r.result["width"].get<int>() > 0);
+    CHECK(stdfs::exists(p.dir / "pt.png"));
+    CHECK(stdfs::file_size(p.dir / "pt.png") > 100);
+    CHECK_FALSE(e.path_tracer().enabled);  // put back
+    auto first = [&] {
+        std::ifstream in(p.dir / "pt.png", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }();
+    r = c.call("render.pathtrace", Json::parse(R"({"samples":8,"path":")" + file + R"("})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    std::ifstream in(p.dir / "pt.png", std::ios::binary);
+    CHECK(first == std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()));
+    // A wrong call teaches before it draws.
+    r = c.call("render.pathtrace", Json::parse(R"({"samples":0})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.dump(), "/samples"));
+    e.shutdown();
+}

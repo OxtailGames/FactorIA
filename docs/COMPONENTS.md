@@ -8496,6 +8496,48 @@ The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", t
 
 `encoding` is "sdr" (8-bit sRGB), "edr" (macOS and iOS: 16-bit float in extended linear sRGB, 1.0 = the display's white), "scRGB" (Windows: 16-bit float, linear, 1.0 = 80 nits) or "hdr10" (Windows: 10-bit ST 2084 PQ in Rec.2020). Only the tonemap of a PostProcess goes above paper white; while the picture stays within it (no exposure or tonemap, a colour filter, an 8-bit GPU) `status` says so. `swapchainFormat` is "BGRA8", "RGBA16F" or "RGB10A2" ("" without a window or before the first frame). `requested`: the current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: [encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame the window presented (the display is asked once per frame: moving the window to another monitor or switching HDR in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.
 
+### `render.path_tracer` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera.
+
+Capabilities: read, state
+
+The path tracer of M79 (docs/design/ARCHITECTURE_RT_PATHTRACER.md, docs/RAY_TRACING.md): `enabled` (default false), `maxBounces` (1 = direct light only, 1 to 32, default 4), `samplesPerFrame` (paths per pixel each frame adds, 1 to 64, default 1), `maxSamples` (the accumulation stops after this many samples per pixel; 0 = never), `fireflyClamp` (0 = off), `lights` (direct light from up to 8 point and spot lights, default true) and `seed` (changes the noise pattern). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, samples, width, height, resets, lastReset, reason, changed}: `samples` is the samples per pixel accumulated so far and `lastReset` why the accumulation restarted last ("start", "image" when the window was resized, "camera" when it moved, "scene" or "settings" when they changed; `resets` counts the restarts after the first). Example: render.path_tracer {"enabled":true,"maxBounces":6}
+
+The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with graphics.backend; renderer.supports ("raytracing") says whether this one can). On any other device `active` is false, `reason` says so and the raster picture stays. Off it costs nothing. The post stack and the tonemap apply to the path-traced picture as to the raster one. To write a converged image use render.pathtrace. The start value is factoria.json "render": {"pathTracer": {...}}. A wrong name or type fails with `invalid_argument` and a JSON pointer and changes nothing. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | Draw the main camera's lit colour with the path tracer. Default false. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only, up to 32 (clamped). Russian roulette ends a dark path sooner. Default 4. |
+| `samplesPerFrame` | integer | no | Paths per pixel each frame adds to the accumulation, clamped to 1..64. Default 1. |
+| `maxSamples` | integer | no | The accumulation stops (the picture is kept) after this many samples per pixel; 0 = never. Default 0. |
+| `fireflyClamp` | number | no | Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0. |
+| `lights` | boolean | no | Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true. |
+| `seed` | integer | no | Changes the noise pattern; the same seed gives the same picture on a device. Default 0. |
+
+### `render.pathtrace` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).
+
+Capabilities: read, state
+
+Accumulates `samples` paths per pixel (default 64) from the current camera at `scale` times the design size, then writes the picture as the engine shows it (the post stack and the tonemap apply, so the file is an 8-bit PNG: there is no EXR writer yet). `maxBounces` (default: the render.path_tracer setting) is the path length. `timeBudgetMs` (default 0 = none) stops early and returns `converged` false with the samples reached. The path tracer setting and the render scale are put back afterwards. Returns {path, samples, converged, timeMs, device, width, height, maxBounces}. Example: render.pathtrace {"samples":256,"path":"shots/ref.png"}
+
+Needs a GPU that traces rays: on any other device the command fails with `unavailable` and says to choose D3D12, Vulkan or Metal with graphics.backend (renderer.supports("raytracing") says whether this device can). The same camera, scene, `seed` and samples give the same picture on a device. The path tracer has no textures, hard sun shadows and treats area lights as points (docs/design/ARCHITECTURE_RT_PATHTRACER.md, "Limits"). `timeMs` is the wall time of the render and is not part of the picture.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere). Omitted: a temporary picture under .factoria/screenshots/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `samples` | integer | no | Samples per pixel to accumulate. Default 64. |
+| `scale` | number | no | Image size = design size * scale, drawn natively. Default 1. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only. Default: the render.path_tracer setting. |
+| `timeBudgetMs` | integer | no | Stop after this many milliseconds even if the samples are not reached (0 = no limit). A safety net: the result then has converged false. Default 0. |
+
 ### `render.pick`
 
 Since 0.4.0.

@@ -46,6 +46,27 @@ void Renderer::set_ray_tracing(const render::RayTracingSettings& settings) {
     if (impl_) impl_->rtSettings = settings;
 }
 
+void Renderer::set_path_tracer(const render::PathTracerSettings& settings) {
+    if (impl_) impl_->ptSettings = settings;
+}
+
+const render::PathTracerSettings& Renderer::path_tracer() const {
+    static const render::PathTracerSettings none;
+    return impl_ ? impl_->ptSettings : none;
+}
+
+render::PathTracerStatus Renderer::path_tracer_status() const {
+    if (!impl_) return {};
+    render::PathTracerStatus s = impl_->ptState.status;
+    // Only the path tracer's own pass (a shadow kernel that failed is not its business); what the kernel or the image could not be made with
+    // (add_pass refused) is in the status already.
+    if (!impl_->ptSettings.enabled)
+        s.failure.clear();
+    else if (std::string f = impl_->rtEffects.failure_of("pathtrace"); !f.empty())
+        s.failure = std::move(f);
+    return s;
+}
+
 std::string Renderer::ray_tracing_failure() const { return impl_ ? impl_->rtEffects.failure() : std::string(); }
 
 void Renderer::ray_tracing_local_shadows(int& candidates, int& traced) const {
@@ -65,7 +86,9 @@ void Renderer::Impl::rt_begin_frame() {
     rtLocalCandidatesShown = rtLocalFrame.candidates;
     rtLocalTracedShown = rtLocalFrame.traced;
     rtLocalFrame = {};
-    const bool wanted = render::rt_any_effect(rtSettings) && gpu.has_device();
+    // The path tracer asks for the scene as the effects do (it is its own setting, render.pathTracer): either on is enough.
+    const bool wantsScene = render::rt_any_effect(rtSettings) || ptSettings.enabled;
+    const bool wanted = wantsScene && gpu.has_device();
     bool on = false;
     if (wanted) {
         std::string why;
@@ -74,7 +97,8 @@ void Renderer::Impl::rt_begin_frame() {
         } else if (!rtWarnedUnsupported) {
             rtWarnedUnsupported = true;
             FA_WARN("render",
-                    "Ray tracing is on (render.rayTracing) but this device cannot trace rays ({}). Nothing is traced "
+                    "Ray tracing is on (render.rayTracing or render.pathTracer) but this device cannot trace rays "
+                    "({}). Nothing is traced "
                     "and nothing is "
                     "built: the frame is the one it would be with ray tracing off. Hint: `factoria call "
                     "render.ray_tracing` and "
@@ -91,6 +115,11 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedLocal = false;
         rtWarnedTranslucency = false;
     }
+    if (!wanted || !ptSettings.enabled) {
+        rtWarnedPathTrace = false;
+        ptState.clear();  // off (or nothing traces here): the accumulation starts over when it is turned on
+    }
+    rtScene.set_track_changes(ptSettings.enabled);
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
         rtLocalSlots.clear();

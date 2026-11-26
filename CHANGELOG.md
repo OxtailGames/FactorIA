@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
+  main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
+  query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the
+  sky and the ambient as the environment, glass that reflects and refracts, Russian roulette, `maxBounces` (1 to 32), `samplesPerFrame`, `fireflyClamp`
+  and a `seed`, deterministic (the same camera, scene and seed give the same picture on a device). The image accumulates in a float image while nothing
+  changes and starts over, with the reason in `render.path_tracer`'s `lastReset`, when the camera, the scene, the settings or the size change;
+  `maxSamples` holds it. `render.pathtrace` renders `samples` per pixel from the main camera and writes an 8-bit PNG (the picture as the engine shows
+  it, tonemapped: there is no EXR writer yet), returning the path, the samples, the time and the device; on a device that cannot trace rays it fails
+  with an error that names `graphics.backend`. `render.ray_tracing` reports the path tracer under `pathTracer`. Free when off, and a device that cannot
+  trace keeps the raster picture. The kernel is HLSL (DXIL and SPIR-V) with a Metal twin, tested against a CPU ray caster on a real Metal device. Limits
+  of this version: no textures, normal maps or custom materials (flat colour, roughness, metallic), a hard sun shadow, area lights as points,
+  an 8-bit PNG (docs/RAY_TRACING.md, "The path tracer"; docs/design/ARCHITECTURE_RT_PATHTRACER.md).
 - **The GPU lightmap bake works from the editor, MCP and `factoria call` with graphics (M79-P5c):** a process that already holds the Mac's only
   Metal context cannot open the GPU tracer's own, so a `device` `"gpu"` or `"auto"` bake there now runs in a child `factoria session
   --no-graphics` that is given the bake's plan (new command `lightmap.bake_plan_start`), streams its progress back and is cancelled by the same

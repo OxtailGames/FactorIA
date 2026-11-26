@@ -496,6 +496,13 @@ public:
     // Why an effect that is on is drawing its raster version this frame although the device traces (a kernel the driver rejected, a prepass
     // that does not match the output): one line per effect, empty when every effect that is on runs. Thread-safe.
     std::string ray_tracing_failure() const;
+    // The path tracer (M79-P5a, fa/render/raytracing.h PathTracerSettings; docs/design/ARCHITECTURE_RT_PATHTRACER.md): a progressive reference picture
+    // of the main camera in place of the raster's lit colour. Applied at the start of the next frame; off (the default) it costs nothing. It turns the
+    // scene's acceleration structures on by itself. path_tracer_status() is what the last drawn frame did (the accumulated samples, why it restarted,
+    // why it could not run); call it from the thread that draws.
+    void set_path_tracer(const render::PathTracerSettings& settings);
+    const render::PathTracerSettings& path_tracer() const;
+    render::PathTracerStatus path_tracer_status() const;
     // M79-P2a-3: the point, spot and area lights of the last whole frame: how many asked for a shadow (`candidates`, the lights the shadow maps were
     // planned for) and how many of them the rays shadowed (`traced`, at most the cap `render::kRtLocalShadowMaxLights` (raytracing.h); the rest kept their maps).
     // 0 and 0 while ray tracing is off, no camera traced them or the device refused the kernel. Thread-safe.

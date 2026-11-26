@@ -1622,3 +1622,310 @@ TEST_CASE(
     CHECK(log.count("cannot trace rays") == 1);
     CHECK(log.count("ray traced translucency cannot run") == 0);
 }
+
+// ---- M79-P5a: the path traced reference mode (shaders/rt/rt_pathtrace.{hlsl,metal}, docs/design/ARCHITECTURE_RT_PATHTRACER.md) --------------------------------------
+
+#include "rt_pathtrace.h"
+
+namespace {
+
+void path_rays(Rig& r, bool enabled, int maxBounces = 4, int samplesPerFrame = 1, int maxSamples = 0) {
+    render::PathTracerSettings s;
+    s.enabled = enabled;
+    s.maxBounces = maxBounces;
+    s.samplesPerFrame = samplesPerFrame;
+    s.maxSamples = maxSamples;
+    r.renderer.set_path_tracer(s);
+}
+
+}  // namespace
+
+TEST_CASE("rt pathtrace: off declares nothing and costs nothing, with ray tracing on or off") {
+    for (bool rayTracingOn : {false, true}) {
+        INFO("render.rayTracing.enabled " << rayTracingOn);
+        Rig r;
+        if (rayTracingOn) {
+            render::RayTracingSettings s;
+            s.enabled = true;
+            s.shadows = render::RtShadows::Off;
+            s.ao = false;
+            r.renderer.set_ray_tracing(s);
+        }
+        path_rays(r, false);
+        World w;
+        make_scene(w);
+        for (int i = 0; i < 3; ++i) {
+            r.dev->clear_commands();
+            r.frame(w);
+            CHECK(r.errors().empty());
+            CHECK(r.compute_passes().empty());
+            CHECK(r.count(gpu::CommandKind::Dispatch) == 0);
+        }
+        CHECK(r.effects().empty());
+        CHECK(r.effects().image_count() == 0);
+        CHECK(r.effects().kernel_count() == 0);
+        const render::PathTracerStatus st = r.renderer.path_tracer_status();
+        CHECK_FALSE(st.active);
+        CHECK(st.samples == 0);
+        CHECK(st.failure.empty());
+    }
+}
+
+TEST_CASE("rt pathtrace: on, one compute pass after the TLAS and the prepass with the three constants blocks, the same "
+          "every frame, "
+          "with render.rayTracing off") {
+    Rig r;
+    path_rays(r, true, 3, 2);
+    World w;
+    make_scene(w);
+    r.frame(w);  // the first frame builds the BLASes
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].find("rt-pathtrace") != std::string::npos);
+    const std::vector<std::string> lines = r.lines();
+    const int tlas = index_of(lines, "build_tlas");
+    const int prepass = index_of(lines, "begin_pass 'prepass'");
+    const int trace = index_of(lines, "rt-pathtrace");
+    const int game = index_of(lines, "begin_pass 'game'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(prepass >= 0);
+    REQUIRE(trace >= 0);
+    REQUIRE(game >= 0);
+    CHECK(tlas < trace);
+    CHECK(prepass < trace);
+    CHECK(trace < game);
+    // The kernel reads and writes its image (the running mean), reads the records and the prepass, and takes the params (400 B), the hit block
+    // (96 B) and the lights block (528 B).
+    int params = 0, hit = 0, lightsBlock = 0;
+    for (std::size_t i = std::size_t(trace); i < std::size_t(game); ++i) {
+        params += lines[i].find("set_uniforms 0 400B") != std::string::npos ? 1 : 0;
+        hit += lines[i].find("set_uniforms 1 96B") != std::string::npos ? 1 : 0;
+        lightsBlock += lines[i].find("set_uniforms 2 528B") != std::string::npos ? 1 : 0;
+    }
+    CHECK(params == 1);
+    CHECK(hit == 1);
+    CHECK(lightsBlock == 1);
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    const render::PathTracerStatus st = r.renderer.path_tracer_status();
+    CHECK(st.active);
+    CHECK(st.width == 160);
+    CHECK(st.height == 96);
+    CHECK(st.samples == 4);  // two frames of two samples
+    CHECK(st.failure.empty());
+    // Nothing moves, so the accumulation goes on: the frame's commands are the same (the sample counter is in the constants, not the commands).
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> a = r.lines();
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(a == r.lines());
+    CHECK(r.renderer.path_tracer_status().samples == 8);
+    CHECK(r.renderer.path_tracer_status().resets == 0);
+}
+
+TEST_CASE("rt pathtrace: turning it off frees the kernel and the image, and the accumulation starts over when it comes "
+          "back") {
+    Rig r;
+    path_rays(r, true);
+    World w;
+    make_scene(w);
+    for (int i = 0; i < 4; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.renderer.path_tracer_status().samples >= 2);
+    path_rays(r, false);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 0);
+    CHECK(r.effects().kernel_count() == 0);
+    CHECK(r.renderer.path_tracer_status().samples == 0);
+    CHECK_FALSE(r.renderer.path_tracer_status().active);
+    path_rays(r, true);
+    r.frame(w);
+    r.frame(w);
+    CHECK(r.renderer.path_tracer_status().samples == 1 + 1);
+}
+
+TEST_CASE(
+    "rt pathtrace: a device that cannot trace says so once and draws the frame it would draw with the setting off") {
+    Logs log;
+    auto stream = [&](bool deviceTraces, bool setting) {
+        Rig r(deviceTraces);
+        if (setting) path_rays(r, true);
+        World w;
+        make_scene(w);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        CHECK_FALSE(r.renderer.path_tracer_status().active);
+        return r.lines();
+    };
+    const std::vector<std::string> off = stream(true, false);
+    CHECK(log.count("cannot trace rays") == 0);
+    const std::vector<std::string> unsupported = stream(false, true);
+    REQUIRE(off.size() > 5);
+    CHECK(off == unsupported);
+    CHECK(log.count("cannot trace rays") == 1);
+}
+
+TEST_CASE("rt pathtrace: maxSamples holds the image, and a camera move, a moved mesh or a setting change start it "
+          "over with the reason") {
+    Rig r;
+    path_rays(r, true, 4, 1, 3);
+    World w;
+    make_scene(w);
+    for (int i = 0; i < 8; ++i) r.frame(w);
+    CHECK(r.renderer.path_tracer_status().samples == 3);  // held there
+    const int resets = r.renderer.path_tracer_status().resets;
+    // A camera move.
+    w.get<Transform>(w.find("cam"))->position = {0.5f, 3.0f, 12.0f};
+    r.frame(w);
+    CHECK(r.renderer.path_tracer_status().lastReset == "camera");
+    CHECK(r.renderer.path_tracer_status().resets == resets + 1);
+    CHECK(r.renderer.path_tracer_status().samples == 1);
+    r.frame(w);
+    CHECK(r.renderer.path_tracer_status().samples == 2);
+    // The scene: a mesh moves.
+    w.get<Transform>(w.find("box"))->position = {1.0f, 1.0f, 0.0f};
+    r.frame(w);
+    r.frame(w);
+    CHECK(r.renderer.path_tracer_status().lastReset == "scene");
+    CHECK(r.renderer.path_tracer_status().samples <= 2);
+    // The settings (maxBounces).
+    for (int i = 0; i < 4; ++i) r.frame(w);
+    const int before = r.renderer.path_tracer_status().resets;
+    path_rays(r, true, 6, 1, 3);
+    r.frame(w);
+    CHECK(r.renderer.path_tracer_status().lastReset == "settings");
+    CHECK(r.renderer.path_tracer_status().resets == before + 1);
+    CHECK(r.renderer.path_tracer_status().samples == 1);
+}
+
+TEST_CASE("rt pathtrace: path_trace_step starts, holds and resets for the reason that changed, in this order") {
+    using fa::render::path_trace_step;
+    using fa::render::PathTraceJobState;
+    render::PathTracerSettings cfg;
+    cfg.samplesPerFrame = 4;
+    cfg.maxSamples = 10;
+    PathTraceJobState st;
+    auto step = [&](std::uint64_t cam, std::uint64_t scene, std::uint64_t settings, std::uint64_t image, int w = 64,
+                    int h = 48) { return path_trace_step(st, cfg, cam, scene, settings, image, w, h); };
+    auto s = step(1, 2, 3, 7);
+    CHECK(s.reset == "start");
+    CHECK(s.firstSample == 0);
+    CHECK(s.count == 4);
+    s = step(1, 2, 3, 7);
+    CHECK(s.reset.empty());
+    CHECK(s.firstSample == 4);
+    CHECK(s.count == 4);
+    s = step(1, 2, 3, 7);  // 8 so far: two more, then held
+    CHECK(s.firstSample == 8);
+    CHECK(s.count == 2);
+    s = step(1, 2, 3, 7);
+    CHECK(s.what == fa::render::RtPrepare::Hold);
+    CHECK(s.count == 0);
+    CHECK(st.samples == 10);
+    s = step(9, 2, 3, 7);
+    CHECK(s.reset == "camera");
+    CHECK(s.firstSample == 0);
+    CHECK(s.what == fa::render::RtPrepare::Dispatch);
+    s = step(9, 5, 3, 7);
+    CHECK(s.reset == "scene");
+    s = step(9, 5, 4, 7);
+    CHECK(s.reset == "settings");
+    s = step(9, 5, 4, 8);  // the image was made again
+    CHECK(s.reset == "image");
+    s = step(9, 5, 4, 8, 80, 48);
+    CHECK(s.reset == "image");
+    CHECK(st.samples == 4);
+    // The sample index is never the wall clock: the same calls give the same steps.
+    PathTraceJobState other;
+    auto s0 = path_trace_step(other, cfg, 1, 2, 3, 7, 64, 48);
+    CHECK(s0.firstSample == 0);
+    CHECK(s0.count == 4);
+}
+
+TEST_CASE("rt pathtrace: the kernel table has rt_pathtrace, and the lights block, the hit block and the image are "
+          "bound in every backend's numbering") {
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_pathtrace");
+    REQUIRE(k != nullptr);
+    const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_pathtrace");
+    REQUIRE(spec != nullptr);
+    CHECK(spec->usesRecords);
+    CHECK(spec->usesHit);
+    CHECK(spec->usesTlas);
+    CHECK(spec->usesLights);
+    CHECK(spec->readsOut);
+    CHECK_FALSE(spec->usesGbuffer);
+    CHECK_FALSE(spec->usesAux);
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+        INFO("backend " << int(backend));
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, *spec, backend);
+        REQUIRE(d.compute());
+        CHECK(d.usesRayQuery);
+        CHECK(d.uniformBlocks[0].size == sizeof(RtEffectParams));
+        CHECK(d.uniformBlocks[1].size == sizeof(fa::render::RtHitParams));
+        CHECK(d.uniformBlocks[1].binding.hlslRegister == 1);
+        CHECK(d.uniformBlocks[1].binding.mslIndex == 3);
+        CHECK(d.uniformBlocks[1].binding.spirvBinding == 7);
+        CHECK(d.uniformBlocks[2].size == sizeof(fa::render::RtLightParams));
+        CHECK(d.uniformBlocks[2].size == 528);
+        CHECK(d.uniformBlocks[2].binding.hlslRegister == 2);
+        CHECK(d.uniformBlocks[2].binding.mslIndex == 4);
+        CHECK(d.uniformBlocks[2].binding.spirvBinding == 8);
+        // The image is read as well as written: not a write-only storage image.
+        CHECK_FALSE(d.views[0].storageImage.writeonly);
+        CHECK(d.views[2].storageBuffer.binding.mslIndex == 8);
+        CHECK(d.views[2].storageBuffer.binding.spirvBinding == 4);
+    }
+    // The three blocks the kernels declare have the field names the C++ struct has.
+    const std::string hlsl = read_repo_file("engine/render/shaders/rt/rt_pathtrace.hlsl");
+    const std::string msl = read_repo_file("engine/render/shaders/rt/rt_pathtrace.metal");
+    REQUIRE_FALSE(hlsl.empty());
+    REQUIRE_FALSE(msl.empty());
+    for (std::string_view name : fa::render::kRtLightParamNames) {
+        CHECK(hlsl.find(std::string(name)) != std::string::npos);
+        CHECK(msl.find(std::string(name)) != std::string::npos);
+    }
+    CHECK(hlsl.find("// BEGIN RtLightParams") != std::string::npos);
+    CHECK(msl.find("// BEGIN RtLightParams") != std::string::npos);
+}
+
+TEST_CASE("rt pathtrace: the settings parse with a pointer to the wrong key, clamp what is out of range and round trip "
+          "through JSON") {
+    using namespace fa::render;
+    const PathTracerSettings base;
+    CHECK_FALSE(base.enabled);
+    auto ok = parse_path_tracer_settings(
+        Json::parse(
+            R"({"enabled":true,"maxBounces":99,"samplesPerFrame":0,"maxSamples":-4,"fireflyClamp":-3,"seed":7})"),
+        "/render/pathTracer", base);
+    REQUIRE(ok.ok());
+    CHECK(ok.value().enabled);
+    CHECK(ok.value().maxBounces == kPtMaxMaxBounces);
+    CHECK(ok.value().samplesPerFrame == kPtMinSamplesPerFrame);
+    CHECK(ok.value().maxSamples == 0);
+    CHECK(ok.value().fireflyClamp == 0.0f);
+    CHECK(ok.value().seed == 7);
+    auto back = parse_path_tracer_settings(path_tracer_to_json(ok.value()), "/x", base);
+    REQUIRE(back.ok());
+    CHECK(back.value() == ok.value());
+    auto typo = parse_path_tracer_settings(Json::parse(R"({"maxBounce":3})"), "/render/pathTracer", base);
+    REQUIRE_FALSE(typo.ok());
+    CHECK(typo.error().message.find("/render/pathTracer/maxBounce") != std::string::npos);
+    CHECK(typo.error().hint.find("maxBounces") != std::string::npos);
+    auto wrongType = parse_path_tracer_settings(Json::parse(R"({"enabled":"yes"})"), "/render/pathTracer", base);
+    REQUIRE_FALSE(wrongType.ok());
+    CHECK(wrongType.error().message.find("/render/pathTracer/enabled") != std::string::npos);
+    auto notObject = parse_path_tracer_settings(Json::parse("3"), "/render/pathTracer", base);
+    REQUIRE_FALSE(notObject.ok());
+}
