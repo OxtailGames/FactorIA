@@ -7,7 +7,7 @@
 // mode shows while none is set, off removes the key. The Ray tracing and Path tracer groups the same way: on a table that traces, the master switch, the
 // shadows combo, the effects and the gi combo (perPixel is listed greyed out, "coming") are driven with real clicks, the graphics preset's
 // caps are named, Save writes render.rayTracing and render.pathTracer and the default removes them; on a table whose device cannot trace the
-// controls are greyed out with the reason that names graphics.backend. The test project's factoria.json is put back at the end. Every wait counts frames.
+// controls stay editable, with the reason that names graphics.backend and a note that the window cannot show the effect. The test project's factoria.json is put back at the end. Every wait counts frames.
 #include <memory>
 
 #include "autotest_common.h"
@@ -449,16 +449,39 @@ void Editor::at_section_Q4(AtScript& at) {
         at_check(graphicsRayTracingLine_.find("This machine cannot trace rays: opengl cannot trace rays") == 0 &&
                      graphicsRayTracingLine_.find("graphics.backend") != std::string::npos,
                  "on a device that cannot trace the line gives the renderer's reason and names graphics.backend");
-        at_check(!at_enabled("gfx:rtEnabled") && !at_enabled("gfx:rtShadows") && !at_enabled("gfx:rtGi") &&
-                     !at_enabled("gfx:ptEnabled") && !at_enabled("gfx:ptMaxSamples"),
-                 "...and every ray tracing and path tracer control is greyed out");
+        at_check(graphicsRayTracingCannotShow_.find("cannot show the effect") != std::string::npos &&
+                     graphicsRayTracingCannotShow_.find("saved in factoria.json") != std::string::npos,
+                 "...with a note that this window cannot show the effect but the settings are saved");
+        at_check(at_enabled("gfx:rtEnabled") && at_enabled("gfx:rtShadows") && at_enabled("gfx:rtGi") &&
+                     at_enabled("gfx:rtAo") && at_enabled("gfx:rtRays") && at_enabled("gfx:ptEnabled") &&
+                     at_enabled("gfx:ptSamplesPerFrame") && at_enabled("gfx:ptMaxSamples"),
+                 "...and every ray tracing and path tracer control stays editable (the project is written for the "
+                 "players' machines)");
         at_check(graphicsWork_.rayTracing.enabled && check_graphics_settings(graphicsWork_).empty(),
-                 "...but a project that turns them on is valid: it is written for the players' machines");
+                 "...a project that turns them on is valid");
+        graphicsWork_.rayTracing.shadows = render::RtShadows::Hard;  // what a click on the combo does
+        graphicsWork_.rayTracing.ao = true;
+        graphicsWork_.pathTracer.maxSamples = 32;
+        pendingFocus_ = "Graphics";
+    });
+    click("gfx:save");
+    step(5, [this, project_file] {
+        auto back = read_graphics_settings(project_dir());
+        at_check(back.ok() && back->rayTracing.enabled && back->rayTracing.shadows == render::RtShadows::Hard &&
+                     back->rayTracing.ao && back->pathTracer.enabled && back->pathTracer.maxSamples == 32,
+                 "Save on a device that cannot trace writes the ray tracing and path tracer settings");
+        Json file = Json::parse(read_file(project_file("factoria.json")));
+        at_check(file["render"]["rayTracing"] == Json::parse(R"({"enabled":true,"shadows":"hard","ao":true})") &&
+                     file["render"]["pathTracer"] == Json::parse(R"({"enabled":true,"maxSamples":32})"),
+                 "...and only the keys that differ from the defaults");
+        pendingFocus_ = "Graphics";
+    });
+    step(4, [this] {
         graphicsSupport_ = Json::object();  // no row at all (an older engine): not usable either
     });
     step(4, [this] {
-        at_check(graphicsRayTracingLine_.find("cannot trace rays") != std::string::npos && !at_enabled("gfx:rtEnabled"),
-                 "a table with no raytracing row is not usable either");
+        at_check(graphicsRayTracingLine_.find("cannot trace rays") != std::string::npos && at_enabled("gfx:rtEnabled"),
+                 "a table with no raytracing row cannot trace either, and the controls stay editable");
         graphicsWork_.rayTracing = render::RayTracingSettings{};
         graphicsWork_.pathTracer = render::PathTracerSettings{};
         pendingFocus_ = "Graphics";
