@@ -19,6 +19,9 @@ namespace fa::render {
 // How the sun and the lights' shadows are made: off = the shadow maps of the lighting (no rays), hard = one ray per light towards its
 // centre (a sharp edge), soft = rays towards a point of the light's disc, so the edge softens with the distance to the caster.
 enum class RtShadows : std::int32_t { Off, Hard, Soft };
+// M79-P2a-3: how many point, spot and area lights of a camera have their shadow traced in a frame (the most important ones; the rest keep their
+// shadow maps): the three visibilities share the three channels of one image (docs/design/ARCHITECTURE_RT_SHADOWS.md).
+inline constexpr int kRtLocalShadowMaxLights = 3;
 inline constexpr int kRtShadowsCount = 3;
 inline constexpr std::array<std::string_view, kRtShadowsCount> kRtShadowsNames = {"off", "hard", "soft"};
 

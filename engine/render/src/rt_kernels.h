@@ -14,6 +14,8 @@
 #include "shaders/rt/rt_probe.rt.h"
 #include "shaders/rt/rt_reflect.rt.h"
 #include "shaders/rt/rt_shadow.rt.h"
+#include "shaders/rt/rt_shadow_local.rt.h"
+#include "shaders/rt/rt_shadow_local_pack.rt.h"
 #include "shaders/rt/rt_shadow_pack.rt.h"
 
 namespace fa::rt_kernels {
@@ -45,6 +47,12 @@ inline std::span<const RtKernel> all_rt_kernels() {
         {"rt_ao", kRtAoDxil, kRtAoSpirv,
          std::string_view(reinterpret_cast<const char*>(kRtAoMsl), sizeof(kRtAoMsl) - 1), kRtAoDxcVersion,
          kRtAoHlslSha256, kRtAoMslSha256},
+        {"rt_shadow_local", kRtShadowLocalDxil, kRtShadowLocalSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtShadowLocalMsl), sizeof(kRtShadowLocalMsl) - 1),
+         kRtShadowLocalDxcVersion, kRtShadowLocalHlslSha256, kRtShadowLocalMslSha256},
+        {"rt_shadow_local_pack", kRtShadowLocalPackDxil, kRtShadowLocalPackSpirv,
+         std::string_view(reinterpret_cast<const char*>(kRtShadowLocalPackMsl), sizeof(kRtShadowLocalPackMsl) - 1),
+         kRtShadowLocalPackDxcVersion, kRtShadowLocalPackHlslSha256, kRtShadowLocalPackMslSha256},
     };
     return kernels;
 }
