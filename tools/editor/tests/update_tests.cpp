@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "doctest.h"
+#include "fa/core/fs.h"
 #include "fa/ai/process.h"
 #include "fa/editor/update.h"
 
@@ -74,8 +75,7 @@ TEST_CASE("parse_releases offers the newest release with the notes of every newe
 }
 
 TEST_CASE("install_update replaces the files and keeps the old ones until the next start") {
-    stdfs::path root = stdfs::temp_directory_path() / "fa_update_test";
-    stdfs::remove_all(root);
+    stdfs::path root = fa::fs::make_temp_dir_until_exit("fa_update_test").value();
 #ifdef _WIN32
     const std::string exe = "factoria.exe";
 #else
@@ -187,8 +187,7 @@ TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=
     REQUIRE_MESSAGE(bool(info), (info ? std::string() : info.error().to_string()));
     REQUIRE(info->available());
 
-    stdfs::path install = stdfs::temp_directory_path() / "fa_update_live_test";
-    stdfs::remove_all(install);
+    stdfs::path install = fa::fs::make_temp_dir_until_exit("fa_update_live_test").value();
 #ifdef _WIN32
     const std::string exe = "factoria.exe";
 #else
