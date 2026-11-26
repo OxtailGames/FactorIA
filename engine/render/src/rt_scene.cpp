@@ -542,14 +542,27 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                     ++stats_.untracedCasters;  // in the TLAS, but the shadow kernel cannot test its alpha
                 if (matOk) flags |= kRtFlagCustomMaterial;
                 if (skinnedPart) flags |= kRtFlagSkinned;
+                // Transmission (M79-P3b): the part the mesh pass draws with the refraction (the draw's own test, fill_fs: not unlit, not a full
+                // shader, a transmission above 0) is a surface the translucency kernel bends rays at. It is traced from both sides (a closed
+                // glass has to be left through its far wall), which makes the shadow and reflection rays hit its back faces too.
+                const PartTransmission pt = resolve_part_transmission(mr, part, linear);
+                const bool refractive = isBlended && !unlit && !(matOk && mat->full) && pt.transmission > 0.0f;
+                rec.volume[0] = pt.ior;
+                rec.volume[1] = refractive ? pt.thickness : 0.0f;
+                rec.volume[2] = refractive ? pt.attenuationDistance : 0.0f;
+                rec.volume[3] = refractive ? pt.transmission : 0.0f;
+                for (int c = 0; c < 3; ++c) rec.attenuation[c] = refractive ? pt.attenuationColor[c] : 1.0f;
+                rec.attenuation[3] = 0.0f;
+                if (refractive) flags |= kRtFlagRefractive;
                 rec.flags = flags;
                 std::uint8_t mask = isBlended ? kRtMaskBlended : (cutout ? kRtMaskCutout : kRtMaskOpaque);
                 if (mr.castShadows) mask |= kRtMaskCastsShadow;
                 if (mi.foliage) mask |= kRtMaskFoliage;
                 if (em[0] > 0.0f || em[1] > 0.0f || em[2] > 0.0f) mask |= kRtMaskEmissive;
+                if (refractive) mask |= kRtMaskRefractive;
                 it.instance.mask = mask;
                 it.instance.opaque = !cutout;
-                it.instance.cullDisable = twoSided;
+                it.instance.cullDisable = twoSided || refractive;
                 items_.push_back(std::move(it));
             }
         }
