@@ -2192,10 +2192,16 @@ Json Engine::ray_tracing_status() {
     const bool shadowsOn = impl_->rayTracing.shadows != render::RtShadows::Off;
     const bool aoOn = impl_->rayTracing.ao;
     const bool reflectionsOn = impl_->rayTracing.reflections;
+    int localCandidates = 0, localTraced = 0;
+    if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
     const bool translucencyOn = impl_->rayTracing.translucency;
     const bool active = impl_->rayTracing.enabled && supported &&
                         (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
     j["active"] = active;
+    // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
+    j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
+                                      {"candidates", shadowsOn && active ? localCandidates : 0},
+                                      {"traced", shadowsOn && active ? localTraced : 0}});
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)
@@ -2213,7 +2219,11 @@ Json Engine::ray_tracing_status() {
                 (impl_->rayTracing.shadows == render::RtShadows::Soft
                      ? "shadows \"soft\" casts raysPerPixel rays over the sun's angular size and denoises them"
                      : "shadows \"hard\" casts one ray per pixel") +
-                "; point, spot and area lights keep their raster shadow maps)");
+                "; the point, spot and area lights that cast shadows are traced too, the " +
+                std::to_string(render::kRtLocalShadowMaxLights) +
+                " most important ones of each camera (by brightness, range and distance), the others keep their shadow "
+                "maps; the last frame traced " +
+                std::to_string(localTraced) + " of " + std::to_string(localCandidates) + " that asked)");
         if (aoOn)
             add("the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
                 "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)");

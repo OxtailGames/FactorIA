@@ -48,6 +48,11 @@ void Renderer::set_ray_tracing(const render::RayTracingSettings& settings) {
 
 std::string Renderer::ray_tracing_failure() const { return impl_ ? impl_->rtEffects.failure() : std::string(); }
 
+void Renderer::ray_tracing_local_shadows(int& candidates, int& traced) const {
+    candidates = impl_ ? impl_->rtLocalCandidatesShown.load() : 0;
+    traced = impl_ ? impl_->rtLocalTracedShown.load() : 0;
+}
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -57,6 +62,9 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
     rtShadowDraws = {};
+    rtLocalCandidatesShown = rtLocalFrame.candidates;
+    rtLocalTracedShown = rtLocalFrame.traced;
+    rtLocalFrame = {};
     const bool wanted = render::rt_any_effect(rtSettings) && gpu.has_device();
     bool on = false;
     if (wanted) {
@@ -80,10 +88,12 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedEffect = false;
         rtWarnedReflect = rtWarnedReflectGbuffer = false;
         rtWarnedAo = false;
+        rtWarnedLocal = false;
         rtWarnedTranslucency = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
+        rtLocalSlots.clear();
         if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
         if (gpu.has_device() && (rtDenoiser.shaders_made() || rtDenoiser.history_image_count() > 0))
             rtDenoiser.release();
