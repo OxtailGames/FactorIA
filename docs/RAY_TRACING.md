@@ -326,3 +326,10 @@ The calls the backends will implement (all optional: a device without `Features:
   query needs a TLAS), so the code that builds structures is tested without a GPU.
 
 The full description, with the barrier rules, the sizes and the route Metal takes, is in docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md (repository only, not in the binary).
+
+## The lightmap bake on the GPU (M79-P5b)
+
+`lightmap.bake` with `device: "gpu"` (or `"auto"`) uses the same ray queries to trace the texels of a lightmap: a compute kernel (`rt_bake`)
+over an acceleration structure of the bake's own scene. It is a fast preview, tolerance-bound against the CPU baker, and it needs a GPU
+that traces rays (`render.supports("raytracing")`); see [Baking](rendering/RENDERING_LIGHTMAPS.md) and
+docs/design/ARCHITECTURE_BAKING.md, repository only, not in the binary, "The GPU bake". It does not depend on the renderer's `render.rayTracing` settings.
