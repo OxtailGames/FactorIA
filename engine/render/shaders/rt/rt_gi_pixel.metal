@@ -42,6 +42,7 @@ struct RtGiPixelParams {
 
 constant float kInv24 = 1.0 / 16777216.0;
 constant float kTwoPi = 6.28318530717958647692;
+constant float kRayLightCap = 256.0;  // the most one ray adds (irradiance / pi in scene units)
 
 float3 oct_decode(float2 e) {
     float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -124,7 +125,9 @@ kernel void rt_gi_pixel(instance_acceleration_structure tlas [[buffer(0)]],
         } else {
             color = rt_miss_color(hit, dir);
         }
-        sum += color;
+        // A NaN or an infinity (a degenerate hit) adds nothing, and one ray's light is capped (a firefly: a tiny bright emitter hit by one ray in
+        // thousands): the denoiser cannot remove what has no neighbour like it, and one such value would flash over the pixel.
+        sum += all(isfinite(color)) ? min(color, float3(kRayLightCap, kRayLightCap, kRayLightCap)) : float3(0.0, 0.0, 0.0);
     }
     out_img.write(float4(sum * invCount, 1.0), id);
 }

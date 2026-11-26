@@ -551,9 +551,11 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                     ++stats_.untracedCasters;  // in the TLAS, but the shadow kernel cannot test its alpha
                 if (matOk) flags |= kRtFlagCustomMaterial;
                 if (skinnedPart) flags |= kRtFlagSkinned;
-                // Transmission (M79-P3b): the part the mesh pass draws with the refraction (the draw's own test, fill_fs: not unlit, not a full
-                // shader, a transmission above 0, and a metalness below 1: the shader lets through `transmission * (1 - metallic)`, so a full metal bends nothing) is a surface the translucency kernel bends rays at. It is traced from both sides (a closed
-                // glass has to be left through its far wall), which makes the shadow and reflection rays hit its back faces too.
+                // Transmission (M79-P3b): the part the mesh pass draws with the refraction (the draw's own test, fill_fs:
+                // not unlit, not a full shader, a transmission above 0, and a metalness below 1: the shader lets through
+                // `transmission * (1 - metallic)`, so a full metal bends nothing) is a surface the translucency kernel
+                // bends rays at. It is traced from both sides (a closed glass has to be left through its far wall), which
+                // makes the shadow and reflection rays hit its back faces too.
                 const PartTransmission pt = resolve_part_transmission(mr, part, linear);
                 const bool refractive =
                     isBlended && !unlit && !(matOk && mat->full) && pt.transmission > 0.0f && rec.metalness < 1.0f;

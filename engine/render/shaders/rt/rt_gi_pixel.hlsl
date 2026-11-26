@@ -66,6 +66,7 @@ struct RtGiPixelParams {
 
 static const float kInv24 = 1.0 / 16777216.0;
 static const float kTwoPi = 6.28318530717958647692;
+static const float kRayLightCap = 256.0;  // the most one ray adds (irradiance / pi in scene units)
 
 // The normal the prepass stores (octahedral, -1 .. 1) in view space.
 float3 oct_decode(float2 e) {
@@ -148,7 +149,9 @@ void main(uint3 id : SV_DispatchThreadID) {
         } else {
             color = rt_miss_color(dir);
         }
-        sum += color;
+        // A NaN or an infinity (a degenerate hit) adds nothing, and one ray's light is capped (a firefly: a tiny bright emitter hit by one ray in
+        // thousands): the denoiser cannot remove what has no neighbour like it, and one such value would flash over the pixel.
+        sum += all(isfinite(color)) ? min(color, float3(kRayLightCap, kRayLightCap, kRayLightCap)) : float3(0.0, 0.0, 0.0);
     }
     g_out[id.xy] = float4(sum * invCount, 1.0);
 }

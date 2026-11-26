@@ -24,7 +24,8 @@ pass: the raster captures update the grids as before and the status says why (`g
 1. `gi_plan` lays the grids out and, after `++g.frame`, calls `gi_plan_rays` when `gi = "probes"`. It picks the probes with the same `gi_pick` the
    raster path uses: the ones never captured first, then the ones updated longest ago (round robin; nothing looks at the camera: the camera
    priority of the brief is **not** made). A grid takes at most `rtProbesPerFrame` probes and all grids together at most `kGiRtMaxFrameProbes`
-   (64, the size of the constants block) and the preset's `quality.realtimeGiProbesPerFrame`. The grids are visited in the order of their entity
+   (64, the size of the constants block); `quality.realtimeGiProbesPerFrame` caps the raster captures only (the preset's lever for the rays is
+   `QualityLimits::rtGi`, applied to the setting before the renderer reads it). The grids are visited in the order of their entity
    ids, starting each frame one grid further (`rtStart`), so with many grids every one gets its share of the 64 instead of the first ones taking
    it all. The budget is a count, never a time, so the result does not depend on the CPU's speed.
 2. One `RtGiDispatch` (the constants block `RtGiParams`, 1120 bytes) per grid with picks, then one compute pass `gi-probes` (a side-effect pass, so
@@ -135,8 +136,12 @@ Tests: `rt_gi_pixel_tests.cpp` (RecordingDevice), `rt_gi_pixel_metal_tests.cpp` 
   binds the view at the **lightmap slot** (the mesh shader has no free texture unit: 16 are used): `fa_indirect_diffuse` returns the texel at
   the pixel (`fa_ct_vp*` project the world position, `fa_ct_a.zw` is the image size, `fa_ct_a.y` flips the rows on GL) before it reads the
   lightmap or the grids, and the existing code multiplies it by the albedo and the occlusion. The branch changes only `fa_indirect_diffuse`,
-  and the `fa_mesh_fs_params` block grew by one `vec4` (`fa_gi_px`) in `mesh_common.glsl` and `mesh_full_common.glsl`. A baked lightmap keeps priority;
-  the full-shader materials (their own template), blended draws, the subsurface variant and the terrain keep the probes and the ambient.
+  and the `fa_mesh_fs_params` block grew by one `vec4` (`fa_gi_px`) in `mesh_common.glsl` and `mesh_full_common.glsl`. `fill_fs` sets `fa_gi_px.x` once the draw's
+  baked light is known, so a baked lightmap or baked light probes (`fa_probe_sh[0].w > 0`) keep priority, and only for a draw the prepass drew
+  (`prepass_draws_part`, the function `prepass_pass` skips with, so the two never differ: the image holds the surface of the prepass at each pixel, and a
+  draw it skipped would read the one behind it) that is not a terrain node or an impostor card (`gi_pixel_receiver_for`). The full-shader materials
+  (their own template), blended draws, the subsurface pass and those draws keep the probes and the ambient. The image is read with the nearest sampler
+  (RGBA32F is not filterable on every backend).
 - **Free when off.** Without `perPixel` (or `enabled`, or a device that traces) `plan_job` asks for no prepass normals, declares no pass, and
   `rt_begin_frame` lets the image and the denoiser slot go through the usual sweep; `fa_gi_px` stays 0 and the lightmap slot keeps what it had.
 - **Fallback** (counted in frames, `frameSerial`, never in time). A failed `add_pass` (the kernel or the image refused, the request invalid) sets

@@ -224,6 +224,7 @@ TEST_CASE(
     CHECK(r.result["gi"] == "perPixel");
     CHECK(r.result["active"] == r.result["supported"]);  // the per-pixel GI is an effect that draws with rays
     // No frame has been drawn in this engine: not active, and it says why instead of staying silent.
+    CHECK(r.result["giPixel"]["wanted"] == true);
     CHECK(r.result["giPixel"]["active"] == false);
     CHECK_FALSE(r.result["giPixel"]["reason"].get<std::string>().empty());
     const std::string reason = r.result["reason"].get<std::string>();
@@ -365,4 +366,105 @@ TEST_CASE("render.pathtrace: teaches where no device traces rays; where one does
     REQUIRE_FALSE(r.ok);
     CHECK(contains(r.error.dump(), "/samples"));
     e.shutdown();
+}
+
+TEST_CASE("render.ray_tracing: presetCap says what the graphics preset allows, in either order, and never turns ray "
+          "tracing on") {
+    TempProject p("presetcap");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    const auto read = [&] {
+        auto r = c.call("render.ray_tracing", Json::object());
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        return r.result;
+    };
+
+    // No preset: nothing is capped, and the effective setting is the setting.
+    Json r = read();
+    REQUIRE(r["presetCap"].is_object());
+    CHECK(r["presetCap"]["preset"] == "custom");
+    CHECK(r["presetCap"]["capped"] == false);
+    CHECK(r["presetCap"]["effective"]["shadows"] == "off");
+
+    // A preset first, the setting after: high lowers soft to hard and takes reflections and translucency away; the setting itself is as written.
+    REQUIRE(c.call("graphics.preset", Json::parse(R"({"name":"high"})")).ok);
+    auto set = c.call("render.ray_tracing",
+                      Json::parse(R"({"enabled":true,"shadows":"soft","ao":true,"reflections":true,"translucency":true,
+                                      "gi":"probes","raysPerPixel":8})"));
+    REQUIRE_MESSAGE(set.ok, set.error.dump());
+    r = set.result;
+    CHECK(r["shadows"] == "soft");
+    CHECK(r["reflections"] == true);
+    CHECK(r["presetCap"]["preset"] == "high");
+    CHECK(r["presetCap"]["capped"] == true);
+    CHECK(r["presetCap"]["effective"]["shadows"] == "hard");
+    CHECK(r["presetCap"]["effective"]["ao"] == true);
+    CHECK(r["presetCap"]["effective"]["reflections"] == false);
+    CHECK(r["presetCap"]["effective"]["translucency"] == false);
+    CHECK(r["presetCap"]["effective"]["gi"] == "off");
+    CHECK(r["presetCap"]["effective"]["raysPerPixel"] == 2);
+    // M79-P4a x P6a: the project asked for gi probes and high does not allow them: the probes are not wanted, not active, and the reason
+    // says the preset (the setting itself still says "probes").
+    CHECK(r["gi"] == "probes");
+    REQUIRE(r["giProbes"].is_object());
+    CHECK(r["giProbes"]["wanted"] == false);
+    CHECK(r["giProbes"]["active"] == false);
+    CHECK(contains(r["giProbes"]["reason"].get<std::string>(), "graphics preset \"high\""));
+    CHECK(r["active"] == r["supported"]);  // hard shadows and ao are left: traced where the device traces
+    if (r["supported"].get<bool>()) CHECK(contains(r["reason"].get<std::string>(), "graphics preset \"high\""));
+
+    // M79-P4b-1 x P6a: the same for gi perPixel: high does not allow it, so the per-pixel GI is not wanted, not active, and says the preset.
+    set = c.call("render.ray_tracing", Json::parse(R"({"gi":"perPixel"})"));
+    REQUIRE_MESSAGE(set.ok, set.error.dump());
+    r = set.result;
+    CHECK(r["gi"] == "perPixel");
+    CHECK(r["presetCap"]["capped"] == true);
+    CHECK(r["presetCap"]["effective"]["gi"] == "off");
+    REQUIRE(r["giPixel"].is_object());
+    CHECK(r["giPixel"]["wanted"] == false);
+    CHECK(r["giPixel"]["active"] == false);
+    CHECK(contains(r["giPixel"]["reason"].get<std::string>(), "graphics preset \"high\""));
+    CHECK(r["giProbes"]["wanted"] == false);
+    REQUIRE(
+        c.call("render.ray_tracing", Json::parse(R"({"gi":"probes"})")).ok);  // back to what the rest of the case reads
+
+    // low and medium trace nothing: not active, whatever the device.
+    for (const char* preset : {"low", "medium"}) {
+        REQUIRE(c.call("graphics.preset", Json::parse(std::string(R"({"name":")") + preset + R"("})")).ok);
+        r = read();
+        CHECK(r["presetCap"]["capped"] == true);
+        CHECK(r["presetCap"]["effective"]["shadows"] == "off");
+        CHECK(r["presetCap"]["effective"]["ao"] == false);
+        CHECK(r["active"] == false);
+        CHECK(r["enabled"] == true);  // the project's own setting is untouched
+    }
+
+    // ultra and custom lift the cap, in the other order too (the setting first, the preset after).
+    for (const char* preset : {"ultra", "custom"}) {
+        REQUIRE(c.call("graphics.preset", Json::parse(std::string(R"({"name":")") + preset + R"("})")).ok);
+        r = read();
+        CHECK(r["presetCap"]["capped"] == false);
+        CHECK(r["presetCap"]["effective"]["shadows"] == "soft");
+        CHECK(r["presetCap"]["effective"]["reflections"] == true);
+        CHECK(r["presetCap"]["effective"]["gi"] == "probes");
+        CHECK(r["giProbes"]["wanted"] == true);
+        CHECK(r["presetCap"]["effective"]["raysPerPixel"] == 8);
+    }
+
+    // A preset never turns ray tracing on: with the switch off, high has nothing to cap and nothing is active.
+    REQUIRE(c.call("render.ray_tracing", Json::parse(R"({"enabled":false})")).ok);
+    REQUIRE(c.call("graphics.preset", Json::parse(R"({"name":"high"})")).ok);
+    r = read();
+    CHECK(r["enabled"] == false);
+    CHECK(r["active"] == false);
+    CHECK(r["presetCap"]["effective"]["enabled"] == false);
+    // A project that asks for less than the preset allows is not capped.
+    REQUIRE(c.call("render.ray_tracing",
+                   Json::parse(R"({"enabled":true,"shadows":"hard","ao":false,"reflections":false,"translucency":false,
+                                                         "gi":"off","raysPerPixel":1})"))
+                .ok);
+    r = read();
+    CHECK(r["presetCap"]["capped"] == false);
 }

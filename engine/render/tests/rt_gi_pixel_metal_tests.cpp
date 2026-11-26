@@ -361,8 +361,9 @@ Vec3 cosine_ray(Vec3 n, std::uint32_t i, std::uint32_t count, std::uint32_t& sta
 
 }  // namespace
 
-TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU port of the same rays computes, the sky "
-          "is zero, a seed is a seed, and a far grid changes nothing") {
+TEST_CASE(
+    "rt gi pixel on Metal: the indirect light of every pixel is what a CPU port of the same rays computes, the sky "
+    "is zero, a seed is a seed, and a far grid changes nothing") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -390,7 +391,8 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
     for (std::size_t pi = 0; pi < places.size(); ++pi) {
         const Place& p = places[pi];
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, kMask, int(pi)});
     }
 
@@ -429,7 +431,8 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
     auto ts = dev.tlas_sizes(std::uint32_t(instances.size()), flags);
     REQUIRE_MESSAGE(ts.ok(), ts.error().message);
     const AccelStructure tlas = rig.make_as(AccelKind::Tlas, ts->structure, "rt gi pixel tlas");
-    const Buffer tlasScratch = rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt gi pixel tlas scratch");
+    const Buffer tlasScratch =
+        rig.make_scratch(std::max(ts->buildScratch, ts->updateScratch), "rt gi pixel tlas scratch");
     BufferDesc rbd;
     rbd.size = records.size() * sizeof(fa::render::RtInstanceRecord);
     rbd.usage.storageBuffer = true;
@@ -514,7 +517,7 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
     params.frame[1] = fa::render::rt_effect_seed(kFrame);
     params.frame[2] = kRays;
     params.user0[0] = 1000.0f;  // the rays' reach (the renderer's values: renderer_draw.cpp)
-    params.user0[1] = 0.02f;   // the normal offset in metres
+    params.user0[1] = 0.02f;    // the normal offset in metres
     params.user0[2] = 0.002f;   // and per metre of view depth
     params.user0[3] = 0.0f;     // TMin
     fa::render::RtHitParams hit{};
@@ -638,7 +641,8 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
             CHECK(g[3] == 1.0f);  // a mesh: the mean of the rays, alpha 1
             bool ambiguous = false;
             Vec3 want = reference(i, params.frame[1], kRays, 0.0f, ambiguous);
-            if (!ambiguous && std::fabs(normals[i].z) < 1e-4f) {  // the frame of the kernel is one of two: the closer one is the reference
+            if (!ambiguous && std::fabs(normals[i].z) <
+                                  1e-4f) {  // the frame of the kernel is one of two: the closer one is the reference
                 bool other = false;
                 const Vec3 alt = reference(i, params.frame[1], kRays, normals[i].z >= 0.0f ? -1.0f : 1.0f, other);
                 const float e0 = std::fabs(g[0] - want.x) + std::fabs(g[1] - want.y) + std::fabs(g[2] - want.z);
@@ -661,9 +665,9 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
             }
         }
     }
-    MESSAGE("compared " << compared << " pixels (" << floorPixels << " floor, " << boxPixels << " box), skipped " << skipped
-                        << " ambiguous ones, " << sky << " sky pixels, worst colour error " << worst << ", mean error "
-                        << (compared ? sumErr / (3.0 * compared) : 0.0) << ", mean magnitude "
+    MESSAGE("compared " << compared << " pixels (" << floorPixels << " floor, " << boxPixels << " box), skipped "
+                        << skipped << " ambiguous ones, " << sky << " sky pixels, worst colour error " << worst
+                        << ", mean error " << (compared ? sumErr / (3.0 * compared) : 0.0) << ", mean magnitude "
                         << (compared ? sumMag / (3.0 * compared) : 0.0));
     CHECK(compared > 400);
     CHECK(floorPixels > 200);
@@ -720,7 +724,8 @@ TEST_CASE("rt gi pixel on Metal: the indirect light of every pixel is what a CPU
     full.tail.grid3[0][1] = 0.1f;
     const std::vector<float> withFarGrid = trace(nullptr);
     int changed = 0;
-    for (std::size_t i = 0; i < withFarGrid.size(); ++i) changed += std::fabs(withFarGrid[i] - first[i]) > 1e-4f ? 1 : 0;
+    for (std::size_t i = 0; i < withFarGrid.size(); ++i)
+        changed += std::fabs(withFarGrid[i] - first[i]) > 1e-4f ? 1 : 0;
     CHECK(changed == 0);
     full.tail.count[0] = 0;
 

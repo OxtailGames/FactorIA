@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
+  `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
+  is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so
+  `graphics.preset` and `render.ray_tracing` work in either order, and `render.ray_tracing` reports `presetCap` `{preset, capped, effective}`. The probes of `gi = "probes"` follow the same cap (`giProbes.wanted` is false under `low`, `medium` and `high`, and `giProbes.reason` names the preset); the preset's `realtimeGiProbesPerFrame` now caps only the raster captures, not the rays' budget of 64 probes a frame.
+  The editor's Graphics settings window has a **Ray tracing** group (the switch and each effect, with this machine's ability and the reason) and a
+  **Path tracer** group (the switch, samples per frame and maximum samples), written to `render.rayTracing` and `render.pathTracer` through
+  `project.graphics`, which takes `rayTracing` and `pathTracer`; the controls are greyed out where the device cannot trace, with a hint to
+  `graphics.backend`. The menu kit's Graphics tab has a fifth page with an on/off switch and a quality that follows the High and Ultra
+  tiers (docs/RAY_TRACING.md, "Graphics presets, the editor and the menu kit"; docs/UPSCALING.md; docs/MENUS.md).
+
 - **Per-pixel ray traced global illumination (M79-P4b-1):** `render.rayTracing.gi = "perPixel"` now draws. For every pixel of the main camera a
   compute kernel (`rt_gi_pixel`, HLSL with a Metal twin) traces `raysPerPixel` cosine-weighted rays from the surface (seeded from the frame
   serial and the pixel), shades what they hit like the reflections do (the sun and its shadow, the emission, the environment) plus the light of the
@@ -30,6 +40,9 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
   (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
   docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
+
+- **GPU bake helper (M79 review leftovers):** a Cancel now ends the wait for the helper's answer to a large plan in a fraction of a second, a system with no thread left for the plan's write is an error with a hint, and the hints say to run `factoria session --no-graphics --no-scene`.
+
 - **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
   main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
   query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the

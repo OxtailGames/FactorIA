@@ -75,6 +75,17 @@ const FRAMEGEN_FEATURE = { dlss: "dlssFrameGen", fsr: "fsrFrameGen", xess: "xess
 export const FRAMEGEN_MIN_FPS_MAX = 240;
 export const FRAMEGEN_DEFAULT_MIN_FPS = 60;
 
+/**
+ * The "Ray tracing" row (render.rayTracing, docs/RAY_TRACING.md): off or on, and a quality that follows the graphics presets' tiers (docs/UPSCALING.md, "Graphics presets"): "high" traces hard shadows and ambient occlusion
+ * (what the High preset allows), "ultra" soft shadows, ambient occlusion, reflections, glass refraction and the global illumination probes (what Ultra allows). RAYTRACING_TIERS are the keys of render.ray_tracing each one sets.
+ * The graphics preset caps what is drawn and never turns an effect on (rayTracingState().capped says so); a device that cannot trace (render.supports "raytracing") draws none of it.
+ */
+export const RAYTRACING_QUALITIES = ["high", "ultra"];
+export const RAYTRACING_TIERS = {
+  high: { shadows: "hard", ao: true, reflections: false, translucency: false, gi: "off" },
+  ultra: { shadows: "soft", ao: true, reflections: true, translucency: true, gi: "probes" },
+};
+
 /** The range window.renderScale accepts (a third of the window to all of it). */
 export const RENDER_SCALE_MIN = 0.33;
 export const RENDER_SCALE_MAX = 1;
@@ -152,8 +163,8 @@ function defaults() {
     // set (mode, quality, sharpness: they win over what a preset writes); renderScale is null (full size) or window.renderScale;
     // dynamicResolution is null (the game's own: window.dynamicResolution, off by default) or one of DYNAMIC_CHOICES;
     // latency holds only the keys of render.latency the player set (mode, boost), like upscaler: {} keeps the game's own (factoria.json render.latency, off by default);
-    // frameGeneration the same for render.frameGeneration (mode, minBaseFps).
-    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null, latency: {}, frameGeneration: {} },
+    // frameGeneration the same for render.frameGeneration (mode, minBaseFps); rayTracing for render.rayTracing, as { enabled, quality } (one of RAYTRACING_QUALITIES; the keys the player touched).
+    graphics: { quality: "high", effects: {}, hdr: null, lighting2d: null, preset: null, detected: null, upscaler: {}, renderScale: null, dynamicResolution: null, latency: {}, frameGeneration: {}, rayTracing: {} },
   };
 }
 
@@ -168,7 +179,7 @@ export function load() {
     volume: { ...base.volume, ...saved.volume },
     bindings: { ...saved.bindings },
     playerBindings: { ...saved.playerBindings },
-    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects }, upscaler: { ...saved.graphics?.upscaler }, latency: { ...saved.graphics?.latency }, frameGeneration: { ...saved.graphics?.frameGeneration } },
+    graphics: { ...base.graphics, ...saved.graphics, effects: { ...saved.graphics?.effects }, upscaler: { ...saved.graphics?.upscaler }, latency: { ...saved.graphics?.latency }, frameGeneration: { ...saved.graphics?.frameGeneration }, rayTracing: { ...saved.graphics?.rayTracing } },
   };
 }
 
@@ -367,6 +378,66 @@ export function setFrameGeneration(keys) {
   fa.call("render.frame_generation", keys);
 }
 
+/** Whether this renderer can trace rays (render.supports "raytracing": Direct3D 12, Vulkan or Metal on a GPU that can; false without a renderer to ask). */
+export function rayTracingSupported() {
+  return renderSupports("raytracing");
+}
+
+/** Which of RAYTRACING_QUALITIES a render.ray_tracing setting (or its presetCap.effective) is: "ultra" when it asks for soft shadows, reflections, translucency or probes, else "high". */
+function rayTracingQualityOf(r) {
+  return r.shadows === "soft" || r.reflections === true || r.translucency === true || (r.gi !== undefined && r.gi !== "off") ? "ultra" : "high";
+}
+
+/** Whether a render.ray_tracing setting asks for an effect that is drawn with rays (shadows, ao, reflections, translucency or gi). */
+function rayTracingAsksEffect(r) {
+  return (r.shadows !== undefined && r.shadows !== "off") || r.ao === true || r.reflections === true || r.translucency === true || (r.gi !== undefined && r.gi !== "off");
+}
+
+/**
+ * The ray tracing setting in force: { enabled, quality, active, reason, preset, capped, drawn } (render.ray_tracing). `quality` is the tier of what the game or the player asked for, `active` whether rays are traced now,
+ * `reason` the engine's own sentence, `preset` the graphics preset, `capped` whether it lowers what is asked and `drawn` the tier that is left: "none", "high" or "ultra". Off, with nothing drawn, when the command cannot answer.
+ */
+export function rayTracingState() {
+  try {
+    const r = fa.call("render.ray_tracing");
+    const eff = r.presetCap?.effective ?? r;
+    return {
+      enabled: r.enabled === true,
+      quality: rayTracingQualityOf(r),
+      asksEffect: rayTracingAsksEffect(r),
+      active: r.active === true,
+      reason: r.reason ?? "",
+      preset: r.presetCap?.preset ?? "custom",
+      capped: r.presetCap?.capped === true,
+      drawn: rayTracingAsksEffect(eff) ? rayTracingQualityOf(eff) : "none",
+    };
+  } catch {
+    return { enabled: false, quality: "high", asksEffect: false, active: false, reason: "", preset: "custom", capped: false, drawn: "none" };
+  }
+}
+
+/** The quality a player who turns ray tracing on without choosing one gets: the tier of the graphics preset (ultra and custom trace everything, so "ultra"; otherwise "high"). */
+export function rayTracingDefaultQuality() {
+  try {
+    const preset = game.graphics.preset().preset;
+    return preset === "ultra" || preset === "custom" ? "ultra" : "high";
+  } catch {
+    return "high";
+  }
+}
+
+/**
+ * Sets render.ray_tracing from the page's keys { enabled, quality }: `quality` writes the effects of its RAYTRACING_TIERS tier. Turning it on while nothing is asked to be traced (the game left every effect off) also writes the
+ * default quality's tier, so the switch does something. The graphics preset still caps what is drawn. Throws what the command refuses with.
+ */
+export function setRayTracing(keys) {
+  const send = {};
+  const quality = keys.quality ?? (keys.enabled === true && !rayTracingState().asksEffect ? rayTracingDefaultQuality() : undefined);
+  if (RAYTRACING_TIERS[quality]) Object.assign(send, RAYTRACING_TIERS[quality]);
+  if (keys.enabled !== undefined) send.enabled = keys.enabled === true;
+  if (Object.keys(send).length) fa.call("render.ray_tracing", send);
+}
+
 /** The preset that is in force for the player's choice: "auto" is the pick of game.graphics.detect() (null while it has not run), null when the player never chose. */
 export function presetInForce(s = load()) {
   const choice = s.graphics.preset;
@@ -391,7 +462,7 @@ export function detectPreset(s = load()) {
 }
 
 /**
- * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, the low-latency mode, the frame generation, then the render
+ * Puts the graphics page's choices into the engine: the preset (game.graphics.preset), then the keys of the upscaler the player set, the low-latency mode, the frame generation, the ray tracing, then the render
  * scale and the dynamic resolution. Nothing the player never chose is touched, so a save of an older kit changes nothing; a value the engine rejects is logged and skipped.
  * Settings outlive scene loads and so does the engine's state: apply() calls this once per run, and a row of the page calls it after each change.
  */
@@ -411,6 +482,7 @@ export function applyRenderSettings(s = load()) {
   if (Object.keys(g.upscaler).length) tryApply("the upscaler", () => (window.upscaler = g.upscaler));
   if (Object.keys(g.latency).length) tryApply("the low-latency mode", () => setLatency(g.latency));
   if (Object.keys(g.frameGeneration).length) tryApply("the frame generation", () => setFrameGeneration(g.frameGeneration));
+  if (Object.keys(g.rayTracing).length) tryApply("the ray tracing", () => setRayTracing(g.rayTracing));
   if (DYNAMIC_CHOICES.includes(g.dynamicResolution)) tryApply("the dynamic resolution", () => applyDynamicChoice(g.dynamicResolution));
   if (g.renderScale !== null) tryApply("the render scale", () => (window.renderScale = Math.min(RENDER_SCALE_MAX, Math.max(RENDER_SCALE_MIN, g.renderScale))));
 }
