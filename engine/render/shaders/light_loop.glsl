@@ -111,7 +111,7 @@ LightSample fa_light_shadowed(int li, vec3 world_pos, vec3 gn) {
         ls.shadow = fa_shadow_factor(gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     } else if (ls.type != 0 && ls.attenuation > 0.0) {
-        ls.shadow = fa_shadow_local(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
+        ls.shadow = fa_shadow_local_rt(li, fa_light_texel(fa_light_base(li)).xyz, world_pos, gn, ls.direction);
         ls.color = ls.color * ls.shadow;
     }
     if (fa_ct_a.x > 0.5 && ls.attenuation > 0.0) {  // the contact shadow multiplies into the light's own shadow term
@@ -165,7 +165,7 @@ float fa_light_shadow(int n, in SurfaceInput i) {
         vec3 d = lpos - i.world_pos;
         dist = length(d);
         l = d / max(dist, 1e-4);
-        sh = fa_shadow_local(li, lpos, i.world_pos, i.world_normal, l);
+        sh = fa_shadow_local_rt(li, lpos, i.world_pos, i.world_normal, l);
     }
     if (fa_ct_a.x > 0.5) { sh *= fa_contact_shadow(li, i.world_pos, i.world_normal, l, dist); }
     return sh;

@@ -77,7 +77,7 @@ struct RendererTestAccess {
     static render::RtEffects* rt_effects(Renderer& r);
     // M79-P2a-2: the draws of the last frame that read the sun's shadow from the ray traced image, and those that took min(image, cascades).
     struct RtShadowDraws {
-        int mask = 0, withCascades = 0;
+        int mask = 0, withCascades = 0, local = 0;
     };
     static RtShadowDraws rt_shadow_draws(Renderer& r);
     static render::RtDenoiser* rt_denoiser(Renderer& r);  // the soft sun shadow's denoiser; null before init

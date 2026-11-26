@@ -487,6 +487,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half); y = 1 when view 28 holds
                                 // the image of the ray traced shadows kernel and the sun's shadow of this draw is read from it (fa_shadow_factor);
                                 // z = 1 when the scene has casters the rays do not see: the sun's shadow is then the darker of the mask and the cascades
+                                // (and the traced lights' shadow the darker of the mask and their map), w = 1 when view 28 holds the ray traced
+                                // visibility of up to three point, spot and area lights (fa_shadow_local_rt; M79-P2a-3)
     vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
     vec4 fa_ct_vpy;             // row 1: clip y
     vec4 fa_ct_vpw;             // row 3: clip w
@@ -882,6 +884,44 @@ float fa_shadow_factor(vec3 n, vec3 l) {
         }
     }
     return fa_shadow_sun(fa_world_pos, n, l);
+}
+
+// M79-P2a-3: the shadow of a point, spot or area light. A light the renderer traced this frame (its texel of the shadow region has z = 1 + its slot,
+// light_data.glsl) takes its visibility from the same image view 28 holds for the sun's: b packs the three traced lights as three bytes of one
+// integer below 2^24 (light s: 255 v * 256^s), exact in a float, read here with floor and mod (no bit operations: legacy targets have none).
+// The texel read is the fragment's own when it shows the same surface (its depth in r, the same test as the sun's); where it does not (the edge of a
+// silhouette, a pixel the camera's jitter moved) the four texels around it are tried, and when none does the cascades' counterpart is the map when
+// the scene has casters the rays do not see (fa_ct_b.z = 1: the maps were drawn, the answer is the darker of the two as for the sun) and "lit"
+// otherwise (the maps of the traced lights were not drawn: nothing to fall back to, a texel at a silhouette's edge).
+float fa_shadow_local_rt(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
+    if (fa_ct_b.w > 0.5 && fa_pbr.z > 0.5 && fa_shadow_lcfg.x > 0.5) {
+        float slot = fa_light_texel(int(fa_shadow_lcfg.x + 0.5) - 1 + li).z;
+        if (slot > 0.5) {
+            float d = dot(fa_ct_fwd.xyz, world) + fa_ct_fwd.w;
+            float slope = min(1.5 * fwidth(d), 0.1 * d);
+            vec4 pv = vec4(world, 1.0);
+            float w = dot(fa_ct_vpw, pv);
+            if (w > 1e-4) {
+                vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+                vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+                if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
+                    ivec2 size = ivec2(fa_ct_a.zw);
+                    ivec2 px0 = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), size - 1);
+                    for (int k = 0; k < 5; k++) {
+                        ivec2 o = k == 0 ? ivec2(0, 0) : (k == 1 ? ivec2(1, 0) : (k == 2 ? ivec2(-1, 0) : (k == 3 ? ivec2(0, 1) : ivec2(0, -1))));
+                        vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), clamp(px0 + o, ivec2(0), size - 1), 0);
+                        if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01 + slope) {
+                            float div = slot < 1.5 ? 1.0 : (slot < 2.5 ? 256.0 : 65536.0);
+                            float v = mod(floor(rt.b / div), 256.0) / 255.0;
+                            return fa_ct_b.z > 0.5 ? min(v, fa_shadow_local(li, lpos, world, n, l)) : v;
+                        }
+                    }
+                }
+            }
+            return fa_ct_b.z > 0.5 ? fa_shadow_local(li, lpos, world, n, l) : 1.0;
+        }
+    }
+    return fa_shadow_local(li, lpos, world, n, l);
 }
 
 @include_block fa_env_funcs
