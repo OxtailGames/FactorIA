@@ -85,49 +85,6 @@ BakeSettings room_settings() {
     return s;
 }
 
-struct Diff {
-    double mean = 0;     // mean over baked texels of |gpu - cpu| per channel
-    double meanCpu = 0;  // mean CPU value
-    double maxAbs = 0;
-    std::size_t texels = 0;
-};
-
-Diff compare(const BakeResult& cpu, const BakeResult& gpu) {
-    Diff d;
-    REQUIRE(cpu.atlases.size() == gpu.atlases.size());
-    double sum = 0, sumCpu = 0;
-    for (std::size_t a = 0; a < cpu.atlases.size(); ++a) {
-        const BakedAtlas& c = cpu.atlases[a];
-        const BakedAtlas& g = gpu.atlases[a];
-        REQUIRE(c.rgb.size() == g.rgb.size());
-        REQUIRE(c.mask == g.mask);
-        for (std::size_t i = 0; i < c.mask.size(); ++i) {
-            if (c.mask[i] != kBakeBaked) continue;
-            ++d.texels;
-            for (int ch = 0; ch < 3; ++ch) {
-                const double e = std::fabs(double(g.rgb[i * 3 + ch]) - double(c.rgb[i * 3 + ch]));
-                sum += e;
-                sumCpu += c.rgb[i * 3 + ch];
-                d.maxAbs = std::max(d.maxAbs, e);
-            }
-        }
-    }
-    if (d.texels > 0) {
-        d.mean = sum / double(d.texels * 3);
-        d.meanCpu = sumCpu / double(d.texels * 3);
-    }
-    return d;
-}
-
-bool same_bits(const BakeResult& a, const BakeResult& b) {
-    if (a.atlases.size() != b.atlases.size()) return false;
-    for (std::size_t i = 0; i < a.atlases.size(); ++i)
-        if (a.atlases[i].rgb.size() != b.atlases[i].rgb.size() ||
-            std::memcmp(a.atlases[i].rgb.data(), b.atlases[i].rgb.data(), a.atlases[i].rgb.size() * sizeof(float)) != 0)
-            return false;
-    return true;
-}
-
 }  // namespace
 
 TEST_CASE("lightmap gpu bake: a device without ray tracing is refused with what to do") {
@@ -175,6 +132,55 @@ TEST_CASE("lightmap gpu bake: a RecordingDevice with ray tracing takes the whole
     CHECK((*tracer)->dispatches() >= 1);
 }
 
+#if defined(__APPLE__)
+namespace {
+
+struct Diff {
+    double mean = 0;     // mean over baked texels of |gpu - cpu| per channel
+    double meanCpu = 0;  // mean CPU value
+    double maxAbs = 0;
+    std::size_t texels = 0;
+};
+
+Diff compare(const BakeResult& cpu, const BakeResult& gpu) {
+    Diff d;
+    REQUIRE(cpu.atlases.size() == gpu.atlases.size());
+    double sum = 0, sumCpu = 0;
+    for (std::size_t a = 0; a < cpu.atlases.size(); ++a) {
+        const BakedAtlas& c = cpu.atlases[a];
+        const BakedAtlas& g = gpu.atlases[a];
+        REQUIRE(c.rgb.size() == g.rgb.size());
+        REQUIRE(c.mask == g.mask);
+        for (std::size_t i = 0; i < c.mask.size(); ++i) {
+            if (c.mask[i] != kBakeBaked) continue;
+            ++d.texels;
+            for (int ch = 0; ch < 3; ++ch) {
+                const double e = std::fabs(double(g.rgb[i * 3 + ch]) - double(c.rgb[i * 3 + ch]));
+                sum += e;
+                sumCpu += c.rgb[i * 3 + ch];
+                d.maxAbs = std::max(d.maxAbs, e);
+            }
+        }
+    }
+    if (d.texels > 0) {
+        d.mean = sum / double(d.texels * 3);
+        d.meanCpu = sumCpu / double(d.texels * 3);
+    }
+    return d;
+}
+
+bool same_bits(const BakeResult& a, const BakeResult& b) {
+    if (a.atlases.size() != b.atlases.size()) return false;
+    for (std::size_t i = 0; i < a.atlases.size(); ++i)
+        if (a.atlases[i].rgb.size() != b.atlases[i].rgb.size() ||
+            std::memcmp(a.atlases[i].rgb.data(), b.atlases[i].rgb.data(), a.atlases[i].rgb.size() * sizeof(float)) != 0)
+            return false;
+    return true;
+}
+
+}  // namespace
+#endif
+
 TEST_CASE("lightmap gpu bake on Metal: the Cornell room matches the CPU baker, repeats, and cancels") {
 #if defined(__APPLE__)
     auto& g = fa::test::gfx();
@@ -211,16 +217,18 @@ TEST_CASE("lightmap gpu bake on Metal: the Cornell room matches the CPU baker, r
     REQUIRE_MESSAGE(gpuOne, (gpuOne ? "" : gpuOne.error().message));
     REQUIRE_MESSAGE(gpuTwo, (gpuTwo ? "" : gpuTwo.error().message));
     MESSAGE("CPU " << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms, GPU "
-                   << std::chrono::duration<double, std::milli>(t2 - t1).count() << " ms (first run, kernel compile included)");
+                   << std::chrono::duration<double, std::milli>(t2 - t1).count()
+                   << " ms (first run, kernel compile included)");
 
     const Diff d = compare(*cpu, *gpuOne);
-    MESSAGE("texels " << d.texels << ", mean CPU value " << d.meanCpu << ", mean |error| " << d.mean << ", max |error| " << d.maxAbs);
+    MESSAGE("texels " << d.texels << ", mean CPU value " << d.meanCpu << ", mean |error| " << d.mean << ", max |error| "
+                      << d.maxAbs);
     REQUIRE(d.texels > 1000);
     CHECK(d.meanCpu > 0.05);  // the room is lit
     // The same random numbers: only float rounding and the rare flipped path differ.
     CHECK(d.mean < 0.005 * d.meanCpu);
     CHECK(d.maxAbs < 0.25 * d.meanCpu);
-    CHECK(tracer.dispatches() >= 2);  // the GPU did the work: the CPU path never calls the tracer
+    CHECK(tracer.dispatches() >= 2);     // the GPU did the work: the CPU path never calls the tracer
     CHECK(same_bits(*gpuOne, *gpuTwo));  // repeats on one GPU and driver
 
     // A bigger room (eight times the texels in each direction), for the timing and the same bounds.
@@ -234,9 +242,10 @@ TEST_CASE("lightmap gpu bake on Metal: the Cornell room matches the CPU baker, r
         REQUIRE(cpuBig);
         REQUIRE_MESSAGE(gpuBig, (gpuBig ? "" : gpuBig.error().message));
         const Diff bd = compare(*cpuBig, *gpuBig);
-        MESSAGE("big room: " << bd.texels << " texels, CPU " << std::chrono::duration<double, std::milli>(c1 - c0).count() << " ms, GPU "
-                             << std::chrono::duration<double, std::milli>(c2 - c1).count() << " ms; mean |error| " << bd.mean
-                             << ", max |error| " << bd.maxAbs << " (mean value " << bd.meanCpu << ")");
+        MESSAGE("big room: " << bd.texels << " texels, CPU "
+                             << std::chrono::duration<double, std::milli>(c1 - c0).count() << " ms, GPU "
+                             << std::chrono::duration<double, std::milli>(c2 - c1).count() << " ms; mean |error| "
+                             << bd.mean << ", max |error| " << bd.maxAbs << " (mean value " << bd.meanCpu << ")");
         CHECK(bd.mean < 0.005 * bd.meanCpu);
         CHECK(bd.maxAbs < 0.25 * bd.meanCpu);
     }
@@ -246,12 +255,16 @@ TEST_CASE("lightmap gpu bake on Metal: the Cornell room matches the CPU baker, r
     const CommandCancelScope scope(&stop);
     BakeSettings big = st;
     big.samples = 4096;  // many dispatches
-    auto cancelled = bake_lightmap(sc, big, [&](const BakeProgress& p) {
-        if (p.phase == BakePhase::Trace && p.done > 0) stop = true;
-    }, &tracer);
+    auto cancelled = bake_lightmap(
+        sc, big,
+        [&](const BakeProgress& p) {
+            if (p.phase == BakePhase::Trace && p.done > 0) stop = true;
+        },
+        &tracer);
     CHECK_FALSE(cancelled);
     if (!cancelled) CHECK(cancelled.error().message == "cancelled");
 #else
-    MESSAGE("skipped: the real GPU test runs on Metal (Apple); D3D12 and Vulkan run the same HLSL, compiled by DXC, and are not run by this suite");
+    MESSAGE("skipped: the real GPU test runs on Metal (Apple); D3D12 and Vulkan run the same HLSL, compiled by DXC, "
+            "and are not run by this suite");
 #endif
 }

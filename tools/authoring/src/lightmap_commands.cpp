@@ -104,7 +104,7 @@ Request read_request(Engine::Impl& I, const Json& a, const char* command) {
                 "\"" + v + "\" is not a device. " + did_you_mean(v, std::vector<std::string>{"cpu", "gpu", "auto"}),
                 "One of cpu (the default: exact, the same bytes every time), gpu (a fast preview on a graphics card "
                 "that traces rays), "
-                "auto (the GPU when there is one, else the CPU).");
+                "auto (a GPU when there is one, else the CPU).");
     }
     if (a.contains("apply") && !a["apply"].is_null()) {
         if (!a["apply"].is_boolean())
@@ -323,7 +323,7 @@ const char* kRequestProps = R"(
     "rayEpsilon":{"type":"number","minimum":0,"maximum":100,"default":0,"description":"Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel."},
     "maxRays":{"type":"number","minimum":1,"default":50000000000,"description":"The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit."},
     "sky":{"type":"string","enum":["auto","environment","gradient","ambient","none"],"default":"auto","description":"The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings."},
-    "device":{"type":"string","enum":["cpu","gpu","auto"],"default":"cpu","description":"What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine can, else cpu with the reason in the result's device.note. The light probes always bake on the CPU. The result's `device` says which one baked."},
+    "device":{"type":"string","enum":["cpu","gpu","auto"],"default":"cpu","description":"What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. The light probes always bake on the CPU. The result's `device` says which one baked."},
     "apply":{"type":"boolean","default":true,"description":"Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way)."})";
 
 Json request_schema(bool withJob) {

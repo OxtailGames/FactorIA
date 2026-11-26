@@ -873,7 +873,9 @@ TEST_CASE("lightmap.bake device: the CPU is the default and says so; auto and gp
         const std::string note = autoBake.result["device"]["note"].get<std::string>();
         CHECK_MESSAGE(note.find("baked on the CPU") != std::string::npos, note);
         CHECK(autoBake.result["warnings"].dump().find("baked on the CPU") != std::string::npos);
-        // The GPU was asked for by name: an error that says why and what to do.
+        // The GPU was asked for by name: an error that says why and what to do. Not when "auto" left a software rasteriser out (WARP,
+        // lavapipe on a CI machine): "gpu" would run the kernel on it, and no test does that.
+        if (note.find("software") != std::string::npos) return;
         auto gpu = c.call("lightmap.bake", small(Json::object({{"device", "gpu"}})));
         if (!gpu.ok) {
             CHECK(gpu.error.dump().find("device \\\"gpu\\\"") != std::string::npos);

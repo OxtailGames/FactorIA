@@ -698,7 +698,7 @@ Result<Json> execute(const Plan& plan, const ReportFn& report) {
         std::unique_ptr<render::LightmapGpuTracer> tracer;
         if (opt.device != DeviceChoice::Cpu) {
             say("prepare", 0.12, 0);
-            auto opened = render::LightmapGpuTracer::open();
+            auto opened = render::LightmapGpuTracer::open(opt.device == DeviceChoice::Gpu);
             if (opened) {
                 tracer = std::move(opened.value());
                 deviceUsed = "gpu";

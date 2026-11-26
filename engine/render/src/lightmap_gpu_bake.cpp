@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,8 @@ constexpr std::uint64_t kDispatchWork = std::uint64_t(1) << 23;
 constexpr std::uint32_t kMaxBatchTexels = 16384;  // a multiple of 1024: whole rows of the output image
 constexpr std::uint32_t kMinBatchTexels = 1024;
 constexpr std::uint32_t kImageWidth = 2048;  // 1024 texels per row, two pixels each (direct, gather)
-constexpr std::uint64_t kMaxBufferBytes = std::uint64_t(256) << 20;  // a storage buffer bigger than this is refused (limits of the APIs)
+constexpr std::uint64_t kMaxBufferBytes = std::uint64_t(256)
+                                          << 20;  // a storage buffer bigger than this is refused (limits of the APIs)
 
 constexpr std::uint32_t kLightFloat4 = 8;   // float4 per light in the scene buffer (rt_bake.hlsl)
 constexpr std::uint32_t kCasterFloat4 = 3;  // float4 per caster
@@ -188,11 +190,13 @@ struct LightmapGpuTracer::Impl {
     Result<void> make_pipeline() {
         const ShaderDesc desc = lightmap_bake_shader_desc(dev->backend());
         if (!desc.compute())
-            return make_error(std::string("the lightmap bake kernel has no code for the ") + backend_name(dev->backend()) + " backend",
+            return make_error(std::string("the lightmap bake kernel has no code for the ") +
+                                  backend_name(dev->backend()) + " backend",
                               "bake on the CPU (device \"cpu\")");
         shader = dev->make_shader(desc);
         if (!shader.id || dev->state(shader) != ResourceState::Valid)
-            return make_error(std::string("the ") + backend_name(dev->backend()) + " device refused the lightmap bake kernel",
+            return make_error(std::string("the ") + backend_name(dev->backend()) +
+                                  " device refused the lightmap bake kernel",
                               "bake on the CPU (device \"cpu\"); the engine log has the compiler's message");
         PipelineDesc pd;
         pd.compute = true;
@@ -200,7 +204,8 @@ struct LightmapGpuTracer::Impl {
         pd.label = "rt_bake";
         pipeline = dev->make_pipeline(pd);
         if (!pipeline.id || dev->state(pipeline) != ResourceState::Valid)
-            return make_error(std::string("the ") + backend_name(dev->backend()) + " device could not make the lightmap bake pipeline",
+            return make_error(std::string("the ") + backend_name(dev->backend()) +
+                                  " device could not make the lightmap bake pipeline",
                               "bake on the CPU (device \"cpu\")");
         return {};
     }
@@ -263,7 +268,7 @@ Result<std::unique_ptr<LightmapGpuTracer>> make_lightmap_gpu_tracer_on(gpu::Devi
     return std::make_unique<LightmapGpuTracer>(std::move(impl));
 }
 
-Result<std::unique_ptr<LightmapGpuTracer>> LightmapGpuTracer::open() {
+Result<std::unique_ptr<LightmapGpuTracer>> LightmapGpuTracer::open(bool allowSoftware) {
     std::unique_lock<std::mutex> lock(bake_mutex(), std::try_to_lock);
     if (!lock.owns_lock())
         return make_error("another GPU lightmap bake is running in this process",
@@ -289,9 +294,9 @@ Result<std::unique_ptr<LightmapGpuTracer>> LightmapGpuTracer::open() {
         auto impl = std::make_unique<Impl>();
         if (backend == Backend::Metal) {
             if (gpu::context_open()) {
-                note(backend,
-                     "this process already has a graphics context (the editor, a game or an engine with graphics), which a bake thread cannot share; "
-                     "start without graphics (factoria call --no-graphics) to bake on the GPU");
+                note(backend, "this process already has a graphics context (the editor, a game or an engine with "
+                              "graphics), which a bake thread cannot share; "
+                              "start without graphics (factoria call --no-graphics) to bake on the GPU");
                 continue;
             }
             impl->headless = std::make_unique<HeadlessGpu>();
@@ -319,6 +324,12 @@ Result<std::unique_ptr<LightmapGpuTracer>> LightmapGpuTracer::open() {
             continue;  // the Impl closes everything it opened
         }
         impl->name = device_label(*impl->dev);
+        if (impl->dev->info().gpu.software && !allowSoftware) {
+            note(backend, "only a software rasteriser here (" + impl->name +
+                              "), which \"auto\" leaves out because it is slower than the CPU baker; ask for device "
+                              "\"gpu\" to use it");
+            continue;
+        }
         auto made = impl->make_pipeline();
         if (!made.ok()) {
             note(backend, made.error().message);
@@ -329,7 +340,8 @@ Result<std::unique_ptr<LightmapGpuTracer>> LightmapGpuTracer::open() {
     }
     if (reasons.empty()) reasons = "no graphics backend of this build can trace rays";
     return make_error("no GPU here can trace rays for the lightmap bake (" + reasons + ")",
-                      "bake on the CPU (device \"cpu\"); the GPU bake needs ray tracing: Metal on Apple silicon, D3D12 or Vulkan with ray "
+                      "bake on the CPU (device \"cpu\"); the GPU bake needs ray tracing: Metal on Apple silicon, D3D12 "
+                      "or Vulkan with ray "
                       "queries elsewhere (docs/RAY_TRACING.md)");
 }
 
@@ -338,18 +350,23 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
     Device& dev = *s.dev;
     s.release_scene();
     const std::size_t casters = scene.casterNormal.size();
-    if (scene.casterCorners.size() != casters * 3 || scene.casterAlbedo.size() != casters || scene.casterEmissive.size() != casters)
-        return make_error("the GPU lightmap bake was given a scene whose caster arrays differ in length (an engine bug)");
+    if (scene.casterCorners.size() != casters * 3 || scene.casterAlbedo.size() != casters ||
+        scene.casterEmissive.size() != casters)
+        return make_error(
+            "the GPU lightmap bake was given a scene whose caster arrays differ in length (an engine bug)");
     // The sizes, in 64 bits with saturation before anything is allocated.
-    const std::uint64_t sceneBytes =
-        (std::uint64_t(scene.lights.size()) * kLightFloat4 + std::uint64_t(std::max<std::size_t>(casters, 1)) * kCasterFloat4) * 16;
+    const std::uint64_t sceneBytes = (std::uint64_t(scene.lights.size()) * kLightFloat4 +
+                                      std::uint64_t(std::max<std::size_t>(casters, 1)) * kCasterFloat4) *
+                                     16;
     std::uint64_t skyPixels = 1;
     const BakeSky* sky = scene.sky;
-    const bool hasImage = sky && sky->image.width > 0 && sky->image.height > 0 &&
-                          sky->image.rgb.size() >= std::uint64_t(sky->image.width) * std::uint64_t(sky->image.height) * 3;
+    const bool hasImage =
+        sky && sky->image.width > 0 && sky->image.height > 0 &&
+        sky->image.rgb.size() >= std::uint64_t(sky->image.width) * std::uint64_t(sky->image.height) * 3;
     if (hasImage) skyPixels = std::uint64_t(sky->image.width) * std::uint64_t(sky->image.height);
     if (sceneBytes > kMaxBufferBytes || skyPixels * 16 > kMaxBufferBytes)
-        return make_error("the scene (" + std::to_string(casters) + " shadow-casting triangles) or the sky image is too big for the GPU bake",
+        return make_error("the scene (" + std::to_string(casters) +
+                              " shadow-casting triangles) or the sky image is too big for the GPU bake",
                           "bake on the CPU (device \"cpu\"), or bake a smaller part of the scene");
     const Limits& lim = dev.limits();
     const std::uint64_t triangles = std::max<std::size_t>(casters, 1);
@@ -370,7 +387,8 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
     s.vertices = dev.make_buffer(vb);
     if (!s.vertices.id || dev.state(s.vertices) != ResourceState::Valid) {
         s.release_scene();
-        return make_error("the GPU refused the triangle buffer of the lightmap bake", "bake on the CPU (device \"cpu\")");
+        return make_error("the GPU refused the triangle buffer of the lightmap bake",
+                          "bake on the CPU (device \"cpu\")");
     }
     AccelTriangles geometry{};
     geometry.vertexBuffer = s.vertices;
@@ -423,7 +441,8 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
     if (!blasScratch.id || !tlasScratch.id) {
         drop_scratch();
         s.release_scene();
-        return make_error("the GPU refused the scratch memory of the lightmap bake's acceleration structure", "bake on the CPU (device \"cpu\")");
+        return make_error("the GPU refused the scratch memory of the lightmap bake's acceleration structure",
+                          "bake on the CPU (device \"cpu\")");
     }
     {
         CommandList& cl = dev.begin_commands("lightmap bake accel");
@@ -489,7 +508,8 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
     std::vector<float> skyData;
     if (hasImage) {
         skyData.reserve(std::size_t(skyPixels) * 4);
-        for (std::uint64_t i = 0; i < skyPixels; ++i) put4(skyData, sky->image.rgb[i * 3], sky->image.rgb[i * 3 + 1], sky->image.rgb[i * 3 + 2], 0);
+        for (std::uint64_t i = 0; i < skyPixels; ++i)
+            put4(skyData, sky->image.rgb[i * 3], sky->image.rgb[i * 3 + 1], sky->image.rgb[i * 3 + 2], 0);
     } else {
         put4(skyData, 0, 0, 0, 0);  // a binding needs a buffer, the kernel reads none of it
     }
@@ -547,7 +567,8 @@ Result<void> LightmapGpuTracer::trace_atlas(std::uint64_t atlasKey, const std::v
     std::uint64_t batch = std::clamp<std::uint64_t>(kDispatchWork / perTexel, kMinBatchTexels, kMaxBatchTexels);
     batch -= batch % 1024;  // whole rows of the output image
     batch = std::min<std::uint64_t>(batch, ((total + 1023) / 1024) * 1024);
-    const std::uint64_t sampleChunk = std::clamp<std::uint64_t>(kDispatchWork / std::max<std::uint64_t>(batch * perSample, 1), 1, std::uint64_t(s.samples));
+    const std::uint64_t sampleChunk = std::clamp<std::uint64_t>(
+        kDispatchWork / std::max<std::uint64_t>(batch * perSample, 1), 1, std::uint64_t(s.samples));
     const std::uint32_t rowsMax = std::uint32_t(batch / 1024);
 
     ImageDesc od;
@@ -565,7 +586,8 @@ Result<void> LightmapGpuTracer::trace_atlas(std::uint64_t atlasKey, const std::v
         if (outView.id) dev.destroy_view(outView);
         if (out.id) dev.destroy_image(out);
     };
-    if (!out.id || !outView.id || dev.state(out) != ResourceState::Valid || dev.state(outView) != ResourceState::Valid) {
+    if (!out.id || !outView.id || dev.state(out) != ResourceState::Valid ||
+        dev.state(outView) != ResourceState::Valid) {
         free_out();
         return make_error("the GPU refused the output image of the lightmap bake", "bake on the CPU (device \"cpu\")");
     }
@@ -590,7 +612,8 @@ Result<void> LightmapGpuTracer::trace_atlas(std::uint64_t atlasKey, const std::v
             q[9] = bits_of(t.faceNormal.y);
             q[10] = bits_of(t.faceNormal.z);
         }
-        const Buffer texelBuffer = s.make_storage(packed.data(), packed.size() * sizeof(std::uint32_t), "lightmap bake texels");
+        const Buffer texelBuffer =
+            s.make_storage(packed.data(), packed.size() * sizeof(std::uint32_t), "lightmap bake texels");
         const View texelView = texelBuffer.id ? s.make_storage_view(texelBuffer, "lightmap bake texels view") : View{};
         auto free_texels = [&] {
             if (texelView.id) dev.destroy_view(texelView);
@@ -599,7 +622,8 @@ Result<void> LightmapGpuTracer::trace_atlas(std::uint64_t atlasKey, const std::v
         if (!texelView.id) {
             free_texels();
             free_out();
-            return make_error("the GPU refused the texel buffer of the lightmap bake", "bake on the CPU (device \"cpu\")");
+            return make_error("the GPU refused the texel buffer of the lightmap bake",
+                              "bake on the CPU (device \"cpu\")");
         }
         const std::uint32_t rows = (m + 1023) / 1024;
         accum.assign(std::size_t(m) * 3, 0.0f);
