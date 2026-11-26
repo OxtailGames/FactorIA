@@ -805,11 +805,11 @@ TEST_CASE("rt effect: a caster whose BLAS is not built yet keeps the cascades' s
     r.frame(w);
     const auto first = RendererTestAccess::rt_shadow_draws(r.renderer);
     const std::uint32_t firstUntraced = RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters;
-    // Whatever the first frame had in the TLAS, a caster without a BLAS (skippedNoBlas) is counted as untraced, so the two always agree.
-    if (RendererTestAccess::rt_scene(r.renderer)->stats().skippedNoBlas > 0) {
-        CHECK(firstUntraced > 0);
-        CHECK(first.withCascades == first.mask);
-    }
+    // Whatever the first frame had in the TLAS (the renderer's scene builds every BLAS of the first frame: the build budget and the failed BLAS
+    // are forced in rt_scene_tests.cpp, where the scene is driven by hand), the cascades are in the lit pass's mask draws exactly when the scene
+    // counted an untraced caster, and a caster without a BLAS (skippedNoBlas) is one of them.
+    CHECK(first.withCascades == (firstUntraced > 0 ? first.mask : 0));
+    if (RendererTestAccess::rt_scene(r.renderer)->stats().skippedNoBlas > 0) CHECK(firstUntraced > 0);
     warm(r, w, 5);
     CHECK(RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters == 0);
     CHECK(RendererTestAccess::rt_shadow_draws(r.renderer).withCascades == 0);

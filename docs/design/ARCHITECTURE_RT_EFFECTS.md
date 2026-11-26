@@ -178,7 +178,8 @@ they keep their raster shadow maps (planned for P2a-3).
 `kRtShadowUser0` (`rt_effect.h`: `{0.02, 0.002, 0.0, 10000}`, the normal offset, its growth per metre of depth, TMin, TMax) is the one set of
 constants the renderer and the real Metal test send; `kRtShadowLayoutHard` and `kRtShadowLayoutSoft` are the two values of `user1.y`. The kernels
 and the pack kernel are created by `RtEffects` each frame (a pipeline handle is never cached) and a kernel unused for two frames is freed, so
-turning soft off frees the denoiser's images, the trace image and both pipelines. When the driver rejects a compute pipeline, or the prepass does
+turning soft off frees the trace image and the `rt_shadow_pack` kernel; the `rt_shadow` kernel stays (hard uses it), and the denoiser frees its images
+when the soft shadows go off but keeps its shaders until ray tracing is off. When the driver rejects a compute pipeline, or the prepass does
 not have the size of the output, the effect does not run: `RtEffects::failure` keeps the reason, the renderer warns once, the lit pass keeps the
 cascades and `render.ray_tracing` answers `active: false` with that reason (`Renderer::ray_tracing_failure`). With the shadows or the cascades
 off (`doShadows` false or no cascade) no ray pass is made at all.

@@ -858,6 +858,10 @@ const float FA_PI = 3.14159265;
 // with the cascades' resolution at its edge (the trade-off of "No caster loses its shadow").
 float fa_shadow_factor(vec3 n, vec3 l) {
     if (fa_ct_b.y > 0.5 && fa_pbr.z > 0.5) {
+        // fwidth needs the pixels of a 2x2 quad to run this together. It is called from the light loop, after a `continue` for a baked light
+        // (fa_baked_keep) that a lightmapped or probe-lit fragment takes and its neighbour may not, so at the edge between two such objects the
+        // derivative can be taken from a lane that left: a wrong slope there only widens or narrows this tolerance for one pixel, and the
+        // fragment falls back to the cascades or takes the mask, both a valid shadow. Accepted rather than moving the call out of the light loop.
         // What a pixel covers of depth along this surface: a surface seen at a grazing angle changes depth fast from one pixel to the next, and
         // the sample of a multisampled fragment or of the jittered camera sits up to a pixel from the texel read, so the tolerance grows with it.
         float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;

@@ -209,7 +209,11 @@ void RtScene::prepare_skinned(const Vec3&) {
     std::vector<char> keep(items_.size(), 1);
     std::uint32_t dropped = 0;
     if (!pipeline.id || !device_->features().compute) {
-        for (std::uint32_t i : skinned) keep[i] = 0;
+        for (std::uint32_t i : skinned) {
+            keep[i] = 0;
+            // Out of the TLAS, so its sun shadow comes from the cascades (the lit pass takes the min when this is not zero).
+            if (items_[i].instance.mask & kRtMaskCastsShadow) ++stats_.untracedCasters;
+        }
         dropped = std::uint32_t(skinned.size());
         if (!warnedSkinKernel_) {
             warnedSkinKernel_ = true;
