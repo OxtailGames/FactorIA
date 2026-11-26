@@ -1408,7 +1408,7 @@ render::RtEffects* RendererTestAccess::rt_effects(Renderer& r) { return r.impl_ 
 render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {
     if (!r.impl_) return {};
-    return {r.impl_->rtShadowDraws.mask, r.impl_->rtShadowDraws.withCascades};
+    return {r.impl_->rtShadowDraws.mask, r.impl_->rtShadowDraws.withCascades, r.impl_->rtShadowDraws.local};
 }
 std::string RendererTestAccess::rt_effect_failure(Renderer& r) {
     return r.impl_ ? r.impl_->rtEffects.failure() : std::string();

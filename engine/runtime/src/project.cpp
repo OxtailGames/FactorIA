@@ -1211,7 +1211,7 @@ constexpr const char* kSchemaText =
               "type": "string",
               "enum": ["off", "hard", "soft"],
               "default": "off",
-              "description": "off = the shadow maps of the lighting; hard = one ray per pixel towards the sun (a sharp edge); soft = raysPerPixel rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; the disc is the scene setting skySunSize). Only the directional light that casts shadows is traced: point, spot and area lights keep their shadow maps. Default off."
+              "description": "off = the shadow maps of the lighting; hard = one ray per pixel towards the sun (a sharp edge); soft = raysPerPixel rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; the disc is the scene setting skySunSize). The directional light that casts shadows is traced, and so are the point, spot and area lights that cast shadows: the 3 most important ones of each camera (by brightness, range and distance to the camera), the rest keep their shadow maps. Default off."
             },
             "ao": {
               "type": "boolean",
