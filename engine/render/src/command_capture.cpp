@@ -217,6 +217,24 @@ Result<gpu::NativeCommands> CommandCapture::begin_native(std::span<const gpu::Na
                       "replay() records on), outside the capture");
 }
 
+namespace {
+Error capture_accel_refusal(const char* call) {
+    return Error{std::string("gpu: CommandList::") + call +
+                     " on a CommandCapture: a capture records no acceleration structure commands",
+                 "it is replayed later on a job thread: build, compact and copy acceleration structures on the real "
+                 "list (the one replay() records on), outside the capture"};
+}
+}  // namespace
+
+Result<void> CommandCapture::build_blas(const gpu::BlasBuild&) { return capture_accel_refusal("build_blas"); }
+Result<void> CommandCapture::build_tlas(const gpu::TlasBuild&) { return capture_accel_refusal("build_tlas"); }
+Result<void> CommandCapture::query_compacted_size(gpu::AccelStructure, gpu::Buffer, std::size_t) {
+    return capture_accel_refusal("query_compacted_size");
+}
+Result<void> CommandCapture::copy_accel_structure(gpu::AccelStructure, gpu::AccelStructure, gpu::AccelCopyMode) {
+    return capture_accel_refusal("copy_accel_structure");
+}
+
 void CommandCapture::replay(gpu::CommandList& list) const {
     for (const Call& c : calls_) {
         switch (c.op) {

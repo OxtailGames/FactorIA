@@ -349,6 +349,28 @@ TEST_CASE("setup action of a component: Install, Reinstall, Open App Store") {
     CHECK_FALSE(setup_action_for_component(ds, st.home));
     CHECK(setup_what("directstorage", {}) == "the DirectStorage runtime");
 
+    // DXC (only to edit the engine's ray tracing kernels): an Install button where it has a build (Windows, Linux x86_64),
+    // none where it is "unsupported" (macOS, Linux Arm).
+    SetupComponent dxc;
+    dxc.id = "dxc";
+    dxc.state = "missing";
+    dxc.canInstall = true;
+    dxc.installSizeMb = 90;
+    auto dxcAction = setup_action_for_component(dxc, st.home);
+    REQUIRE(dxcAction);
+    CHECK(dxcAction->label == "Install");
+    CHECK(dxcAction->component == "dxc");
+    CHECK(dxcAction->tooltip.find("ray tracing kernels") != std::string::npos);
+    CHECK_FALSE(dxcAction->options(false).force);
+    dxc.state = "installed";
+    dxcAction = setup_action_for_component(dxc, st.home);
+    REQUIRE(dxcAction);
+    CHECK(dxcAction->label == "Reinstall");
+    dxc.state = "unsupported";
+    dxc.canInstall = false;
+    CHECK_FALSE(setup_action_for_component(dxc, st.home));
+    CHECK(setup_what("dxc", {}).find("DXC") == 0);
+
     // The vendor SDKs: a button on Windows (missing there) that opens the license dialog first (the install refuses without it).
     SetupComponent sl;
     sl.id = "streamline";

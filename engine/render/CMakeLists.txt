@@ -76,13 +76,18 @@ if(TARGET fa_test_render)
         WORKING_DIRECTORY ${FA_ROOT})
     # Its ray tracing (M79 P1d, src/gpu/d3d12_accel.* and d3d12_raytracing_win32.cpp): the neutral checks on every host;
     # on Windows a WARP device builds, traces (rt_probe), refits, compacts and rebuilds, or says so and passes when its
-    # WARP has no DXR tier 1.1 (a failure with FA_D3D12_REQUIRE_RT=1, the Windows CI job). FA_WARP_DIR (a folder with
+    # WARP has no DXR tier 1.1 (a failure with FA_D3D12_REQUIRE_RT=1, which -DFA_D3D12_REQUIRE_RT=ON sets on this ctest
+    # alone: the Windows CI job configures with it, so the whole-suite `render` run never fails for it). FA_WARP_DIR (a folder with
     # the d3d10warp.dll of the Microsoft.Direct3D.WARP NuGet package, which every Windows CI shard exports when the
     # runner's WARP is older) is loaded before its first device: this file runs alone here, so no earlier case of the
     # process has loaded another WARP (in the whole-suite `render` run one may have, and the case then skips).
     add_test(NAME render_d3d12_raytracing
         COMMAND fa_test_render --fa-files=d3d12_raytracing_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
+    if(FA_D3D12_REQUIRE_RT)
+        # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put its own variables in ENVIRONMENT.
+        set_property(TEST render_d3d12_raytracing APPEND PROPERTY ENVIRONMENT "FA_D3D12_REQUIRE_RT=1")
+    endif()
     # Its DirectStorage reads of game.pak into buffers and textures (src/gpu/d3d12_pack_reads_win32.cpp): with the DLLs
     # of `factoria setup directstorage` (FA_DIRECTSTORAGE_DIR) DirectStorage writes them, else the CPU fallback does (the
     # DirectStorage cases say so and pass, or fail with FA_DIRECTSTORAGE_REQUIRE=1).

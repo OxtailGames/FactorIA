@@ -5,6 +5,7 @@
 // pin that moved without a regeneration all fail with the command that fixes them.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -139,7 +140,17 @@ TEST_CASE(
     REQUIRE(!ci.empty());
     CHECK(ci.find("compile_rt_shaders.sh") != std::string::npos);
     CHECK(ci.find("rt-shader-headers") != std::string::npos);
-    // The cache key of the DXC download carries the pinned version, so a new pin is a new download.
-    CHECK(ci.find("dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}") != std::string::npos);
-    CHECK(ci.find("compile_rt_shaders.sh") != std::string::npos);
+    // The cache key of the DXC download carries the pinned version, so a new pin is a new download. It is written twice
+    // (the restore step and the save step), and only the parts that matter are matched: the runner's OS and the pin the
+    // `dxc-pin` step prints, with any spacing inside the `${{ }}` (a re-indented or re-quoted workflow still passes).
+    size_t keys = 0;
+    for (size_t at = ci.find("key: dxc-"); at != std::string::npos; at = ci.find("key: dxc-", at + 1)) {
+        const size_t end = ci.find('\n', at);
+        std::string line = ci.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        line.erase(std::remove_if(line.begin(), line.end(), [](char c) { return c == ' '; }), line.end());
+        if (line.find("${{runner.os}}") != std::string::npos &&
+            line.find("steps.dxc-pin.outputs.pin") != std::string::npos)
+            ++keys;
+    }
+    CHECK_MESSAGE(keys >= 2, "ci.yml: the restore and the save of the DXC cache use a key with the pinned version");
 }
