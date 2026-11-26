@@ -28,7 +28,8 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   and clones, with the barriers derived by the backend (two builds on one scratch buffer, a TLAS rebuilt while the frame before
   traces it). A compute shader with `usesRayQuery` binds a TLAS, with its DXC bindings moved into the engine's descriptor sets.
   `Features` and `Limits` come from the GPU's acceleration structure properties; a GPU without ray tracing (MoltenVK, lavapipe
-  before Mesa 24.1) says what it lacks in `render.supports` and in every refusal. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
+  before Mesa 24.1) says what it lacks in `render.supports` and in every refusal. The tests trace on Mesa 25.2's lavapipe in
+  the Linux CI job, where `FA_VULKAN_REQUIRE_RT=1` makes a missing feature a failure. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
   "Vulkan".
 
 ## 0.38.0

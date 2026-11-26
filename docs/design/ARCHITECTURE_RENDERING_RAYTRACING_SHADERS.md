@@ -77,9 +77,9 @@ is the only writer of the headers; `scripts/ci-preflight.sh` reminds you when a 
   so that a stale header does not hide what the tests found; seconds of work, the job's 90 minutes are untouched.
 - **Lavapipe's ray tracing** (question O3, Linux job): `vulkan-tools` is installed with the Vulkan CPU driver, and a step prints as
   an annotation (never a failure) the Mesa package version, the device name, whether the device lists `VK_KHR_ray_query` and
-  `VK_KHR_acceleration_structure` and whether the `rayQuery` feature is true. Whether Ubuntu 24.04's Mesa lavapipe offers them is
-  not known until the first run, so the Vulkan ray query tests of later packages must skip on a missing extension and say so; the
-  annotation is the number that tells which one to expect.
+  `VK_KHR_acceleration_structure` and whether the `rayQuery` feature is true. The runner installs Mesa 25.2 from noble-updates, whose
+  lavapipe offers them, so the test step sets `FA_VULKAN_REQUIRE_RT=1` and the Vulkan ray tracing tests
+  (`render_vulkan_raytracing`) fail instead of skipping on a device without them; the annotation says why when they do.
 - **Windows job, shard 1** (WARP's DXR tier, question O3): `tools/ci/probes/d3d12_rt_probe.cpp` (compiled with `cl` in the step,
   standalone) creates a WARP device and prints `D3D12_FEATURE_DATA_D3D12_OPTIONS5.RaytracingTier` (11 = tier 1.1, what inline ray
   queries need), the highest shader model and the version of the `d3d10warp.dll` D3D12 loaded. When the OS's WARP reports less than

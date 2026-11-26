@@ -243,7 +243,9 @@ never touched ray tracing is byte-identical. `Engine` holds the settings (`set_r
 - **Tests** (`vulkan_raytracing_tests.cpp`): the caps and the set move without a device; the refusals of a device without
   ray tracing; and, on a GPU with it, the `rt_probe` kernel against a CPU trace of two instances, a refit, a compacted copy
   and a TLAS rebuilt on consecutive frames, all under the validation layer with synchronization validation. A device
-  without ray tracing skips those with its reason, even under `FA_VULKAN_REQUIRE=1` (the Linux CI's lavapipe is Mesa 24.0).
+  without ray tracing skips those with its reason, also under `FA_VULKAN_REQUIRE=1`; `FA_VULKAN_REQUIRE_RT=1` makes the skip
+  a failure that names the device, its driver and what it lacks. The Linux CI job sets it: it runs Mesa 25.2's lavapipe,
+  which traces rays (docs/design/BUILDING_TESTS.md, "Vulkan ray tracing tests").
 
 ## The Metal route (package P1m; documented here, not implemented)
 
