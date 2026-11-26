@@ -423,12 +423,28 @@ numbers, but it blocks the frame it is called in, from a script's `update` too (
 | `gi2d` (quality, resolution scale) | off | on (low, 0.25) | on (medium, 0.5) | on (high, 1) |
 | `lightScale` (2D light buffer) | 0.5 | 0.75 | 1 | 1 |
 | `realtimeGiProbesPerFrame` | 2 | 4 | 8 | 32 |
+| `rtShadows` (the most ray traced shadows may be) | off | off | hard | no limit (soft) |
+| `rtAo` / `rtReflections` / `rtTranslucency` | off / off / off | off / off / off | on / off / off | no limit (on / on / on) |
+| `rtGi` | off | off | off | no limit (perPixel) |
+| `rtRaysPerPixel` | 1 | 1 | 2 | no limit (16) |
 | upscaler (`mode` auto, `quality`) | `performance` | `balanced` | `quality` | none: the game's own |
 
 The numbers are caps and never rise above what the scene asks for. `shadowTileSize` caps the map of the sun's cascades and of every
 local light: one with `Light.shadowResolution` above it gets the cap, and one with no `shadowResolution` of its own (spot maps are up to
 1024 texels, point faces up to 512) gets the cap too when the cap is smaller than its own size. The table is monotone (every knob of `medium` is at least as high
 as `low`, and so on), and a test keeps it so. `graphics.preset` answers the whole `limits` object by knob name.
+
+**Ray tracing (M79).** The `rt*` knobs are a ceiling on `render.rayTracing` (docs/RAY_TRACING.md), and only that: a preset never turns
+ray tracing on. A project whose `render.rayTracing.enabled` is false traces nothing under any preset, and an effect the project left
+off stays off; `high` with `shadows: "soft"` traces hard shadows, with `reflections: true` it keeps the screen-space reflections,
+and `low` and `medium` trace nothing at all (they are the presets for the GPUs that have the least to spare). `high` takes the two
+cheapest effects, the ones that replace what the raster approximates worst: hard sun shadows (one ray per pixel, no denoiser) and the
+ambient occlusion (a few denoised rays, at most 2 per pixel). Reflections (rays spread by the roughness and eight history images),
+glass (a ray per pixel through up to six interfaces) and global illumination (the most expensive) are `ultra`'s, which is no limit,
+like `custom`: the game's own setting. A device that cannot trace rays (OpenGL, OpenGL ES 3, WebGL2, Direct3D 11, or a GPU or OS
+without ray queries) is not changed by these knobs: nothing traces there, so they are not reported in `capped`. `render.ray_tracing`
+answers `presetCap` `{preset, capped, effective}`: the setting after the caps (`active` and `reason` follow it). The path tracer
+(`render.pathTracer`, a reference mode you turn on yourself) is not capped by a preset.
 
 **What the GPU caps.** A knob for a feature the backend cannot draw is lowered too, with the same status `render.supports` gives:
 the volumetric fog needs half-float targets, cascaded and local shadows need 32-bit float targets, and the shadow atlas is never

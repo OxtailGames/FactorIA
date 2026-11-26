@@ -211,8 +211,16 @@ function openFrameGen(supports = () => true) {
   game.click("gfx_fg_page");
   return pad;
 }
+// The fifth page: the ray tracing rows (from the fourth).
+function openRayTracing(supports = () => true) {
+  const pad = openFrameGen(supports);
+  game.click("gfx_rt_page");
+  return pad;
+}
+const rayTracing = () => fa.call("render.ray_tracing");
 const restore = () => {
   settings.overrideRenderSupports(null);
+  fa.call("render.ray_tracing", { enabled: false, shadows: "off", ao: false, reflections: false, translucency: false, gi: "off" });
   window.upscaler = { mode: "stretch", quality: "native", sharpness: 0.5 };
   window.renderScale = 1;
   window.dynamicResolution = { enabled: false, targetMs: 0, minScale: 0.5, maxScale: 1 };
@@ -680,6 +688,126 @@ test("graphics settings: the saved frame generation applies at the start, and an
     settings.apply();
     expect(frameGen().mode).toBe("fsr");
     expect(frameGen().minBaseFps).toBe(30);
+  } finally {
+    restore();
+  }
+});
+
+// ---------------------------------------------------------------------------------------------- the ray tracing rows (render.rayTracing)
+
+test("graphics page: the ray tracing page opens from the frame generation page and goes back", () => {
+  openFrameGen();
+  try {
+    game.click("gfx_rt_page");
+    expect(world.find("framegen_section").active).toBe(false);
+    expect(world.find("raytracing_section").active).toBe(true);
+    game.click("gfx_rt_back");
+    expect(world.find("framegen_section").active).toBe(true);
+    expect(world.find("raytracing_section").active).toBe(false);
+    game.click("gfx_rt_page");
+    game.click("tab_video");
+    game.click("tab_graphics");
+    expect(world.find("graphics_section").active).toBe(true);
+    expect(world.find("raytracing_section").active).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: ray tracing turns on at the preset's tier, the quality cycles high and ultra, and both are saved", () => {
+  storage.set("settings", {}); // no choice saved by an earlier test
+  openRayTracing((feature) => feature === "raytracing");
+  try {
+    expect(rayTracing().enabled).toBe(false);
+    expect(world.find("gfx_rt_enabled").get("Toggle").interactable).toBe(true);
+    expect(button("gfx_rt_quality").interactable).toBe(false); // nothing to choose while it is off
+    expect(world.find("raytracing_note").active).toBe(false);
+    game.click("gfx_rt_enabled");
+    // engine.graphics.preset("custom") in force: no limit, so the default quality is ultra and its effects are on
+    expect(rayTracing().enabled).toBe(true);
+    expect(rayTracing().shadows).toBe("soft");
+    expect(rayTracing().reflections).toBe(true);
+    expect(rayTracing().gi).toBe("probes");
+    expect(saved().rayTracing).toEqual({ enabled: true, quality: "ultra" });
+    expect(button("gfx_rt_quality").interactable).toBe(true);
+    expect(button("gfx_rt_quality").text).toContain(i18n.t("options.gfx.rtq.ultra"));
+    expect(world.find("raytracing_note").get("Text").text).toContain(i18n.t("options.gfx.rtTier.ultra"));
+    game.click("gfx_rt_quality");
+    expect(rayTracing().shadows).toBe("hard");
+    expect(rayTracing().ao).toBe(true);
+    expect(rayTracing().reflections).toBe(false);
+    expect(rayTracing().translucency).toBe(false);
+    expect(rayTracing().gi).toBe("off");
+    expect(saved().rayTracing).toEqual({ enabled: true, quality: "high" });
+    expect(world.find("raytracing_note").get("Text").text).toContain(i18n.t("options.gfx.rtTier.high"));
+    game.click("gfx_rt_quality");
+    expect(rayTracing().shadows).toBe("soft");
+    game.click("gfx_rt_enabled");
+    expect(rayTracing().enabled).toBe(false);
+    expect(saved().rayTracing.enabled).toBe(false);
+    expect(world.find("gfx_rt_label").get("Text").text).toContain(i18n.t("options.gfx.rtOff"));
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: the graphics preset caps ray tracing and the page says so", () => {
+  storage.set("settings", {}); // no choice saved by an earlier test
+  openRayTracing((feature) => feature === "raytracing");
+  try {
+    engine.graphics.preset("high");
+    game.click("gfx_rt_enabled"); // the High preset's tier is the default
+    expect(saved().rayTracing).toEqual({ enabled: true, quality: "high" });
+    game.click("gfx_rt_quality"); // the player asks for ultra: the preset keeps hard shadows and ambient occlusion
+    expect(rayTracing().shadows).toBe("soft");
+    expect(rayTracing().presetCap.capped).toBe(true);
+    expect(rayTracing().presetCap.effective.shadows).toBe("hard");
+    expect(rayTracing().presetCap.effective.reflections).toBe(false);
+    expect(world.find("raytracing_note").get("Text").text).toContain(i18n.t("options.gfx.rtCap.high", { preset: i18n.t("options.gfx.p.high") }));
+    engine.graphics.preset("low"); // low traces nothing
+    game.click("gfx_rt_quality");
+    expect(world.find("raytracing_note").get("Text").text).toContain(i18n.t("options.gfx.rtCap.none", { preset: i18n.t("options.gfx.p.low") }));
+    engine.graphics.preset("ultra"); // a preset never turns ray tracing on, and ultra caps nothing
+    game.click("gfx_rt_quality");
+    expect(rayTracing().presetCap.capped).toBe(false);
+    expect(world.find("raytracing_note").get("Text").text).not.toContain(i18n.t("options.gfx.rtCap.high", { preset: i18n.t("options.gfx.p.ultra") }));
+  } finally {
+    restore();
+  }
+});
+
+test("graphics page: a device that cannot trace rays greys the rows out and says why", () => {
+  storage.set("settings", {}); // no choice saved by an earlier test
+  openRayTracing(() => false);
+  try {
+    expect(world.find("gfx_rt_enabled").get("Toggle").interactable).toBe(false);
+    expect(button("gfx_rt_quality").interactable).toBe(false);
+    const note = world.find("raytracing_note").get("Text").text;
+    expect(note).toContain(i18n.t("options.gfx.rtUnsupported"));
+    expect(note).toContain("graphics.backend");
+    game.click("gfx_rt_enabled"); // greyed out: nothing happens
+    expect(rayTracing().enabled).toBe(false);
+    expect(saved()?.rayTracing ?? {}).toEqual({});
+  } finally {
+    restore();
+  }
+});
+
+test("graphics settings: the saved ray tracing applies at the start, and an old save changes nothing", () => {
+  storage.set("settings", { graphics: { rayTracing: { enabled: true, quality: "high" } } });
+  try {
+    expect(settings.load().graphics.rayTracing).toEqual({ enabled: true, quality: "high" });
+    settings.apply();
+    expect(rayTracing().enabled).toBe(true);
+    expect(rayTracing().shadows).toBe("hard");
+    expect(rayTracing().reflections).toBe(false);
+    // A save of an older kit has no rayTracing key: the game's own setting stays.
+    fa.call("render.ray_tracing", { enabled: false, shadows: "soft" });
+    storage.set("settings", { volume: { music: 0.3 }, graphics: { quality: "low", effects: {} } });
+    expect(settings.load().graphics.rayTracing).toEqual({});
+    settings.apply();
+    expect(rayTracing().enabled).toBe(false);
+    expect(rayTracing().shadows).toBe("soft");
   } finally {
     restore();
   }

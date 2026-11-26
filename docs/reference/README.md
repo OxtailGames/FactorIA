@@ -548,7 +548,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Since 0.30.0._
 - [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Since 0.30.0._
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
-- [`project.graphics`](commands/project.md#projectgraphics-modifies-state): Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode and the frame generation a game starts with, in factoria.json. _Since 0.36.0._
+- [`project.graphics`](commands/project.md#projectgraphics-modifies-state): Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode, the frame generation, the ray tracing and the path tracer a game starts with, in factoria.json. _Since 0.36.0._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._

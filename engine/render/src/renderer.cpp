@@ -800,6 +800,7 @@ const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upsca
 void Renderer::set_quality(const render::QualityLimits& limits) {
     impl_->quality = limits;
     impl_->qualityOn = limits != render::QualityLimits{};
+    set_ray_tracing(impl_->rtRequested);  // the preset's ray tracing caps follow (M79-P6a)
 }
 const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
 ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }

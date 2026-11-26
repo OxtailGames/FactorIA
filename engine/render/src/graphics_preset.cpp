@@ -41,6 +41,12 @@ namespace {
 //   gi2d (qual, res)      off     low .25 medium .5  high 1
 //   lightScale            0.5     0.75    1       1
 //   realtimeGiProbes      2       4       8       32
+//   rtShadows             off     off     hard    soft (no limit)
+//   rtAo                  off     off     on      on
+//   rtReflections         off     off     off     on
+//   rtTranslucency        off     off     off     on
+//   rtGi                  off     off     off     perPixel (no limit)
+//   rtRaysPerPixel        1       1       2       16 (no limit)
 //   upscaler (auto)       perf.   balanced quality the game's own
 GraphicsPresetTable make_table(GraphicsPreset p) {
     GraphicsPresetTable t;
@@ -74,6 +80,12 @@ GraphicsPresetTable make_table(GraphicsPreset p) {
             q.gi2dResolutionScale = 0.25f;
             q.lightScale = 0.5f;
             q.realtimeGiProbesPerFrame = 2;
+            q.rtShadows = RtShadows::Off;
+            q.rtAo = false;
+            q.rtReflections = false;
+            q.rtTranslucency = false;
+            q.rtGi = RtGi::Off;
+            q.rtRaysPerPixel = 1;
             t.upscaler = UpscalerSettings{UpscalerMode::Auto, UpscalerQuality::Performance, 0.5f};
             break;
         case GraphicsPreset::Medium:
@@ -104,6 +116,12 @@ GraphicsPresetTable make_table(GraphicsPreset p) {
             q.gi2dResolutionScale = 0.25f;
             q.lightScale = 0.75f;
             q.realtimeGiProbesPerFrame = 4;
+            q.rtShadows = RtShadows::Off;
+            q.rtAo = false;
+            q.rtReflections = false;
+            q.rtTranslucency = false;
+            q.rtGi = RtGi::Off;
+            q.rtRaysPerPixel = 1;
             t.upscaler = UpscalerSettings{UpscalerMode::Auto, UpscalerQuality::Balanced, 0.5f};
             break;
         case GraphicsPreset::High:
@@ -134,6 +152,15 @@ GraphicsPresetTable make_table(GraphicsPreset p) {
             q.gi2dResolutionScale = 0.5f;
             q.lightScale = 1.0f;
             q.realtimeGiProbesPerFrame = 8;
+            // Hard sun shadows (one ray per pixel and no denoiser) and the ambient occlusion (a few denoised rays): the cheapest rays that
+            // replace what the raster approximates worst. Reflections (up to raysPerPixel rays per glossy pixel, eight history images),
+            // glass (a ray per pixel through up to six interfaces) and global illumination are Ultra's.
+            q.rtShadows = RtShadows::Hard;
+            q.rtAo = true;
+            q.rtReflections = false;
+            q.rtTranslucency = false;
+            q.rtGi = RtGi::Off;
+            q.rtRaysPerPixel = 2;
             t.upscaler = UpscalerSettings{UpscalerMode::Auto, UpscalerQuality::Quality, 0.5f};
             break;
         case GraphicsPreset::Ultra:
@@ -220,6 +247,12 @@ const std::vector<Knob>& knobs() {
         FA_KNOB_NUM(gi2dResolutionScale),
         FA_KNOB_NUM(lightScale),
         FA_KNOB_INT(realtimeGiProbesPerFrame),
+        FA_KNOB_ENUM(rtShadows, rt_shadows_name),
+        FA_KNOB_BOOL(rtAo),
+        FA_KNOB_BOOL(rtReflections),
+        FA_KNOB_BOOL(rtTranslucency),
+        FA_KNOB_ENUM(rtGi, rt_gi_name),
+        FA_KNOB_INT(rtRaysPerPixel),
     };
     return k;
 }
@@ -256,6 +289,17 @@ const std::vector<std::string>& quality_knob_names() {
 std::vector<double> quality_knob_levels(const QualityLimits& q) {
     std::vector<double> out;
     for (const Knob& k : knobs()) out.push_back(k.level(q));
+    return out;
+}
+
+RayTracingSettings apply_quality_to_ray_tracing(const RayTracingSettings& s, const QualityLimits& q) {
+    RayTracingSettings out = s;
+    out.shadows = RtShadows(std::min(int(s.shadows), int(q.rtShadows)));
+    out.ao = s.ao && q.rtAo;
+    out.reflections = s.reflections && q.rtReflections;
+    out.translucency = s.translucency && q.rtTranslucency;
+    out.gi = RtGi(std::min(int(s.gi), int(q.rtGi)));
+    out.raysPerPixel = std::min(s.raysPerPixel, std::max(q.rtRaysPerPixel, kRtMinRaysPerPixel));
     return out;
 }
 

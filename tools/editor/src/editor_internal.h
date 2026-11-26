@@ -768,6 +768,8 @@ public:
     bool graphicsSupportStale_ = true;
     bool graphicsSupportPinned_ = false;
     std::string graphicsLatencyLine_, graphicsFrameGenLine_, graphicsFrameGenHint_, graphicsFrameGenState_;
+    std::string graphicsRayTracingLine_, graphicsRayTracingPresetNote_,
+        graphicsRayTracingGiComing_;  // what the ray tracing group says (the autotest reads them)
 
     // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
     // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a

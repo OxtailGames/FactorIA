@@ -2254,16 +2254,27 @@ Json Engine::ray_tracing_status() {
     // The sun's shadows, the ambient occlusion, the sharp reflections and the translucency draw with rays so far (M79-P2a-1, P2b, P3a-1, P3b): an effect that is on,
     // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
     // An effect whose kernel the driver rejected (or whose prepass does not match the output) draws its raster version: it is not active.
+    // M79-P6a: the graphics preset only caps what the project asked for (graphics.preset; QualityLimits::rt*): `rt` is what is drawn.
+    // The preset's table, not impl_->graphicsLimits: the rt knobs are not capped by the GPU, and a headless run (no renderer to resolve
+    // the preset) answers the same.
+    const render::RayTracingSettings rt = render::apply_quality_to_ray_tracing(
+        impl_->rayTracing, render::graphics_preset_table(impl_->graphicsPreset).limits);
     const std::string failure = impl_->renderer ? impl_->renderer->ray_tracing_failure() : std::string();
-    const bool shadowsOn = impl_->rayTracing.shadows != render::RtShadows::Off;
-    const bool aoOn = impl_->rayTracing.ao;
-    const bool reflectionsOn = impl_->rayTracing.reflections;
+    const bool shadowsOn = rt.shadows != render::RtShadows::Off;
+    const bool aoOn = rt.ao;
+    const bool reflectionsOn = rt.reflections;
     int localCandidates = 0, localTraced = 0;
     if (impl_->renderer) impl_->renderer->ray_tracing_local_shadows(localCandidates, localTraced);
-    const bool translucencyOn = impl_->rayTracing.translucency;
-    const bool active = impl_->rayTracing.enabled && supported &&
-                        (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
+    const bool translucencyOn = rt.translucency;
+    const bool active =
+        rt.enabled && supported && (shadowsOn || aoOn || reflectionsOn || translucencyOn) && failure.empty();
     j["active"] = active;
+    // M79-P6a: what the graphics preset allows. `effective` is the setting after the caps (the same keys as the setting itself); it is
+    // the setting when `capped` is false (custom, ultra, or a project that asks for less than the preset allows).
+    const bool presetCapped = rt != impl_->rayTracing;
+    j["presetCap"] = Json::object({{"preset", std::string(render::graphics_preset_name(impl_->graphicsPreset))},
+                                   {"capped", presetCapped},
+                                   {"effective", render::ray_tracing_to_json(rt)}});
     j["pathTracer"] = path_tracer_status();
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
@@ -2305,6 +2316,11 @@ Json Engine::ray_tracing_status() {
     } else
         j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao, "
                       "reflections and translucency are made so far).";
+    if (presetCapped && impl_->rayTracing.enabled && supported)
+        j["reason"] = j["reason"].get<std::string>() + " The graphics preset \"" +
+                      std::string(render::graphics_preset_name(impl_->graphicsPreset)) +
+                      "\" caps what the project asks for (presetCap.effective is what is drawn); `graphics.preset "
+                      "{\"name\":\"custom\"}` or a higher preset lifts the cap.";
     return j;
 }
 
