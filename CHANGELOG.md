@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Glossy ray traced reflections, denoised, with a per-pixel fallback (M79-P3a-2):** `render.rayTracing.reflections` now traces rough
+  surfaces too: under roughness 0.25 one mirror ray, as before (the same bits); from 0.25 to 0.65 `raysPerPixel` rays (1 to 16) sampled from the
+  GGX distribution of visible normals with a deterministic per-pixel sequence from the frame serial. The glossy pixels are denoised by the
+  `RtDenoiser` (a `Specular` signal for the radiance and the new `Coverage` kind for the share of pixels whose rays hit), which now reprojects a
+  reflection to where the image behind the mirror was (the virtual position along the view ray, by the hit distance) instead of where the surface
+  was, and filters only between pixels of a similar roughness. The screen-space reflections' pass composites both: the traced share fades out
+  between roughness 0.5 and 0.65 and wherever the rays left the scene, and the screen-space march and the probes fill the rest, so there is no seam;
+  a device that cannot trace, a rougher surface and the sky keep the old reflections. A sharp ray that leaves the scene now lets the screen-space
+  march look for the reflection (it used to leave the lit picture alone). Off: nothing is made and no denoiser history is kept. The project key
+  stays `reflections` (off or on); its description says the new range. The Metal kernel is tested on a real GPU against a CPU port of the sampler
+  (mean error 4e-6, the same frame bit for bit); D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet.
+  docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md, docs/design/ARCHITECTURE_DENOISE.md.
 - **Ray traced soft sun shadows, and no caster loses its shadow (M79-P2a-2):** `render.rayTracing.shadows = "soft"` now draws: `raysPerPixel` rays
   (1 to 16) per pixel toward points of the sun's disc (its angular diameter is the scene's `skySunSize`, 0.53 degrees by default) with a
   deterministic per-pixel sequence from the frame serial, denoised by the `RtDenoiser` (`Visibility`) and packed into the image the lit pass reads;

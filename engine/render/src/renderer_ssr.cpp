@@ -42,7 +42,8 @@ Rect rect_of(const PostRect& r, int picW, int picH) {
 // `fu`: the program's uniform block (null: none). `part`: the rectangle of the destination the pass covers (null: all of it).
 // False (nothing drawn) when the target of the pass is gone.
 bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, const PassDesc& pd, gpu::View tc,
-                     gpu::View tp, gpu::View tr, const void* fu, std::size_t fuSize, const Rect* part) {
+                     gpu::View tp, gpu::View tr, gpu::View td, gpu::View tk, gpu::View tm, const void* fu,
+                     std::size_t fuSize, const Rect* part) {
     if (!pd.color.id) return false;
     const gpu::Pipeline pipe = fx.pipeline(prog, pd.format);  // made before the pass opens
     list.begin_pass(pd);
@@ -57,6 +58,9 @@ bool draw_fullscreen(gpu::CommandList& list, Ssr& fx, Gpu& gpu, Ssr::Prog prog, 
     if (prog == Ssr::Prog::Trace) {
         b.views[1] = tp;
         b.views[2] = tr;
+        b.views[3] = td;
+        b.views[4] = tk;
+        b.views[5] = tm;
         b.samplers[1] = gpu.sampler(SamplerKind::Nearest);
     }
     b.samplers[0] = gpu.sampler(SamplerKind::LinearClamp);
@@ -178,7 +182,7 @@ void Ssr::release() {
 int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rectIn,
                     int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                     const PrepassRef& prepass, int* drawCalls, const std::string& job, const RtEffectImage* rtImage,
-                    ResourceId rtRes) {
+                    ResourceId rtRes, const SsrRtGlossy* glossyIn) {
     if (!plan.any() || !prepass.valid()) return 0;
     const Rect rect = rect_of(rectIn, picW, picH);
     if (rect.w < 1 || rect.h < 1) return 0;
@@ -247,12 +251,24 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
     u.b[2] = plan.thickness;
     for (int i = 0; i < 4; ++i) u.pa[i] = plan.proj[i];
     for (int i = 0; i < 4; ++i) u.pb[i] = plan.proj[4 + i];
+    const SsrRtGlossy glossy = glossyIn ? *glossyIn : SsrRtGlossy{};
+    u.g[0] = glossy.sharp;
+    u.g[1] = glossy.fadeStart;
+    u.g[2] = glossy.limit;
 
     const TargetFormat dstFormat{fmt, gpu::PixelFormat::None, dst.samples};
     auto scratchReady = std::make_shared<bool>(false);  // the copy runs only after a trace that did
 
     std::vector<ResourceId> traceReads{game, pre};
     if (rtImage && rtRes.valid()) traceReads.push_back(rtRes);
+    if (rtImage && rtRes.valid() &&
+        glossyIn) {  // the denoiser's results and the roughness: ordered before the trace pass
+        if (glossy.color.valid() && glossy.coverage.valid()) {
+            traceReads.push_back(glossy.color);
+            traceReads.push_back(glossy.coverage);
+        }
+        if (glossy.material.valid()) traceReads.push_back(glossy.material);
+    }
     add("ssr-trace", std::move(traceReads), {scratch}, [=](const PassContext& c) {
         const Target* pt = prepassRef.target(c);
         const Target* st = tt->get(c.handle(scratch));
@@ -263,10 +279,21 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         // placeholder (a sampler pair is always bound).
         ssr_ssr_params_t uu = u;
         const bool rtOn = rtImage && rtImage->ran && rtImage->texture.id;
-        uu.b[3] = rtOn ? 1.0f : 0.0f;
         if (!rtOn && u.b[0] <= 0.0f) return;  // nothing to draw: the scratch is not made, the copy does not run
-        if (!draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Trace, pd, srcTex, pt->texView,
-                             rtOn ? rtImage->texture : pt->texView, &uu, sizeof(uu), nullptr))
+        // The denoised glossy images are used when both exist (the denoiser ran); else the raw image serves every traced pixel (mode 1).
+        const Target* dt =
+            glossy.color.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.color)) : nullptr;
+        const Target* kt =
+            glossy.coverage.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.coverage)) : nullptr;
+        const Target* mt =
+            glossy.material.valid() && glossy.targets ? glossy.targets->get(c.handle(glossy.material)) : nullptr;
+        const bool denoised = rtOn && dt && kt && dt->texView.id && kt->texView.id;
+        uu.b[3] = !rtOn ? 0.0f : (denoised ? 2.0f : 1.0f);
+        uu.g[3] = rtOn && mt && mt->texView.id ? 1.0f : 0.0f;
+        const gpu::View rawView = rtOn ? rtImage->texture : pt->texView;
+        if (!draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Trace, pd, srcTex, pt->texView, rawView,
+                             denoised ? dt->texView : rawView, denoised ? kt->texView : rawView,
+                             uu.g[3] > 0.5f ? mt->texView : rawView, &uu, sizeof(uu), nullptr))
             return;
         *scratchReady = true;
         ++*drawCalls;
@@ -282,8 +309,8 @@ int Ssr::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, cons
         pd.format = dstFormat;
         pd.colorLoad = rect.whole && dst.samples <= 1 ? gpu::LoadAction::DontCare : gpu::LoadAction::Load;
         pd.colorStore = gpu::StoreAction::Store;
-        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, gpu::View{}, nullptr,
-                            0, rect.whole ? nullptr : &rect))
+        if (draw_fullscreen(pass_list(c, *g), *self, *g, Prog::Copy, pd, st->texView, gpu::View{}, gpu::View{},
+                            gpu::View{}, gpu::View{}, gpu::View{}, nullptr, 0, rect.whole ? nullptr : &rect))
             ++*drawCalls;
     });
     return declared;

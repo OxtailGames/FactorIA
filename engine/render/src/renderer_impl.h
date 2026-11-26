@@ -659,6 +659,8 @@ struct Renderer::Impl {
     static constexpr std::uint32_t kRtShadowSignalId = 1;
     static constexpr std::uint32_t kRtAoSignalId =
         2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)
+    // M79-P3a-2: the glossy reflections' two signals (the radiance and where the rays hit a surface); the ids stay apart from the occlusion's.
+    static constexpr std::uint32_t kRtReflectSignalId = 3, kRtReflectCoverageSignalId = 4;
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).

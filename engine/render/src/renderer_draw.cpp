@@ -5659,8 +5659,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     why);
         }
     }
-    // Ray traced sharp reflections (M79-P3a-1, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer; the screen-space
-    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the image. A device that refuses the kernel or the
+    // Ray traced reflections (M79-P3a-1/2, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer (a mirror ray under the sharp
+    // cutoff, raysPerPixel glossy rays up to the limit, then the denoiser); the screen-space
+    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the images. A device that refuses the kernel or the
     // image keeps the screen-space reflections and the probes, said once.
     ctx.postPlan.rtReflectImg = nullptr;
     ctx.postPlan.rtReflectRes = ResourceId{};
@@ -5679,7 +5680,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         req.camera = &fr.cam;
         req.zeroToOne = ctx.z01;
         req.frameSerial = frameSerial;
-        req.raysPerPixel = 1;
+        // Sharp pixels take one mirror ray; the glossy ones take raysPerPixel (1 to 16), as the occlusion does.
+        req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
         // The sun the lit pass shadows, else its first directional light (rank 0 or 1): the direction toward it and its radiance.
         const LightData* sunLight = nullptr;
         for (const LightData& l : ctx.lights)
@@ -5717,14 +5719,54 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         // user0: the mirror ray's offset along the normal in metres and per metre of view depth, the roughness cutoff, TMax.
         req.user0[0] = 0.02f;
         req.user0[1] = 0.002f;
-        req.user0[2] = 0.25f;
+        req.user0[2] = kRtReflectSharp;
         req.user0[3] = 10000.0f;
+        req.user1[0] =
+            kRtReflectLimit;  // the roughest pixel that is traced (above it: the screen-space march and the probes)
         req.scene = &rtScene;
         req.drawCalls = &stats.drawCalls;
         const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
         if (out.valid) {
             ctx.postPlan.rtReflectImg = out.out;
             ctx.postPlan.rtReflectRes = out.res;
+            // The glossy pixels (roughness from the sharp cutoff up) are denoised: the radiance (with the hit distance, which steers the virtual-motion
+            // reprojection) and, as a second signal, where the rays ended on a surface, so the hand-off to the screen-space march and the probes has
+            // no seam. The sharp pixels read the raw image. A denoiser that cannot run leaves both invalid: the composite reads the raw image.
+            ctx.postPlan.rtGlossy = SsrRtGlossy{};
+            ctx.postPlan.rtGlossy.material = ctx.postPlan.gbufferMaterial.res;
+            ctx.postPlan.rtGlossy.targets = ctx.postPlan.gbufferMaterial.targets;
+            const std::uint64_t camKey = fr.cam.entity.bits();
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                           ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            DenoiseInputs din;
+            din.noisy.res = out.res;
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            din.roughness.res = ctx.postPlan.gbufferMaterial.res;
+            din.roughness.targets = ctx.postPlan.gbufferMaterial.targets;
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            DenoiseSignal color;
+            color.kind = DenoiseKind::Specular;
+            color.id = kRtReflectSignalId;
+            color.name = "reflections";
+            DenoiseSignal cover = color;
+            cover.kind = DenoiseKind::Coverage;
+            cover.id = kRtReflectCoverageSignalId;
+            cover.name = "reflections-coverage";
+            const DenoiseOutput dc =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, color, din, &stats.drawCalls, plan.name);
+            if (dc.valid) {
+                const DenoiseOutput dk = rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, cover, din,
+                                                               &stats.drawCalls, plan.name);
+                if (dk.valid) {
+                    ctx.postPlan.rtGlossy.color = dc.res;
+                    ctx.postPlan.rtGlossy.coverage = dk.res;
+                }
+            }
         } else if (!rtWarnedReflect) {
             rtWarnedReflect = true;
             FA_WARN("render",
@@ -6097,7 +6139,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
                        gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name,
-                       c->postPlan.rtReflectImg, c->postPlan.rtReflectRes);
+                       c->postPlan.rtReflectImg, c->postPlan.rtReflectRes, &c->postPlan.rtGlossy);
     }
     custom_slot(PostSlot::AfterSsr);
     // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
