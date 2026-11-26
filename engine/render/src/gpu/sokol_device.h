@@ -99,6 +99,7 @@ public:
     void begin_compute_pass(const char* label) override;
     void end_pass() override;
     PassState pass_state() const override;
+    Backend backend() const override;  // the ray tracing refusals name it
     void set_pipeline(Pipeline pipeline) override;
     void set_bindings(const Bindings& bindings) override;
     void set_uniforms(int slot, Range data) override;

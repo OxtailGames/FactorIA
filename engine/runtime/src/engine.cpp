@@ -308,6 +308,11 @@ void Engine::Impl::apply_project_settings() {
         appliedProjectFrameGen = project.frameGeneration;
         self->set_frame_generation(render::frame_gen_to_json(project.frameGeneration), "factoria.json");
     }
+    // The ray tracing setting of factoria.json ("render.rayTracing"), applied when it changes. Always valid.
+    if (!appliedProjectRayTracing || *appliedProjectRayTracing != project.rayTracing) {
+        appliedProjectRayTracing = project.rayTracing;
+        self->set_ray_tracing(render::ray_tracing_to_json(project.rayTracing), "factoria.json");
+    }
     // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
     // load_project checked it.
     if (!appliedProjectDynRes || *appliedProjectDynRes != project.dynamicResolution) {
@@ -2146,6 +2151,48 @@ Json Engine::frame_generation_status() {
 
 Json Engine::frame_generation_report() {
     return impl_->renderer ? impl_->renderer->frame_generation_report() : Json::object();
+}
+
+std::string Engine::set_ray_tracing(const Json& value, const std::string& where) {
+    auto parsed = render::parse_ray_tracing_settings(value, where, impl_->rayTracing);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->rayTracing = parsed.value();
+    return std::string();
+}
+
+const render::RayTracingSettings& Engine::ray_tracing() const { return impl_->rayTracing; }
+
+Json Engine::ray_tracing_status() {
+    Json j = render::ray_tracing_to_json(impl_->rayTracing);
+    // Whether the device could trace, from the same rows as render.supports. Without a renderer nothing is known.
+    bool supported = false;
+    std::string why = "No renderer: the engine runs with graphics=false, so nothing is known about a GPU.";
+    if (impl_->renderer) {
+        why.clear();
+        const Json report = impl_->renderer->supports_report();
+        auto features = report.find("features");
+        if (features != report.end() && features->is_array()) {
+            for (const Json& f : *features) {
+                if (!f.is_object() || !f.contains("name") || !f["name"].is_string() ||
+                    f["name"].get<std::string>() != "raytracing")
+                    continue;
+                supported = f.contains("supported") && f["supported"].is_boolean() && f["supported"].get<bool>();
+                if (f.contains("status") && f["status"].is_string()) why = f["status"].get<std::string>();
+                break;
+            }
+        }
+    }
+    j["supported"] = supported;
+    j["active"] = false;  // nothing traces yet: the backends and the effects come one by one in M79
+    if (!impl_->rayTracing.enabled)
+        j["reason"] = std::string();
+    else if (!supported)
+        j["reason"] =
+            why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why;
+    else
+        j["reason"] =
+            "This device could trace rays, but this version has the interface only: no effect draws with rays yet.";
+    return j;
 }
 
 std::string Engine::set_dynamic_resolution(const Json& value, const std::string& where) {
