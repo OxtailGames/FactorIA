@@ -946,7 +946,7 @@ TEST_CASE("rt reflect: with reflections off nothing is declared, made or kept, w
     s.enabled = true;
     s.shadows = render::RtShadows::Off;
     s.reflections = false;
-    s.ao = true;  // another effect keeps ray tracing on
+    s.translucency = true;  // another effect keeps ray tracing on
     r.renderer.set_ray_tracing(s);
     World w;
     make_reflect_scene(w);
@@ -1003,7 +1003,7 @@ TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass aft
     CHECK(r.effects().kernel_count() == 1);
     // Free again when it is turned off.
     s.reflections = false;
-    s.ao = true;
+    s.translucency = true;
     r.renderer.set_ray_tracing(s);
     for (int i = 0; i < 6; ++i) r.frame(w);
     CHECK(r.effects().image_count() == 0);
