@@ -53,6 +53,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "hiz.h"
+#include "rt_scene.h"
 #include "occlusion.h"
 #include "render_scene.h"
 #include "renderer_ssao.h"
@@ -624,6 +625,12 @@ struct Renderer::Impl {
     int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
     std::string hizWhy;      // why not
     bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
+    // M79 P1s: the scene's acceleration structures (rt_scene.h). `rtSettings` is the engine's setting; rt_begin_frame (Renderer::begin_frame)
+    // turns the scene on or off from it and from what the device can do, so a frame sees one answer.
+    render::RayTracingSettings rtSettings;
+    RtScene rtScene;
+    bool rtWarnedUnsupported = false;
+    void rt_begin_frame();
     bool warnedHizMode = false, warnedHizCameras = false;
     const World* hizWorld = nullptr;
     std::string hizScene;

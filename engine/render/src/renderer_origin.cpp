@@ -73,6 +73,9 @@ void Renderer::Impl::origin_shifted(World& world, const DVec3& offset) {
             for (Vec3& corner : box.corners) corner -= off;
     // The depth pyramids' cameras and the boxes the GPU culling's debug view draws are world positions too.
     hiz_shift(off);
+    // The ray tracing scene keeps the records of the frame before in world space (the temporal effects reproject from them); its TLAS is
+    // rebuilt every frame from the rebased transforms, so nothing else moves.
+    rtScene.shift(off);
     for (HizShown* shown : {&hizShown, &hizPrev})
         for (OcclusionShown::Box& box : shown->boxes)
             for (Vec3& corner : box.corners) corner -= off;

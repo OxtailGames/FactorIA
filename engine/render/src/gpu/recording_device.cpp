@@ -329,6 +329,13 @@ struct RecordingDevice::State {
     Pool<ShaderInfo> shaders;
     Pool<PipelineInfo> pipelines;
     Pool<AccelInfo> accels;
+    // What query_compacted_size wrote (buffer id, byte offset, value): read_buffer answers it (the model has no GPU to run the query).
+    struct CompactedAnswer {
+        std::uint32_t buffer = 0;
+        std::size_t offset = 0;
+        std::uint64_t value = 0;
+    };
+    std::vector<CompactedAnswer> compactedAnswers;
     std::vector<RecordedCommand> stream;
     std::vector<std::string> errors;
     std::vector<std::pair<void (*)(void*), void*>> listeners;
@@ -1350,6 +1357,9 @@ Result<void> RecordingDevice::read_buffer(Buffer buffer, std::size_t offset, std
     c.text = std::string(call) + " " + name + " " + std::to_string(offset) + " " + std::to_string(bytes);
     s.stream.push_back(std::move(c));
     out.assign(bytes, std::uint8_t(0));
+    for (const State::CompactedAnswer& ans : s.compactedAnswers)  // what query_compacted_size wrote into this range
+        if (ans.buffer == buffer.id && ans.offset >= offset && ans.offset + 8 <= offset + bytes)
+            for (int i = 0; i < 8; ++i) out[ans.offset - offset + std::size_t(i)] = std::uint8_t(ans.value >> (8 * i));
     return {};
 }
 
@@ -2123,6 +2133,11 @@ AccelSizes model_blas_sizes(std::uint32_t geometries, std::uint64_t primitives, 
     return s;
 }
 
+// What query_compacted_size answers for a built BLAS: about half of the model's size, rounded up (deterministic, never above the structure).
+std::uint64_t model_compacted_size(std::uint32_t geometries, std::uint64_t primitives) {
+    return round_up_accel(2048 + 40 * primitives + 64 * std::uint64_t(geometries));
+}
+
 AccelSizes model_tlas_sizes(std::uint32_t instances, const AccelBuildFlags& f) {
     AccelSizes s;
     s.structure =
@@ -2159,9 +2174,18 @@ void check_geometry_list(std::string& what, std::span<const AccelTriangles> geom
         if (g.vertexStride < 12 || g.vertexStride % 4 != 0)
             add(what, n + ".vertexStride " + std::to_string(g.vertexStride) +
                           " is not a multiple of 4 that is at least 12 (the size of a Float3 position)");
+        if (g.vertexOffset % 4 != 0)
+            add(what, n + ".vertexOffset " + std::to_string(g.vertexOffset) +
+                          " is not a multiple of 4 (every backend reads the position as 32-bit floats): move the "
+                          "first vertex to a 4-byte aligned byte offset");
         if (g.indexBuffer.valid()) {
             if (g.indexType != IndexType::Uint16 && g.indexType != IndexType::Uint32)
                 add(what, n + " has an index buffer but indexType is not Uint16 or Uint32");
+            else if (g.indexOffset % (g.indexType == IndexType::Uint16 ? 2 : 4) != 0)
+                add(what, n + ".indexOffset " + std::to_string(g.indexOffset) +
+                              " is not a multiple of the index width (" +
+                              (g.indexType == IndexType::Uint16 ? "2 bytes for Uint16" : "4 bytes for Uint32") +
+                              "): start the indices at an aligned byte offset");
             if (g.indexCount % 3 != 0)
                 add(what, n + ".indexCount " + std::to_string(g.indexCount) + " is not a multiple of 3");
         } else {
@@ -2557,6 +2581,17 @@ Result<void> RecordingCommandList::query_compacted_size(AccelStructure blas, Buf
                       "build the BLAS with flags.allowCompaction, and give a storage buffer with 8 bytes free at an "
                       "8-byte aligned offset");
     use_buffer(dstBuffer);
+    {
+        auto& answers = s.compactedAnswers;
+        const std::uint64_t value = model_compacted_size(a->info.geometries, a->info.primitives);
+        bool found = false;
+        for (auto& ans : answers)
+            if (ans.buffer == dstBuffer.id && ans.offset == dstOffset) {
+                ans.value = value;
+                found = true;
+            }
+        if (!found) answers.push_back({dstBuffer.id, dstOffset, value});
+    }
     record(CommandKind::QueryCompactedSize, blas.id, {clamp_int(dstOffset)},
            "query_compacted_size " + accel_label(a->label, AccelKind::Blas) + " -> " +
                s.buffers.describe(dstBuffer.id) + " @" + std::to_string(dstOffset));
