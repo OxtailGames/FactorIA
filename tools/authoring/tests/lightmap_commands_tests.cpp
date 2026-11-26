@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -1461,6 +1462,60 @@ exec sleep 600
     CHECK_MESSAGE(args.find("--no-graphics") != std::string::npos, args);
     CHECK_MESSAGE(args.find("--no-scene") != std::string::npos, args);
     for (const std::string& f : p.files()) CHECK(f.find("lightmap") == std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE(
+    "lightmap bake helper: a plan of megabytes arrives whole, and a cancel during the wait for the helper's answer "
+    "ends the bake") {
+    std::string groups;
+    for (int i = 0; i < 6; ++i)
+        groups +=
+            R"(, { "id": "probes)" + std::to_string(i) + R"(", "name": "probes)" + std::to_string(i) +
+            R"(", "components": { "Transform": { "position": [0, 1, 0] }, "LightProbeGroup": { "size": [40, 4, 40], "spacing": 1 } } })";
+    TempProject p("hugeplanread", scene_text(groups));
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const stdfs::path pidFile = p.dir / "helper.pid";
+    const stdfs::path planFile = p.dir / "helper.plan";
+    // Reads the whole plan line (a file of its own), then never answers: the parent waits for the answer.
+    const stdfs::path script = write_fake_factoria(p, "silent-factoria",
+                                                   "echo $$ > \"" + pidFile.generic_string() + R"("
+echo '{"ready":true}'
+head -n 1 > ")" + planFile.generic_string() + R"(.tmp"
+mv ")" + planFile.generic_string() + R"(.tmp" ")" + planFile.generic_string() +
+                                                       R"("
+exec sleep 600
+)");
+    const EnvVar exe("FA_FACTORIA_EXE", script.generic_string());
+    const HelperAlways always;
+    auto& c = e.commands();
+    auto start = c.call("lightmap.bake_start", small(Json::object({{"device", "auto"}, {"apply", false}})));
+    REQUIRE_MESSAGE(start.ok, start.error.dump());
+    const std::string job = start.result["job"].get<std::string>();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    while (!stdfs::exists(planFile)) {
+        REQUIRE(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    // The child took the whole line: it ends with the newline and parses as one request (a cut plan would not).
+    std::ifstream in(planFile, std::ios::binary);
+    std::string line((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(line.size() > 500000);
+    REQUIRE(!line.empty());
+    CHECK(line.back() == '\n');
+    auto parsed = parse_json(line, "<the plan the helper read>");
+    REQUIRE_MESSAGE(parsed.ok(), "the plan the helper read is not JSON");
+    CHECK((*parsed)["command"] == "lightmap.bake_plan_start");
+    auto cancel = c.call("lightmap.bake_cancel", Json::object({{"job", job}}));
+    REQUIRE_MESSAGE(cancel.ok, cancel.error.dump());
+    const auto cancelledAt = std::chrono::steady_clock::now();
+    const Json done = wait_done(e, job);
+    CHECK_MESSAGE(done["state"] == "cancelled", done.dump());
+    CHECK(std::chrono::steady_clock::now() - cancelledAt <
+          std::chrono::seconds(30));  // not the 10 minutes of the sleep
+    CHECK(helper_gone(pidFile));
     e.shutdown();
 }
 

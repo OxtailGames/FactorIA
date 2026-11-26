@@ -6,6 +6,8 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **GPU bake helper (M79 review leftovers):** a Cancel now ends the wait for the helper's answer to a large plan within 20 ms, a system with no thread left for the plan's write is an error with a hint, and the hints say to run `factoria session --no-graphics --no-scene`.
+
 - **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
   main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
   query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the
