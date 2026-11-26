@@ -1643,7 +1643,8 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     list.set_uniforms(0, Range{blitParams.data(), sizeof blitParams});
     list.set_uniforms(1, Range{blitParams.data(), sizeof blitParams});
     list.draw(0, 3);
-    CHECK(contains(last_error(*dev), "reads buffers, views, samplers or acceleration structures and set_bindings was not called since"));
+    CHECK(contains(last_error(*dev),
+                   "reads buffers, views, samplers or acceleration structures and set_bindings was not called since"));
     Bindings b;
     list.set_bindings(b);
     CHECK(contains(last_error(*dev), "vertex buffer slot 0 is empty and pipeline 'test-pipeline' reads it"));
