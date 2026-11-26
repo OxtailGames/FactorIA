@@ -1,7 +1,8 @@
 // Autotest section L4: the Lightmap panel (View > Lightmap, lightmap_panel.cpp). It opens the panel from the menu, clicks Start on a scene
 // with nothing to light (a teaching error and no job), adds a floor, a box and a baked sun, starts a bake too big to finish and cancels it
 // (nothing is written), then bakes a small one to the end with a LightProbeGroup: the panel shows its pages, its probes and sets SceneSettings.lightmaps as one undo step, which
-// Undo takes back. The bakes run on the engine's job threads; every wait is a condition with a 60 s safety net, never a frame count.
+// Undo takes back. Then the Device choice: an Auto bake and a GPU bake, which end done (the result names the device and where it ran) or, on a machine
+// whose GPU cannot trace rays, as the fallback or the error that says why. The bakes run on the engine's job threads; every wait is a condition with a 60 s safety net, never a frame count.
 #include <memory>
 #include <system_error>
 
@@ -150,6 +151,84 @@ void Editor::at_section_L4(AtScript& at) {
     step(3, [this, depth0] {
         at_check(world().settings().lightmaps.empty() && undo_depth() == *depth0,
                  "Undo takes SceneSettings.lightmaps back");
+        remove_lightmap_files(projectDir_);
+        pendingFocus_ = "Lightmap";
+    });
+
+    // The Device choice. The CPU bake above ran with the default (CPU) and says so; now Auto, then GPU. Whether this machine's GPU traces rays
+    // (CI runners without ray queries do not) decides which device baked, never whether the panel works: Auto falls back to the CPU with the
+    // reason, GPU fails with it. On a Mac the editor has a graphics context, so a GPU bake runs in a helper process (device.process).
+    step(3, [this] {
+        const Json dev =
+            lightmap_.result.is_object() ? lightmap_.result.value("device", Json::object()) : Json::object();
+        at_check(at_visible("lm:device") && at_enabled("lm:device"), "the panel has a Device choice");
+        at_check(lightmap_.deviceIndex == 0 && dev.value("requested", std::string()) == "cpu" &&
+                     dev.value("used", std::string()) == "cpu" && at_visible("lm:device_used"),
+                 "...CPU by default: the CPU bake says it baked on the CPU: " + dev.dump());
+        const CommandInfo* info = engine_->commands().info("lightmap.bake_start");
+        at_check(info && info->inputSchema["properties"]["device"].value("description", std::string()).find("auto") !=
+                             std::string::npos,
+                 "...whose tooltip is the doc string of lightmap.bake_start's `device`");
+        lightmap_.deviceIndex = 2;  // Auto
+        pendingFocus_ = "Lightmap";
+    });
+    click("lm:start");
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitWhat_ = "the Auto bake to finish";
+        atWaitUntil_ = [this] { return lightmap_.state != "running"; };
+    });
+    step(4, [this, depth0] {
+        at_check(lightmap_.state == "done",
+                 "an Auto bake finishes (state: " + lightmap_.state + ", error: " + lightmap_.error + ")");
+        const Json dev =
+            lightmap_.result.is_object() ? lightmap_.result.value("device", Json::object()) : Json::object();
+        const std::string used = dev.value("used", std::string());
+        at_check(dev.value("requested", std::string()) == "auto" && (used == "gpu" || used == "cpu"),
+                 "...and the result says what baked: " + dev.dump());
+        at_check(used == "gpu" || !dev.value("note", std::string()).empty(),
+                 "...a CPU fallback with the reason (" + dev.value("note", std::string()) + ")");
+        at_check(dev.value("process", std::string()) == "here" || dev.value("process", std::string()) == "helper",
+                 "...and where: " + dev.value("process", std::string()));
+        at_check(at_visible("lm:device_used") && at_visible("lm:summary"), "...both listed in the panel");
+        at_check(manifest_exists() && world().settings().lightmaps == "scenes/main.lightmap.json" &&
+                     undo_depth() == *depth0 + 1,
+                 "...and the scene uses it as one undo step");
+        pendingFocus_ = "Lightmap";
+    });
+    step(3, [this] {
+        undo();
+        remove_lightmap_files(projectDir_);
+        lightmap_.deviceIndex = 1;  // GPU
+        pendingFocus_ = "Lightmap";
+    });
+    click("lm:start");
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitWhat_ = "the GPU bake to end";
+        atWaitUntil_ = [this] { return lightmap_.state != "running"; };
+    });
+    step(4, [this, depth0] {
+        if (lightmap_.state == "done") {
+            const Json dev = lightmap_.result.value("device", Json::object());
+            at_check(dev.value("requested", std::string()) == "gpu" && !dev.value("name", std::string()).empty(),
+                     "a GPU bake that ran says which GPU: " + dev.dump());
+            at_check(at_visible("lm:device_used"), "...in the panel");
+            undo();
+        } else {
+            // No GPU here that traces rays (or a helper that cannot start): the panel shows the engine's own error, with its hint.
+            at_check(lightmap_.state == "failed" && lightmap_.error.find("gpu") != std::string::npos &&
+                         !lightmap_.hint.empty() && at_visible("lm:error"),
+                     "a GPU bake that cannot run fails with the reason and a hint (state: " + lightmap_.state +
+                         ", error: " + lightmap_.error + ")");
+            at_check(!manifest_exists() && world().settings().lightmaps.empty() && undo_depth() == *depth0,
+                     "...and changes nothing");
+        }
+        lightmap_.deviceIndex = 0;
+        pendingFocus_ = "Lightmap";
+    });
+    step(3, [this, depth0] {
+        at_check(world().settings().lightmaps.empty() && undo_depth() == *depth0, "the scene is back as it was");
         showLightmap_ = false;
         remove_lightmap_files(projectDir_);
     });

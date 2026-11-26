@@ -309,6 +309,67 @@ std::shared_ptr<Job> need_job(Registry& reg, const Json& a) {
     return it->second;
 }
 
+// Registers a job for `plan` and starts it on a job thread. `inHelper`: this process is the helper of another one (lightmap.bake_plan_start), so
+// the bake must trace here and never start a helper of its own. Returns the job's status.
+Json start_job(Registry& reg, lightmap_job::Plan plan, bool apply, bool inHelper) {
+    auto job = std::make_shared<Job>();
+    {
+        std::lock_guard lock(reg.mu);  // the busy check and the registration are one step: two starts cannot both pass
+        for (const auto& [id, other] : reg.byId) {
+            std::lock_guard jl(other->mu);
+            if (other->state == "running" && same_manifest(other->manifestProject, plan.manifestProject))
+                throw CommandError("busy", "a bake of '" + plan.manifestProject + "' is already running (" + id + ").",
+                                   "Wait for it (lightmap.bake_status {\"job\":\"" + id +
+                                       "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
+        }
+        prune_finished(reg);  // jobs nobody asked about must not pile up
+        job->id = "bake:" + std::to_string(reg.next++);
+        job->manifestProject =
+            plan.manifestProject;  // set before the job is visible: a second start sees the path at once
+        reg.byId[job->id] = job;
+    }
+    job->manifestAbs = plan.manifestAbs;
+    job->scene = plan.scene;
+    job->apply = apply;
+    job->started = Clock::now();
+    auto shared = std::make_shared<lightmap_job::Plan>(std::move(plan));
+    job->handle = jobs::submit("lightmap.bake", [job, shared, inHelper] {
+        const CommandCancelScope scope(&job->cancel);
+        Result<Json> r = make_error("the bake did not run", "");
+        try {
+            auto report = [&](const std::string& phase, double progress, std::uint64_t rays) {
+                std::lock_guard lock(job->mu);
+                job->phase = phase;
+                job->progress = std::clamp(progress, 0.0, 1.0);
+                job->rays = rays;
+            };
+            r = inHelper ? lightmap_job::execute_here(*shared, report) : lightmap_job::execute(*shared, report);
+        } catch (const std::exception& e) {
+            r = make_error(std::string("the bake stopped by an exception: ") + e.what(),
+                           "Report this with the scene; nothing was changed.");
+        }
+        std::lock_guard lock(job->mu);
+        job->finished = Clock::now();
+        if (r.ok()) {
+            job->state = "done";
+            job->progress = 1.0;
+            job->phase = "done";
+            job->result = std::move(*r);
+        } else if (r.error().message == "cancelled") {
+            job->state = "cancelled";
+            job->phase = "cancelled";
+            job->error = "the bake was cancelled; no file was changed.";
+        } else {
+            job->state = "failed";
+            job->phase = "failed";
+            job->error = r.error().message;
+            job->hint = r.error().hint;
+        }
+    });
+    std::lock_guard lock(job->mu);
+    return status_json(*job);
+}
+
 const char* kRequestProps = R"(
     "path":{"type":"string","x-fa-path":"write","description":"The manifest to write, inside the project, ending in .lightmap.json (the pages .hdr go next to it). Default: next to the open scene, scenes/main.scene.json -> scenes/main.lightmap.json."},
     "texelsPerMeter":{"type":"number","minimum":0.01,"maximum":4096,"default":16,"description":"Lightmap texels per meter of surface at MeshRenderer.lightmapScale 1. 16 is a good start; 64 gives sharp shadows with 16 times the texels."},
@@ -323,7 +384,7 @@ const char* kRequestProps = R"(
     "rayEpsilon":{"type":"number","minimum":0,"maximum":100,"default":0,"description":"Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel."},
     "maxRays":{"type":"number","minimum":1,"default":50000000000,"description":"The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit."},
     "sky":{"type":"string","enum":["auto","environment","gradient","ambient","none"],"default":"auto","description":"The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings."},
-    "device":{"type":"string","enum":["cpu","gpu","auto"],"default":"cpu","description":"What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. The light probes always bake on the CPU. The result's `device` says which one baked."},
+    "device":{"type":"string","enum":["cpu","gpu","auto"],"default":"cpu","description":"What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. A mid-bake GPU failure with auto bakes again on the CPU, with the reason in device.note. The light probes always bake on the CPU (a scene with probes and no lightmap texels says so in device.note). samples (1..65536), bounces (0..16) and shadowSamples (1..1024) are the CPU's ranges on the GPU too: outside them the bake is refused, never clamped. Where this process already has a graphics context on a Mac (the editor, a window, factoria call without --no-graphics) the texels are traced by a child `factoria session --no-graphics` (device.process is \"helper\"; progress and cancel work the same, a crash of the child never reaches this process: gpu fails with the reason, auto bakes on the CPU); otherwise device.process is \"here\". The result's `device` says which one baked, `process` where."},
     "apply":{"type":"boolean","default":true,"description":"Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way)."})";
 
 Json request_schema(bool withJob) {
@@ -364,7 +425,8 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
          "baked by the same job (phase \"probes\") into `<name>.lightmap.<hash>.probes`, which the manifest lists: "
          "moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. "
          "Result: {manifest, pages, entities, "
-         "texels, rays, device {requested, used, name, note}, skipped, warnings, probes {file, count, invalid, "
+         "texels, rays, device {requested, used, name, note, process}, skipped, warnings, probes {file, count, "
+         "invalid, "
          "groups}, "
          "applied}. Example: lightmap.bake {\"texelsPerMeter\":16,\"samples\":64}",
          request_schema(false), false, "assets",
@@ -426,69 +488,31 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
             auto plan =
                 lightmap_job::make_plan(I.world, I.currentScene, req.options, req.manifestAbs, req.manifestProject);
             if (!plan.ok()) throw CommandError("invalid_scene", plan.error().message, plan.error().hint);
-            auto job = std::make_shared<Job>();
-            {
-                std::lock_guard lock(
-                    reg->mu);  // the busy check and the registration are one step: two starts cannot both pass
-                for (const auto& [id, other] : reg->byId) {
-                    std::lock_guard jl(other->mu);
-                    if (other->state == "running" && same_manifest(other->manifestProject, req.manifestProject))
-                        throw CommandError("busy",
-                                           "a bake of '" + req.manifestProject + "' is already running (" + id + ").",
-                                           "Wait for it (lightmap.bake_status {\"job\":\"" + id +
-                                               "\"}), cancel it (lightmap.bake_cancel), or bake to another `path`.");
-                }
-                prune_finished(*reg);  // jobs nobody asked about must not pile up
-                job->id = "bake:" + std::to_string(reg->next++);
-                job->manifestProject =
-                    req.manifestProject;  // set before the job is visible: a second start sees the path at once
-                reg->byId[job->id] = job;
-            }
-            job->manifestProject = req.manifestProject;
-            job->manifestAbs = req.manifestAbs;
-            job->scene = I.currentScene;
-            job->apply = req.apply;
-            job->started = Clock::now();
-            auto shared = std::make_shared<lightmap_job::Plan>(std::move(*plan));
-            job->handle = jobs::submit("lightmap.bake", [job, shared] {
-                const CommandCancelScope scope(&job->cancel);
-                Result<Json> r = make_error("the bake did not run", "");
-                try {
-                    r = lightmap_job::execute(*shared,
-                                              [&](const std::string& phase, double progress, std::uint64_t rays) {
-                                                  std::lock_guard lock(job->mu);
-                                                  job->phase = phase;
-                                                  job->progress = std::clamp(progress, 0.0, 1.0);
-                                                  job->rays = rays;
-                                              });
-                } catch (const std::exception& e) {
-                    r = make_error(std::string("the bake stopped by an exception: ") + e.what(),
-                                   "Report this with the scene; nothing was changed.");
-                }
-                std::lock_guard lock(job->mu);
-                job->finished = Clock::now();
-                if (r.ok()) {
-                    job->state = "done";
-                    job->progress = 1.0;
-                    job->phase = "done";
-                    job->result = std::move(*r);
-                } else if (r.error().message == "cancelled") {
-                    job->state = "cancelled";
-                    job->phase = "cancelled";
-                    job->error = "the bake was cancelled; no file was changed.";
-                } else {
-                    job->state = "failed";
-                    job->phase = "failed";
-                    job->error = r.error().message;
-                    job->hint = r.error().hint;
-                }
-            });
-            Json out;
-            {
-                std::lock_guard lock(job->mu);
-                out = status_json(*job);
-            }
-            return out;
+            return start_job(*reg, std::move(*plan), req.apply, false);
+        });
+
+    I.commands.add(
+        {"lightmap.bake_plan_start",
+         "Internal: start a bake job from a plan another process made (the helper process of a GPU bake).",
+         "What the editor, a window or a session with graphics runs in a child `factoria session --no-graphics` when "
+         "it "
+         "bakes with device gpu or auto on a Mac, where a process that has a graphics context cannot open the "
+         "tracer's own (see lightmap.bake_start, `device`). `plan` is what the parent read from its world "
+         "(lightmap_job::plan_to_json); the job traces its texels in THIS process, never starts a helper of its "
+         "own, writes the files with the same code as lightmap.bake and is followed with lightmap.bake_status "
+         "{\"job\":...,\"apply\":false} and stopped with lightmap.bake_cancel. It does not change the scene. Nobody "
+         "calls it by hand: an invalid plan is refused with a JSON pointer. Result: lightmap.bake_start's. "
+         "Example: lightmap.bake_plan_start {\"plan\":{...}}",
+         parse_schema(
+             R"({"type":"object","required":["plan"],"properties":{"plan":{"type":"object","description":"The bake plan: options, scene, manifest paths, meshes, lights, probes, sky (what lightmap_job::plan_to_json writes)."}}})"),
+         false, "assets"},
+        [reg](const Json& a) {
+            if (!a.contains("plan") || !a["plan"].is_object())
+                bad("/plan", "is missing or not an object.",
+                    "This command is for the helper process of a GPU bake; call lightmap.bake_start instead.");
+            auto plan = lightmap_job::plan_from_json(a["plan"]);
+            if (!plan.ok()) throw CommandError("invalid_argument", plan.error().message, plan.error().hint);
+            return start_job(*reg, std::move(*plan), false, true);
         });
 
     I.commands.add(
@@ -568,6 +592,7 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
 
     declare_command_capabilities(I.commands, {{"lightmap.bake", capability_sets::edits_project()},
                                               {"lightmap.bake_start", capability_sets::edits_project()},
+                                              {"lightmap.bake_plan_start", capability_sets::edits_project()},
                                               {"lightmap.bake_status", capability_sets::edits_project()},
                                               {"lightmap.bake_cancel", capability_sets::changes_state()}});
 }

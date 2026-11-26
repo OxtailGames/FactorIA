@@ -24,11 +24,8 @@ namespace {
 
 using namespace fa::gpu;
 
-// The work of one dispatch, in "ray units" (one unit = a ray query and its shading): a dispatch is far below the 2 seconds after which Windows
-// resets a GPU, whatever the scene. The cuts depend on the counts of the request only, never on the speed of the machine.
-constexpr std::uint64_t kDispatchWork = std::uint64_t(1) << 23;
-constexpr std::uint32_t kMaxBatchTexels = 16384;  // a multiple of 1024: whole rows of the output image
-constexpr std::uint32_t kMinBatchTexels = 1024;
+// The work of one dispatch is kBakeDispatchWork "ray units" at most (lightmap_gpu_bake.h): far below the 2 seconds after which Windows resets
+// a GPU, whatever the scene. The cuts depend on the counts of the request only, never on the speed of the machine.
 constexpr std::uint32_t kImageWidth = 2048;  // 1024 texels per row, two pixels each (direct, gather)
 constexpr std::uint64_t kMaxBufferBytes = std::uint64_t(256)
                                           << 20;  // a storage buffer bigger than this is refused (limits of the APIs)
@@ -68,6 +65,36 @@ void put4(std::vector<float>& v, float x, float y, float z, float w) {
 }
 
 }  // namespace
+
+Result<BakeDispatchPlan> plan_bake_dispatches(std::uint64_t texels, std::uint64_t lights, std::uint32_t shadowSamples,
+                                              std::uint32_t bounces, std::uint32_t samples) {
+    const std::uint64_t direct = lights * shadowSamples;  // the rays of the direct light of one texel
+    const std::uint64_t perSample = std::uint64_t(bounces + 1) * (lights + 1);
+    const std::uint64_t perTexel = std::max<std::uint64_t>(direct + perSample, 1);
+    if (perTexel > kBakeDispatchWork)
+        return make_error("one texel of this bake needs " + std::to_string(perTexel) + " rays (" +
+                              std::to_string(lights) + " lights x " + std::to_string(shadowSamples) +
+                              " shadow samples, and the gather), more than the " + std::to_string(kBakeDispatchWork) +
+                              " one GPU dispatch is allowed so that Windows does not reset the GPU",
+                          "lower shadowSamples or the number of baked lights, or bake on the CPU (device \"cpu\")");
+    std::uint64_t batch = std::clamp<std::uint64_t>(kBakeDispatchWork / perTexel, 1, kBakeMaxBatchTexels);
+    if (batch >= 1024) batch -= batch % 1024;  // whole rows of the output image; fewer than that is one partial row
+    batch = std::min<std::uint64_t>(batch, std::max<std::uint64_t>(texels, 1));
+    if (batch >= 1024) batch = std::min<std::uint64_t>(batch, ((texels + 1023) / 1024) * 1024);
+    // The first dispatch of a batch also traces the direct light: the samples take what is left of its budget.
+    const std::uint64_t left = kBakeDispatchWork - std::min<std::uint64_t>(batch * direct, kBakeDispatchWork);
+    const std::uint64_t chunk = std::clamp<std::uint64_t>(left / std::max<std::uint64_t>(batch * perSample, 1), 1,
+                                                          std::max<std::uint32_t>(samples, 1));
+    return BakeDispatchPlan{batch, chunk};
+}
+
+bool LightmapGpuTracer::open_needs_helper_process() {
+#if defined(__APPLE__)
+    return built_sokol_backend() == Backend::Metal && gpu::context_open();
+#else
+    return false;
+#endif
+}
 
 gpu::ShaderDesc lightmap_bake_shader_desc(gpu::Backend backend) {
     ShaderDesc d;
@@ -349,6 +376,25 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
     Impl& s = *impl_;
     Device& dev = *s.dev;
     s.release_scene();
+    // The counts the kernel takes are the CPU baker's own ranges (check_settings in the scene module refuses the same values): a value outside
+    // them is an error here, never clamped into a bake that differs from the CPU's.
+    if (scene.samples < 1 || scene.samples > 65536)
+        return make_error("the GPU lightmap bake was given samples = " + std::to_string(scene.samples) +
+                              ", the range is 1..65536",
+                          "use 16 for a preview and 256 or more for a final bake");
+    if (scene.bounces < 0 || scene.bounces > 16)
+        return make_error("the GPU lightmap bake was given bounces = " + std::to_string(scene.bounces) +
+                              ", the range is 0..16",
+                          "2 or 3 bounces carry most of the indirect light");
+    if (scene.shadowSamples < 1 || scene.shadowSamples > 1024)
+        return make_error("the GPU lightmap bake was given shadowSamples = " + std::to_string(scene.shadowSamples) +
+                              ", the range is 1..1024",
+                          "1 gives hard shadows, 4 to 16 soft ones");
+    // One texel of the direct light and the gather must fit one dispatch (see plan_bake_dispatches): said before anything is allocated.
+    if (auto one = plan_bake_dispatches(1, scene.lights.size(), std::uint32_t(scene.shadowSamples),
+                                        std::uint32_t(scene.bounces), std::uint32_t(scene.samples));
+        !one)
+        return one.error();
     const std::size_t casters = scene.casterNormal.size();
     if (scene.casterCorners.size() != casters * 3 || scene.casterAlbedo.size() != casters ||
         scene.casterEmissive.size() != casters)
@@ -522,9 +568,9 @@ Result<void> LightmapGpuTracer::begin(const BakeTraceScene& scene) {
 
     BakeParams& p = s.base;
     p = BakeParams{};
-    p.a[3] = std::uint32_t(std::clamp(scene.samples, 1, 65536));
-    p.b[2] = std::uint32_t(std::clamp(scene.bounces, 0, 16));
-    p.b[3] = std::uint32_t(std::clamp(scene.shadowSamples, 1, 1024));
+    p.a[3] = std::uint32_t(scene.samples);
+    p.b[2] = std::uint32_t(scene.bounces);
+    p.b[3] = std::uint32_t(scene.shadowSamples);
     p.c[0] = std::uint32_t(scene.lights.size());
     p.c[1] = casterBase;
     p.c[2] = hasImage ? std::uint32_t(sky->image.width) : 0u;
@@ -561,15 +607,10 @@ Result<void> LightmapGpuTracer::trace_atlas(std::uint64_t atlasKey, const std::v
 
     // The cuts: texels per dispatch from the work one texel needs, samples per dispatch from what is left of the budget. Counts only.
     const std::uint64_t lights = s.lightCount;
-    const std::uint64_t directRays = lights * s.base.b[3];
-    const std::uint64_t perSample = std::uint64_t(s.base.b[2] + 1) * (lights + 1);
-    const std::uint64_t perTexel = std::max<std::uint64_t>(directRays + perSample, 1);
-    std::uint64_t batch = std::clamp<std::uint64_t>(kDispatchWork / perTexel, kMinBatchTexels, kMaxBatchTexels);
-    batch -= batch % 1024;  // whole rows of the output image
-    batch = std::min<std::uint64_t>(batch, ((total + 1023) / 1024) * 1024);
-    const std::uint64_t sampleChunk = std::clamp<std::uint64_t>(
-        kDispatchWork / std::max<std::uint64_t>(batch * perSample, 1), 1, std::uint64_t(s.samples));
-    const std::uint32_t rowsMax = std::uint32_t(batch / 1024);
+    auto cut = plan_bake_dispatches(total, lights, s.base.b[3], s.base.b[2], std::uint32_t(s.samples));
+    if (!cut) return cut.error();
+    const std::uint64_t batch = cut->batch, sampleChunk = cut->sampleChunk;
+    const std::uint32_t rowsMax = std::uint32_t((batch + 1023) / 1024);
 
     ImageDesc od;
     od.width = int(kImageWidth);

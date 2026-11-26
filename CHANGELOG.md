@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **The GPU lightmap bake works from the editor, MCP and `factoria call` with graphics (M79-P5c):** a process that already holds the Mac's only
+  Metal context cannot open the GPU tracer's own, so a `device` `"gpu"` or `"auto"` bake there now runs in a child `factoria session
+  --no-graphics` that is given the bake's plan (new command `lightmap.bake_plan_start`), streams its progress back and is cancelled by the same
+  Cancel; a crash or GPU reset in the child never reaches the editor (`gpu` fails with the reason, `auto` bakes on the CPU and says why). The
+  result's `device` gains `process` (`"here"` or `"helper"`). The Lightmap panel has a Device choice (CPU, GPU, Auto) and shows which device baked
+  and why. Also: `samples`, `bounces` and `shadowSamples` out of range are refused on the GPU path, never clamped; a GPU bake with only probes says
+  it baked them on the CPU; the dispatch planner keeps the minimum batch inside the budget. docs/design/ARCHITECTURE_BAKING.md, docs/rendering/RENDERING_LIGHTMAPS.md.
 - **Lightmaps bake on the GPU, as a fast preview (M79-P5b):** `lightmap.bake` and `lightmap.bake_start` take `device`: `"cpu"` (the default,
   unchanged and bit-exact), `"gpu"` or `"auto"`. The GPU traces the texels with the CPU baker's own random numbers (the same hash, Hammersley
   sequences, cosine hemisphere and Russian roulette) in a compute kernel with inline ray queries over an acceleration structure of the bake's own

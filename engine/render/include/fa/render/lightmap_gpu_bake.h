@@ -10,7 +10,8 @@
 // result is repeatable on one GPU and driver, and can differ in the last bits on another.
 //
 // The device: Windows D3D12, then Vulkan; Linux and Android Vulkan; macOS Metal (the sokol context; a Mac process that already has a window or
-// game context cannot lend it to a bake thread, so there the tracer says so and the caller bakes on the CPU).
+// game context cannot lend it to a bake thread, so there the tracer says so (open_needs_helper_process) and the caller runs the bake in a
+// helper process that has none, or on the CPU).
 #pragma once
 
 #include <memory>
@@ -34,6 +35,12 @@ public:
     // `allowSoftware` false skips a device that is a CPU rasteriser (WARP, llvmpipe, lavapipe): the "auto" choice of the bake command, which
     // must not run a software ray tracer in place of the CPU baker; `gpu` passes true.
     static Result<std::unique_ptr<LightmapGpuTracer>> open(bool allowSoftware = true);
+
+    // True when open() cannot work in THIS process but a helper process without graphics could: a Mac process that already has a graphics
+    // context (the editor, a game, an engine with graphics) cannot give a bake thread the sokol singleton nor open a second one. The caller
+    // (the bake job, fa_authoring) then runs the bake in a child `factoria` and gets the same result. False everywhere the devices
+    // are independent of the window (D3D12, Vulkan) and in a process with no context. Cheap, any thread.
+    static bool open_needs_helper_process();
 
     // "Metal (Apple)", "D3D12 (NVIDIA)": what the bake ran on.
     const std::string& device_name() const;
