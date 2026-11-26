@@ -225,7 +225,7 @@ jobs:
           echo "pin=$ver-${sha:0:12}" >> "$GITHUB_OUTPUT"
 
       # actions/cache saves only when the whole job passes, so a stale header (the failure this job exists to report) or a
-      # failed test would throw the download away: restore and save are two steps, the save runs `always()` right after
+      # failed test would throw the download away: restore and save are two steps, the save runs `!cancelled()` right after
       # the install (the download is the part worth keeping) and skips a key the restore hit.
       - name: Restore DXC
         if: ${{ !cancelled() }}
@@ -235,8 +235,8 @@ jobs:
           path: ~/.factoria/tools/dxc
           key: dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}
 
-      # `factoria setup dxc` downloads one GitHub release asset: three tries, a minute apart at most, for a network that
-      # blinks (a checksum mismatch is not retried for long: the install leaves nothing half-installed, so it repeats cleanly).
+      # `factoria setup dxc` downloads one GitHub release asset: three tries, 20 s and then 40 s apart, for a network
+      # that blinks (a checksum mismatch is retried the same way: the install leaves nothing half-installed, so it repeats cleanly).
       - name: Install the pinned DXC (factoria setup dxc)
         if: ${{ !cancelled() }}
         id: dxc-install
@@ -253,7 +253,7 @@ jobs:
           exit 1
 
       - name: Save DXC
-        if: ${{ always() && steps.dxc-install.outcome == 'success' && steps.dxc-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.dxc-install.outcome == 'success' && steps.dxc-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.factoria/tools/dxc
@@ -696,7 +696,7 @@ jobs:
       # editor or a release. Every shard: ctest_shard.py may put render_d3d12_raytracing on any of the three, and the
       # FA_D3D12_REQUIRE_RT=1 (CMake sets it on that ctest alone, -DFA_D3D12_REQUIRE_RT=ON) fails that test when its WARP
       # has no DXR tier 1.1.
-      # Restore and save apart (actions/cache saves only when the whole job passes): the save step below runs `always()`.
+      # Restore and save apart (actions/cache saves only when the whole job passes): the save step below runs `!cancelled()` (a push that cancels the round must not save a half-written file).
       - name: Restore the NuGet WARP package
         id: warp-cache
         uses: actions/cache/restore@v4
@@ -736,22 +736,32 @@ jobs:
           } else {
             $nupkg = Join-Path $HOME 'warp-nupkg\warp.nupkg'
             New-Item -ItemType Directory -Force (Split-Path $nupkg) | Out-Null
+            $url = "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$env:WARP_VERSION/microsoft.direct3d.warp.$env:WARP_VERSION.nupkg"
+            $part = "$nupkg.part"
+            # A restored file that is not the pinned one (a cache entry saved from a cut-off run) goes: it downloads again.
+            if ((Test-Path $nupkg) -and ((Get-FileHash $nupkg -Algorithm SHA256).Hash.ToLower() -ne $env:WARP_SHA256)) {
+              Write-Host "::warning title=WARP download::the cached warp.nupkg is not the pinned file: downloading it again"
+              Remove-Item $nupkg
+            }
             if (-not (Test-Path $nupkg)) {
               # nuget.org blinks now and then: four tries, a few seconds apart, before the step (and the job) fails.
+              # The file is written as warp.nupkg.part and renamed once its SHA-256 matches, so warp.nupkg (what the
+              # save step stores under an immutable key) is never a partial or a wrong file.
               for ($attempt = 1; $attempt -le 4; $attempt++) {
                 try {
-                  Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$env:WARP_VERSION/microsoft.direct3d.warp.$env:WARP_VERSION.nupkg" -OutFile $nupkg
+                  Invoke-WebRequest $url -OutFile $part
                   break
                 } catch {
-                  Remove-Item $nupkg -ErrorAction SilentlyContinue
+                  Remove-Item $part -ErrorAction SilentlyContinue
                   if ($attempt -eq 4) { throw }
                   Write-Host "::warning title=WARP download::attempt $attempt of 4 failed: $($_.Exception.Message)"
                   Start-Sleep -Seconds (5 * $attempt)
                 }
               }
+              $hash = (Get-FileHash $part -Algorithm SHA256).Hash.ToLower()
+              if ($hash -ne $env:WARP_SHA256) { Remove-Item $part; throw "Microsoft.Direct3D.WARP $env:WARP_VERSION is not the pinned file (SHA-256 $hash, pinned $env:WARP_SHA256)" }
+              Move-Item $part $nupkg -Force
             }
-            $hash = (Get-FileHash $nupkg -Algorithm SHA256).Hash.ToLower()
-            if ($hash -ne $env:WARP_SHA256) { Remove-Item $nupkg; throw "Microsoft.Direct3D.WARP $env:WARP_VERSION is not the pinned file (SHA-256 $hash, pinned $env:WARP_SHA256)" }
             $warp = Join-Path $env:RUNNER_TEMP 'warp'
             Copy-Item $nupkg "$nupkg.zip" -Force
             Expand-Archive "$nupkg.zip" "$warp-unpacked" -Force
@@ -772,7 +782,7 @@ jobs:
       # The nupkg is in the cache folder only once its SHA-256 matched (a mismatch deletes it), so saving it is safe even
       # when a later step fails; nothing there (the OS's WARP was enough) is a warning of the save action, not an error.
       - name: Save the NuGet WARP package
-        if: ${{ always() && steps.warp-tier.outcome != 'skipped' && steps.warp-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.warp-tier.outcome != 'skipped' && steps.warp-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ~/warp-nupkg
