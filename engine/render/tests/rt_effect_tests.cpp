@@ -1347,3 +1347,177 @@ TEST_CASE(
     CHECK(log.count("ray traced reflections cannot run") == 0);
     CHECK(index_of(off, "gbuffer") < 0);
 }
+
+// ---- M79-P3b: ray traced translucency (rt_refract) ----------------------------------------------------------------------------------------
+
+namespace {
+
+// The reflect scene plus a glass ball in front of the box: a transmissive mesh with a thickness and a tint.
+void make_glass_scene(World& w) {
+    make_scene(w);
+    Entity glass = make(w, "glass", {0, 1.5f, 4});
+    auto& mr = w.add<MeshRenderer>(glass);
+    mr.mesh = "sphere";
+    mr.transmission = 1.0f;
+    mr.thickness = 0.5f;
+    mr.roughness = 0.1f;
+}
+
+void translucency_rays(Rig& r, bool translucency) {
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.shadows = render::RtShadows::Off;
+    s.translucency = translucency;
+    r.renderer.set_ray_tracing(s);
+}
+
+}  // namespace
+
+TEST_CASE(
+    "rt translucency: the kernel has a spec that asks for the records and the hit constants and not the G-buffer, with "
+    "the bindings of the contract in every backend's numbering") {
+    const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_refract");
+    REQUIRE(k != nullptr);
+    const fa::render::RtEffectKernelSpec* spec = fa::render::find_rt_effect_spec("rt_refract");
+    REQUIRE(spec != nullptr);
+    CHECK(spec->usesRecords);
+    CHECK_FALSE(spec->usesGbuffer);
+    CHECK(spec->usesHit);
+    CHECK(spec->usesTlas);
+    CHECK_FALSE(spec->usesAux);
+    CHECK(k->msl.find("kernel void rt_refract") != std::string_view::npos);
+    CHECK_FALSE(k->dxil.empty());
+    CHECK_FALSE(k->spirv.empty());
+    for (gpu::Backend backend :
+         {gpu::Backend::Metal, gpu::Backend::Recording, gpu::Backend::D3d12, gpu::Backend::Vulkan}) {
+        INFO("backend " << int(backend));
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, *spec, backend);
+        REQUIRE(d.compute());
+        CHECK(d.usesRayQuery);
+        CHECK(d.uniformBlocks[0].size == sizeof(RtEffectParams));
+        CHECK(d.uniformBlocks[0].binding.mslIndex == 1);
+        CHECK(d.uniformBlocks[0].binding.spirvBinding == 2);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].size == sizeof(fa::render::RtHitParams));
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.mslIndex == 3);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.spirvBinding == 7);
+        CHECK(d.views[1].texture.binding.mslIndex == 1);  // the prepass
+        CHECK(d.views[2].storageBuffer.binding.mslIndex == 8);
+        CHECK(d.views[2].storageBuffer.binding.spirvBinding == 4);
+        CHECK(d.views[3].stage() == gpu::ShaderStage::None);  // no G-buffer
+        CHECK(d.views[4].stage() == gpu::ShaderStage::None);
+    }
+    // The sources say the same numbers.
+    const std::string hlsl = read_repo_file("engine/render/shaders/rt/rt_refract.hlsl");
+    CHECK(hlsl.find(
+              "[[vk::binding(1, 0)]] [[vk::image_format(\"rgba32f\")]] RWTexture2D<float4> g_out : register(u0);") !=
+          std::string::npos);
+    CHECK(hlsl.find("[[vk::binding(3, 0)]] Texture2D<float4> g_prepass : register(t1);") != std::string::npos);
+    CHECK(k->msl.find("constant RtHitParams& hit [[buffer(3)]]") != std::string_view::npos);
+    CHECK(k->msl.find("const device RtInstanceRecord* records [[buffer(8)]]") != std::string_view::npos);
+    CHECK(k->msl.find("texture2d<float, access::read> prepass [[texture(1)]]") != std::string_view::npos);
+    // RtEffectParams is the same struct in the kernel's two sources.
+    const std::vector<std::string> cpp(std::begin(fa::render::kRtEffectParamNames),
+                                       std::end(fa::render::kRtEffectParamNames));
+    CHECK(struct_fields(hlsl) == cpp);
+    CHECK(struct_fields(std::string(k->msl)) == cpp);
+}
+
+TEST_CASE(
+    "rt translucency: off, or with no glass in the scene, nothing is declared, made or kept, with ray tracing on") {
+    for (bool glass : {true, false}) {
+        INFO("glass " << glass);
+        Rig r;
+        r.renderer.set_ray_tracing([&] {
+            render::RayTracingSettings s;
+            s.enabled = true;
+            s.shadows = render::RtShadows::Off;
+            s.ao = glass;  // another effect keeps ray tracing on when the translucency is off
+            s.translucency = !glass;
+            return s;
+        }());
+        World w;
+        if (glass)
+            make_glass_scene(w);
+        else
+            make_scene(w);
+        for (int i = 0; i < 3; ++i) {
+            r.dev->clear_commands();
+            r.frame(w);
+            CHECK(r.errors().empty());
+            for (const std::string& p : r.compute_passes()) CHECK(p.find("translucency") == std::string::npos);
+        }
+        CHECK(index_of(r.lines(), "rt-translucency") < 0);
+        if (!glass) {
+            CHECK(r.compute_passes().empty());
+            CHECK(r.effects().empty());
+        }
+    }
+}
+
+TEST_CASE(
+    "rt translucency: glass declares one compute pass after the TLAS and before the refraction copy, which gets its "
+    "image, and the frame is the same every frame") {
+    Rig r;
+    translucency_rays(r, true);
+    World w;
+    make_glass_scene(w);
+    warm(r, w);
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    const std::vector<std::string> passes = r.compute_passes();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].find("rt-translucency") != std::string::npos);
+    const std::vector<std::string> lines = r.lines();
+    const int tlas = index_of(lines, "build_tlas");
+    const int refr = index_of(lines, "rt-translucency");
+    const int atlas = index_of(lines, "begin_pass 'xmit-atlas'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(refr >= 0);
+    REQUIRE(atlas >= 0);
+    CHECK(tlas < refr);
+    CHECK(refr < atlas);
+    REQUIRE(std::size_t(refr) + 5 < lines.size());
+    CHECK(lines[std::size_t(refr) + 1].find("set_pipeline") != std::string::npos);
+    CHECK(lines[std::size_t(refr) + 3].find("set_uniforms 0 400B") != std::string::npos);
+    CHECK(lines[std::size_t(refr) + 4].find("set_uniforms 1 96B") != std::string::npos);
+    CHECK(lines[std::size_t(refr) + 5].find("dispatch 20 12 1") != std::string::npos);
+    CHECK(r.count(gpu::CommandKind::Dispatch) == 1);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    // Deterministic: no clock, no random number.
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.lines() == lines);
+    // Free again when it is turned off, and with ray tracing off.
+    translucency_rays(r, false);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 0);
+    CHECK(r.effects().kernel_count() == 0);
+}
+
+TEST_CASE(
+    "rt translucency: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {
+    Logs log;
+    auto stream = [&](bool deviceTraces, bool setting) {
+        Rig r(deviceTraces);
+        if (setting) translucency_rays(r, true);
+        World w;
+        make_glass_scene(w);
+        r.frame(w);
+        r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.errors().empty());
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        return r.lines();
+    };
+    const std::vector<std::string> off = stream(true, false);
+    const std::vector<std::string> unsupported = stream(false, true);
+    REQUIRE(off.size() > 5);
+    CHECK(off == unsupported);
+    CHECK(log.count("cannot trace rays") == 1);
+    CHECK(log.count("ray traced translucency cannot run") == 0);
+}

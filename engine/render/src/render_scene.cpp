@@ -10,6 +10,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "color_space.h"
 #include "render_jobs.h"
 
 namespace fa::render {

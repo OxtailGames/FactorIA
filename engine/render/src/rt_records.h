@@ -33,7 +33,8 @@ inline constexpr std::uint32_t kRtFlagCustomMaterial =
 inline constexpr std::uint32_t kRtFlagSkinned =
     1u << 8;  // a skinned mesh: its BLAS is the instance's own, refitted every frame
 inline constexpr std::uint32_t kRtFlagRefractive =
-    1u << 9;  // a transmissive surface (glass, liquid; M79-P3b): the translucency kernel bends a ray at it (volume and attenuation below)
+    1u
+    << 9;  // a transmissive surface (glass, liquid; M79-P3b): the translucency kernel bends a ray at it (volume and attenuation below)
 
 // The instance mask bits of the TLAS (AccelInstance::mask): a ray hits an instance when (ray mask & instance mask) != 0. Every instance
 // has at least one of the first three. 0x80 is reserved for the effects of later packages: a kernel never sets or tests it.
@@ -69,9 +70,11 @@ struct RtInstanceRecord {
         blasId;  // the BLAS of the instance: one id per (mesh asset, submesh), the same for every instance of it, never reused
     // The transmission of the part as the draw uses it (the glTF material's values, replaced field by field by the MeshRenderer's; zeros and
     // ior 1.5 on a surface that is not kRtFlagRefractive).
-    float volume[4];       // x: index of refraction (1 to 3), y: thickness in metres (0 = a thin sheet the ray passes straight through), z:
-                           // attenuation distance in metres (0 = no tint), w: transmission (0 to 1)
-    float attenuation[4];  // rgb: the colour the light has after the attenuation distance, in the scene's colour space; w: 0, reserved
+    float volume
+        [4];  // x: index of refraction (1 to 3), y: thickness in metres (0 = a thin sheet the ray passes straight through), z:
+              // attenuation distance in metres (0 = no tint), w: transmission (0 to 1)
+    float attenuation
+        [4];  // rgb: the colour the light has after the attenuation distance, in the scene's colour space; w: 0, reserved
 };
 
 static_assert(sizeof(RtInstanceRecord) == 128, "RtInstanceRecord is 128 bytes: rt_records.hlsli has the same layout");

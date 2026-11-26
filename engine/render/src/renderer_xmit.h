@@ -48,7 +48,8 @@ struct XmitImages {
     std::uint64_t reduced[kXmitMaxLevels]{};  // the images of levels 1.., index = level
     gpu::View atlasView{};
     int levels = 0;
-    bool traced = false;  // level 0 holds the ray traced translucency (alpha 1 where it traced a pixel, 0 elsewhere): the glass shader reads it (mode 3)
+    bool traced =
+        false;  // level 0 holds the ray traced translucency (alpha 1 where it traced a pixel, 0 elsewhere): the glass shader reads it (mode 3)
 };
 
 class Xmit {
