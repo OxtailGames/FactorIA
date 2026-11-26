@@ -71,6 +71,7 @@ option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives 
 # ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/design/BUILDING_TESTS.md, "Windows file rules in tests"):
 # macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
 # that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.
+option(FA_D3D12_REQUIRE_RT "Windows: the ctest render_d3d12_raytracing fails (instead of skipping) when its WARP cannot trace rays (the CI job)" OFF)
 option(FA_TEST_WINDOWS_FILE_RULES "Run the tests with the Windows file rules emulation (not on Windows)" ON)
 # The release packages set it (.github/workflows/release.yml): their editor offers the updates published there.
 set(FA_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose Releases the editor updates from (empty: no updates)")

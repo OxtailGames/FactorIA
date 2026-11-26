@@ -485,6 +485,38 @@ TEST_CASE("metal ray tracing: structures destroyed and rebuilt on consecutive fr
     CHECK(hits > 30);
 }
 
+TEST_CASE("metal ray tracing: a device destroyed right after the frames that trace its structures waits for them") {
+    // sokol's command buffers retain nothing: ~SokolDevice commits the open frame's buffer and waits for the queue before
+    // it releases the structures, so frames still tracing them (never read back here) finish first. Under Metal's API
+    // validation or a GPU capture a structure freed under a running trace is a fault; here it is a crash or a hang.
+    Rig rig;
+    std::string skip;
+    if (!rig.open(skip)) {
+        MESSAGE("skipped: " << skip);
+        return;
+    }
+    Device& dev = *rig.dev;
+    rig.make_mesh(false);
+    AccelBuildFlags flags;
+    rig.make_instances(flags);
+    rig.make_probe();
+    auto s = rig.build_scene(flags);
+    for (int frame = 0; frame < 4; ++frame) {
+        CommandList& cl = dev.begin_commands("rt frame");
+        auto built = rig.record_builds(cl, s, flags, false);
+        REQUIRE_MESSAGE(built.ok(), built.error().message);
+        rig.record_trace(cl, s.tlas);
+        dev.submit(cl);
+        if (frame < 3) dev.commit();  // the last frame stays open: its buffer is committed by the destructor
+    }
+    rig.owner.reset();  // the structures, the scratch and the image are all still live
+    rig.dev = nullptr;
+    // The context the cases share is still open and a new device on it works.
+    auto again = make_device(built_sokol_backend());
+    REQUIRE_MESSAGE(again, (again ? "" : again.error().message));
+    CHECK(again.value()->ray_tracing_status(nullptr));
+}
+
 TEST_CASE("metal ray tracing: a refit after moving vertices traces the moved mesh, in place") {
     Rig rig;
     std::string skip;

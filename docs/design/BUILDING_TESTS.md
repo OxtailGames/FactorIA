@@ -80,8 +80,10 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   DXR tier 1.1 and shader model 6.5, which older Windows versions lack; it skips without one, and `FA_D3D12_REQUIRE_RT=1`
   turns that skip into a failure that names the tier, the shader model and the `d3d10warp.dll` loaded. `FA_WARP_DIR`
   names a folder with a newer `d3d10warp.dll` (the NuGet package Microsoft.Direct3D.WARP, for testing only) that the case
-  loads first. The Windows CI job sets `FA_D3D12_REQUIRE` and `FA_D3D12_REQUIRE_RT`, and exports `FA_WARP_DIR` on every
-  shard when the runner's own WARP is older.
+  loads first. The Windows CI job sets `FA_D3D12_REQUIRE` for every test, configures with `-DFA_D3D12_REQUIRE_RT=ON`
+  (CMake then puts `FA_D3D12_REQUIRE_RT=1` in the environment of the ctest `render_d3d12_raytracing` alone, so the
+  whole-suite `render` run never fails for it), and exports `FA_WARP_DIR` on every shard when the runner's own WARP is
+  older.
 - **Vulkan ray tracing tests, `FA_VULKAN_REQUIRE` and `FA_VULKAN_REQUIRE_RT`.** The Vulkan backend's tests run on the
   machine's Vulkan device with the validation layer and skip, saying why, where there is no loader, no device or no layer;
   `FA_VULKAN_REQUIRE=1` turns that skip into a failure. Its ray tracing cases (`render_vulkan_raytracing`,

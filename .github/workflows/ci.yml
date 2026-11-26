@@ -224,21 +224,46 @@ jobs:
           test -n "$ver" && test -n "$sha" || { echo "::error::no kSetupDxcVersion or Linux x64 DXC build in $h"; exit 1; }
           echo "pin=$ver-${sha:0:12}" >> "$GITHUB_OUTPUT"
 
+      # actions/cache saves only when the whole job passes, so a stale header (the failure this job exists to report) or a
+      # failed test would throw the download away: restore and save are two steps, the save runs `always()` right after
+      # the install (the download is the part worth keeping) and skips a key the restore hit.
       - name: Restore DXC
         if: ${{ !cancelled() }}
-        uses: actions/cache@v4
+        id: dxc-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.factoria/tools/dxc
           key: dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}
 
-      - name: Regenerate the ray tracing shader headers (factoria setup dxc) and compare with the committed ones
+      # `factoria setup dxc` downloads one GitHub release asset: three tries, a minute apart at most, for a network that
+      # blinks (a checksum mismatch is not retried for long: the install leaves nothing half-installed, so it repeats cleanly).
+      - name: Install the pinned DXC (factoria setup dxc)
         if: ${{ !cancelled() }}
-        id: rt-headers
+        id: dxc-install
         shell: bash
         run: |
           cli=$(find build/linux-release/tools/cli -maxdepth 2 -type f -name factoria | head -n 1)
           test -n "$cli" || { echo "::error::factoria was not built under build/linux-release/tools/cli"; exit 1; }
-          "$cli" setup dxc
+          for attempt in 1 2 3; do
+            if "$cli" setup dxc; then exit 0; fi
+            echo "::warning::factoria setup dxc failed (attempt $attempt of 3)"
+            test "$attempt" -lt 3 && sleep $((attempt * 20))
+          done
+          echo "::error::factoria setup dxc failed three times"
+          exit 1
+
+      - name: Save DXC
+        if: ${{ always() && steps.dxc-install.outcome == 'success' && steps.dxc-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.factoria/tools/dxc
+          key: dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}
+
+      - name: Regenerate the ray tracing shader headers (compile_rt_shaders.sh) and compare with the committed ones
+        if: ${{ !cancelled() }}
+        id: rt-headers
+        shell: bash
+        run: |
           tools/shaders/compile_rt_shaders.sh
           if [ -n "$(git status --porcelain -- engine/render/src/shaders/rt)" ]; then
             git --no-pager diff --stat -- engine/render/src/shaders/rt || true
@@ -563,7 +588,9 @@ jobs:
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
       - name: Configure (windows-release)
-        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
+        # -DFA_D3D12_REQUIRE_RT=ON: only the ctest render_d3d12_raytracing gets FA_D3D12_REQUIRE_RT=1 (a WARP without DXR
+        # tier 1.1 fails it); the other tests of a shard never see the variable.
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_D3D12_REQUIRE_RT=ON
 
       - name: Build (windows-release)
         id: build
@@ -667,14 +694,18 @@ jobs:
       # step downloads it (SHA-256 checked, cached), prints the tier it gives and exports FA_WARP_DIR for the tests that need
       # it. The package's licence allows testing only and no redistribution: it is CI-only and never reaches a game, the
       # editor or a release. Every shard: ctest_shard.py may put render_d3d12_raytracing on any of the three, and the
-      # Test step's FA_D3D12_REQUIRE_RT=1 fails that test when its WARP has no DXR tier 1.1.
+      # FA_D3D12_REQUIRE_RT=1 (CMake sets it on that ctest alone, -DFA_D3D12_REQUIRE_RT=ON) fails that test when its WARP
+      # has no DXR tier 1.1.
+      # Restore and save apart (actions/cache saves only when the whole job passes): the save step below runs `always()`.
       - name: Restore the NuGet WARP package
-        uses: actions/cache@v4
+        id: warp-cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/warp-nupkg
           key: warp-nupkg-${{ runner.os }}-1.0.22-afc058f4
 
       - name: WARP DXR tier (OS WARP, else the pinned NuGet Microsoft.Direct3D.WARP 1.0.22)
+        id: warp-tier
         shell: pwsh
         env:
           WARP_VERSION: '1.0.22'
@@ -685,7 +716,14 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           Copy-Item tools/ci/probes/d3d12_rt_probe.cpp $dir
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
-          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && cd /d `"$dir`" && cl /nologo /EHsc /O1 d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib"
+          # A .cmd file, not `cmd /c "..."` with nested quotes (cmd strips the outer pair of quotes of such a line, and the
+          # path of Visual Studio has spaces).
+          $build = Join-Path $dir 'build_probe.cmd'
+          @('@echo off',
+            "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul || exit /b 1",
+            "cd /d `"$dir`"",
+            'cl /nologo /EHsc /O1 d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib') | Set-Content -Encoding ascii $build
+          & cmd.exe /d /c $build
           if ($LASTEXITCODE -ne 0) { throw 'the WARP probe did not compile' }
           function Run-Probe { & "$dir\d3d12_rt_probe.exe" | ForEach-Object { $_.ToString() } }
           function Tier($lines) { $m = $lines | Select-String -Pattern '^tier=(-?\d+)'; if ($m) { [int]$m.Matches[0].Groups[1].Value } else { -1 } }
@@ -699,7 +737,18 @@ jobs:
             $nupkg = Join-Path $HOME 'warp-nupkg\warp.nupkg'
             New-Item -ItemType Directory -Force (Split-Path $nupkg) | Out-Null
             if (-not (Test-Path $nupkg)) {
-              Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$env:WARP_VERSION/microsoft.direct3d.warp.$env:WARP_VERSION.nupkg" -OutFile $nupkg
+              # nuget.org blinks now and then: four tries, a few seconds apart, before the step (and the job) fails.
+              for ($attempt = 1; $attempt -le 4; $attempt++) {
+                try {
+                  Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$env:WARP_VERSION/microsoft.direct3d.warp.$env:WARP_VERSION.nupkg" -OutFile $nupkg
+                  break
+                } catch {
+                  Remove-Item $nupkg -ErrorAction SilentlyContinue
+                  if ($attempt -eq 4) { throw }
+                  Write-Host "::warning title=WARP download::attempt $attempt of 4 failed: $($_.Exception.Message)"
+                  Start-Sleep -Seconds (5 * $attempt)
+                }
+              }
             }
             $hash = (Get-FileHash $nupkg -Algorithm SHA256).Hash.ToLower()
             if ($hash -ne $env:WARP_SHA256) { Remove-Item $nupkg; throw "Microsoft.Direct3D.WARP $env:WARP_VERSION is not the pinned file (SHA-256 $hash, pinned $env:WARP_SHA256)" }
@@ -720,6 +769,15 @@ jobs:
           }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
+      # The nupkg is in the cache folder only once its SHA-256 matched (a mismatch deletes it), so saving it is safe even
+      # when a later step fails; nothing there (the OS's WARP was enough) is a warning of the save action, not an error.
+      - name: Save the NuGet WARP package
+        if: ${{ always() && steps.warp-tier.outcome != 'skipped' && steps.warp-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/warp-nupkg
+          key: warp-nupkg-${{ runner.os }}-1.0.22-afc058f4
+
       # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
       - name: Display resolution for the editor autotest
         shell: pwsh
@@ -731,7 +789,6 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
           FA_D3D12_REQUIRE: '1'  # every runner has D3D12 WARP: the renderer's D3D12 case must run, not skip
-          FA_D3D12_REQUIRE_RT: '1'  # the WARP step above gives a DXR tier 1.1 WARP: render_d3d12_raytracing must trace
         # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
         # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
         # timing-sensitive tests failed.

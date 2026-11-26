@@ -1377,24 +1377,24 @@ Result<void> SokolCommandList::copy_accel_structure(AccelStructure src, AccelStr
     return device_.accel_->copy_accel_structure(src, dst, mode);
 }
 #else
-Result<void> SokolCommandList::build_blas(const BlasBuild& build) {
+Result<void> SokolCommandList::build_blas(const BlasBuild&) {
     device_.check_thread("CommandList::build_blas");
-    return CommandList::build_blas(build);
+    return device_.rt_refusal("CommandList::build_blas");
 }
 
-Result<void> SokolCommandList::build_tlas(const TlasBuild& build) {
+Result<void> SokolCommandList::build_tlas(const TlasBuild&) {
     device_.check_thread("CommandList::build_tlas");
-    return CommandList::build_tlas(build);
+    return device_.rt_refusal("CommandList::build_tlas");
 }
 
-Result<void> SokolCommandList::query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) {
+Result<void> SokolCommandList::query_compacted_size(AccelStructure, Buffer, std::size_t) {
     device_.check_thread("CommandList::query_compacted_size");
-    return CommandList::query_compacted_size(blas, dst, dstOffset);
+    return device_.rt_refusal("CommandList::query_compacted_size");
 }
 
-Result<void> SokolCommandList::copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) {
+Result<void> SokolCommandList::copy_accel_structure(AccelStructure, AccelStructure, AccelCopyMode) {
     device_.check_thread("CommandList::copy_accel_structure");
-    return CommandList::copy_accel_structure(src, dst, mode);
+    return device_.rt_refusal("CommandList::copy_accel_structure");
 }
 #endif
 
@@ -1452,8 +1452,20 @@ SokolDevice::~SokolDevice() {
         // their destructors would call the native API on a context that is gone. Leak the two small objects instead.
         (void)timer_.release();
         for (auto& ring : asyncRead_) (void)ring.release();
+        // accel_ goes with the members, after sg_shutdown, which waited for every frame in flight (sokol's semaphore).
         return;
     }
+#if defined(SOKOL_METAL)
+    // The acceleration structures go while sokol is open and the GPU has finished with them: sokol's command buffers are
+    // made without retained references, so a structure released while a committed frame still traces it would be freed
+    // under the GPU (sg_shutdown waits for the frames, but a context this device does not own stays open). The open frame's
+    // buffer is committed first (an enqueued, uncommitted buffer would hold the wait below back forever).
+    if (accel_) {
+        native_metal()->split_commit();
+        accel_->wait_idle();
+        accel_.reset();
+    }
+#endif
     // The timer and the asynchronous reads hold native queries and staging buffers of this context: release them
     // while it is open.
     timer_.reset();
@@ -1535,6 +1547,12 @@ bool SokolDevice::ray_tracing_status(std::string* why) const {
         return accel_ != nullptr;
     }
 #endif
+    // Sokol's own dummy backend (a build with no GPU backend, or a test with no window) reports as Backend::Recording: the
+    // generic Recording reason names DeviceInit::recordingRayTracing, which a SokolDevice has no such thing.
+    if (info_.backend == Backend::Recording) {
+        if (why) *why = "there is no GPU (sokol's dummy backend draws nothing, so nothing traces rays)";
+        return false;
+    }
     return Device::ray_tracing_status(why);
 }
 

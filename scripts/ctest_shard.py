@@ -70,7 +70,10 @@ WINDOWS_SECONDS = {
     "example_tidewater-market_perf": 10.4,
     "example_burrow-brigade_perf": 9.1,
     "cli": 8.1,
-    "render_d3d12_raytracing": 8.0,  # ESTIMATE (M79 P1d, WARP DXR with the debug layer): replace from the next green run
+    # ESTIMATE (M79 P1d, WARP DXR with the debug layer), still no measurement: no Windows CI run has timed this test yet (the
+    # shard summary of the first green windows-release run names its seconds; copy them here and drop this note). The shards
+    # stay balanced within a few seconds whatever it takes, so a wrong estimate costs nothing but a slightly uneven split.
+    "render_d3d12_raytracing": 8.0,
     "render": 7.8,
     "example_tidewater-market-title_perf": 7.1,
     "example_kindlewatch_test": 7.0,
