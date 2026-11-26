@@ -1516,6 +1516,15 @@ void main() {
 // mesh, a draw without a previous model, a point behind the previous camera). The renderer attaches a second image to the pass only
 // when a temporal effect, the debug view "motionVectors" or a test asks; without the attachment the output is dropped.
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
+//
+// With FA_GBUFFER (the programs `gbuffer` of mesh.glsl, terrain.glsl and impostor.glsl, M79-P0c: the thin G-buffer the renderer draws only when
+// something asks for it, see docs/design/ARCHITECTURE_RENDERING_GBUFFER.md) the same vertex stage and the same surface() write other outputs:
+//   location 0 (RGBA8)  rgb = the albedo of the surface (the base colour times the texture and the vertex colour, linear, clamped to 0..1;
+//                       a metal's base colour is its albedo here too), a = 1 where a mesh was drawn
+//   location 1 (RGBA8)  r = the roughness (0.05..1), g = the metalness (0..1), b = 0 (spare), a = 1 where a mesh was drawn
+// With FA_GBUFFER_VIS (the mesh programs) a fragment that is not the surface the prepass kept at its pixel is dropped (the prepass is at view 28):
+// an alpha-tested cutout leaves its holes and a mesh behind another one writes nothing, so the engine's own program serves a material whose
+// surface() it does not run.
 @block fa_prepass_fs_main
 @include_block fa_fs_surface
 in float fa_pre_depth;
@@ -1524,8 +1533,13 @@ in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
 in vec3 fa_vel_cur;
 in vec3 fa_vel_prev;
+#ifdef FA_GBUFFER
+layout(location=0) out vec4 fa_frag_albedo;
+layout(location=1) out vec4 fa_frag_material;
+#else
 layout(location=0) out vec4 fa_frag_color;
 layout(location=1) out vec2 fa_frag_velocity;
+#endif
 void main() {
     fa_inst_load();
     SurfaceInput i;
@@ -1545,6 +1559,20 @@ void main() {
 #if defined(FA_LOD_DITHER) || defined(FA_ALPHA_CLIP)
     fa_lod_dither();
 #endif
+#ifdef FA_GBUFFER
+#ifdef FA_GBUFFER_VIS
+    {
+        // The pixel of this fragment in the image of the prepass (same size, same rows): the surface the camera sees there.
+        vec4 seen = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), ivec2(gl_FragCoord.xy), 0);
+        if (seen.a < 0.5 || abs(fa_pre_depth - seen.r) > 0.02 + 0.01 * fa_pre_depth) { discard; }
+    }
+#endif
+    fa_frag_albedo = vec4(clamp(s.albedo, vec3(0.0), vec3(1.0)), 1.0);
+    // The spare channel is 0. It reads the varyings of the prepass's vertex stage (all finite) only so that this fragment stage declares the
+    // same inputs as that stage writes: on the backends that number the stage interface by position (HLSL, Metal) both must list the same.
+    fa_frag_material = vec4(clamp(s.roughness, 0.0, 1.0), clamp(s.metallic, 0.0, 1.0),
+                            0.0 * (fa_pre_r0.x + fa_pre_r1.x + fa_pre_r2.x + fa_vel_cur.x + fa_vel_prev.x), 1.0);
+#else
     vec3 n = normalize(s.normal);
     vec3 nv = normalize(vec3(dot(fa_pre_r0, n), dot(fa_pre_r1, n), dot(fa_pre_r2, n)));
     // Octahedral encoding: the sphere folded onto the square -1..1 (decode: n = (e.x, e.y, 1 - |e.x| - |e.y|); where n.z < 0,
@@ -1559,10 +1587,25 @@ void main() {
         motion = clamp(uv_prev - uv_cur, vec2(-4.0), vec2(4.0));
     }
     fa_frag_velocity = motion;
+#endif
 }
 @end
 
 @fs prepass_fs
+@include_block fa_prepass_fs_main
+@end
+
+// The thin G-buffer's fragment stage (M79-P0c): `gbuffer_fs` for the meshes (programs gbuffer and gbuffer_skin of mesh.glsl: they test their
+// fragment against the prepass, so an alpha-tested cutout leaves holes), `gbuffer_fs_plain` for the terrain and the impostors, which are opaque
+// by construction (their own alpha clip, when they have one, is in surface()) and whose fragment stage has no room for another texture.
+@fs gbuffer_fs
+#define FA_GBUFFER
+#define FA_GBUFFER_VIS
+@include_block fa_prepass_fs_main
+@end
+
+@fs gbuffer_fs_plain
+#define FA_GBUFFER
 @include_block fa_prepass_fs_main
 @end
 
