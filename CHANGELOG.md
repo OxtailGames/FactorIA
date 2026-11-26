@@ -13,8 +13,8 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   them, so the code that builds structures is tested without a GPU. `render.supports` has the rows `raytracing` and
   `raytracingPipeline` (capability only), the project setting `render.rayTracing` (`enabled`, `shadows`, `ao`, `reflections`,
   `translucency`, `gi`, `raysPerPixel`, `maxInstances`; off by default and free when off) and the command `render.ray_tracing` read
-  and change it. **No backend builds an acceleration structure yet and nothing is traced:** turning the settings on changes no
-  picture. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
+  and change it. **Nothing is traced yet:** turning the settings on changes no picture (Direct3D 12 builds acceleration
+  structures, below). docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md.
 - **Ray query shaders and the DXC toolchain (M79):** the engine's first ray tracing kernel, `rt_probe` (one inline ray query per pixel), is
   written once in HLSL and compiled by DXC to DXIL (D3D12, `cs_6_5`) and SPIR-V (Vulkan, `SPV_KHR_ray_query`), with a hand-written
   MSL 2.4 twin for Metal; the three are committed as `engine/render/src/shaders/rt/rt_probe.rt.h`, so a build needs no DXC. New
@@ -31,6 +31,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `render.debug_view` has two new views, `albedo` and `material` (`FA_RENDER_DEBUG_VIEW` too). The fixtures of the render tests were made again
   for the new mesh template. docs/design/ARCHITECTURE_RENDERING_GBUFFER.md.
 - Internal piece of M79: the renderer's own spatio-temporal denoiser for the ray traced signals (shadows, occlusion, diffuse and specular radiance): temporal accumulation with reprojection and variance-guided a-trous iterations, with its history, debug views and tests; no ray pass uses it yet (docs/design/ARCHITECTURE_DENOISE.md).
+- **Direct3D 12 builds acceleration structures (M79):** on a GPU (or a WARP that has them) with DXR tier 1.1 and shader model 6.5, the D3D12
+  backend answers `rayQuery` and `accelerationStructure` true. It builds, refits, compacts and clones BLASes and TLASes, takes
+  compute shaders as DXIL, binds a TLAS to a ray-query kernel and derives the barriers between builds and traces. On an older GPU
+  or driver the device is made as before, and `render.supports` names the adapter, its DXR tier and its shader model instead of
+  the package that would bring it. No effect traces rays yet. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md, "Direct3D 12".
 
 ## 0.38.0
 
