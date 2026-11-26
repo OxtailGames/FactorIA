@@ -399,7 +399,7 @@ void Renderer::Impl::gi_finish() {
             if (!why.empty() || ++g.rtMisses >= kGiRtMissFrames) {
                 g.rtFallbackUntil = g.frame + std::uint64_t(kGiRtRetryFrames);
                 g.rtFallbackReason =
-                    g.rtReason + " (the raster captures update the grids; the rays are tried again in a moment)";
+                    g.rtReason + " (the raster captures update the grids; the rays are tried again in 120 frames)";
                 g.rtMisses = 0;
             }
         }

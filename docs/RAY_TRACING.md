@@ -283,11 +283,13 @@ six scene renders.
 ```
 
 - **Budget.** Each grid updates `rtProbesPerFrame` of its probes a frame (16 by default), the ones never updated first and then the ones updated
-  longest ago; all grids together at most 64 probes a frame. A grid of 400 probes at 16 a frame is complete after 25 frames, and `render.gi_grid`
+  longest ago; all grids together at most 64 probes a frame and at most the preset's `realtimeGiProbesPerFrame` (each frame starts one grid
+  further, so many grids share the 64). A `raysPerProbe` or `rtProbesPerFrame` out of range is clamped. A grid of 400 probes at 16 a frame is complete after 25 frames, and `render.gi_grid`
   says it (`framesPerCycle`). The cost grows with probes x rays, never with the screen. (Probes near the camera are **not** updated first.)
 - **Free when off.** With `enabled` or `gi` off, or no `RealtimeGI` in the scene, nothing is made: the frame is the raster one.
 - **Fallbacks.** On a device that cannot trace rays, or when the device refuses the kernel, the grids keep updating with the raster captures
-  and `render.ray_tracing` (`giProbes.reason`) says why. A grid reports `updatedBy`: `"rays"` or `"captures"`.
+  and `render.ray_tracing` (`giProbes.reason`) says why. When the ray pass does not run (a refused kernel at once, or two frames in a
+  row without a traced scene), the raster captures take over for 120 frames and the rays are tried again. A grid reports `updatedBy`: `"rays"` or `"captures"`.
 - **What the rays see.** The traced scene of "Which objects are traced" (so no terrain, and a material's own shader is not evaluated); the
   meshes the main camera does not draw this frame are not in it.
 - **Where it runs.** The Metal kernel is tested on a real GPU against a CPU ray caster; the D3D12 and Vulkan kernels are the same HLSL compiled
