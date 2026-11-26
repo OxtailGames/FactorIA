@@ -403,6 +403,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     samplers_.init(in.samplerPoolSize);
     shaders_.init(in.shaderPoolSize);
     pipelines_.init(in.pipelinePoolSize);
+    accels_.init(in.bufferPoolSize);  // acceleration structures live in buffers: as many as buffers
     auto count = [](int option, int fallback) { return std::uint32_t(option > 0 ? option : std::max(fallback, 16)); };
     const struct {
         D3D12_DESCRIPTOR_HEAP_TYPE type;
@@ -556,6 +557,36 @@ void D3d12Device::init_caps() {
         }
         caps_[i] = c;
     }
+    init_ray_tracing();
+}
+
+// After the device hooks (init): a hook may have replaced device_, and these are its answers.
+void D3d12Device::init_ray_tracing() {
+    RtCaps caps;
+    caps.adapter = adapterName_;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 o5{};
+    if (SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &o5, sizeof o5)))
+        caps.tier = int(o5.RaytracingTier);
+    // The highest shader model: asked from the newest known value down (a runtime answers E_INVALIDARG for one newer
+    // than it knows). None of them: shader model 5.1, which every D3D12 device has.
+    caps.shaderModel = 0x51;
+    for (int candidate : {0x6A, 0x69, 0x68, 0x67, 0x66, 0x65, 0x64, 0x63, 0x62, 0x61, 0x60}) {
+        D3D12_FEATURE_DATA_SHADER_MODEL model{};
+        model.HighestShaderModel = D3D_SHADER_MODEL(candidate);
+        if (SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof model))) {
+            caps.shaderModel = int(model.HighestShaderModel);
+            break;
+        }
+    }
+    // The DXR interfaces only where the engine would use them.
+    if (caps.tier >= kRtTier1_1 && caps.shaderModel >= kShaderModel6_5) {
+        device5_ = device_.as<ID3D12Device5>();
+        caps.interfaces = bool(device5_);
+    }
+    rtCaps_ = caps;
+    if (!apply_rt_caps(caps, features_, limits_, rtWhy_)) device5_.reset();
+    FA_INFO("render", "gpu d3d12: DXR tier {}, shader model {}: {}", rt_tier_name(caps.tier),
+            shader_model_name(caps.shaderModel), rtWhy_.empty() ? std::string("inline ray query") : rtWhy_);
 }
 
 bool D3d12Device::storage_image_loadable(PixelFormat format, std::string* why) const {
