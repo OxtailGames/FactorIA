@@ -1199,7 +1199,7 @@ constexpr const char* kSchemaText =
         },
         "rayTracing": {
           "type": "object",
-          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, but no effect draws with rays yet, so the picture does not change.",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays; the other effects do not draw with rays yet.",
           "additionalProperties": false,
           "properties": {
             "enabled": {

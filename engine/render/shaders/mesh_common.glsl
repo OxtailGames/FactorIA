@@ -484,7 +484,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     // Contact shadows (M73.2c; light_loop.glsl, block fa_contact). A draw that takes none has fa_ct_a.x = 0 and the rest is not read.
     vec4 fa_ct_a;               // x = 1 when this draw takes contact shadows (an opaque mesh that receives shadows, view 28 holds the prepass),
                                 // y = 1 when images are bottom-up (OpenGL), zw = the prepass's size in pixels
-    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half)
+    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half); y = 1 when view 28 holds
+                                // the image of the ray traced shadows kernel and the sun's shadow of this draw is read from it (fa_shadow_factor)
     vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
     vec4 fa_ct_vpy;             // row 1: clip y
     vec4 fa_ct_vpw;             // row 3: clip w
@@ -846,7 +847,26 @@ const float FA_PI = 3.14159265;
 @include_block fa_shadow_common
 
 // The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
+//
+// M79-P2a-1: with ray traced shadows (fa_ct_b.y = 1: an opaque mesh that receives shadows, view 28 holds the image of the shadow kernel) the sun's
+// shadow is the kernel's visibility of this pixel (docs/design/ARCHITECTURE_RT_EFFECTS.md): the texel the fragment's world position projects to, read
+// when it holds the same surface (its depth, in g, is the fragment's within what a pixel covers). Where it does not (the edge of a silhouette, a
+// pixel the camera's jitter moved) the cascades answer, as they do for every draw that takes no mask.
 float fa_shadow_factor(vec3 n, vec3 l) {
+    if (fa_ct_b.y > 0.5 && fa_pbr.z > 0.5) {
+        vec4 pv = vec4(fa_world_pos, 1.0);
+        float w = dot(fa_ct_vpw, pv);
+        if (w > 1e-4) {
+            vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+            vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+            if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
+                ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+                vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
+                float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;
+                if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01) { return rt.g; }
+            }
+        }
+    }
     return fa_shadow_sun(fa_world_pos, n, l);
 }
 

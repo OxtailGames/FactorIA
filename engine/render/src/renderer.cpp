@@ -712,6 +712,7 @@ void Renderer::shutdown() {
         im.hiz_release();
         im.rtScene
             .release();  // its BLASes, TLAS and buffers, while the device is open and before the assets that its BLASes read
+        im.rtEffects.release(im.gpu);  // the effects' shaders and images, before the scene's buffers go
         im.rt_release_skin_shader();
         im.physSky.release();
         im.hdriSky.release();
@@ -1401,6 +1402,7 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
 }
 int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
 render::RtScene* RendererTestAccess::rt_scene(Renderer& r) { return r.impl_ ? &r.impl_->rtScene : nullptr; }
+render::RtEffects* RendererTestAccess::rt_effects(Renderer& r) { return r.impl_ ? &r.impl_->rtEffects : nullptr; }
 int RendererTestAccess::hiz_cameras(Renderer& r) { return r.impl_ ? int(r.impl_->hizCams.size()) : 0; }
 std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
 bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {
