@@ -2185,14 +2185,22 @@ Json Engine::ray_tracing_status() {
         }
     }
     j["supported"] = supported;
-    j["active"] = false;  // nothing traces yet: the backends and the effects come one by one in M79
+    // Only the sun's shadows draw with rays so far (M79-P2a-1): an effect that is on, on a device that traces, is active. Whether this
+    // frame has a sun that casts a shadow is the scene's business, and the reason says so.
+    const bool active = impl_->rayTracing.enabled && supported && impl_->rayTracing.shadows != render::RtShadows::Off;
+    j["active"] = active;
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)
         j["reason"] =
             why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why;
+    else if (active)
+        j["reason"] = "Traced: the shadow of the directional light that has castShadows (shadows \"soft\" draws the "
+                      "hard one for now). "
+                      "The other effects are not made yet.";
     else
-        j["reason"] = "This device could trace rays, but no effect draws with rays yet in this version.";
+        j["reason"] =
+            "This device can trace rays, but no effect that draws with rays is on (only shadows is made so far).";
     return j;
 }
 

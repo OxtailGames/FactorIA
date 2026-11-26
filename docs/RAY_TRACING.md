@@ -8,13 +8,13 @@ default, and free when off.
 > **What exists today.** Milestone 79 brings ray tracing one piece at a time. This version has the **shared interface**: the
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
-> The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below). **No effect draws with rays yet**: turning the settings on changes nothing in the picture, and
-> `render.ray_tracing` says so (`active` is false, with the reason). The sections below say what each part will do and mark what is
-> planned.
+> The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
+> **One effect draws with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below). The other settings (`ao`, `reflections`,
+> `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
+> sections below say what each part will do and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
-> an effect is on ("Which objects are traced", below). Direct3D 12, Vulkan and Metal run them, and no effect reads them
-> yet, so the picture is still the same.
+> an effect is on ("Which objects are traced", below). Direct3D 12, Vulkan and Metal run them; the shadow kernel reads them.
 
 ## The settings
 
@@ -29,7 +29,7 @@ default) writes nothing to `factoria.json`.
 | key | values | default | meaning |
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
-| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per light towards its centre (a sharp edge). `soft` = rays towards a point of the light's disc: the edge softens with the distance to the caster. |
+| `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = rays towards a point of the light's disc (the edge softens with the distance to the caster): **not made yet, it draws the hard shadow** and the log says so once. |
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one. |
 | `reflections` | `true`, `false` | `false` | Mirror and glossy reflections traced with rays, instead of the screen-space ones. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
@@ -61,8 +61,8 @@ It returns the settings plus:
 | field | meaning |
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
-| `active` | whether any effect is traced right now. **Always false in this version.** |
-| `reason` | empty while `enabled` is false; otherwise why nothing is traced (the device's reason, or that no effect draws with rays yet). |
+| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off` on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
+| `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -81,13 +81,54 @@ const rt = fa.call("render.supports", { feature: "raytracing" });   // { feature
 if (!rt.supported) { /* keep the shadow maps and the screen-space effects */ }
 ```
 
+## Shadows
+
+`"shadows": "hard"` makes the shadow of the **directional light** with rays. It needs the light's `castShadows` on (the default is off, as
+for the shadow maps) and a device that traces rays (the table below); the other lights, point, spot and area, keep their shadow maps.
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"shadows":"hard"}'
+```
+
+What the renderer does each frame, for the main camera:
+
+1. The camera's prepass (depth and normals) is drawn as usual.
+2. One compute pass, `rt-shadows`, casts **one ray per pixel** from the surface the pixel sees toward the sun and stops at the first
+   triangle it finds. The ray starts a little in front of the surface (along the normal, more far away from the camera, so a distant
+   pixel that covers more of the world does not shadow itself). It writes one image of the camera's size: the sun's visibility, 1 lit and 0 in shadow.
+3. The lit pass reads that image instead of the cascaded shadow map for the sun. Where the image does not describe the pixel (the edge of a mesh, where the
+   depth it stored differs from the depth being drawn, a sky pixel, a pixel of a **blended** (translucent) mesh or of a material with a **full shader**) the
+   cascades answer, so a silhouette never shows a hole.
+
+The cascaded shadow maps are still drawn: fog and light shafts, subsurface scattering and the local lights share the same atlas. So this
+version does not save the cost of the cascades; it replaces what the sun's shadow looks like (no cascade seams, no map resolution) at the
+cost of one ray per pixel and one image (RGBA32F, the size of the camera: 16 bytes a pixel, 3 MB at 960 x 540).
+
+What casts: every traced mesh whose `MeshRenderer.castShadows` is on (the scene's acceleration structures, "Which objects are traced"). Two limits
+of this version, both planned for the next package:
+
+- **A cutout (alpha clip) casts no ray-traced shadow**: its triangles are never accepted as a hit, so a leaf card or a fence lets the sun through.
+  The sun's shadow map still shows it where the cascades answer (a silhouette), but a surface in the cutout's shadow is lit.
+- A **blended** (translucent) mesh casts a solid shadow, as it does in the shadow map.
+
+**Without ray tracing.** On a device that cannot trace rays (OpenGL, OpenGL ES 3, WebGL2, Direct3D 11, or a GPU or OS without ray queries)
+the setting changes nothing: the renderer logs **one** message that names the reason (the same one for every effect) and draws the shadow maps,
+the frame it would draw with ray tracing off. If the device traces but cannot make the kernel or the image, one more message says so.
+`render.supports {"feature":"raytracing"}` tells you before you turn it on.
+
+**Cost.** Off: nothing, no pass, no image, no kernel. On: one compute dispatch of one ray per pixel, one image, plus what the acceleration
+structures cost (P1s: every frame's TLAS build). The `drawCalls` of the stats count the dispatch.
+
+Hard shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the frame serial and the seed the
+kernels receive are for the effects that sample).
+
 ## Where it will run
 
 | backend | traces rays | what stands in the way today |
 |---|---|---|
-| Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; no effect traces yet | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
-| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (no effect traces yet) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. Only the structures are built and traced for now; no effect draws with them yet |
+| Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
+| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The hard shadows (`shadows: "hard"`) trace; no other effect does yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 
@@ -124,9 +165,10 @@ acceleration structure (a **TLAS**: one instance of a bottom-level structure, a 
 and the compute shader of each effect casts its rays and shades the hit itself. There are no ray tracing pipelines, no shader binding
 tables and no hit shaders, so one kernel runs unchanged on Direct3D 12, Vulkan and Metal.
 
-The renderer builds one BLAS per submesh, rebuilds the TLAS every frame (capped by `maxInstances`, nearest first), and will add the
+The renderer builds one BLAS per submesh, rebuilds the TLAS every frame (capped by `maxInstances`, nearest first), and adds the
 effects' compute passes to the frame graph only when `enabled` and an effect
-are on. With the master switch off no acceleration structure exists and the frame graph has the same passes as before.
+are on. With the master switch off no acceleration structure exists and the frame graph has the same passes as before. Every effect
+shares one scaffold (docs/design/ARCHITECTURE_RT_EFFECTS.md, repository only): the hard shadows are the first effect on it.
 
 ## For engine developers
 

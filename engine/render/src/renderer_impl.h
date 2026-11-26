@@ -53,6 +53,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "hiz.h"
+#include "rt_effect.h"
 #include "rt_scene.h"
 #include "occlusion.h"
 #include "render_scene.h"
@@ -630,6 +631,10 @@ struct Renderer::Impl {
     render::RayTracingSettings rtSettings;
     RtScene rtScene;
     bool rtWarnedUnsupported = false;
+    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time messages (a device that traces but cannot run an effect; "soft"
+    // shadows, which are the hard ones for now).
+    RtEffects rtEffects;
+    bool rtWarnedEffect = false, rtInformedSoft = false;
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).
