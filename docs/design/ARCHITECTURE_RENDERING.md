@@ -2,7 +2,7 @@
 
 Part of [FactorIA architecture](ARCHITECTURE.md) (the entry page lists every page).
 
-The renderer's side of the big worlds of M75 (occlusion culling on the CPU and the GPU, the floating origin, terrain, levels of detail) is on the page [rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md).
+The renderer's side of the big worlds of M75 (occlusion, floating origin, terrain, levels of detail) is on the page [rendering, big worlds](ARCHITECTURE_RENDERING_BIGWORLDS.md).
 
 The engine's GPU interface (`fa::gpu`: Device, CommandList, the sokol backend and RecordingDevice; M77), which the
 renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU interface](ARCHITECTURE_RENDERING_GPU.md); its Vulkan backend is on the page
@@ -10,7 +10,7 @@ renderer moves onto from sokol_gfx's calls, is on the page [rendering, the GPU i
 [rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md). How the renderer uses several queues and threads on
 those two (the shadow views recorded on job threads, the depth pyramid on the async compute queue) is on the page
 [rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md). How a vendor SDK takes part in making those
-two devices and their swapchains is on the page [rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md).
+two devices and their swapchains is on the page [rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md). The ray query kernels (M79: HLSL through DXC, `setup dxc`) are on [rendering, the ray tracing kernels](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md).
 
 ## Coordinates & units
 Right-handed, +Y up, angles in degrees, colors 0..1. 2D world units = design
