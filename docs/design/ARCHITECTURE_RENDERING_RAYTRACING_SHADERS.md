@@ -89,6 +89,7 @@ is the only writer of the headers; `scripts/ci-preflight.sh` reminds you when a 
   1.1 (scripts/ctest_shard.py may put that test on any shard). The package's licence permits testing only and forbids
   redistribution: it is CI-only and nothing in a game, the editor or a release ever carries it. Measured on the Windows 11 development PC: the OS's WARP reports tier 11;
   the NuGet WARP 1.0.22 reports tier 12. The `windows-2022` runner's own tier is the number this step adds to every run.
+  By hand (never in CI), `FA_D3D12_RT_HARDWARE=1 FA_D3D12_REQUIRE_RT=1` makes `render_d3d12_raytracing` trace on the machine's hardware adapter instead of WARP.
 
 ## What a contributor does
 
