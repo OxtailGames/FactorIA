@@ -339,10 +339,12 @@ namespace {
 struct Rig {
     Renderer renderer;
     gpu::RecordingDevice* dev = nullptr;
-    explicit Rig(bool deviceTraces = true) {
+    bool ok = true;  // false only for a rig with a pipeline pool of its own that could not even start
+    explicit Rig(bool deviceTraces = true, int pipelinePool = 0) {
         gfx();  // the project root of the process
         gpu::DeviceInit init;
         init.recordingRayTracing = deviceTraces;
+        if (pipelinePool > 0) init.pipelinePoolSize = pipelinePool;
         auto made = gpu::make_device(gpu::Backend::Recording, init);
         REQUIRE_MESSAGE(made.ok(), (made.ok() ? "" : made.error().message));
         dev = dynamic_cast<gpu::RecordingDevice*>(made.value().get());
@@ -355,9 +357,15 @@ struct Rig {
         std::string error;
         const bool ok = renderer.init(d, gfx().gpu.environment(), &error);
         RendererDeviceAccess::set_next_device(nullptr);
-        REQUIRE_MESSAGE(ok, error);
+        if (pipelinePool > 0) {
+            this->ok = ok;
+        } else {
+            REQUIRE_MESSAGE(ok, error);
+        }
     }
-    ~Rig() { renderer.shutdown(); }
+    ~Rig() {
+        if (ok) renderer.shutdown();
+    }
     Rig(const Rig&) = delete;
     Rig& operator=(const Rig&) = delete;
 
@@ -553,30 +561,302 @@ TEST_CASE("rt effect: turning the setting off frees the kernel and the image, an
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt effect: \"soft\" draws the hard shadow and says so once") {
+namespace {
+
+int count_of(const std::vector<std::string>& lines, const std::string& needle) {
+    int n = 0;
+    for (const std::string& l : lines) n += l.find(needle) != std::string::npos ? 1 : 0;
+    return n;
+}
+
+// Frames until the BLASes are built and the history is warm.
+void warm(Rig& r, World& w, int frames = 4) {
+    for (int i = 0; i < frames; ++i) r.frame(w);
+}
+
+}  // namespace
+
+TEST_CASE(
+    "rt effect: soft shadows trace into a noisy image, denoise it and pack it; hard has one pass and no denoiser") {
     Logs log;
     Rig hard;
     hard.rays(render::RtShadows::Hard);
     World wa;
     make_scene(wa);
-    hard.frame(wa);
-    hard.frame(wa);
+    warm(hard, wa);
     hard.dev->clear_commands();
     hard.frame(wa);
-    const std::vector<std::string> hardLines = hard.lines();
-    CHECK(log.count("\"soft\"") == 0);
+    REQUIRE(hard.compute_passes().size() == 1);
+    CHECK(hard.compute_passes()[0].find("camera:0/rt-shadows") != std::string::npos);
+    CHECK(count_of(hard.lines(), "rtd-") == 0);
+    CHECK(RendererTestAccess::rt_denoiser(hard.renderer)->history_image_count() == 0);
+    CHECK_FALSE(RendererTestAccess::rt_denoiser(hard.renderer)->shaders_made());
+
     Rig soft;
     soft.rays(render::RtShadows::Soft);
     World wb;
     make_scene(wb);
-    soft.frame(wb);
-    soft.frame(wb);
-    soft.frame(wb);
-    CHECK(log.count("\"soft\"") == 1);
+    warm(soft, wb);
     soft.dev->clear_commands();
     soft.frame(wb);
-    CHECK(soft.lines() == hardLines);
-    CHECK(log.count("\"soft\"") == 1);
+    INFO(soft.errors());
+    CHECK(soft.errors().empty());
+    // Two compute passes: the trace (raysPerPixel rays at the sun's disc into a noisy image) and the pack (the denoised visibility into the
+    // layout the lit pass reads); the denoiser's fragment passes (guide, temporal, a-trous) are between them.
+    REQUIRE(soft.compute_passes().size() == 2);
+    CHECK(soft.compute_passes()[0].find("camera:0/rt-shadows-trace") != std::string::npos);
+    CHECK(soft.compute_passes()[1].find("camera:0/rt-shadows-trace") == std::string::npos);
+    CHECK(soft.compute_passes()[1].find("camera:0/rt-shadows") != std::string::npos);
+    const std::vector<std::string> lines = soft.lines();
+    CHECK(soft.count(gpu::CommandKind::Dispatch) == 2);
+    CHECK(count_of(lines, "begin_pass 'rtd-guide'") == 1);
+    CHECK(count_of(lines, "begin_pass 'rtd-temporal'") == 1);
+    CHECK(count_of(lines, "begin_pass 'rtd-atrous'") >= 1);
+    const int tlas = index_of(lines, "build_tlas");
+    const int prepass = index_of(lines, "begin_pass 'prepass'");
+    const int trace = index_of(lines, "rt-shadows-trace");
+    const int guide = index_of(lines, "begin_pass 'rtd-guide'");
+    const int pack = index_of(lines, "begin_compute_pass 'camera:0/rt-shadows'");
+    const int game = index_of(lines, "begin_pass 'game'");
+    REQUIRE(tlas >= 0);
+    REQUIRE(prepass >= 0);
+    REQUIRE(trace >= 0);
+    REQUIRE(guide >= 0);
+    REQUIRE(pack >= 0);
+    REQUIRE(game >= 0);
+    CHECK(tlas < trace);
+    CHECK(prepass < trace);
+    CHECK(trace < guide);
+    CHECK(guide < pack);
+    CHECK(pack < game);
+    int lastAtrous = -1;
+    for (std::size_t i = 0; i < lines.size(); ++i)
+        if (lines[i].find("begin_pass 'rtd-atrous'") != std::string::npos) lastAtrous = int(i);
+    CHECK(lastAtrous < pack);
+    // The pack pass has no ray query: no TLAS bound, the trace image and the denoised image as views (output, trace image, denoised image).
+    CHECK(lines[std::size_t(pack) + 2].find("views=3") != std::string::npos);
+    CHECK(lines[std::size_t(trace) + 2].find("views=2") != std::string::npos);
+    CHECK(soft.effects().image_count() == 2);  // the trace image and the packed one
+    CHECK(soft.effects().kernel_count() == 2);
+    CHECK(RendererTestAccess::rt_denoiser(soft.renderer)->history_image_count() > 0);
+    // The old message ("soft draws the hard one for now") is gone.
+    CHECK(log.count("\"soft\"") == 0);
+    // The lit pass reads the packed image.
+    CHECK(RendererTestAccess::rt_shadow_draws(soft.renderer).mask > 0);
+    CHECK(RendererTestAccess::rt_effect_failure(soft.renderer).empty());
+}
+
+TEST_CASE("rt effect: a soft frame is the same every frame, and leaving soft frees the denoiser and the trace image") {
+    Rig r;
+    r.rays(render::RtShadows::Soft);
+    World w;
+    make_scene(w);
+    warm(r, w, 6);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> a = r.lines();
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> b = r.lines();
+    REQUIRE(a.size() > 30);
+    CHECK(a == b);
+    // Back to hard: the trace image, the soft kernels and the denoiser's history go (the images are swept after two frames).
+    r.rays(render::RtShadows::Hard);
+    for (int i = 0; i < 6; ++i) r.frame(w);
+    CHECK(r.effects().image_count() == 1);
+    CHECK(r.effects().kernel_count() == 1);
+    CHECK(RendererTestAccess::rt_denoiser(r.renderer)->history_image_count() == 0);
+    r.dev->clear_commands();
+    r.frame(w);
+    REQUIRE(r.compute_passes().size() == 1);
+    CHECK(r.compute_passes()[0].find("rt-shadows-trace") == std::string::npos);
+    CHECK(count_of(r.lines(), "rtd-") == 0);
+    // Ray tracing off: nothing is kept.
+    render::RayTracingSettings off;
+    off.enabled = false;
+    r.renderer.set_ray_tracing(off);
+    r.frame(w);
+    CHECK(r.effects().empty());
+    CHECK_FALSE(RendererTestAccess::rt_denoiser(r.renderer)->shaders_made());
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE("rt effect: a sun that casts onto meshes that cast nothing asks for no rays, hard or soft") {
+    for (render::RtShadows mode : {render::RtShadows::Hard, render::RtShadows::Soft}) {
+        Rig r;
+        r.rays(mode);
+        World w;
+        make_scene(w);
+        w.each<MeshRenderer>([](Entity, MeshRenderer& m) { m.castShadows = false; });
+        warm(r, w);
+        r.dev->clear_commands();
+        r.frame(w);
+        CHECK(r.compute_passes().empty());
+        CHECK(r.effects().empty());
+        CHECK_FALSE(RendererTestAccess::rt_denoiser(r.renderer)->shaders_made());
+    }
+}
+
+TEST_CASE("rt effect: a second camera draws no rays of its own, and a render scale remakes the image at the new size") {
+    Logs log;
+    Rig r;
+    r.rays(render::RtShadows::Soft);
+    World w;
+    make_scene(w);
+    Entity second = make(w, "second", {6, 3, 8});
+    auto& c2 = w.add<Camera>(second);
+    c2.projection = Projection::Perspective;
+    c2.renderTarget = "second-view";
+    c2.renderTargetSize = {64, 48};
+    warm(r, w, 5);
+    r.dev->clear_commands();
+    r.frame(w);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    // The ray tracing scene is the main camera's: one trace and one pack, one pair of images; the other camera keeps the cascades.
+    CHECK(r.compute_passes().size() == 2);
+    CHECK(r.effects().image_count() == 2);
+    CHECK(RendererTestAccess::rt_effect_failure(r.renderer).empty());
+    // A render scale below 1 draws the camera in fewer pixels: the images are made again at that size (the old ones destroyed, none left
+    // behind), the denoiser's history follows, and the effect never skips a frame on a size mismatch.
+    r.renderer.set_render_scale(0.5f, 1.0f);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.errors().empty());
+    CHECK(r.compute_passes().size() == 2);
+    CHECK(r.effects().image_count() == 2);
+    CHECK(count_of(r.lines(), "dispatch 10 6 1") == 2);  // 80 x 48 in groups of 8 x 8, the trace and the pack
+    r.renderer.set_render_scale(1.0f, 1.0f);
+    r.frame(w);
+    r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.errors().empty());
+    CHECK(count_of(r.lines(), "dispatch 20 12 1") == 2);
+    CHECK(r.effects().image_count() == 2);
+    CHECK(RendererTestAccess::rt_effect_failure(r.renderer).empty());
+    CHECK(log.count("could not run") == 0);
+    CHECK(RendererTestAccess::rt_shadow_draws(r.renderer).mask > 0);
+}
+
+TEST_CASE("rt effect: no caster loses its shadow, the lit pass takes the cascades too wherever the rays do not see a "
+          "caster") {
+    for (render::RtShadows mode : {render::RtShadows::Hard, render::RtShadows::Soft}) {
+        INFO("mode " << int(mode));
+        // Every caster traced: the mask alone.
+        {
+            Rig r;
+            r.rays(mode);
+            World w;
+            make_scene(w);
+            warm(r, w, 5);
+            CHECK(RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters == 0);
+            const auto d = RendererTestAccess::rt_shadow_draws(r.renderer);
+            CHECK(d.mask > 0);
+            CHECK(d.withCascades == 0);
+        }
+        // A terrain casts too and the rays do not see it: min(mask, cascades) in every draw that takes the mask.
+        {
+            Rig r;
+            r.rays(mode);
+            World w;
+            make_scene(w);
+            Entity ground = make(w, "terrain", {0, -1, 0});
+            auto& t = w.add<Terrain3D>(ground);
+            t.size = {16, 16};
+            warm(r, w, 5);
+            const render::RtSceneStats st = RendererTestAccess::rt_scene(r.renderer)->stats();
+            CHECK(st.skippedTerrain > 0);
+            CHECK(st.untracedCasters > 0);
+            const auto d = RendererTestAccess::rt_shadow_draws(r.renderer);
+            CHECK(d.mask > 0);
+            CHECK(d.withCascades == d.mask);
+            CHECK(r.errors().empty());
+        }
+        // More casters than render.rayTracing.maxInstances: the ones over the cap keep the cascades' shadow.
+        {
+            Rig r;
+            render::RayTracingSettings s;
+            s.enabled = true;
+            s.shadows = mode;
+            s.maxInstances = 1;
+            r.renderer.set_ray_tracing(s);
+            World w;
+            make_scene(w);
+            warm(r, w, 5);
+            const render::RtSceneStats st = RendererTestAccess::rt_scene(r.renderer)->stats();
+            CHECK(st.droppedOverCap > 0);
+            CHECK(st.untracedCasters > 0);
+            const auto d = RendererTestAccess::rt_shadow_draws(r.renderer);
+            CHECK(d.mask > 0);
+            CHECK(d.withCascades == d.mask);
+        }
+    }
+}
+
+TEST_CASE("rt effect: a caster whose BLAS is not built yet keeps the cascades' shadow, and the mask alone takes over "
+          "once it is") {
+    Rig r;
+    r.rays(render::RtShadows::Hard);
+    World w;
+    make_scene(w);
+    r.frame(w);
+    const auto first = RendererTestAccess::rt_shadow_draws(r.renderer);
+    const std::uint32_t firstUntraced = RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters;
+    // Whatever the first frame had in the TLAS (the renderer's scene builds every BLAS of the first frame: the build budget and the failed BLAS
+    // are forced in rt_scene_tests.cpp, where the scene is driven by hand), the cascades are in the lit pass's mask draws exactly when the scene
+    // counted an untraced caster, and a caster without a BLAS (skippedNoBlas) is one of them.
+    CHECK(first.withCascades == (firstUntraced > 0 ? first.mask : 0));
+    if (RendererTestAccess::rt_scene(r.renderer)->stats().skippedNoBlas > 0) CHECK(firstUntraced > 0);
+    warm(r, w, 5);
+    CHECK(RendererTestAccess::rt_scene(r.renderer)->stats().untracedCasters == 0);
+    CHECK(RendererTestAccess::rt_shadow_draws(r.renderer).withCascades == 0);
+}
+
+TEST_CASE("rt effect: only the sun's shadow factor of the lit shader takes the cascades with the mask, and with a "
+          "slope tolerance") {
+    const std::string glsl = read_repo_file("engine/render/shaders/mesh_common.glsl");
+    REQUIRE_FALSE(glsl.empty());
+    const std::size_t fn = glsl.find("float fa_shadow_factor(");
+    REQUIRE(fn != std::string::npos);
+    const std::string body = glsl.substr(fn, glsl.find("\n}\n", fn) - fn);
+    CHECK(body.find("fa_ct_b.z > 0.5") != std::string::npos);
+    CHECK(body.find("min(rt.g, fa_shadow_sun(") != std::string::npos);
+    // The depth match between the mask's pixel and the fragment follows the surface's slope (MSAA grazing angles): no pixel flips between
+    // the mask and the cascades.
+    CHECK(body.find("fwidth(") != std::string::npos);
+    // fa_ct_b.z is read in that function and nowhere else: the local lights never see the mask or the min.
+    CHECK(glsl.find("fa_ct_b.z", fn + body.size()) == std::string::npos);
+}
+
+TEST_CASE("rt effect: a compute pipeline the driver refuses is said once, shown by the status, and the cascades stay") {
+    // A pipeline pool that holds the frame's raster pipelines but not the kernel's: the RecordingDevice refuses the compute pipeline the way a
+    // driver that cannot compile the kernel would. Some size of the pool does that; every size that does must say so once.
+    bool found = false;
+    for (int pool = 1; pool <= 40 && !found; ++pool) {
+        Logs log;
+        Rig r(true, pool);
+        if (!r.ok) continue;
+        r.rays(render::RtShadows::Hard);
+        World w;
+        make_scene(w);
+        for (int i = 0; i < 4; ++i) r.frame(w);
+        const std::string failure = RendererTestAccess::rt_effect_failure(r.renderer);
+        if (failure.empty()) continue;
+        found = true;
+        INFO("pool " << pool << ": " << failure);
+        CHECK(failure.find("camera:0/shadows") != std::string::npos);
+        CHECK(failure.find("refused the compute pipeline") != std::string::npos);
+        CHECK(r.renderer.ray_tracing_failure() == failure);
+        for (int i = 0; i < 3; ++i) r.frame(w);  // said once however many frames
+        CHECK(log.count("could not run") == 1);
+        // The lit pass does not take a mask that did not come: the cascades alone.
+        CHECK(RendererTestAccess::rt_shadow_draws(r.renderer).mask == 0);
+        CHECK(r.compute_passes().empty());
+    }
+    CHECK(found);
 }
 
 TEST_CASE("rt effect: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {

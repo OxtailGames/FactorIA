@@ -632,15 +632,20 @@ struct Renderer::Impl {
     render::RayTracingSettings rtSettings;
     RtScene rtScene;
     bool rtWarnedUnsupported = false;
-    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time messages (a device that traces but cannot run an effect; "soft"
-    // shadows, which are the hard ones for now).
+    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time message (a device that traces but cannot run an effect).
     RtEffects rtEffects;
-    bool rtWarnedEffect = false, rtInformedSoft = false;
+    // Tests (RendererTestAccess::rt_shadow_draws): the draws of the frame that took the sun's shadow from the ray traced mask, and those of
+    // them that also took the cascades' (the scene had casters the rays do not see). Reset by rt_begin_frame.
+    struct RtShadowDraws {
+        int mask = 0, withCascades = 0;
+    } rtShadowDraws;
+    bool rtWarnedEffect = false;
     bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
-    // M79-P2b: the denoiser of the ray traced effects (rt_denoise.h), made empty and free until an effect asks (ambient occlusion first), and the
-    // one-time message of the occlusion kernel.
+    // The denoiser of the ray traced effects (rt_denoise.h), empty and free until an effect asks: the soft sun shadow (P2a-2, signal id 1) and the
+    // ambient occlusion (P2b, signal id 2); each signal keeps its own history per camera.
     RtDenoiser rtDenoiser;
-    bool rtWarnedAo = false;
+    bool rtWarnedAo = false;  // M79-P2b: the one-time message of the occlusion kernel
+    static constexpr std::uint32_t kRtShadowSignalId = 1;
     static constexpr std::uint32_t kRtAoSignalId =
         2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)
     // M79-P3a-2: the glossy reflections' two signals (the radiance and where the rays hit a surface); the ids stay apart from the occlusion's.
