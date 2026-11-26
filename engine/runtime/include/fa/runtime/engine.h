@@ -61,6 +61,9 @@ enum class RenderMode { Always, OnDemand };
 struct EngineConfig {
     std::string projectDir = ".";  // folder containing factoria.json
     std::string scene;             // start scene override ("" = project mainScene)
+    // Start with an empty world: no scene is loaded (neither `scene` nor mainScene), so no script of a scene runs. For tools that only
+    // need the commands (`factoria session --no-scene`, the lightmap bake helper).
+    bool noStartScene = false;
     // Props of the start scene (a JSON object; null = none): what its scripts read with game.sceneProps() from their first
     // start(). `factoria run --props` sets it. Like scene.load(path, {props}), a reload keeps them.
     Json sceneProps;
