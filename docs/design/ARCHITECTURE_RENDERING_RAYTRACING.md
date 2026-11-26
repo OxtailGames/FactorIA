@@ -244,9 +244,13 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
 - **Tests.** `d3d12_raytracing_tests.cpp` (ctest `render_d3d12_raytracing`). The neutral half runs everywhere. On Windows a WARP
   device builds a BLAS and a TLAS of two instances and dispatches `rt_probe`. Every pixel of the result is checked against the
   same rays on the CPU. On the frames after, it refits both, compacts the BLAS and rebuilds the TLAS over the copy, then rebuilds
-  both from scratch. The case says so and passes when the WARP has no tier 1.1; `FA_D3D12_REQUIRE` does not change that. With
-  `FA_WARP_DIR` (exported by the Windows CI job when the runner's WARP is older, "What CI runs" in
-  ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md), the case loads that `d3d10warp.dll` before its first device.
+  both from scratch. It also checks that the kernel given as HLSL text is refused (RayQuery needs DXIL). When the WARP has no
+  tier 1.1 the case says so and passes, unless `FA_D3D12_REQUIRE_RT=1` (set by the Windows CI job; `FA_D3D12_REQUIRE` alone
+  does not), which fails it with the tier, the shader model and the `d3d10warp.dll` the process loaded. With `FA_WARP_DIR`
+  (exported by every Windows CI shard when the runner's WARP is older, "What CI runs" in
+  ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md), the case loads that `d3d10warp.dll` before its first device. That works in
+  its own ctest, where nothing loaded a WARP before. In the whole-suite ctest `render` an earlier D3D12 case may have loaded
+  the system's WARP: the case then skips there even with `FA_D3D12_REQUIRE_RT=1`, and says so.
 
 ## The Metal route (package P1m; documented here, not implemented)
 

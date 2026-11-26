@@ -531,13 +531,18 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         std::string e;
         if (error.empty() && !stage_code(fn, target, stage, rtCaps_.shaderModel, out, e)) fail(e);
     };
+    const bool rqNotDxil =
+        desc.usesRayQuery && !(desc.computeFunc.bytecode.ptr &&
+                               is_dxil_container(desc.computeFunc.bytecode.ptr, desc.computeFunc.bytecode.size));
     const bool hasRender = desc.vertexFunc.source || desc.vertexFunc.bytecode.ptr || desc.fragmentFunc.source ||
                            desc.fragmentFunc.bytecode.ptr;
     if (info->compute && hasRender) {
         fail("it has a compute stage and a vertex or fragment stage (hint: a compute shader sets computeFunc only, a "
              "render shader vertexFunc and fragmentFunc)");
     } else if (info->compute) {
-        code(desc.computeFunc, "cs_5_1", "compute", info->cs);
+        // A ray-query kernel is DXIL (cs_6_5): HLSL text would go through D3DCompile's cs_5_1, which has no RayQuery,
+        // so it is refused below with what to give instead rather than with that compiler's error.
+        if (!rqNotDxil) code(desc.computeFunc, "cs_5_1", "compute", info->cs);
     } else {
         code(desc.vertexFunc, "vs_5_1", "vertex", info->vs);
         code(desc.fragmentFunc, "ps_5_1", "fragment", info->fs);
@@ -615,6 +620,10 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         else if (!features_.rayQuery)
             fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + noRt +
                  ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
+        else if (rqNotDxil)
+            fail("usesRayQuery on a compute stage that is not DXIL: RayQuery needs DXIL (cs_6_5), and HLSL text is "
+                 "compiled for cs_5_1 (hint: give the DXC container as computeFunc.bytecode: the engine's kernels are "
+                 "engine/render/shaders/rt/*.hlsl, compiled by tools/shaders/compile_rt_shaders.sh)");
     }
     for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
         const ShaderAccelStructure& a = desc.accelStructures[i];

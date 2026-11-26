@@ -73,6 +73,15 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   `SKIPPED, no compute here (<why>)` and pass. `FA_REQUIRE_COMPUTE=1` turns that skip into a failure, like
   `FA_REQUIRE_SHDC` does for sokol-shdc: set it on a runner that must have compute (CI sets it in the `linux` job,
   where llvmpipe offers GL 4.5), so a driver that stopped offering it cannot turn into silent skips. The refusal test (a backend without compute answers with its name) always runs.
+- **D3D12 tests, `FA_D3D12_REQUIRE` and `FA_D3D12_REQUIRE_RT`.** On Windows the engine's own D3D12 backend is tested on
+  WARP, the software device (docs/design/ARCHITECTURE_RENDERING_D3D12.md, "Tests"). Where it makes no WARP device the
+  cases say so and pass; `FA_D3D12_REQUIRE=1` turns that skip into a failure. The ray tracing case
+  (`render_d3d12_raytracing`, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md, "Direct3D 12") also needs a WARP with
+  DXR tier 1.1 and shader model 6.5, which older Windows versions lack; it skips without one, and `FA_D3D12_REQUIRE_RT=1`
+  turns that skip into a failure that names the tier, the shader model and the `d3d10warp.dll` loaded. `FA_WARP_DIR`
+  names a folder with a newer `d3d10warp.dll` (the NuGet package Microsoft.Direct3D.WARP, for testing only) that the case
+  loads first. The Windows CI job sets `FA_D3D12_REQUIRE` and `FA_D3D12_REQUIRE_RT`, and exports `FA_WARP_DIR` on every
+  shard when the runner's own WARP is older.
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that

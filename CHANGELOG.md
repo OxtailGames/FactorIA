@@ -23,7 +23,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `--check`); macOS and Linux Arm are `unsupported` and the install says where the DXIL comes from. The Linux CI job regenerates the
   headers and fails with the regenerated files as an artifact when they are stale; CI also reports lavapipe's and WARP's ray tracing
   support. Design: `docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md`.
-- **Direct3D 12 builds acceleration structures (M79):** on a GPU (or WARP) with DXR tier 1.1 and shader model 6.5, the D3D12
+- **Direct3D 12 builds acceleration structures (M79):** on a GPU (or a WARP that has them) with DXR tier 1.1 and shader model 6.5, the D3D12
   backend answers `rayQuery` and `accelerationStructure` true. It builds, refits, compacts and clones BLASes and TLASes, takes
   compute shaders as DXIL, binds a TLAS to a ray-query kernel and derives the barriers between builds and traces. On an older GPU
   or driver the device is made as before, and `render.supports` names the adapter, its DXR tier and its shader model instead of
