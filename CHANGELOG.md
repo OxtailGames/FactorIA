@@ -16,6 +16,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   `graphics.backend`. The menu kit's Graphics tab has a fifth page with an on/off switch and a quality that follows the High and Ultra
   tiers (docs/RAY_TRACING.md, "Graphics presets, the editor and the menu kit"; docs/UPSCALING.md; docs/MENUS.md).
 
+- **Graphics window and `project.graphics` polish (M79):** the Ray tracing and Path tracer controls of the editor's Graphics window stay editable
+  where this machine cannot trace (with a note that the window cannot show the effect: the settings are saved for the players' machines), and
+  the window and `project.graphics` write only the keys of each block that differ from their defaults (`"rayTracing": {"enabled": true}`, not eight
+  keys); every property of `rayTracing` and `pathTracer` in the schema of `project.graphics` has a description.
+
 - **Realtime GI probes updated by rays (M79-P4a):** `render.rayTracing.gi = "probes"` now draws: a compute kernel with inline ray queries
   updates the probes of the `RealtimeGI` grids instead of the six raster captures of each probe. Each update traces `raysPerProbe` rays (new
   field on `RealtimeGI`, 16 to 256, default 64) on a spherical Fibonacci set rotated deterministically from the frame's seed, shades the hits with

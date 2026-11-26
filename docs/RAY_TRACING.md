@@ -71,9 +71,9 @@ change nothing there, because there is nothing to cap. The cap is applied by the
 The editor's **Graphics settings** window (View > Graphics; [editor/EDITOR_PANELS_WORLD.md](editor/EDITOR_PANELS_WORLD.md), "Graphics
 settings window") has a **Ray tracing** group (the switch, `shadows`, `ao`, `reflections`, `translucency`, `gi`, `raysPerPixel`) and a **Path
 tracer** group (the switch, `samplesPerFrame`, `maxSamples`) that write `render.rayTracing` and `render.pathTracer` of `factoria.json`. A
-line at the top of the group says whether this machine can trace; where it cannot, the controls are greyed out with the reason and a hint
-to choose a backend that traces with `graphics.backend`, because a project is written for the players' machines: the file may ask for
-rays all the same. `gi: "perPixel"` is listed greyed out ("coming").
+line at the top of the group says whether this machine can trace; where it cannot, it gives the reason, a hint to choose a backend that
+traces with `graphics.backend` and a note that the window cannot show the effect, and the controls stay editable, because a project is
+written for the players' machines (the editor draws with Direct3D 11 on Windows, the game may ship d3d12): the file asks for rays all the same. `gi: "perPixel"` is listed greyed out ("coming").
 
 The menu kit's Graphics tab ([MENUS.md](MENUS.md)) has a fifth page, **Ray tracing**: an on/off switch and a quality that cycles `high`
 (hard shadows and ambient occlusion) and `ultra` (everything above), the two tiers of the presets. A player's choice is saved in

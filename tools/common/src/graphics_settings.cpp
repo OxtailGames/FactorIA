@@ -477,6 +477,16 @@ KeyOp set_or_remove(bool isDefault, const Json& value) {
     return op;
 }
 
+// The op for a block of keys: only the keys of `value` that differ from `defaults` stay; none left removes the block.
+KeyOp block_op(const Json& value, const Json& defaults) {
+    Json differing = Json::object();
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        const auto d = defaults.find(it.key());
+        if (d == defaults.end() || *d != it.value()) differing[it.key()] = it.value();
+    }
+    return set_or_remove(differing.empty(), differing);
+}
+
 }  // namespace
 
 Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s) {
@@ -484,15 +494,13 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
         return make_error(problems.front().pointer + ": " + problems.front().message,
                           "Fix the field before saving; nothing was written.");
     const GraphicsSettings def;
-    const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
+    // One rule for every block: the keys that differ from the defaults are written, the others are not (a block with none
+    // is removed). A reader gives an absent key its default, so the file says only what the project changed.
     auto r = patch_render_keys(
-        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
-        set_or_remove(upscalerDefault, upscaler_json(s)), set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)),
-        set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s)),
-        set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
-                      frame_gen_json(s)),
-        set_or_remove(s.rayTracing == def.rayTracing, ray_tracing_json(s)),
-        set_or_remove(s.pathTracer == def.pathTracer, path_tracer_json(s)));
+        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)), block_op(upscaler_json(s), upscaler_json(def)),
+        block_op(dynamic_json(s), dynamic_json(def)), block_op(latency_json(s), latency_json(def)),
+        block_op(frame_gen_json(s), frame_gen_json(def)), block_op(ray_tracing_json(s), ray_tracing_json(def)),
+        block_op(path_tracer_json(s), path_tracer_json(def)));
     if (!r.ok()) return r.error();
     return {};
 }
@@ -545,13 +553,22 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         "frameGeneration":{"type":"object","description":"render.frameGeneration (docs/FRAME_GENERATION.md): the keys given replace the file's.","properties":{
             "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"]},"minBaseFps":{"type":"integer","minimum":0,"maximum":1000}}},
         "rayTracing":{"type":"object","description":"render.rayTracing (docs/RAY_TRACING.md): the keys given replace the file's.","properties":{
-            "enabled":{"type":"boolean"},"shadows":{"type":"string","enum":["off","hard","soft"]},"ao":{"type":"boolean"},
-            "reflections":{"type":"boolean"},"translucency":{"type":"boolean"},"gi":{"type":"string","enum":["off","probes","perPixel"]},
-            "raysPerPixel":{"type":"integer","description":"Clamped to 1..16."},"maxInstances":{"type":"integer","description":"Clamped to 1..1048576."}}},
+            "enabled":{"type":"boolean","description":"The master switch. Default false."},
+            "shadows":{"type":"string","enum":["off","hard","soft"],"description":"off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off."},
+            "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
+            "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
+            "translucency":{"type":"boolean","description":"Refraction through glass and liquids traced with rays instead of the screen-space refraction. Default false."},
+            "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes (the RealtimeGI grids updated with rays) or perPixel. Default off."},
+            "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame. Clamped to 1..16. Default 1."},
+            "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds. Clamped to 1..1048576. Default 65536."}}},
         "pathTracer":{"type":"object","description":"render.pathTracer (docs/RAY_TRACING.md, \"The path tracer\"): the keys given replace the file's.","properties":{
-            "enabled":{"type":"boolean"},"maxBounces":{"type":"integer","description":"Clamped to 1..32."},
-            "samplesPerFrame":{"type":"integer","description":"Clamped to 1..64."},"maxSamples":{"type":"integer","description":"0 = never stops. Clamped to 0..16777216."},
-            "fireflyClamp":{"type":"number","minimum":0},"lights":{"type":"boolean"},"seed":{"type":"integer","description":"Clamped to 0..1073741824."}}}}})");
+            "enabled":{"type":"boolean","description":"Draw the main camera's lit colour with the path tracer. Default false."},
+            "maxBounces":{"type":"integer","description":"Path length: 1 = direct light only. Clamped to 1..32. Default 4."},
+            "samplesPerFrame":{"type":"integer","description":"Paths per pixel each frame adds to the accumulation. Clamped to 1..64. Default 1."},
+            "maxSamples":{"type":"integer","description":"The accumulation stops after this many samples per pixel; 0 = never stops. Clamped to 0..16777216. Default 0."},
+            "fireflyClamp":{"type":"number","minimum":0,"description":"Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0."},
+            "lights":{"type":"boolean","description":"Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true."},
+            "seed":{"type":"integer","description":"Changes the noise pattern; the same seed gives the same picture. Clamped to 0..1073741824. Default 0."}}}}})");
     registry.add(info, [projectDir](const Json& args) {
         if (!args.is_null() && !args.is_object())
             throw CommandError("invalid_argument",
