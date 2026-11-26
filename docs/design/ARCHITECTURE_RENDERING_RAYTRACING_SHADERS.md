@@ -80,13 +80,14 @@ is the only writer of the headers; `scripts/ci-preflight.sh` reminds you when a 
   `VK_KHR_acceleration_structure` and whether the `rayQuery` feature is true. Whether Ubuntu 24.04's Mesa lavapipe offers them is
   not known until the first run, so the Vulkan ray query tests of later packages must skip on a missing extension and say so; the
   annotation is the number that tells which one to expect.
-- **Windows job, shard 1** (WARP's DXR tier, question O3): `tools/ci/probes/d3d12_rt_probe.cpp` (compiled with `cl` in the step,
+- **Windows job, every shard** (WARP's DXR tier, question O3): `tools/ci/probes/d3d12_rt_probe.cpp` (compiled with `cl` in the step,
   standalone) creates a WARP device and prints `D3D12_FEATURE_DATA_D3D12_OPTIONS5.RaytracingTier` (11 = tier 1.1, what inline ray
   queries need), the highest shader model and the version of the `d3d10warp.dll` D3D12 loaded. When the OS's WARP reports less than
   11, the step downloads the NuGet package **Microsoft.Direct3D.WARP 1.0.22** (pinned by SHA-256 in the step, cached), copies its x64
   `d3d10warp.dll` beside the probe (D3D12 loads the WARP DLL from the program's folder), prints the tier it gives, and exports
-  `FA_WARP_DIR` for the tests that need it. The package's licence permits testing only and forbids redistribution: it is CI-only and
-  nothing in a game, the editor or a release ever carries it. Measured on the Windows 11 development PC: the OS's WARP reports tier 11;
+  `FA_WARP_DIR` for `render_d3d12_raytracing`, which the Test step's `FA_D3D12_REQUIRE_RT=1` fails when its WARP has no tier
+  1.1 (scripts/ctest_shard.py may put that test on any shard). The package's licence permits testing only and forbids
+  redistribution: it is CI-only and nothing in a game, the editor or a release ever carries it. Measured on the Windows 11 development PC: the OS's WARP reports tier 11;
   the NuGet WARP 1.0.22 reports tier 12. The `windows-2022` runner's own tier is the number this step adds to every run.
 
 ## What a contributor does

@@ -2,8 +2,9 @@
 // on every host: what the capabilities make of Features, Limits and the reason, the bytes of an instance desc, the build
 // flags, the size rounding, the geometry checks and the DXIL test. On Windows a WARP device builds a BLAS and a TLAS of
 // two instances, traces the engine's rt_probe kernel against them and checks every pixel against the same rays on the
-// CPU, then refits, compacts and rebuilds on the frames after. A WARP without DXR tier 1.1 says so (MESSAGE) and passes:
-// FA_D3D12_REQUIRE does not make that a failure (the ray tracing tier is the WARP's, not the runner's).
+// CPU, then refits, compacts and rebuilds on the frames after. A WARP without DXR tier 1.1 says so (MESSAGE) and passes,
+// unless FA_D3D12_REQUIRE_RT=1 (the Windows CI job) makes it a failure that names the tier, the shader model and the
+// d3d10warp.dll loaded. FA_D3D12_REQUIRE alone does not (it asks for a D3D12 device, not for its ray tracing tier).
 #include <doctest.h>
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include "gpu/d3d12_accel.h"
 #include "rt_kernels.h"
 #if defined(_WIN32)
+#include "fa/core/fs.h"
 #include "gpu/d3d12_device.h"
 #endif
 
@@ -231,25 +233,67 @@ TEST_CASE("d3d12 ray tracing: a DXIL container is told from a DXBC one, and the 
 
 namespace {
 
+bool env_is_1(const wchar_t* name) {
+    wchar_t v[8];
+    const DWORD n = GetEnvironmentVariableW(name, v, DWORD(std::size(v)));
+    return n == 1 && v[0] == L'1';
+}
+
+// The file of the d3d10warp.dll this process has loaded, in UTF-8 ("none" when there is none).
+std::string loaded_warp() {
+    const HMODULE m = GetModuleHandleW(L"d3d10warp.dll");
+    if (!m) return "none";
+    wchar_t file[4096];
+    const DWORD n = GetModuleFileNameW(m, file, DWORD(std::size(file)));
+    if (n == 0 || n >= std::size(file)) return "a d3d10warp.dll whose path does not fit";
+    return fa::fs::path_to_utf8(std::filesystem::path(std::wstring(file, n)));
+}
+
+// What load_nuget_warp did: a sentence, and whether an earlier WARP of the process kept FA_WARP_DIR's from loading.
+struct WarpLoad {
+    std::string what;
+    bool defeated = false;
+};
+
 // FA_WARP_DIR (the Windows CI job exports it when the runner's own WARP has no DXR tier 1.1): a folder with the
 // d3d10warp.dll of the Microsoft.Direct3D.WARP NuGet package. Loaded before the first WARP device, it is the WARP D3D12
-// takes (a DLL of that name is already in the process). In a run of the whole fa_test_render the other D3D12 cases
-// may have loaded the system's first: this one then runs on that, or skips. Says which DLL it loaded.
-std::string load_nuget_warp() {
+// takes (a DLL of that name is already in the process). The ctest render_d3d12_raytracing runs this file alone, so
+// nothing has loaded a WARP before; in a run of the whole fa_test_render (the ctest `render`) the other D3D12 cases
+// may have loaded the system's first, and `defeated` says so.
+WarpLoad load_nuget_warp() {
+    WarpLoad out;
     wchar_t dir[4096];
     const DWORD n = GetEnvironmentVariableW(L"FA_WARP_DIR", dir, DWORD(std::size(dir)));
-    if (n == 0 || n >= std::size(dir)) return "FA_WARP_DIR is not set: the system's WARP";
-    if (GetModuleHandleW(L"d3d10warp.dll")) return "a WARP was loaded already: FA_WARP_DIR is not used";
-    const std::filesystem::path dll = std::filesystem::path(std::wstring(dir, n)) / L"d3d10warp.dll";
-    if (!LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH))
-        return "FA_WARP_DIR has no loadable d3d10warp.dll (error " + std::to_string(GetLastError()) +
-               "): the system's WARP";
-    return "the WARP of FA_WARP_DIR";
+    if (n == 0 || n >= std::size(dir)) {
+        out.what = "FA_WARP_DIR is not set: the system's WARP";
+        return out;
+    }
+    const std::filesystem::path folder(std::wstring(dir, n));
+    const std::filesystem::path dll = folder / L"d3d10warp.dll";
+    if (const HMODULE m = GetModuleHandleW(L"d3d10warp.dll")) {
+        wchar_t file[4096];
+        const DWORD fn = GetModuleFileNameW(m, file, DWORD(std::size(file)));
+        std::error_code ec;
+        const bool same = fn > 0 && fn < std::size(file) &&
+                          std::filesystem::equivalent(std::filesystem::path(std::wstring(file, fn)), dll, ec);
+        out.what = same ? "the WARP of FA_WARP_DIR (loaded already)"
+                        : "an earlier case loaded another WARP, so FA_WARP_DIR's is not used";
+        out.defeated = !same;
+        return out;
+    }
+    if (!LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)) {
+        out.what = "FA_WARP_DIR has no loadable d3d10warp.dll (error " + std::to_string(GetLastError()) +
+                   "): the system's WARP";
+        return out;
+    }
+    out.what = "the WARP of FA_WARP_DIR";
+    return out;
 }
 
 // A WARP device with the debug layer, or null (with a MESSAGE) where this Windows has no WARP.
-std::unique_ptr<D3d12Device> make_warp() {
-    MESSAGE("d3d12 ray tracing: " << load_nuget_warp());
+std::unique_ptr<D3d12Device> make_warp(WarpLoad& load) {
+    load = load_nuget_warp();
+    MESSAGE("d3d12 ray tracing: " << load.what);
     D3d12Options o;
     o.warp = true;
     o.debugLayer = true;
@@ -341,8 +385,15 @@ Buffer input_buffer(D3d12Device& dev, const void* data, std::size_t bytes, const
 
 TEST_CASE(
     "d3d12 ray tracing: WARP traces rt_probe against a TLAS of two instances, then refits, compacts and rebuilds") {
-    auto dev = make_warp();
-    if (!dev) return;
+    // FA_D3D12_REQUIRE_RT=1 (the Windows CI job): a WARP that cannot trace rays fails the case instead of skipping it.
+    // Not in the whole-suite run where an earlier case loaded another WARP: render_d3d12_raytracing runs it alone.
+    const bool requireRt = env_is_1(L"FA_D3D12_REQUIRE_RT");
+    WarpLoad load;
+    auto dev = make_warp(load);
+    if (!dev) {
+        if (requireRt) FAIL("FA_D3D12_REQUIRE_RT=1 and this Windows made no WARP device");
+        return;
+    }
     std::string why;
     if (!dev->ray_tracing_status(&why)) {
         // The refusals of a device without ray tracing, then the skip.
@@ -356,9 +407,18 @@ TEST_CASE(
         bd.usage.accelStorage = true;
         bd.label = "no-rt";
         CHECK(dev->state(dev->make_buffer(bd)) == ResourceState::Failed);
-        MESSAGE("d3d12 ray tracing: skipped, this WARP cannot trace rays: " << why);
+        const std::string which = "the d3d10warp.dll loaded: " + loaded_warp() + " (" + load.what + ")";
+        if (requireRt && !load.defeated)
+            FAIL_CHECK("FA_D3D12_REQUIRE_RT=1 and this WARP cannot trace rays: "
+                       << why << "; " << which
+                       << " (hint: point FA_WARP_DIR at the "
+                          "d3d10warp.dll of the NuGet package "
+                          "Microsoft.Direct3D.WARP)");
+        else
+            MESSAGE("d3d12 ray tracing: skipped, this WARP cannot trace rays: " << why << "; " << which);
         return;
     }
+    MESSAGE("d3d12 ray tracing: the d3d10warp.dll loaded: " << loaded_warp());
     const fa::rt_kernels::RtKernel* kernel = fa::rt_kernels::find_rt_kernel("rt_probe");
     REQUIRE(kernel != nullptr);
     std::string step = "the rt_probe kernel and its pipeline";
@@ -381,6 +441,15 @@ TEST_CASE(
     pd.label = "rt_probe";
     const Pipeline pipeline = dev->make_pipeline(pd);
     REQUIRE_MESSAGE(dev->state(pipeline) == ResourceState::Valid, all_errors(*dev));
+    {
+        // The same kernel as HLSL text is refused with what to give instead (D3DCompile's cs_5_1 has no RayQuery).
+        ShaderDesc text = sd;
+        text.computeFunc.bytecode = Range{};
+        text.computeFunc.source = "[numthreads(8, 8, 1)] void main() {}";
+        text.label = "rt_probe as text";
+        CHECK(dev->state(dev->make_shader(text)) == ResourceState::Failed);
+        CHECK_MESSAGE(contains(all_errors(*dev), "RayQuery needs DXIL (cs_6_5)"), all_errors(*dev));
+    }
     ImageDesc id;
     id.width = kSize;
     id.height = kSize;

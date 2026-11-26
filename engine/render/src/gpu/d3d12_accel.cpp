@@ -62,7 +62,8 @@ bool apply_rt_caps(const RtCaps& caps, Features& features, Limits& limits, std::
     if (caps.tier >= kRtTier1_1 && caps.shaderModel >= kShaderModel6_5)
         why += ", and this D3D12 runtime gave no ID3D12Device5 (update Windows)";
     else
-        why += " (update the GPU driver, or run on a DirectX 12 Ultimate GPU; WARP has tier 1.1 on Windows 11)";
+        why += " (update the GPU driver, or run on a DirectX 12 Ultimate GPU; WARP, the software device, has tier 1.1 "
+               "only in some Windows versions)";
     return false;
 }
 

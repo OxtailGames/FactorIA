@@ -664,16 +664,15 @@ jobs:
       # Microsoft.Direct3D.WARP puts a newer d3d10warp.dll beside the program (D3D12 loads it from the program's folder): the
       # step downloads it (SHA-256 checked, cached), prints the tier it gives and exports FA_WARP_DIR for the tests that need
       # it. The package's licence allows testing only and no redistribution: it is CI-only and never reaches a game, the
-      # editor or a release. Shard 1 only.
+      # editor or a release. Every shard: ctest_shard.py may put render_d3d12_raytracing on any of the three, and the
+      # Test step's FA_D3D12_REQUIRE_RT=1 fails that test when its WARP has no DXR tier 1.1.
       - name: Restore the NuGet WARP package
-        if: ${{ matrix.shard == 1 }}
         uses: actions/cache@v4
         with:
           path: ~/warp-nupkg
           key: warp-nupkg-${{ runner.os }}-1.0.22-afc058f4
 
       - name: WARP DXR tier (OS WARP, else the pinned NuGet Microsoft.Direct3D.WARP 1.0.22)
-        if: ${{ matrix.shard == 1 }}
         shell: pwsh
         env:
           WARP_VERSION: '1.0.22'
@@ -715,7 +714,7 @@ jobs:
             $summary = "$summary; NuGet WARP $env:WARP_VERSION beside the program: DXR tier $ntier ($(($nuget | Select-String '^warpVersion=').Line))"
             "FA_WARP_DIR=$warp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
             if ($ntier -ge 11) { Write-Host "::notice title=WARP DXR::$summary" }
-            else { Write-Host "::warning title=WARP DXR::$summary: neither WARP runs inline ray queries, the D3D12 ray tracing tests will skip" }
+            else { Write-Host "::warning title=WARP DXR::$summary: neither WARP runs inline ray queries, render_d3d12_raytracing will fail (FA_D3D12_REQUIRE_RT=1)" }
           }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
@@ -730,6 +729,7 @@ jobs:
         env:
           FA_REQUIRE_SHDC: '1'
           FA_D3D12_REQUIRE: '1'  # every runner has D3D12 WARP: the renderer's D3D12 case must run, not skip
+          FA_D3D12_REQUIRE_RT: '1'  # the WARP step above gives a DXR tier 1.1 WARP: render_d3d12_raytracing must trace
         # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
         # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
         # timing-sensitive tests failed.
