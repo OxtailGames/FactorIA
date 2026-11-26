@@ -63,3 +63,8 @@ tools/cli/tests/fixtures/**/*.md text eol=lf
 
 # The generated LTC tables are compared byte for byte with what tools/ltc produces.
 engine/render/src/ltc_tables.h text eol=lf
+
+# The ray tracing kernels and their generated headers (tools/shaders/compile_rt_shaders.sh): the headers record the SHA-256 of the
+# sources, so LF on every checkout.
+engine/render/shaders/rt/* text eol=lf
+engine/render/src/shaders/rt/*.rt.h text eol=lf

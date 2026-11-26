@@ -110,7 +110,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|webplayer|cmake|xcode|appimage|shaders|vscode|ffmpeg|launcher|directstorage|streamline|xess|fidelityfx] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|webplayer|cmake|xcode|appimage|shaders|vscode|ffmpeg|launcher|directstorage|streamline|xess|fidelityfx|dxc] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -139,7 +139,7 @@ SDK (FSR; about 160 MB), each pinned by SHA-256, and keep their x64 DLLs and lic
 `license_required` until `--accept-licenses` says you have read and accepted it (NVIDIA's asks you to notify NVIDIA before a
 commercial release); `--force` installs again and asks for the license again, so it needs `--force --accept-licenses` without a terminal. A Windows export copies them next to the game as `export.pack.vendorSdks` says (default `"auto"`: the
 installed ones the project's render settings can use), with the license texts in `licenses/<id>/`
-([EXPORTING_SETUP.md](exporting/EXPORTING_SETUP.md#vendor-sdk-licences)). `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
+([EXPORTING_SETUP.md](exporting/EXPORTING_SETUP.md#vendor-sdk-licences)). `dxc` installs DXC 1.9.2609, Microsoft's DirectX Shader Compiler (13 MB on Linux x86_64, 31 MB on Windows, pinned by SHA-256), into `~/.factoria/tools/dxc/1.9.2609/`: it is only for contributors who edit the engine's ray tracing kernels (`tools/shaders/compile_rt_shaders.sh`), never for making games; macOS and Linux Arm have no DXC build, so there its status is `unsupported` and the install explains where the DXIL comes from (the Linux CI job). `$FA_DXC_DIR` names a DXC folder of your own. `vscode` installs the FactorIA debugger extension into VS Code (and VS Code Insiders,
 VSCodium and Cursor when present) in one step: it copies the extension that is built into `factoria` (nothing is
 downloaded) to `~/.vscode/extensions/oxtailgames.factoria-<version>/`, records the path of this `factoria` next to it and
 removes older versions; restart VS Code and press F5 in a project ([DEBUGGING.md](DEBUGGING.md)). `launcher` writes an app
