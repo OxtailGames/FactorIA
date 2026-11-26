@@ -7,8 +7,9 @@
 //
 // A pass cannot read what it writes, hence the scratch. Every camera has its own passes: a split screen traces each rectangle on its own, and
 // a ray never leaves its camera's rectangle. A frame without the effect (or with ssrIntensity 0) declares no pass, makes no image and builds no
-// shader. There is no roughness or metalness image, so the reflectivity of every surface is the fresnel term of the angle between its normal
-// and the view, scaled by ssrIntensity (shaders/ssr.glsl, docs/RENDERING_EFFECTS.md).
+// shader. The reflectivity of every surface is the fresnel term of the angle between its normal and the view, scaled by ssrIntensity
+// (shaders/ssr.glsl, docs/RENDERING_EFFECTS.md). It does not read the thin G-buffer's roughness and metalness images (M79-P0c, docs/design/
+// ARCHITECTURE_RENDERING_GBUFFER.md): the look of the effect is the same whether or not something else asked for them.
 //
 // Ssr owns its shaders and pipelines (created on first use, destroyed by release()). The plan is pure CPU and needs no GPU.
 #pragma once

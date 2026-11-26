@@ -166,6 +166,13 @@ struct PostPlan {
     // request_velocity(); the debug view and the test hook ask for the velocity alone.
     bool needsReactive = false;
     void request_reactive() { needsReactive = true; }
+    // M79-P0c, the thin G-buffer (docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): this camera asks for the albedo and the roughness / metalness of what the
+    // prepass kept (gbufferAlbedo / gbufferMaterial below, RGBA8 each). Nothing is made unless something calls request_gbuffer(): the DLSS Ray
+    // Reconstruction guides while that mode is on, the debug views "albedo" and "material", the test hook. It needs the prepass (the fragment
+    // stage keeps the surface the prepass kept), so it asks for the prepass without the depth, the normals or the velocity the prepass holds for
+    // other readers. The frame draws it when the GPU can make the images; the refs are invalid otherwise and whoever asked reads its constants.
+    bool needsGbuffer = false;
+    void request_gbuffer() { needsGbuffer = true; }
     std::uint32_t readMask =
         0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;
@@ -193,6 +200,10 @@ struct PostPlan {
     Mat4 prevJitteredViewProj;
     // The camera's velocity image (VelocityRef), valid for the passes after the pass that writes it; invalid when none does.
     VelocityRef velocity;
+    // The thin G-buffer of this camera (M79-P0c), valid for the passes after the "gbuffer" pass; invalid when nothing asked, the GPU cannot make the images or the
+    // camera drew no prepass. Both have the size of the prepass and are only ever read by the pixel: gbufferAlbedo rgb = the albedo (linear 0..1),
+    // a = 1 where a mesh was drawn; gbufferMaterial r = roughness, g = metalness, b = 0, a = 1 where a mesh was drawn. RGBA8 (Gpu::gbuffer_format()).
+    PrepassRef gbufferAlbedo, gbufferMaterial;
     // The camera's reactive mask (M76-P1d, R8 at the size of the prepass, 0..1): where the 2D quads of the world that are not an opaque surface
     // (blended particles, the quads flagged reactive) are, so the temporal resolve trusts the current frame there (taa_resolve lowers the
     // weight of its history by it). Invalid when nothing asked, the GPU cannot make the image or no quad is reactive in the frame.

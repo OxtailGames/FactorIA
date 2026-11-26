@@ -85,6 +85,14 @@ struct RendererTestAccess {
     static bool last_job_needs_velocity(Renderer& r);
     // M78: whether the images of the DLSS Ray Reconstruction guides (the normal and roughness, the albedos, the depth) exist now.
     static bool rr_guide_images(Renderer& r);
+    // M79-P0c: makes the programs of the Ray Reconstruction guides (the normal and depth pass and the albedo pass that reads the thin G-buffer) on this
+    // GPU and says whether both pipelines are valid, with the formats the renderer draws them with. No NVIDIA GPU or DLSS needed.
+    static bool rr_guide_programs(Renderer& r);
+    // M79-P0c, the thin G-buffer: every camera asks for it (as DLSS Ray Reconstruction and the debug views albedo and material do), and the frame keeps
+    // a copy of the last camera's two images. read_gbuffer(0 = albedo, 1 = material) gives that copy after a frame: `out` = w * h * 4 floats
+    // (RGBA, top row first, the RGBA8 values as 0..1). False + `error` when no frame drew one (the GPU makes no such image, or no opaque mesh).
+    static void force_gbuffer(Renderer& r, bool on);
+    static bool read_gbuffer(Renderer& r, int which, std::vector<float>& out, int& w, int& h, std::string* error);
     // With several cameras in a frame the probe holds the last one's images; this names the only camera whose images it copies (a null entity: every camera again).
     static void probe_camera(Renderer& r, Entity camera);
     // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.

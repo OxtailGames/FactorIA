@@ -146,6 +146,9 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M79-P0c, the thin G-buffer: plan_prepass decided the job draws it (PostPlan::needsGbuffer, the GPU made the images); build_graph declares the
+    // "gbuffer" pass and the images (PostPlan::gbufferAlbedo / gbufferMaterial).
+    bool doGbuffer = false;
     // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
     // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
     bool collectPrev = false, doVelocity = false;
@@ -746,6 +749,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         if (debugView == DebugView::MotionVectors || forceVelocity)
             pp.request_velocity();  // the debug view and the test hook
+        // The thin G-buffer (M79-P0c): only what asks for it pays for it. The debug views and the test hook; DLSS Ray Reconstruction below
+        // (upscaleTaa is known only there).
+        if (debugView == DebugView::Albedo || debugView == DebugView::Material || forceGbuffer) pp.request_gbuffer();
         if (pp.fx.grain)
             pp.fx.grainSeed =
                 grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
@@ -926,6 +932,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The temporal upscalers also reproject with the motion of the objects (M76-P1a), where the GPU can make the image: asked before
     // cull_and_batch, which decides whether the draws collect their previous models.
     if (draws && upscaleTaa.on && !plan.view) ctx.postPlan.request_velocity();
+    // DLSS Ray Reconstruction (M78-P4c) is told the albedo, the roughness and the normal of every pixel: this frame has them from the G-buffer when
+    // the setting is on and the machine and the frame can run it (run_rr_guides decides again, with the frame's size and format).
+    if (draws && upscaleTaa.on && !plan.view && upscaler.rayReconstruction && !rrFailed &&
+        render::vendor_impl_index(upscaleImpl) == 0 && gpu.has_device() && rr_probe().available)
+        ctx.postPlan.request_gbuffer();
     lastJobNeedsVelocity = ctx.postPlan.needsVelocity;
     gather_meshes(ctx);
     collect_lights(ctx);
@@ -3575,7 +3586,7 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
 // ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
-    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = false;
+    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = ctx.doGbuffer = false;
     if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return false;
@@ -3585,7 +3596,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
                            debugView != DebugView::Occlusion &&
                            (debugView != DebugView::MotionVectors || ctx.collectPrev);
     if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || (pp.needsVelocity && ctx.collectPrev) ||
-          debugPass))
+          pp.needsGbuffer || debugPass))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -3624,9 +3635,36 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
             ctx.doVelocity = true;
         }
     }
+    // M79-P0c: the thin G-buffer, two RGBA8 images of the prepass's size drawn after it. A GPU that cannot make them (or their shaders) leaves
+    // PostPlan::gbufferAlbedo invalid and whoever asked reads its constants.
+    if (pp.needsGbuffer && !ctx.plan.gi && gpu.gbuffer_ready()) {
+        TransientDesc ad = d;
+        ad.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::Depth, 1};
+        ad.label = "gbuffer-albedo";
+        TransientDesc md = d;
+        md.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::None, 1};
+        md.label = "gbuffer-material";
+        const std::uint64_t ha = transient_targets().pool.acquire(ad);
+        const std::uint64_t hb = ha ? transient_targets().pool.acquire(md) : 0;
+        if (hb) transient_targets().pool.release(hb);
+        if (ha) transient_targets().pool.release(ha);
+        if (ha && hb) {
+            ctx.doGbuffer = true;
+        } else if (!gbufferWarned) {
+            gbufferWarned = true;
+            FA_ERROR("render",
+                     "The thin G-buffer images ({}x{}) could not be made: what asked for the albedo and the roughness "
+                     "(DLSS Ray "
+                     "Reconstruction, the debug views albedo and material) reads constants instead. Hint: lower the "
+                     "window size or "
+                     "the render scale.",
+                     ctx.camPx.w, ctx.camPx.h);
+        }
+    }
     ctx.debugPrepass = !ctx.plan.gi &&
                        (debugView == DebugView::Depth || debugView == DebugView::Normals ||
-                        (debugView == DebugView::MotionVectors && ctx.doVelocity)) &&
+                        (debugView == DebugView::MotionVectors && ctx.doVelocity) ||
+                        ((debugView == DebugView::Albedo || debugView == DebugView::Material) && ctx.doGbuffer)) &&
                        gpu.prepass_view_ready();
     return true;
 }
@@ -3934,6 +3972,108 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
     cl.end_pass();
 }
 
+// The thin G-buffer (M79-P0c, docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): the opaque meshes of the job drawn again into two RGBA8 images, `albedo`
+// (rgb = the albedo, a = 1 where a mesh was drawn) and `material` (r = roughness, g = metalness, b = 0, a = 1), cleared to zero (a = 0: nothing was
+// drawn, whoever reads it uses its constants). Same batches, instances, skins and uniforms as the prepass, with the "gbuffer" programs (the prepass's
+// vertex stage, the surface of the main pass in the fragment stage); a fragment the prepass did not keep (an alpha-tested hole, a cross-fading level of
+// detail) is dropped by the program's visibility test against `pre`. A mesh with a custom (M72) or layered (M73) material is drawn with the engine's
+// program, so it writes the mesh renderer's own base colour, roughness and metalness (and the textures of its glTF parts); terrain nodes and impostor
+// cards have a gbuffer program of their own. A mesh the engine's program cannot place (GPU-placed buffers) and a full-shader material that keeps out
+// of the prepass keep the clear value. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fr.cam. Writes: the targets; stats.drawCalls.
+void Renderer::Impl::gbuffer_pass(DrawContext& ctx, const Target& albedo, const Target& material, const Target& pre) {
+    if (!albedo.colorAtt.id || !material.colorAtt.id || !pre.texView.id) return;
+    PassDesc pd = pass_into(albedo, "gbuffer");
+    pd.format = Gpu::gbuffer_target_format();
+    pd.color1 = material.colorAtt;
+    pd.colorLoad = gpu::LoadAction::Clear;
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.clearColor1 = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = gpu::StoreAction::Store;
+    pd.depthLoad = gpu::LoadAction::Clear;
+    pd.clearDepth = 1.0f;
+    // The programs of the terrain and the impostor cards are made now, before the pass (nothing is made inside one).
+    bool anyTerrain = false, anyImpostor = false;
+    for (const MeshBatch& batch : ctx.opaqueBatches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        anyTerrain = anyTerrain || mi.terrain;
+        anyImpostor = anyImpostor || mi.impostor;
+    }
+    const bool terrainOk = anyTerrain && terrains.ensure_gbuffer(gpu.device());
+    const bool impostorOk = anyImpostor && impostors.ensure_gbuffer(gpu.device());
+    gpu::CommandList& cl = gpu.commands();
+    cl.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    copy_mat(vu.fa_light_vp,
+             ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    mesh_fa_vel_params_t velU{};  // fa_vel_on.x = 0: the vertex stage skips the motion work
+    for (const MeshBatch& batch : ctx.opaqueBatches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        const bool own = mi.terrain || mi.impostor;  // a program of its own, or nothing: the engine's cannot place it
+        if (own && !(mi.terrain ? terrainOk : impostorOk)) continue;
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+        MaterialInputs inputs{};
+        if (mat && own && mat->programs[kProgGbuffer].shader.id) material_inputs(mi, mat, inputs);
+        if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
+        const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
+        if (mbu.skip) continue;
+        for (const SubMesh& part : mi.mesh->parts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw pd0 = part_draw(ctx, mi, part);
+            const MaterialProgram* custom = own && pd0.mat ? &mat->programs[kProgGbuffer] : nullptr;
+            if (custom && !custom->shader.id) custom = nullptr;
+            if (own && !custom) continue;
+            if (mbu.active) continue;  // the engine's program cannot place what the buffers place
+            const MaterialProgram* prog = custom ? custom : &gpu.gbuffer_program(skinned);
+            PartDraw bind = pd0;
+            if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
+            const gpu::Pipeline pipe = gpu.prepass_pipeline(
+                pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided), skinned,
+                custom ? custom->shader : gpu::Shader{}, custom ? mat->extras() : MeshExtras{}, false, false, true);
+            if (!pipe.id) continue;
+            cl.set_pipeline(pipe);
+            gpu::Bindings b;
+            b.vertexBuffers[0] = part.vb;
+            b.vertexBuffers[1] = ctx.mainInst;
+            b.vertexBufferOffsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned) b.vertexBuffers[2] = part.skinVb;
+            if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
+            // The previous model of each instance (vertex buffer 6) is in the vertex layout of the prepass's programs: the instance buffer stands
+            // in for it (never read: fa_vel_on.x is 0).
+            if (prepass_prev_attr(skinned, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                b.vertexBuffers[kPrevModelBuffer] = ctx.mainInst;
+                b.vertexBufferOffsets[kPrevModelBuffer] = int(batch.mainFirst * kMeshInstanceBytes);
+            }
+            b.indexBuffer = part.ib;
+            b.indexBufferOffset = part.ibOffset;
+            bind_textures(ctx, b, bind, prog, inputs, true);
+            // The visibility test of the fragment stage reads the prepass through the screen slot (the shadow pass binds a white image there).
+            if ((prog->viewMask >> VIEW_mesh_fa_screen_tex) & 1u) b.views[VIEW_mesh_fa_screen_tex] = pre.texView;
+            if (skinned) {
+                if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = ctx.white->view;
+                if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
+                    b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
+            }
+            cl.set_bindings(b);
+            apply_uniforms(cl, UB_mesh_fa_mesh_vs_params, vu);
+            if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(cl, UB_mesh_fa_vel_params, velU);
+            if (skinned && prog->has_ub(UB_mesh_fa_skin))
+                apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+            if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
+            apply_material_params(cl, *prog, inputs);
+            cl.draw(0, part.indexCount, int(batch.mainCount));
+            ++stats.drawCalls;
+        }
+    }
+    cl.end_pass();
+}
+
 // The subsurface draw (M73.5, docs/design/ARCHITECTURE_SUBSURFACE.md): the opaque meshes that scatter, drawn again with the sss program of the mesh
 // shader into two images of the camera's size: `a` = the diffuse light the surface sends to the camera and its linear depth, `b` = the scatter radius
 // per colour channel and the strength. The geometry, the instances, the skin, the lightmap and every uniform are the main pass's; only the surface the
@@ -4025,7 +4165,11 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : debugView == DebugView::MotionVectors ? 3.0f : 1.0f;
+    fu.mode[0] = debugView == DebugView::Normals         ? 2.0f
+                 : debugView == DebugView::MotionVectors ? 3.0f
+                 : debugView == DebugView::Albedo        ? 5.0f
+                 : debugView == DebugView::Material      ? 6.0f
+                                                         : 1.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_fs_params, fu);
     cl.draw(0, 3, 1);
     ++stats.drawCalls;
@@ -4037,8 +4181,10 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); read_image_rgba16f turns the rows over on
 // GL as read_image_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
 // those two, as the GL backend is not run by this host's tests.)
-constexpr float kPrepassViewRaw = 4.0f;
-void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label) {
+constexpr float kPrepassViewRaw4 =
+    7.0f;  // the four channels as they are (the thin G-buffer's images, RendererTestAccess::read_gbuffer)
+void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label,
+                                         float mode) {
     const int w = ctx.camPx.w, h = ctx.camPx.h;
     if (!velocity.texView.id || w < 1 || h < 1) return;
     if (!probe.valid(gpu.device()) || probe.w != w || probe.h != h) {
@@ -4066,7 +4212,7 @@ void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocit
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = kPrepassViewRaw;
+    fu.mode[0] = mode;
     apply_uniforms(cl, UB_prepass_view_prepass_view_fs_params, fu);
     cl.draw(0, 3, 1);
     cl.end_pass();
@@ -4080,6 +4226,19 @@ bool Renderer::Impl::read_reactive(std::vector<float>& out, int& w, int& h, std:
     w = reactiveProbe.w;
     h = reactiveProbe.h;
     return render::result_ok(gpu.device().read_image_rgba16f(reactiveProbe.color, w, h, out), error);
+}
+
+bool Renderer::Impl::read_gbuffer(int which, std::vector<float>& out, int& w, int& h, std::string* error) {
+    const Target& t = gbufferProbe[which == 0 ? 0 : 1];
+    if (!t.valid(gpu.device())) {
+        if (error)
+            *error = "no G-buffer was drawn (force_gbuffer is off, or the frame drew no prepass, or the GPU makes no "
+                     "such image)";
+        return false;
+    }
+    w = t.w;
+    h = t.h;
+    return render::result_ok(gpu.device().read_image_rgba16f(t.color, w, h, out), error);
 }
 
 bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
@@ -5127,6 +5286,33 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     // The subsurface draw (M73.5): in this camera's own job, after its shadow and prepass passes (it reads this job's shadow atlas); the blur and the pass that
     // adds the change to the picture are declared with the post stack, in the last job.
+    // The thin G-buffer (M79-P0c): only a job whose plan_prepass said so (something asked and the GPU made the images) has the pass and the images.
+    ResourceId gbAlbedoRes, gbMaterialRes;
+    if (ctx.doGbuffer && ctx.doPrepass) {
+        TransientDesc ad;
+        ad.width = ctx.camPx.w;
+        ad.height = ctx.camPx.h;
+        ad.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::Depth, 1};
+        ad.label = plan.name + "/gbuffer-albedo";
+        TransientDesc md = ad;
+        md.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::None, 1};
+        md.label = plan.name + "/gbuffer-material";
+        gbAlbedoRes = graph.create_transient(ad);
+        gbMaterialRes = graph.create_transient(md);
+        ctx.postPlan.gbufferAlbedo = PrepassRef{gbAlbedoRes, &transient_targets()};
+        ctx.postPlan.gbufferMaterial = PrepassRef{gbMaterialRes, &transient_targets()};
+        // Never culled: the effects that read the images list the pass before them through the resources; the debug view and the test probe are
+        // declared below.
+        add(
+            "gbuffer", {prepassRes}, {gbAlbedoRes, gbMaterialRes},
+            [this, &ctx, gbAlbedoRes, gbMaterialRes, prepassRes](const PassContext& c) {
+                const Target* a = transient_targets().get(c.handle(gbAlbedoRes));
+                const Target* m = transient_targets().get(c.handle(gbMaterialRes));
+                const Target* p = transient_targets().get(c.handle(prepassRes));
+                if (a && m && p) gbuffer_pass(ctx, *a, *m, *p);
+            },
+            true);
+    }
     if (ctx.sssOn && ctx.postPlan.prepass.valid()) {
         const ResourceId lightRes_ = graph.create_transient(SssFx::light_desc(ctx.postPlan.sss, plan.name));
         const ResourceId paramRes = graph.create_transient(SssFx::params_desc(ctx.postPlan.sss, plan.name + "/b"));
@@ -5176,6 +5362,21 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         velocity_probe_pass(ctx, *v, velocityProbe, "velocity-probe");
                 },
                 true);
+        // The test copies of the G-buffer's images (RendererTestAccess::read_gbuffer).
+        if (forceGbuffer && ctx.doGbuffer && (!probeCameraOnly || probeCamera == fr.cam.entity.bits())) {
+            for (int k = 0; k < 2; ++k) {
+                const ResourceId src = k == 0 ? gbAlbedoRes : gbMaterialRes;
+                add(
+                    k == 0 ? "gbuffer-albedo-probe" : "gbuffer-material-probe", {src}, {},
+                    [this, &ctx, src, k](const PassContext& c) {
+                        if (const Target* g = transient_targets().get(c.handle(src)))
+                            velocity_probe_pass(ctx, *g, gbufferProbe[k],
+                                                k == 0 ? "gbuffer-albedo-probe" : "gbuffer-material-probe",
+                                                kPrepassViewRaw4);
+                    },
+                    true);
+            }
+        }
         if (probed && ctx.postPlan.reactive.valid())
             add(
                 "reactive-probe", {ctx.postPlan.reactive.res}, {},
@@ -5187,7 +5388,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.debugPrepass) {
             // The debug view "motionVectors" paints the velocity image (the prepass's depth and normals are not part of it).
             const bool vv = debugView == DebugView::MotionVectors && velRes.valid();
-            const ResourceId viewRes = vv ? velRes : prepassRes;
+            // The debug views "albedo" and "material" paint the thin G-buffer's images (M79-P0c).
+            const ResourceId viewRes = debugView == DebugView::Albedo     ? gbAlbedoRes
+                                       : debugView == DebugView::Material ? gbMaterialRes
+                                       : vv                               ? velRes
+                                                                          : prepassRes;
             add("prepass-view", {viewRes, game}, {game}, [this, &ctx, viewRes](const PassContext& c) {
                 const Target* t = transient_targets().get(c.handle(viewRes));
                 if (t) prepass_view_pass(ctx, *t);
@@ -5245,6 +5450,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         upscalePrepass = PrepassRef{};
         upscaleVelocity = VelocityRef{};
         upscaleReactive = PrepassRef{};
+        upscaleGbufAlbedo = upscaleGbufMaterial = PrepassRef{};
         if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx ||
              render::vendor_impl_index(upscaleImpl) >= 0) &&
             upscaleTaa.on && !postCams.empty()) {
@@ -5255,6 +5461,15 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             if (upscalePrepass.valid()) upReads.push_back(upscalePrepass.res);
             if (upscaleVelocity.valid()) upReads.push_back(upscaleVelocity.res);
             if (upscaleReactive.valid()) upReads.push_back(upscaleReactive.res);
+            // The thin G-buffer, only a camera that made it for Ray Reconstruction (plan_job asked) has one.
+            upscaleGbufAlbedo = cam0.gbufferAlbedo;
+            upscaleGbufMaterial = cam0.gbufferMaterial;
+            if (upscaleGbufAlbedo.valid() && upscaleGbufMaterial.valid()) {
+                upReads.push_back(upscaleGbufAlbedo.res);
+                upReads.push_back(upscaleGbufMaterial.res);
+            } else {
+                upscaleGbufAlbedo = upscaleGbufMaterial = PrepassRef{};
+            }
         }
         add(render::kPassUpscale, std::move(upReads), {outRes}, [this](const PassContext& c) {
             outputPassLog.push_back(render::kPassUpscale);

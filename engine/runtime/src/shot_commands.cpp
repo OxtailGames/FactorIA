@@ -1606,6 +1606,12 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the "
          "sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image "
          "on while it is shown. "
+         "`albedo` and `material` paint the thin G-buffer (M79) the renderer draws only when something asks for it: "
+         "`albedo` the "
+         "albedo of what the camera sees (linear colour), `material` the roughness as red and the metalness as green; "
+         "black where no opaque "
+         "mesh was drawn (a mesh with a custom or layered material shows its mesh renderer's own colour, roughness "
+         "and metallic); they turn the images on while they are shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
@@ -1613,11 +1619,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a "
+         "`view` that is not none, depth, normals, ao, cascades, occlusion, motionVectors, albedo or material (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors","albedo","material"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red), motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector), albedo (the thin G-buffer's albedo) or material (its roughness as red and metalness as green). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
@@ -1628,6 +1634,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                        : v == DebugView::Cascades      ? "cascades"
                        : v == DebugView::Occlusion     ? "occlusion"
                        : v == DebugView::MotionVectors ? "motionVectors"
+                       : v == DebugView::Albedo        ? "albedo"
+                       : v == DebugView::Material      ? "material"
                                                        : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
@@ -1646,6 +1654,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                            : wanted == "cascades"      ? DebugView::Cascades
                                            : wanted == "occlusion"     ? DebugView::Occlusion
                                            : wanted == "motionVectors" ? DebugView::MotionVectors
+                                           : wanted == "albedo"        ? DebugView::Albedo
+                                           : wanted == "material"      ? DebugView::Material
                                                                        : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });

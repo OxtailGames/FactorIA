@@ -101,6 +101,10 @@ public:
     std::size_t size() const { return entries_.size(); }
     // The renderer could build the terrain program on this GPU (false before the first terrain is drawn).
     bool program_ok() const { return matState_ > 0; }
+    // The program of the thin G-buffer (M79-P0c, MaterialProgramId kProgGbuffer): made the first time a frame draws the G-buffer, never before, so
+    // a game that asks for none pays for no shader. False (said once) when the material is not built or the GPU rejects the program: the
+    // G-buffer then leaves the terrains out and their pixels keep the constants.
+    bool ensure_gbuffer(gpu::Device& device);
     // Height texture uploads made since the renderer was made: the whole texture, and (rectUploads) a sub-rectangle of it, as a sculpt
     // changes it. A test looks at them.
     std::uint64_t uploads() const { return uploads_; }
@@ -189,10 +193,11 @@ private:
     std::unique_ptr<MaterialAsset> material_;
     TextureAsset dummy_;  // a 1 x 1 one-slice array of white: bound where a terrain has no layer pictures or no control
     TextureAsset dummyHoles_;   // a 1 x 1 R8 texture of 0: the holes texture of a terrain without holes
-    gpu::Shader shaders_[3]{};  // terrain, shadow, prepass
+    gpu::Shader shaders_[4]{};  // terrain, shadow, prepass, gbuffer (made by ensure_gbuffer)
     gpu::Device* device_ =
-        nullptr;        // the device of the last gather(): what the textures, patches and programs were made on
-    int matState_ = 0;  // 0 = not tried, 1 = built, -1 = failed (said once)
+        nullptr;  // the device of the last gather(): what the textures, patches and programs were made on
+    bool gbufferFailed_ = false;  // the G-buffer program was rejected (said once)
+    int matState_ = 0;            // 0 = not tried, 1 = built, -1 = failed (said once)
     std::uint64_t pruned_ = ~std::uint64_t(0);
     std::unordered_map<std::uint64_t, std::uint64_t>
         failedSeen_;                                   // entity -> reload generation of a heightmap that did not read
