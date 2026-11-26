@@ -158,6 +158,7 @@ void Renderer::Impl::destroy_targets() {
     ssr.forget_targets();
     xmit.forget_targets();
     ssao.release();
+    rtDenoiser.forget_targets();
     sceneFx.forget_targets();
     taa.forget_targets(scaleStepOnly);
     gi2d.free_images();

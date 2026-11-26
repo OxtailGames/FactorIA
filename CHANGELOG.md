@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray traced ambient occlusion (M79-P2b):** `render.rayTracing.ao = true` now draws: with ray tracing on and a device that can trace, the
+  main camera casts `raysPerPixel` rays (1 to 16) per pixel in a cosine-weighted hemisphere around its surface normal, up to an occlusion radius,
+  and the renderer's denoiser (temporal accumulation and an edge-aware filter) makes the share of rays that got out a clean visibility. It replaces
+  the screen-space occlusion of that camera: the result goes through the same apply as SSAO (after the opaque meshes, before glass, sprites and the
+  HUD, the debug view `ao` shows it) with the camera's `PostProcess.ssaoRadius` and `ssaoIntensity` (their defaults when it has no SSAO), and the
+  `ssao-*` passes are not drawn. Opaque and alpha-tested meshes occlude (**a cutout occludes as a solid**: the kernel reads no texture), blended
+  ones let the ambient light through. Like SSAO it multiplies the picture where it draws, so it darkens the direct light too. A device that cannot
+  trace, or refuses the kernel, says so once and keeps the camera's screen-space occlusion if it has one. Off, nothing is made. `render.ray_tracing`
+  reports `active: true` with `ao` on and says what is traced. The Metal kernel is tested against a CPU hemisphere ray caster on a real GPU; the
+  DXIL and SPIR-V kernels are built but have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray traced hard shadows (M79-P2a-1):** `render.rayTracing.shadows = "hard"` now draws: with ray tracing on, a device that can trace
   and a sun with `castShadows`, one compute pass per camera casts one ray per pixel from the surface toward the sun against the scene's
   top-level structure (the meshes that cast a shadow in the shadow pass), and the lit pass takes the sun's shadow of an opaque mesh from

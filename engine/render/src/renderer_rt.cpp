@@ -76,12 +76,16 @@ void Renderer::Impl::rt_begin_frame() {
         rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
         rtWarnedEffect = false;
         rtInformedSoft = false;
+        rtWarnedAo = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
         if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
+        if (gpu.has_device() && (rtDenoiser.shaders_made() || rtDenoiser.history_image_count() > 0))
+            rtDenoiser.release();
     } else {
         rtEffects.sweep(gpu, frameSerial + 1);
+        rtDenoiser.sweep(postSerial + 1);  // a signal no camera asked for in the frame before frees its history
         if (rtSettings.shadows == render::RtShadows::Soft && !rtInformedSoft) {
             rtInformedSoft = true;
             FA_INFO("render", "render.rayTracing.shadows is \"soft\": the ray traced soft shadows are not made yet, "
