@@ -37,6 +37,18 @@ void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmi
 // to read the picture behind it with), and neither does an unlit mesh or a material with lighting "unlit".
 bool mesh_is_transmissive(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
 
+// The transmission of one part as the draw uses it (M73.6b; the ray traced translucency, M79-P3b, reads the same numbers): the glTF material's
+// values (KHR_materials_ior, transmission, volume), each replaced by the MeshRenderer's when that is not at its default. A MeshRenderer value
+// outside its range is clamped, NaN counts as the default. The attenuation colour is in the scene's colour space (`linear`).
+struct PartTransmission {
+    float ior = 1.5f;  // 1 to 3
+    float transmission = 0.0f;  // 0 to 1
+    float thickness = 0.0f;  // metres, 0 to 1000
+    float attenuationDistance = 0.0f;  // metres, 0 to 100000 (0 = no tint)
+    float attenuationColor[3] = {1.0f, 1.0f, 1.0f};  // 0 to 1
+};
+PartTransmission resolve_part_transmission(const MeshRenderer& mr, const SubMesh& part, bool linear);
+
 // Whether `mr` is drawn with the blended meshes (far to near) rather than the opaque ones. The alphaMode of a material
 // decides; without one, a translucent colour or a blended glTF part does. A transmissive mesh (mesh_is_transmissive) is always one of them:
 // it is drawn after the opaque picture is finished, because it reads it.

@@ -13,6 +13,7 @@ const RtEffectKernelSpec kSpecs[] = {
     {"rt_shadow", false, false, false},
     {"rt_ao", false, false, false},
     {"rt_reflect", true, true, true},
+    {"rt_refract", true, false, true},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
