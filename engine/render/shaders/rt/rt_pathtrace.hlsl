@@ -103,9 +103,15 @@ float3 ggx_vndf_reflect(float3 ve, float alpha, float u1, float u2) {
 
 // Is there something that casts a shadow along the ray (any hit ends the search)?
 bool pt_blocked(float3 origin, float3 dir, float tmax) {
-    float t;
-    uint record, prim;
-    return rt_closest_hit(origin, dir, 0.0, tmax, kRtMaskCastsShadow, t, record, prim);
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.TMin = 0.0;
+    ray.Direction = dir;
+    ray.TMax = tmax;
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;  // like rt_sun_visibility: the first hit answers
+    q.TraceRayInline(g_tlas, RAY_FLAG_NONE, kRtMaskCastsShadow, ray);
+    while (q.Proceed()) {}
+    return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
 }
 
 // (diffuse + GGX specular) * N.L of the lit pass for light direction `l`: multiply by the light's colour.
@@ -307,7 +313,8 @@ void main(uint3 id : SV_DispatchThreadID) {
         const float dirLength = max(length(dirPerDepth), 1.0e-6);
         const float primaryLimit = pre.a > 0.5 ? (pre.r * 1.02 + 0.05 + slope) * dirLength : kFar;
         float4 c = pt_sample(origin, dirPerDepth / dirLength, primaryLimit, maxBounces, useLights, rng);
-        if (any(isnan(c)) || any(isinf(c))) c = float4(0.0, 0.0, 0.0, 0.0);
+        // A NaN or an infinity never enters the running mean (a bit test, the same as the Metal twin, which cannot rely on isnan under fast-math).
+        if (any((asuint(c) & 0x7F800000u) == 0x7F800000u)) c = float4(0.0, 0.0, 0.0, 0.0);
         const float l = lum(c.rgb);
         if (g_params.user0.x > 0.0 && l > g_params.user0.x) c.rgb *= g_params.user0.x / l;
         sum += c;

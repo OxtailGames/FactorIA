@@ -279,7 +279,9 @@ kernel void rt_pathtrace(instance_acceleration_structure tlas [[buffer(0)]],
         const float dirLength = max(length(dirPerDepth), 1.0e-6);
         const float primaryLimit = pre.a > 0.5 ? (pre.r * 1.02 + 0.05 + slope) * dirLength : kFar;
         float4 c = pt_sample(tlas, records, hit, lights, origin, dirPerDepth / dirLength, primaryLimit, maxBounces, useLights, rng);
-        if (any(isnan(c)) || any(isinf(c))) c = float4(0.0, 0.0, 0.0, 0.0);
+        // A NaN or an infinity never enters the running mean. A bit test, not isnan/isinf: the driver compiles with fast-math, which may assume
+        // neither exists.
+        if (any((as_type<uint4>(c) & 0x7F800000u) == 0x7F800000u)) c = float4(0.0, 0.0, 0.0, 0.0);
         const float l = lum(c.rgb);
         if (params.user0.x > 0.0 && l > params.user0.x) c.rgb *= params.user0.x / l;
         sum += c;

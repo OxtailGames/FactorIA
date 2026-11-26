@@ -459,6 +459,7 @@ void Gpu::shutdown() {
     pacerSrc_ = pacerDst_ = {};
     pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
+    blitKeepOverFailed_ = false;
     for (gpu::Shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_,
                            &blit_shader_, &blitKeepShader_, &blitKeepOverShader_, &meshSkinShader_, &shadowSkinShader_,
                            &meshLodShader_, &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
@@ -870,11 +871,18 @@ gpu::Pipeline Gpu::blit_keep_over_pipeline(const TargetFormat& format) {
     gpu::PipelineDesc d{};
     // The path tracer's image is RGBA32F, which no device filters: the same program, its texture declared unfilterable and its sampler
     // non-filtering (the nearest one the caller binds), made on first use.
+    if (blitKeepOverFailed_) return {};
     if (!blitKeepOverShader_.id) {
         gpu::ShaderDesc sd = gpu::generated_shader_desc(*device_, blit_blit_keep_shader_desc);
         sd.views[VIEW_blit_tex].texture.sampleType = gpu::ImageSampleType::UnfilterableFloat;
         sd.samplers[SMP_blit_smp].samplerType = gpu::SamplerType::Nonfiltering;
         blitKeepOverShader_ = make_shader(*device_, sd, "blit_blit_keep_over");
+    }
+    if (!shader_valid(blitKeepOverShader_)) {
+        blitKeepOverFailed_ = true;
+        FA_ERROR("render", "the shader that draws the path tracer's image over the picture could not be made; the "
+                           "raster picture stays");
+        return {};
     }
     d.shader = blitKeepOverShader_;
     d.layout.attrs[ATTR_blit_blit_keep_pos].format = gpu::VertexFormat::Float2;

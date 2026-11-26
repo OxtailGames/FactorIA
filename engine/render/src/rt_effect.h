@@ -277,6 +277,9 @@ public:
     // Why an effect that was declared did not run when its pass came (the driver refused the pipeline, the prepass changed size...): the first
     // reason of the frames so far that was not cleared by a later run of the same effect, or empty. Each reason is also a warning, once.
     std::string failure() const;
+    // The same, only for the effects named `effect` (the part of the key after the job's name, "pathtrace"): the path tracer's status must not
+    // show the reason another effect failed.
+    std::string failure_of(std::string_view effect) const;
 
     // Tests and the debug output.
     int image_count() const { return int(images_.size()); }

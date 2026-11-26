@@ -1776,7 +1776,7 @@ TEST_CASE(
     CHECK(log.count("cannot trace rays") == 1);
 }
 
-TEST_CASE("rt pathtrace: maxSamples holds the image, and a camera move, a light change or a setting change start it "
+TEST_CASE("rt pathtrace: maxSamples holds the image, and a camera move, a moved mesh or a setting change start it "
           "over with the reason") {
     Rig r;
     path_rays(r, true, 4, 1, 3);

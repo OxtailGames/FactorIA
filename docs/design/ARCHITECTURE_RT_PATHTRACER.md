@@ -85,7 +85,9 @@ One thread per pixel, `m` samples per dispatch, each sample one path of at most 
    is passed through unbent.
 6. **Environment.** A ray that leaves the scene adds the environment gradient (the sky) **plus the ambient light**: the ambient acts as a dome of
    light over the scene, so an interior with no light still gets what the raster's ambient term gives it.
-7. **Firefly clamp.** When `fireflyClamp` is above 0 a sample whose luminance exceeds it is scaled down to it before it joins the mean.
+7. **Firefly clamp and NaN guard.** A sample with a NaN or an infinity in any channel is dropped (zero), tested on the bits (`0x7F800000`
+   exponent), not with `isnan`/`isinf`, which the drivers' fast-math may assume never true. When `fireflyClamp` is above 0 a sample whose
+   luminance exceeds it is scaled down to it before it joins the mean.
 8. **Output.** `rgb` is the running mean: `n0 > 0 ? mix(old, mean, m / (n0 + m)) : mean`, so the image is always the average of the samples so far
    and a dispatch of `m` samples costs the same as `m` dispatches of one. `a` is 1 where the primary ray hit a surface the raster does not hide,
    else 0. Premultiplied: the blit over the main pass needs no divide.
@@ -177,7 +179,7 @@ engine; a float output would need one (a separate package), and a picture that i
 |---|---|
 | `graphics=false` | the setting is remembered; `render.path_tracer` says there is no renderer; `render.pathtrace` fails with `unavailable` |
 | a device without ray queries (D3D11, OpenGL, WebGPU, a Mac without Metal 3 RT) | no pass, the raster picture; the status says why and names `graphics.backend`; `render.pathtrace` fails with the teaching error |
-| the device rejects the kernel or the RGBA32F read and write image | no pass, one `FA_WARN`, the raster picture, `status.failure` |
+| the device rejects the kernel or the RGBA32F read and write image | no pass, one `FA_WARN`, the raster picture, `status.failure` (the reason of `add_pass`, or the failure `RtEffects::failure_of("pathtrace")` holds for this effect only; `render.pathtrace` repeats it) |
 | the scene has no TLAS (empty, or still loading) | the raster picture for that frame, `active` false |
 | a mesh outside the traced scene (terrain, impostors, over `maxInstances`) | the raster draws it; a path traced pixel behind it is dropped by the depth test of step 1 |
 | a camera that is not the main camera, a UI-only job | the raster picture (the path tracer replaces the main camera's lit colour only) |
@@ -209,8 +211,12 @@ HLSL is the source; `tools/shaders/compile_rt_shaders.sh rt_pathtrace` writes `r
 the driver at run time), the DXIL (DXC, `cs_6_5`) and the SPIR-V (DXC `-spirv -fspv-target-env=vulkan1.2`) blobs. The DXC version is the one
 pinned in `setup.h` (1.9.2609). A host without it keeps the blobs that are in the header; the Linux CI regenerates and diffs them, so a kernel
 edit without regenerated blobs fails there (`compile_rt_shaders.sh --check`). The blobs of this version were made with the real DXC on the
-Windows PC; none of the three kernels except Metal has run on a GPU yet (D3D12 and Vulkan run on the CI hosts that have DXR and ray query, WARP
-and llvmpipe do not all have them: those tests skip when the device cannot trace and fail on CI where `FA_D3D12_REQUIRE_RT` is set).
+Windows PC.
+
+**What runs this kernel, and what does not.** Only the Metal kernel has run on a GPU (the tests of `rt_pathtrace_metal_tests.cpp` and the
+`render.pathtrace` test of the runtime, on a Mac). **No D3D12 or Vulkan test runs `rt_pathtrace`**: CI checks the blobs only (that they are DXIL
+and SPIR-V containers, and that `compile_rt_shaders.sh` regenerates the committed header), never that they trace. The HLSL and the MSL are twins
+by construction and by review, not by a comparison of their pictures, so a difference in a D3D12 or Vulkan picture is not caught by any test.
 
 ## Tests
 
@@ -220,7 +226,7 @@ and llvmpipe do not all have them: those tests skip when the device cannot trace
 - on, one compute pass after the TLAS and the prepass, the three constants blocks, the same every frame, the same bytes;
 - turning it off frees the kernel and the image, and the accumulation starts over when it comes back;
 - a device that cannot trace says so once and the frame is what it would be with the setting off;
-- `maxSamples` holds, and a camera move, a light change or a setting change restart with the right reason;
+- `maxSamples` holds, and a camera move, a moved mesh (the scene) or a setting change restart with the right reason;
 - `path_trace_step`: start, hold and each reset reason, in the order of the table;
 - the kernel table row and the binding numbering of every backend;
 - the settings: the pointer of a wrong key, the clamping, the JSON round trip.
@@ -233,5 +239,5 @@ with the 9-point agreement at the triangle edges), and the sky floor of an escap
 (reads, sets, clamps, refuses without changing anything), and `render.pathtrace` (teaches where no device traces; where one does it writes the
 PNG, twice the same bytes, and puts the settings back).
 
-What no test covers here: the D3D12 and Vulkan kernels run (compiled with the real DXC, never executed on a GPU by this package), the numbers on
+What no test covers: the D3D12 and Vulkan kernels run (compiled with the real DXC, never executed on a GPU), the numbers on
 WARP and llvmpipe, and any picture quality measure against the raster (the pictures are compared by eye and by the Metal tests' CPU reference).

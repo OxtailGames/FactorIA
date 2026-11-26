@@ -527,6 +527,16 @@ std::string RtEffects::failure() const {
     return std::string();
 }
 
+std::string RtEffects::failure_of(std::string_view effect) const {
+    const std::string suffix = "/" + std::string(effect);
+    std::lock_guard<std::mutex> lock(failureMutex_);
+    for (const auto& [key, why] : failures_)
+        if (!why.empty() && key.size() >= suffix.size() &&
+            key.compare(key.size() - suffix.size(), suffix.size(), suffix) == 0)
+            return key + ": " + why;
+    return std::string();
+}
+
 void RtEffects::sweep(Gpu& gpu, std::uint64_t serial) {
     if (!gpu.has_device()) return;
     gpu::Device& device = gpu.device();

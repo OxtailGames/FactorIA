@@ -5091,9 +5091,12 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // The path tracer's picture over the opaque one (premultiplied: where its primary rays missed or the raster has something nearer, the
         // raster stays). It has its own occlusion, so the ambient occlusion below is not applied over it; the fog is.
         bool pathTraceDrawn = false;
-        if (ctx.pathTrace.img && ctx.pathTrace.img->ran && ctx.pathTrace.img->texture.id) {
+        const gpu::Pipeline keepOver = ctx.pathTrace.img && ctx.pathTrace.img->ran && ctx.pathTrace.img->texture.id
+                                           ? gpu.blit_keep_over_pipeline(mp.format)
+                                           : gpu::Pipeline{};
+        if (keepOver.id) {
             if (partial) apply_view(cl, camPx);
-            cl.set_pipeline(gpu.blit_keep_over_pipeline(mp.format));
+            cl.set_pipeline(keepOver);
             gpu::Bindings b;
             b.vertexBuffers[0] = gpu.fullscreen_triangle();
             b.views[VIEW_blit_tex] = ctx.pathTrace.img->texture;
@@ -6008,7 +6011,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // image over the opaque picture. A device that refuses the kernel or the image keeps the raster picture, said once.
     ctx.pathTrace.img = nullptr;
     ctx.pathTrace.res = ResourceId{};
-    if (ptSettings.enabled) ptState.status.active = false;
+    if (ptSettings.enabled) {
+        ptState.status.active = false;
+        ptState.status.failure.clear();
+    }
     if (ctx.pathTrace.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
         RtEffectRequest req;
         req.kernel = "rt_pathtrace";
@@ -6052,7 +6058,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (out.valid) {
             ctx.pathTrace.img = out.out;
             ctx.pathTrace.res = out.res;
-        } else if (!rtWarnedPathTrace) {
+        } else {
+            ptState.status.failure = out.why;  // the kernel or the image could not be made: render.pathtrace says why
+        }
+        if (!out.valid && !rtWarnedPathTrace) {
             rtWarnedPathTrace = true;
             FA_WARN("render",
                     "render.pathTracer is on but the path tracer cannot run on this device ({}). The frame is the "
