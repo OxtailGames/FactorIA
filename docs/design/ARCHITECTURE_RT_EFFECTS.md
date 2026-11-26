@@ -113,6 +113,7 @@ the G-buffer. The probe kernel of the tests is not an effect and has no spec.
 | --- | --- | --- | --- |
 | `rt_shadow` | `render.rayTracing.shadows` = hard | prepass | r: linear view depth (1e30 on the sky); g: the sun's visibility (1 lit, 0 shadowed); b: 0; a: 1 on a mesh, 0 on the sky |
 | `rt_reflect` | `render.rayTracing.reflections` | prepass, G-buffer, records, `RtHitParams` | rgb: the radiance of the mirror ray times the tint; a: 0 not traced, > 0 the hit distance in metres, -1 a miss |
+| `rt_ao` | `render.rayTracing.ao` | prepass | r: the share of the pixel's rays that got out (1 open, 0 closed in; 1 on the sky); g, b: 0; a: 1 on a mesh, 0 on the sky |
 
 To add an effect (P2b, P3a, P3b):
 
@@ -167,6 +168,66 @@ A hard shadow needs no denoiser. A later effect that does (the soft shadows, the
 effect's own `user0` and `user1` and the `frame` constants hold what the denoiser needs to be the same every frame (the seed, the serial); the
 unjittered camera fields are what its history reprojects with.
 
+## The second effect: ambient occlusion (M79-P2b)
+
+`render.rayTracing.ao = true` replaces the screen-space occlusion (`renderer_ssao.h`, GTAO) of the camera that owns the scene's meshes (the
+main camera: the one whose items `RtScene::collect` took) with rays. Per frame and per such camera, in this order:
+
+1. `rt-ao` (the kernel `rt_ao`, `<job>/rt-ao`, after `<job>/rt-accel` and the prepass) writes the noisy visibility: for each pixel `frame.z`
+   (`raysPerPixel`, 1 to 16) rays leave the surface in a **cosine-weighted hemisphere** around the prepass's normal, each an inline ray query
+   with `RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH` (an occlusion ray needs a hit, not the nearest one), `TMin = user0.w = 0` and
+   `TMax = user0.x`, the occlusion radius in metres. The result is `open / count` in `r`.
+2. The renderer's denoiser (`RtDenoiser`, `ARCHITECTURE_DENOISE.md`) with `DenoiseKind::Occlusion` and signal id 2 (`kRtAoSignalId`; a camera
+   denoises several signals, an effect that denoises another one takes another id) makes it a clean visibility: temporal accumulation along the
+   camera's reprojection, then the a-trous filter guided by the prepass. The noisy input is the imported RGBA32F image
+   (`DenoiseImage::res` set, `targets` null, `view` = `RtEffectImage::texture`); `RtDenoiser::push_if` adds the read whenever `res` is valid, so
+   the graph orders the temporal pass after the kernel even though the image is not a transient. A denoiser that cannot run (its shaders did not
+   compile, the histories are over the budget) leaves the noisy image to be applied as it is.
+3. The main pass draws `Ssao::draw_apply` after the opaque meshes, as it does for the screen-space occlusion, with the denoised image: the
+   visibility raised to `intensity * 1.5` (a gamma scene gets the 2.2th root) multiplied into the picture with a `DST_COLOR` blend. The
+   pixels drawn after it (glass, sprites, particles, the HUD) are not darkened. **What it darkens is the whole opaque picture at that
+   pixel, as SSAO does today, not only the ambient term**: the lit pass (`light_loop.glsl`) has no separate ambient output to multiply, and
+   reusing the apply keeps the look, the debug view `ao` and the intensity the same. A change to darkening only the ambient and indirect light
+   is a change of the lit pass and belongs with the global illumination package.
+
+**What replaces what.** The radius and the intensity are the stack's `PostProcess.ssaoRadius` and `ssaoIntensity` when the camera has the
+screen-space occlusion on (`ssao_rt_settings`), else the defaults of the component (0.5 m, 1.0); `ssaoQuality` is not read (the ray count is
+`raysPerPixel`). No separate radius key exists so one control gives the same look with or without ray tracing. When `ao` is on and the device
+traces, the `ssao-*` passes are not declared (the apply still draws, with the traced image). When the device cannot trace, `rt_begin_frame`
+says so once and the camera keeps its SSAO if the stack has it, else nothing: `ao` alone does not turn the screen-space effect on. A device
+that traces but refuses the kernel says so once (`rtWarnedAo`) and the SSAO passes are declared as if `ao` were off. The main pass applies the traced image only when
+`RtEffectImage::ran` is true as it draws (the scene had a TLAS that frame), else the picture is not darkened (SSAO is not drawn in its place:
+the graph was built with the other passes).
+
+**Guards of the apply.** The traced image is drawn by the screen-space occlusion's apply, so `Ssao::apply_available` (RGBA16F targets that
+render, blend and filter, and `Gpu::ssao_ready()`) is asked before `rt_ao` is declared. A GPU without them says so once (`rtWarnedAo`) and draws
+neither effect. The radius is clamped to the SSAO's own range (0.001 to 20 m) and the intensity to 0 to 4, and a NaN falls back to the defaults,
+before either reaches the kernel or the power of the apply.
+
+**A frame without the kernel.** The graph is built before it runs, so the denoiser's passes are declared even on a frame where `rt-ao` does not
+dispatch (the scene had no TLAS yet: `RtEffectImage::ran` is false). The denoiser then accumulates what the image holds (the last visibility the
+kernel wrote, or nothing the first time) into its history, and the main pass skips the apply, so the picture is not darkened. The history of
+that frame is not a measurement; the temporal pass's own rejection (disocclusion, camera cut) recovers within a few frames. Gating the
+denoiser by `ran` would need a pass that decides when it executes, which the frame graph does not have.
+
+**What occludes.** Instances with the mask `0x03` (`kRtMaskOpaque | kRtMaskCutout`, `rt_records.h`). Blended surfaces (glass, water) let
+the ambient light through. An **alpha-tested instance occludes as a solid**: the kernel binds no texture and no records, so the ray is
+`RAY_FLAG_FORCE_OPAQUE` (Metal: `forced_opacity::opaque`) and a cutout's whole triangle counts. A leaf card therefore darkens more than its
+leaves would; the any-hit alpha test comes with the packages that read the records.
+
+**The sequence.** `state = pcg(x + pcg(y + pcg(seed)))` with the seed of the frame (`frame.y`, a hash of the frame serial), and each ray takes
+two draws of the state (`u1`, `u2`, 24 bits each); the rays of a pixel are stratified (`u1` of ray `i` of `n` lies in `[i/n, (i+1)/n)`), the
+basis around the normal is Duff's branchless one. The integer sequence is the same in the HLSL and the MSL and is reproduced by the Metal test on
+the CPU, so no clock and no `rand()` are involved, and the next frame's seed gives other noise for the denoiser to average.
+
+**Lifecycle.** `Renderer::Impl::rtDenoiser` is empty until the first AO frame (no shader, no history); `rt_begin_frame` sweeps the signals no
+camera asked for in the frame before (`sweep(postSerial + 1)`), `RtDenoiser::release` runs when ray tracing goes off or at shutdown, and a resize or a
+lost target calls `forget_targets` (`destroy_targets`). The effect image is the scaffold's own (freed two frames after its last use).
+
+**Cost.** One dispatch of `raysPerPixel` rays a pixel, one RGBA32F image of the camera's size (16 bytes a pixel), the denoiser's histories (two
+colour images, two moment images and the camera's guide: `make_denoise_plan`) and its fragment passes (a guide pass, a temporal pass and the a-trous
+iterations, 5 by default); the three passes of the SSAO are not drawn.
+
 ## Determinism
 
 One effect pass depends only on the scene, the camera and the frame serial: the seed is a hash of the serial, nothing reads a clock. The
@@ -192,6 +253,16 @@ shadow boundary; the casters-only mask is checked by moving a non-caster in the 
 It skips, with a reason, on a machine with no GPU, no Metal or no ray tracing. The D3D12 and Vulkan kernels are compiled (DXIL with DXC, SPIR-V) and
 checked for the contract by the tests above; they were not run by this package (no device of those backends was available), so their first run is
 on the Windows and Linux CI machines that trace.
+
+`rt_effect_tests.cpp` also covers `rt_ao` (M79-P2b): the table, the spec and the shader description of the kernel; the frame with `ao` on (one
+`rt-ao` compute pass between the TLAS and the main pass, the denoiser's passes after it, no `ssao-*` pass, the apply still drawn); the same
+recorded frame every frame; nothing when `ao` is off (and the SSAO passes still there); `ao` with the sun's shadow (two compute passes); the
+image, the kernel and the denoiser freed when the effect stops and when ray tracing goes off; a device that cannot trace keeping the SSAO and
+saying so once; a resize making the image again. `rt_ao_metal_tests.cpp` runs the MSL on a real GPU: a ground and a box that occlude, a blended
+box (mask `0x04`: does not occlude) and an alpha-tested one (`0x02`: occludes), a prepass made on the CPU, and a CPU hemisphere ray caster that
+draws the same rays from the same sequence; every pixel must agree within two of the eight rays (all but a few are bit-exact), the visibility at
+the contact edge is lower than far from every box, and two dispatches give the same image while another seed gives another one. D3D12 and Vulkan
+have only been compiled.
 
 ## Hit shading (`rt_hit.hlsli`, `rt_hit.msli`) and the reflections (P3a-1)
 

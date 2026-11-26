@@ -53,6 +53,7 @@
 #include "frame.h"
 #include "mesh_batch.h"
 #include "hiz.h"
+#include "rt_denoise.h"
 #include "rt_effect.h"
 #include "rt_scene.h"
 #include "occlusion.h"
@@ -636,6 +637,12 @@ struct Renderer::Impl {
     RtEffects rtEffects;
     bool rtWarnedEffect = false, rtInformedSoft = false;
     bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
+    // M79-P2b: the denoiser of the ray traced effects (rt_denoise.h), made empty and free until an effect asks (ambient occlusion first), and the
+    // one-time message of the occlusion kernel.
+    RtDenoiser rtDenoiser;
+    bool rtWarnedAo = false;
+    static constexpr std::uint32_t kRtAoSignalId =
+        2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).

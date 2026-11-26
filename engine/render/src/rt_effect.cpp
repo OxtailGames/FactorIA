@@ -11,6 +11,7 @@ namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
     {"rt_shadow", false, false, false},
+    {"rt_ao", false, false, false},
     {"rt_reflect", true, true, true},
 };
 

@@ -107,6 +107,9 @@ struct SsaoSettings {
 SsaoSettings ssao_from_stack(const PostStack& stack);
 // The settings of the debug view ao: the stack's own when it has the effect on, else the defaults of the component; `view` set.
 SsaoSettings ssao_debug_settings(const SsaoSettings& own);
+// The radius and the intensity of the ray traced occlusion (M79-P2b, rt_ao): the stack's own when it has the effect on, else the defaults of the
+// component; always enabled, and `view` is the stack's (the debug view ao shows the ray traced result).
+SsaoSettings ssao_rt_settings(const SsaoSettings& own);
 
 // The stages of the final pass (post.glsl) in the order it runs them, for the cuts a custom pass at a display-referred
 // place makes (post_custom.h, post_slot_is_ldr): the place after stage `i` is PostSlot(int(PostSlot::AfterTonemap) +

@@ -49,7 +49,9 @@ SsaoCamera ssao_camera(const CameraGeometry& cam);
 // graph, which the main pass lists in its reads).
 struct SsaoApply {
     bool valid = false;
-    ResourceId ao;       // the occlusion image (the output of ssao-blur-v)
+    ResourceId ao;  // the occlusion image (the output of ssao-blur-v)
+    gpu::View
+        aoView{};  // set: the occlusion is this persistent view (the ray traced one before its denoiser), not the transient `ao`
     ResourceId prepass;  // the camera's prepass
     float power = 1.0f;  // the visibility is raised to it
     float scale = 1.0f;  // prepass pixels per texel of the occlusion image (1 or 2)
@@ -57,6 +59,12 @@ struct SsaoApply {
     float cam[4]{};      // SsaoCamera and the flip of OpenGL, as shaders/ssao.glsl reads it
     bool view = false;   // the debug view: the occlusion as a grey
 };
+
+// The apply of an occlusion image another effect made (the ray traced one, rt_ao): one texel per prepass pixel, `w` x `h`, the visibility in r.
+// Same power as add_passes makes for `s` (its intensity), so the two draw the same darkening. `ao` is the resource that makes the image
+// (listed in the main pass's reads); `aoView` is set when the image is a persistent view, not the transient `ao`.
+SsaoApply ssao_apply_for_image(const SsaoSettings& s, const SsaoCamera& cam, bool linear, bool gl, ResourceId ao,
+                               gpu::View aoView, ResourceId prepass, int w, int h);
 
 class Ssao {
 public:
@@ -77,6 +85,10 @@ public:
     // the viewport and the scissor to the camera's rectangle), reading the occlusion image `ao` and the prepass `pre`.
     static void draw_apply(gpu::CommandList& list, Gpu& gpu, const SsaoApply& apply, gpu::View ao, gpu::View pre,
                            const TargetFormat& format);
+
+    // Whether the apply can be drawn on this GPU: RGBA16F targets that blend and filter, and the occlusion's shaders compiled. add_passes
+    // needs the same; the ray traced occlusion (rt_ao) asks before it replaces the screen-space one, so a GPU without them draws neither.
+    static bool apply_available(Gpu& gpu);
 
     // Forgets the shapes whose targets could not be made (the game target was resized or recreated).
     void release() {
