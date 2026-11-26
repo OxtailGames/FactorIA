@@ -68,8 +68,8 @@ static_assert(sizeof(kRtEffectParamNames) / sizeof(kRtEffectParamNames[0]) == 25
 // `// END RtHitParams`): 6 float4, 96 bytes, set at uniform slot RtEffectBindings::kUniformHit by a request that carries it (RtEffectRequest::hit).
 struct RtHitParams {
     float sunDir[4];  // xyz: the unit vector from a surface toward the sun; w: 0
-    float sunColor
-        [4];  // xyz: the sun's radiance (colour * intensity, in the scene's colour space; 0 = no sun that lights); w: 0
+    float
+        sunColor[4];   // xyz: the sun's radiance (colour * intensity, scene colour space; 0 = no sun that lights); w: 0
     float ambient[4];  // xyz: SceneSettings.ambientLight (the scene's colour space); w: 0
     float sky[4];  // xyz: SceneSettings.skyColor; w: 1 when the scene's environment is a texture the kernel cannot read
     float horizon[4];  // xyz: SceneSettings.horizonColor; w: 0
