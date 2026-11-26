@@ -253,6 +253,12 @@ struct GiSystem {
     std::map<std::uint64_t, std::uint64_t> rtPrevSerial;  // by grid: its `serial` before this frame's picks
     std::string
         rtReason;  // why the ray traced mode did not update the grids this frame (empty: it did, or it is not wanted)
+    int rtMisses = 0;  // consecutive frames whose planned pass did not run
+    std::uint64_t rtFallbackUntil =
+        0;  // the raster captures run while `frame` is below this (the rays failed); then the rays are tried once
+    std::string rtFallbackReason;  // why (what `render.ray_tracing` says while the fallback lasts)
+    std::size_t rtStart =
+        0;  // the grid the next frame's budget starts with (rotates, so no grid starves behind the others)
     bool rtWanted = false;         // this frame: render.rayTracing.gi is "probes" and a grid exists
     int rtBudget = 0;              // this frame: the probes the grids may have updated, all together
     std::uint64_t rtTotal = 0;     // probes updated by rays since the grids began

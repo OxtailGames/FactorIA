@@ -86,10 +86,12 @@ void RtGiProbes::note_failure(const std::string& why) {
         warned_ = true;
     }
     if (say)
-        FA_WARN("render",
-                "The realtime GI probes could not be updated with rays: {}. The raster captures update the grids instead. Hint: "
-                "`factoria call render.ray_tracing` shows the reason; set render.rayTracing.gi to \"off\" to silence this.",
-                why);
+        FA_WARN(
+            "render",
+            "The realtime GI probes could not be updated with rays: {}. The raster captures update the grids instead "
+            "for a while, then the rays are tried again. Hint: "
+            "`factoria call render.ray_tracing` shows the reason; set render.rayTracing.gi to \"off\" to silence this.",
+            why);
 }
 
 std::string RtGiProbes::failure() const {
@@ -102,7 +104,8 @@ bool RtGiProbes::add_pass(FrameGraph& graph, Gpu& gpu, const RtGiRequest& req, s
         if (why) *why = reason;
         return false;
     };
-    if (!req.scene || !req.atlas.id || req.dispatches.empty()) return refuse("the request of the GI probes is incomplete");
+    if (!req.scene || !req.atlas.id || req.dispatches.empty())
+        return refuse("the request of the GI probes is incomplete");
     if (!gpu.has_device()) return refuse("there is no graphics device");
     gpu::Device& device = gpu.device();
     if (state_ == 0) {
@@ -174,7 +177,8 @@ bool RtGiProbes::add_pass(FrameGraph& graph, Gpu& gpu, const RtGiRequest& req, s
 
     GraphPass pass;
     pass.name = req.pass;
-    pass.sideEffect = true;  // it writes the band image the renderer blends into the atlas after the graph: nothing in the graph reads it
+    pass.sideEffect =
+        true;  // it writes the band image the renderer blends into the atlas after the graph: nothing in the graph reads it
     if (!req.after.empty()) pass.after.push_back(req.after);
     const bool needsSampler = rt_effect_needs_sampler(device.backend());
     RtScene* scene = req.scene;
@@ -215,7 +219,8 @@ bool RtGiProbes::add_pass(FrameGraph& graph, Gpu& gpu, const RtGiRequest& req, s
         for (const RtGiDispatch& d : dispatches) {
             list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&d.params, sizeof d.params});
             list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&hit, sizeof hit});
-            list->dispatch(std::uint32_t(std::clamp<std::uint32_t>(d.params.frame[3], 1u, std::uint32_t(kRtGiMaxJobs))), 1, 1);
+            list->dispatch(std::uint32_t(std::clamp<std::uint32_t>(d.params.frame[3], 1u, std::uint32_t(kRtGiMaxJobs))),
+                           1, 1);
         }
         list->end_pass();
         if (drawCalls) *drawCalls += int(dispatches.size());

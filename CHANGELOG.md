@@ -16,7 +16,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   nothing changes and nothing is spent: the raster captures update the grids and `render.ray_tracing` (`giProbes {active, reason, grids,
   probesPerFrame, budget}`) and `render.gi_grid` (`updatedBy`, `rtUpdatesLastFrame`) say why. `gi = "perPixel"` still draws nothing. The Metal
   kernel is tested on a real GPU against a CPU ray caster; D3D12 and Vulkan have compiled the HLSL with DXC and run it nowhere yet, and the sense
-  of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only. The hit include gained the front-face flag
+  of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
   (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
   docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
 - **Ray traced shadows of point, spot and area lights (M79-P2a-3):** with `render.rayTracing.shadows` on, up to three shadow-casting lights per

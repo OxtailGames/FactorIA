@@ -8,6 +8,7 @@
 #define FA_RT_HIT_MSLI
 
 // RtInstanceRecord::flags and the instance masks (rt_records.hlsli).
+constant uint kRtFlagTwoSided = 1u << 2;
 constant uint kRtFlagUnlit = 1u << 4;
 constant uint kRtFlagRefractive = 1u << 9;
 constant uint kRtMaskSurfaces = 0x07;

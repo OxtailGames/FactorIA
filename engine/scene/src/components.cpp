@@ -2696,12 +2696,13 @@ void register_builtin_components(TypeRegistry& r) {
                "(render.rayTracing.gi \"probes\", needs a GPU with ray tracing; the raster captures ignore this). The "
                "rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up "
                "to more directions over time; more rays make a smoother probe per update and cost proportionally more. "
-               "Default 64.")
+               "A value outside is clamped. Default 64.")
         .range(16, 256)
         .field("rtProbesPerFrame", &RealtimeGI::rtProbesPerFrame,
                "1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago "
                "updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids "
-               "together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. Default 16.")
+               "together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is "
+               "clamped. Default 16.")
         .range(1, 64)
         .field("showTags", &RealtimeGI::showTags,
                "Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not "

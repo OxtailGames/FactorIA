@@ -32,7 +32,7 @@ struct RtGiParams {
     float4 grid2;  // x: the grid's first block; y: the blocks per band row (102); z: maxDistance; w: intensity
     float4 grid3;  // x: bounce; y: backfaceTolerance (unused here); z: 1 when the atlas holds the values to bounce from; w: nearExclusion
     uint4 frame;   // x: the gi frame; y: the seed of the frame; z: rays per probe; w: probes in this dispatch
-    float4 flags;  // x: +1 when the hardware's front face is the mesh's front face, -1 when it is the back face; yzw: 0
+    float4 flags;  // x: +1 when the hardware's front face is the mesh's front face, -1 when it is the back face, 0 when unknown (no back faces counted); yzw: 0
     float4 probe[64];  // per probe: x: its index in the grid; y: the blend weight (1 = replaces the block); z, w: its block's texel in the band image
 };
 // END RtGiParams
@@ -237,7 +237,10 @@ void main(uint3 group : SV_GroupID, uint t : SV_GroupIndex) {
                 if (!s.unlit) color = max(color + diffuse * cover * (light * gain - g_hit.ambient.xyz), 0.0);
             }
             dist = saturate(s.t / maxDistance);
-            back = (s.front == (g_params.flags.x > 0.0)) ? 0.0 : 1.0;
+            // flags.x == 0: the sense of the front flag is not measured on this backend, nothing counts as a back face. A two-sided
+            // instance (a leaf, a curtain) has no back face a probe could be inside of.
+            if (g_params.flags.x != 0.0 && (g_records[s.record].flags & kRtFlagTwoSided) == 0u)
+                back = (s.front == (g_params.flags.x > 0.0)) ? 0.0 : 1.0;
         } else {
             color = rt_miss_color(dir);
         }

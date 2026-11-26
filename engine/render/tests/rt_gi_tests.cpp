@@ -84,7 +84,8 @@ TEST_CASE("rt gi: RtGiParams is the same struct in C++, HLSL and MSL") {
     CHECK(render::kRtGiMaxJobs == render::kGiRtMaxFrameProbes);
 }
 
-TEST_CASE("rt gi: the kernel table has rt_gi, a spec that asks for the records, and the binding contract of every backend") {
+TEST_CASE(
+    "rt gi: the kernel table has rt_gi, a spec that asks for the records, and the binding contract of every backend") {
     const rt_kernels::RtKernel* k = rt_kernels::find_rt_kernel("rt_gi");
     REQUIRE(k != nullptr);
     const render::RtEffectKernelSpec* spec = render::find_rt_effect_spec("rt_gi");
@@ -281,7 +282,8 @@ int index_of(const std::vector<std::string>& lines, const std::string& needle) {
 
 }  // namespace
 
-TEST_CASE("rt gi: with gi off nothing is declared, made or kept, the grids are captured by the raster and ray tracing on") {
+TEST_CASE(
+    "rt gi: with gi off nothing is declared, made or kept, the grids are captured by the raster and ray tracing on") {
     Rig r;
     r.gi(render::RtGi::Off);
     World w;
@@ -299,7 +301,8 @@ TEST_CASE("rt gi: with gi off nothing is declared, made or kept, the grids are c
     CHECK(st.probesPerFrame == 0);
 }
 
-TEST_CASE("rt gi: gi probes declare one compute pass after the TLAS and blend the probes' blocks into the atlas, up to the budget") {
+TEST_CASE("rt gi: gi probes declare one compute pass after the TLAS and blend the probes' blocks into the atlas, up to "
+          "the budget") {
     Rig r;
     r.gi(render::RtGi::Probes);
     World w;
@@ -354,7 +357,7 @@ TEST_CASE("rt gi: gi probes declare one compute pass after the TLAS and blend th
     (void)game;
 }
 
-TEST_CASE("rt gi: a bigger budget updates more probes a frame, never more than 64, and the grids share it") {
+TEST_CASE("rt gi: a bigger budget updates more probes a frame, never more than 64") {
     Rig r;
     r.gi(render::RtGi::Probes);
     World w;
@@ -375,6 +378,103 @@ TEST_CASE("rt gi: a bigger budget updates more probes a frame, never more than 6
     st = r2.renderer.ray_tracing_gi_status();
     CHECK(st.probesPerFrame == 3);
     CHECK(st.budget == 3);
+}
+
+namespace {
+// Adds `count` grids of 9 probes each, 30 m apart, each asking for `perFrame` probes a frame.
+void add_grids(World& w, int count, int perFrame) {
+    for (int i = 0; i < count; ++i) {
+        Entity g = make(w, ("grid" + std::to_string(i)).c_str(), {30.0f * float(i), 2, 0});
+        auto& gi = w.add<RealtimeGI>(g);
+        gi.size = {8, 0, 8};
+        gi.spacing = 4.0f;
+        gi.rtProbesPerFrame = perFrame;
+        gi.raysPerProbe = 32;
+    }
+}
+}  // namespace
+
+TEST_CASE("rt gi: the grids share the 64 probes of a frame, and none starves behind the others") {
+    Rig r;
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 4, false);
+    add_grids(w, 8, 9);  // 72 probes asked for, 64 a frame (8 is the most grids a scene has)
+    int most = 0;
+    for (int i = 0; i < 12; ++i) {
+        r.frame(w);
+        most = std::max(most, r.renderer.ray_tracing_gi_status().probesPerFrame);
+    }
+    CHECK(most <= 64);
+    CHECK(most >= 55);
+    const render::RtGiStatus st = r.renderer.ray_tracing_gi_status();
+    CHECK(st.budget == 64);
+    const Json report = r.renderer.gi_report();
+    INFO(report.dump());
+    REQUIRE(report["grids"].size() == 8);
+    // Every grid got its probes: the grids at the end of the order are not left without any.
+    for (std::size_t i = 0; i < report["grids"].size(); ++i) {
+        CAPTURE(i);
+        CHECK(report["grids"][i]["captured"].get<int>() == 9);
+        CHECK(report["grids"][i]["rtUpdatesLastFrame"].get<int>() >= 0);
+    }
+    CHECK(report["rtUpdates"].get<double>() >= 72.0);
+}
+
+TEST_CASE("rt gi: a pipeline the driver refuses hands the grids to the raster captures, with the reason, and tries "
+          "again later") {
+    Rig r;
+    r.dev->inject_faults(true, false);
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 4);
+    for (int i = 0; i < 8; ++i) r.frame(w);
+    render::RtGiStatus st = r.renderer.ray_tracing_gi_status();
+    CHECK(st.wanted);
+    CHECK_FALSE(st.active);
+    INFO(st.reason);
+    CHECK(st.reason.find("pipeline") != std::string::npos);
+    CHECK(st.reason.find("no probe needed") == std::string::npos);
+    // The raster captures filled the grid.
+    Json report = r.renderer.gi_report();
+    INFO(report.dump());
+    const Json* grid = grid_json(report, "gi");
+    REQUIRE(grid != nullptr);
+    CHECK((*grid)["captured"].get<int>() == 9);
+    CHECK((*grid)["updatedBy"].get<std::string>() == "captures");
+    CHECK(report["rtUpdates"].get<double>() == 0.0);
+}
+
+TEST_CASE("rt gi: a traced scene that never builds hands the grids to the raster captures after a few frames, and the "
+          "rays come back when it does") {
+    Rig r;
+    r.dev->inject_faults(false, true);
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 4);
+    for (int i = 0; i < 8; ++i) r.frame(w);
+    render::RtGiStatus st = r.renderer.ray_tracing_gi_status();
+    CHECK_FALSE(st.active);
+    INFO(st.reason);
+    CHECK_FALSE(st.reason.empty());
+    CHECK(st.reason.find("raster") != std::string::npos);
+    Json report = r.renderer.gi_report();
+    INFO(report.dump());
+    const Json* grid = grid_json(report, "gi");
+    REQUIRE(grid != nullptr);
+    CHECK((*grid)["captured"].get<int>() == 9);
+    CHECK((*grid)["updatedBy"].get<std::string>() == "captures");
+    // The device recovers: after the retry delay the rays update the grid again.
+    r.dev->inject_faults(false, false);
+    int firstActive = -1;
+    for (int i = 0; i < 3 * render::kGiRtRetryFrames / 2 + 4; ++i) {
+        r.frame(w);
+        if (firstActive < 0 && r.renderer.ray_tracing_gi_status().active) firstActive = i;
+    }
+    MESSAGE("first active frame after the recovery: " << firstActive << "; errors: " << r.errors().substr(0, 300));
+    st = r.renderer.ray_tracing_gi_status();
+    INFO(st.reason);
+    CHECK(st.active);
 }
 
 TEST_CASE("rt gi: the recorded frame is the same every run (the seed is the frame's, no clock, no random number)") {
@@ -421,7 +521,8 @@ TEST_CASE("rt gi: a device that cannot trace keeps the raster captures and says 
     CHECK((*grid)["updatedBy"].get<std::string>() == "captures");
 }
 
-TEST_CASE("rt gi: turning the setting off frees the band image and the kernel, and a scene without a grid asks for nothing") {
+TEST_CASE(
+    "rt gi: turning the setting off frees the band image and the kernel, and a scene without a grid asks for nothing") {
     Rig r;
     r.gi(render::RtGi::Probes);
     World w;
@@ -448,4 +549,23 @@ TEST_CASE("rt gi: turning the setting off frees the band image and the kernel, a
     CHECK_FALSE(st.active);
     CHECK(st.reason.find("RealtimeGI") != std::string::npos);
     CHECK(RendererTestAccess::rt_gi(r.renderer)->empty());
+}
+
+TEST_CASE("rt gi: raysPerProbe and rtProbesPerFrame outside their ranges are clamped, they never invalidate a grid the "
+          "raster captures draw") {
+    RealtimeGI c;
+    c.size = {8, 0, 8};
+    c.spacing = 4.0f;
+    c.raysPerProbe = 4;
+    c.rtProbesPerFrame = 500;
+    const Result<render::GiLayout> low = render::gi_layout(c, {0, 0, 0}, "gi");
+    REQUIRE_MESSAGE(low.ok(), (low.ok() ? "" : low.error().message));
+    CHECK(low.value().raysPerProbe == render::kGiRtMinRays);
+    CHECK(low.value().rtProbesPerFrame == render::kGiRtMaxFrameProbes);
+    c.raysPerProbe = 5000;
+    c.rtProbesPerFrame = -3;
+    const Result<render::GiLayout> high = render::gi_layout(c, {0, 0, 0}, "gi");
+    REQUIRE_MESSAGE(high.ok(), (high.ok() ? "" : high.error().message));
+    CHECK(high.value().raysPerProbe == render::kGiRtMaxRays);
+    CHECK(high.value().rtProbesPerFrame == render::kGiRtMinProbesPerFrame);
 }

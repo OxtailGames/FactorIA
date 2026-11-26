@@ -34,28 +34,38 @@ inline constexpr int kGiRtMaxFrameProbes = kRtGiMaxJobs;
 inline constexpr int kGiRtDefaultRays = 64, kGiRtMinRays = 16, kGiRtMaxRays = 256;
 // RealtimeGI.rtProbesPerFrame: the probes of the grid updated in a frame by rays.
 inline constexpr int kGiRtDefaultProbesPerFrame = 16, kGiRtMinProbesPerFrame = 1;
+// The fallback to the raster captures: a planned pass that did not run (no traced scene yet, a refused pipeline) for kGiRtMissFrames frames in a
+// row, or one that says why it cannot run (RtGiProbes::failure), makes the renderer capture by raster for kGiRtRetryFrames frames, then try the
+// rays again once. Frame counts, never a time, so the result does not depend on the speed of the machine.
+inline constexpr int kGiRtMissFrames = 2, kGiRtRetryFrames = 120;
 
 // The constants block of the kernel at uniform slot RtEffectBindings::kUniformParams: 70 float4, 1120 bytes, the same struct as rt_gi.hlsl and
 // rt_gi.metal between the lines `// BEGIN RtGiParams` and `// END RtGiParams` (a test compares the field names with these).
 struct RtGiParams {
     float grid0[4];  // xyz: the origin of probe (0, 0, 0); w: the spacing
     float grid1[4];  // x, y, z: the probe counts per axis; w: their product
-    float grid2[4];  // x: the grid's first block; y: the blocks per band row (kGiBlocksPerRow); z: maxDistance; w: intensity
-    float grid3[4];  // x: bounce; y: backfaceTolerance; z: 1 when the kernel adds the grid's own light at a hit; w: the rays' start (nearPlane)
-    std::uint32_t frame[4];  // x: the gi frame; y: the seed of the frame; z: rays per probe; w: probes in this dispatch (<= kRtGiMaxJobs)
-    float flags[4];  // x: +1 when the hardware's front face is the mesh's front face, -1 when it is the back face; yzw: 0
+    float grid2
+        [4];  // x: the grid's first block; y: the blocks per band row (kGiBlocksPerRow); z: maxDistance; w: intensity
+    float grid3
+        [4];  // x: bounce; y: backfaceTolerance; z: 1 when the kernel adds the grid's own light at a hit; w: the rays' start (nearPlane)
+    std::uint32_t frame
+        [4];  // x: the gi frame; y: the seed of the frame; z: rays per probe; w: probes in this dispatch (<= kRtGiMaxJobs)
+    float
+        flags[4];  // x: +1 when the hardware's front face is the mesh's front face, -1 when it is the back face; yzw: 0
     // per probe: x: its index in the grid; y: the blend weight (1 replaces the block); z, w: the block's first texel in the band image
     float probe[kRtGiMaxJobs][4];
 };
-static_assert(sizeof(RtGiParams) == (6 + kRtGiMaxJobs) * 16, "RtGiParams is 70 float4 (the HLSL and MSL structs say the same)");
+static_assert(sizeof(RtGiParams) == (6 + kRtGiMaxJobs) * 16,
+              "RtGiParams is 70 float4 (the HLSL and MSL structs say the same)");
 inline constexpr std::string_view kRtGiParamNames[] = {"grid0", "grid1", "grid2", "grid3", "frame", "flags", "probe"};
 
 // What the kernel's `flags.x` holds: +1 when the hardware's front-face flag of a hit is set for a triangle that faces the ray's origin with
-// the mesh's own (counter-clockwise) winding, -1 when it is the other way round. MEASURED on Metal (rt_gi_metal_tests.cpp: a probe in the
-// open reads no back faces, one inside a box reads them) where the flag is set for the counter-clockwise side: +1. D3D12 and Vulkan are
-// NOT measured here: their documented default is "clockwise as seen from the ray origin", so -1. A wrong sign only counts the front faces
-// as back faces (the probe's backFrac, which the lit shader uses to discard probes inside walls), it cannot crash.
-inline constexpr float rt_gi_front_sense(gpu::Backend backend) { return backend == gpu::Backend::Metal ? 1.0f : -1.0f; }
+// the mesh's own (counter-clockwise) winding, -1 when it is the other way round, 0 when the sense is not known. MEASURED on Metal
+// (rt_gi_metal_tests.cpp: a probe in the open reads no back faces, one inside a box reads them) where the flag is set for the
+// counter-clockwise side: +1. D3D12 and Vulkan are NOT measured (rt_gi_d3d12_tests.cpp / rt_gi_vulkan_tests.cpp print the sign a machine with ray
+// tracing gives, and check it once a value is set here): they return 0 and the kernel counts no back faces, so the probes inside walls are not
+// discarded (a light leak) instead of every probe going black when the guess is wrong.
+inline constexpr float rt_gi_front_sense(gpu::Backend backend) { return backend == gpu::Backend::Metal ? 1.0f : 0.0f; }
 
 // ---- the kernel's ray set, on the CPU (the tests trace the same rays; the arithmetic is the kernel's, up to the GPU's sin, cos and pow) ----------
 std::uint32_t rt_gi_pcg(std::uint32_t v);
@@ -75,9 +85,9 @@ struct RtGiDispatch {
 
 // What one frame asks the kernel to do.
 struct RtGiRequest {
-    std::string pass;  // the pass's name (`gi-probes`)
-    std::string after;       // the pass that builds the TLAS (`<job>/rt-accel`)
-    gpu::View atlas{};       // the probe atlas, as a texture the kernel reads (the multi-bounce)
+    std::string pass;   // the pass's name (`gi-probes`)
+    std::string after;  // the pass that builds the TLAS (`<job>/rt-accel`)
+    gpu::View atlas{};  // the probe atlas, as a texture the kernel reads (the multi-bounce)
     std::vector<RtGiDispatch> dispatches;
     RtHitParams hit{};
     RtScene* scene = nullptr;
@@ -90,7 +100,8 @@ struct RtGiImage {
     gpu::Image image{};
     gpu::View storage{};  // what the kernel writes through
     gpu::View texture{};  // what the blit into the atlas samples
-    bool ran = false;     // the pass ran this frame (it does not when the scene has no TLAS yet or the driver refused the pipeline)
+    bool ran =
+        false;  // the pass ran this frame (it does not when the scene has no TLAS yet or the driver refused the pipeline)
     std::uint64_t lastUsed = 0;
 };
 

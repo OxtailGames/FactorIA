@@ -291,8 +291,8 @@ six scene renders.
 - **What the rays see.** The traced scene of "Which objects are traced" (so no terrain, and a material's own shader is not evaluated); the
   meshes the main camera does not draw this frame are not in it.
 - **Where it runs.** The Metal kernel is tested on a real GPU against a CPU ray caster; the D3D12 and Vulkan kernels are the same HLSL compiled
-  by DXC and have not run on a device yet, and neither has their rule for which side of a triangle is its front (it only affects how many probes
-  inside walls are discarded). docs/design/ARCHITECTURE_RT_GI.md (repository only) has the details.
+  by DXC and have not run on a device yet, and neither has their rule for which side of a triangle is its front (until it is measured they
+  discard no probe inside a wall, which can leak light). docs/design/ARCHITECTURE_RT_GI.md (repository only) has the details.
 
 ## Where it will run
 

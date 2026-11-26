@@ -8,6 +8,7 @@
 // own thread (the D3D12/Vulkan model); each list's stream joins the device stream at submit(), in submit order.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
@@ -277,6 +278,13 @@ public:
     bool poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) override { return false; }
     void release_buffer_read(ReadTicket) override {}
 
+    // Test hooks (fault injection): while set, make_pipeline of a compute pipeline fails (the pipeline is Failed and errors() says so) and
+    // build_tlas is refused. A real driver does both on a device that lies about its features or runs out of memory.
+    void inject_faults(bool rejectComputePipelines, bool rejectTlasBuilds) {
+        rejectCompute_ = rejectComputePipelines;
+        rejectTlas_ = rejectTlasBuilds;
+    }
+
     struct State;  // the resource pools and the facts the checks need (recording_device.cpp)
 
 private:
@@ -307,6 +315,7 @@ private:
     Limits limits_{};
     EnvironmentDefaults defaults_{};
     std::unique_ptr<State> state_;
+    std::atomic<bool> rejectCompute_{false}, rejectTlas_{false};  // inject_faults
     mutable std::mutex mutex_;  // guards state_, the lists, the stream and the errors (lists record on any thread)
     std::vector<std::unique_ptr<RecordingCommandList>> lists_;
 };

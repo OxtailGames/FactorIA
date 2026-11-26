@@ -725,7 +725,9 @@ Pipeline RecordingDevice::make_pipeline(const PipelineDesc& d) {
     info.shader = d.shader.id;
     std::string what;
     const auto* shd = s.shaders.live(d.shader.id);
-    if (!shd || shd->state != ResourceState::Valid) {
+    if (d.compute && rejectCompute_) {
+        add(what, "a test made the device refuse compute pipelines (inject_faults)");
+    } else if (!shd || shd->state != ResourceState::Valid) {
         add(what, "its shader is " + s.shaders.describe(d.shader.id) + (shd ? " (Failed)" : ""));
     } else {
         info.shaderLabel = shd->label;
@@ -2442,6 +2444,9 @@ Result<void> RecordingCommandList::build_tlas(const TlasBuild& b) {
     if (queue_ == QueueKind::Transfer)
         return reject(cmd, "called on a Transfer list, which takes copies, writes and markers only",
                       "record builds on a Graphics or Compute list");
+    if (device_.rejectTlas_)
+        return reject(cmd, "a test made the device refuse top level builds (inject_faults)",
+                      "none: a test injected it");
     std::string what;
     const auto* dst = s.accels.live(b.dst.id);
     if (!dst || dst->state != ResourceState::Valid)

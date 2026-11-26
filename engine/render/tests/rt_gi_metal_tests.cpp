@@ -36,7 +36,6 @@ using namespace fa::gpu;
 
 namespace {
 
-
 struct Tri {
     Vec3 a, b, c;
     std::uint8_t mask = 0xFF;
@@ -264,7 +263,6 @@ struct Rig {
     }
 };
 
-
 float sh_basis(int k, Vec3 d) {
     switch (k) {
         case 0: return 0.282094792f;
@@ -312,12 +310,15 @@ constexpr float kMaxDistance = 20.0f;
 
 struct Band {
     std::vector<float> px;  // RGBA, kProbeAtlasSize x fa::render::kGiBandHeight
-    const float* at(int x, int y) const { return &px[(std::size_t(y) * fa::render::kProbeAtlasSize + std::size_t(x)) * 4]; }
+    const float* at(int x, int y) const {
+        return &px[(std::size_t(y) * fa::render::kProbeAtlasSize + std::size_t(x)) * 4];
+    }
 };
 
 }  // namespace
 
-TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a CPU ray caster computes over the same rays") {
+TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a CPU ray caster computes over the same "
+          "rays") {
     Rig rig;
     std::string skip;
     if (!rig.open(skip)) {
@@ -343,7 +344,8 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
     for (std::size_t pi = 0; pi < places.size(); ++pi) {
         const Place& p = places[pi];
         for (std::size_t i = 0; i + 2 < p.mesh->indices.size(); i += 3)
-            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at, p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
+            tris.push_back({p.mesh->vertices[p.mesh->indices[i]] + p.at,
+                            p.mesh->vertices[p.mesh->indices[i + 1]] + p.at,
                             p.mesh->vertices[p.mesh->indices[i + 2]] + p.at, kMask, int(pi)});
     }
 
@@ -555,7 +557,8 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
             const bool facesRay = dot(nn, d) < 0.0f;  // the mesh's front face (counter-clockwise) turned to the ray
             if (!facesRay) nn = nn * -1.0f;
             const Vec3 p = pos + d * n.t;
-            radiance[std::size_t(r)] = shade_hit(sc, tris, places[std::size_t(t.instance)].material, p, nn, d * -1.0f, n.t);
+            radiance[std::size_t(r)] =
+                shade_hit(sc, tris, places[std::size_t(t.instance)].material, p, nn, d * -1.0f, n.t);
             dist[std::size_t(r)] = std::min(n.t / kMaxDistance, 1.0f);
             back[std::size_t(r)] = facesRay ? 0.0f : 1.0f;
         }
@@ -569,7 +572,8 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
             CAPTURE(k);
             for (int c = 0; c < 3; ++c) {
                 CAPTURE(c);
-                CHECK(std::fabs(g[c] - comp(sum, c)) <= 0.06f + 0.05f * std::fabs(comp(sum, c)));  // an edge ray may differ
+                CHECK(std::fabs(g[c] - comp(sum, c)) <=
+                      0.06f + 0.05f * std::fabs(comp(sum, c)));  // an edge ray may differ
             }
             CHECK(g[3] == doctest::Approx(params.probe[j][1]).epsilon(0.002));
         }
@@ -581,7 +585,9 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
         CHECK(meta[1] == doctest::Approx(1.0f));
         CHECK(meta[3] == doctest::Approx(params.probe[j][1]).epsilon(0.002));
         MESSAGE("probe " << j << ": back-face fraction " << meta[0] << " (CPU " << backSum / float(kRays) << ")");
-        if (j == 1) CHECK(meta[0] > 0.9f);  // inside the box every ray sees the back of a wall: rt_gi_front_sense(Metal) is right
+        if (j == 1)
+            CHECK(meta[0] >
+                  0.9f);  // inside the box every ray sees the back of a wall: rt_gi_front_sense(Metal) is right
         if (j == 0) CHECK(meta[0] < 0.1f);
         // The depth map: the Chebyshev moments of the hit distances, weighted by a lobe around each texel's direction.
         const float lobe = 4.0f + float(kRays) / 16.0f;
@@ -624,6 +630,8 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
 
 #else
 
-TEST_CASE("rt gi on Metal: skipped off Apple platforms") { MESSAGE("this test runs on a Mac with a GPU that traces rays"); }
+TEST_CASE("rt gi on Metal: skipped off Apple platforms") {
+    MESSAGE("this test runs on a Mac with a GPU that traces rays");
+}
 
 #endif
