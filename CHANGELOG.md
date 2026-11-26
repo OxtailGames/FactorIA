@@ -32,6 +32,15 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   reports `active: true` with the shadows on a device that traces, and its reason says so. The DXIL and SPIR-V blobs are built, the Metal
   kernel is tested against a CPU ray caster on a real GPU; the D3D12 and Vulkan kernels have run nowhere yet. docs/RAY_TRACING.md,
   docs/design/ARCHITECTURE_RT_EFFECTS.md.
+- **Ray traced sharp reflections (M79-P3a-1):** `render.rayTracing.reflections: true` traces one mirror ray per pixel for the surfaces
+  smoother than roughness 0.25 (a compute pass after the TLAS, the prepass and the thin G-buffer), shades what the ray hits (the sun with a
+  shadow ray, the ambient light, the environment gradient, the emission, from the instance's constants: no textures, a faceted normal) and
+  blends it into the lit picture where the screen-space reflections feed it, with the same Fresnel weight; rougher pixels, the sky and a
+  device that cannot trace keep the screen-space reflections and the probes (a frame with no G-buffer says so once). The kernel also writes the
+  hit distance, the denoiser's hook. The shading is one include, `engine/render/shaders/rt/rt_hit.hlsli` (Metal twin `rt_hit.msli`), that the
+  later ray traced effects reuse; `render.ray_tracing` reports `active` with `reflections` on. On Metal the records buffer of the effect
+  kernels is `buffer(8)` (Sokol's storage buffer range), not `buffer(2)`. Metal runs the kernel against a CPU reference in the tests;
+  the D3D12 and Vulkan kernels are built but have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray tracing, the shared interface (M79):** `fa::gpu` gains acceleration structures for inline ray queries in compute passes
   (decision: no ray tracing pipelines): `Device::blas_sizes`, `tlas_sizes`, `make_accel_structure`, and `CommandList::build_blas`,
   `build_tlas`, `query_compacted_size`, `copy_accel_structure`. A device that cannot trace rays (OpenGL, GLES3, WebGL2, Direct3D 11, or a

@@ -636,6 +636,7 @@ struct Renderer::Impl {
     // shadows, which are the hard ones for now).
     RtEffects rtEffects;
     bool rtWarnedEffect = false, rtInformedSoft = false;
+    bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
     // M79-P2b: the denoiser of the ray traced effects (rt_denoise.h), made empty and free until an effect asks (ambient occlusion first), and the
     // one-time message of the occlusion kernel.
     RtDenoiser rtDenoiser;

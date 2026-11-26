@@ -2185,11 +2185,12 @@ Json Engine::ray_tracing_status() {
         }
     }
     j["supported"] = supported;
-    // Only the sun's shadows draw with rays so far (M79-P2a-1): an effect that is on, on a device that traces, is active. Whether this
-    // frame has a sun that casts a shadow is the scene's business, and the reason says so.
+    // The sun's shadows, the ambient occlusion and the sharp reflections draw with rays so far (M79-P2a-1, P2b, P3a-1): an effect that is on,
+    // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
     const bool shadowsOn = impl_->rayTracing.shadows != render::RtShadows::Off;
     const bool aoOn = impl_->rayTracing.ao;
-    const bool active = impl_->rayTracing.enabled && supported && (shadowsOn || aoOn);
+    const bool reflectionsOn = impl_->rayTracing.reflections;
+    const bool active = impl_->rayTracing.enabled && supported && (shadowsOn || aoOn || reflectionsOn);
     j["active"] = active;
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
@@ -2198,18 +2199,20 @@ Json Engine::ray_tracing_status() {
             why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why;
     else if (active) {
         std::string what;
+        const auto add = [&what](const std::string& part) { what += (what.empty() ? "" : " and ") + part; };
         if (shadowsOn)
-            what = "the shadow of the directional light that has castShadows, on the main camera (the one whose "
-                   "meshes are the traced scene's; shadows \"soft\" draws the hard one for now)";
+            add("the shadow of the directional light that has castShadows, on the main camera (the one whose "
+                "meshes are the traced scene's; shadows \"soft\" draws the hard one for now)");
         if (aoOn)
-            what +=
-                std::string(what.empty() ? "" : " and ") +
-                "the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
-                "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)";
+            add("the ambient occlusion of the main camera (the one whose meshes are the traced scene's; rays around "
+                "the surface's normal, denoised; the radius and intensity are the screen-space occlusion's)");
+        if (reflectionsOn)
+            add("the sharp reflections of the surfaces smoother than roughness 0.25 (one mirror ray per pixel; the "
+                "rougher ones keep the screen-space reflections and the probes)");
         j["reason"] = "Traced: " + what + ". The other effects are not made yet.";
     } else
-        j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows and ao are made "
-                      "so far).";
+        j["reason"] = "This device can trace rays, but no effect that draws with rays is on (shadows, ao and "
+                      "reflections are made so far).";
     return j;
 }
 

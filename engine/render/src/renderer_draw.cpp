@@ -186,6 +186,11 @@ struct Renderer::Impl::DrawContext {
         bool want = false;
         const RtEffectImage* img = nullptr;
     } rtShadow;
+    // M79-P3a-1: ray traced sharp reflections. plan_job sets `want` (the setting is on, the scene is this job's, the prepass and the G-buffer are
+    // made); build_graph declares the pass, sets `img` and the PostPlan's rtReflectImg for the screen-space reflections' composite.
+    struct {
+        bool want = false;
+    } rtReflect;
     // M79-P2b: ray traced ambient occlusion (rt_ao, ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)"). plan_job sets `want` (rayTracing.ao on, the scene
     // collected by this job, the prepass with its normals); build_graph declares the kernel, the denoiser and sets `img` and `on` (the SSAO passes are
     // then not declared). The main pass applies the result only while `img->ran` is true when it draws, else the picture is not darkened.
@@ -1002,6 +1007,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster &&
                               rtSettings.shadows != render::RtShadows::Off;
     if (wantRtShadow) ctx.postPlan.needsDepth = true;
+    // Ray traced reflections (M79-P3a-1) read the prepass and the thin G-buffer's roughness, metalness and albedo.
+    const bool wantRtReflect = draws && !fr.cam.studio && ctx.rtCollected && rtSettings.reflections;
+    if (wantRtReflect) {
+        ctx.postPlan.needsDepth = true;
+        ctx.postPlan.request_gbuffer();
+    }
     // Ray traced ambient occlusion (M79-P2b) reads the prepass with its normals, from the camera that has the scene's meshes. It draws in place of the
     // camera's SSAO (the radius and the intensity of the SSAO stay), so it is asked for by the setting alone; a camera that cannot make the prepass
     // keeps whatever the stack has.
@@ -1030,6 +1041,22 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.contactOn = wantContact && ctx.doPrepass;
     ctx.rtShadow = {};
     ctx.rtShadow.want = wantRtShadow && ctx.doPrepass;
+    ctx.rtReflect = {};
+    ctx.rtReflect.want = wantRtReflect && ctx.doPrepass && ctx.doGbuffer && rtScene.active();
+    if (wantRtReflect && ctx.doPrepass && !ctx.doGbuffer && rtScene.active() && !rtWarnedReflectGbuffer) {
+        rtWarnedReflectGbuffer = true;
+        FA_WARN("render", "render.rayTracing.reflections is on but this camera has no thin G-buffer (the GPU cannot "
+                          "make its images, or the frame draws "
+                          "none). The reflections stay the screen-space ones and the probes. Hint: set "
+                          "render.rayTracing.reflections to false to silence "
+                          "this.");
+    }
+    if (ctx.rtReflect.want) {
+        // The reflections' composite is the screen-space reflections' trace pass: a camera whose stack has none gets the plan with intensity 0 (only
+        // the traced pixels change). It is decided here because the HUD ordering below asks the plan.
+        if (!ctx.postPlan.ssr.any()) ctx.postPlan.ssr = make_ssr_rt_plan(fr.cam);
+        ctx.postPlan.ssr.rt = ctx.postPlan.ssr.any();
+    }
     ctx.rtAo = {};
     ctx.rtAo.want = wantRtAo && ctx.doPrepass;
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
@@ -5411,6 +5438,83 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     out.why);
         }
     }
+    // Ray traced sharp reflections (M79-P3a-1, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer; the screen-space
+    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the image. A device that refuses the kernel or the
+    // image keeps the screen-space reflections and the probes, said once.
+    ctx.postPlan.rtReflectImg = nullptr;
+    ctx.postPlan.rtReflectRes = ResourceId{};
+    if (ctx.rtReflect.want && ctx.postPlan.prepass.valid() && ctx.postPlan.gbufferAlbedo.valid() &&
+        ctx.postPlan.gbufferMaterial.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_reflect";
+        req.effect = "reflections";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.gbufferAlbedo = ctx.postPlan.gbufferAlbedo;
+        req.gbufferMaterial = ctx.postPlan.gbufferMaterial;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        // The sun the lit pass shadows, else its first directional light (rank 0 or 1): the direction toward it and its radiance.
+        const LightData* sunLight = nullptr;
+        for (const LightData& l : ctx.lights)
+            if (l.rank <= 1) {
+                sunLight = &l;
+                break;
+            }
+        RtHitParams& hp = req.hit;
+        if (sunLight) {
+            const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});
+            hp.sunDir[0] = toSun.x;
+            hp.sunDir[1] = toSun.y;
+            hp.sunDir[2] = toSun.z;
+            hp.sunColor[0] = sunLight->color.x;
+            hp.sunColor[1] = sunLight->color.y;
+            hp.sunColor[2] = sunLight->color.z;
+            for (int i = 0; i < 3; ++i) req.lightDir[i] = hp.sunDir[i];
+        } else {
+            hp.sunDir[1] = 1.0f;
+        }
+        hp.ambient[0] = ctx.ss.ambientLight.r;
+        hp.ambient[1] = ctx.ss.ambientLight.g;
+        hp.ambient[2] = ctx.ss.ambientLight.b;
+        hp.sky[0] = ctx.ss.skyColor.r;
+        hp.sky[1] = ctx.ss.skyColor.g;
+        hp.sky[2] = ctx.ss.skyColor.b;
+        hp.sky[3] = ctx.fuScene.fa_env_sky[3] > 0.5f ? 1.0f : 0.0f;
+        hp.horizon[0] = ctx.ss.horizonColor.r;
+        hp.horizon[1] = ctx.ss.horizonColor.g;
+        hp.horizon[2] = ctx.ss.horizonColor.b;
+        hp.limits[0] = 0.02f;
+        hp.limits[1] = 0.002f;
+        hp.limits[2] = 10000.0f;
+        hp.limits[3] = 0.002f;
+        // user0: the mirror ray's offset along the normal in metres and per metre of view depth, the roughness cutoff, TMax.
+        req.user0[0] = 0.02f;
+        req.user0[1] = 0.002f;
+        req.user0[2] = 0.25f;
+        req.user0[3] = 10000.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.postPlan.rtReflectImg = out.out;
+            ctx.postPlan.rtReflectRes = out.res;
+        } else if (!rtWarnedReflect) {
+            rtWarnedReflect = true;
+            FA_WARN("render",
+                    "render.rayTracing.reflections is on but the ray traced reflections cannot run on this device "
+                    "({}). The "
+                    "reflections stay the screen-space ones and the probes. Hint: set render.rayTracing.reflections to "
+                    "false to silence "
+                    "this.",
+                    out.why);
+        }
+    }
     // Ray traced ambient occlusion (M79-P2b, rt_effect.h): the kernel after the scene's TLAS and the prepass, then the denoiser (Occlusion), whose result
     // the main pass applies in place of the SSAO's (the same apply, the same radius and intensity). A kernel the device refuses is said once and leaves
     // the camera's SSAO in place; so does a device that cannot trace (the scene is not active).
@@ -5764,12 +5868,15 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
+        if (c->postPlan.ssr.intensity <= 0.0f && !c->postPlan.rtReflectImg)
+            continue;  // the ray traced reflections' own plan, and none were traced
         const BloomTarget ssrDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
-                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name,
+                       c->postPlan.rtReflectImg, c->postPlan.rtReflectRes);
     }
     custom_slot(PostSlot::AfterSsr);
     // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is
