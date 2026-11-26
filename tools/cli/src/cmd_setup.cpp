@@ -19,9 +19,9 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android",       "players",    "cmake",  "xcode",     "appimage",
-                                                 "shaders",       "vscode",     "ffmpeg", "webplayer", "launcher",
-                                                 "directstorage", "streamline", "xess",   "fidelityfx"};
+    static const std::vector<std::string> ids = {"android",       "players",    "cmake",  "xcode",      "appimage",
+                                                 "shaders",       "vscode",     "ffmpeg", "webplayer",  "launcher",
+                                                 "directstorage", "streamline", "xess",   "fidelityfx", "dxc"};
     return ids;
 }
 
@@ -220,7 +220,13 @@ Command make_setup_command() {
         "  directstorage the x64 dstorage.dll and dstoragecore.dll of Microsoft's DirectStorage (NuGet package 1.3.0, "
         "SHA-256 checked):\n"
         "           a Windows release export with export.pack.directStorage puts them next to the game. Any computer "
-        "can install them.";
+        "can install them.\n"
+        "  dxc      Windows and Linux x86_64: Microsoft's DirectX Shader Compiler (1.9.2609, SHA-256 checked), only "
+        "for "
+        "editing the engine's ray\n"
+        "           tracing kernels (engine/render/shaders/rt/*.hlsl; tools/shaders/compile_rt_shaders.sh). Never part "
+        "of "
+        "a game.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses",
@@ -302,6 +308,10 @@ Command make_setup_command() {
                          "puts next to the game.",
                          {{"force", "", "Download them again even when installed."}},
                          {"factoria setup directstorage"}));
+    g.subs.push_back(sub("dxc",
+                         "Windows, Linux x86_64: download DXC, the compiler of the engine's ray tracing kernels (only "
+                         "for editing them; macOS has none: CI generates the DXIL).",
+                         {{"force", "", "Download it again even when installed."}}, {"factoria setup dxc"}));
     const char* sdkAccept =
         "You have read the license of this SDK and accept it (without it a terminal asks, anything else "
         "refuses).";

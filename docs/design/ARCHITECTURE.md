@@ -20,6 +20,7 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md): the engine's own Vulkan device (M77): loading without a link, memory, barriers, uploads, descriptors, SPIR-V shaders, layouts, pipelines, render passes, the command list, its tests.
 - [Rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md): how Streamline, FidelityFX and XeSS take part (and the low-latency seam, "Low latency (M78)") in making the D3D12 and Vulkan devices and swapchains (M78): extensions, features and queues, wrapped functions and objects, swapchains made or wrapped, present callbacks, degrading without failing.
 - [Rendering, the ray tracing seam](ARCHITECTURE_RENDERING_RAYTRACING.md): the acceleration structure calls of `fa::gpu` (M79): inline ray query only, sizes, barriers, the RecordingDevice checks, the `raytracing` supports rows, the settings, the route Metal takes.
+- [Rendering, the ray tracing kernels](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md): the ray query kernels of M79 (D3D12, Vulkan, Metal): why HLSL through DXC plus a hand-written MSL twin, `factoria setup dxc`, `compile_rt_shaders.sh` and the committed headers, what the Linux and Windows CI jobs check.
 - [Rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md): the shadow views recorded on job threads, the depth pyramid on the async compute queue, the switches and why the picture stays the same (M77-P10d).
 - [Rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md): the linear HDR frame, the `PostProcess` data, the effect order and the CPU resolve, the stack's passes, history and the final pass.
 - [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field, the MetalFX wrapper and the renderer's MetalFX stage.
@@ -89,7 +90,7 @@ tools/             developer tools (desktop only)
   vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
   bench/           fa_bench    the engine's microbenchmarks (ECS queries, hierarchy, physics, render gather, command dispatch, script bridge, audio mix) with a baseline per machine kind (docs/PERFORMANCE.md, "Microbenchmarks")
   fuzz/            fuzz targets of the loaders and decoders (libFuzzer with `FA_FUZZ`, a corpus replay ctest otherwise; docs/design/BUILDING_TESTS.md, "Fuzzing")
-  shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc
+  shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc; compile_rt_shaders.sh: the ray tracing kernels (DXC)
   feedback-server/ the Cloudflare Worker behind feedback sharing (JavaScript, its own npm tooling; docs/design/FEEDBACK_SHARING.md)
   ci/              docker/: the image of the local Linux CI job (scripts/ci-local.sh)
 templates/         project templates used by `factoria new`

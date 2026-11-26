@@ -127,6 +127,36 @@ inline constexpr DirectStoragePackage kSetupDirectStorage = {
     "1.3.0", "8ab6c1082537565388b79050d94fdd7f5f437cd0f1d909e7b19f786042b97177", 3};
 inline constexpr const char* kSetupDirectStorageFiles[] = {"dstorage.dll", "dstoragecore.dll"};
 
+// DXC, Microsoft's DirectX Shader Compiler (M79, docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md): it turns the HLSL
+// of the engine's ray tracing kernels (engine/render/shaders/rt/*.hlsl) into signed DXIL (shader model 6.5, DXR 1.1 ray queries)
+// and into SPIR-V (`-spirv`, SPV_KHR_ray_query). Only a contributor who edits one of those kernels needs it: the generated
+// headers are committed, and a game never contains DXC. One official release asset per host, checked against the SHA-256
+// kept here (the digests GitHub lists for the assets of release `kSetupDxcRelease`). Microsoft publishes Windows (x64, arm64)
+// and Linux x86_64 builds only: on macOS the Linux CI job regenerates the DXIL. `binDir` is the folder of the archive that
+// holds the executables and `libDir` the one with the shared libraries ("" = the DLLs sit beside dxc.exe); both keep their
+// layout under <home>/tools/dxc/<version>/ (the Linux dxc finds libdxil.so, the library that signs the DXIL, through
+// $ORIGIN/../lib), together with the licence files of the archive (LLVM: NCSA/Apache-2.0 with LLVM exceptions, Microsoft's own).
+inline constexpr const char* kSetupDxcVersion = "1.9.2609";
+inline constexpr const char* kSetupDxcRelease = "v1.9.2609";
+struct DxcBuild {
+    const char* host;    // "windows" | "linux" (SetupContext::host_os)
+    const char* arch;    // "x64" | "aarch64"
+    const char* asset;   // the file name in the release; .zip or .tar.gz
+    const char* sha256;  // of that file
+    const char* binDir;  // dxc[.exe], dxv[.exe] (+ the DLLs on Windows)
+    const char* libDir;  // libdxcompiler.so, libdxil.so ("" on Windows)
+    const char* signer;  // the library that signs DXIL, relative to the install folder: without it the DXIL is unsigned
+    int sizeMb;          // the download
+};
+inline constexpr DxcBuild kSetupDxcBuilds[] = {
+    {"windows", "x64", "dxc_2026_09_29.zip", "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1",
+     "bin/x64", "", "bin/dxil.dll", 31},
+    {"windows", "aarch64", "dxc_2026_09_29.zip", "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1",
+     "bin/arm64", "", "bin/dxil.dll", 31},
+    {"linux", "x64", "linux_dxc_2026_09_28.x86_x64.tar.gz",
+     "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1", "bin", "lib", "lib/libdxil.so", 13},
+};
+
 // Vendor SDKs (M78, docs/exporting/EXPORTING_SETUP.md, "Vendor SDK licences"): the redistributable x64 Windows DLLs a
 // game ships with to use a vendor's upscaler, frame generation or latency library: `setup streamline` (NVIDIA Streamline:
 // DLSS, DLSS Ray Reconstruction, DLSS Frame Generation, Reflex), `setup xess` (Intel XeSS, XeSS-FG, XeLL) and `setup
@@ -371,7 +401,7 @@ struct SetupLicense {
 struct SetupComponent {
     std::string
         id;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
-    // "directstorage" | "streamline" | "xess" | "fidelityfx"
+    // "directstorage" | "streamline" | "xess" | "fidelityfx" | "dxc"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -405,7 +435,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 struct SetupInstallOptions {
     std::string
         component;  // "android" | "players" | "webplayer" | "cmake" | "xcode" | "appimage" | "shaders" | "vscode" | "ffmpeg" | "launcher" |
-    // "directstorage" | "streamline" | "xess" | "fidelityfx"
+    // "directstorage" | "streamline" | "xess" | "fidelityfx" | "dxc"
     bool acceptLicenses =
         false;  // android, streamline, xess, fidelityfx: the user agreed to the license shown (status: licenses)
     std::vector<std::string>
@@ -489,6 +519,14 @@ std::string ffmpeg_install_path(const SetupContext& context);
 std::string directstorage_install_dir(const SetupContext& context);
 // That folder when it holds both kSetupDirectStorageFiles; "" when either is missing.
 std::string installed_directstorage_dir(const SetupContext& context);
+
+// The DXC build of this host's entry in kSetupDxcBuilds; nullptr when the host has none (macOS, Linux on Arm).
+const DxcBuild* dxc_build(const SetupContext& context);
+// <home>/tools/dxc/<kSetupDxcVersion>: where `setup dxc` installs DXC (bin/dxc[.exe], and lib/ on Linux).
+std::string dxc_install_dir(const SetupContext& context);
+// The dxc[.exe] to compile the engine's ray tracing kernels with: $FA_DXC_DIR (a DXC folder: <dir>/bin/dxc or <dir>/dxc),
+// else the installed one (dxc_install_dir, only when its DXIL signer library is there too); "" when none is there.
+std::string find_dxc(const SetupContext& context = {});
 
 // The vendor SDK `id` ("streamline" | "xess" | "fidelityfx") of kSetupVendorSdks; nullptr when it is none of them.
 const VendorSdk* find_vendor_sdk(const std::string& id);

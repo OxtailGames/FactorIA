@@ -689,7 +689,7 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK(st.home == w.home.string());
     REQUIRE(
         st.components.size() ==
-        14);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher, the DirectStorage DLLs and the three vendor SDKs (Streamline, XeSS, FidelityFX; no editor button for the shader and web player ones yet)
+        15);  // android, players, cmake, xcode, the AppImage tools, sokol-shdc, the VS Code extension, ffmpeg, the web player, the app launcher, the DirectStorage DLLs and the three vendor SDKs (Streamline, XeSS, FidelityFX) and DXC (no editor button for the shader and web player ones yet)
     REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");

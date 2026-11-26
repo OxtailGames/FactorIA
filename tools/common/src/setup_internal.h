@@ -11,6 +11,7 @@
 //   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 //   setup_ffmpeg.cpp   ffmpeg, which --record-video turns a recording into an .mp4 with
 //   setup_directstorage.cpp the DirectStorage DLLs a Windows export puts next to the game
+//   setup_dxc.cpp      DXC, the compiler of the engine's ray tracing kernels (a contributor's tool)
 //   setup_vendor_sdks.cpp  the DLLs of NVIDIA Streamline, Intel XeSS and AMD FidelityFX a Windows export ships (and what a project can use)
 //   setup_vscode.cpp   the VS Code extension of the script debugger (copied from the binary, nothing is downloaded)
 //   setup_launcher.cpp the app that opens the editor with the FactorIA icon (macOS ~/Applications, Linux .desktop)
@@ -178,6 +179,13 @@ SetupResult directstorage_install(const SetupContext& ctx, const SetupInstallOpt
 // The install of one given package (tests pass one whose hash matches their fake download, and its `url`; "" = NuGet's).
 SetupResult directstorage_install_package(const SetupContext& ctx, const SetupInstallOptions& options,
                                           const DirectStoragePackage& package, const std::string& url);
+
+SetupComponent dxc_status(const SetupContext& ctx);
+SetupResult dxc_install(const SetupContext& ctx, const SetupInstallOptions& options);
+// The install of one given build (tests pass one whose hash matches their fake download, and its `url`; "" = GitHub's;
+// null = unsupported).
+SetupResult dxc_install_build(const SetupContext& ctx, const SetupInstallOptions& options, const DxcBuild* build,
+                              const std::string& url);
 
 // streamline, xess and fidelityfx (fa/tooling/setup.h, VendorSdk). The install of one given SDK (tests pass one whose hashes
 // match their fake downloads).
