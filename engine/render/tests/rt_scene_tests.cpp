@@ -84,24 +84,75 @@ std::vector<std::string> lines_of(const gpu::RecordingDevice& dev) {
 
 // ---- the scene on its own ----------------------------------------------------------------------------------------------------------
 
+// The path the real backends take: the compacted sizes are read in the background. A ticket answers on its `pollsNeeded`th poll (a wait
+// answers at once, as the real ones do); the device can say "every slot is in flight" (an invalid ticket) or refuse.
+class AsyncRecordingDevice : public gpu::RecordingDevice {
+public:
+    using gpu::RecordingDevice::RecordingDevice;
+    int pollsNeeded = 2;
+    int busyRequests = 0;  // the next requests answer with an invalid ticket
+    bool failRequests = false;
+    int requests = 0, polls = 0, releases = 0;
+    bool async_read_supported() const override { return true; }
+    Result<gpu::ReadTicket> request_buffer_read(gpu::Buffer buffer, std::size_t offset, std::size_t bytes) override {
+        ++requests;
+        if (failRequests)
+            return make_error("gpu: request_buffer_read: the test device refuses reads", "this is a test");
+        if (busyRequests > 0) {
+            --busyRequests;
+            return gpu::ReadTicket{};
+        }
+        pending_.push_back({buffer, offset, bytes, 0});
+        gpu::ReadTicket t;
+        t.slot = int(pending_.size() - 1);
+        t.generation = 1;
+        return t;
+    }
+    bool poll_buffer_read(gpu::ReadTicket ticket, std::vector<std::uint8_t>& out, bool wait) override {
+        ++polls;
+        Pending& p = pending_.at(std::size_t(ticket.slot));
+        if (++p.polls < pollsNeeded && !wait) return false;
+        return read_buffer(p.buffer, p.offset, p.bytes, out).ok();
+    }
+    void release_buffer_read(gpu::ReadTicket) override { ++releases; }
+
+private:
+    struct Pending {
+        gpu::Buffer buffer;
+        std::size_t offset, bytes;
+        int polls;
+    };
+    std::vector<Pending> pending_;
+};
+
 struct Rig {
     std::unique_ptr<gpu::Device> owned;
     gpu::RecordingDevice* dev = nullptr;
+    AsyncRecordingDevice* async = nullptr;
+    bool headless = true;
     RtScene scene;
     std::vector<std::unique_ptr<render::MeshAsset>> meshes;
     std::vector<MeshRenderer> renderers;  // reserved up front: the items point into it
 
-    explicit Rig(bool rayTracing = true) {
+    explicit Rig(bool rayTracing = true, bool asyncReads = false) {
         gpu::DeviceInit init;
         init.recordingRayTracing = rayTracing;
-        auto made = gpu::make_device(gpu::Backend::Recording, init);
-        REQUIRE_MESSAGE(made.ok(), (made.ok() ? "" : made.error().message));
-        owned = std::move(made.value());
+        if (asyncReads) {
+            owned = std::make_unique<AsyncRecordingDevice>(init);
+            async = static_cast<AsyncRecordingDevice*>(owned.get());
+            headless = false;  // a read-back is polled, not waited for
+        } else {
+            auto made = gpu::make_device(gpu::Backend::Recording, init);
+            REQUIRE_MESSAGE(made.ok(), (made.ok() ? "" : made.error().message));
+            owned = std::move(made.value());
+        }
         dev = dynamic_cast<gpu::RecordingDevice*>(owned.get());
         REQUIRE(dev != nullptr);
         renderers.reserve(256);
     }
-    ~Rig() { scene.release(); }  // before `owned` goes (members are destroyed in reverse order, so this is for the reader)
+    ~Rig() {
+        scene.release();
+    }  // before `owned` goes (members are destroyed in reverse order, so this is for the reader)
 
     // A mesh asset of `parts` parts: each a quad of four vertices and six indices (24 bytes) in buffers a build can read.
     render::MeshAsset* mesh(const char* key, int parts = 1, bool buildable = true) {
@@ -144,7 +195,7 @@ struct Rig {
     // One frame of the scene as the renderer drives it: begin, collect, record on a list, submit and commit.
     void frame(const std::vector<render::MeshItem>& opaque, const std::vector<render::MeshItem>& blended = {},
                Vec3 camera = {0, 0, 0}) {
-        scene.begin_frame(true, [this] { dev->commit(); });
+        scene.begin_frame(headless, [this] { dev->commit(); });
         scene.collect(opaque, blended, camera, true);
         gpu::CommandList& cl = dev->begin_commands("rt");
         scene.record(cl);
@@ -313,7 +364,8 @@ TEST_CASE("rt scene: the records and the instances (transform, mask, customIndex
     // The record buffer holds what the frame says: one 96-byte record per instance, written before the TLAS build.
     int writes = 0;
     for (const gpu::RecordedCommand& cmd : rig.dev->commands())
-        if (cmd.kind == gpu::CommandKind::WriteBuffer && cmd.args[0] == int(4 * sizeof(render::RtInstanceRecord))) ++writes;
+        if (cmd.kind == gpu::CommandKind::WriteBuffer && cmd.args[0] == int(4 * sizeof(render::RtInstanceRecord)))
+            ++writes;
     CHECK(writes == 1);
     CHECK(rig.dev->errors().empty());
 }
@@ -428,7 +480,8 @@ TEST_CASE("rt scene: the same scene records the same calls, run after run") {
         render::MeshAsset* a = rig.mesh("a", 2);
         render::MeshAsset* b = rig.mesh("b", 1);
         std::vector<render::MeshItem> items;
-        for (int i = 0; i < 5; ++i) items.push_back(rig.item(i % 2 ? a : b, {float(i) * 1.5f, 0, -float(i)}, std::uint32_t(i)));
+        for (int i = 0; i < 5; ++i)
+            items.push_back(rig.item(i % 2 ? a : b, {float(i) * 1.5f, 0, -float(i)}, std::uint32_t(i)));
         for (int f = 0; f < 5; ++f) rig.frame(items, {}, {0, 0, 0});
         return lines_of(*rig.dev);
     };
@@ -494,11 +547,193 @@ TEST_CASE("rt scene: a BLAS that cannot be built is reported once and its instan
     REQUIRE(rig.scene.configure(rig.dev, true, 100));
     render::MeshAsset* bad = rig.mesh("noInput", 1, false);  // buffers made without accelBuildInput
     render::MeshAsset* good = rig.mesh("good");
-    rig.frame({rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)});
-    rig.frame({rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)});
-    CHECK(rig.scene.instance_count() >= 1);
-    for (const auto& f : rig.scene.frame_instances()) CHECK(f.entityId == 2);
-    CHECK(log.count("could not") <= 2);
+    const std::vector<render::MeshItem> items{rig.item(bad, {0, 0, 0}, 1), rig.item(good, {1, 0, 0}, 2)};
+    rig.frame(items);
+    // The frame whose build failed: the TLAS of that very frame has the good instance only (the failed BLAS was never built).
+    CHECK(rig.scene.instance_count() == 1);
+    REQUIRE(rig.scene.frame_instances().size() == 1);
+    CHECK(rig.scene.frame_instances()[0].entityId == 2);
+    CHECK(rig.scene.frame_instances()[0].instance.customIndex == 0);
+    int tlasBuilds = 0;
+    for (const gpu::RecordedCommand& c : rig.dev->commands())
+        if (c.kind == gpu::CommandKind::BuildTlas) {
+            ++tlasBuilds;
+            CHECK(c.args[0] == 1);  // instances
+        }
+    CHECK(tlasBuilds == 1);
+    // The device reported the refused build and nothing else: no TLAS over a structure that was never built.
+    for (const std::string& e : rig.dev->errors()) CHECK(e.find("instances[") == std::string::npos);
+    rig.frame(items);
+    CHECK(rig.scene.instance_count() == 1);
+    CHECK(rig.scene.stats().skippedNoBlas == 1);
+    CHECK(log.count("a BLAS could not be built") == 1);  // once, not a line per frame
+}
+
+TEST_CASE("rt scene: the BLASes of the instances the cap leaves out are never made") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 2));
+    std::vector<render::MeshAsset*> assets;
+    std::vector<render::MeshItem> items;
+    for (int d = 1; d <= 6; ++d) {
+        assets.push_back(rig.mesh(("m" + std::to_string(d)).c_str()));
+        items.push_back(rig.item(assets.back(), {0, 0, -float(d)}, std::uint32_t(d)));
+    }
+    rig.frame(items);
+    CHECK(rig.scene.instance_count() == 2);
+    CHECK(count_kind(*rig.dev, gpu::CommandKind::BuildBlas) == 2);
+    CHECK(rig.scene.stats().blasLive == 2);
+    CHECK(rig.scene.blas_has_asset(assets[0]));
+    CHECK(rig.scene.blas_has_asset(assets[1]));
+    for (std::size_t i = 2; i < assets.size(); ++i) CHECK_FALSE(rig.scene.blas_has_asset(assets[i]));
+}
+
+TEST_CASE(
+    "rt scene: a BLAS that goes is destroyed after the frames in flight, and the TLAS of those frames still names it") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 100));
+    render::MeshAsset* a = rig.mesh("a");
+    render::MeshAsset* b = rig.mesh("b");
+    const std::vector<render::MeshItem> both{rig.item(a, {0, 0, 0}, 1), rig.item(b, {2, 0, 0}, 2)};
+    const std::vector<render::MeshItem> onlyB{rig.item(b, {2, 0, 0}, 2)};
+    for (int f = 0; f < 6; ++f) rig.frame(both);  // built, compacted, the originals retired and destroyed
+    CHECK(rig.scene.retired_count() == 0);
+    const std::uint32_t idA = rig.scene.blas_ids_of(a)[0];
+    const gpu::AccelStructure structureA = rig.scene.blas_structure(idA);
+    REQUIRE(structureA.id != 0);
+    // The last TLAS built before the asset goes names it.
+    bool named = false;
+    for (const auto& f : rig.scene.frame_instances()) named = named || f.instance.blas.id == structureA.id;
+    CHECK(named);
+    rig.scene.forget(a);  // the asset is destroyed between two frames
+    CHECK(rig.scene.blas_state(idA) == "gone");
+    CHECK(rig.scene.retired_count() == 1);
+    for (int f = 0; f < gpu::kInflightFrames; ++f) {
+        rig.frame(onlyB);  // the TLASes of the frames before may still be executing: the structure is alive
+        CHECK(rig.dev->accel_structure_state(structureA) == gpu::ResourceState::Valid);
+    }
+    rig.frame(onlyB);  // one frame more than the frames in flight
+    CHECK(rig.dev->accel_structure_state(structureA) != gpu::ResourceState::Valid);
+    CHECK(rig.scene.retired_count() == 0);
+    INFO(joined(rig.dev->errors()));
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt scene: a mesh whose geometry changes every frame retires its BLAS each frame and destroys it later") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 100));
+    render::MeshAsset* a = rig.mesh("animated");
+    const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+    std::vector<gpu::AccelStructure> seen;
+    for (int f = 0; f < 8; ++f) {
+        ++a->geometryVersion;
+        rig.frame(items);
+        seen.push_back(rig.scene.blas_structure(rig.scene.blas_ids_of(a)[0]));
+        // Each earlier structure is alive while a frame in flight may still name it.
+        for (std::size_t i = 0; i + 1 < seen.size(); ++i) {
+            const bool old = i + 1 + std::size_t(gpu::kInflightFrames) + 1 <= std::size_t(f) + 1;
+            if (!old) CHECK(rig.dev->accel_structure_state(seen[i]) == gpu::ResourceState::Valid);
+        }
+    }
+    // Bounded, nothing piles up: at most the BLAS and its compaction target of each of the frames in flight and the one being recorded.
+    CHECK(rig.scene.retired_count() <= 2 * (std::size_t(gpu::kInflightFrames) + 1));
+    CHECK(rig.dev->accel_structure_state(seen[0]) != gpu::ResourceState::Valid);
+    CHECK(rig.dev->errors().empty());
+    // Turning the scene off frees everything at once, retired ones included.
+    rig.scene.release();
+    for (const gpu::AccelStructure& s : seen) CHECK(rig.dev->accel_structure_state(s) != gpu::ResourceState::Valid);
+    CHECK(rig.dev->errors().empty());
+}
+
+TEST_CASE("rt scene: the compacted sizes read in the background (the path the real backends take)") {
+    Warnings log;
+    SUBCASE("a ticket that takes polls: reading until it answers, then compaction") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        CHECK(rig.scene.blas_state(id) == "queried");
+        rig.frame(items);  // the size is asked for
+        CHECK(rig.async->requests == 1);
+        CHECK(rig.scene.blas_state(id) == "reading");
+        rig.frame(items);  // poll 1 of 2
+        CHECK(rig.scene.blas_state(id) == "reading");
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 0);
+        rig.frame(items);  // poll 2: the answer, the smaller structure, the copy
+        CHECK(rig.async->polls == 2);
+        CHECK(rig.scene.blas_state(id) == "swap");
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 1);
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "compacted");
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("every slot in flight (an invalid ticket): the BLAS asks again on a later frame") {
+        Rig rig(true, true);
+        rig.async->busyRequests = 2;
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "queried");
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "queried");
+        CHECK(rig.async->requests == 2);
+        rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "reading");
+        for (int f = 0; f < 4; ++f) rig.frame(items);
+        CHECK(rig.scene.blas_state(id) == "compacted");
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("a read the device refuses: the BLAS stays as built, one warning") {
+        Rig rig(true, true);
+        rig.async->failRequests = true;
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        for (int f = 0; f < 5; ++f) rig.frame(items);
+        const std::uint32_t id = rig.scene.blas_ids_of(a)[0];
+        CHECK(rig.scene.blas_state(id) == "built");
+        CHECK(rig.scene.instance_count() == 1);  // still traced
+        CHECK(count_kind(*rig.dev, gpu::CommandKind::CopyAccelStructure) == 0);
+        CHECK(log.count("could not be read back") == 1);
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("a BLAS freed while its size is being read: the answer is dropped, the others go on") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        render::MeshAsset* b = rig.mesh("b");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1), rig.item(b, {2, 0, 0}, 2)};
+        rig.frame(items);
+        rig.frame(items);
+        const std::uint32_t idA = rig.scene.blas_ids_of(a)[0];
+        const std::uint32_t idB = rig.scene.blas_ids_of(b)[0];
+        CHECK(rig.scene.blas_state(idA) == "reading");
+        rig.scene.forget(a);
+        CHECK(rig.scene.blas_state(idA) == "gone");
+        const std::vector<render::MeshItem> onlyB{items[1]};
+        for (int f = 0; f < 6; ++f) rig.frame(onlyB);
+        CHECK(rig.scene.blas_state(idB) == "compacted");
+        CHECK(rig.scene.instance_count() == 1);
+        INFO(joined(rig.dev->errors()));
+        CHECK(rig.dev->errors().empty());
+    }
+    SUBCASE("release() with a ticket in flight releases it") {
+        Rig rig(true, true);
+        REQUIRE(rig.scene.configure(rig.dev, true, 100));
+        render::MeshAsset* a = rig.mesh("a");
+        const std::vector<render::MeshItem> items{rig.item(a, {0, 0, 0}, 1)};
+        rig.frame(items);
+        rig.frame(items);
+        CHECK(rig.async->requests == 1);
+        CHECK(rig.async->releases == 0);
+        rig.scene.release();
+        CHECK(rig.async->releases == 1);
+        CHECK(rig.dev->errors().empty());
+    }
 }
 
 // ---- the layout the kernels read ------------------------------------------------------------------------------------------------------
@@ -540,9 +775,15 @@ TEST_CASE("rt records: the HLSL twin has the same fields, flags and masks as the
     const std::size_t body = hlsl.find("struct RtInstanceRecord");
     REQUIRE(body != std::string::npos);
     const std::string s = hlsl.substr(body, hlsl.find("};", body) - body);
-    const std::array<const char*, 9> members = {"float4 objectToWorldRow0", "float4 objectToWorldRow1", "float4 objectToWorldRow2",
-                                                "float4 albedo",             "float4 emissive",          "float roughness",
-                                                "float metalness",           "uint flags",               "uint blasId"};
+    const std::array<const char*, 9> members = {"float4 objectToWorldRow0",
+                                                "float4 objectToWorldRow1",
+                                                "float4 objectToWorldRow2",
+                                                "float4 albedo",
+                                                "float4 emissive",
+                                                "float roughness",
+                                                "float metalness",
+                                                "uint flags",
+                                                "uint blasId"};
     std::size_t at = 0;
     for (const char* m : members) {
         const std::size_t found = s.find(m, at);
@@ -649,7 +890,8 @@ Entity add_mesh(World& w, const char* name, const char* mesh, Vec3 at) {
     return e;
 }
 
-TEST_CASE("rt renderer: with ray tracing off the frame is the frame without it, on a device that traces and on one that cannot") {
+TEST_CASE("rt renderer: with ray tracing off the frame is the frame without it, on a device that traces and on one "
+          "that cannot") {
     Warnings log;
     auto stream = [&](bool deviceTraces, bool setting) {
         RtRenderer r(deviceTraces);
@@ -670,7 +912,7 @@ TEST_CASE("rt renderer: with ray tracing off the frame is the frame without it, 
         CHECK(r.scene().instance_count() == 0);
         return lines_of(*r.dev);
     };
-    const std::vector<std::string> off = stream(true, false);          // a device that traces, the setting off
+    const std::vector<std::string> off = stream(true, false);  // a device that traces, the setting off
     CHECK(log.count("cannot trace rays") == 0);
     const std::vector<std::string> unsupported = stream(false, true);  // a device that cannot, the setting on
     REQUIRE(off.size() > 5);
@@ -747,7 +989,7 @@ TEST_CASE("rt renderer: one level of detail per instance, the main camera's pick
     };
     r.frame(w);
     r.frame(w);
-    REQUIRE(r.scene().instance_count() == 3);  // one instance per entity, never both levels
+    REQUIRE(r.scene().instance_count() == 3);      // one instance per entity, never both levels
     CHECK(blas_of(lodded) == blas_of(plainCube));  // near: the cube
     CHECK(blas_of(lodded) != blas_of(plainBall));
     w.get<Transform>(cam)->position = {0, 0, 60};  // far: the sphere
@@ -822,7 +1064,8 @@ TEST_CASE("rt renderer: over the cap the nearest instances stay and the warning 
     CHECK(r.dev->errors().empty());
 }
 
-TEST_CASE("rt renderer: the TLAS lives in rebased space: a floating origin shift moves the instances and the cached records") {
+TEST_CASE("rt renderer: the TLAS lives in rebased space: a floating origin shift moves the instances and the cached "
+          "records") {
     RtRenderer r;
     r.rays();
     World w;
@@ -876,7 +1119,8 @@ TEST_CASE("rt renderer: the same scene records the same calls on two renderers")
         World w;
         add_camera(w);
         for (int i = 0; i < 9; ++i)
-            add_mesh(w, ("m" + std::to_string(i)).c_str(), i % 3 == 0 ? "sphere" : "cube", {float(i) * 2.0f - 8.0f, 0, -float(i)});
+            add_mesh(w, ("m" + std::to_string(i)).c_str(), i % 3 == 0 ? "sphere" : "cube",
+                     {float(i) * 2.0f - 8.0f, 0, -float(i)});
         for (int f = 0; f < 5; ++f) r.frame(w);
         CHECK(r.dev->errors().empty());
         return lines_of(*r.dev);

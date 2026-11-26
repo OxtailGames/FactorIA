@@ -43,12 +43,20 @@ with messages that name the field); `ibOffset` of a part is always a multiple of
 
 A BLAS is rebuilt when the asset's `geometryVersion` or the buffer ids of its parts change (a procedural mesh updated, a mesh loaded
 again) and freed when the asset goes: `Assets` calls the release hook (`set_mesh_release_hook`) at the start of `destroy_mesh` and
-`destroy_procedural`, before the buffers are destroyed, and `RtScene::forget` frees the asset's BLASes. A TLAS never keeps a BLAS alive,
-so a BLAS that goes is destroyed with `Device::destroy_accel_structure`, which defers the release until no submitted list uses it; the next
-TLAS build (the next frame's) no longer names it.
+`destroy_procedural`, before the buffers are destroyed, and `RtScene::forget` frees the asset's BLASes. A TLAS never keeps a BLAS alive
+(`Device::destroy_accel_structure` defers only for lists that use the structure directly, and a BLAS built long ago is used by no recent
+list), so **a BLAS is never destroyed at once**: `RtScene::retire_blas` puts its structure in a graveyard with the frame number, and
+`begin_frame` destroys it `kRetireFrames` = `kInflightFrames` + 1 frames later, when no TLAS of a frame in flight can name it. The same
+goes for the original of a compaction after the swap and for every BLAS an asset or a geometry change frees. Only `release()` (ray tracing
+turned off, another device, the renderer's shutdown) destroys everything at once, after one `Device::wait_idle()`. An animated procedural
+mesh whose geometry changes every frame rebuilds its BLAS every frame (and the retired ones wait their three frames) until the refit of
+P1k replaces that.
 
 A part with no vertex buffer a build can read (a placeholder while a mesh loads, no triangle) is `untraceable`: its instances are left out.
-A build the device refuses logs one `WARN` with the device's message and leaves the part's instances out; the others go on.
+A build the device refuses logs one `WARN` with the device's message (one flag per cause: sizing or making, building a BLAS, making or
+building the TLAS, making a buffer) and leaves the part's instances out **of that very frame's TLAS** (the instance list is filtered again
+after the builds; `skippedNoBlas` counts them); the others go on. A buffer of the scene (scratch, records) the device could not make gives
+the frame up with one `WARN`: nothing is built and the next frame tries again.
 
 ### Build budget and compaction
 
@@ -63,7 +71,7 @@ Every BLAS is built with `allowCompaction` and `preferFastTrace`, then compacted
    the GPU's speed). A smaller structure is made for each answer.
 3. Frame N+1, the pass: `copy_accel_structure(Compact)` into it.
 4. Frame N+2, `begin_frame`: the compacted structure replaces the original (the instances of this frame's TLAS name it) and the original
-   is destroyed. State names for a test: `pending`, `built`, `queried`, `reading`, `compact-pending`, `swap`, `compacted`, `failed`, `gone`.
+   is retired (the TLAS of frame N+1 names it, so it is destroyed `kRetireFrames` frames later). State names for a test: `pending`, `built`, `queried`, `reading`, `compact-pending`, `swap`, `compacted`, `failed`, `gone`.
 
 A BLAS with no free slot is not compacted (it stays valid and `built`). A read that cannot be asked for logs one `WARN`, and the BLAS stays
 as it is built.
@@ -72,7 +80,8 @@ as it is built.
 
 `Renderer::gather_meshes` of the **main camera's job** (the one named `camera:`, never a shadow or a probe job, never the LOD-follow job)
 calls `RtScene::collect` with its opaque and blended lists, after the LOD pick and before the view culling decides what to draw: every item
-is offered, including the ones outside the view (a ray may hit them). Because the items come from the same pick the draw makes, **one LOD
+is offered, including the ones outside the view (a ray may hit them). The cap cut comes first and the BLASes after it: an item the cap
+leaves out makes no BLAS. Because the items come from the same pick the draw makes, **one LOD
 level per instance** is traced: the level the main camera sees. A foliage's instances and the instances of a GPU-instanced batch are mesh
 items like the others.
 

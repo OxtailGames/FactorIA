@@ -25,16 +25,20 @@ void Renderer::Impl::rt_begin_frame() {
         } else if (!rtWarnedUnsupported) {
             rtWarnedUnsupported = true;
             FA_WARN("render",
-                    "Ray tracing is on (render.rayTracing) but this device cannot trace rays ({}). Nothing is traced and nothing is "
-                    "built: the frame is the one it would be with ray tracing off. Hint: `factoria call render.ray_tracing` and "
-                    "`render.supports raytracing` say what this device lacks; set render.rayTracing.enabled to false to silence this.",
+                    "Ray tracing is on (render.rayTracing) but this device cannot trace rays ({}). Nothing is traced "
+                    "and nothing is "
+                    "built: the frame is the one it would be with ray tracing off. Hint: `factoria call "
+                    "render.ray_tracing` and "
+                    "`render.supports raytracing` say what this device lacks; set render.rayTracing.enabled to false "
+                    "to silence this.",
                     why.empty() ? std::string("(the device gave no reason)") : why);
         }
     }
     if (!wanted) rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
     // Mesh buffers carry the usage a build reads only while the scene is on (Assets::set_accel_input reloads the meshes made before).
     if (assets) assets->set_accel_input(on);
-    if (!rtScene.configure(on ? &gpu.device() : nullptr, on, std::uint32_t(std::max(1, rtSettings.maxInstances)))) return;
+    if (!rtScene.configure(on ? &gpu.device() : nullptr, on, std::uint32_t(std::max(1, rtSettings.maxInstances))))
+        return;
     rtScene.begin_frame(desc.headless, [this] {
         if (!gpu.committed()) {
             gpu.commit_frame();
