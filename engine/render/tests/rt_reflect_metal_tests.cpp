@@ -576,11 +576,11 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
             if (small.tri < 0) {
                 ++compared;
                 ++misses;
-                const Vec3 expect = environment(sc, r, 0.0f) * tint;
+                // A ray that leaves the scene writes nothing but the -1: the pixel keeps the screen-space march and the probes.
                 CHECK(g[3] == -1.0f);
-                CHECK(g[0] == doctest::Approx(expect.x).epsilon(2e-3).scale(1.0));
-                CHECK(g[1] == doctest::Approx(expect.y).epsilon(2e-3).scale(1.0));
-                CHECK(g[2] == doctest::Approx(expect.z).epsilon(2e-3).scale(1.0));
+                CHECK(g[0] == 0.0f);
+                CHECK(g[1] == 0.0f);
+                CHECK(g[2] == 0.0f);
                 continue;
             }
             // A hit: its distance, then the colour where the hit is well inside its triangle (the normal comes from a differential there).
@@ -636,6 +636,159 @@ TEST_CASE("rt reflect on Metal: the mirror floor shows the boxes and the sky as 
     params.frame[1] = fa::render::rt_effect_seed(13);
     CHECK(trace(materialView, nullptr) == first);
     params = saved;
+
+    // ---- M79-P3a-2: the glossy rays -----------------------------------------------------------------------------------------------------
+    // The roughness limit of 0.65 and eight rays per pixel. The sharp pixels (the floor, roughness 0) must be the bits they were; the green box
+    // (roughness 0.3) is now traced with GGX rays; the red box (0.8) is above the limit and is not.
+    {
+        params.user1[0] = 0.65f;
+        params.frame[2] = 8;
+        const std::vector<float> g1 = trace(materialView, nullptr);
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                const std::size_t i = std::size_t(y) * kW + x;
+                if (primary[i] < 0) continue;
+                const int inst = tris[std::size_t(primary[i])].instance;
+                for (int c = 0; c < 4; ++c) {
+                    if (inst == 0) CHECK(g1[i * 4 + c] == first[i * 4 + c]);  // the mirror floor: unchanged
+                    if (inst == 1) CHECK(g1[i * 4 + c] == 0.0f);              // above the limit: not traced
+                }
+            }
+        // The floor made glossy (0.45): every traced pixel against a CPU port of the kernel (the same PCG, the same VNDF sample, the closest hit
+        // and the shading of the hit) averaged over the rays that hit.
+        std::vector<float> glossyData = materialData;
+        for (std::size_t i = 0; i < pixels; ++i)
+            if (primary[i] >= 0 && tris[std::size_t(primary[i])].instance == 0) glossyData[i * 4] = 0.45f;
+        View glossyView;
+        const gpu::Image glossyImg = rig.make_texture(glossyData, "rt reflect glossy material", glossyView);
+        const std::vector<float> a = trace(glossyView, nullptr);
+        const std::vector<float> a2 = trace(glossyView, nullptr);
+        CHECK(a == a2);  // the same frame twice: the same image, bit for bit
+        params.frame[0] = 13;
+        params.frame[1] = fa::render::rt_effect_seed(13);
+        const std::vector<float> b = trace(glossyView, nullptr);
+        CHECK(a != b);  // another seed: other rays
+        params.frame[0] = 12;
+        params.frame[1] = fa::render::rt_effect_seed(12);
+
+        const auto pcg = [](std::uint32_t v) {
+            const std::uint32_t st = v * 747796405u + 2891336453u;
+            const std::uint32_t w = ((st >> ((st >> 28u) + 4u)) ^ st) * 277803737u;
+            return (w >> 22u) ^ w;
+        };
+        const auto unit = [](std::uint32_t h) { return float(h >> 8u) * (1.0f / 16777216.0f); };
+        int traced = 0, covered = 0, skipped = 0, bad = 0;
+        double errSum = 0.0, magSum = 0.0;
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                const std::size_t i = std::size_t(y) * kW + x;
+                if (primary[i] < 0) continue;
+                const float rough = glossyData[i * 4];
+                if (rough < 0.25f || rough >= 0.65f) continue;
+                const float* g = &a[i * 4];
+                const int inst = tris[std::size_t(primary[i])].instance;
+                const Material& pm = places[std::size_t(inst)].material;
+                const Vec3 tint = lerp(Vec3{1, 1, 1}, pm.albedo, pm.metalness);
+                const Vec3 n = normals[i];
+                const Vec3 view = views[i];
+                const float sg = n.z >= 0.0f ? 1.0f : -1.0f;
+                const float ba = -1.0f / (sg + n.z);
+                const float bb = n.x * n.y * ba;
+                const Vec3 tx{1.0f + sg * n.x * n.x * ba, sg * bb, -sg * n.x};
+                const Vec3 ty{bb, sg + n.y * n.y * ba, -n.y};
+                const Vec3 toViewer = view * -1.0f;
+                const Vec3 ve = normalize(Vec3{dot(tx, toViewer), dot(ty, toViewer), std::max(dot(n, toViewer), 1.0e-3f)});
+                const float alpha = rough * rough;
+                const float offset = params.user0[0] + params.user0[1] * prepass[i * 4];
+                const Vec3 o = positions[i] + n * offset;
+                const Vec3 mirror = normalize(reflect_dir(view, n));
+                std::uint32_t state = pcg(std::uint32_t(x) + pcg(std::uint32_t(y) + pcg(params.frame[1])));
+                Vec3 sum{0, 0, 0};
+                float distSum = 0.0f;
+                int hits = 0;
+                bool edge = false;
+                for (std::uint32_t k = 0; k < 8; ++k) {
+                    state = pcg(state);
+                    const float u1 = (float(k) + unit(state)) * (1.0f / 8.0f);
+                    state = pcg(state);
+                    const float u2 = unit(state);
+                    // GGX visible normals (Heitz 2018), as the kernel samples them.
+                    const Vec3 vh = normalize(Vec3{alpha * ve.x, alpha * ve.y, ve.z});
+                    const float lensq = vh.x * vh.x + vh.y * vh.y;
+                    const Vec3 t1 = lensq > 1.0e-7f ? Vec3{-vh.y, vh.x, 0.0f} * (1.0f / std::sqrt(lensq)) : Vec3{1, 0, 0};
+                    const Vec3 t2 = cross(vh, t1);
+                    const float rr = std::sqrt(u1);
+                    const float phi = 6.28318530717958647692f * u2;
+                    const float aa = rr * std::cos(phi);
+                    float b2 = rr * std::sin(phi);
+                    const float sh = 0.5f * (1.0f + vh.z);
+                    b2 = (1.0f - sh) * std::sqrt(std::max(1.0f - aa * aa, 0.0f)) + sh * b2;
+                    const Vec3 nh = t1 * aa + t2 * b2 + vh * std::sqrt(std::max(1.0f - aa * aa - b2 * b2, 0.0f));
+                    const Vec3 ne = normalize(Vec3{alpha * nh.x, alpha * nh.y, std::max(nh.z, 0.0f)});
+                    const Vec3 lt = reflect_dir(ve * -1.0f, ne);
+                    const Vec3 w = normalize(tx * lt.x + ty * lt.y + n * lt.z);
+                    const Vec3 dir = lt.z > 1.0e-3f ? w : mirror;
+                    const Nearest big = nearest(tris, o, dir, 1e-3f, 0.0f, 10000.0f, 0x07);
+                    const Nearest small = nearest(tris, o, dir, -1e-3f, 0.0f, 10000.0f, 0x07);
+                    if (big.tri != small.tri) {
+                        edge = true;
+                        break;
+                    }
+                    if (small.tri < 0) continue;
+                    const Tri& ht = tris[std::size_t(small.tri)];
+                    if (nearest(tris, o, dir, -0.05f, 0.0f, 10000.0f, 0x07).tri != small.tri) {
+                        edge = true;
+                        break;
+                    }
+                    Vec3 hn = normalize(cross(ht.b - ht.a, ht.c - ht.a));
+                    if (dot(hn, dir) > 0.0f) hn = hn * -1.0f;
+                    const Vec3 p = o + dir * small.t;
+                    const float off = sc.shadowOffset + sc.shadowOffsetPerMetre * small.t;
+                    if ((nearest(tris, p + hn * off, sc.sunDir, 1e-3f, 0.0f, 10000.0f, 0x08).tri >= 0) !=
+                        (nearest(tris, p + hn * off, sc.sunDir, -1e-3f, 0.0f, 10000.0f, 0x08).tri >= 0)) {
+                        edge = true;
+                        break;
+                    }
+                    sum += shade_hit(sc, tris, places[std::size_t(ht.instance)].material, p, hn, dir * -1.0f, small.t) * tint;
+                    distSum += small.t;
+                    ++hits;
+                }
+                if (edge) {
+                    ++skipped;
+                    continue;
+                }
+                ++traced;
+                if (hits == 0) {
+                    CHECK(g[3] == -1.0f);
+                    CHECK(g[0] == 0.0f);
+                    CHECK(g[1] == 0.0f);
+                    CHECK(g[2] == 0.0f);
+                    continue;
+                }
+                ++covered;
+                if (!(g[3] > 0.0f)) {
+                    ++bad;
+                    continue;
+                }
+                const Vec3 expect = sum * (1.0f / float(hits));
+                CHECK(g[3] == doctest::Approx(distSum / float(hits)).epsilon(2e-3));
+                for (int c = 0; c < 3; ++c) {
+                    errSum += std::fabs(g[c] - comp(expect, c));
+                    magSum += std::fabs(comp(expect, c));
+                }
+            }
+        MESSAGE("glossy: compared " << traced << " pixels (" << covered << " with a hit, " << skipped << " skipped on an edge), mean error "
+                                    << (covered ? errSum / (3.0 * covered) : 0.0) << ", mean magnitude "
+                                    << (covered ? magSum / (3.0 * covered) : 0.0));
+        CHECK(traced > 400);
+        CHECK(covered > 100);
+        CHECK(bad == 0);
+        CHECK(errSum <= 0.01 * magSum + 1e-3);  // the mean error is under one percent of the mean radiance
+        dev.destroy_view(glossyView);
+        dev.destroy_image(glossyImg);
+        params.user1[0] = 0.0f;
+        params.frame[2] = 1;
+    }
 
     // Every surface rough: the kernel traces nothing and writes zeros (the screen-space reflections and the probes keep the picture).
     const std::vector<float> rough = trace(roughView, nullptr);

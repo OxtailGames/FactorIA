@@ -58,6 +58,22 @@ SsrPlan make_ssr_plan(const CameraInfo& cam, const PostStack& stack);
 // projection's terms; empty when the camera's matrix cannot be used. `rt` is set.
 SsrPlan make_ssr_rt_plan(const CameraInfo& cam);
 
+// M79-P3a-2: what the composite of the ray traced reflections reads besides the kernel's raw image (shaders/ssr.glsl): the denoiser's results for the
+// glossy pixels (both invalid: not denoised, the raw image serves every traced pixel), the G-buffer's roughness (invalid: every pixel reads as sharp)
+// and the roughness limits. The resources are transients of the frame graph (the trace pass lists the valid ones in its reads).
+// The roughness range of the traced reflections: under kRtReflectSharp one mirror ray per pixel, undenoised (the P3a-1 path); from there to
+// kRtReflectLimit glossy rays (GGX visible normals) denoised; the traced share fades out between kRtReflectFade and kRtReflectLimit, where the
+// screen-space march and the probes take over (their blur matches a rough lobe better than a few noisy rays, and the rays cost the most there).
+constexpr float kRtReflectSharp = 0.25f, kRtReflectFade = 0.5f, kRtReflectLimit = 0.65f;
+struct SsrRtGlossy {
+    ResourceId color, coverage;  // the denoised radiance (rgb premultiplied by the coverage) and the denoised coverage (r)
+    const TransientTargets* targets = nullptr;
+    ResourceId material;         // r = roughness (a transient of `targets`)
+    float sharp = kRtReflectSharp;         // under it: the raw mirror ray
+    float fadeStart = kRtReflectFade;      // from it to `limit` the traced reflection fades into the screen-space march and the probes
+    float limit = kRtReflectLimit;         // the roughest traced pixel
+};
+
 class Ssr {
 public:
     Ssr() = default;
@@ -74,7 +90,7 @@ public:
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rect,
                    int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
                    const PrepassRef& prepass, int* drawCalls, const std::string& job,
-                   const RtEffectImage* rtImage = nullptr, ResourceId rtRes = {});
+                   const RtEffectImage* rtImage = nullptr, ResourceId rtRes = {}, const SsrRtGlossy* glossy = nullptr);
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();
