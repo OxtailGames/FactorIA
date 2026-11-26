@@ -206,6 +206,38 @@ TEST_CASE(
     e.shutdown();
 }
 
+TEST_CASE(
+    "render.ray_tracing: giPixel is inactive and empty until gi is perPixel, then follows the device and says what is "
+    "traced") {
+    TempProject p("gipixel");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("render.ray_tracing", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    REQUIRE(r.result["giPixel"].is_object());
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK(r.result["giPixel"]["reason"] == "");
+    r = c.call("render.ray_tracing", Json::parse(R"({"enabled":true,"gi":"perPixel"})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["gi"] == "perPixel");
+    CHECK(r.result["active"] == r.result["supported"]);  // the per-pixel GI is an effect that draws with rays
+    // No frame has been drawn in this engine: not active, and it says why instead of staying silent.
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK_FALSE(r.result["giPixel"]["reason"].get<std::string>().empty());
+    const std::string reason = r.result["reason"].get<std::string>();
+    REQUIRE_FALSE(reason.empty());
+    CHECK_FALSE(contains(reason, "not made yet"));
+    if (r.result["supported"].get<bool>()) CHECK(contains(reason, "indirect diffuse"));
+    // Another gi value: the per-pixel status is empty again.
+    r = c.call("render.ray_tracing", Json::parse(R"({"gi":"off"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["giPixel"]["active"] == false);
+    CHECK(r.result["giPixel"]["reason"] == "");
+    e.shutdown();
+}
+
 // ---- M79-P5a: render.pathTracer, render.path_tracer and render.pathtrace (docs/RAY_TRACING.md, "The path tracer") ----------------------------------------------
 
 TEST_CASE(

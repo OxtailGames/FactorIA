@@ -29,6 +29,12 @@ const RtEffectKernelSpec kSpecs[] = {
      .usesHit = true,
      .paramsSize = std::uint32_t(sizeof(RtGiParams)),
      .outHalf = true},
+    // M79-P4b-1: the per-pixel GI (rt_gi_pixel.hlsl): the prepass, the records, the hit constants, the probe atlas (the albedo's slot) and the grids' tail.
+    {.kernel = "rt_gi_pixel",
+     .usesRecords = true,
+     .usesHit = true,
+     .paramsSize = std::uint32_t(sizeof(RtGiPixelParams)),
+     .usesAtlas = true},
     // The path tracer: it reads the prepass (what the raster hides), the records and the hit constants, its own image and the lights.
     {.kernel = "rt_pathtrace", .usesRecords = true, .usesHit = true, .readsOut = true, .usesLights = true},
 };
@@ -170,6 +176,8 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         texture(RtEffectBindings::kViewAlbedo, 3, 2, 5);    // t3 / binding 5 / texture(2)
         texture(RtEffectBindings::kViewMaterial, 4, 3, 6);  // t4 / binding 6 / texture(3)
     }
+    if (spec.usesAtlas)
+        texture(RtEffectBindings::kViewAlbedo, 3, 2, 5);             // t3 / binding 5 / texture(2): the probe atlas
     if (spec.usesAux) texture(RtEffectBindings::kViewAux, 5, 4, 7);  // t5 / binding 7 / texture(4)
     if (spec.usesHit || spec.usesLocal) {                            // b1 / binding 7 / buffer(3)
         ShaderUniformBlock& h = d.uniformBlocks[RtEffectBindings::kUniformHit];
@@ -296,6 +304,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
         (spec->usesLocal && (spec->usesHit || spec->usesAux)) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
+        (spec->usesAtlas && (spec->usesGbuffer || !req.atlas)) ||
         (spec->usesAux && !(auxFromImage ? req.auxRes.valid() : req.aux.valid())) ||
         (spec->readsOut && !req.prepass.valid())) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
@@ -405,7 +414,9 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
                usesTlas = spec->usesTlas, usesAux = spec->usesAux, usesLocal = spec->usesLocal;
     const RtHitParams hit = req.hit;
     const RtLightParams lights = req.lights;
-    const bool usesLights = spec->usesLights;
+    const bool usesLights = spec->usesLights, usesAtlas = spec->usesAtlas;
+    const RtGiPixelTail giTail = req.giTail;
+    const std::function<gpu::View()> atlasView = req.atlas;
     const std::function<RtPrepare(RtEffectParams&, const RtEffectImage&)> prepare = req.prepare;
     const RtLocalParams local = req.local;
     const RtEffectImage* srcImage = req.srcImage;
@@ -419,8 +430,9 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
     pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, aux, srcImage, auxImage,
-                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, usesLights, needsSampler, params,
-                    hit, local, lights, prepare, key, name = pass.name](const PassContext& c) {
+                    usesRecords, usesGbuffer, usesHit, usesTlas, usesAux, usesLocal, usesLights, usesAtlas,
+                    needsSampler, params, hit, local, lights, giTail, atlasView, prepare, key,
+                    name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;
@@ -475,6 +487,12 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             b.views[RtEffectBindings::kViewAlbedo] = a->texView;
             b.views[RtEffectBindings::kViewMaterial] = m->texView;
         }
+        if (usesAtlas) {
+            const gpu::View av =
+                atlasView();  // the renderer's probe atlas as it is now (it may have been made again since the plan)
+            if (!av.id) return;
+            b.views[RtEffectBindings::kViewAlbedo] = av;
+        }
         const gpu::Pipeline pip = gpuPtr->compute_pipeline(shader);
         if (gpuPtr->device().state(pip) != gpu::ResourceState::Valid) {
             note_failure(key, "the graphics driver refused the compute pipeline of the kernel " + name);
@@ -493,7 +511,12 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         list->begin_compute_pass(name.c_str());
         list->set_pipeline(pip);
         list->set_bindings(b);
-        list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&frameParams, sizeof frameParams});
+        if (usesAtlas) {
+            const RtGiPixelParams full{frameParams, giTail};
+            list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&full, sizeof full});
+        } else {
+            list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&frameParams, sizeof frameParams});
+        }
         if (usesHit) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&hit, sizeof hit});
         if (usesLights) list->set_uniforms(RtEffectBindings::kUniformLights, gpu::Range{&lights, sizeof lights});
         if (usesLocal) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&local, sizeof local});
