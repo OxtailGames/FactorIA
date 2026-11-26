@@ -154,8 +154,8 @@ public:
 
     // ---- ray tracing (M79; gpu/accel.h has the vocabulary, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md the design)
     // Every call below needs Features::accelerationStructure (a device without it, and a backend whose package has not
-    // landed, answer an error that says so, names the package to come and records nothing). All of them go outside a
-    // pass, on a Graphics or Compute list. An error records nothing.
+    // landed, answer an error that says why: the package to come, or what the device lacks; and record nothing). All of
+    // them go outside a pass, on a Graphics or Compute list. An error records nothing.
     //
     // BARRIERS. The caller records none; the backend derives them from what each call reads and writes:
     //  * before a build: the vertex, index and scratch buffers it reads or writes are in the build-input / scratch
@@ -167,7 +167,16 @@ public:
     //  * after a build and before the next dispatch that traces: the structure's write is visible to a compute
     //    shader's ray query (D3D12 UAV barrier; Vulkan ACCELERATION_STRUCTURE_WRITE -> ACCELERATION_STRUCTURE_READ with
     //    COMPUTE_SHADER stage; Metal: the build is its own encoder, ordered before the compute encoder);
-    //  * before query_compacted_size / copy_accel_structure: the build that wrote the source has finished.
+    //  * before query_compacted_size / copy_accel_structure: the build that wrote the source has finished;
+    //  * before a build writes a structure (or a scratch buffer) that an earlier dispatch traced or an earlier build
+    //    read, the write waits for those reads (write after read: a TLAS rebuilt every frame while the frame before
+    //    still traces it; Vulkan ACCELERATION_STRUCTURE_READ with COMPUTE_SHADER or BUILD stage ->
+    //    ACCELERATION_STRUCTURE_WRITE with BUILD stage).
+    // Vulkan derives all of them from one state per resource (stage + access): a build's dst is AS_WRITE@BUILD
+    // (READ|WRITE for an in-place update), its scratch AS_READ|AS_WRITE@BUILD, its vertex, index and instance buffers
+    // SHADER_READ@BUILD, the BLASes a TLAS build names AS_READ@BUILD|COMPUTE, a TLAS bound for a dispatch
+    // AS_READ@COMPUTE, a copy's source AS_READ@BUILD and its destination AS_WRITE@BUILD; a change between two states
+    // with a write on either side is one barrier.
     //
     // Builds a BLAS from `build.geometries` into build.dst (or refits it with build.update). The checks (each names the
     // call, the field and what to change): dst is a live Blas; 1 to Limits::maxAccelGeometries geometries; triangles
@@ -472,8 +481,9 @@ public:
 
     // ---- ray tracing (M79; gpu/accel.h) ------------------------------------------------------------------------------
     // Features::rayQuery and accelerationStructure say whether any of this works; the defaults below are the answer of a
-    // device without ray tracing (GL, GLES3, WebGL2, D3D11) or whose package has not landed (D3D12: P1d, Vulkan: P1v,
-    // Metal: P1m): an error naming the backend and the package, never a crash and never a silent no-op. Render thread
+    // device without ray tracing (GL, GLES3, WebGL2, D3D11) or whose package has not landed (D3D12: P1d, Metal: P1m): an
+    // error naming the backend and the package, never a crash and never a silent no-op. The Vulkan device overrides
+    // them and refuses on a GPU without the extensions with what it lacks (ray_tracing_status). Render thread
     // only, like every make_*.
     //
     // Whether the engine can trace rays on this device (Features::rayQuery and accelerationStructure) and, when it

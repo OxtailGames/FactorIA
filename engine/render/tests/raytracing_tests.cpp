@@ -176,10 +176,11 @@ TEST_CASE("ray tracing: the reason names where it can run and the package that b
     CHECK(contains(accel_unavailable_reason(Backend::D3d12), "DXR tier 1.1"));
     CHECK(contains(accel_unavailable_reason(Backend::D3d12), "shader model 6.5"));
     CHECK_FALSE(contains(accel_unavailable_reason(Backend::D3d12), "P1d"));
-    CHECK(contains(accel_unavailable_reason(Backend::Vulkan), "P1v"));
+    CHECK(contains(accel_unavailable_reason(Backend::Vulkan), "VK_KHR_ray_query"));
+    CHECK_FALSE(contains(accel_unavailable_reason(Backend::Vulkan), "P1v"));
     CHECK(contains(accel_unavailable_reason(Backend::Metal), "P1m"));
     const Error e = accel_refusal(Backend::Vulkan, "CommandList::build_blas");
-    CHECK(contains(e.message, "gpu: CommandList::build_blas: the vulkan backend"));
+    CHECK(contains(e.message, "gpu: CommandList::build_blas: a vulkan device traces rays only when"));
     CHECK(contains(e.hint, "Device::features()"));
 }
 
@@ -623,12 +624,12 @@ TEST_CASE("renderer.supports: D3D12, Vulkan and Metal say which package brings r
         Backend backend;
         const char* package;
     };
-    for (const Case& c :
-         {Case{FeatureBackend::Headless, Backend::D3d12, "DXR tier 1.1"},
-          Case{FeatureBackend::Headless, Backend::Vulkan, "P1v"}, Case{FeatureBackend::Metal, Backend::Metal, "P1m"}}) {
+    for (const Case& c : {Case{FeatureBackend::Headless, Backend::D3d12, "DXR tier 1.1"},
+                          Case{FeatureBackend::Headless, Backend::Vulkan, "VK_KHR_ray_query"},
+                          Case{FeatureBackend::Metal, Backend::Metal, "P1m"}}) {
         CAPTURE(backend_name(c.backend));
         std::string why;
-        // The device says it cannot (today every backend answers this): the reason names the package.
+        // The device says it cannot: the reason names the package that brings it, or (Vulkan) what the device needs.
         FeatureEnv no = env_of(c.table, c.backend, false, false, accel_unavailable_reason(c.backend));
         CHECK_FALSE(supported(no, "raytracing", &why));
         CHECK(contains(why, c.package));

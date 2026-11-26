@@ -108,8 +108,9 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-validationlayers vulkan-tools
 
       # M79 (inline ray query, docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, "What CI runs"): does lavapipe on this runner
-      # take SPV_KHR_ray_query kernels? An annotation, never a failure: the answer moves with the runner image's Mesa. The
-      # Vulkan ray tracing tests of later packages skip (or not) on what the device reports; this line says which one to expect.
+      # take SPV_KHR_ray_query kernels? An annotation, never a failure: it names the Mesa the runner installed (25.2 from
+      # noble-updates, whose lavapipe traces rays). The test step's FA_VULKAN_REQUIRE_RT=1 is what fails a lavapipe
+      # without ray tracing (render_vulkan_raytracing); this line says why when it does.
       - name: Annotate lavapipe's ray tracing support (Mesa version, VK_KHR_ray_query, VK_KHR_acceleration_structure)
         shell: bash
         run: |
@@ -188,6 +189,7 @@ jobs:
           FA_REQUIRE_SHDC: '1'
           FA_REQUIRE_COMPUTE: '1'  # llvmpipe offers GL 4.5: a runner without compute must fail, not skip the compute tests
           FA_VULKAN_REQUIRE: '1'  # lavapipe and the validation layers are installed above: the Vulkan tests must run
+          FA_VULKAN_REQUIRE_RT: '1'  # Mesa 25.2's lavapipe traces rays: the Vulkan ray tracing cases must run, not skip
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary
