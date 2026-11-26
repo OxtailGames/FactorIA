@@ -245,6 +245,7 @@ Runs registered commands on a headless engine and prints the JSON result. Argume
 (e.g. a project tool's `ToolError`), `data: {...}` on stderr, exit 1; `--json` also prints
 `{"ok":false,"error":{code,message,hint,data}}` on stdout. Outside a project a scratch
 project is used, so `docs.*` and `project.create` work anywhere. Options: `--project DIR`, `--scene S` (start scene),
+`--no-scene` (start with an empty world: no scene is loaded and no script of a scene runs; for sessions that only need the commands, as the lightmap bake's helper; refused with `--scene`),
 `--seed N`, `--date YYYY-MM-DD` (the date `game.today()` returns, default `2026-01-01`), `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
 stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
 `--render-all`, `--persist-storage`.
@@ -287,7 +288,7 @@ JSON merge-patch (RFC 7386) so that `Script.props` can be changed key by key: `f
 
 ### `factoria session [project] [options]`
 A JSON-lines loop on ONE engine for AIs without MCP: read one request per stdin line, write one JSON answer per stdout
-line. State persists between lines. Same options as `call` (`--scene`, `--press`, `--input`, `--frames-before`, ...).
+line. State persists between lines. Same options as `call` (`--scene`, `--no-scene`, `--press`, `--input`, `--frames-before`, ...).
 ```
 $ factoria session
 {"ready":true,"project":"/work/game","graphics":true,"frame":0,"commands":46}

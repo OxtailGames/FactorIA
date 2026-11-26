@@ -438,9 +438,19 @@ void add(std::string& what, const std::string& problem) {
 
 }  // namespace
 
+void RecordingDevice::fail_next_make_buffer(const std::string& label, int count) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    failBufferLabel_ = label;
+    failBufferCount_ = std::max(0, count);
+}
+
 Buffer RecordingDevice::make_buffer(const BufferDesc& d) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string what;
+    if (failBufferCount_ > 0 && (failBufferLabel_.empty() || (d.label && failBufferLabel_ == d.label))) {
+        --failBufferCount_;
+        add(what, "injected fault (RecordingDevice::fail_next_make_buffer): the device is out of memory");
+    }
     if (d.size == 0) add(what, "BufferDesc::size is 0");
     if (d.data.ptr && d.data.size > d.size)
         add(what,

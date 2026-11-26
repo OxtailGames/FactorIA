@@ -17,6 +17,7 @@
 // With the scene off (never configured, or released) every call is a branch and returns: no buffer, no BLAS, no work.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -161,6 +162,14 @@ public:
         return it == blas_.end() ? gpu::AccelStructure{} : it->second.structure;
     }
     std::size_t retired_count() const { return graveyard_.size(); }
+    // Tests: lower the builds of a frame (kMaxBuildsPerFrame by default) to see a scene whose rebuilds outnumber the budget without
+    // thousands of instances; the frame count and the frame of a BLAS's last full build.
+    void set_builds_per_frame(std::uint32_t n) { buildsPerFrame_ = std::min(n, kMaxBuildsPerFrame); }
+    std::uint64_t frame_counter() const { return frameCounter_; }
+    std::uint64_t blas_built_frame(std::uint32_t id) const {
+        const auto it = blas_.find(id);
+        return it == blas_.end() ? 0 : it->second.builtFrame;
+    }
 
 private:
     enum class State : std::uint8_t { Pending, Built, Queried, Reading, CopyPending, Swap, Compacted, Failed };
@@ -277,6 +286,7 @@ private:
     std::vector<std::uint32_t> copyPending_;  // their compacted size came back: record() copies them
     std::vector<std::uint32_t> swap_;         // copied last frame: begin_frame() swaps the compact one in
     std::uint64_t frameCounter_ = 0;
+    std::uint32_t buildsPerFrame_ = kMaxBuildsPerFrame;  // set_builds_per_frame
     // The skinned instances: BLAS id by (entity, mesh, part) (only looked up, never walked in order), the palettes of the frame (collect() copies
     // each distinct one, kRtSkinPaletteFloats floats), and the buffer record() writes them to.
     std::map<SkinKey, std::uint32_t> skinned_;

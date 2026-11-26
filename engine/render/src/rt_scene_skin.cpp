@@ -357,7 +357,18 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
         firsts.end());
     if (!ensure_palette_buffer()) return;
     const std::uint64_t alignment = std::max<std::uint32_t>(1, device_->accel_scratch_alignment());
-    std::uint64_t offset = 0, high = 0;
+    // Pass 1: what each BLAS wants. A first build (the instance is not in the TLAS without it) is granted in id order; the rebuilds that
+    // are due (the periodic one, the box jump) share what is left of the frame's build budget, the most urgent first, so that a crowd whose
+    // rebuilds are more than the budget (4096 instances over 16 frames of 256 builds) is rebuilt oldest first and no id waits for ever.
+    struct Entry {
+        SkinWork w;
+        bool firstBuild = false;
+        bool rebuildDue = false;
+        bool jumped = false;
+        std::uint64_t age = 0;
+    };
+    std::vector<Entry> entries;
+    entries.reserve(firsts.size());
     for (const Item* it : firsts) {
         auto bi = blas_.find(it->blasId);
         if (bi == blas_.end() || bi->second.state == State::Failed) continue;
@@ -371,32 +382,56 @@ void RtScene::plan_skin(std::vector<SkinWork>& work, std::uint32_t buildBudget, 
                                   b.mesh->key, b.part));
             continue;
         }
-        SkinWork w;
-        w.id = b.id;
-        w.boneMin = it->boneMin;
-        w.boneMax = it->boneMax;
-        w.paletteIndex = it->paletteIndex;
+        Entry e;
+        e.w.id = b.id;
+        e.w.boneMin = it->boneMin;
+        e.w.boneMax = it->boneMax;
+        e.w.paletteIndex = it->paletteIndex;
         if (b.state == State::Pending) {
-            if (buildBudget == 0) continue;  // the builds of a frame are bounded: it joins the TLAS in a later frame
-            --buildBudget;
-            w.full = true;
-        } else if ((frameCounter_ >= b.builtFrame + kSkinRebuildFrames &&
-                    (frameCounter_ + b.id) % kSkinRebuildSpread == 0) ||
-                   extent_jumped(b.builtMin, b.builtMax, w.boneMin, w.boneMax)) {
+            e.firstBuild = true;
+        } else {
+            e.age = frameCounter_ > b.builtFrame ? frameCounter_ - b.builtFrame : 0;
             // The periodic rebuild waits for its phase (the id mod kSkinRebuildSpread): BLASes made in one frame do not all rebuild in one.
-            if (buildBudget > 0) {
-                --buildBudget;
-                w.full = true;
-            }  // else: a refit this frame, the rebuild a later one
+            // One that is a whole spread overdue (its phases went by with no budget left) no longer waits for its phase.
+            const bool periodic =
+                e.age >= kSkinRebuildFrames && ((frameCounter_ + b.id) % kSkinRebuildSpread == 0 ||
+                                                e.age >= std::uint64_t(kSkinRebuildFrames) + kSkinRebuildSpread);
+            e.jumped = extent_jumped(b.builtMin, b.builtMax, e.w.boneMin, e.w.boneMax);
+            e.rebuildDue = periodic || e.jumped;
         }
-        const std::uint64_t need = std::max<std::uint64_t>(1, w.full ? b.buildScratch : b.updateScratch);
+        entries.push_back(e);
+    }
+    for (Entry& e : entries)
+        if (e.firstBuild && buildBudget > 0) {
+            --buildBudget;
+            e.w.full = true;
+        }
+    std::vector<std::uint32_t> due;
+    for (std::uint32_t i = 0; i < entries.size(); ++i)
+        if (entries[i].rebuildDue) due.push_back(i);
+    std::stable_sort(due.begin(), due.end(), [&](std::uint32_t a, std::uint32_t b) {
+        if (entries[a].jumped != entries[b].jumped) return entries[a].jumped;
+        return entries[a].age > entries[b].age;
+    });
+    for (std::uint32_t i : due) {
+        if (buildBudget == 0) break;  // a refit this frame, the rebuild a later one (older first)
+        --buildBudget;
+        entries[i].w.full = true;
+    }
+    // Pass 2, in id order: the scratch memory of each.
+    std::uint64_t offset = 0, high = 0;
+    for (Entry& e : entries) {
+        if (e.firstBuild && !e.w.full)
+            continue;  // the builds of a frame are bounded: it joins the TLAS in a later frame
+        const Blas& b = blas_.at(e.w.id);
+        const std::uint64_t need = std::max<std::uint64_t>(1, e.w.full ? b.buildScratch : b.updateScratch);
         offset = round_up(offset, alignment);
         if (offset + need > kSkinScratchBytes)
             offset = 0;  // past the budget the builds share the start: the backend serializes them
-        w.scratchOffset = std::size_t(offset);
+        e.w.scratchOffset = std::size_t(offset);
         offset += need;
         high = std::max(high, offset);
-        work.push_back(w);
+        work.push_back(e.w);
     }
     scratchNeed = high;
 }
