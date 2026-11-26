@@ -1408,6 +1408,10 @@ int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hiz
 render::RtScene* RendererTestAccess::rt_scene(Renderer& r) { return r.impl_ ? &r.impl_->rtScene : nullptr; }
 render::RtEffects* RendererTestAccess::rt_effects(Renderer& r) { return r.impl_ ? &r.impl_->rtEffects : nullptr; }
 render::RtGiProbes* RendererTestAccess::rt_gi(Renderer& r) { return r.impl_ ? &r.impl_->rtGi : nullptr; }
+std::vector<float> RendererTestAccess::gi_rt_bounce_flags(Renderer& r) {
+    return r.impl_ ? r.impl_->probes.gi.rtBounceLog : std::vector<float>{};
+}
+std::size_t RendererTestAccess::path_trace_jobs(Renderer& r) { return r.impl_ ? r.impl_->ptState.jobs.size() : 0; }
 render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {
     if (!r.impl_) return {};

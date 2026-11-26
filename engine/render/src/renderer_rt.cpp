@@ -151,6 +151,7 @@ void Renderer::Impl::rt_begin_frame() {
         ptState.clear();  // off (or nothing traces here): the accumulation starts over when it is turned on
     }
     rtScene.set_track_changes(ptSettings.enabled);
+    ptState.purge(frameSerial + 1);  // the cameras that drew no path traced frame for two frames
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
         rtLocalSlots.clear();
