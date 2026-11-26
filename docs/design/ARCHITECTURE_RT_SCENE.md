@@ -3,8 +3,8 @@
 What the renderer puts in the BLASes and the TLAS each frame, and the record buffer the ray query kernels read. The seam it is written
 against (`fa::gpu`'s `build_blas`, `build_tlas`, `query_compacted_size`, `copy_accel_structure`, the sizes and the barriers) is in
 [ARCHITECTURE_RENDERING_RAYTRACING.md](ARCHITECTURE_RENDERING_RAYTRACING.md); the user-facing description (the instance cap, which objects
-are traced) is docs/RAY_TRACING.md. Code: `engine/render/src/rt_scene.h`, `rt_scene.cpp` (the scene), `rt_records.h` (the record layout),
-`renderer_rt.cpp` (the settings and the device), `engine/render/shaders/rt/rt_records.hlsli` (the layout for the kernels). Tests:
+are traced) is docs/RAY_TRACING.md. Code: `engine/render/src/rt_scene.h`, `rt_scene.cpp` (the scene), `rt_scene_skin.cpp` and `rt_skin.h` (skinned meshes), `rt_records.h` (the record layout),
+`renderer_rt.cpp` (the settings and the device), `engine/render/shaders/rt/rt_records.hlsli` (the layout for the kernels), `engine/render/shaders/rt_skin.glsl` (the skinning kernel). Tests:
 `engine/render/tests/rt_scene_tests.cpp`.
 
 The scene is written against `fa::gpu` only and is tested on the `RecordingDevice` made with `DeviceInit::recordingRayTracing`: every
@@ -82,7 +82,7 @@ What is **not** traced, and why (each has a counter in `RtSceneStats`):
 |---|---|---|
 | nodes of a `Terrain` | `skippedTerrain` | heightfield tiles; the terrain's own ray path comes later, and a tile is not a mesh asset |
 | impostor cards | `skippedImpostor` | a card is a picture of a mesh, not a surface. While an entity is an impostor it is **not traced** (a choice: a flat card would cast a card-shaped shadow and show a flat picture in a reflection, and an impostor is far away by definition) |
-| skinned meshes (an item with an `Animator`) | `skippedSkinned` | the BLAS would be the bind pose, which a skinned draw never shows. **P1k (compute skinning, then a refit of the BLAS) replaces this branch.** `RtScene::onSkinned` is called for each one, and one `INFO` line says so once |
+| skinned meshes over the skinned budget, or with no skinning program | `skippedSkinned` | a skinned mesh **is traced** ("Skinned meshes" below); only what the budget or a driver that refuses the kernel leaves out is counted, with one teaching `WARN` |
 | the level fading out of a LOD cross-fade | `skippedFading` | the level fading in is traced (one level per instance). A foliage's fade is a distance fade, not a cross-fade: it is traced |
 | meshes drawn from compute buffers (`MaterialAsset::buffers`) | `skippedGpuDriven` | their instances are where the buffer puts them, which only the GPU knows |
 | placeholders, parts with no triangles | `skippedUntraceable` | nothing a build can read |
@@ -124,16 +124,72 @@ roughness and metalness from the part when the model has PBR values and from the
 record has the `MeshRenderer`'s constants and the `CustomMaterial` flag, so the kernel knows the colour is an approximation. An unlit mesh
 (`unlit`, a material with `lighting: "unlit"`, or a material that failed to compile) has the `Unlit` flag.
 
+The flags (`kRtFlag*`, the same values in `rt_records.hlsli`): `Opaque` 1<<0, `Cutout` 1<<1, `TwoSided` 1<<2, `Blended` 1<<3, `Unlit` 1<<4,
+`Foliage` 1<<5, `CastsShadow` 1<<6, `CustomMaterial` 1<<7, `Skinned` 1<<8 (the BLAS is the instance's own and holds the pose of this frame).
+
 Buffers: the records buffer (`storageBuffer` + `writeTransient`, grown by powers of two, at least 256 records) is written with one
 `write_buffer` before the TLAS build; the TLAS is made again when its capacity grows; the scratch buffer (`accelScratch`) is the larger of
 the builds' needs. The records and the TLAS are valid (`tlas()`, `records_buffer()`) once a frame has an instance; with none they are the
 invalid handles.
 
+## Skinned meshes
+
+A skinned draw moves its vertices in the vertex shader (`fa_skin_matrix`, the Animator's palette), so a BLAS of the bind pose would put the
+shadow and the reflection of a character where it is not. A skinned item (`mi.anim` set and the part with a skin buffer) is therefore traced
+from a **BLAS of its own** that holds the pose of the frame. Only while the scene is on: with ray tracing off or unsupported nothing of this
+exists (no kernel program, no palette buffer, no BLAS, no dispatch) and the frame is the one it was.
+
+**The kernel.** `engine/render/shaders/rt_skin.glsl` (sokol-shdc, a compute shader, 64 threads a group, like `hiz.glsl`) does for each vertex
+the blend of the vertex shader: the same four joints (the joint bytes of the skin buffer, clamped to 63), the same weights, the same palette
+(64 joints, three `vec4` rows each; `rt_skin_pack_palette` in `rt_skin.h` writes it like `pack_palette` of the draw, the joints the palette
+does not have are the identity), the rows blended first and the three dots after. It writes the model-space position (three floats, no padding)
+into a buffer the BLAS is built from; the instance keeps its own `mi.model`. `rt_skin_position` in `rt_skin.h` is the same maths on the CPU; a
+test checks it against the formula. The kernel reads the part's vertex and skin buffers as storage: `Assets` gives them `storageBuffer` usage
+(next to `accelBuildInput`) while the scene is on and the device has compute. The program is made on first use by
+`Renderer::Impl::rt_skin_pipeline` and handed to the scene (`RtScene::skinKernel`); a driver that refuses it leaves the skinned instances out
+(`skippedSkinned`, one `WARN`).
+
+**One BLAS per instance** (key: entity, mesh asset, part), not per asset: two characters of one asset have two poses. Its geometry is the
+output buffer (stride 12, `Float3`) and the asset's index buffer, of the LOD level the item draws. It is built with `allowUpdate`,
+`preferFastTrace` and **never compacted** (it changes every frame). Static parts of the same asset keep their shared BLAS (made on the first
+non-animated item that draws them).
+
+**Per frame, in the `rt-accel` pass** (the backends derive the barriers between the steps): write the frame's palettes (one `write_buffer`; an
+Animator shared by several items is one palette), the compute pass `rt-skin` (one dispatch per instance), the static builds, the skinned builds,
+the compaction copies and records, the TLAS. Scratch is per build: the builds are laid side by side in the scratch buffer (aligned, up to
+`kSkinScratchBytes` = 64 MiB; past it the builds share the start of the buffer and the backend serializes them).
+
+**Refit or rebuild.** A first build is a build from scratch; after it every frame is a refit (`update`, in place, same counts), which is cheap
+but makes the structure worse the more the mesh moves from the pose it was built for. So an instance is **rebuilt** from scratch every
+`kSkinRebuildFrames` (60) frames, and at once when the box of its bones' reach jumps by more than `kSkinExtentJump` (0.35) of the largest side
+of the box it was built for (a teleported bone, a changed clip; NaN counts as a jump). A rebuild spends the frame's build budget
+(`kMaxBuildsPerFrame` minus the static builds) and is a refit when none is left, so a crowd's rebuilds spread over the frames instead of
+landing together. Every choice depends on the frame count and the palettes only, never on the clock.
+
+**Budget** (deterministic work counts): at most `kMaxSkinnedInstances` (4096) instances and `kMaxSkinnedVertices` (2^22) skinned vertices a
+frame, the nearest to the main camera first (a stable sort, ties in the order the items came), and parts of at most `kRtSkinMaxPartVertices`
+(65535 groups x 64) vertices. What is over is left out of the TLAS, counted in `skippedSkinned`, with one `WARN` that names a mesh, the
+limits and the fix (fewer vertices, a lower LOD, fewer animated characters in view).
+
+**Freeing.** An instance that stops coming, or an asset that goes (`forget`), frees its BLAS: the structure goes to the **graveyard**
+(`retire_blas`) and is destroyed `kRetireFrames` (4) frames later, because a TLAS built in an earlier frame may still name it (a TLAS never
+keeps its BLASes alive, see "One BLAS per submesh"); the output buffer and its view are destroyed at once (the device defers them). A
+BLAS whose mesh changed (buffers or LOD) is freed and made again. `release()` empties the graveyard.
+
+Counters of `RtSceneStats`: `skinnedInstances`, `skinnedDispatches`, `skinnedBuilds`, `skinnedRefits`, `skinnedVertices` (of the last frame).
+
+Tests (`rt_scene_tests.cpp`, "rt skin: ..."): one dispatch and one build with `allowUpdate` in the first frame, refits to frame 60 and a rebuild
+in 61, an extent jump rebuilds and a small move does not, two instances of one asset have two BLASes (and a static one a third), removal frees
+the buffer at once and the structure after the frames in flight, off allocates and records nothing, no program and over the budget warn once,
+the same stream twice, the CPU twin against the formula, and a real skinned glTF through the renderer with rays on and off.
+The kernel itself is not run in these tests (the `RecordingDevice` runs nothing, and the suite has no compute readback on a real device):
+its maths is the CPU twin's and the bytes it reads are those of the draw.
+
 ## The frame graph pass
 
 `rt-accel` is the first pass of the main camera's job (a **side-effect** pass: nothing in the graph reads what it makes yet, and a pass
-with a side effect is never culled). It records outside any render pass, in this order: each new BLAS build followed by its compaction query, the compaction copies, the records'
-`write_buffer`, the TLAS build (the backends put the barriers between them, ARCHITECTURE_RENDERING_RAYTRACING.md, "Barriers"). The effects of
+with a side effect is never culled). It records outside any render pass, in this order: the skinning (palettes, `rt-skin` compute pass), each new BLAS build followed by its
+compaction query, the skinned builds and refits, the compaction copies, the records' `write_buffer`, the TLAS build (the backends put the barriers between them, ARCHITECTURE_RENDERING_RAYTRACING.md, "Barriers"). The effects of
 later packages add their compute passes after it and declare the TLAS they read.
 
 ## The floating origin

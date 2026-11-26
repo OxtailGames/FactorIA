@@ -17,6 +17,7 @@ static const uint kRtFlagUnlit = 1u << 4;
 static const uint kRtFlagFoliage = 1u << 5;
 static const uint kRtFlagCastsShadow = 1u << 6;
 static const uint kRtFlagCustomMaterial = 1u << 7;
+static const uint kRtFlagSkinned = 1u << 8;
 
 // The instance mask bits of the TLAS (the ray's InstanceInclusionMask).
 static const uint kRtMaskOpaque = 0x01;

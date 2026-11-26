@@ -11,6 +11,8 @@
 #include "fa/core/log.h"
 #include "render_internal.h"
 #include "render_jobs.h"
+#include "render_scene.h"
+#include "rt_skin.h"
 
 namespace fa::render {
 
@@ -31,8 +33,8 @@ std::uint64_t round_up_u64(std::uint64_t v, std::uint64_t unit) { return (v + un
 
 gpu::AccelBuildFlags blas_flags() {
     gpu::AccelBuildFlags f;
-    f.preferFastTrace = true;   // built once, traced every frame
-    f.allowCompaction = true;   // query_compacted_size + copy (Compact) after the first build
+    f.preferFastTrace = true;  // built once, traced every frame
+    f.allowCompaction = true;  // query_compacted_size + copy (Compact) after the first build
     return f;
 }
 
@@ -53,6 +55,7 @@ std::uint64_t mesh_signature(const MeshAsset& m) {
     mix(m.parts.size());
     for (const SubMesh& p : m.parts) {
         mix(p.vb.id);
+        mix(p.skinVb.id);
         mix(p.ib.id);
         mix(std::uint64_t(std::uint32_t(p.ibOffset)));
         mix(std::uint64_t(std::uint32_t(p.vertexCount)));
@@ -117,7 +120,16 @@ void RtScene::free_blas(std::uint32_t id) {
     auto it = blas_.find(id);
     if (it == blas_.end()) return;
     Blas& b = it->second;
-    if (b.slot >= 0 && b.state == State::Queried) freeSlots_.push_back(b.slot);  // a Reading one frees its slot when the answer comes
+    if (b.skinned) {  // its own buffer and view go with it; the structure waits for the frames in flight
+        skinned_.erase(SkinKey{b.entity, b.mesh, b.part});
+        if (b.outView.id) device_->destroy_view(b.outView);
+        if (b.positions.id) device_->destroy_buffer(b.positions);
+        if (b.structure.id) retire_blas(b.structure);
+        blas_.erase(it);
+        return;
+    }
+    if (b.slot >= 0 && b.state == State::Queried)
+        freeSlots_.push_back(b.slot);  // a Reading one frees its slot when the answer comes
     if (b.structure.id) device_->destroy_accel_structure(b.structure);
     if (b.compact.id) device_->destroy_accel_structure(b.compact);
     const auto drop = [id](std::vector<std::uint32_t>& v) { v.erase(std::remove(v.begin(), v.end(), id), v.end()); };
@@ -132,10 +144,20 @@ void RtScene::free_mesh_entry(MeshEntry& e) {
     for (std::uint32_t id : e.blas)
         if (id) free_blas(id);
     e.blas.clear();
+    for (SkinSource& s : e.sources) {
+        if (s.vbView.id) device_->destroy_view(s.vbView);
+        if (s.skinView.id) device_->destroy_view(s.skinView);
+    }
+    e.sources.clear();
 }
 
 void RtScene::forget(const MeshAsset* mesh) {
     if (!device_) return;
+    std::vector<std::uint32_t>
+        mine;  // the skinned instances of the asset (their entities may live on: they are made again if it comes back)
+    for (const auto& [id, b] : blas_)
+        if (b.skinned && b.mesh == mesh) mine.push_back(id);
+    for (std::uint32_t id : mine) free_blas(id);
     auto it = meshes_.find(mesh);
     if (it == meshes_.end()) return;
     free_mesh_entry(it->second);
@@ -144,6 +166,7 @@ void RtScene::forget(const MeshAsset* mesh) {
 
 void RtScene::release() {
     if (device_) {
+        release_skin();
         if (readTicket_.valid()) device_->release_buffer_read(readTicket_);
         for (auto& [id, b] : blas_) {
             if (b.structure.id) device_->destroy_accel_structure(b.structure);
@@ -181,7 +204,7 @@ void RtScene::release() {
     cap_ = 0;
     maxInstances_ = 0;
     stats_ = {};
-    warnedCap_ = warnedSkinned_ = warnedBlas_ = warnedRead_ = false;
+    warnedCap_ = warnedSkinned_ = warnedBlas_ = warnedRead_ = warnedSkinKernel_ = false;
 }
 
 void RtScene::shift(const Vec3& offset) {
@@ -256,12 +279,13 @@ void RtScene::poll_compaction(bool headless, const std::function<void()>& commit
             if (it != blas_.end() && it->second.state == State::Reading) it->second.state = State::Built;
         }
         reading_.clear();
-        warn_once(warnedRead_, "the compacted size of a BLAS could not be read back", why +
-                  " The acceleration structures stay at their built size (more memory, the same picture).");
+        warn_once(warnedRead_, "the compacted size of a BLAS could not be read back",
+                  why + " The acceleration structures stay at their built size (more memory, the same picture).");
     };
     std::vector<std::uint8_t> bytes;
     if (readTicket_.valid()) {
-        if (!device_->poll_buffer_read(readTicket_, bytes, headless)) return;  // not there yet: the next frame asks again
+        if (!device_->poll_buffer_read(readTicket_, bytes, headless))
+            return;  // not there yet: the next frame asks again
         readTicket_ = {};
         apply(bytes);
     }
@@ -302,6 +326,7 @@ void RtScene::begin_frame(bool headless, const std::function<void()>& commit) {
     collected_ = false;
     if (!device_) return;
     ++frameCounter_;
+    collect_retired(false);
     // The compacted copies the frame before recorded are done: the compact BLAS takes the place of the original (which goes once no
     // submitted list uses it: Device::destroy_accel_structure defers).
     for (std::uint32_t id : swap_) {
@@ -376,8 +401,10 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
     stats_.candidates = stats_.instances = stats_.droppedOverCap = 0;
     stats_.skippedSkinned = stats_.skippedImpostor = stats_.skippedTerrain = stats_.skippedFading = 0;
     stats_.skippedGpuDriven = stats_.skippedUntraceable = stats_.skippedNoBlas = 0;
+    stats_.skinnedInstances = 0;
     stats_.cap = cap_;
     if (!device_) return;
+    paletteCount_ = 0;
     items_.reserve(opaque.size() + blended.size());
     for (int list = 0; list < 2; ++list) {
         const bool isBlended = list == 1;
@@ -392,20 +419,8 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 ++stats_.skippedImpostor;
                 continue;
             }
-            if (mi.anim) {
-                ++stats_.skippedSkinned;
-                if (onSkinned) onSkinned(mi);
-                if (!warnedSkinned_) {
-                    warnedSkinned_ = true;
-                    FA_INFO("render",
-                            "Ray tracing scene: skinned meshes (e.g. entity '{}') are not traced yet: the acceleration structure "
-                            "is built from the bind pose, which a skinned draw never shows, so they are left out of it. Hint: "
-                            "nothing to change; a later version skins them on the GPU and refits their structure.",
-                            mi.mesh->key);
-                }
-                continue;
-            }
-            if (mi.lodFade < 0.0f && !mi.foliage) {  // the level fading out: the level fading in (or settled) is the pick
+            if (mi.lodFade < 0.0f &&
+                !mi.foliage) {  // the level fading out: the level fading in (or settled) is the pick
                 ++stats_.skippedFading;
                 continue;
             }
@@ -430,6 +445,12 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                     e.blas.assign(mesh.parts.size(), 0);
                     e.untraceable.assign(mesh.parts.size(), 0);
                     for (std::size_t p = 0; p < mesh.parts.size(); ++p) {
+                        if (mesh.parts[p]
+                                .skinVb
+                                .id) {  // a skinned part: its BLAS is the instance's own; a static one only if an item draws it unskinned
+                            e.untraceable[p] = 2;
+                            continue;
+                        }
                         bool bad = false;
                         e.blas[p] = blas_for(mesh, p, mesh.key, bad);
                         e.untraceable[p] = bad ? 1 : 0;
@@ -446,16 +467,44 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
             const Color emissive = to_scene(mr.emissive, linear);
             const float dist = length(mi.model.translation() - camera);
             for (std::size_t p = 0; p < mesh.parts.size(); ++p) {
-                const std::uint32_t id = e.blas[p];
-                if (!id) {
-                    ++stats_.skippedUntraceable;
-                    continue;
-                }
                 const SubMesh& part = mesh.parts[p];
+                // A part the Animator's palette deforms (the draw's own test): traced from its own BLAS, made after the cap (prepare_skinned).
+                const bool skinnedPart = mi.anim && part.skinVb.id;
+                std::uint32_t id = 0;
+                if (skinnedPart) {
+                    const int indices = part.indexCount - part.indexCount % 3;
+                    if (!part.vb.id || !part.ib.id || part.vertexCount < 3 || indices < 3) {
+                        ++stats_.skippedUntraceable;
+                        continue;
+                    }
+                    if (std::uint32_t(part.vertexCount) > kRtSkinMaxPartVertices) {
+                        ++stats_.skippedSkinned;
+                        warn_skin_budget(mesh.key, std::uint32_t(part.vertexCount));
+                        continue;
+                    }
+                } else {
+                    if (e.untraceable[p] ==
+                        2) {  // a skinned part drawn in its bind pose (an item with no palette): the static BLAS, made now
+                        bool bad = false;
+                        e.blas[p] = blas_for(mesh, p, mesh.key, bad);
+                        e.untraceable[p] = bad ? 1 : 0;
+                    }
+                    id = e.blas[p];
+                    if (!id) {
+                        ++stats_.skippedUntraceable;
+                        continue;
+                    }
+                }
                 Item it;
                 it.mesh = mi.mesh;
                 it.part = std::uint32_t(p);
                 it.blasId = id;
+                if (skinnedPart) {
+                    it.skinned = true;
+                    it.entity = mi.entity.bits();
+                    it.palette = &palette_of(*mi.anim, part.skin);
+                    it.vertexCount = std::uint32_t(part.vertexCount);
+                }
                 it.entityId = std::uint32_t(mi.entity.bits());
                 it.dist = dist;
                 // The transform: row-major 3x4 from the column-major matrix.
@@ -464,8 +513,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 const bool twoSided = part.doubleSided || (matOk && mat->doubleSided);
                 bool authored = false;
                 const Color pc = matError ? Color{1, 0, 1, 1} : part_base_color(mr, part, &authored);
-                const Color base =
-                    matError ? pc : to_scene(mr.color, linear) * (authored ? to_scene(pc, linear) : pc);
+                const Color base = matError ? pc : to_scene(mr.color, linear) * (authored ? to_scene(pc, linear) : pc);
                 RtInstanceRecord& rec = it.record;
                 std::memcpy(rec.objectToWorld, it.instance.transform, sizeof(rec.objectToWorld));
                 rec.albedo[0] = base.r;
@@ -493,6 +541,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
                 if (mi.foliage) flags |= kRtFlagFoliage;
                 if (mr.castShadows) flags |= kRtFlagCastsShadow;
                 if (matOk) flags |= kRtFlagCustomMaterial;
+                if (skinnedPart) flags |= kRtFlagSkinned;
                 rec.flags = flags;
                 rec.blasId = id;
                 std::uint8_t mask = isBlended ? kRtMaskBlended : (cutout ? kRtMaskCutout : kRtMaskOpaque);
@@ -527,15 +576,22 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         if (!warnedCap_) {
             warnedCap_ = true;
             FA_WARN("render",
-                    "Ray tracing scene: the scene has {} instances but the acceleration structure holds {} (render.rayTracing.maxInstances "
-                    "is {}{}): the {} farthest from the main camera are not traced, so they cast no ray-traced shadow and appear in no "
+                    "Ray tracing scene: the scene has {} instances but the acceleration structure holds {} "
+                    "(render.rayTracing.maxInstances "
+                    "is {}{}): the {} farthest from the main camera are not traced, so they cast no ray-traced shadow "
+                    "and appear in no "
                     "reflection. Hint: raise render.rayTracing.maxInstances (up to {}), or draw fewer objects.",
                     total, cap_, maxInstances_,
-                    cap_ < maxInstances_ ? std::format("; this GPU allows {}", device_->limits().maxAccelInstances) : std::string(),
-                    stats_.droppedOverCap, std::uint64_t(device_->limits().maxAccelInstances ? std::min<std::uint32_t>(device_->limits().maxAccelInstances, kRtMaxInstanceIndex + 1)
-                                                                  : kRtMaxInstanceIndex + 1));
+                    cap_ < maxInstances_ ? std::format("; this GPU allows {}", device_->limits().maxAccelInstances)
+                                         : std::string(),
+                    stats_.droppedOverCap,
+                    std::uint64_t(
+                        device_->limits().maxAccelInstances
+                            ? std::min<std::uint32_t>(device_->limits().maxAccelInstances, kRtMaxInstanceIndex + 1)
+                            : kRtMaxInstanceIndex + 1));
         }
     }
+    prepare_skinned(camera);
     stats_.blasLive = std::uint32_t(blas_.size());
 }
 
@@ -577,10 +633,29 @@ void RtScene::record(gpu::CommandList& list) {
     }
     const auto is_building = [&](std::uint32_t id) { return std::binary_search(building.begin(), building.end(), id); };
     // pending_ is in creation order = increasing id, so `building` is sorted.
+    // The skinned BLASes this frame builds or refits (the skinning dispatches come first), in id order.
+    std::vector<SkinWork> skinWork;
+    std::uint64_t skinScratch = 0;
+    plan_skin(skinWork, std::uint32_t(kMaxBuildsPerFrame - building.size()), skinScratch);
+    const auto skin_ready = [&](std::uint32_t id) {
+        const auto at = std::lower_bound(skinWork.begin(), skinWork.end(), id,
+                                         [](const SkinWork& w, std::uint32_t v) { return w.id < v; });
+        return at != skinWork.end() && at->id == id;
+    };
     std::vector<const Item*> kept;
     kept.reserve(items_.size());
     std::uint32_t waiting = 0;
+    stats_.skinnedInstances = 0;
     for (const Item& it : items_) {
+        if (it.skinned) {
+            if (skin_ready(it.blasId)) {
+                kept.push_back(&it);
+                ++stats_.skinnedInstances;
+            } else {
+                ++waiting;
+            }
+            continue;
+        }
         auto b = blas_.find(it.blasId);
         if (b == blas_.end() || b->second.state == State::Failed) {
             ++waiting;
@@ -595,10 +670,11 @@ void RtScene::record(gpu::CommandList& list) {
     stats_.skippedNoBlas = waiting;
     const std::uint32_t n = std::uint32_t(kept.size());
     // Memory first (it may make buffers), then the work.
-    std::uint64_t scratchNeed = 0;
+    std::uint64_t scratchNeed = skinScratch;
     for (std::uint32_t id : building) scratchNeed = std::max(scratchNeed, blas_.at(id).buildScratch);
     std::uint32_t capacity = tlasCapacity_;
-    if (n > 0 && (n > tlasCapacity_ || !tlas_.id)) capacity = std::min(std::max(kMinTlasCapacity, next_pow2(n)), std::max(cap_, n));
+    if (n > 0 && (n > tlasCapacity_ || !tlas_.id))
+        capacity = std::min(std::max(kMinTlasCapacity, next_pow2(n)), std::max(cap_, n));
     gpu::AccelSizes tsizes;
     if (n > 0) {
         const Result<gpu::AccelSizes> ts = device_->tlas_sizes(capacity, tlas_flags());
@@ -632,6 +708,7 @@ void RtScene::record(gpu::CommandList& list) {
         tlasCapacity_ = capacity;
         stats_.tlasBytes = tsizes.structure;
     }
+    record_skin_dispatches(list, skinWork);
     // Build the new BLASes, ask for their compacted size.
     std::uint32_t built = 0;
     for (std::uint32_t id : building) {
@@ -661,6 +738,7 @@ void RtScene::record(gpu::CommandList& list) {
             }
         }
     }
+    record_skin_builds(list, skinWork);
     // Copy the BLASes whose compacted size came back: the TLAS built below still names the original, the next frame swaps.
     std::uint32_t compacted = 0;
     for (std::uint32_t id : copyPending_) {
