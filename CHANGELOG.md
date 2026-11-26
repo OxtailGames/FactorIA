@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Vulkan ray tracing polish (M79):** a structure copy now barriers at `ACCELERATION_STRUCTURE_COPY_BIT` when the GPU has
+  `VK_KHR_ray_tracing_maintenance1` and `synchronization2` (the engine enables the extension itself); tests for a TLAS refit and for two
+  builds into one TLAS in one list; the ray tracing tests match the key phrase of a refusal and still require its hint; the
+  whole-suite `render` ctest leaves them to `render_vulkan_raytracing`; the status line names the driver only where the driver
+  properties exist, and the lavapipe remark only when ray queries are what is missing.
 - **Ray traced ambient occlusion (M79-P2b):** `render.rayTracing.ao = true` now draws: with ray tracing on and a device that can trace, the
   main camera casts `raysPerPixel` rays (1 to 16) per pixel in a cosine-weighted hemisphere around its surface normal, up to an occlusion radius,
   and the renderer's denoiser (temporal accumulation and an edge-aware filter) makes the share of rays that got out a clean visibility. It replaces

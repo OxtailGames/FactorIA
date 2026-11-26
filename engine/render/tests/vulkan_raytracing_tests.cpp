@@ -108,6 +108,14 @@ std::string all_errors(VulkanDevice& dev) {
     return s;
 }
 
+// A refusal that teaches: the message names the problem with its key phrase (never its whole sentence, so a change of
+// wording does not break the test) and the hint says what to do (any text).
+void check_refusal(const fa::Result<void>& r, const char* keyPhrase) {
+    REQUIRE_FALSE(r);
+    CHECK_MESSAGE(contains(r.error().message, keyPhrase), "message: " << r.error().message);
+    CHECK_MESSAGE(!r.error().hint.empty(), "no hint after: " << r.error().message);
+}
+
 void submit_and_finish(VulkanDevice& dev, CommandList& list) {
     dev.submit(list);
     dev.commit();
@@ -344,11 +352,12 @@ fa::Result<void> build_blas(Rt& rt, CommandList& list, AccelStructure blas, cons
 }
 
 fa::Result<void> build_tlas(Rt& rt, CommandList& list, AccelStructure tlas, const std::vector<AccelInstance>& instances,
-                            const AccelBuildFlags& flags = {}) {
+                            const AccelBuildFlags& flags = {}, bool update = false) {
     TlasBuild b;
     b.dst = tlas;
     b.instances = instances;
     b.flags = flags;
+    b.update = update;
     b.scratch = rt.scratch;
     return list.build_tlas(b);
 }
@@ -447,7 +456,7 @@ TEST_CASE("vulkan rt: a device without ray tracing says why and refuses every ca
     REQUIRE_FALSE(sizes);
     CHECK(contains(sizes.error().message, "Device::blas_sizes"));
     CHECK(contains(sizes.error().message, why));
-    CHECK(contains(sizes.error().hint, "features().accelerationStructure"));
+    CHECK_FALSE(sizes.error().hint.empty());  // says what to check first
     CHECK_FALSE(dev->tlas_sizes(1, {}));
     AccelStructureDesc ad;
     ad.size = 4096;
@@ -458,20 +467,20 @@ TEST_CASE("vulkan rt: a device without ray tracing says why and refuses every ca
     bd.usage.accelScratch = true;
     bd.label = "no-rt-scratch";
     CHECK(dev->state(dev->make_buffer(bd)) == ResourceState::Failed);
-    CHECK(contains(all_errors(*dev), "usage accelScratch on a device without acceleration structures"));
+    CHECK(contains(all_errors(*dev), "usage accelScratch"));
 
     const Shader s = dev->make_shader(probe_desc());
     CHECK(dev->state(s) == ResourceState::Failed);
-    CHECK(contains(all_errors(*dev), "usesRayQuery on a device without ray query"));
+    CHECK(contains(all_errors(*dev), "usesRayQuery"));
 
     CommandList& list = dev->begin_commands("no-rt");
     BlasBuild b;
     auto r = list.build_blas(b);
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "CommandList::build_blas"));
-    CHECK_FALSE(list.build_tlas(TlasBuild{}));
-    CHECK_FALSE(list.query_compacted_size(AccelStructure{}, Buffer{}, 0));
-    CHECK_FALSE(list.copy_accel_structure(AccelStructure{}, AccelStructure{}, AccelCopyMode::Clone));
+    check_refusal(r, "CommandList::build_blas");
+    check_refusal(list.build_tlas(TlasBuild{}), "CommandList::build_tlas");
+    check_refusal(list.query_compacted_size(AccelStructure{}, Buffer{}, 0), "CommandList::query_compacted_size");
+    check_refusal(list.copy_accel_structure(AccelStructure{}, AccelStructure{}, AccelCopyMode::Clone),
+                  "CommandList::copy_accel_structure");
     submit_and_finish(*dev, list);
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
 }
@@ -576,8 +585,7 @@ TEST_CASE("vulkan rt: a compacted BLAS is no larger and traces as the one it was
     // A compacted structure is not compacted again.
     CommandList& third = dev.begin_commands("rt-compact-again");
     auto again = third.query_compacted_size(small, sizeBuffer, 0);
-    REQUIRE_FALSE(again);
-    CHECK(contains(again.error().message, "built without flags.allowCompaction"));
+    check_refusal(again, "allowCompaction");
     submit_and_finish(dev, third);
     CHECK_MESSAGE(layer_errors(dev).empty(), layer_errors(dev));
 }
@@ -610,6 +618,70 @@ TEST_CASE("vulkan rt: a TLAS rebuilt every frame while the frame before traces i
     CHECK_MESSAGE(all_errors(dev).empty(), all_errors(dev));
 }
 
+TEST_CASE("vulkan rt: a TLAS refit after an instance moved traces the new position") {
+    AccelBuildFlags flags;
+    flags.allowUpdate = true;
+    Rt rt = make_scene(flags);
+    if (!rt.dev) return;
+    VulkanDevice& dev = *rt.dev;
+    const AccelStructure blas = make_blas(rt, {}, "rt-tlas-refit-blas");
+    const AccelStructure tlas = make_tlas(rt, 2, flags);
+    CommandList& first = dev.begin_commands("rt-tlas-build");
+    REQUIRE(build_blas(rt, first, blas, {}));
+    REQUIRE(build_tlas(rt, first, tlas, {instance_of(kLeft, blas, 0), instance_of(kRight, blas, 1)}, flags));
+    trace(rt, first, tlas);
+    submit_and_finish(dev, first);
+    std::string bad = first_difference(read_t(rt), cpu_trace({quad_of(kLeft, 0), quad_of(kRight, 0)}));
+    CHECK_MESSAGE(bad.empty(), bad);
+
+    // The left instance moves two units away: the TLAS is refitted in place (same count, same flags), no rebuild.
+    Placement moved = kLeft;
+    moved.tz = -6.0f;
+    REQUIRE(quad_of(moved, 0).depth != quad_of(kLeft, 0).depth);  // the trace must differ from the first one
+    CommandList& second = dev.begin_commands("rt-tlas-refit");
+    auto refit = build_tlas(rt, second, tlas, {instance_of(moved, blas, 0), instance_of(kRight, blas, 1)}, flags, true);
+    REQUIRE_MESSAGE(refit, refit.error().to_string());
+    trace(rt, second, tlas);
+    submit_and_finish(dev, second);
+    bad = first_difference(read_t(rt), cpu_trace({quad_of(moved, 0), quad_of(kRight, 0)}));
+    CHECK_MESSAGE(bad.empty(), bad);
+
+    // A refit keeps the instance count and needs the flags the TLAS was built with.
+    CommandList& refused = dev.begin_commands("rt-tlas-refit-refused");
+    check_refusal(build_tlas(rt, refused, tlas, {instance_of(moved, blas, 0)}, flags, true), "keeps the count");
+    const AccelStructure fixed = make_tlas(rt, 2, {});
+    const std::vector<AccelInstance> two = {instance_of(kLeft, blas, 0), instance_of(kRight, blas, 1)};
+    REQUIRE(build_tlas(rt, refused, fixed, two));
+    check_refusal(build_tlas(rt, refused, fixed, two, flags, true), "allowUpdate");  // built without it
+    submit_and_finish(dev, refused);
+    CHECK_MESSAGE(layer_errors(dev).empty(), layer_errors(dev));  // the refusals above are the device's own errors
+}
+
+TEST_CASE("vulkan rt: two builds into one TLAS in one list are ordered, and the later one is what traces") {
+    // Both builds write the TLAS and its one instance buffer: the second copy of instances waits for the first build's
+    // read of that buffer and the second build for the first's write (the synchronization validation reports a missing
+    // barrier). Builds into one TLAS from lists recorded on several threads are ordered by the caller's submission.
+    Rt rt = make_scene();
+    if (!rt.dev) return;
+    VulkanDevice& dev = *rt.dev;
+    const AccelStructure blas = make_blas(rt, {}, "rt-twice");
+    const AccelStructure tlas = make_tlas(rt, 2, {});
+    CommandList& setup = dev.begin_commands("rt-twice-blas");
+    REQUIRE(build_blas(rt, setup, blas, {}));
+    submit_and_finish(dev, setup);
+    Placement moved = kLeft;
+    moved.tz = -6.0f;
+    CommandList& list = dev.begin_commands("rt-twice");
+    REQUIRE(build_tlas(rt, list, tlas, {instance_of(kLeft, blas, 0), instance_of(kRight, blas, 1)}));
+    REQUIRE(build_tlas(rt, list, tlas, {instance_of(moved, blas, 0), instance_of(kRight, blas, 1)}));
+    trace(rt, list, tlas);
+    submit_and_finish(dev, list);
+    const std::string bad = first_difference(read_t(rt), cpu_trace({quad_of(moved, 0), quad_of(kRight, 0)}));
+    CHECK_MESSAGE(bad.empty(), bad);
+    CHECK_MESSAGE(layer_errors(dev).empty(), layer_errors(dev));
+    CHECK_MESSAGE(all_errors(dev).empty(), all_errors(dev));
+}
+
 TEST_CASE("vulkan rt: builds the backend cannot run are refused with teaching errors, and the list goes on") {
     Rt rt = make_scene();
     if (!rt.dev) return;
@@ -626,8 +698,7 @@ TEST_CASE("vulkan rt: builds the backend cannot run are refused with teaching er
     std::string step = "a TLAS naming a BLAS that was never built";
     INFO("step: " << step);
     auto r = build_tlas(rt, list, tlas, {instance_of(kLeft, blas, 0)});
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "was never built: record build_blas before build_tlas"));
+    check_refusal(r, "was never built");
 
     step = "a vertex buffer without usage.accelBuildInput";
     AccelTriangles g = quad_geometry(rt);
@@ -637,21 +708,18 @@ TEST_CASE("vulkan rt: builds the backend cannot run are refused with teaching er
     b.geometries = {&g, 1};
     b.scratch = rt.scratch;
     r = list.build_blas(b);
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "was not made with usage.accelBuildInput"));
+    check_refusal(r, "usage.accelBuildInput");
 
     step = "a refit of a BLAS that was never built";
     r = build_blas(rt, list, blas, {}, true);
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "which was never built"));
+    check_refusal(r, "never built");
 
     step = "a refit of a BLAS built without allowUpdate";
     REQUIRE(build_blas(rt, list, blas, {}));
     AccelBuildFlags update;
     update.allowUpdate = true;
     r = build_blas(rt, list, blas, update, true);
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "built without flags.allowUpdate"));
+    check_refusal(r, "allowUpdate");
 
     step = "a scratch offset off the alignment";
     BlasBuild off;
@@ -661,14 +729,12 @@ TEST_CASE("vulkan rt: builds the backend cannot run are refused with teaching er
     off.scratch = rt.scratch;
     off.scratchOffset = 4;
     r = list.build_blas(off);
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "accel_scratch_alignment"));
+    check_refusal(r, "accel_scratch_alignment");
 
     step = "a build inside a compute pass";
     list.begin_compute_pass("rt-errors-pass");
     r = build_blas(rt, list, blas, {});
-    REQUIRE_FALSE(r);
-    CHECK(contains(r.error().message, "inside a compute pass"));
+    check_refusal(r, "inside a compute pass");
     list.end_pass();
 
     step = "the list still builds and traces";

@@ -1633,6 +1633,10 @@ private:
     // Ray tracing (init_device): on when the device has every piece; otherwise rtWhy_ names the first one missing.
     bool rayTracing_ = false;
     bool rayTracingPipeline_ = false;  // VK_KHR_ray_tracing_pipeline exists (reported, never enabled)
+    // VK_KHR_ray_tracing_maintenance1 is on and so is synchronization2: vkCmdCopyAccelerationStructureKHR then runs in
+    // its own stage (VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR, which the legacy 32-bit stage flags
+    // lack); else it runs in the build stage. vulkan_raytracing.cpp, copy_accel_structure.
+    bool accelCopyStage_ = false;
     std::string rtWhy_;
     std::uint32_t scratchAlign_ = 256;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR accelProps_{};
