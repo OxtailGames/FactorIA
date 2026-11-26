@@ -324,9 +324,9 @@ six scene renders.
   row without a traced scene), the raster captures take over for 120 frames and the rays are tried again. A grid reports `updatedBy`: `"rays"` or `"captures"`.
 - **What the rays see.** The traced scene of "Which objects are traced" (so no terrain, and a material's own shader is not evaluated); the
   meshes the main camera does not draw this frame are not in it.
-- **Where it runs.** The Metal kernel is tested on a real GPU against a CPU ray caster; the D3D12 and Vulkan kernels are the same HLSL compiled
-  by DXC and have not run on a device yet, and neither has their rule for which side of a triangle is its front (until it is measured they
-  discard no probe inside a wall, which can leak light). docs/design/ARCHITECTURE_RT_GI.md (repository only) has the details.
+- **Where it runs.** "Where it runs", below, has the table. On D3D12 and Vulkan the rule for which side of a triangle is its front has not
+  been measured either: until it is, they discard no probe inside a wall, which can leak light. docs/design/ARCHITECTURE_RT_GI.md (repository
+  only, not in the binary) has the details.
 
 ### Per pixel: `gi: "perPixel"`
 
@@ -356,8 +356,7 @@ ambient, multiplied by the surface's own albedo, so textures stay sharp. The dir
 - **Fallbacks.** On a device that cannot trace, with no prepass, or when the device refuses the kernel or its image, the probes and the ambient
   keep lighting and `giPixel.reason` says why. A refused kernel falls back at once for 120 frames, then the rays are tried again; a pass that does
   not run for two frames in a row does the same (counted in frames, never in time). If only the denoiser is refused the noisy image is used, where the device can filter a 32-bit float image; else the probes stay and `giPixel.active` is false.
-- **Where it runs.** The Metal kernel is tested on a real GPU against a CPU reference; the D3D12 and Vulkan kernels are the same HLSL compiled by
-  DXC and have not run on a device. docs/design/ARCHITECTURE_RT_GI.md, "Per pixel" (repository only), has the details.
+- **Where it runs.** "Where it runs", below, has the table. docs/design/ARCHITECTURE_RT_GI.md, "Per pixel" (repository only, not in the binary), has the details.
 
 ## The path tracer
 
@@ -423,18 +422,86 @@ escaped ray equally, as a dome; the raster glass is drawn again over the path tr
 script callback). On a wall seen almost edge on, the check that drops a path traced pixel behind a raster surface can keep the raster's pixel for a
 thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md (repository only, not in the binary).
 
-## Where it will run
+## What it costs
 
-| backend | traces rays | what stands in the way today |
+Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build, commit 70745d88f of the M79 branch), the project
+`tools/cli/tests/perf/rt_cost` (a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
+spheres, cylinders and cones of every roughness, four glass spheres, a mirror, a `RealtimeGI` grid), drawn at **1920 x 1080** with vsync off. Each
+row is one effect on top of the raster frame; `raysPerPixel` is 1 unless the row says more. The numbers are the **frame time**, the wall clock
+per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out): `factoria call perf.measure` for 60 and for
+360 frames, the difference over 300. Metal has no GPU timer in the engine, so the cost of one pass cannot be read; `perf.measure`'s own `cpuMs*`
+is CPU time and does not see the GPU. The raster frame of this scene takes **14.1 ms** (about 6.5 ms of it CPU), so read each cost as "added to
+a 14 ms frame", and as the order of magnitude, not a promise: another scene, size or GPU moves it.
+
+| effect | rays per pixel | images (RGBA32F, the camera's size: 33 MB at 1080p) | added frame time on M5 Metal | other GPUs |
+|---|---|---|---|---|
+| `shadows: "hard"` (the sun and 3 local lights) | 1 per light | 1, and 2 more when local lights are traced | **+0.8 ms** | not measured |
+| `shadows: "soft"`, 1 ray | 1 per light | 2, denoiser history | +31.7 ms | not measured |
+| `shadows: "soft"`, `raysPerPixel` 4 | 4 per light | the same | +36.6 ms | not measured |
+| `ao`, 1 ray | 1 | 1, denoiser history | +17.6 ms | not measured |
+| `ao`, 4 rays | 4 | the same | +18.7 ms | not measured |
+| `reflections`, 1 ray | 1 (mirror), 1 (glossy), 3 more at a hit | 1, two denoised signals | +26.0 ms | not measured |
+| `reflections`, 4 rays | 1 (mirror), 4 (glossy) | the same | +27.7 ms | not measured |
+| `translucency` | 1, and a few per glass interface | 1, no denoiser | +3.2 ms | not measured |
+| `gi: "probes"` (one grid of 189 probes, 64 rays, 16 probes a frame) | 64 per probe updated | the probe atlas, no per-pixel image | **-4.9 ms** (it replaces the raster captures, which cost more here) | not measured |
+| `gi: "perPixel"`, 1 ray | 1 (+1 shadow ray at a hit) | 1, denoiser history | +22.1 ms | not measured |
+| `gi: "perPixel"`, 2 rays | 2 | the same | +26.2 ms | not measured |
+| every pixel effect together (soft shadows, `ao`, `reflections`, `translucency`, `gi: "perPixel"`, 1 ray) | | | +102.3 ms (the sum of the rows: the costs add up) | not measured |
+| the path tracer (`render.pathTracer`, `maxBounces` 4) | 1 path per sample | the accumulation image | **29 ms per sample** (a 64 sample picture takes 2 s; it replaces the raster frame while it is on) | not measured |
+
+What the table says:
+
+- **The rays are cheap, the denoiser is not.** `shadows: "hard"` and `translucency` have no denoiser and cost 1 to 3 ms. Every denoised effect
+  costs 18 to 32 ms at 1080p, and going from 1 to 4 rays adds only 1 to 5 ms more: the filter, not the number of rays, is the price. Pick the rays
+  a look needs, not the fewest. (This is an inference from the rows, not a timing of the passes; the engine's denoiser and its cost on this
+  GPU are the first thing to look at when a frame must be faster. There is no switch that turns it off.)
+- The costs **add up**: each effect has its own kernel, image and denoiser. Soft shadows, ambient occlusion and reflections together add
+  about 75 ms to the 14 ms frame (11 frames per second here).
+- `gi: "probes"` costs no more than the raster probes it replaces and updates more of them a frame; `gi: "perPixel"` is the dearest of the
+  indirect effects.
+- Off, nothing: no pass, no image, no structure. The raster frame is the first row of the measurement and what a device that cannot trace draws.
+
+To measure your own scene, copy the project, put `render.rayTracing` in its `factoria.json` and compare `perf.measure` runs of 60 and 360 frames
+by the clock, as above (`factoria call --project <dir> perf.measure '{"frames":360}'`). The GPU numbers of D3D12 and Vulkan are **not
+measured**: no kernel of theirs has run yet ("Where it runs", below).
+
+## Where it runs
+
+| backend | traces rays | what stands in the way |
 |---|---|---|
-| Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
-| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, lists them from Mesa 24.1 according to its release notes, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The shadows (`shadows: "hard"`, `"soft"`), the ambient occlusion (`ao`), the reflections (`reflections`), the translucency and the GI probes (`gi: "probes"`) and the per-pixel GI (`gi: "perPixel"`) trace |
+| Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): acceleration structures and inline ray queries in compute shaders | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
+| Vulkan (Windows, Linux, Android) | on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, lists them from Mesa 24.1 according to its release notes, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS, a virtual machine's GPU or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 
-Every effect has a fallback that does not need rays (the shadow maps, the screen-space occlusion and reflections, the light probes), so a
-game that turns ray tracing on still looks right on a GPU that cannot do it; only the effects that need rays are missing.
+Every effect has a fallback that does not need rays, so a game that turns ray tracing on still looks right on a GPU that cannot do it;
+only the effects that need rays are missing.
+
+**Effect by backend.** "Traced" is the kernel the engine ships for that backend; the second part says what has actually run it.
+
+| effect | D3D12 (DXR 1.1) | Vulkan (ray query) | Metal | GL, GLES3, WebGL2, D3D11 (and any GPU that cannot trace) |
+|---|---|---|---|---|
+| `shadows` hard / soft, local lights | traced (DXIL) | traced (SPIR-V) | traced (MSL) | the cascaded and local shadow maps |
+| `ao` | traced | traced | traced | screen-space occlusion (`PostProcess.ssao*`), if the camera has it |
+| `reflections` | traced | traced | traced | screen-space reflections, the probes and the environment |
+| `translucency` | traced | traced | traced | screen-space refraction |
+| `gi` = `probes` | traced | traced | traced | the raster captures of the `RealtimeGI` grids |
+| `gi` = `perPixel` | traced | traced | traced | the light probes and the ambient |
+| path tracer (`render.pathTracer`, `render.pathtrace`) | traced | traced | traced | not available: `render.pathtrace` fails and says to choose a backend that traces |
+| GPU lightmap bake (`lightmap.bake`) | traced | traced | traced | the CPU baker |
+
+What has run, per backend (the rows above are the same for every effect):
+
+| | the ray tracing layer (structures, refit, compaction, an `rt_probe` kernel against a CPU trace) | the effect kernels above | a real GPU |
+|---|---|---|---|
+| D3D12 | runs in CI on WARP (the Windows jobs) | **never run**: the DXIL is compiled with DXC and only its binding contract is tested (`RecordingDevice`) | **never** (not on an NVIDIA, AMD or Intel GPU) |
+| Vulkan | runs in CI on lavapipe (Mesa 25.2, the Linux job) | **never run**: the same, with the SPIR-V | **never** |
+| Metal | runs on an Apple GPU with ray tracing (tests skip on a GPU without it) | **run on an Apple M-series GPU**, each kernel against a CPU ray caster of the same rays (shadows, local shadows, AO, reflections, translucency, GI probes, GI per pixel, path tracer, bake) | yes, the numbers of "What it costs" |
+
+A GitHub Actions macOS runner has a virtual GPU without ray tracing, so those tests skip there: only a Mac with an Apple M-series GPU runs the
+Metal kernels. The first run of the D3D12 and Vulkan kernels will be on a machine that traces; until then, a report of a wrong picture from
+them is expected to be a bug in a kernel that has never run, not in your project.
 
 ## Which objects are traced, and the instance cap
 
