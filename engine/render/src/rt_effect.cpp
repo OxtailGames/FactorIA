@@ -10,8 +10,9 @@ namespace fa::render {
 namespace {
 
 const RtEffectKernelSpec kSpecs[] = {
-    {"rt_shadow", false, false},
-    {"rt_ao", false, false},
+    {"rt_shadow", false, false, false},
+    {"rt_ao", false, false, false},
+    {"rt_reflect", true, true, true},
 };
 
 void set4(float* dst, double x, double y, double z, double w) {
@@ -135,18 +136,27 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
         t.binding.spirvBinding = std::uint8_t(vk);
     };
     texture(RtEffectBindings::kViewPrepass, 1, 1, 3);  // t1 / binding 3 / texture(1)
-    if (spec.usesRecords) {                            // t2 / binding 4 / buffer(2)
+    if (spec.usesRecords) {  // t2 / binding 4 / buffer(8): Sokol's Metal numbers the storage buffers 8 .. 23 (the uniform blocks 0 .. 7)
         ShaderStorageBufferView& r = d.views[RtEffectBindings::kViewRecords].storageBuffer;
         r.stage = ShaderStage::Compute;
         r.readonly = true;
         r.binding.hlslRegister = 2;
-        r.binding.mslIndex = 2;
+        r.binding.mslIndex = 8;
         r.binding.spirvSet = 0;
         r.binding.spirvBinding = 4;
     }
     if (spec.usesGbuffer) {
         texture(RtEffectBindings::kViewAlbedo, 3, 2, 5);    // t3 / binding 5 / texture(2)
         texture(RtEffectBindings::kViewMaterial, 4, 3, 6);  // t4 / binding 6 / texture(3)
+    }
+    if (spec.usesHit) {  // b1 / binding 7 / buffer(3)
+        ShaderUniformBlock& h = d.uniformBlocks[RtEffectBindings::kUniformHit];
+        h.stage = ShaderStage::Compute;
+        h.size = std::uint32_t(sizeof(RtHitParams));
+        h.binding.hlslRegister = 1;
+        h.binding.mslIndex = 3;
+        h.binding.spirvSet = 0;
+        h.binding.spirvBinding = 7;
     }
     if (rt_effect_needs_sampler(backend)) {
         // Sokol (Metal) wants every texture view paired with a sampler slot even when the kernel reads the texel with `read`: the nearest one.
@@ -250,6 +260,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         return result;
     }
     if (!req.camera || !req.scene || !req.prepass.valid() || req.width < 1 || req.height < 1 ||
+        (spec->usesHit && !spec->usesRecords) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid()))) {
         result.why = "the request of " + req.effect + " lacks its camera, its scene, its prepass or its size";
         return result;
@@ -345,7 +356,8 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     }
     pass.writes.push_back(result.res);
     if (!req.after.empty()) pass.after.push_back(req.after);
-    const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer;
+    const bool usesRecords = spec->usesRecords, usesGbuffer = spec->usesGbuffer, usesHit = spec->usesHit;
+    const RtHitParams hit = req.hit;
     const bool needsSampler = rt_effect_needs_sampler(gpu.device().backend());
     const PrepassRef prepass = req.prepass, albedo = req.gbufferAlbedo, material = req.gbufferMaterial;
     RtScene* scene = req.scene;
@@ -354,7 +366,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     RtEffectImage* out = &img;
     Gpu* gpuPtr = &gpu;
     pass.execute = [this, gpuPtr, scene, drawCalls, shader, out, prepass, albedo, material, usesRecords, usesGbuffer,
-                    needsSampler, params, name = pass.name](const PassContext& c) {
+                    usesHit, needsSampler, params, hit, name = pass.name](const PassContext& c) {
         out->ran = false;
         gpu::CommandList* list = c.commands();
         if (!list) return;
@@ -386,6 +398,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
         list->set_pipeline(pip);
         list->set_bindings(b);
         list->set_uniforms(RtEffectBindings::kUniformParams, gpu::Range{&params, sizeof params});
+        if (usesHit) list->set_uniforms(RtEffectBindings::kUniformHit, gpu::Range{&hit, sizeof hit});
         list->dispatch((out->width + 7) / 8, (out->height + 7) / 8, 1);
         list->end_pass();
         if (drawCalls) ++*drawCalls;

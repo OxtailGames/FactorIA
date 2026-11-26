@@ -40,8 +40,9 @@ struct RayTracingSettings {
     // The master switch. false (the default): nothing below is read, nothing is built, nothing is paid.
     bool enabled = false;
     RtShadows shadows = RtShadows::Off;
-    bool ao = false;            // ambient occlusion traced with rays, instead of the screen-space one
-    bool reflections = false;   // mirror and glossy reflections traced with rays, instead of the screen-space ones
+    bool ao = false;  // ambient occlusion traced with rays, instead of the screen-space one
+    bool reflections =
+        false;  // sharp reflections traced with rays (roughness under 0.25), instead of the screen-space ones
     bool translucency = false;  // light through glass and thin surfaces (refraction and coloured shadows)
     RtGi gi = RtGi::Off;
     int raysPerPixel =

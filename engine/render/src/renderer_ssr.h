@@ -28,6 +28,7 @@ namespace fa::render {
 struct PostStack;
 struct PostRect;
 struct PrepassRef;
+struct RtEffectImage;
 
 // What a camera's passes draw: the stack's numbers after clamping, the terms of the camera's projection. Empty (any() false) when the effect
 // is off, has no intensity, or the camera's matrix cannot be used.
@@ -40,6 +41,10 @@ struct SsrPlan {
     // The projection's terms the shader needs: P00, P11, P02, P12, P03, P13, P32, P33 (see ssr.glsl).
     float proj[8]{};
 
+    // M79-P3a-1: the camera's ray traced reflections (rt_reflect.hlsl) are composited by these passes (the traced pixels take the kernel's image, the
+    // others the march). A plan made by make_ssr_rt_plan has intensity 0 (the stack has no screen-space reflections: only the traced pixels change).
+    bool rt = false;
+
     bool any() const { return enabled; }
 };
 
@@ -48,6 +53,10 @@ bool ssr_active(const PostStack& stack);
 
 // The plan of a camera (`cam.proj`: its projection); the numbers are clamped to their ranges (a NaN takes the default), see PostProcess.ssr*.
 SsrPlan make_ssr_plan(const CameraInfo& cam, const PostStack& stack);
+
+// The plan of a camera whose stack has no screen-space reflections but whose reflections are ray traced: intensity 0 (the march draws nothing), the
+// projection's terms; empty when the camera's matrix cannot be used. `rt` is set.
+SsrPlan make_ssr_rt_plan(const CameraInfo& cam);
 
 class Ssr {
 public:
@@ -58,11 +67,14 @@ public:
     // Declares the passes of one camera in `graph`: after the passes that draw `game` (the imported resource of the picture, texture view
     // `srcTex`), before bloom and the effects that follow the reflections in the stack. `rect`: the camera's rectangle of the picture (picW x
     // picH); `prepass`: its prepass (invalid: nothing is drawn); `dst`: where the result goes, as the bloom's (BloomTarget). Each pass adds one
-    // to *drawCalls when it runs. Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU
+    // to *drawCalls when it runs. `rtImage` (with `rtRes`, its imported resource) is the ray traced reflections of the camera (rt_effect.h, the
+    // size of the prepass); when it is given and `ran` when the trace pass executes, the pixels the kernel traced take it (shaders/ssr.glsl); with
+    // no image the passes are the ones of the screen-space reflections alone. Returns the number of passes declared (0: nothing is drawn: no effect, no prepass, shaders or targets the GPU
     // cannot make; logged once).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const SsrPlan& plan, const PostRect& rect,
                    int picW, int picH, ResourceId game, gpu::View srcTex, const BloomTarget& dst,
-                   const PrepassRef& prepass, int* drawCalls, const std::string& job);
+                   const PrepassRef& prepass, int* drawCalls, const std::string& job,
+                   const RtEffectImage* rtImage = nullptr, ResourceId rtRes = {});
 
     // Destroys the shaders and the pipelines; call while the graphics context is open.
     void release();
