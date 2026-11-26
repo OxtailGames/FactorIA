@@ -682,6 +682,7 @@ struct Renderer::Impl {
     // the frame graph ran, settles it and writes `rtGiPixelStatus` (under rtGiStatusMutex).
     struct RtGiPixelFrame {
         bool declared = false;  // the kernel's pass is in the graph
+        bool bound = false;     // the main pass bound the image at the lightmap slot (the surfaces can read it)
         const RtEffectImage* img = nullptr;
         std::string why;  // why nothing was declared (empty: no camera drew the scene)
     } rtGiPixelFrame;

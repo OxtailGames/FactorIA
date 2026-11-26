@@ -182,7 +182,11 @@ void Renderer::Impl::rt_gi_pixel_finish() {
     } else if (rtGiPixelFrame.declared) {
         if (rtGiPixelFrame.img && rtGiPixelFrame.img->ran) {
             rtGiPixelMisses = 0;
-            st.active = true;
+            st.active = rtGiPixelFrame.bound;
+            if (!st.active)  // traced, but no pass could read the image: the surfaces keep the probe and ambient light
+                st.reason = "the traced image was not bound to the lit meshes (the denoiser did not make its image and "
+                            "this device cannot "
+                            "filter a 32-bit float image): the surfaces use the probe and ambient light";
         } else {
             const std::string why = rtEffects.failure_of("gipixel");
             st.reason = why.empty() ? "the traced scene was not ready this frame (it has no instance yet)" : why;

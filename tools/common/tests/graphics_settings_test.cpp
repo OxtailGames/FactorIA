@@ -635,6 +635,86 @@ TEST_CASE("graphics settings: render.rayTracing and render.pathTracer are saved 
     CHECK(text2.find("\"graphicsPreset\": \"high\"") != std::string::npos);
 }
 
+TEST_CASE("graphics settings: only the keys that differ from the defaults are written, in every block") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.rayTracing.enabled = true;
+    g.rayTracing.ao = true;
+    g.pathTracer.samplesPerFrame = 3;
+    g.latencyMode = "auto";
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    auto text = Json::parse(d.read());
+    const Json& render = text["render"];
+    REQUIRE(render.contains("rayTracing"));
+    CHECK(render["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    CHECK(render["pathTracer"] == Json::parse(R"({"samplesPerFrame":3})"));
+    CHECK(render["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK_FALSE(render.contains("upscaler"));
+    CHECK_FALSE(render.contains("frameGeneration"));
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == g);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->rayTracing == g.rayTracing);
+    CHECK(project->pathTracer == g.pathTracer);
+    // A key that comes back to its default leaves the block; the last one takes the block with it.
+    g.rayTracing.ao = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    g.rayTracing.enabled = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
+TEST_CASE("project.graphics writes only the keys that differ from the defaults, in every block it is given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call(
+        "project.graphics",
+        Json::parse(R"({"rayTracing":{"enabled":true},"pathTracer":{"samplesPerFrame":2},"latency":{"mode":"auto"},)"
+                    R"("frameGeneration":{"mode":"fsr"},"upscaler":{"mode":"spatial"},)"
+                    R"("dynamicResolution":{"enabled":true,"minScale":0.333}})"));
+    REQUIRE(r.ok);
+    const Json file = Json::parse(d.read());
+    CHECK(file["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    CHECK(file["render"]["pathTracer"] == Json::parse(R"({"samplesPerFrame":2})"));
+    CHECK(file["render"]["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK(file["render"]["frameGeneration"] == Json::parse(R"({"mode":"fsr"})"));
+    CHECK(file["render"]["upscaler"] == Json::parse(R"({"mode":"spatial"})"));
+    CHECK(file["render"]["dynamicResolution"] == Json::parse(R"({"enabled":true,"minScale":0.333})"));  // as written
+    // A second key joins its block; a value back at its default leaves it; the last one takes the block along.
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"ao":true}})"));
+    REQUIRE(r.ok);
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"enabled":false,"ao":false}})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
+TEST_CASE("project.graphics: every property of rayTracing and pathTracer in the input schema has a description") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    const CommandInfo* info = registry.info("project.graphics");
+    REQUIRE(info != nullptr);
+    for (const char* block : {"rayTracing", "pathTracer"}) {
+        const Json& props = info->inputSchema["properties"][block]["properties"];
+        REQUIRE(props.is_object());
+        CHECK(props.size() >= 7);
+        for (auto it = props.begin(); it != props.end(); ++it) {
+            INFO(block << "." << it.key());
+            REQUIRE(it.value().contains("description"));
+            CHECK(it.value()["description"].is_string());
+            CHECK_FALSE(it.value()["description"].get<std::string>().empty());
+        }
+    }
+}
+
 TEST_CASE("graphics settings: a number that is not finite in the ray tracing keys is named by pointer") {
     GraphicsSettings g;
     CHECK(check_graphics_settings(g).empty());
@@ -701,12 +781,9 @@ TEST_CASE("project.graphics reads and writes the rayTracing and pathTracer keys,
     CHECK(d.read().find("pathTracer") == std::string::npos);
 }
 
-TEST_CASE("ray tracing in the window: the lists, the support row, the preset's note and the coming modes") {
+TEST_CASE("ray tracing in the window: the lists, the support row, the preset's note") {
     CHECK(ray_tracing_shadow_modes() == std::vector<std::string>{"off", "hard", "soft"});
     CHECK(ray_tracing_gi_modes() == std::vector<std::string>{"off", "probes", "perPixel"});
-    CHECK(ray_tracing_gi_coming("probes").empty());
-    CHECK(ray_tracing_gi_coming("off").empty());
-    CHECK(ray_tracing_gi_coming("perPixel").empty());  // every mode draws since M79-P4b-1
 
     const Json yes = Json::parse(R"({"features":[{"name":"raytracing","supported":true,"status":"supported"}]})");
     const Json no =

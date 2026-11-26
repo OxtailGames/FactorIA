@@ -24,9 +24,14 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   the direct light and the specular do not change, and a mesh with a baked lightmap, a full-shader material, a blended draw or a subsurface mesh keeps
   the probes. Off, nothing is made. A device that cannot trace, a refused kernel or a pass that does not run keeps the probes and the ambient (a
   refusal at once, a pass that does not run after two frames, the retry after 120 frames, counted in frames); `render.ray_tracing` answers `giPixel
-  {active, reason}`. The Metal kernel is tested on a real GPU against a CPU reference and with a picture of a lit wall bouncing colour onto a white
+  {active, wanted, reason}` (`active` is true only when the lit meshes could read the image). The Metal kernel is tested on a real GPU against a CPU reference and with a picture of a lit wall bouncing colour onto a white
   floor; the D3D12 and Vulkan kernels are the same HLSL compiled by DXC and have not run on a device. The lit shader's constants block gained `fa_gi_px`
   (the custom-material fixtures were regenerated).
+- **Graphics window and `project.graphics` polish (M79):** the Ray tracing and Path tracer controls of the editor's Graphics window stay editable
+  where this machine cannot trace (with a note that the window cannot show the effect: the settings are saved for the players' machines), and
+  the window and `project.graphics` write only the keys of each block that differ from their defaults (`"rayTracing": {"enabled": true}`, not eight
+  keys); every property of `rayTracing` and `pathTracer` in the schema of `project.graphics` has a description.
+
 - **Realtime GI probes updated by rays (M79-P4a):** `render.rayTracing.gi = "probes"` now draws: a compute kernel with inline ray queries
   updates the probes of the `RealtimeGI` grids instead of the six raster captures of each probe. Each update traces `raysPerProbe` rays (new
   field on `RealtimeGI`, 16 to 256, default 64) on a spherical Fibonacci set rotated deterministically from the frame's seed, shades the hits with

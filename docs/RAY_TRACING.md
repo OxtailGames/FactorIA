@@ -71,9 +71,9 @@ change nothing there, because there is nothing to cap. The cap is applied by the
 The editor's **Graphics settings** window (View > Graphics; [editor/EDITOR_PANELS_WORLD.md](editor/EDITOR_PANELS_WORLD.md), "Graphics
 settings window") has a **Ray tracing** group (the switch, `shadows`, `ao`, `reflections`, `translucency`, `gi`, `raysPerPixel`) and a **Path
 tracer** group (the switch, `samplesPerFrame`, `maxSamples`) that write `render.rayTracing` and `render.pathTracer` of `factoria.json`. A
-line at the top of the group says whether this machine can trace; where it cannot, the controls are greyed out with the reason and a hint
-to choose a backend that traces with `graphics.backend`, because a project is written for the players' machines: the file may ask for
-rays all the same. `gi` lists `off`, `probes` and `perPixel`, all of them drawn.
+line at the top of the group says whether this machine can trace; where it cannot, it gives the reason, a hint to choose a backend that
+traces with `graphics.backend` and a note that the window cannot show the effect, and the controls stay editable, because a project is
+written for the players' machines (the editor draws with Direct3D 11 on Windows, the game may ship d3d12): the file asks for rays all the same. `gi` lists `off`, `probes` and `perPixel`, all of them drawn.
 
 The menu kit's Graphics tab ([MENUS.md](MENUS.md)) has a fifth page, **Ray tracing**: an on/off switch and a quality that cycles `high`
 (hard shadows and ambient occlusion) and `ultra` (everything above), the two tiers of the presets. A player's choice is saved in
@@ -97,7 +97,7 @@ It returns the settings plus:
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `localShadows` | `{cap, candidates, traced}`: the most point, spot and area lights traced per camera and frame (3), how many asked for a shadow in the last frame, and how many of them were traced (the rest keep their maps). 0 and 0 while `shadows` is `off` or nothing is active. |
 | `giProbes` | `{active, wanted, reason, grids, probesPerFrame, budget}` for `gi` = `probes`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for the probes (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether rays updated at least one probe in the last frame, why not when they did not (no `RealtimeGI` in the scene, no probe due, the device refused the kernel, no traced scene yet), the grids updated, the probes updated and the most the settings allow per frame. All zero and empty while `gi` is not `probes`. |
-| `giPixel` | `{active, wanted, reason}` for `gi` = `perPixel`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for it (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
+| `giPixel` | `{active, wanted, reason}` for `gi` = `perPixel`: `wanted` is whether the setting, after the graphics preset's caps (`presetCap.effective.gi`), asks for it (a preset below ultra caps `gi` to `off`: `wanted` is false and `reason` names the preset); whether the last frame's lit meshes read the traced bounce, and why not when they did not (the device refused the kernel, no traced scene or prepass, no image the lit shader can read on this device, the fallback is running, no camera drew the scene). Inactive and empty while `gi` is not `perPixel`. |
 | `changed` | whether this call changed a setting. |
 
 ## Does this GPU trace rays? `render.supports`
@@ -349,13 +349,13 @@ ambient, multiplied by the surface's own albedo, so textures stay sharp. The dir
 - **What it replaces.** Only the term of the probes and the ambient, on opaque meshes the camera's prepass draws. **Unchanged:** the meshes with a baked
   lightmap or baked light probes (baked light keeps priority), the terrain and the impostor cards, meshes with a custom shader that is not the engine's
   own lit shader (a full-shader material) and any draw the prepass leaves out (a full shader that keeps out of it, a mesh drawn from compute buffers
-  without a prepass program of its material: the image holds the surface behind them at their pixels), blended and transparent meshes, and the light
-  that the subsurface pass scatters: all of them keep the probes and the ambient.
+  without a prepass program of its material: the image holds the surface behind them at their pixels), blended and transparent meshes, and the meshes the
+  subsurface pass scatters (while it is on: its image is lit with the probes before the main pass): all of them keep the probes and the ambient.
 - **The grids.** With a `RealtimeGI` in the scene a hit also receives the light of its grids (times their `bounce` and intensity): one traced
   bounce plus a cached tail. In this mode the grids are filled by the raster captures (the rays of `gi: "probes"` are not used at the same time).
 - **Fallbacks.** On a device that cannot trace, with no prepass, or when the device refuses the kernel or its image, the probes and the ambient
   keep lighting and `giPixel.reason` says why. A refused kernel falls back at once for 120 frames, then the rays are tried again; a pass that does
-  not run for two frames in a row does the same (counted in frames, never in time). If only the denoiser is refused the noisy image is used.
+  not run for two frames in a row does the same (counted in frames, never in time). If only the denoiser is refused the noisy image is used, where the device can filter a 32-bit float image; else the probes stay and `giPixel.active` is false.
 - **Where it runs.** The Metal kernel is tested on a real GPU against a CPU reference; the D3D12 and Vulkan kernels are the same HLSL compiled by
   DXC and have not run on a device. docs/design/ARCHITECTURE_RT_GI.md, "Per pixel" (repository only), has the details.
 

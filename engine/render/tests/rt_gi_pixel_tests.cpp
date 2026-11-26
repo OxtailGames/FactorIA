@@ -623,3 +623,32 @@ TEST_CASE("rt gi pixel: a terrain keeps the probes and the ambient light, the me
     CHECK(d.on >= 2);   // the floor and the box
     CHECK(d.off >= 1);  // the terrain's nodes
 }
+
+TEST_CASE("rt gi pixel: a mesh the subsurface pass scatters keeps the probes (its A image is lit with them), the "
+          "others read the image") {
+    {
+        Rig r;
+        r.gi(render::RtGi::PerPixel);
+        if (!r.renderer.supports("subsurface")) return;
+        World w;
+        make_scene(w);
+        Entity box = w.find("box");
+        auto& m = *w.get<MeshRenderer>(box);
+        m.subsurface = 0.5f;
+        m.subsurfaceRadius = 0.3f;
+        const auto d = draws_after(r, w);
+        INFO(r.errors());
+        CHECK(r.renderer.stats().subsurfaceDraws >= 1);  // the pass ran: the box scatters
+        CHECK(d.on >= 1);                                // the floor
+        CHECK(d.off >= 1);                               // the box keeps the probes
+    }
+    {
+        Rig r;  // the same box with no strength scatters nothing: it reads the image like the floor
+        r.gi(render::RtGi::PerPixel);
+        World w;
+        make_scene(w);
+        const auto d = draws_after(r, w);
+        CHECK(d.on >= 2);
+        CHECK(d.off == 0);
+    }
+}
