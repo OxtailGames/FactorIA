@@ -248,6 +248,8 @@ private:
         bool frameValid = false;
         DenoiseReset frameReason = DenoiseReset::Fresh;
         int frameRead = -1, frameWrite = 0;
+        ResourceId
+            frameRes;  // the guide image this frame writes, in the graph of frameGraph (the a-trous passes read it)
     };
     struct SignalSlot {
         Target col[2];  // Rgba16F: the history colour (the first a-trous iteration's result) and its variance

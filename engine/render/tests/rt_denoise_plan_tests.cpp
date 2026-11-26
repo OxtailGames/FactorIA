@@ -96,6 +96,23 @@ TEST_CASE("denoise plan: the history bytes follow the size and the moments' prec
     CHECK(huge.historyBytes >= (std::uint64_t(1) << 60));  // 64-bit, no wrap
 }
 
+// M79 POLISH-denoise: what 4K costs in memory (docs/design/ARCHITECTURE_DENOISE.md, "Memory"): 48 bytes a pixel for each signal (two colour
+// images of 8 bytes, two moment images of 16), 16 for the camera's guide. The renderer's budget is 1 GB for all of them.
+TEST_CASE("denoise plan: the memory of a 4K signal, and how many fit the 1 GB budget") {
+    DenoiseSignal s;
+    const std::uint64_t px = 3840ull * 2160ull;
+    const DenoisePlan f32 = make_denoise_plan(s, 3840, 2160, true);
+    const DenoisePlan f16 = make_denoise_plan(s, 3840, 2160, false);
+    CHECK(f32.historyBytes == px * 48);
+    CHECK(f16.historyBytes == px * 32);
+    CHECK(f32.guideBytes == px * 16);
+    const std::uint64_t budget = std::uint64_t(1) << 30;
+    CHECK((budget - f32.guideBytes) / f32.historyBytes == 2);  // a camera's guide and two signals, the third is refused
+    CHECK((budget - f16.guideBytes) / f16.historyBytes == 3);
+    const DenoisePlan hd = make_denoise_plan(s, 1920, 1080, true);
+    CHECK((budget - hd.guideBytes) / hd.historyBytes >= 10);
+}
+
 TEST_CASE("denoise plan: the settings are clamped and a number that is not finite takes its default") {
     DenoiseSettings s;
     s.iterations = 99;

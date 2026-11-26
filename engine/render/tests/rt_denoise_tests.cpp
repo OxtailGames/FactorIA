@@ -52,6 +52,7 @@ struct Frame {
     std::vector<float> color;  // the denoised image, RGBA, top row first
     std::vector<float> debug;  // the debug view, when asked
     render::DenoiseOutput out;
+    Json graph;  // the compiled graph of the frame (passes with the names of what they read and write)
     int drawCalls = 0;
     bool read = false;
 };
@@ -166,6 +167,7 @@ struct Rig {
         }
         const auto compiled = graph.compile();
         REQUIRE_MESSAGE(compiled.ok(), (compiled.ok() ? std::string() : compiled.error().message));
+        f.graph = graph.to_json();
         const auto ran = graph.execute(pool->pool, &gpu.commands());
         REQUIRE_MESSAGE(ran.ok(), (ran.ok() ? std::string() : ran.error().message));
         gpu.commit_frame();
@@ -635,6 +637,9 @@ TEST_CASE("denoise: nothing exists until a signal asks, a disabled signal is fre
     Frame fr = rig.run(make_camera(kW, kH, 11), a, noisy, pre, kW, kH);
     CHECK_FALSE(fr.out.valid);
     CHECK(fr.out.why.find("budget") != std::string::npos);
+    // The refusal teaches: the budget, what the signal wanted and what is in use, in MB.
+    CHECK(fr.out.why.find("MB wanted") != std::string::npos);
+    CHECK(fr.out.why.find("MB in use") != std::string::npos);
     CHECK(rig.dn.history_image_count() == 0);
     CHECK(rig.dn.refused());
 }
@@ -718,7 +723,7 @@ TEST_CASE(
         sig.debug = DenoiseDebug::Variance;
         Frame last;
         float mx = 0.0f, mean = 0.0f;
-        for (int f = 1; f <= 10; ++f) {
+        for (int f = 1; f <= 5; ++f) {  // the variance and the weights it feeds are the same from the second frame on
             std::vector<float> in(size_t(kW) * kH * 4, 0.0f);
             for (int y = 0; y < kH; ++y)
                 for (int x = 0; x < kW; ++x) {
@@ -867,4 +872,75 @@ TEST_CASE(
     INFO("virtual " << err[0] << ", surface " << err[1]);
     CHECK(err[0] < 0.1);
     CHECK(err[0] < 0.5 * err[1]);
+}
+
+// M79 POLISH-denoise: the a-trous passes read the camera's guide of this frame (depth and world normal in one image) and not the prepass
+// (the octahedral normal of every tap decoded again in every iteration): the guide pass writes the image they all read.
+TEST_CASE("denoise: every filter iteration reads the guide image the guide pass writes") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+    rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; }, facing));
+    rig.upload(noisy, bernoulli(kW, kH, 1, [](int, int) { return 0.3f; }));
+    const Frame f = rig.run(make_camera(kW, kH, 1), visibility(), noisy, pre, kW, kH);
+    REQUIRE(f.out.valid);
+    std::string guideOut;
+    const Json& passes = f.graph["passes"];
+    for (size_t i = 0; i < passes.size(); ++i) {
+        const Json& p = passes[i];
+        if (p["name"].get<std::string>().find("denoise-guide") != std::string::npos && p["writes"].size() == 1)
+            guideOut = p["writes"][0].get<std::string>();
+    }
+    REQUIRE_FALSE(guideOut.empty());
+    int atrous = 0, readGuide = 0;
+    for (size_t i = 0; i < passes.size(); ++i) {
+        const Json& p = passes[i];
+        if (p["name"].get<std::string>().find("-atrous") == std::string::npos) continue;
+        ++atrous;
+        for (size_t k = 0; k < p["reads"].size(); ++k)
+            if (p["reads"][k].get<std::string>() == guideOut) ++readGuide;
+    }
+    CHECK(atrous == 5);
+    CHECK(readGuide == 5);
+}
+
+// M79 POLISH-denoise: the late iterations leave a pixel whose estimate is already clean as it is; the first one never does, so a pixel whose
+// own history has not seen the signal yet (a Bernoulli signal that was 0 every frame so far: its variance is exactly 0) still takes it from
+// its neighbours.
+TEST_CASE("denoise: a clean region is left as it is, a pixel whose history saw only zeros still takes the signal from "
+          "its neighbours") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+    rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; }, facing));
+    const auto truth = [](int x, int) { return x < 32 ? 0.5f : 0.1f; };
+    Frame last;
+    for (int f = 1; f <= 8; ++f) {
+        std::vector<float> in = bernoulli(kW, kH, std::uint32_t(f), [](int, int) { return 0.1f; });
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < 32; ++x) {
+                float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
+                p[0] = p[1] = p[2] = 0.5f;  // the left half has no noise at all
+            }
+        rig.upload(noisy, in);
+        last = rig.run(make_camera(kW, kH, std::uint64_t(f)), visibility(), noisy, pre, kW, kH);
+        REQUIRE(last.read);
+    }
+    double leftWorst = 0;
+    for (int y = 4; y < 44; ++y)
+        for (int x = 4; x < 26; ++x) leftWorst = std::max(leftWorst, std::fabs(double(at(last.color, kW, x, y)) - 0.5));
+    // After 8 frames a pixel of the right half has seen only zeros with the probability 0.9^8 = 43%: left alone it would stay 0.
+    int dark = 0, total = 0;
+    for (int y = 4; y < 44; ++y)
+        for (int x = 38; x < 60; ++x, ++total)
+            if (at(last.color, kW, x, y) < 0.02f) ++dark;
+    const double right = mae(last.color, kW, 38, 4, 60, 44, 0, truth);
+    INFO("left worst " << leftWorst << ", right: " << dark << " of " << total << " still dark, error " << right);
+    CHECK(leftWorst < 0.002);
+    CHECK(dark < total / 20);
+    CHECK(right < 0.06);
 }
