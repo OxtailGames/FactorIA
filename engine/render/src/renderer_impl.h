@@ -57,6 +57,7 @@
 #include "rt_denoise.h"
 #include "rt_effect.h"
 #include "rt_gi.h"
+#include "rt_pathtrace.h"
 #include "rt_local_shadows.h"
 #include "rt_scene.h"
 #include "occlusion.h"
@@ -633,6 +634,11 @@ struct Renderer::Impl {
     // M79 P1s: the scene's acceleration structures (rt_scene.h). `rtSettings` is the engine's setting; rt_begin_frame (Renderer::begin_frame)
     // turns the scene on or off from it and from what the device can do, so a frame sees one answer.
     render::RayTracingSettings rtSettings;
+    // M79-P5a: the path tracer (rt_pathtrace.h). `ptSettings` is the engine's setting; ptState is the accumulation's bookkeeping, one entry per
+    // camera job (pt_hook); ptStatus is what the last frame did.
+    render::PathTracerSettings ptSettings;
+    PathTraceState ptState;
+    bool rtWarnedPathTrace = false;  // the one-time message of the kernel
     RtScene rtScene;
     bool rtWarnedUnsupported = false;
     // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time message (a device that traces but cannot run an effect).

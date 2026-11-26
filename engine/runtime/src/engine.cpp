@@ -313,6 +313,11 @@ void Engine::Impl::apply_project_settings() {
         appliedProjectRayTracing = project.rayTracing;
         self->set_ray_tracing(render::ray_tracing_to_json(project.rayTracing), "factoria.json");
     }
+    // The path tracer setting of factoria.json ("render.pathTracer"), applied when it changes. Always valid.
+    if (!appliedProjectPathTracer || *appliedProjectPathTracer != project.pathTracer) {
+        appliedProjectPathTracer = project.pathTracer;
+        self->set_path_tracer(render::path_tracer_to_json(project.pathTracer), "factoria.json");
+    }
     // The dynamic resolution of factoria.json ("render.dynamicResolution"), applied when it changes. Always valid:
     // load_project checked it.
     if (!appliedProjectDynRes || *appliedProjectDynRes != project.dynamicResolution) {
@@ -1323,6 +1328,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             I.renderer->set_ui_scale(I.world.ui_scale());  // the project's, applied before the renderer existed
             I.renderer->set_upscaler(I.self->upscaler());  // the same: apply_project_settings ran before the renderer
             I.renderer->set_ray_tracing(I.rayTracing);     // the same
+            I.renderer->set_path_tracer(I.pathTracer);     // the same
             // The low-latency setting: a window the game draws into only (the editor's own loop and a headless run have no display to pace).
             if (I.windowed && !config.editorMode) I.renderer->set_latency(I.latency);
             if (I.windowed && !config.editorMode) I.renderer->set_frame_generation(I.frameGeneration);
@@ -2164,6 +2170,66 @@ std::string Engine::set_ray_tracing(const Json& value, const std::string& where)
 
 const render::RayTracingSettings& Engine::ray_tracing() const { return impl_->rayTracing; }
 
+std::string Engine::set_path_tracer(const Json& value, const std::string& where) {
+    auto parsed = render::parse_path_tracer_settings(value, where, impl_->pathTracer);
+    if (!parsed.ok()) return parsed.error().to_string();
+    impl_->pathTracer = parsed.value();
+    if (impl_->renderer) impl_->renderer->set_path_tracer(impl_->pathTracer);  // takes effect at the next frame
+    impl_->renderStale = true;
+    return std::string();
+}
+
+const render::PathTracerSettings& Engine::path_tracer() const { return impl_->pathTracer; }
+
+Json Engine::path_tracer_status() {
+    Json j = render::path_tracer_to_json(impl_->pathTracer);
+    // Whether the device could trace: the same row as render.ray_tracing.
+    bool supported = false;
+    std::string why = "No renderer: the engine runs with graphics=false, so nothing is known about a GPU.";
+    if (impl_->renderer) {
+        why.clear();
+        const Json report = impl_->renderer->supports_report();
+        auto features = report.find("features");
+        if (features != report.end() && features->is_array()) {
+            for (const Json& f : *features) {
+                if (!f.is_object() || !f.contains("name") || !f["name"].is_string() ||
+                    f["name"].get<std::string>() != "raytracing")
+                    continue;
+                supported = f.contains("supported") && f["supported"].is_boolean() && f["supported"].get<bool>();
+                if (f.contains("status") && f["status"].is_string()) why = f["status"].get<std::string>();
+                break;
+            }
+        }
+    }
+    j["supported"] = supported;
+    render::PathTracerStatus st;
+    if (impl_->renderer) st = impl_->renderer->path_tracer_status();
+    const bool active = impl_->pathTracer.enabled && supported && st.active && st.failure.empty();
+    j["active"] = active;
+    j["samples"] = st.samples;
+    j["width"] = st.width;
+    j["height"] = st.height;
+    j["resets"] = st.resets;
+    j["lastReset"] = st.lastReset;
+    if (!impl_->pathTracer.enabled)
+        j["reason"] = std::string();
+    else if (!supported)
+        j["reason"] =
+            (why.empty() ? std::string("This device cannot trace rays (render.supports raytracing says why).") : why) +
+            " The picture stays the raster one; choose a backend that traces with graphics.backend "
+            "(d3d12, vulkan or metal).";
+    else if (!st.failure.empty())
+        j["reason"] =
+            "This device can trace rays, but the path tracer could not run and the raster picture shows: " + st.failure;
+    else if (active)
+        j["reason"] = "Traced: " + std::to_string(st.samples) + " samples per pixel so far" +
+                      (st.lastReset.empty() ? std::string() : " (restarted: " + st.lastReset + ")") + ".";
+    else
+        j["reason"] = "On, but no frame drew the path tracer yet: it replaces the lit colour of the main camera, and "
+                      "needs a scene with a camera and meshes.";
+    return j;
+}
+
 Json Engine::ray_tracing_status() {
     Json j = render::ray_tracing_to_json(impl_->rayTracing);
     // Whether the device could trace, from the same rows as render.supports. Without a renderer nothing is known.
@@ -2201,6 +2267,7 @@ Json Engine::ray_tracing_status() {
     const bool active = impl_->rayTracing.enabled && supported &&
                         (shadowsOn || aoOn || reflectionsOn || translucencyOn || giProbesOn) && failure.empty();
     j["active"] = active;
+    j["pathTracer"] = path_tracer_status();
     // M79-P2a-3: the shadows of point, spot and area lights (render::kRtLocalShadowMaxLights per camera); the counts are those of the last whole frame.
     j["localShadows"] = Json::object({{"cap", render::kRtLocalShadowMaxLights},
                                       {"candidates", shadowsOn && active ? localCandidates : 0},
@@ -2254,8 +2321,11 @@ Json Engine::ray_tracing_status() {
                 "volume; where it cannot trace a pixel the screen-space refraction stays)");
         if (giProbesOn)
             add(std::string("the realtime GI probes of the RealtimeGI components (rays update ") +
-                (giStatus.active ? std::to_string(giStatus.probesPerFrame) + " probes in the last frame"
-                                 : std::string("no probe yet: ") + giStatus.reason) +
+                (giStatus.active
+                     ? std::to_string(giStatus.probesPerFrame) + " probes in the last frame"
+                     : std::string(
+                           "no probe updated by rays in the last frame (the raster captures keep the grids): ") +
+                           giStatus.reason) +
                 "; the lit meshes read the grids as they always did)");
         j["reason"] =
             "Traced: " + what + "." +

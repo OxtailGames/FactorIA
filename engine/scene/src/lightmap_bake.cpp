@@ -363,10 +363,13 @@ struct Prepared {
     std::vector<BakeMaterial> materials;
     std::vector<LightRt> lights;
     TriBvh bvh;
+    std::vector<Vec3>
+        casterCorners;  // three per caster; kept only when the BVH is not built (a device traces the texels)
     float eps = 1e-3f;
 };
 
-Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool probes) {
+// `skipBvh`: do not build the BVH (a tracer device brings its own); the caster corners stay in `casterCorners` instead.
+Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool probes, bool skipBvh = false) {
     Prepared p;
     p.materials = scene.materials;
     if (p.materials.empty()) p.materials.push_back(BakeMaterial{});
@@ -425,7 +428,10 @@ Result<Prepared> prepare(const BakeScene& scene, const BakeSettings& st, bool pr
             }
         }
     }
-    if (!p.bvh.build(std::move(casterCorners), command_cancel_flag())) return cancelled_error();
+    if (skipBvh)
+        p.casterCorners = std::move(casterCorners);
+    else if (!p.bvh.build(std::move(casterCorners), command_cancel_flag()))
+        return cancelled_error();
     float diag = lo.x > hi.x ? 1.0f : length(hi - lo);
     if (!(diag > 1e-6f)) diag = 1.0f;
     // The automatic offset is size / 10000, but never over kMaxAutoRayEpsilon: 10 cm in a 1 km world would shorten every shadow ray by
@@ -822,6 +828,8 @@ Result<void> denoise_atlas(const std::string& label, int width, int height, int 
 
 }  // namespace
 
+Result<void> check_bake_settings(const BakeSettings& settings) { return check_settings(settings); }
+
 void sh_basis(Vec3 d, float y[9]) {
     y[0] = 0.282094792f;
     y[1] = 0.488602512f * d.y;
@@ -893,7 +901,8 @@ Result<void> validate_bake(const BakeScene& scene, const BakeSettings& settings)
     return validate_impl(scene, settings, false, sizes, memory);
 }
 
-Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st, const BakeProgressFn& progress) {
+Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st, const BakeProgressFn& progress,
+                                 BakeTexelTracer* texelTracer) {
     if (cancel_requested()) return cancelled_error();
     Sizes sizes;
     std::uint64_t memory = 0;
@@ -904,7 +913,7 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st,
     report_phase(prepRep, BakePhase::Prepare, 0, atlasCount, 0, 0, 0);
     report_command_progress("lightmap bake: preparing the scene");
 
-    auto prepared = prepare(scene, st, false);
+    auto prepared = prepare(scene, st, false, texelTracer != nullptr);
     if (!prepared) return prepared.error();
     Prepared prep = std::move(prepared.value());
 
@@ -939,6 +948,49 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st,
     const std::uint64_t estimate = ray_estimate(st, prep.lights.size(), covered);
     result.stats.rayBudget = estimate;
     if (estimate > st.maxRays) return ray_budget_error(estimate, st, covered, "texels");
+    if (texelTracer != nullptr) {
+        // A device traces the texels: it gets the flattened scene once (what the CPU's BVH is built from, and the rest of `prep`).
+        BakeTraceScene flat;
+        flat.casterCorners = std::move(prep.casterCorners);
+        const std::size_t casters = prep.casterGlobal.size();
+        flat.casterNormal.reserve(casters);
+        flat.casterAlbedo.reserve(casters);
+        flat.casterEmissive.reserve(casters);
+        for (const std::uint32_t g : prep.casterGlobal) {
+            const BakeMaterial& m = prep.materials[prep.material[g]];
+            flat.casterNormal.push_back(prep.faceN[g]);
+            flat.casterAlbedo.push_back(m.albedo);
+            flat.casterEmissive.push_back(m.emissive);
+        }
+        for (const LightRt& l : prep.lights) {
+            BakeTraceLight t;
+            t.kind = l.kind;
+            t.direct = l.direct;
+            t.bounce = l.bounce;
+            t.falloff = l.falloff;
+            t.color = l.col;
+            t.position = l.pos;
+            t.direction = l.dir;
+            t.right = l.right;
+            t.up = l.up;
+            t.range = l.range;
+            t.cosOuter = l.cosOuter;
+            t.cosInner = l.cosInner;
+            t.softRadius = l.softRadius;
+            t.tanSoft = l.tanSoft;
+            t.width = l.width;
+            t.height = l.height;
+            flat.lights.push_back(t);
+        }
+        flat.sky = &scene.sky;
+        flat.eps = prep.eps;
+        flat.samples = st.samples;
+        flat.bounces = st.bounces;
+        flat.shadowSamples = st.shadowSamples;
+        report_command_progress("lightmap bake: preparing the GPU");
+        if (auto r = texelTracer->begin(flat); !r) return r.error();
+        if (cancel_requested()) return cancelled_error();
+    }
 
     result.atlases.resize(scene.atlases.size());
     for (std::size_t a = 0; a < scene.atlases.size(); ++a) {
@@ -964,8 +1016,53 @@ Result<BakeResult> bake_lightmap(const BakeScene& scene, const BakeSettings& st,
         traceRep.atlas = int(a) + 1;
         traceRep.atlasCount = atlasCount;
         traceRep.raysBefore = result.stats.rays;
+        if (texelTracer != nullptr) {
+            std::vector<BakeTraceTexel> texels;
+            texels.reserve(map.work.size());
+            for (std::size_t k = 0; k < map.work.size(); ++k) {
+                if ((k & 4095) == 0 && cancel_requested()) return cancelled_error();
+                const std::size_t i = map.work[k];
+                const std::size_t g = std::size_t(map.tri[i]);
+                const float b1 = map.b1[i], b2 = map.b2[i], b0 = 1.0f - b1 - b2;
+                BakeTraceTexel t;
+                t.position = prep.corners[3 * g] * b0 + prep.corners[3 * g + 1] * b1 + prep.corners[3 * g + 2] * b2;
+                t.faceNormal = prep.faceN[g];
+                Vec3 Ns = prep.cornerN[3 * g] * b0 + prep.cornerN[3 * g + 1] * b1 + prep.cornerN[3 * g + 2] * b2;
+                const float nl = length(Ns);
+                t.shadingNormal = nl > 1e-6f ? Ns / nl : t.faceNormal;
+                t.index = std::uint32_t(i);
+                texels.push_back(t);
+            }
+            std::vector<float> values;
+            const std::uint64_t raysBefore = result.stats.rays;
+            auto step = [&](std::uint64_t done) {
+                const std::uint64_t total = texels.size();
+                report_command_progress(label + ", texels " + std::to_string(done) + "/" + std::to_string(total) +
+                                        " (" + std::to_string(total > 0 ? done * 100 / total : 100) + "%)");
+                report_phase(traceRep, BakePhase::Trace, int(a) + 1, atlasCount, done, total, raysBefore);
+                return !cancel_requested();
+            };
+            if (auto r = texelTracer->trace_atlas(atlasKey, texels, step, values); !r) return r.error();
+            if (cancel_requested()) return cancelled_error();
+            if (values.size() != texels.size() * 3)
+                return make_error("the GPU tracer returned " + std::to_string(values.size()) + " numbers for " +
+                                      std::to_string(texels.size()) + " texels",
+                                  "this is a bug of the tracer; bake with device \"cpu\"");
+            for (std::size_t k = 0; k < texels.size(); ++k) {
+                const std::size_t i = texels[k].index;
+                out.rgb[3 * i] = values[3 * k];
+                out.rgb[3 * i + 1] = values[3 * k + 1];
+                out.rgb[3 * i + 2] = values[3 * k + 2];
+                out.mask[i] = kBakeBaked;
+                if (!gpos.empty()) {
+                    gpos[i] = texels[k].position;
+                    gnrm[i] = texels[k].shadingNormal;
+                }
+            }
+            result.stats.rays = sat_add(result.stats.rays, ray_estimate(st, prep.lights.size(), texels.size()));
+        }
         auto rays = run_batches(
-            label, map.work.size(), 16,
+            label, texelTracer != nullptr ? std::size_t(0) : map.work.size(), 16,
             [&](std::size_t k, std::uint64_t& r) {
                 const std::size_t i = map.work[k];
                 const std::size_t g = std::size_t(map.tri[i]);

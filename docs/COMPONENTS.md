@@ -609,8 +609,8 @@ Realtime global illumination: a grid of probes over an axis-aligned box of the w
 | `nearExclusion` | float | `0.1` | Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1. Range 0.01..10.0. |
 | `maxDistance` | float | `30.0` | Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30. Range 1.0..1000.0. |
 | `backfaceTolerance` | float | `0.25` | 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25. Range 0.02..0.9. |
-| `raysPerProbe` | int | `64` | 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. Default 64. Range 16..256. (not released yet, on main after 0.38.0) |
-| `rtProbesPerFrame` | int | `16` | 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. Default 16. Range 1..64. (not released yet, on main after 0.38.0) |
+| `raysPerProbe` | int | `64` | 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64. Range 16..256. (not released yet, on main after 0.38.0) |
+| `rtProbesPerFrame` | int | `16` | 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16. Range 1..64. (not released yet, on main after 0.38.0) |
 | `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. |
 | `hideTags` | json | `[]` | Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. |
 
@@ -6138,7 +6138,7 @@ Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it,
 
 Capabilities: read, state, writeProject
 
-Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count. The LightProbeGroups of the scene are baked by the same job (phase "probes") into `<name>.lightmap.<hash>.probes`, which the manifest lists: moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. Result: {manifest, pages, entities, texels, rays, skipped, warnings, probes {file, count, invalid, groups}, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
+Reads the active MeshRenderers (static geometry that shadows and bounces light; the ones with receiveGI, lightmapScale > 0 and unlit false also get lightmap texels), the Lights with mode baked (direct + bounce light baked) or mixed (only the bounce is baked, the direct light stays realtime) and the sky, then writes `<name>.lightmap.<hash>.<n>.hdr` pages and `<name>.lightmap.json` atomically and sets SceneSettings.lightmaps. A model without a second UV set is unwrapped for you. Blocks until done: a long bake belongs in lightmap.bake_start. The same scene and settings give byte-identical pages on any thread count (device "cpu", the default; device "gpu" is a fast preview within a small tolerance, see `device`). The LightProbeGroups of the scene are baked by the same job (phase "probes") into `<name>.lightmap.<hash>.probes`, which the manifest lists: moving objects read them as their ambient light; a probe inside geometry is flagged invalid and counted. Result: {manifest, pages, entities, texels, rays, device {requested, used, name, note, process}, skipped, warnings, probes {file, count, invalid, groups}, applied}. Example: lightmap.bake {"texelsPerMeter":16,"samples":64}
 
 Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mixed -> indirect only (the realtime light stays; only its bounce is baked into the lightmap and the probes), Realtime is left out; intensity, color, range and spotAngle carry over; Pcss shadowSoftness widens the shadow. An area light is a one-sided rectangle of radiance = intensity (a Disc or Tube becomes a rectangle of the same area). Sky: see `sky`. A MeshRenderer is its color (albedo) and emissive * emissiveStrength; textures are not read; a skinned mesh is baked in its bind pose. A mesh the unwrap cannot handle (a procedural mesh:N, over 250000 triangles) is listed in `skipped`. The result's `warnings` name everything that was approximated. Files: pages are written first, the manifest last; on Windows a file another program holds open cannot be replaced: close it and bake again, or use another `path`. docs/rendering/RENDERING_LIGHTMAPS.md, "Baking".
 
@@ -6157,6 +6157,7 @@ Mapping. Light: Baked -> baked (direct light and bounces; in the probes too), Mi
 | `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
 | `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
 | `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `device` | string ["cpu","gpu","auto"] | no | What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. A mid-bake GPU failure with auto bakes again on the CPU, with the reason in device.note. The light probes always bake on the CPU (a scene with probes and no lightmap texels says so in device.note). samples (1..65536), bounces (0..16) and shadowSamples (1..1024) are the CPU's ranges on the GPU too: outside them the bake is refused, never clamped. Where this process already has a graphics context on a Mac (the editor, a window, factoria call without --no-graphics) the texels are traced by a child `factoria session --no-graphics` (device.process is "helper"; progress and cancel work the same, a crash of the child never reaches this process: gpu fails with the reason, auto bakes on the CPU); otherwise device.process is "here". The result's `device` says which one baked, `process` where. Default "cpu". |
 | `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
 
 ### `lightmap.bake_cancel` (modifies state)
@@ -6172,6 +6173,20 @@ Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the r
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `job` | string | yes | The id lightmap.bake_start returned. |
+
+### `lightmap.bake_plan_start` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Internal: start a bake job from a plan another process made (the helper process of a GPU bake).
+
+Capabilities: read, state, writeProject
+
+What the editor, a window or a session with graphics runs in a child `factoria session --no-graphics` when it bakes with device gpu or auto on a Mac, where a process that has a graphics context cannot open the tracer's own (see lightmap.bake_start, `device`). `plan` is what the parent read from its world (lightmap_job::plan_to_json); the job traces its texels in THIS process, never starts a helper of its own, writes the files with the same code as lightmap.bake and is followed with lightmap.bake_status {"job":...,"apply":false} and stopped with lightmap.bake_cancel. It does not change the scene. Nobody calls it by hand: a process that is not that helper refuses it (internal_command), and an invalid plan, or one that writes outside the project, is refused with a JSON pointer. Result: lightmap.bake_start's. Example: lightmap.bake_plan_start {"plan":{...}}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `plan` | object | yes | The bake plan: options, scene, manifest paths, meshes, lights, probes, sky (what lightmap_job::plan_to_json writes). |
 
 ### `lightmap.bake_start` (modifies state)
 
@@ -6198,6 +6213,7 @@ The same bake as lightmap.bake (same arguments and result) on a job thread, so t
 | `rayEpsilon` | number | no | Meters a ray starts off its surface. 0 = automatic: the scene size / 10000, at most 1 cm and, for the lightmap, at most 1/20 of a texel. Default 0. |
 | `maxRays` | number | no | The bake is refused when it could trace more rays than this. One core traces roughly 2-10 million rays per second, so 1e9 rays are minutes and the default 5e10 are hours: lower it to give a bake a time limit. Default 50000000000. |
 | `sky` | string ["auto","environment","gradient","ambient","none"] | no | The light from outside: auto = SceneSettings.environmentMap when set, else its ambientLight; environment = the HDRI; gradient = skyColor and horizonColor; ambient = the constant ambientLight; none = black. A physical sky or sky material cannot be evaluated: it falls back as said in the result's warnings. Default "auto". |
+| `device` | string ["cpu","gpu","auto"] | no | What traces the texels. cpu (default) = the CPU baker: exact, the same bytes on every machine and thread count; use it for a final bake. gpu = a fast PREVIEW on the graphics card (ray queries: Metal on Apple silicon, D3D12 or Vulkan elsewhere): the image matches the CPU's within a small tolerance (the GPU's own rounding), repeats on one GPU and driver, and can differ in the last bits on another; the bake fails with the reason when no GPU here traces rays. auto = gpu when this machine has a GPU that can (a software rasteriser such as WARP or lavapipe does not count; gpu accepts it), else cpu with the reason in the result's device.note. A mid-bake GPU failure with auto bakes again on the CPU, with the reason in device.note. The light probes always bake on the CPU (a scene with probes and no lightmap texels says so in device.note). samples (1..65536), bounces (0..16) and shadowSamples (1..1024) are the CPU's ranges on the GPU too: outside them the bake is refused, never clamped. Where this process already has a graphics context on a Mac (the editor, a window, factoria call without --no-graphics) the texels are traced by a child `factoria session --no-graphics` (device.process is "helper"; progress and cancel work the same, a crash of the child never reaches this process: gpu fails with the reason, auto bakes on the CPU); otherwise device.process is "here". The result's `device` says which one baked, `process` where. Default "cpu". |
 | `apply` | boolean | no | Set SceneSettings.lightmaps to the manifest when the bake is done (the renderer reloads the pages either way). Default true. |
 
 ### `lightmap.bake_status` (modifies state)
@@ -8481,6 +8497,48 @@ Capabilities: read
 The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", the display the window is on can show HDR and the renderer writes that encoding (docs/RENDERING.md, "HDR output"); this command says what happened and why. Returns {hdrActive, encoding, swapchainFormat, requested, paperWhiteNits, maxNits, headroom, status, display}. Example: render.output {}
 
 `encoding` is "sdr" (8-bit sRGB), "edr" (macOS and iOS: 16-bit float in extended linear sRGB, 1.0 = the display's white), "scRGB" (Windows: 16-bit float, linear, 1.0 = 80 nits) or "hdr10" (Windows: 10-bit ST 2084 PQ in Rec.2020). Only the tonemap of a PostProcess goes above paper white; while the picture stays within it (no exposure or tonemap, a colour filter, an 8-bit GPU) `status` says so. `swapchainFormat` is "BGRA8", "RGBA16F" or "RGB10A2" ("" without a window or before the first frame). `requested`: the current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: [encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame the window presented (the display is asked once per frame: moving the window to another monitor or switching HDR in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.
+
+### `render.path_tracer` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera.
+
+Capabilities: read, state
+
+The path tracer of M79 (docs/design/ARCHITECTURE_RT_PATHTRACER.md, docs/RAY_TRACING.md): `enabled` (default false), `maxBounces` (1 = direct light only, 1 to 32, default 4), `samplesPerFrame` (paths per pixel each frame adds, 1 to 64, default 1), `maxSamples` (the accumulation stops after this many samples per pixel; 0 = never), `fireflyClamp` (0 = off), `lights` (direct light from up to 8 point and spot lights, default true) and `seed` (changes the noise pattern). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, samples, width, height, resets, lastReset, reason, changed}: `samples` is the samples per pixel accumulated so far and `lastReset` why the accumulation restarted last ("start", "image" when the window was resized, "camera" when it moved, "scene" or "settings" when they changed; `resets` counts the restarts after the first). Example: render.path_tracer {"enabled":true,"maxBounces":6}
+
+The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with graphics.backend; renderer.supports ("raytracing") says whether this one can). On any other device `active` is false, `reason` says so and the raster picture stays. Off it costs nothing. The post stack and the tonemap apply to the path-traced picture as to the raster one. To write a converged image use render.pathtrace. The start value is factoria.json "render": {"pathTracer": {...}}. A wrong name or type fails with `invalid_argument` and a JSON pointer and changes nothing. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | Draw the main camera's lit colour with the path tracer. Default false. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only, up to 32 (clamped). Russian roulette ends a dark path sooner. Default 4. |
+| `samplesPerFrame` | integer | no | Paths per pixel each frame adds to the accumulation, clamped to 1..64. Default 1. |
+| `maxSamples` | integer | no | The accumulation stops (the picture is kept) after this many samples per pixel; 0 = never. Default 0. |
+| `fireflyClamp` | number | no | Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0. |
+| `lights` | boolean | no | Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true. |
+| `seed` | integer | no | Changes the noise pattern; the same seed gives the same picture on a device. Default 0. |
+
+### `render.pathtrace` (modifies state)
+
+Not released yet (on main after 0.38.0).
+
+Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).
+
+Capabilities: read, state
+
+Accumulates `samples` paths per pixel (default 64) from the current camera at `scale` times the design size, then writes the picture as the engine shows it (the post stack and the tonemap apply, so the file is an 8-bit PNG: there is no EXR writer yet). `maxBounces` (default: the render.path_tracer setting) is the path length. `timeBudgetMs` (default 0 = none) stops early and returns `converged` false with the samples reached. The path tracer setting and the render scale are put back afterwards. Returns {path, samples, converged, timeMs, device, width, height, maxBounces}. Example: render.pathtrace {"samples":256,"path":"shots/ref.png"}
+
+Needs a GPU that traces rays: on any other device the command fails with `unavailable` and says to choose D3D12, Vulkan or Metal with graphics.backend (renderer.supports("raytracing") says whether this device can). The same camera, scene, `seed` and samples give the same picture on a device. The path tracer has no textures, hard sun shadows and treats area lights as points (docs/design/ARCHITECTURE_RT_PATHTRACER.md, "Limits"). `timeMs` is the wall time of the render and is not part of the picture.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere). Omitted: a temporary picture under .factoria/screenshots/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `samples` | integer | no | Samples per pixel to accumulate. Default 64. |
+| `scale` | number | no | Image size = design size * scale, drawn natively. Default 1. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only. Default: the render.path_tracer setting. |
+| `timeBudgetMs` | integer | no | Stop after this many milliseconds even if the samples are not reached (0 = no limit). A safety net: the result then has converged false. Default 0. |
 
 ### `render.pick`
 
@@ -19855,12 +19913,12 @@ declare module "factoria" {
      */
     backfaceTolerance: number;
     /**
-     * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. Default 64.
+     * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64.
      * @since unreleased
      */
     raysPerProbe: number;
     /**
-     * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. Default 16.
+     * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16.
      * @since unreleased
      */
     rtProbesPerFrame: number;

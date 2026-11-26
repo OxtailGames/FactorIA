@@ -294,6 +294,70 @@ six scene renders.
   by DXC and have not run on a device yet, and neither has their rule for which side of a triangle is its front (until it is measured they
   discard no probe inside a wall, which can leak light). docs/design/ARCHITECTURE_RT_GI.md (repository only) has the details.
 
+## The path tracer
+
+`render.pathTracer` is a **reference mode**: instead of the raster's lit colour, the main camera shows a progressive path trace of the same
+scene, one random light path per pixel and frame, averaged over the frames while nothing changes. It is the picture to compare the raster
+against ("is my lighting wrong, or only different from physics?"), and the way to get a clean image of a scene for a screenshot or a bug report.
+It is **not a game mode**: one sample per pixel is noisy and a moving camera starts the image over every frame.
+
+```
+factoria call --no-graphics --project my_game render.path_tracer '{"enabled":true,"maxBounces":6}'
+factoria call --project my_game render.pathtrace '{"samples":256,"path":"shots/reference.png"}'
+```
+
+It needs a device that traces rays (D3D12, Vulkan or Metal; `renderer.supports("raytracing")`), and asks for the scene's acceleration structures by
+itself: `render.rayTracing.enabled` does not have to be on. Off (the default) it costs nothing.
+
+```json
+{ "render": { "pathTracer": { "enabled": true, "maxBounces": 4, "samplesPerFrame": 1, "maxSamples": 0,
+                              "fireflyClamp": 0, "lights": true, "seed": 0 } } }
+```
+
+| key | values | default | meaning |
+|---|---|---|---|
+| `enabled` | `true`, `false` | `false` | The main camera shows the path traced colour. |
+| `maxBounces` | 1 to 32 | `4` | The length of a path. 1 = direct light only (the sun and the lights, no bounce). More bounces add the light that bounces off walls, glass and mirrors; Russian roulette ends a dark path sooner. |
+| `samplesPerFrame` | 1 to 64 | `1` | Paths per pixel each frame adds. More makes the picture converge in fewer frames at a slower frame rate. |
+| `maxSamples` | 0 to 16777216 | `0` | The accumulation stops (and the GPU rests) after this many samples per pixel; `0` = never. |
+| `fireflyClamp` | 0 or more | `0` | Clamps the brightness of one path to this value: fewer white dots, a little energy lost. `0` = off. |
+| `lights` | `true`, `false` | `true` | Direct light from up to 8 point and spot lights of the frame. The sun is always sampled. |
+| `seed` | 0 to 1073741824 | `0` | Changes the noise pattern. The same seed gives the same picture on the same device. |
+
+A number outside its range is **clamped**; a wrong name or type is an error with the JSON pointer and a "did you mean", and nothing changes.
+
+**What it draws.** The same BRDF as the raster (Lambert plus GGX), the sun with a shadow ray, up to 8 point and spot lights with one shadow ray each
+(one of them per bounce, chosen at random), emission, the sky as the environment light plus the ambient, and **glass** that reflects and refracts (Fresnel,
+Snell's law, the tint of `attenuationColor`). The pixels where the rays hit nothing keep the raster's sky, and a surface the raster draws and the rays
+do not trace (terrain, impostors, meshes over `maxInstances`) stays as the raster drew it. The post stack and the tonemap apply to the result as to
+the raster's picture.
+
+**Progressive.** Every frame that nothing changes adds `samplesPerFrame` samples and the picture gets cleaner. It **starts over** when the camera
+moves, the scene changes (an object moves, a light or material changes), a setting changes or the window is resized; `render.path_tracer` returns
+`samples` so far, `resets` and `lastReset` (`start`, `image`, `camera`, `scene` or `settings`).
+
+**`render.pathtrace`** renders the converged picture and writes it: `samples` (default 64), `scale` (the image size over the design size, 0.25 to 4),
+`maxBounces`, `timeBudgetMs` (a safety net: stops early and returns `converged: false`) and `path`. It returns `{path, samples, converged, timeMs, device,
+width, height, maxBounces}` and puts the settings and the render scale back as they were. On a device that cannot trace rays it fails with an error
+that says to choose a backend that does, with `graphics.backend`. The same camera, scene, `seed` and `samples` give the same picture on a device. The
+file is an **8-bit PNG, as the engine shows the picture (tonemapped)**: there is no EXR output yet.
+
+**When to use which.**
+
+| | raster (the default) | the other ray traced effects | the path tracer |
+|---|---|---|---|
+| for | playing, every device | the same game with better shadows, reflections, occlusion, glass | judging the lighting, reference screenshots |
+| frame cost | the lowest | one dispatch per effect | many rays per pixel, and many frames for a clean picture |
+| indirect light | the ambient and the probes | the effects' own | traced: bounces off every surface |
+| textures, normal maps, custom materials | yes | partly | **no** |
+
+Limits of this version: the rays see the `MeshRenderer`'s flat colour, roughness and metallic, **not its textures, normal maps or custom
+materials**, so a textured scene looks flatter than the raster's, and a white-albedo scene looks brighter; the sun's shadow is hard (no penumbra from
+`shadowSoftness`); an area light is a point light at its centre and only the 8 strongest point and spot lights are sampled; the ambient colour lights every
+escaped ray equally, as a dome; the raster glass is drawn again over the path traced picture; `render.pathtrace` cannot run from inside a frame (a
+script callback). On a wall seen almost edge on, the check that drops a path traced pixel behind a raster surface can keep the raster's pixel for a
+thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md (repository only, not in the binary).
+
 ## Where it will run
 
 | backend | traces rays | what stands in the way today |
@@ -355,3 +419,10 @@ The calls the backends will implement (all optional: a device without `Features:
   query needs a TLAS), so the code that builds structures is tested without a GPU.
 
 The full description, with the barrier rules, the sizes and the route Metal takes, is in docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md (repository only, not in the binary).
+
+## The lightmap bake on the GPU (M79-P5b)
+
+`lightmap.bake` with `device: "gpu"` (or `"auto"`) uses the same ray queries to trace the texels of a lightmap: a compute kernel (`rt_bake`)
+over an acceleration structure of the bake's own scene. It is a fast preview, tolerance-bound against the CPU baker, and it needs a GPU
+that traces rays (`render.supports("raytracing")`); see [Baking](rendering/RENDERING_LIGHTMAPS.md) and
+docs/design/ARCHITECTURE_BAKING.md, repository only, not in the binary, "The GPU bake". It does not depend on the renderer's `render.rayTracing` settings.

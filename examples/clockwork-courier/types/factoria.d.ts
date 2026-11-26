@@ -8319,12 +8319,12 @@ declare module "factoria" {
      */
     backfaceTolerance: number;
     /**
-     * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. Default 64.
+     * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64.
      * @since unreleased
      */
     raysPerProbe: number;
     /**
-     * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. Default 16.
+     * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16.
      * @since unreleased
      */
     rtProbesPerFrame: number;

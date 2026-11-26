@@ -459,9 +459,10 @@ void Gpu::shutdown() {
     pacerSrc_ = pacerDst_ = {};
     pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
+    blitKeepOverFailed_ = false;
     for (gpu::Shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_,
-                           &blit_shader_, &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_, &meshLodShader_,
-                           &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
+                           &blit_shader_, &blitKeepShader_, &blitKeepOverShader_, &meshSkinShader_, &shadowSkinShader_,
+                           &meshLodShader_, &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
         drop_shader(*s);
     for (gpu::Shader& s : bloom_shaders_) {
         if (s.id) device_->destroy_shader(s);
@@ -861,6 +862,39 @@ gpu::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
     d.depth.writeEnabled = false;
     d.faceWinding = gpu::FaceWinding::Ccw;
     d.label = "blit-keep";
+    return find_or_make(key, format, d);
+}
+
+// The same copy blended over what the target holds as a premultiplied image: One, OneMinusSrcAlpha (the path tracer's picture over the raster's).
+gpu::Pipeline Gpu::blit_keep_over_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x1100u};
+    gpu::PipelineDesc d{};
+    // The path tracer's image is RGBA32F, which no device filters: the same program, its texture declared unfilterable and its sampler
+    // non-filtering (the nearest one the caller binds), made on first use.
+    if (blitKeepOverFailed_) return {};
+    if (!blitKeepOverShader_.id) {
+        gpu::ShaderDesc sd = gpu::generated_shader_desc(*device_, blit_blit_keep_shader_desc);
+        sd.views[VIEW_blit_tex].texture.sampleType = gpu::ImageSampleType::UnfilterableFloat;
+        sd.samplers[SMP_blit_smp].samplerType = gpu::SamplerType::Nonfiltering;
+        blitKeepOverShader_ = make_shader(*device_, sd, "blit_blit_keep_over");
+    }
+    if (!shader_valid(blitKeepOverShader_)) {
+        blitKeepOverFailed_ = true;
+        FA_ERROR("render", "the shader that draws the path tracer's image over the picture could not be made; the "
+                           "raster picture stays");
+        return {};
+    }
+    d.shader = blitKeepOverShader_;
+    d.layout.attrs[ATTR_blit_blit_keep_pos].format = gpu::VertexFormat::Float2;
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.faceWinding = gpu::FaceWinding::Ccw;
+    d.colors[0].blend.enabled = true;
+    d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.label = "blit-keep-over";
     return find_or_make(key, format, d);
 }
 

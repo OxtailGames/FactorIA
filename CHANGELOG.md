@@ -19,6 +19,35 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   of the hardware's front-face flag (the probes' back-face fraction) is measured on Metal only (the other backends count no back faces until a test measures them). The hit include gained the front-face flag
   (`rt_closest_hit_ff`, `RtSurface.front`), so the DXIL and SPIR-V of `rt_reflect` and `rt_refract` were regenerated (the same behaviour).
   docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_GI.md.
+- **The path tracer, a ray traced reference mode (M79-P5a):** with `render.pathTracer.enabled` (factoria.json, or the command `render.path_tracer`) the
+  main camera shows a progressive path trace of the scene instead of the raster's lit colour: one unidirectional path per pixel and frame, a ray
+  query for every segment, the same Lambert and GGX as the raster, the sun and up to 8 point and spot lights sampled directly (`lights`), emission, the
+  sky and the ambient as the environment, glass that reflects and refracts, Russian roulette, `maxBounces` (1 to 32), `samplesPerFrame`, `fireflyClamp`
+  and a `seed`, deterministic (the same camera, scene and seed give the same picture on a device). The image accumulates in a float image while nothing
+  changes and starts over, with the reason in `render.path_tracer`'s `lastReset`, when the camera, the scene, the settings or the size change;
+  `maxSamples` holds it. `render.pathtrace` renders `samples` per pixel from the main camera and writes an 8-bit PNG (the picture as the engine shows
+  it, tonemapped: there is no EXR writer yet), returning the path, the samples, the time and the device; on a device that cannot trace rays it fails
+  with an error that names `graphics.backend`. `render.ray_tracing` reports the path tracer under `pathTracer`. Free when off, and a device that cannot
+  trace keeps the raster picture. The kernel is HLSL (DXIL and SPIR-V) with a Metal twin, tested against a CPU ray caster on a real Metal device. Limits
+  of this version: no textures, normal maps or custom materials (flat colour, roughness, metallic), a hard sun shadow, area lights as points,
+  an 8-bit PNG (docs/RAY_TRACING.md, "The path tracer"; docs/design/ARCHITECTURE_RT_PATHTRACER.md).
+- **The GPU lightmap bake works from the editor, MCP and `factoria call` with graphics (M79-P5c):** a process that already holds the Mac's only
+  Metal context cannot open the GPU tracer's own, so a `device` `"gpu"` or `"auto"` bake there now runs in a child `factoria session
+  --no-graphics` that is given the bake's plan (new command `lightmap.bake_plan_start`), streams its progress back and is cancelled by the same
+  Cancel; a crash or GPU reset in the child never reaches the editor (`gpu` fails with the reason, `auto` bakes on the CPU and says why). The
+  result's `device` gains `process` (`"here"` or `"helper"`). The Lightmap panel has a Device choice (CPU, GPU, Auto) and shows which device baked
+  and why. Also: `samples`, `bounces` and `shadowSamples` out of range are refused on the GPU path, never clamped; a GPU bake with only probes says
+  it baked them on the CPU; the dispatch planner keeps the minimum batch inside the budget. docs/design/ARCHITECTURE_BAKING.md, docs/rendering/RENDERING_LIGHTMAPS.md.
+- **Lightmaps bake on the GPU, as a fast preview (M79-P5b):** `lightmap.bake` and `lightmap.bake_start` take `device`: `"cpu"` (the default,
+  unchanged and bit-exact), `"gpu"` or `"auto"`. The GPU traces the texels with the CPU baker's own random numbers (the same hash, Hammersley
+  sequences, cosine hemisphere and Russian roulette) in a compute kernel with inline ray queries over an acceleration structure of the bake's own
+  scene; the validation, budgets, atlas layout, denoise, gutter, progress and cancel are the CPU's code, so the pages have the same format and
+  the same light up to the GPU's rounding (mean error 2e-7 on a mean value of 5 in the Cornell room test on an Apple M5). A Cornell room of 98,000
+  texels with 64 samples: 5.2 s on the CPU, 45 ms on the GPU. The result's `device` says `{requested, used, name, note}`; `"gpu"` without a GPU
+  that traces rays fails with the reason and `"cpu"` as the hint, `"auto"` bakes on the CPU and says why. On a Mac the GPU bake needs a process
+  without a graphics context (`factoria call --no-graphics`); D3D12 and Vulkan run next to a window. The Metal kernel is tested on a real GPU;
+  the D3D12 and Vulkan blobs are compiled with DXC and run nowhere in the suite. The light probes always bake on the CPU.
+  docs/design/ARCHITECTURE_BAKING.md, docs/rendering/RENDERING_LIGHTMAPS.md, docs/RAY_TRACING.md.
 - **Ray traced shadows of point, spot and area lights (M79-P2a-3):** with `render.rayTracing.shadows` on, up to three shadow-casting lights per
   camera and frame (the most important by brightness, range and distance; a light keeps its slot with a hysteresis of 25%) get their shadow from
   rays instead of their shadow maps: `hard` casts one ray to the light's centre, `soft` casts `raysPerPixel` rays over the cone of a point or spot
