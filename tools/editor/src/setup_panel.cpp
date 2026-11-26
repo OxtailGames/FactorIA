@@ -40,10 +40,11 @@ void note(const std::string& text) {
     ImGui::PopStyleColor();
 }
 
-const ImVec4& state_color(const std::string& state) {
-    if (state == "installed") return kReady;
-    if (state == "partial") return kWarn;
-    if (state == "missing") return kFailed;
+const ImVec4& state_color(const SetupComponent& c) {
+    if (c.state == "installed") return kReady;
+    if (c.state == "partial") return kWarn;
+    // DXC is for contributors to the engine only: almost every user lacks it, and that is not a problem to paint red.
+    if (c.state == "missing") return c.id == "dxc" ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : kFailed;
     return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
 }
 
@@ -241,7 +242,7 @@ void Editor::draw_setup_window() {
     for (const SetupComponent& c : status.components) {
         ImGui::PushID(c.id.c_str());
         ImGui::SeparatorText(c.title.c_str());
-        ImGui::TextColored(state_color(c.state), "%s", setup_state_label(c.state));
+        ImGui::TextColored(state_color(c), "%s", setup_state_label(c.state));
         const std::string size = setup_size_text(c.installSizeMb);
         if (!size.empty() && c.state != "installed") {
             ImGui::SameLine();

@@ -80,16 +80,30 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   DXR tier 1.1 and shader model 6.5, which older Windows versions lack; it skips without one, and `FA_D3D12_REQUIRE_RT=1`
   turns that skip into a failure that names the tier, the shader model and the `d3d10warp.dll` loaded. `FA_WARP_DIR`
   names a folder with a newer `d3d10warp.dll` (the NuGet package Microsoft.Direct3D.WARP, for testing only) that the case
-  loads first. The Windows CI job sets `FA_D3D12_REQUIRE` and `FA_D3D12_REQUIRE_RT`, and exports `FA_WARP_DIR` on every
-  shard when the runner's own WARP is older.
+  loads first. The Windows CI job sets `FA_D3D12_REQUIRE` for every test, configures with `-DFA_D3D12_REQUIRE_RT=ON`
+  (CMake then puts `FA_D3D12_REQUIRE_RT=1` in the environment of the ctest `render_d3d12_raytracing` alone, so the
+  whole-suite `render` run never fails for it), and exports `FA_WARP_DIR` on every shard when the runner's own WARP is
+  older.
 - **Vulkan ray tracing tests, `FA_VULKAN_REQUIRE` and `FA_VULKAN_REQUIRE_RT`.** The Vulkan backend's tests run on the
   machine's Vulkan device with the validation layer and skip, saying why, where there is no loader, no device or no layer;
   `FA_VULKAN_REQUIRE=1` turns that skip into a failure. Its ray tracing cases (`render_vulkan_raytracing`,
   `vulkan_raytracing_tests.cpp`) also need `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`,
-  `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`; a device without them (MoltenVK, lavapipe before Mesa 24.1)
-  skips them with its reason, also under `FA_VULKAN_REQUIRE=1`. `FA_VULKAN_REQUIRE_RT=1` turns that skip into a failure
+  `VK_KHR_deferred_host_operations` and `bufferDeviceAddress`; a device without them (MoltenVK, lavapipe before Mesa 24.1:
+  its [release notes](https://docs.mesa3d.org/relnotes/24.1.0.html) list ray queries there; no Mesa older than 25.2.8 was
+  run) skips them with its reason, also under `FA_VULKAN_REQUIRE=1`. `FA_VULKAN_REQUIRE_RT=1` turns that skip into a failure
   that names the device, its driver and version, and what it lacks. CI sets both in the `linux` job, which installs Mesa
-  25.2's lavapipe (noble-updates); the sanitizer jobs install no lavapipe and set neither.
+  25.2's lavapipe (noble-updates); the sanitizer jobs install no lavapipe and set neither. The cases take about 1 s
+  on lavapipe with every core and 2 s on one core (`taskset -c 0 LP_NUM_THREADS=1`, measured on WSL, Mesa 25.2.8), against
+  the ctest `TIMEOUT 600` of `render_vulkan_raytracing`: a margin of over 250 times, which a loaded 4-vCPU runner does not
+  use up. The whole-suite `render` ctest leaves `vulkan_raytracing_tests.cpp` out (`--fa-files-exclude=`, passed by
+  `fa_add_tests(... ARGS ...)`), because `render_vulkan_raytracing` runs it with that timeout; `ctest -R render_vulkan`
+  or `fa_test_render --fa-files=vulkan_raytracing_tests.cpp` runs it alone.
+- **A Vulkan window under WSL.** `vulkan_device_tests.cpp`'s swapchain case "a swapchain on a window: acquire, clear,
+  present, resize, and made again when out of date" resizes a real X11 window and fails under WSLg's `DISPLAY=:0`
+  (Xwayland, where the compositor owns the window; the cause was not investigated). Under Xvfb it passes, as in the CI
+  job. In WSL run the Vulkan tests with `xvfb-run -a -s "-screen 0 1280x720x24" ctest -R
+  render_vulkan` (or an `Xvfb :99` and `DISPLAY=:99`), the way `scripts/ci-local.sh linux` does
+  (docs/design/BUILDING_CI.md, "`--wsl`").
 - **Time limits count CPU time.** The 60 s of one test of `factoria test`, the 5 s of `script.eval`, the 2 s of a callback
   and the like measure the CPU time the script thread spent (`CLOCK_THREAD_CPUTIME_ID`, `GetThreadTimes`), not the wall
   clock, so a loaded machine or a build running next to the tests cannot fail them. A script blocked for good (a native that

@@ -639,8 +639,15 @@ struct Renderer::Impl {
     struct RtShadowDraws {
         int mask = 0, withCascades = 0;
     } rtShadowDraws;
-    RtDenoiser rtDenoiser;  // the soft sun shadow's signal (rt_denoise.h): its history is per camera
     bool rtWarnedEffect = false;
+    bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
+    // The denoiser of the ray traced effects (rt_denoise.h), empty and free until an effect asks: the soft sun shadow (P2a-2, signal id 1) and the
+    // ambient occlusion (P2b, signal id 2); each signal keeps its own history per camera.
+    RtDenoiser rtDenoiser;
+    bool rtWarnedAo = false;  // M79-P2b: the one-time message of the occlusion kernel
+    static constexpr std::uint32_t kRtShadowSignalId = 1;
+    static constexpr std::uint32_t kRtAoSignalId =
+        2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)
     void rt_begin_frame();
     // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
     // when the driver refuses the program: the answer is kept, the scene says so once).

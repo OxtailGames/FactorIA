@@ -123,7 +123,7 @@ struct TlasBuild {
 };
 
 // CommandList::copy_accel_structure: Compact = a BLAS built with allowCompaction into a smaller one of the size
-// query_compacted_size answered; Clone = a copy of the same size.
+// query_compacted_size answered; Clone = a copy into a structure at least as large (dst.size >= src.size).
 enum class AccelCopyMode : std::uint8_t { Clone, Compact };
 
 // Why `backend` does not trace rays (yet), as one sentence for an error or a supports() reason: GL, GLES3, WebGL2 and

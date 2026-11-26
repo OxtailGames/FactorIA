@@ -34,6 +34,8 @@
 namespace fa::render {
 
 // The LUT strip the final pass binds (Assets::lut): the view and the layout of its slices.
+struct RtEffectImage;
+
 struct LutInfo {
     gpu::View view{};
     int size = 0, cols = 0, rows = 0;
@@ -105,6 +107,9 @@ struct SsaoSettings {
 SsaoSettings ssao_from_stack(const PostStack& stack);
 // The settings of the debug view ao: the stack's own when it has the effect on, else the defaults of the component; `view` set.
 SsaoSettings ssao_debug_settings(const SsaoSettings& own);
+// The radius and the intensity of the ray traced occlusion (M79-P2b, rt_ao): the stack's own when it has the effect on, else the defaults of the
+// component; always enabled, and `view` is the stack's (the debug view ao shows the ray traced result).
+SsaoSettings ssao_rt_settings(const SsaoSettings& own);
 
 // The stages of the final pass (post.glsl) in the order it runs them, for the cuts a custom pass at a display-referred
 // place makes (post_custom.h, post_slot_is_ldr): the place after stage `i` is PostSlot(int(PostSlot::AfterTonemap) +
@@ -210,6 +215,10 @@ struct PostPlan {
     PrepassRef reactive;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
+    // M79-P3a-1: the camera's ray traced reflections (rt_reflect.hlsl; null when none were declared this frame) and its imported resource: the
+    // reflections' trace pass reads it. Set by build_graph before the stack is declared.
+    const RtEffectImage* rtReflectImg = nullptr;
+    ResourceId rtReflectRes;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
     // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has

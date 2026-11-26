@@ -67,6 +67,22 @@ inline constexpr std::string_view kRtEffectParamNames[] = {
     "viewBack", "viewProj0", "viewProj1", "viewProj2", "viewProj3", "user0",  "user1"};
 static_assert(sizeof(kRtEffectParamNames) / sizeof(kRtEffectParamNames[0]) == 25);
 
+// The second constants block of the kernels that shade what a ray hits (rt_hit.hlsli, rt_hit.msli: the same struct between `// BEGIN RtHitParams` and
+// `// END RtHitParams`): 6 float4, 96 bytes, set at uniform slot RtEffectBindings::kUniformHit by a request that carries it (RtEffectRequest::hit).
+struct RtHitParams {
+    float sunDir[4];  // xyz: the unit vector from a surface toward the sun; w: 0
+    float
+        sunColor[4];   // xyz: the sun's radiance (colour * intensity, scene colour space; 0 = no sun that lights); w: 0
+    float ambient[4];  // xyz: SceneSettings.ambientLight (the scene's colour space); w: 0
+    float sky[4];  // xyz: SceneSettings.skyColor; w: 1 when the scene's environment is a texture the kernel cannot read
+    float horizon[4];  // xyz: SceneSettings.horizonColor; w: 0
+    // x: the shadow ray's offset along the normal in metres, y: more of it per metre of the ray's length, z: the shadow ray's TMax, w: the
+    // differential rays' offset as a fraction of the hit distance.
+    float limits[4];
+};
+static_assert(sizeof(RtHitParams) == 6 * 16, "RtHitParams is 6 float4 (rt_hit.hlsli and rt_hit.msli say the same)");
+inline constexpr std::string_view kRtHitParamNames[] = {"sunDir", "sunColor", "ambient", "sky", "horizon", "limits"};
+
 // The binding numbers of every effect kernel in each backend's own numbering (the contract the .hlsl and .metal files repeat in their header
 // comments). A kernel declares only the resources it reads; the numbers never change. The view slots are the engine's slots (Bindings::views).
 struct RtEffectBindings {
@@ -75,24 +91,31 @@ struct RtEffectBindings {
     static constexpr int kViewOut = 0, kViewPrepass = 1, kViewRecords = 2, kViewAlbedo = 3, kViewMaterial = 4,
                          kViewAux = 5;
     static constexpr int kUniformParams = 0;  // set_uniforms(0, RtEffectParams)
+    static constexpr int kUniformHit =
+        1;  // set_uniforms(1, RtHitParams): the kernels that use rt_hit.hlsli (RtEffectKernelSpec::usesHit)
     static constexpr int kSampler =
         0;  // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
     // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material, t5 aux.
     // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material, 7 aux.
-    // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(2) records, texture(2) albedo, texture(3) material,
-    // texture(4) aux.
+    // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(8) records (Sokol: storage buffers are 8 .. 23),
+    // texture(2) albedo, texture(3) material, texture(4) aux.
+    // The hit constants (usesHit): b1 / binding 7 / buffer(3). Vulkan binding 7 is the aux image of a kernel with usesAux and the hit constants of
+    // one with usesHit: no kernel has both (add_pass refuses a spec that does).
     // The numbers of the sun shadow's own constants (RtEffectParams::user0, user1) are in rt_shadow_params below.
 };
 
 // What a kernel of the table declares beyond the common three (the output, the constants, the prepass).
 struct RtEffectKernelSpec {
     std::string_view kernel;   // the name in rt_kernels.h
-    bool usesRecords = false;  // the scene's RtInstanceRecord buffer (t2 / binding 4 / buffer(2))
+    bool usesRecords = false;  // the scene's RtInstanceRecord buffer (t2 / binding 4 / buffer(8))
     bool usesGbuffer =
         false;  // the thin G-buffer's albedo and material images (t3, t4 / bindings 5, 6 / texture(2), texture(3))
+    bool usesHit =
+        false;  // the kernel shades what its rays hit (rt_hit.hlsli): RtHitParams at b1 / binding 7 / buffer(3); it needs usesRecords
     bool usesTlas =
         true;  // the TLAS (t0 / binding 0 / buffer(0)); false: a kernel that only moves pixels, no ray query
-    bool usesAux = false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4))
+    bool usesAux =
+        false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
 };
 
 // The numbers the renderer gives the sun shadow kernel in RtEffectParams::user0 (and the tests too: one place, so a test traces with what the
@@ -144,6 +167,7 @@ struct RtEffectRequest {
     int raysPerPixel = 1;
     float lightDir[3] = {0, 1, 0};  // toward the light
     float user0[4] = {}, user1[4] = {};
+    RtHitParams hit{};  // set at kUniformHit when the kernel's spec has usesHit
     RtScene* scene = nullptr;
     int* drawCalls = nullptr;  // each dispatch adds one when it runs (may be null)
 };

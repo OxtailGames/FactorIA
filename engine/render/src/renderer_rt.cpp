@@ -78,6 +78,8 @@ void Renderer::Impl::rt_begin_frame() {
     if (!wanted) {
         rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
         rtWarnedEffect = false;
+        rtWarnedReflect = rtWarnedReflectGbuffer = false;
+        rtWarnedAo = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
@@ -86,6 +88,7 @@ void Renderer::Impl::rt_begin_frame() {
             rtDenoiser.release();
     } else {
         rtEffects.sweep(gpu, frameSerial + 1);
+        rtDenoiser.sweep(postSerial + 1);  // a signal no camera asked for in the frame before frees its history
     }
     // Mesh buffers carry the usage a build reads only while the scene is on (Assets::set_accel_input reloads the meshes made before).
     if (assets) assets->set_accel_input(on);

@@ -10,7 +10,7 @@
 # A header holds three blobs:
 #   dxil   the D3D12 kernel: DXC `-T cs_6_5` of the .hlsl (DXIL, signed by dxil.dll / libdxil.so)
 #   spirv  the Vulkan kernel: DXC `-spirv -fspv-target-env=vulkan1.2 -fspv-extension=SPV_KHR_ray_query` of the same .hlsl
-#   msl    the Metal kernel: the .metal text as it is (MSL 2.4; the renderer compiles it with MTLDevice at run time)
+#   msl    the Metal kernel: the .metal text, its quoted `#include "x"` lines replaced by the text of x (MSL 2.4; the renderer compiles it at run time)
 # DXC is the pinned release of fa/tooling/setup.h (`factoria setup dxc` installs it into
 # ${FACTORIA_HOME:-$HOME/.factoria}/tools/dxc/<version>/; $FA_DXC_DIR names a folder of your own). It exists for Windows (x64, arm64) and
 # Linux x86_64 only. Where there is none (a Mac), the dxil and spirv blobs of the committed header are kept as they are, the msl blob
@@ -85,6 +85,22 @@ emit_blob() {
     printf '};\n// END %s\n' "$label"
 }
 
+# expand_includes <file>: the text of the file with every `#include "name"` line (the quotes: `<name>` stays) replaced by the text of that file, next to
+# the including one, recursively. A file without such a line is written as it is, so a kernel with no include keeps the bytes (and the
+# hashes) it always had. The Metal library is compiled at run time from ONE string, so the .metal text embedded in the header is the expanded one;
+# DXC reads the includes of the .hlsl itself, and its hash covers the expanded text, so a change of an include marks the blobs stale.
+expand_includes() {
+    local file="$1" line
+    if ! grep -q '^#include "' "$file"; then cat "$file"; return; fi
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ "$line" =~ ^#include\ \"([^\"]+)\" ]]; then
+            expand_includes "$(dirname "$file")/${BASH_REMATCH[1]}"
+        else
+            printf '%s\n' "$line"
+        fi
+    done <"$file"
+}
+
 # section_of <label> <header>: the lines of a blob of an existing header.
 section_of() { sed -n "/^\/\/ BEGIN $1 /,/^\/\/ END $1\$/p" "$2"; }
 meta_of() { sed -n "s|^// $1: *||p" "$2" | head -n 1; }
@@ -96,9 +112,13 @@ generate() {
     local out="$TMP/$name.rt.h" prefix hlslHash mslHash dxcUsed
     [ -f "$hlsl" ] && [ -f "$msl" ] || { echo "error: $name needs both $hlsl and $msl" >&2; exit 1; }
     prefix="k$(camel "$name")"
-    hlslHash="$(sha256_of "$hlsl")"
-    mslHash="$(sha256_of "$msl")"
     mkdir -p "$TMP/$name"
+    expand_includes "$hlsl" >"$TMP/$name/expanded.hlsl"
+    expand_includes "$msl" >"$TMP/$name/expanded.metal"
+    local hlslNow
+    hlslNow="$(sha256_of "$TMP/$name/expanded.hlsl")"
+    hlslHash="$hlslNow"
+    mslHash="$(sha256_of "$TMP/$name/expanded.metal")"
     if [ -n "$DXC" ]; then
         # -Wno-ignored-attributes: the [[vk::...]] attributes mean nothing to the DXIL compile.
         "$DXC" -T cs_6_5 -E main -Wno-ignored-attributes -Fo "$TMP/$name/dxil.bin" "$hlsl" >"$TMP/$name/dxil.log" 2>&1 ||
@@ -114,7 +134,7 @@ generate() {
         fi
         dxcUsed="$(meta_of dxc-version "$existing")"
         hlslHash="$(meta_of hlsl-sha256 "$existing")"
-        if [ "$hlslHash" != "$(sha256_of "$hlsl")" ]; then
+        if [ "$hlslHash" != "$hlslNow" ]; then
             echo "STALE: $hlsl changed after the DXIL and SPIR-V of ${existing#"$ROOT"/} were made; the Linux CI job regenerates them (artifact rt-shader-headers)" >&2
             stale=1
         fi
@@ -135,7 +155,7 @@ generate() {
             section_of dxil "$existing"
             section_of spirv "$existing"
         fi
-        emit_blob msl "$msl" 1 "${prefix}Msl"
+        emit_blob msl "$TMP/$name/expanded.metal" 1 "${prefix}Msl"
         printf '\n}  // namespace fa::rt_kernels\n'
     } >"$out"
     if [ ! -f "$existing" ] || ! cmp -s "$out" "$existing"; then

@@ -1199,7 +1199,7 @@ constexpr const char* kSchemaText =
         },
         "rayTracing": {
           "type": "object",
-          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays; the other effects do not draw with rays yet.",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays, and so is the ambient occlusion (ao, in place of the screen-space one); the other effects do not draw with rays yet.",
           "additionalProperties": false,
           "properties": {
             "enabled": {
@@ -1216,12 +1216,12 @@ constexpr const char* kSchemaText =
             "ao": {
               "type": "boolean",
               "default": false,
-              "description": "Ambient occlusion traced with rays instead of the screen-space one. Default false."
+              "description": "Ambient occlusion traced with rays instead of the screen-space one, on the main camera of a device that traces: raysPerPixel rays in a hemisphere around each surface, denoised, applied as the screen-space occlusion is (the radius and intensity are the camera's PostProcess ssaoRadius and ssaoIntensity, else their defaults). Default false."
             },
             "reflections": {
               "type": "boolean",
               "default": false,
-              "description": "Mirror and glossy reflections traced with rays instead of the screen-space ones. Default false."
+              "description": "Sharp reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel instead of the screen-space reflections and the probes; rougher surfaces keep the old ones. Default false."
             },
             "translucency": {
               "type": "boolean",

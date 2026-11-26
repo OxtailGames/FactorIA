@@ -42,7 +42,7 @@ pipelines too; nothing uses it.
 | `AccelStructureDesc` | `kind`, `size`, optional `storage` buffer and `storageOffset`, `label` |
 | `AccelInstance` | row-major 3x4 `transform[12]`, 24-bit `customIndex`, `mask`, `opaque`, `cullDisable`, `blas` |
 | `BlasBuild`, `TlasBuild` | `dst`, the geometries or instances (borrowed spans), `flags`, `update`, `src`, `scratch`, `scratchOffset` |
-| `AccelCopyMode` | `Clone` (same size) or `Compact` |
+| `AccelCopyMode` | `Clone` (into one at least as large) or `Compact` |
 | `accel_unavailable_reason(Backend)`, `accel_refusal(Backend, call)` | the sentence and the `Error` a device without ray tracing answers |
 
 `types.h` gained:
@@ -62,8 +62,9 @@ On `Device` (render thread only, like every `make_*`):
 
 - `ray_tracing_status(std::string* why)`: whether the engine can trace on this device, and one sentence for a player when not.
 - `blas_sizes(geometries, flags)`, `tlas_sizes(instanceCount, flags)`: the sizes **before anything is made**, so the caller
-  makes the scratch buffer and the structure once and reuses them every frame. They check counts and limits, not buffer
-  contents.
+  makes the scratch buffer and the structure once and reuses them every frame. They check counts, strides, offsets and limits,
+  not buffer handles or contents (the sizes depend on counts alone; `build_blas` checks the buffers), and `tlas_sizes` takes
+  no list of BLASes: a TLAS's size is a function of its instance count.
 - `make_accel_structure(desc)`, `destroy_accel_structure(structure)`, `accel_structure_state(structure)` (named apart from
   `state()` because an overload would hide the others in a derived class, `-Woverloaded-virtual`).
 - `accel_alignment()` and `accel_scratch_alignment()`: 256 by default, what D3D12 and Vulkan ask of a storage offset and of a
@@ -96,7 +97,9 @@ whose package has landed overrides it to say what its GPU lacks ("this GPU lacks
   `RecordingDevice` says so: "destroy a BLAS only after the TLAS that names it"). The instances of a `TlasBuild` are read during
   the call and copied; the span is borrowed.
 - **Refit** (`update` true) needs a structure built with `allowUpdate` and the same counts: the topology stays, vertices or
-  transforms move. `src` invalid or equal to `dst` refits in place.
+  transforms move. `src` invalid or equal to `dst` refits in place. A TLAS keeps the bounds of its BLASes as they were when
+  it was built: **rebuild (or refit) the TLAS after a BLAS refit**, then trace; tracing a TLAS that was not rebuilt may miss
+  the moved geometry (the barriers keep the order, they do not update the TLAS).
 - **Compaction**: build with `allowCompaction`, `query_compacted_size` into a storage buffer, read it after the frame (an
   asynchronous read), make a smaller BLAS and `copy_accel_structure(Compact)`; the original is destroyed once the copy has run.
 
@@ -135,7 +138,7 @@ of it: two builds on one scratch buffer get a barrier between them, and a write 
 |---|---|---|
 | OpenGL, GLES3, WebGL2, Direct3D 11 (`SokolDevice`) | false, for good | the API cannot trace rays; use the d3d12 or vulkan backend, or Metal on Apple |
 | Direct3D 12 | true on a device with DXR tier 1.1 and shader model 6.5 | "the d3d12 device on '<adapter>' has DXR tier <t> and shader model <m>: inline ray query needs DXR tier 1.1 and shader model 6.5" and what to do |
-| Vulkan | true on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` | what this GPU lacks, with its name (`ray_tracing_status`); MoltenVK has none, lavapipe has them from Mesa 24.1 |
+| Vulkan | true on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` | what this GPU lacks, with its name (`ray_tracing_status`); MoltenVK has none, lavapipe lists them from Mesa 24.1 ([release notes](https://docs.mesa3d.org/relnotes/24.1.0.html); the engine's CI and the ray tracing tests ran on 25.2.8, no older Mesa was run) |
 | Metal (`SokolDevice` on Apple) | true when `MTLDevice.supportsRaytracing` and macOS 13 / iOS 16 (see "Metal"); `rayTracingPipeline` false | on a GPU or OS without it: the GPU and the OS version named, and what Metal needs |
 | `RecordingDevice` | what it was made with (`DeviceInit::recordingRayTracing`) | a plain one refuses and says it was made without ray tracing |
 
@@ -250,19 +253,23 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
   barriers. The command list tracks the last access of each structure buffer (`accel_access`). It inserts a UAV barrier before
   a write that follows any access (a refit after a trace, a rebuild, a copy into it). It also inserts one before a read that
   follows a write: the TLAS build that reads its BLASes, the dispatch that traces a TLAS bound with `set_bindings`, a compaction
-  query or a copy from it. The scratch buffer takes a UAV barrier before a build when an earlier command of the list wrote it. The tracking
+  query or a copy from it. A dispatch that traces also starts with a UAV barrier over every resource when any structure was
+  written since the last such dispatch (the BLASes a TLAS points at are not bound, so a BLAS refit after the TLAS build has no
+  buffer to hang a barrier on). The scratch buffer takes a UAV barrier before a build when an earlier command of the list wrote it. The tracking
   starts again with each list: across lists the backend relies on each list being its own `ExecuteCommandLists` call, whose
   writes D3D12 finishes before the next call's work.
 - **Tests.** `d3d12_raytracing_tests.cpp` (ctest `render_d3d12_raytracing`). The neutral half runs everywhere. On Windows a WARP
   device builds a BLAS and a TLAS of two instances and dispatches `rt_probe`. Every pixel of the result is checked against the
   same rays on the CPU. On the frames after, it refits both, compacts the BLAS and rebuilds the TLAS over the copy, then rebuilds
   both from scratch. It also checks that the kernel given as HLSL text is refused (RayQuery needs DXIL). When the WARP has no
-  tier 1.1 the case says so and passes, unless `FA_D3D12_REQUIRE_RT=1` (set by the Windows CI job; `FA_D3D12_REQUIRE` alone
-  does not), which fails it with the tier, the shader model and the `d3d10warp.dll` the process loaded. With `FA_WARP_DIR`
+  tier 1.1 the case says so and passes, unless `FA_D3D12_REQUIRE_RT=1` (CMake sets it on this ctest alone with `-DFA_D3D12_REQUIRE_RT=ON`, which the
+  Windows CI job passes; `FA_D3D12_REQUIRE` alone does not), which fails it with the tier, the shader model and the `d3d10warp.dll` the process loaded. With `FA_WARP_DIR`
   (exported by every Windows CI shard when the runner's WARP is older, "What CI runs" in
   ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md), the case loads that `d3d10warp.dll` before its first device. That works in
   its own ctest, where nothing loaded a WARP before. In the whole-suite ctest `render` an earlier D3D12 case may have loaded
-  the system's WARP: the case then skips there even with `FA_D3D12_REQUIRE_RT=1`, and says so.
+  the system's WARP: the case then skips there (CI does not set `FA_D3D12_REQUIRE_RT` for that run), and says so. Under
+  `FA_D3D12_REQUIRE_RT=1` a WARP that was defeated that way is a failure too, which names the earlier WARP: the dedicated
+  ctest runs the file alone, so nothing can have loaded one before it.
 
 ## Vulkan (`vulkan_raytracing.cpp`)
 
@@ -272,7 +279,11 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
   Ray tracing never fails device creation: a `vkCreateDevice` that fails with them on is retried without them, and a driver
   that lists the extension but gives no entry point turns it off. `VK_KHR_ray_tracing_pipeline` is reported
   (`Features::rayTracingPipeline`), never enabled. A device hook that asks for the same feature structs merges into the
-  engine's.
+  engine's. `VK_KHR_ray_tracing_maintenance1` is enabled too when the GPU lists it with `synchronization2` on: it adds
+  `ACCELERATION_STRUCTURE_COPY_BIT` to the stages (`accelCopyStage_`), which a structure copy then uses in its barriers;
+  without it (or without sync2, whose 64-bit stage flags the bit needs) the copy is ordered at the build stage as
+  before. The status line also names the driver (`VkPhysicalDeviceDriverProperties`, read only on Vulkan 1.2 or with
+  `VK_KHR_driver_properties`).
 - **Caps.** `Limits::maxAccelInstances`, `maxAccelGeometries` and `maxAccelPrimitives` come from
   `VkPhysicalDeviceAccelerationStructurePropertiesKHR` (clamped to 32 bits where the field is), and
   `accel_scratch_alignment()` is `minAccelerationStructureScratchOffsetAlignment`, never below 256 (`fill_ray_tracing_caps`).
@@ -284,20 +295,29 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
 - **Builds.** A BLAS is triangles (`R32G32B32_SFLOAT` positions at the stride given, 16- or 32-bit indices or none). A TLAS
   build copies the instances into `VkAccelerationStructureInstanceKHR` records in an instance buffer the TLAS owns (grown in
   steps of 64, the old one released with the frame) through the upload ring. An update keeps the counts, the geometries'
-  shapes and the flags of the build it refits, or is refused. Flags: `preferFastBuild` wins over `preferFastTrace`;
+  shapes and the flags of the build it refits, or is refused. Two builds into one TLAS in one list are ordered by the
+  tracked barriers (the second instance copy waits for the first build's read of the instance buffer, the second build
+  for the first's write), so the later one is what traces; lists recorded on several threads that build into one TLAS are
+  ordered only by the caller's submission order. Flags: `preferFastBuild` wins over `preferFastTrace`;
   `allowCompaction` applies to a BLAS only.
 - **Compaction.** `query_compacted_size` writes the size with a query pool of its own (released with the frame) and
   `vkCmdCopyQueryPoolResults` into the storage buffer; `copy_accel_structure` runs `vkCmdCopyAccelerationStructureKHR` in
-  `CLONE` or `COMPACT` mode, and the copy inherits the source's counts and `allowUpdate`; a copy is never compacted again.
+  `CLONE` or `COMPACT` mode (its barriers use the copy stage when `accelCopyStage_` is on, the build stage otherwise), and the copy inherits the source's counts and `allowUpdate`; a copy is never compacted again.
 - **Destruction** is deferred like every resource: the handle goes once the frames that may use it have completed, before its
   storage.
-- **Kernels.** A compute `ShaderDesc` with `usesRayQuery` takes DXC's SPIR-V as it is: its bindings may sit in any descriptor
-  set and the backend moves them into the engine's layout (uniform blocks in set 0, views, samplers and acceleration
-  structures in set 1, the binding numbers kept: `move_descriptor_sets`). `ShaderAccelStructure` slots become
-  `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR` bindings. Without ray query the shader is refused with the device's reason.
+- **Kernels.** A compute `ShaderDesc` with `usesRayQuery` takes DXC's SPIR-V as it is: the bindings its slots name
+  (`BackendBinding::spirvSet` and `spirvBinding`) may sit in any descriptor set, and `move_descriptor_sets` rewrites
+  their `DescriptorSet` decorations into the engine's layout: uniform blocks to set 0, views, samplers and acceleration
+  structures to set 1, the binding numbers kept. Two slots of different kinds on one (set, binding) pair, and two slots
+  that end on one binding of one set, are refused; a binding no slot names is left where the SPIR-V has it, and set 2 stays
+  the bindless table. Any other shader is not moved: a binding outside set 0 for a uniform block or set 1 for the rest is
+  refused. `ShaderAccelStructure` slots are compute-stage only and become `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR`
+  bindings of set 1; the descriptor pools hold that kind only on a device with ray tracing active (`kDescAccelStructure`),
+  so such a shader on a device without it is refused first. Without ray query the shader is refused with the device's reason.
 - **Tests** (`vulkan_raytracing_tests.cpp`): the caps and the set move without a device; the refusals of a device without
-  ray tracing; and, on a GPU with it, the `rt_probe` kernel against a CPU trace of two instances, a refit, a compacted copy
-  and a TLAS rebuilt on consecutive frames, all under the validation layer with synchronization validation. A device
+  ray tracing; and, on a GPU with it, the `rt_probe` kernel against a CPU trace of two instances, a BLAS refit, a TLAS
+  refit after an instance moved, two builds into one TLAS in one list, a compacted copy and a TLAS rebuilt on consecutive
+  frames, all under the validation layer with synchronization validation. A device
   without ray tracing skips those with its reason, also under `FA_VULKAN_REQUIRE=1`; `FA_VULKAN_REQUIRE_RT=1` makes the skip
   a failure that names the device, its driver and what it lacks. The Linux CI job sets it: it runs Mesa 25.2's lavapipe,
   which traces rays (docs/design/BUILDING_TESTS.md, "Vulkan ray tracing tests").
@@ -345,10 +365,14 @@ traces.
   so neither the acceleration structure encoder nor `useResource:` keeps a structure alive while a command buffer in flight still
   uses it. `destroy_accel_structure`, and a rebuild or copy that replaces the BLAS array of a TLAS, therefore do not release the
   Metal objects at once: the references move into a completion handler of the current command buffer (it completes after every
-  earlier one on the queue), and go when the GPU has finished the work recorded so far. With no command buffer they go at once.
+  earlier one on the queue), and go when the GPU has finished the work recorded so far. `command_buffer()` makes one when the frame has none (a destroy
+  outside a frame waits at most one frame of GPU time); it is null only when the queue is lost, and then they go at once.
+  `~SokolDevice` (context it opened or not) runs `split_commit()` (commits the open frame's buffer, which a wait would
+  otherwise never see finish), `wait_idle()` (an empty buffer queued behind everything on sokol's queue) and only then frees
+  `accel_`, all before `sg_shutdown`; a context that is already closed was waited for by its `sg_shutdown`.
 - **Compaction.** `query_compacted_size` writes the size (a `uint64`) into the `storageBuffer` the caller names, with
   `MTLAccelerationStructureCommandEncoder writeCompactedAccelerationStructureSize:`; the caller reads it after the frame, makes a
-  smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies a structure of the same size.
+  smaller structure with it and `copy_accel_structure(Compact)`; `Clone` copies into a structure at least as large.
 - **The trace.** The kernel is an ordinary sokol compute shader (`ShaderDesc::computeFunc.source` holds the MSL; sokol compiles it at
   `make_shader`). sokol knows no acceleration structure, so `SokolDevice` keeps the `accelStructures` slots of each compute shader
   and, right after `sg_apply_bindings`, `MetalAccel::bind_compute` calls `setAccelerationStructure:atBufferIndex:` on sokol's open

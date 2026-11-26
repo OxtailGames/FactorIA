@@ -19,6 +19,7 @@
 #include "gpu/accel.h"
 #include "gpu/device.h"
 #include "gpu/recording_device.h"
+#include "gpu/sokol_device.h"
 #include "render_features.h"
 
 using namespace fa;
@@ -162,6 +163,18 @@ TEST_CASE("ray tracing: a RecordingDevice has none until it is asked, and every 
     const Buffer scratch = dev.make_buffer(b);
     CHECK(dev.state(scratch) == ResourceState::Failed);
     CHECK(has_error(dev.take_errors(), {"accelScratch", "without acceleration structures"}));
+}
+
+TEST_CASE("ray tracing: a SokolDevice on sokol's dummy backend says there is no GPU, not recordingRayTracing") {
+    // The dummy backend exists only in a build with no GPU backend (built_sokol_backend() is Recording): a RecordingDevice
+    // is another class, with the recordingRayTracing reason (the case above). Any other build skips this case.
+    if (built_sokol_backend() != Backend::Recording) return;
+    auto made = SokolDevice::create({});
+    REQUIRE_MESSAGE(made.ok(), made.error().message);
+    std::string why;
+    CHECK_FALSE(made.value()->ray_tracing_status(&why));
+    CHECK(contains(why, "no GPU"));
+    CHECK_FALSE(contains(why, "recordingRayTracing"));
 }
 
 TEST_CASE("ray tracing: the reason names where it can run and the package that brings it, per backend") {
@@ -349,6 +362,53 @@ TEST_CASE("ray tracing: a refit, a compaction and a clone record and keep the st
     REQUIRE_FALSE(shrink.ok());
     CHECK(contains(shrink.error().message, "smaller than the source's"));
     dev.submit(bad);
+    dev.take_errors();
+}
+
+TEST_CASE(
+    "ray tracing: the sizes depend on counts only: blas_sizes reads no buffer handle, tlas_sizes takes no BLAS list") {
+    RecordingDevice dev(ray_tracing_init());
+    Mesh mesh(dev);
+    const AccelBuildFlags plain;
+    const auto real = dev.blas_sizes(mesh.geometries(), plain);
+    REQUIRE(real.ok());
+    // The same counts over buffers that are gone (a caller can size its pools before the meshes upload): the same answer;
+    // build_blas is where the handles are checked.
+    std::array<AccelTriangles, 1> bare = mesh.geometry;
+    dev.destroy_buffer(bare[0].vertexBuffer);
+    dev.destroy_buffer(bare[0].indexBuffer);
+    const auto sized = dev.blas_sizes(bare, plain);
+    REQUIRE(sized.ok());
+    CHECK(sized->structure == real->structure);
+    CHECK(sized->buildScratch == real->buildScratch);
+    CHECK(dev.errors().empty());
+    // A TLAS is sized by its instance count alone; the BLASes it will hold are named at build_tlas.
+    const auto one = dev.tlas_sizes(1, plain);
+    const auto many = dev.tlas_sizes(64, plain);
+    REQUIRE(one.ok());
+    REQUIRE(many.ok());
+    CHECK(many->structure >= one->structure);
+    CHECK(dev.errors().empty());
+}
+
+TEST_CASE("ray tracing: a Clone goes into a structure at least as large, never a smaller one") {
+    RecordingDevice dev(ray_tracing_init());
+    Mesh mesh(dev);
+    const AccelBuildFlags plain;
+    const AccelStructure blas = built_blas(dev, mesh, plain);
+    const auto sizes = dev.blas_sizes(mesh.geometries(), plain);
+    REQUIRE(sizes.ok());
+    const AccelStructure same = make_as(dev, AccelKind::Blas, sizes->structure, "same");
+    const AccelStructure larger = make_as(dev, AccelKind::Blas, sizes->structure * 2, "larger");
+    const AccelStructure smaller = make_as(dev, AccelKind::Blas, sizes->structure / 2, "smaller");
+    CommandList& cl = dev.begin_commands("clone");
+    CHECK(cl.copy_accel_structure(blas, same, AccelCopyMode::Clone).ok());
+    CHECK(cl.copy_accel_structure(blas, larger, AccelCopyMode::Clone).ok());
+    const auto bad = cl.copy_accel_structure(blas, smaller, AccelCopyMode::Clone);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(contains(bad.error().message, "smaller than the source's"));
+    CHECK(contains(bad.error().hint, "Clone into one at least as large"));
+    dev.submit(cl);
     dev.take_errors();
 }
 

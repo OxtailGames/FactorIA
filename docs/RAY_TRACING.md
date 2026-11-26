@@ -9,8 +9,9 @@ default, and free when off.
 > settings below, the `raytracing` rows of `render.supports`, the command `render.ray_tracing`, and the acceleration structure calls of
 > the GPU interface (`engine/render/src/gpu/`; docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md describes it, repository only, not in the binary).
 > The Direct3D 12, Vulkan and Metal backends build acceleration structures and run inline ray queries on a GPU that has them (the table below).
-> **One effect draws with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below). The other settings (`ao`, `reflections`,
-> `translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
+> **Three effects draw with rays so far: `shadows: "hard"`** (the sun's shadow, "Shadows", below), **`ao`** (ambient
+> occlusion, "Ambient occlusion", below) and **`reflections`** (sharp mirror reflections, "Reflections", below). The other settings
+> (`translucency`, `gi`) change nothing in the picture yet, and `render.ray_tracing` says what is traced (`active`, with the reason). The
 > sections below say what each part will do and mark what is planned.
 >
 > **The scene's acceleration structures (package P1s)** are built by the renderer on a device that can trace, when `enabled` is true and
@@ -30,8 +31,8 @@ default) writes nothing to `factoria.json`.
 |---|---|---|---|
 | `enabled` | `true`, `false` | `false` | The master switch. `false`: nothing below is read, no acceleration structure is made, no pass is added to the frame, no memory is held. |
 | `shadows` | `off`, `hard`, `soft` | `off` | `off` = the shadow maps of the lighting. `hard` = one ray per pixel towards the sun, the shadow of the directional light that has `castShadows` (a sharp edge; "Shadows", below). `soft` = `raysPerPixel` rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; "Soft shadows", below). |
-| `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one. |
-| `reflections` | `true`, `false` | `false` | Mirror and glossy reflections traced with rays, instead of the screen-space ones. |
+| `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
+| `reflections` | `true`, `false` | `false` | Sharp reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel instead of the screen-space reflections and the probes ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Light through glass and thin surfaces (refraction and coloured shadows). |
 | `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
 | `raysPerPixel` | whole number, 1 to 16 | `1` | Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside the range is **clamped**, not an error. |
@@ -61,7 +62,7 @@ It returns the settings plus:
 | field | meaning |
 |---|---|
 | `supported` | what `render.supports {"feature":"raytracing"}` answers on this device (false without a renderer, for example with `--no-graphics`). |
-| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off` on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
+| `active` | whether an effect that draws with rays is on and the device traces: in this version `enabled` with `shadows` other than `off`, or `ao`, or `reflections` on, on a device that can trace. It does not look at the scene: a scene with no directional light that casts shadows has nothing to trace (see "Shadows"). |
 | `reason` | empty while `enabled` is false; otherwise what is traced, or why nothing is (the device's reason, or that no effect that draws with rays is on). |
 | `changed` | whether this call changed a setting. |
 
@@ -140,13 +141,77 @@ structures cost (P1s: every frame's TLAS build). The `drawCalls` of the stats co
 Ray traced shadows are deterministic: the same frame gives the same image (a hard shadow uses no random number; the soft one draws its points from
 the frame serial and the pixel, never a clock).
 
+## Ambient occlusion
+
+`"ao": true` darkens the creases, the contact between objects and the corners with rays instead of the screen-space effect (SSAO,
+`PostProcess.ssaoEnabled`). It needs a device that traces rays (the table below) and works on the main camera, the one whose meshes are the
+traced scene's.
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"ao":true,"raysPerPixel":4}'
+```
+
+What the renderer does each frame:
+
+1. From each pixel's surface, `raysPerPixel` rays (1 to 16) leave in a **cosine-weighted hemisphere** around its normal, each up to the occlusion
+   radius, and stop at the first triangle they find. The pixel's visibility is the share of rays that got out: 1 open, 0 closed in.
+2. The renderer's denoiser (temporal accumulation and an edge-aware filter) turns the noisy image into a clean one; one ray per pixel is enough for
+   a still picture, more rays settle faster after a cut.
+3. The picture is darkened where the occlusion is, after the opaque meshes and before glass, sprites, particles and the HUD, **exactly where the
+   screen-space occlusion would darken it** and with the same strength: the radius and the intensity are the camera's
+   `PostProcess.ssaoRadius` and `ssaoIntensity` when it has the effect on, else the component's defaults (0.5 m and 1). There is no second pair of
+   controls: the same look with or without ray tracing. `PostProcess.ssaoQuality` is not used (the rays are `raysPerPixel`). The debug view `ao`
+   shows the traced occlusion.
+
+With `ao` on and a device that traces, the screen-space passes are not drawn. With `ao` on and a device that cannot trace, the log says why once
+and the camera keeps its screen-space occlusion if it has one, and none otherwise. The same if the device traces but cannot make the kernel
+(one message).
+
+What occludes: opaque meshes and alpha-tested (cutout) ones. **A cutout occludes as a solid surface** in this version (the kernel does not read its
+texture), so a leaf card or a fence darkens its whole triangle. Blended surfaces (glass, water) let the ambient light through.
+
+Like the screen-space effect it multiplies the picture where it is drawn, so it darkens the direct light too, not only the ambient term. Off:
+nothing, no pass, no image, no denoiser. On: one dispatch, one image and the denoiser's histories. The result is deterministic: the same frame
+gives the same noise, and no clock or random number is read.
+
+## Reflections
+
+`"reflections": true` traces the **mirror reflection** of the surfaces that are smooth enough to show one. It needs a device that traces
+rays and a camera that draws the thin G-buffer (the prepass plus the albedo, roughness and metalness images the engine makes for the
+screen-space effects; a device that cannot make them, or a frame that draws no mesh, keeps the old reflections and the engine says so once).
+
+```
+factoria call --no-graphics --project my_game render.ray_tracing '{"enabled":true,"reflections":true}'
+```
+
+What the renderer does each frame, for each camera that draws meshes:
+
+1. One compute pass, `rt-reflections`, takes every pixel whose **roughness is under 0.25** and casts **one ray** from the surface along the
+   reflection of the view ray. A pixel of the sky, a pixel with no G-buffer texel and a rougher surface are not traced.
+2. Where the ray ends on a mesh of the scene, the kernel shades that point: the sun (Lambert and GGX, with one shadow ray), the scene's
+   ambient light, the environment's gradient seen by a mirror there, and the emission; an `unlit` mesh is its colour. A metal tints the
+   reflection with its own colour. Where the ray leaves the scene it sees the sky and horizon gradient and the lit picture already holds that.
+3. The screen-space reflections' pass blends the result into the lit picture with the same Fresnel weight, so a reflection is as strong as
+   the old one would have been. A camera with no screen-space reflections in its post stack still gets the pass, for the traced pixels only.
+
+What stays as it was: every pixel of roughness 0.25 or more (the screen-space reflections march and the probes fill in), the sky, and the
+whole picture on a device that cannot trace. Rough, blurry reflections are a later package.
+
+Limits of this version, what a ray sees in a reflection: the **flat colour** of a material (no textures), a **faceted** normal (the mesh's
+vertices are not available to the kernel), the **sun only** (no point or spot light, no second bounce, no fog), and a sky that is a material,
+a physical sky or an HDRI appears as the plain gradient. The picture is not denoised: a sharp reflection needs no denoiser, and the kernel
+writes the hit distance in its output for the one that will come.
+
+**Cost.** Off: nothing. On: one compute dispatch (a ray and, at a hit, three more: two parallel rays for the normal and one shadow ray), one image
+(RGBA32F, the camera's size), plus the acceleration structures. The same frame gives the same image: the pass uses no random number.
+
 ## Where it will run
 
 | backend | traces rays | what stands in the way today |
 |---|---|---|
 | Direct3D 12 (Windows) | on a GPU with DXR tier 1.1 and shader model 6.5, or a WARP (the software device) that has them, as the Windows 11 development PC's does (an older Windows' WARP has no tier 1.1): the backend builds acceleration structures and runs inline ray queries in compute shaders; the shadow kernel (`shadows: "hard"`) traces | an older GPU or driver: `render.supports` names the adapter, its DXR tier and its shader model |
-| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, has them from Mesa 24.1, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
-| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The hard shadows (`shadows: "hard"`) trace; no other effect does yet |
+| Vulkan (Windows, Linux, Android) | yes, on a GPU with `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` and `bufferDeviceAddress` (the hard shadows trace) | a GPU or driver without them: `render.supports` names what this GPU lacks (Mesa's lavapipe, the CPU driver, lists them from Mesa 24.1 according to its release notes, and the engine's CI tests on Mesa 25.2's; MoltenVK on a Mac has none) |
+| Metal (macOS 13+, iOS 16+) | **yes**, on a GPU with Metal ray tracing (`MTLDevice.supportsRaytracing` is true) | an older GPU, an older OS or the iOS simulator: `render.supports` names the GPU and the OS version and what Metal needs. The hard shadows (`shadows: "hard"`) and the ambient occlusion (`ao`) trace; no other effect does yet |
 | Direct3D 11, OpenGL, OpenGL ES 3, WebGL2 | never | the API cannot trace rays; the answer says to use the d3d12 or vulkan backend (Windows, Linux, Android) or Metal on Apple |
 | headless (`--no-graphics`) | no | there is no GPU |
 
@@ -186,7 +251,7 @@ tables and no hit shaders, so one kernel runs unchanged on Direct3D 12, Vulkan a
 The renderer builds one BLAS per submesh, rebuilds the TLAS every frame (capped by `maxInstances`, nearest first), and adds the
 effects' compute passes to the frame graph only when `enabled` and an effect
 are on. With the master switch off no acceleration structure exists and the frame graph has the same passes as before. Every effect
-shares one scaffold (docs/design/ARCHITECTURE_RT_EFFECTS.md, repository only): the hard shadows are the first effect on it.
+shares one scaffold (docs/design/ARCHITECTURE_RT_EFFECTS.md, repository only): the hard shadows are the first effect on it and the ambient occlusion the second.
 
 ## For engine developers
 

@@ -91,6 +91,13 @@ struct MetalAccel::Impl {
     std::vector<std::uint16_t> freeSlots;
     std::unordered_map<std::uint32_t, BufferInfo> buffers;
     std::shared_ptr<InstancePool> instances = std::make_shared<InstancePool>();
+    // sokol's command queue, kept the first time a command buffer was asked for (every later one is from it): wait_idle
+    // needs it when the sokol context is already gone. Nil until a build, a copy or a retire asked.
+    mutable id<MTLCommandQueue> queue = nil;
+    // bind_compute reports each of its two failures once per device (a dispatch per frame would fill the log); the
+    // trace itself is skipped on every call.
+    bool warnedNoEncoder = false;
+    bool warnedInvalidStructure = false;
 
     Impl(Device& d, id<MTLDevice> m) : device(d), mtl(m) {
         lim.maxAccelInstances = 1u << 20;  // conservative: Metal documents no numbers
@@ -255,17 +262,23 @@ struct MetalAccel::Impl {
         return [mtl newBufferWithLength:size options:MTLResourceStorageModeShared];
     }
 
+    // sokol's current command buffer (made now when the frame has none: sokol_gfx waits there for the oldest frame in flight
+    // to finish, as the next pass would, so outside a frame this can wait up to one frame of GPU time). Nil only when the
+    // device lost its queue.
     id<MTLCommandBuffer> command_buffer() const {
         MetalNative* native = device.native_metal();
-        return native ? (__bridge id<MTLCommandBuffer>)native->current_command_buffer() : nil;
+        id<MTLCommandBuffer> cb = native ? (__bridge id<MTLCommandBuffer>)native->current_command_buffer() : nil;
+        if (cb && !queue) queue = cb.commandQueue;
+        return cb;
     }
 
     // Lets go of an acceleration structure (and the BLASes a TLAS named) only once the GPU has finished the work recorded so
     // far. sokol acquires its command buffer WITHOUT retained references (commandBufferWithUnretainedReferences), so neither
     // the acceleration structure encoder nor useResource: keeps anything alive: a structure released here while frame N still
     // traces it would be freed under the GPU. The current command buffer completes after every earlier one on the queue, so
-    // its completion handler (which owns the references until it has run) is a safe place. Without a command buffer nothing
-    // can be in flight from this device and the references go at once.
+    // its completion handler (which owns the references until it has run) is a safe place. command_buffer() makes one when
+    // the frame has none (so a destroy outside a frame waits for the oldest frame in flight, like the next pass would); it
+    // is nil only when the device lost its queue, and then nothing can complete and the references go at once.
     void retire(id<MTLAccelerationStructure> as, NSArray<id<MTLAccelerationStructure>>* array) {
         if (!as && !array) return;
         id<MTLCommandBuffer> cb = command_buffer();
@@ -297,6 +310,18 @@ struct MetalAccel::Impl {
 // ---------------------------------------------------------------------------------------------------------------------
 MetalAccel::MetalAccel() = default;
 MetalAccel::~MetalAccel() = default;
+
+void MetalAccel::wait_idle() {
+    // An empty command buffer queued behind every one committed so far on sokol's queue completes after them, so the
+    // structures they trace are no longer in use. The queue is the one the first build saw: nil = this device never
+    // encoded anything, nothing can be in flight. No call into sokol.
+    if (!impl_->queue) return;
+    id<MTLCommandBuffer> fence = [impl_->queue commandBuffer];
+    if (!fence) return;
+    fence.label = @"factoria: acceleration structures idle";
+    [fence commit];
+    [fence waitUntilCompleted];
+}
 
 bool MetalAccel::supported(const void* mtlDevice, std::string* why) {
     id<MTLDevice> dev = (__bridge id<MTLDevice>)mtlDevice;
@@ -820,20 +845,26 @@ void MetalAccel::bind_compute(const Bindings& bindings, const MetalAccelSlots& s
     Impl& m = *impl_;
     id<MTLComputeCommandEncoder> enc = (__bridge id<MTLComputeCommandEncoder>)sg_mtl_compute_command_encoder();
     if (!enc) {
-        FA_ERROR("render",
-                 "gpu: CommandList::set_bindings: shader '{}' has no compute encoder to bind its acceleration structure "
-                 "to (sokol did not open one); the dispatch traces nothing",
-                 slots.label);
+        if (!m.warnedNoEncoder) {
+            m.warnedNoEncoder = true;
+            FA_ERROR("render",
+                     "gpu: CommandList::set_bindings: shader '{}' has no compute encoder to bind its acceleration "
+                     "structure to (sokol did not open one); the dispatch traces nothing (said once)",
+                     slots.label);
+        }
         return;
     }
     for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
         if (!slots.declared[i]) continue;
         const Impl::Entry* e = m.find(bindings.accelStructures[i]);
         if (!e || !e->as) {
-            FA_ERROR("render",
-                     "gpu: CommandList::set_bindings: accelStructures[{}] of shader '{}' went invalid after the "
-                     "bindings were checked; the dispatch traces nothing there",
-                     i, slots.label);
+            if (!m.warnedInvalidStructure) {
+                m.warnedInvalidStructure = true;
+                FA_ERROR("render",
+                         "gpu: CommandList::set_bindings: accelStructures[{}] of shader '{}' went invalid after the "
+                         "bindings were checked; the dispatch traces nothing there (said once)",
+                         i, slots.label);
+            }
             continue;
         }
         [enc setAccelerationStructure:e->as atBufferIndex:slots.bufferIndex[i]];

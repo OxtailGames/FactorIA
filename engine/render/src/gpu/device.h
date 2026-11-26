@@ -194,7 +194,7 @@ public:
     // built with allowCompaction.
     virtual Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset);
     // Copies a built Blas into another one made with kind Blas and a size large enough: Compact needs the source built
-    // with allowCompaction and dst.size >= the compacted size query_compacted_size answered; Clone needs the same size.
+    // with allowCompaction and dst.size >= the compacted size query_compacted_size answered; Clone needs a dst at least as large as src.
     virtual Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode);
     // The API behind this list (the errors above name it); the default is the RecordingDevice.
     virtual Backend backend() const { return Backend::Recording; }
@@ -493,8 +493,10 @@ public:
     // backend whose package has landed overrides it to say what its GPU lacks. renderer.supports("raytracing") shows it.
     virtual bool ray_tracing_status(std::string* why) const;
     // The size of the acceleration structure and of the scratch memory for these geometries / this many instances with
-    // these flags. The geometries are checked as build_blas checks them (counts and limits; the buffers' contents are
-    // not read).
+    // these flags. The geometries are checked as build_blas checks them (counts, strides, offsets and limits); the
+    // buffers' handles and contents are not read (the sizes depend on the counts alone, so a caller can size its pools
+    // before the meshes upload; build_blas checks the handles). tlas_sizes takes no list of BLASes for the same reason:
+    // the instance count is all a TLAS's size depends on.
     virtual Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags);
     virtual Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags);
     // Makes an acceleration structure (the memory only: build_blas / build_tlas fill it). The RecordingDevice also

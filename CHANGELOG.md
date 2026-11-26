@@ -17,6 +17,21 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   the cascades off; the denoiser and the scene release in the opposite order of their making; the shadow depth tolerance follows the surface's
   slope under MSAA; RAY_TRACING.md's image size is 8.3 MB. The Metal kernel is tested on a real GPU (penumbra widens with the sun's size, umbra
   equals the hard result); the D3D12 and Vulkan kernels have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
+- **Vulkan ray tracing polish (M79):** a structure copy now barriers at `ACCELERATION_STRUCTURE_COPY_BIT` when the GPU has
+  `VK_KHR_ray_tracing_maintenance1` and `synchronization2` (the engine enables the extension itself); tests for a TLAS refit and for two
+  builds into one TLAS in one list; the ray tracing tests match the key phrase of a refusal and still require its hint; the
+  whole-suite `render` ctest leaves them to `render_vulkan_raytracing`; the status line names the driver only where the driver
+  properties exist, and the lavapipe remark only when ray queries are what is missing.
+- **Ray traced ambient occlusion (M79-P2b):** `render.rayTracing.ao = true` now draws: with ray tracing on and a device that can trace, the
+  main camera casts `raysPerPixel` rays (1 to 16) per pixel in a cosine-weighted hemisphere around its surface normal, up to an occlusion radius,
+  and the renderer's denoiser (temporal accumulation and an edge-aware filter) makes the share of rays that got out a clean visibility. It replaces
+  the screen-space occlusion of that camera: the result goes through the same apply as SSAO (after the opaque meshes, before glass, sprites and the
+  HUD, the debug view `ao` shows it) with the camera's `PostProcess.ssaoRadius` and `ssaoIntensity` (their defaults when it has no SSAO), and the
+  `ssao-*` passes are not drawn. Opaque and alpha-tested meshes occlude (**a cutout occludes as a solid**: the kernel reads no texture), blended
+  ones let the ambient light through. Like SSAO it multiplies the picture where it draws, so it darkens the direct light too. A device that cannot
+  trace, or refuses the kernel, says so once and keeps the camera's screen-space occlusion if it has one. Off, nothing is made. `render.ray_tracing`
+  reports `active: true` with `ao` on and says what is traced. The Metal kernel is tested against a CPU hemisphere ray caster on a real GPU; the
+  DXIL and SPIR-V kernels are built but have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray traced hard shadows (M79-P2a-1):** `render.rayTracing.shadows = "hard"` now draws: with ray tracing on, a device that can trace
   and a sun with `castShadows`, one compute pass per camera casts one ray per pixel from the surface toward the sun against the scene's
   top-level structure (the meshes that cast a shadow in the shadow pass), and the lit pass takes the sun's shadow of an opaque mesh from
@@ -28,6 +43,15 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   reports `active: true` with the shadows on a device that traces, and its reason says so. The DXIL and SPIR-V blobs are built, the Metal
   kernel is tested against a CPU ray caster on a real GPU; the D3D12 and Vulkan kernels have run nowhere yet. docs/RAY_TRACING.md,
   docs/design/ARCHITECTURE_RT_EFFECTS.md.
+- **Ray traced sharp reflections (M79-P3a-1):** `render.rayTracing.reflections: true` traces one mirror ray per pixel for the surfaces
+  smoother than roughness 0.25 (a compute pass after the TLAS, the prepass and the thin G-buffer), shades what the ray hits (the sun with a
+  shadow ray, the ambient light, the environment gradient, the emission, from the instance's constants: no textures, a faceted normal) and
+  blends it into the lit picture where the screen-space reflections feed it, with the same Fresnel weight; rougher pixels, the sky and a
+  device that cannot trace keep the screen-space reflections and the probes (a frame with no G-buffer says so once). The kernel also writes the
+  hit distance, the denoiser's hook. The shading is one include, `engine/render/shaders/rt/rt_hit.hlsli` (Metal twin `rt_hit.msli`), that the
+  later ray traced effects reuse; `render.ray_tracing` reports `active` with `reflections` on. On Metal the records buffer of the effect
+  kernels is `buffer(8)` (Sokol's storage buffer range), not `buffer(2)`. Metal runs the kernel against a CPU reference in the tests;
+  the D3D12 and Vulkan kernels are built but have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray tracing, the shared interface (M79):** `fa::gpu` gains acceleration structures for inline ray queries in compute passes
   (decision: no ray tracing pipelines): `Device::blas_sizes`, `tlas_sizes`, `make_accel_structure`, and `CommandList::build_blas`,
   `build_tlas`, `query_compacted_size`, `copy_accel_structure`. A device that cannot trace rays (OpenGL, GLES3, WebGL2, Direct3D 11, or a
