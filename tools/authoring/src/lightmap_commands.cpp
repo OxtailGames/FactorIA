@@ -498,9 +498,8 @@ void register_lightmap_commands(Engine& engine, Engine::Impl& I) {
         {"lightmap.bake_plan_start",
          "Internal: start a bake job from a plan another process made (the helper process of a GPU bake).",
          "What the editor, a window or a session with graphics runs in a child `factoria session --no-graphics "
-         "--no-scene` when "
-         "it "
-         "bakes with device gpu or auto on a Mac, where a process that has a graphics context cannot open the "
+         "--no-scene` when it bakes with device gpu or auto on a Mac, where a process that has a graphics context "
+         "cannot open the "
          "tracer's own (see lightmap.bake_start, `device`). `plan` is what the parent read from its world "
          "(lightmap_job::plan_to_json); the job traces its texels in THIS process, never starts a helper of its "
          "own, writes the files with the same code as lightmap.bake and is followed with lightmap.bake_status "
