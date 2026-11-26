@@ -44,7 +44,8 @@ struct Tex {
     gpu::Image image{};
     gpu::View view{};
     int w = 0, h = 0;
-    std::vector<float> rows;  // what the image holds, as the backend wants it (written again every frame: a write-transient image lives one)
+    std::vector<float>
+        rows;  // what the image holds, as the backend wants it (written again every frame: a write-transient image lives one)
 };
 
 struct Frame {
@@ -107,7 +108,8 @@ struct Rig {
         const size_t stride = size_t(t.w) * 4;
         for (int y = 0; y < t.h; ++y) {
             const int src = gpu.is_gl() ? t.h - 1 - y : y;
-            std::copy(rgba.begin() + size_t(src) * stride, rgba.begin() + size_t(src + 1) * stride, rows.begin() + size_t(y) * stride);
+            std::copy(rgba.begin() + size_t(src) * stride, rgba.begin() + size_t(src + 1) * stride,
+                      rows.begin() + size_t(y) * stride);
         }
         textures[i].rows = std::move(rows);
     }
@@ -132,8 +134,8 @@ struct Rig {
     }
 
     // Declares the signal in a graph of its own, runs it and reads the denoised image (and the debug picture).
-    Frame run(const DenoiseCamera& cam, const DenoiseSignal& sig, size_t noisy, size_t prepass, int w, int h, int velocity = -1,
-              int roughness = -1) {
+    Frame run(const DenoiseCamera& cam, const DenoiseSignal& sig, size_t noisy, size_t prepass, int w, int h,
+              int velocity = -1, int roughness = -1) {
         Frame f;
         pool->pool.begin_frame();
         write_all();
@@ -179,7 +181,8 @@ struct Rig {
 DenoiseCamera make_camera(int w, int h, std::uint64_t serial, bool prevValid = true) {
     DenoiseCamera c;
     const Mat4 P = Mat4::perspective(90.0f, float(w) / float(h), 0.1f, 100.0f, true);
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     for (int i = 0; i < 8; ++i) c.proj[i] = terms[i];
     c.halfX = 1.0f / std::fabs(P.at(0, 0));
     c.halfY = 1.0f / std::fabs(P.at(1, 1));
@@ -221,7 +224,9 @@ double mae(const std::vector<float>& img, int w, int x0, int y0, int x1, int y1,
         }
     return n ? sum / n : 0.0;
 }
-float at(const std::vector<float>& img, int w, int x, int y, int ch = 0) { return img[(size_t(y) * size_t(w) + size_t(x)) * 4 + size_t(ch)]; }
+float at(const std::vector<float>& img, int w, int x, int y, int ch = 0) {
+    return img[(size_t(y) * size_t(w) + size_t(x)) * 4 + size_t(ch)];
+}
 
 // The noisy picture of a one-channel signal: 1 with the probability truth(x, y), else 0 (variance truth * (1 - truth)).
 template <class T>
@@ -278,7 +283,7 @@ TEST_CASE("denoise: a noisy visibility converges to its truth and the first fram
     // standard deviation of sqrt(0.21 / 24) = 0.094 (mean absolute error 0.075); the filter on top takes it well under half of that.
     CHECK(rawError > 0.38);
     CHECK(firstError < 0.10);  // measured 0.047 on Metal: five spatial iterations of a single frame
-    CHECK(lastError < 0.025);   // measured 0.013
+    CHECK(lastError < 0.025);  // measured 0.013
     // The three colour channels carry the same value, the sky passes through untouched.
     CHECK(at(last.color, kW, 20, 20, 0) == doctest::Approx(at(last.color, kW, 20, 20, 2)).epsilon(1e-3));
     for (int y = 4; y < 44; ++y)
@@ -306,9 +311,11 @@ TEST_CASE("denoise: a diffuse radiance of three channels converges and keeps its
         std::vector<float> in(size_t(kW) * kH * 4, 1.0f);
         for (int y = 0; y < kH; ++y)
             for (int x = 0; x < kW; ++x)
-                for (int c = 0; c < 3; ++c)  // uniform in [0, 2 * truth]: the mean is the truth, the deviation truth / sqrt(3)
+                for (int c = 0; c < 3;
+                     ++c)  // uniform in [0, 2 * truth]: the mean is the truth, the deviation truth / sqrt(3)
                     in[(size_t(y) * kW + size_t(x)) * 4 + size_t(c)] =
-                        2.0f * truthRgb[c] * rnd(std::uint32_t(f) * 3 + std::uint32_t(c), std::uint32_t(x), std::uint32_t(y));
+                        2.0f * truthRgb[c] *
+                        rnd(std::uint32_t(f) * 3 + std::uint32_t(c), std::uint32_t(x), std::uint32_t(y));
         rig.upload(noisy, in);
         last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH);
         REQUIRE(last.read);
@@ -334,8 +341,10 @@ TEST_CASE("denoise: the filter does not blur across a depth edge or a normal edg
         if (variant == 0)
             rig.upload(pre, make_prepass(kW, kH, [](int x, int) { return x < 32 ? 5.0f : 12.0f; }, facing));
         else
-            rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; },
-                                         [](int x, int) { return x < 32 ? std::make_pair(0.0f, 0.0f) : std::make_pair(0.5f, 0.0f); }));
+            rig.upload(
+                pre, make_prepass(
+                         kW, kH, [](int, int) { return 5.0f; },
+                         [](int x, int) { return x < 32 ? std::make_pair(0.0f, 0.0f) : std::make_pair(0.5f, 0.0f); }));
         const auto truth = [](int x, int) { return x < 32 ? 0.1f : 0.9f; };
         DenoiseSignal sig = visibility();
         Frame last;
@@ -345,7 +354,8 @@ TEST_CASE("denoise: the filter does not blur across a depth edge or a normal edg
             REQUIRE(last.read);
         }
         // Next to the edge, on both sides, the value is still its own side's: within 0.06 of the truth (across the edge it would be 0.5).
-        const double left = mae(last.color, kW, 28, 8, 32, 40, 0, truth), right = mae(last.color, kW, 32, 8, 36, 40, 0, truth);
+        const double left = mae(last.color, kW, 28, 8, 32, 40, 0, truth),
+                     right = mae(last.color, kW, 32, 8, 36, 40, 0, truth);
         INFO("left of the edge " << left << ", right " << right);
         CHECK(left < 0.06);  // measured 0.018
         CHECK(right < 0.06);
@@ -369,12 +379,14 @@ TEST_CASE("denoise: a pixel that shows another surface starts a new history (dis
     const auto truth = [&](int x, int y) { return block(x, y) ? 0.8f : 0.2f; };
     Frame last;
     for (int f = 1; f <= 14; ++f) {
-        rig.upload(noisy, bernoulli(kW, kH, std::uint32_t(f), [&](int x, int y) { return f > 10 ? truth(x, y) : 0.2f; }));
+        rig.upload(noisy,
+                   bernoulli(kW, kH, std::uint32_t(f), [&](int x, int y) { return f > 10 ? truth(x, y) : 0.2f; }));
         last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, f > 10 ? pre2 : pre, kW, kH);
         REQUIRE(last.read);
         REQUIRE(last.debug.size() == last.color.size());
         if (f == 10) {
-            CHECK(at(last.debug, kW, 30, 20) == doctest::Approx(10.0f / 32.0f).epsilon(0.02));  // the history length 10 of 32
+            CHECK(at(last.debug, kW, 30, 20) ==
+                  doctest::Approx(10.0f / 32.0f).epsilon(0.02));  // the history length 10 of 32
         }
         if (f == 11) {
             // The block is new: its history length is 1 (1 / 32), the rest went on to 11.
@@ -390,20 +402,22 @@ TEST_CASE("denoise: a pixel that shows another surface starts a new history (dis
     CHECK(mae(last.color, kW, 4, 4, 20, 12, 0, [](int, int) { return 0.2f; }) < 0.06);
 }
 
-TEST_CASE("denoise: the history is dropped on a cut, a resize, an origin shift, another scene, a gap and a settings change") {
+TEST_CASE(
+    "denoise: the history is dropped on a cut, a resize, an origin shift, another scene, a gap and a settings change") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Rig rig;
     REQUIRE_MESSAGE(rig.ok, rig.error);
     const int w = 16, h = 16, w2 = 20;
-    const size_t noisy = rig.make_tex(w, h), pre = rig.make_tex(w, h), noisy2 = rig.make_tex(w2, h), pre2 = rig.make_tex(w2, h);
+    const size_t noisy = rig.make_tex(w, h), pre = rig.make_tex(w, h), noisy2 = rig.make_tex(w2, h),
+                 pre2 = rig.make_tex(w2, h);
     rig.upload(pre, make_prepass(w, h, [](int, int) { return 5.0f; }, facing));
     rig.upload(pre2, make_prepass(w2, h, [](int, int) { return 5.0f; }, facing));
     DenoiseSignal sig = visibility();
     sig.debug = DenoiseDebug::HistoryLength;
     int frame = 0;
-    auto step = [&](std::uint64_t serial, bool prevValid, std::uint64_t shifts, std::uint64_t scene, const DenoiseSignal& s,
-                    bool resized = false) {
+    auto step = [&](std::uint64_t serial, bool prevValid, std::uint64_t shifts, std::uint64_t scene,
+                    const DenoiseSignal& s, bool resized = false) {
         ++frame;
         DenoiseCamera c = make_camera(resized ? w2 : w, h, serial, prevValid);
         c.originShifts = shifts;
@@ -473,7 +487,8 @@ TEST_CASE("denoise: the same inputs give the same output bytes") {
             for (int y = 0; y < kH; ++y)
                 for (int x = 0; x < kW; ++x) {
                     float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
-                    for (int c = 0; c < 3; ++c) p[c] = 2.0f * rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));
+                    for (int c = 0; c < 3; ++c)
+                        p[c] = 2.0f * rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));
                     p[3] = 4.0f;
                 }
             rig.upload(noisy, in);
@@ -541,7 +556,8 @@ TEST_CASE("denoise: a specular signal follows the lobe: a mirror keeps its image
             for (int y = 0; y < kH; ++y)
                 for (int x = 0; x < kW; ++x) {
                     float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
-                    for (int c = 0; c < 3; ++c) p[c] = 1.0f * rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));  // mean 0.5
+                    for (int c = 0; c < 3; ++c)
+                        p[c] = 1.0f * rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));  // mean 0.5
                     p[3] = 6.0f;  // the reflected surface is 6 units behind
                 }
             rig.upload(noisy, in);
@@ -553,7 +569,7 @@ TEST_CASE("denoise: a specular signal follows the lobe: a mirror keeps its image
     INFO("mirror " << err[0] << ", rough " << err[1]);
     // The mirror is accumulated over time only (6 frames of a uniform [0, 1]: mean absolute error about 0.06); the rough surface is filtered in
     // space as well, so it is far closer to the mean. The mirror's lobe has no width: the spatial filter must not have touched it.
-    CHECK(err[0] > 0.06);  // measured 0.09 (the mean of 6 frames: 0.289 / sqrt(6) * 0.8)
+    CHECK(err[0] > 0.06);          // measured 0.09 (the mean of 6 frames: 0.289 / sqrt(6) * 0.8)
     CHECK(err[1] < 0.1 * err[0]);  // measured 0.002
 }
 
@@ -579,7 +595,8 @@ TEST_CASE("denoise: nothing exists until a signal asks, a disabled signal is fre
         in.prepass.view = rig.textures[pre].view;
         in.width = kW;
         in.height = kH;
-        const render::DenoiseOutput o = rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), off, in, nullptr, "rig");
+        const render::DenoiseOutput o =
+            rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), off, in, nullptr, "rig");
         CHECK_FALSE(o.valid);
         REQUIRE(graph.compile().ok());
         CHECK(graph.order_names().empty());
@@ -637,15 +654,18 @@ TEST_CASE("denoise: the signal declared twice for one camera in a graph is refus
     in.width = kW;
     in.height = kH;
     const DenoiseSignal s = visibility();
-    const render::DenoiseOutput o1 = rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), s, in, nullptr, "rig");
-    const render::DenoiseOutput o2 = rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), s, in, nullptr, "rig");
+    const render::DenoiseOutput o1 =
+        rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), s, in, nullptr, "rig");
+    const render::DenoiseOutput o2 =
+        rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), s, in, nullptr, "rig");
     CHECK(o1.valid);
     CHECK_FALSE(o2.valid);
     CHECK(o2.why.find("already") != std::string::npos);
     CHECK(graph.compile().ok());
 }
 
-TEST_CASE("denoise: the variance view is dark on a clean signal and bright on a noisy one, the length view counts frames") {
+TEST_CASE(
+    "denoise: the variance view is dark on a clean signal and bright on a noisy one, the length view counts frames") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     double meanDbg[2] = {0, 0};
@@ -671,4 +691,87 @@ TEST_CASE("denoise: the variance view is dark on a clean signal and bright on a 
     INFO("variance view: clean " << meanDbg[0] << ", noisy " << meanDbg[1]);
     CHECK(meanDbg[0] < 0.01);
     CHECK(meanDbg[1] > 0.05);
+}
+
+TEST_CASE(
+    "denoise: a radiance in physical units (noise of a thousand and more) leaves every output and debug value finite") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // The luminance deviation of this noise (uniform [0, 4000]: 1150) is far over what a 16-bit float holds as a variance (65504): the
+    // variance is clamped where it is written, so no filter weight of 0 times an infinity makes a NaN that grows with every iteration.
+    for (int variant = 0; variant < 4; ++variant) {
+        const bool specular = variant & 1, f16 = variant & 2;
+        const std::string label =
+            std::string(specular ? "specular" : "diffuse") + ", moments " + (f16 ? "16-bit" : "32-bit");
+        INFO(label);
+        Rig rig;
+        REQUIRE_MESSAGE(rig.ok, rig.error);
+        if (f16) rig.dn.force_moments_f16(true);
+        const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+        rig.upload(pre, make_prepass(kW, kH, [](int x, int) { return x < 32 ? 5.0f : 9.0f; }, facing));
+        DenoiseSignal sig;
+        sig.kind = specular ? DenoiseKind::Specular : DenoiseKind::Diffuse;
+        sig.settings.fireflyClamp =
+            0.0f;  // the clamp is relative to the neighbours: it does not bound a noisy radiance
+        sig.settings.normalPower =
+            256.0f;  // a weight that underflows to exactly 0 for a neighbour that is not facing the pixel
+        sig.debug = DenoiseDebug::Variance;
+        Frame last;
+        float mx = 0.0f, mean = 0.0f;
+        for (int f = 1; f <= 10; ++f) {
+            std::vector<float> in(size_t(kW) * kH * 4, 0.0f);
+            for (int y = 0; y < kH; ++y)
+                for (int x = 0; x < kW; ++x) {
+                    float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
+                    for (int c = 0; c < 3; ++c)
+                        p[c] = 4000.0f * rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));
+                    p[3] = specular ? 3.0f : 1.0f;
+                }
+            rig.upload(noisy, in);
+            last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH);
+            REQUIRE(last.read);
+            REQUIRE(last.debug.size() == last.color.size());
+        }
+        size_t bad = 0;
+        for (size_t i = 0; i < last.color.size(); ++i) {
+            if (!std::isfinite(last.color[i]) || !std::isfinite(last.debug[i])) ++bad;
+            if (i % 4 != 3 && std::isfinite(last.color[i])) {
+                mx = std::max(mx, last.color[i]);
+                mean += last.color[i];
+            }
+        }
+        mean /= float(last.color.size() / 4 * 3);
+        MESSAGE("noise 0..4000, " << label << ": non finite " << bad << ", brightest " << mx << ", mean " << mean);
+        CHECK(bad == 0);
+        CHECK(mx < 4000.0f * 1.001f);  // an average of samples cannot exceed the brightest sample
+        CHECK(mean == doctest::Approx(2000.0f).epsilon(0.1));
+    }
+}
+
+TEST_CASE("denoise: two signals of one camera with the same name do not collide in the graph") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+    rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; }, facing));
+    rig.upload(noisy, bernoulli(kW, kH, 1, [](int, int) { return 0.5f; }));
+    render::FrameGraph graph;
+    render::DenoiseInputs in;
+    in.noisy.view = rig.textures[noisy].view;
+    in.prepass.view = rig.textures[pre].view;
+    in.width = kW;
+    in.height = kH;
+    DenoiseSignal a = visibility(), b = visibility();
+    a.name = b.name = "shadow";
+    a.id = 1;
+    b.id = 2;
+    const render::DenoiseOutput o1 =
+        rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), a, in, nullptr, "rig");
+    const render::DenoiseOutput o2 =
+        rig.dn.add_passes(graph, *rig.pool, rig.gpu, make_camera(kW, kH, 1), b, in, nullptr, "rig");
+    CHECK(o1.valid);
+    CHECK(o2.valid);
+    const auto compiled = graph.compile();
+    CHECK_MESSAGE(compiled.ok(), (compiled.ok() ? std::string() : compiled.error().message));
 }

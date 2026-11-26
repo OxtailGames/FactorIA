@@ -49,6 +49,8 @@ void main() {
 
 @block rtd_common
 const float RTD_FAR = 60000.0;
+const float RTD_VAR_MAX = 60000.0;   // the largest variance written: the images are 16-bit floats (largest 65504), an inf there would become a NaN in the filter
+const float RTD_LUMA_MOM = 250.0;    // the largest luminance the moments take (its square fits a 16-bit moment image too)
 
 // A NaN test by the bits of the float: a GPU compiler that assumes "no NaN" may drop isnan(), but not this.
 bool rtd_nanf(float x) { return (floatBitsToUint(x) & 0x7fffffffu) > 0x7f800000u; }
@@ -256,7 +258,7 @@ void main() {
     // The accumulation: a running mean over the history length, which stops growing at the longest history (an exponential mean from there).
     float len = hv ? min(hlen / wsum + 1.0, s.z) : 1.0;
     float alpha = 1.0 / len;
-    float l = rtd_luma(cur, s.x);
+    float l = min(rtd_luma(cur, s.x), RTD_LUMA_MOM);
     float m1 = hv ? mix(hmom.x / wsum, l, alpha) : l;
     float m2 = hv ? mix(hmom.y / wsum, l * l, alpha) : l * l;
     vec3 col = hv ? mix(hcol / wsum, cur, alpha) : cur;
@@ -278,7 +280,7 @@ void main() {
                 if (pq.a < 0.5) continue;
                 if (abs(pq.r - d) > sv.x * d + slope * max(abs(float(x)), abs(float(y)))) continue;
                 if (dot(rtd_oct_decode(pq.gb), nv) < sv.y) continue;
-                float lq = rtd_luma(rtd_read(textureLod(sampler2D(tex_n, smp_pt), tq, 0.0)), s.x);
+                float lq = min(rtd_luma(rtd_read(textureLod(sampler2D(tex_n, smp_pt), tq, 0.0)), s.x), RTD_LUMA_MOM);
                 sm1 += lq;
                 sm2 += lq * lq;
                 sw += 1.0;
@@ -287,7 +289,7 @@ void main() {
         float varS = sw > 1.0 ? max(sm2 / sw - (sm1 / sw) * (sm1 / sw), 0.0) : 0.0;
         varSample = mix(varS, varT, clamp((len - 1.0) / 3.0, 0.0, 1.0));
     }
-    out_color = vec4(col, varSample / len);
+    out_color = vec4(col, min(varSample / len, RTD_VAR_MAX));
     out_moments = vec4(m1, m2, len, outHit);
 }
 @end
@@ -384,11 +386,11 @@ void main() {
             }
             acc += w * cq.rgb;
             wsum += w;
-            vacc += w * w * max(cq.a, 0.0);
+            if (w > 0.0) vacc += w * w * clamp(cq.a, 0.0, RTD_VAR_MAX);
         }
     }
     float inv = 1.0 / max(wsum, 1e-8);
-    out_color = vec4(acc * inv, vacc * inv * inv);
+    out_color = vec4(acc * inv, min(vacc * inv * inv, RTD_VAR_MAX));
 }
 @end
 

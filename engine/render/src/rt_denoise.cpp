@@ -27,7 +27,8 @@ static_assert(VIEW_rt_denoise_tex_n == 0 && VIEW_rt_denoise_tex_p == 1 && VIEW_r
 static_assert(SMP_rt_denoise_smp_pt == 0, "the denoise sampler slot");
 
 constexpr gpu::PixelFormat kColorFormat = gpu::PixelFormat::Rgba16F;
-constexpr float kMinNormalDot = 0.9f;  // the cosine between two normals below which the temporal pass and the variance estimate see two surfaces
+constexpr float kMinNormalDot =
+    0.9f;  // the cosine between two normals below which the temporal pass and the variance estimate see two surfaces
 
 // What the histories of all the cameras may take together. A wasm32 build has a quarter.
 constexpr std::uint64_t kBudgetBytes = sizeof(void*) >= 8 ? (std::uint64_t(1) << 30) : (std::uint64_t(256) << 20);
@@ -109,8 +110,9 @@ DenoiseSettings sanitize_denoise_settings(const DenoiseSettings& in) {
     return s;
 }
 
-DenoiseCamera make_denoise_camera(const CameraInfo& cam, std::uint64_t camKey, std::uint64_t serial, std::uint64_t sceneKey,
-                                  std::uint64_t originShifts, const Mat4& prevViewProj, bool prevValid) {
+DenoiseCamera make_denoise_camera(const CameraInfo& cam, std::uint64_t camKey, std::uint64_t serial,
+                                  std::uint64_t sceneKey, std::uint64_t originShifts, const Mat4& prevViewProj,
+                                  bool prevValid) {
     DenoiseCamera c;
     c.view = cam.view;
     c.camKey = camKey;
@@ -118,7 +120,8 @@ DenoiseCamera make_denoise_camera(const CameraInfo& cam, std::uint64_t camKey, s
     c.sceneKey = sceneKey;
     c.originShifts = originShifts;
     const Mat4& P = cam.proj;
-    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1), P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
+    const float terms[8] = {P.at(0, 0), P.at(1, 1), P.at(2, 0), P.at(2, 1),
+                            P.at(3, 0), P.at(3, 1), P.at(2, 3), P.at(3, 3)};
     bool finite = std::fabs(P.at(0, 0)) > 1e-12f && std::fabs(P.at(1, 1)) > 1e-12f;
     for (float t : terms) finite = finite && std::isfinite(t);
     for (int i = 0; i < 8; ++i) c.proj[i] = terms[i];
@@ -187,12 +190,16 @@ bool RtDenoiser::ready(gpu::Device& dev) {
     const gpu::PixelFormatCaps f16 = dev.pixel_format_caps(kColorFormat);
     if (ok && !(f16.render && f16.sample)) {
         ok = false;
-        FA_ERROR("render", "The ray tracing denoiser is unavailable: this GPU cannot render to half-float images. Hint: nothing to do; "
+        FA_ERROR("render", "The ray tracing denoiser is unavailable: this GPU cannot render to half-float images. "
+                           "Hint: nothing to do; "
                            "the signals are shown without denoising.");
     } else if (!ok) {
-        FA_ERROR("render", "The ray tracing denoiser is unavailable: its shaders failed to compile for this graphics backend (see the "
-                           "sokol log lines above). The signals are shown without denoising. Hint: update the graphics driver (Mesa: try "
-                           "LIBGL_ALWAYS_SOFTWARE=1).");
+        FA_ERROR(
+            "render",
+            "The ray tracing denoiser is unavailable: its shaders failed to compile for this graphics backend (see the "
+            "sokol log lines above). The signals are shown without denoising. Hint: update the graphics driver (Mesa: "
+            "try "
+            "LIBGL_ALWAYS_SOFTWARE=1).");
     }
     if (!ok) {
         for (gpu::Shader& sh : shaders_) {
@@ -212,7 +219,8 @@ gpu::Pipeline RtDenoiser::pipeline(Prog prog, const TargetFormat& format) {
     if (state_ <= 0 || !device_) return {};
     static const char* const kLabels[int(Prog::Count)] = {"rtd-guide", "rtd-temporal", "rtd-atrous", "rtd-debug"};
     const gpu::Pipeline p = make_triangle_pipeline(*device_, shaders_[int(prog)], format, kLabels[int(prog)], 0);
-    if (device_->state(p) != gpu::ResourceState::Valid) FA_ERROR("render", "failed to create pipeline '{}'", kLabels[int(prog)]);
+    if (device_->state(p) != gpu::ResourceState::Valid)
+        FA_ERROR("render", "failed to create pipeline '{}'", kLabels[int(prog)]);
     pipelines_.push_back({prog, format, p});
     return p;
 }
@@ -436,7 +444,8 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         if (!sig->w) cs.signals.erase(signal.id);
         if (cs.signals.empty() && g.w == 0) cams_.erase(cam.camKey);
     };
-    if (sig->frameSerial == cam.serial && sig->frameGraph == &graph) return fail("the signal was already declared for this camera in this graph");
+    if (sig->frameSerial == cam.serial && sig->frameGraph == &graph)
+        return fail("the signal was already declared for this camera in this graph");
 
     // What an image of another size is told as: a resize (the images are made again below, which clears their state).
     const bool resizedGuide = g.wrote && (g.w != w || g.h != h);
@@ -444,8 +453,9 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
 
     // The images: made now when they do not exist or have another size; the budget counts every other history (64-bit, saturated).
     const bool needGuide = !(g.w == w && g.h == h && g.img[0].valid(*device_) && g.img[1].valid(*device_));
-    const bool needSignal = !(sig->w == w && sig->h == h && sig->momFormat == momFormat && sig->col[0].valid(*device_) &&
-                              sig->col[1].valid(*device_) && sig->mom[0].valid(*device_) && sig->mom[1].valid(*device_));
+    const bool needSignal =
+        !(sig->w == w && sig->h == h && sig->momFormat == momFormat && sig->col[0].valid(*device_) &&
+          sig->col[1].valid(*device_) && sig->mom[0].valid(*device_) && sig->mom[1].valid(*device_));
     if (needGuide || needSignal) {
         const std::uint64_t budget = budgetOverride_ ? budgetOverride_ : kBudgetBytes;
         const std::uint64_t used = used_bytes(needGuide ? &g : nullptr, needSignal ? sig.get() : nullptr);
@@ -454,8 +464,10 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
             if (!refused_) {
                 refused_ = true;
                 FA_ERROR("render",
-                         "Ray tracing denoiser: signal '{}' of camera '{}' needs history images of {}x{} and the renderer cannot hold "
-                         "them (the histories take at most {} MB). The signal is shown without denoising. Hint: lower the render scale "
+                         "Ray tracing denoiser: signal '{}' of camera '{}' needs history images of {}x{} and the "
+                         "renderer cannot hold "
+                         "them (the histories take at most {} MB). The signal is shown without denoising. Hint: lower "
+                         "the render scale "
                          "or the window size.",
                          signal.name.empty() ? kind_label(signal.kind) : signal.name, job, w, h, budget >> 20);
             }
@@ -506,8 +518,11 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         if (!ok) {
             if (!refused_) {
                 refused_ = true;
-                FA_ERROR("render", "Ray tracing denoiser: the GPU refused the history images of {}x{}. The signal is shown without denoising. "
-                                   "Hint: lower the render scale or the window size.", w, h);
+                FA_ERROR("render",
+                         "Ray tracing denoiser: the GPU refused the history images of {}x{}. The signal is shown "
+                         "without denoising. "
+                         "Hint: lower the render scale or the window size.",
+                         w, h);
             }
             cleanup_empty();
             return fail("the GPU refused the history images");
@@ -544,7 +559,8 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
     ss.configKey = sig->configKey;
     DenoiseReset reason = denoise_reset_reason(ss, cam, w, h, plan.configKey);
     if (reason == DenoiseReset::Fresh && resizedSignal) reason = DenoiseReset::Resize;
-    if (reason == DenoiseReset::None && !g.frameValid) reason = g.frameReason;  // the guides of the frame before are gone
+    if (reason == DenoiseReset::None && !g.frameValid)
+        reason = g.frameReason;  // the guides of the frame before are gone
     const bool histValid = reason == DenoiseReset::None;
     if (!histValid) ++resets_;
     sig->planned = cam.serial;
@@ -557,8 +573,8 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
     const int guideRead = g.frameRead, guideWrite = g.frameWrite;
 
     // The graph's view of the images.
-    const std::string sname = signal.name.empty() ? std::string(kind_label(signal.kind)) + (signal.id ? "-" + std::to_string(signal.id) : "")
-                                                  : signal.name;
+    const std::string sname = (signal.name.empty() ? std::string(kind_label(signal.kind)) : signal.name) + "-" +
+                              std::to_string(signal.id);  // the id keeps two signals of one name apart
     const std::string base = (job.empty() ? std::string() : job + "/") + "denoise-" + sname;
     auto desc_of = [&](const std::string& label, gpu::PixelFormat f) {
         TransientDesc td;
@@ -568,13 +584,18 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         td.label = label;
         return td;
     };
-    const ResourceId colOut = graph.import_target(base + "/history-out", sig->col[writeIdx].color.id, desc_of(base + "/history-out", kColorFormat));
-    const ResourceId momOut = graph.import_target(base + "/moments-out", sig->mom[writeIdx].color.id, desc_of(base + "/moments-out", momFormat));
+    const ResourceId colOut = graph.import_target(base + "/history-out", sig->col[writeIdx].color.id,
+                                                  desc_of(base + "/history-out", kColorFormat));
+    const ResourceId momOut = graph.import_target(base + "/moments-out", sig->mom[writeIdx].color.id,
+                                                  desc_of(base + "/moments-out", momFormat));
     ResourceId colIn, momIn, guideIn;
     if (histValid) {
-        colIn = graph.import_target(base + "/history-in", sig->col[readIdx].color.id, desc_of(base + "/history-in", kColorFormat));
-        momIn = graph.import_target(base + "/moments-in", sig->mom[readIdx].color.id, desc_of(base + "/moments-in", momFormat));
-        guideIn = graph.import_target(base + "/guide-in", g.img[guideRead].color.id, desc_of(base + "/guide-in", kColorFormat));
+        colIn = graph.import_target(base + "/history-in", sig->col[readIdx].color.id,
+                                    desc_of(base + "/history-in", kColorFormat));
+        momIn = graph.import_target(base + "/moments-in", sig->mom[readIdx].color.id,
+                                    desc_of(base + "/moments-in", momFormat));
+        guideIn = graph.import_target(base + "/guide-in", g.img[guideRead].color.id,
+                                      desc_of(base + "/guide-in", kColorFormat));
     }
     const ResourceId accum = graph.create_transient(desc_of(base + "/accumulated", kColorFormat));
     ResourceId bufA, bufB;
@@ -610,35 +631,37 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         world_columns(cam.view, gu.wx, gu.wy, gu.wz);
         std::vector<ResourceId> reads;
         push_if(reads, prepass);
-        const ResourceId guideOut = graph.import_target((job.empty() ? std::string() : job + "/") + "denoise-guide-out",
-                                                        g.img[guideWrite].color.id,
-                                                        desc_of((job.empty() ? std::string() : job + "/") + "denoise-guide-out", kColorFormat));
-        add((job.empty() ? std::string() : job + "/") + "denoise-guide", std::move(reads), {guideOut}, [=](const PassContext& c) {
-            const gpu::View pre = prepass.get(c);
-            if (!pre.id) return;
-            PassDesc pd = pass_into(camHold->guide.img[guideWrite], "rtd-guide");
-            pd.colorLoad = gpu::LoadAction::DontCare;
-            DrawArgs a;
-            a.views[VIEW_rt_denoise_tex_p] = pre;
-            a.params = &gu;
-            a.paramBytes = sizeof(gu);
-            a.paramSlot = UB_rt_denoise_rtd_guide_params;
-            if (!self->draw(pass_list(c, *gp), *gp, Prog::Guide, pd, a)) return;
-            GuideSlot& gs = camHold->guide;
-            gs.last = guideWrite;
-            gs.wrote = true;
-            gs.serial = serial;
-            gs.sceneKey = sceneKey;
-            gs.originShifts = shifts;
-            if (drawCalls) ++*drawCalls;
-        });
+        const ResourceId guideOut = graph.import_target(
+            (job.empty() ? std::string() : job + "/") + "denoise-guide-out", g.img[guideWrite].color.id,
+            desc_of((job.empty() ? std::string() : job + "/") + "denoise-guide-out", kColorFormat));
+        add((job.empty() ? std::string() : job + "/") + "denoise-guide", std::move(reads), {guideOut},
+            [=](const PassContext& c) {
+                const gpu::View pre = prepass.get(c);
+                if (!pre.id) return;
+                PassDesc pd = pass_into(camHold->guide.img[guideWrite], "rtd-guide");
+                pd.colorLoad = gpu::LoadAction::DontCare;
+                DrawArgs a;
+                a.views[VIEW_rt_denoise_tex_p] = pre;
+                a.params = &gu;
+                a.paramBytes = sizeof(gu);
+                a.paramSlot = UB_rt_denoise_rtd_guide_params;
+                if (!self->draw(pass_list(c, *gp), *gp, Prog::Guide, pd, a)) return;
+                GuideSlot& gs = camHold->guide;
+                gs.last = guideWrite;
+                gs.wrote = true;
+                gs.serial = serial;
+                gs.sceneKey = sceneKey;
+                gs.originShifts = shifts;
+                if (drawCalls) ++*drawCalls;
+            });
     }
 
     // 1. the temporal accumulation: noisy + guides + history -> the accumulated colour (T) and the moments (the history)
     {
         rt_denoise_rtd_temporal_params_t u{};
         set4(u.a, glFlip, fw, fh, histValid ? 1.0f : 0.0f);
-        set4(u.s, float(plan.channels), float(int(plan.kind)), st.maxHistory, plan.channels == 1 ? 0.0f : st.fireflyClamp);
+        set4(u.s, float(plan.channels), float(int(plan.kind)), st.maxHistory,
+             plan.channels == 1 ? 0.0f : st.fireflyClamp);
         set4(u.f, velocity.valid() ? 1.0f : 0.0f, st.depthTolerance, kMinNormalDot, plan.hitDistance ? 1.0f : 0.0f);
         set4(u.pa, cam.proj[0], cam.proj[1], cam.proj[2], cam.proj[3]);
         set4(u.pb, cam.proj[4], cam.proj[5], cam.proj[6], cam.proj[7]);
@@ -667,7 +690,8 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
             a.views[VIEW_rt_denoise_tex_v] = vel.id ? vel : pre;
             a.views[VIEW_rt_denoise_tex_hc] = readIdx >= 0 ? s.col[readIdx].texView : pre;
             a.views[VIEW_rt_denoise_tex_hm] = readIdx >= 0 ? s.mom[readIdx].texView : pre;
-            a.views[VIEW_rt_denoise_tex_hg] = readIdx >= 0 && guideRead >= 0 ? camHold->guide.img[guideRead].texView : pre;
+            a.views[VIEW_rt_denoise_tex_hg] =
+                readIdx >= 0 && guideRead >= 0 ? camHold->guide.img[guideRead].texView : pre;
             a.params = &u;
             a.paramBytes = sizeof(u);
             a.paramSlot = UB_rt_denoise_rtd_temporal_params;
@@ -715,7 +739,8 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
             PassDesc pd = pass_into(*dstT, "rtd-atrous");
             pd.colorLoad = gpu::LoadAction::DontCare;
             if (!self->draw(pass_list(c, *gp), *gp, Prog::Atrous, pd, a)) return;
-            if (dstIsHistory && s.temporalSerial == serial) {  // the history of the next frame: this frame's colour and moments
+            if (dstIsHistory &&
+                s.temporalSerial == serial) {  // the history of the next frame: this frame's colour and moments
                 s.last = writeIdx;
                 s.wrote = true;
                 s.serial = serial;
@@ -736,8 +761,6 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         rt_denoise_rtd_debug_params_t u{};
         set4(u.a, signal.debug == DenoiseDebug::HistoryLength ? 1.0f : 2.0f, 0.0f, 0.0f, 0.0f);
         set4(u.s, st.maxHistory, 0.0f, 0.0f, 0.0f);
-        const bool srcIsHistory = false;
-        (void)srcIsHistory;
         add(base + "-debug", {last, momOut}, {dbg}, [=](const PassContext& c) {
             const Target* from = tt->get(c.handle(last));
             const Target* to = tt->get(c.handle(dbg));

@@ -41,8 +41,8 @@ denoiser.sweep(serial);                                // once a frame, after ev
 
 ## The passes
 
-Pass names are `<job>/denoise-guide` (once per camera and graph) and `<job>/denoise-<name>-...` with `name` = `DenoiseSignal::name`
-or the kind's name.
+Pass names are `<job>/denoise-guide` (once per camera and graph) and `<job>/denoise-<name>-<id>-...` with `name` = `DenoiseSignal::name`
+or the kind's name and `id` the signal's (two signals of a camera with one name do not collide in the graph).
 
 | Pass | Reads | Writes |
 |---|---|---|
@@ -74,6 +74,10 @@ Persistent images per signal: four (colour history and moments, two each, flippe
 4. Variance: the temporal variance `m2 - m1^2`; while the history is shorter than 4 frames the spatial variance of the 5x5
    pixels that show the same surface stands in for it and hands over as the history grows. The variance of the estimate is that
    divided by the history length.
+5. Bounds for 16-bit images: the luminance the moments take is capped at 250 (its square fits a 16-bit moment image, the path of a GPU
+   without Rgba32F), and every variance written (the `a` of the colour images) is capped at 60000 (a 16-bit float holds 65504: an
+   infinity there would meet a filter weight of exactly 0 and make a NaN that grows with every iteration). The cost: above a
+   luminance deviation of about 250 the filter sees the variance of 250, so the luminance weight is looser there.
 
 ### A-trous iterations
 
@@ -148,7 +152,7 @@ The guide and the filtered colours are Rgba16F; the moments Rgba32F (Rgba16F on 
 `engine/render/tests/rt_denoise_plan_tests.cpp` (CPU, in `render_postprocess_core`): passes and images per kind, nothing for a
 disabled signal, saturating byte counts, settings clamping, the config key, the reset rule order, the free-when-unused state.
 
-`engine/render/tests/rt_denoise_tests.cpp` (the host GPU, 64x48 images, the whole file in well under a second; thresholds sit
+`engine/render/tests/rt_denoise_tests.cpp` (the host GPU, 64x48 images, the whole file takes about a tenth of a second on Metal (an Apple M5), not measured elsewhere; thresholds sit
 5 to 10 times from what Metal measures, and each says its reasoning in a comment):
 - a Bernoulli(0.3) visibility: the raw mean absolute error is 0.42; one frame filtered gives under 0.10 (measured 0.047), 24
   frames under 0.025 (measured 0.013); the sky, where no mesh was drawn, passes through;
@@ -159,8 +163,11 @@ disabled signal, saturating byte counts, settings clamping, the config key, the 
 - the six reset reasons, the resize, and that changing `iterations` does not reset;
 - a specular mirror keeps its temporal-only image while a rough surface is filtered (error under a tenth);
 - a firefly of 1000 is clamped to under 6 (34 without) and a NaN does not spread;
+- radiance noise of 0 to 4000 (a luminance deviation of 1150, far over what a 16-bit variance holds), diffuse and specular, with 32-bit and
+  16-bit moments: every colour and debug value is finite, none is above the brightest sample and the mean stays within 10% (on Metal
+  this passes with and without the bounds, since it saturates a 16-bit write; the case guards the platforms that write an infinity);
 - the same inputs give the same bytes; the variance view is dark on a clean and bright on a noisy signal;
 - free when unused: no shader, pipeline or image before a signal asks, a disabled signal declares nothing, a camera is swept, the
   budget refuses with a reason, a signal declared twice in a graph is refused.
 
-llvmpipe and D3D11/WARP numbers are measured on the Windows PC (not run on the Mac the package was written on).
+Only Metal (an Apple M5) has run these tests so far: the llvmpipe and D3D11/WARP numbers are not measured yet.

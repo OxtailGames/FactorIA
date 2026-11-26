@@ -136,7 +136,8 @@ TEST_CASE("denoise history: the first rule that breaks it names the reason") {
     CHECK(denoise_reset_reason(state_of(1), cam_at(2), 80, 48, 5) == DenoiseReset::Resize);
     CHECK(denoise_reset_reason(state_of(1), cam_at(2), 64, 40, 5) == DenoiseReset::Resize);
     CHECK(denoise_reset_reason(state_of(1), cam_at(3), 64, 48, 5) == DenoiseReset::Gap);
-    CHECK(denoise_reset_reason(state_of(5), cam_at(5), 64, 48, 5) == DenoiseReset::Gap);  // the same frame twice is not a next frame
+    CHECK(denoise_reset_reason(state_of(5), cam_at(5), 64, 48, 5) ==
+          DenoiseReset::Gap);  // the same frame twice is not a next frame
     DenoiseCamera other = cam_at(2);
     other.sceneKey = 2;
     CHECK(denoise_reset_reason(state_of(1), other, 64, 48, 5) == DenoiseReset::Scene);
@@ -160,8 +161,8 @@ TEST_CASE("denoise history: the first rule that breaks it names the reason") {
 TEST_CASE("denoise: every kind and reason has a name") {
     for (DenoiseKind k : {DenoiseKind::Visibility, DenoiseKind::Occlusion, DenoiseKind::Diffuse, DenoiseKind::Specular})
         CHECK(std::string(denoise_kind_name(k)).size() > 2);
-    for (DenoiseReset r : {DenoiseReset::None, DenoiseReset::Fresh, DenoiseReset::Resize, DenoiseReset::Gap, DenoiseReset::Scene,
-                           DenoiseReset::Origin, DenoiseReset::Settings, DenoiseReset::Cut})
+    for (DenoiseReset r : {DenoiseReset::None, DenoiseReset::Fresh, DenoiseReset::Resize, DenoiseReset::Gap,
+                           DenoiseReset::Scene, DenoiseReset::Origin, DenoiseReset::Settings, DenoiseReset::Cut})
         CHECK(std::string(denoise_reset_name(r)).size() > 2);
 }
 
