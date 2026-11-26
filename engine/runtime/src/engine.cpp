@@ -2326,6 +2326,26 @@ Json Engine::ray_tracing_status() {
         j["giPixel"] =
             Json::object({{"active", pixelActive}, {"wanted", rt.enabled && giPixelOn}, {"reason", pixelReason}});
     }
+    // M79-P4b-2: who denoises the signals of the effects that have a noisy one, as of the last whole frame: "rayReconstruction" (DLSS Ray
+    // Reconstruction took the signal: the lit picture shows the noisy image and the upscaler cleans it), "engine" (the engine's own denoiser) or
+    // "off" (the effect is not drawn). The AO's and the shadows' signals always stay with the engine's denoiser. `reason` is empty unless
+    // render.upscaler rayReconstruction is on and an effect that makes a signal is on without Ray Reconstruction taking all of them.
+    {
+        render::RtDenoiserStatus ds;
+        if (impl_->renderer) ds = impl_->renderer->ray_tracing_denoiser_status();
+        const bool tracing = rt.enabled && supported;
+        const auto who = [&](bool on, bool rr) {
+            return std::string(!tracing || !on ? "off" : rr ? "rayReconstruction" : "engine");
+        };
+        const bool asked =
+            impl_->renderer && impl_->renderer->upscaler().rayReconstruction && tracing && (reflectionsOn || giPixelOn);
+        j["denoiser"] =
+            Json::object({{"reflections", who(reflectionsOn, ds.reflectionsRr)},
+                          {"gi", who(giPixelOn, ds.giRr)},
+                          {"reason", asked && !(ds.reflectionsRr || ds.giRr) && ds.reason.empty()
+                                         ? std::string("no frame has been drawn yet with Ray Reconstruction")
+                                         : (asked ? ds.reason : std::string())}});
+    }
     if (!impl_->rayTracing.enabled)
         j["reason"] = std::string();
     else if (!supported)

@@ -109,13 +109,24 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
 - **The graphics presets turn it off.** `low`, `medium` and `high` write a whole upscaler (mode `auto`, a quality, sharpness 0.5), so
   `rayReconstruction` is false while one is on; `ultra` and `custom` keep the game's own setting (docs/UPSCALING.md, "Graphics presets").
 
-- **What it does without ray tracing, today.** The renderer is a forward renderer: it has no ray-traced signals, so the picture it hands
-  Ray Reconstruction has little noise to remove. Ray Reconstruction still upscales it, and it still reads the guides, but with
-  approximations (below), so the result can differ from Super Resolution's, for better or for worse. Treat it as a preview and compare
-  the two on your content. It exists now so that the guide plumbing, the camera constants and the fall backs are in place and tested
-  before M79 (ray-traced reflections and global illumination, M79.4) feeds it real noisy signals.
-- **What M79 adds.** The ray-traced passes give it a noisy specular and diffuse light, the specular hit distance and real material
-  guides and reads the hit distance. The roughness and the two albedos below already come from the renderer's own thin G-buffer (M79-P0c).
+- **Without ray tracing.** The renderer is a forward renderer: a frame with no ray traced effect has little noise to remove. Ray
+  Reconstruction still upscales it and reads the guides, but with approximations (below), so the result can differ from Super
+  Resolution's, for better or for worse. Treat it as a preview and compare the two on your content.
+- **The ray traced signals (M79).** When Ray Reconstruction will draw the frame, the engine does not denoise the ray traced
+  **reflections** (`render.rayTracing.reflections`: the sharp and the glossy image, and the coverage that only exists for the denoiser)
+  and the per-pixel **global illumination** (`render.rayTracing.gi` `"perPixel"`) itself: their noisy images are composited into the picture as the
+  kernels wrote them (the denoiser's passes are not recorded and its histories are freed), and Ray Reconstruction denoises them together with the rest of the frame, using
+  the guides below. The **ray traced AO and the shadows keep the engine's denoiser**: they are visibility, not radiance: the AO is a darkening multiplied into the picture and the shadow mask is read by the lit pass, both before the upscaler,
+  so they are not a noisy diffuse or specular light that the network separates from the rest, and its guides have no input for them. The decision is made once per frame, before the ray traced passes are recorded, from the same
+  conditions the frame is drawn with (the setting, the machine, linear colour, no dynamic resolution, a perspective camera, DLSS as the vendor, the
+  camera the upscaler resolves, no final pass); `render.ray_tracing` `denoiser` says what it was in the last frame (`reflections` and `gi`:
+  `"rayReconstruction"`, `"engine"` or `"off"`, and a `reason` when Ray Reconstruction was asked for and does not take a signal). The
+  per-pixel GI also stays with the engine on a device that cannot filter 32-bit float images (the lit meshes then read the denoiser's 16-bit one).
+  Only a frame that was decided "take" and that DLSS then draws with Super Resolution (the evaluation was refused, so it fails once and stays off) shows its signals
+  noisy, once; the next frame is the engine's denoiser from a history that starts again (its first frame is a "fresh" one). A frame that
+  was handed the signals and was not drawn with Ray Reconstruction at all (the decision and the frame disagreed) keeps them with the engine's denoiser
+  until `render.upscaler.rayReconstruction` is switched off and on. With Ray Reconstruction off, or on and no reflections or GI traced, nothing changes: no
+  extra pass, no extra image.
 - **The guides.** With Ray Reconstruction on, a pass (`shaders/upscale_rr.glsl`, "upscale-rr-guides") makes four images at the render
   size from the depth and normal prepass and the thin G-buffer (a draw for the normal, the roughness and the depth, a draw for the two albedos; two clears for the albedos when the GPU makes no G-buffer); they are made only on the
   frames that use Ray Reconstruction, never for Super Resolution. They are tagged with the colour in, the motion vectors and the colour
@@ -128,8 +139,9 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   | specular albedo (`SpecularAlbedo`) | the thin G-buffer's mix(0.04, albedo, metalness) where a mesh was drawn | the constant 0.04, the reflectance of a dielectric at normal incidence, where none was |
   | depth (`Depth`) | **hardware depth**: clip z / clip w of the camera's unjittered projection (0..1 growing with the distance, 1 for the sky), computed from the prepass's view distance | none; it is not the depth Super Resolution reads (the prepass's d / (d + 1)), because Ray Reconstruction rebuilds the view position from the depth and the matrices it is told, and the two must agree |
   | motion vectors | the same image as Super Resolution | none |
+  | specular hit distance (`SpecularHitDistance`, optional) | only while the ray traced reflections go to Ray Reconstruction: the distance the reflection rays travelled (world units, the mean of the glossy rays that hit a surface, from the reflection image's alpha; 0 for a pixel not traced and for rays that all left the scene), made by a small pass ("upscale-rr-hit") into an R32F image | none; without it Ray Reconstruction still works, with less to steer the reflections' filtering by |
 
-  The G-buffer (the engine's design notes, repository only, not in the binary) is drawn only while Ray Reconstruction is on and runs as an extra pass over the opaque meshes at the render size; a GPU that cannot make it, and a camera whose images are not the render size, keep the constants. The specular motion vectors and the hit distance are not given (Ray Reconstruction takes them as optional). The normal space the
+  The G-buffer (the engine's design notes, repository only, not in the binary) is drawn only while Ray Reconstruction is on and runs as an extra pass over the opaque meshes at the render size; a GPU that cannot make it, and a camera whose images are not the render size, keep the constants. The specular motion vectors are not given (Ray Reconstruction takes them as optional: the virtual motion of a reflection is not computed, and the hit distance is the only reflection guide). The normal space the
   network expects (world or view, and the sign of the axes) is not verified on hardware: the engine sends world-space normals and the
   camera's world-to-view and view-to-world matrices, as NVIDIA's integration guide describes; if the picture shows lighting that
   follows the camera, the space is the thing to check first.
@@ -148,14 +160,19 @@ denoiser and upscaler in one network: instead of upscaling a clean picture (Supe
   chose, not what drew).
 - **The cost.** Ray Reconstruction is a larger network than Super Resolution (NVIDIA publishes no figure for a given GPU): expect a
   higher cost per frame than Super Resolution at the same size, and four more render-size images (one RGBA16F, one R32F, two RGBA8) with the
-  guides pass. Measure it with `perf.measure` on your GPU. The four guide images are kept for as long as the setting is on and the machine
+  guides pass, and a fifth (R32F, the hit distance, one more small pass) while the ray traced reflections go to it. Handing the reflections and the GI to Ray Reconstruction saves the engine's
+  denoiser (two signals and a coverage for the reflections, one for the GI: a guide, a temporal and an a-trous pass each, and their histories) and moves that work into the network, whose cost is not
+  published: measure the two ways on your GPU. Measure it with `perf.measure` on your GPU. The four guide images are kept for as long as the setting is on and the machine
   can run it: a frame that cannot use them (a dynamic resolution moving the render size, a frame with a final pass) draws as Super
   Resolution and does not free them, so they are not made again at every step. They are freed when the setting goes false, when the
   machine or a frame refuses Ray Reconstruction, or when another upscaler draws.
 - **Not tested.** The tests use a fake Streamline (feature switch, the seven tags and their order, the options and matrices sent, the
   fall backs, device loss); no NVIDIA RTX hardware was available, so the picture is unseen. The G-buffer images are tested on every GPU the
   tests run on (known materials read back), and the two guide programs are built by a test on any GPU, but the guides pass itself (and the
-  albedos it makes) has been run only with Ray Reconstruction on, which needs NVIDIA hardware.
+  albedos it makes) has been run only with Ray Reconstruction on, which needs NVIDIA hardware. The ray traced signals' part is tested on the RecordingDevice with a fake provider (the
+  denoiser's passes are absent when it draws and present when it does not, the hit distance image and pass, the fallback frame and the reset history, the AO's passes unchanged)
+  and the tag of the hit distance (buffer 42, eighth after the seven) with the fake Streamline: **never run on NVIDIA hardware**, so how much cleaner the reflections and the GI are, whether the
+  network reads the hit distance as the engine writes it (world units, 0 for no hit) and the real cost are unseen.
 - **Checked against NVIDIA's header** (`sl_dlss_d.h` and `sl_core_types.h` of Streamline 2.14, read on the web, not copied): the feature
   id 1001, the GUIDs of `DLSSDOptions` and `DLSSDOptimalSettings`, the buffer ids (albedo 7, specular albedo 8, normals and roughness 14,
   specular hit distance 42) and the 224-byte layout of `DLSSDOptions` (a `static_assert` checks the member offsets). Not checked: how the
