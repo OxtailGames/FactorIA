@@ -776,6 +776,7 @@ void Assets::set_accel_input(bool on) {
     std::vector<std::string> keys;
     for (const auto& [k, m] : meshes_)
         if (!m->placeholder) keys.push_back(k);
+    std::sort(keys.begin(), keys.end());  // meshes_ is unordered: the same order on every platform
     for (const std::string& k : keys) load_mesh(k);
     for (auto& [id, pm] : procedural_) {
         destroy_procedural(pm);

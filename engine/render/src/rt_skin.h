@@ -15,13 +15,14 @@
 namespace fa::render {
 
 // The slots of rt_skin.glsl (the sokol-shdc macros of its generated header have the same values: renderer_rt.cpp checks it at compile time).
-inline constexpr int kRtSkinViewVertices = 0;    // readonly: MeshVertex of the part (13 floats, the position first)
-inline constexpr int kRtSkinViewInfluences = 1;  // readonly: SkinVertex of the part (5 words: four joint bytes, four weights)
-inline constexpr int kRtSkinViewPalette = 2;     // readonly: the palettes of the frame, kRtSkinPaletteRows vec4 rows each
-inline constexpr int kRtSkinViewOut = 3;         // writeonly: three floats per vertex
-inline constexpr int kRtSkinUniformParams = 0;   // int[4]: x = vertex count, y = first palette row
-inline constexpr std::uint32_t kRtSkinGroupSize = 64;                       // threads per group (local_size_x of the kernel)
-inline constexpr std::uint32_t kRtSkinPaletteRows = kMaxSkinJoints * 3;     // vec4 rows of one palette
+inline constexpr int kRtSkinViewVertices = 0;  // readonly: MeshVertex of the part (13 floats, the position first)
+inline constexpr int kRtSkinViewInfluences =
+    1;  // readonly: SkinVertex of the part (5 words: four joint bytes, four weights)
+inline constexpr int kRtSkinViewPalette = 2;  // readonly: the palettes of the frame, kRtSkinPaletteRows vec4 rows each
+inline constexpr int kRtSkinViewOut = 3;      // writeonly: three floats per vertex
+inline constexpr int kRtSkinUniformParams = 0;         // int[4]: x = vertex count, y = first palette row
+inline constexpr std::uint32_t kRtSkinGroupSize = 64;  // threads per group (local_size_x of the kernel)
+inline constexpr std::uint32_t kRtSkinPaletteRows = kMaxSkinJoints * 3;  // vec4 rows of one palette
 inline constexpr std::uint32_t kRtSkinPaletteFloats = kRtSkinPaletteRows * 4;
 // One dispatch has at most 65535 groups on every API: the most vertices one part can have to be skinned for the ray tracing scene.
 inline constexpr std::uint32_t kRtSkinMaxPartVertices = 65535u * kRtSkinGroupSize;

@@ -47,19 +47,20 @@ struct RtSceneStats {
         0;  // a mesh drawn from compute buffers: the instances are where the buffer puts them, unknown here
     std::uint32_t skippedUntraceable =
         0;  // a mesh with no vertex buffer a build can read (a placeholder), or with no triangle
-    std::uint32_t skippedNoBlas = 0;      // instances whose BLAS failed or waits for a later frame's build budget
-    std::uint32_t blasLive = 0;           // BLASes alive
-    std::uint32_t blasBuilt = 0;          // BLASes built by the last record()
-    std::uint32_t blasCompacted = 0;      // compaction copies the last record() made
-    std::uint32_t skinnedInstances = 0;   // skinned instances of the TLAS
+    std::uint32_t skippedNoBlas = 0;  // instances whose BLAS failed or waits for a later frame's build budget
+    std::uint32_t blasLive = 0;       // BLASes alive
+    std::uint32_t blasBuilt = 0;      // BLASes built by the last record()
+    std::uint32_t blasCompacted = 0;  // compaction copies the last record() made
+    std::uint64_t blasBytes = 0;      // acceleration structure memory of the BLASes
+    std::uint64_t tlasBytes = 0;      // acceleration structure memory of the TLAS
+    std::uint32_t cap = 0;            // instances the scene may hold
+    // The skinned meshes (rt_scene_skin.cpp):
+    std::uint32_t skinnedInstances = 0;
     std::uint32_t skinnedDispatches = 0;  // skinning dispatches the last record() made (one per skinned BLAS)
     std::uint32_t skinnedBuilds =
-        0;  // skinned BLASes built from scratch by the last record() (the first build, a periodic or an extent rebuild)
+        0;  // skinned BLASes built from scratch by the last record() (first, periodic or extent rebuild)
     std::uint32_t skinnedRefits = 0;    // skinned BLASes refitted by the last record()
     std::uint64_t skinnedVertices = 0;  // vertices the last record() skinned
-    std::uint64_t blasBytes = 0;        // acceleration structure memory of the BLASes
-    std::uint64_t tlasBytes = 0;        // acceleration structure memory of the TLAS
-    std::uint32_t cap = 0;              // instances the scene may hold
 };
 
 class RtScene {
@@ -76,12 +77,12 @@ public:
     // gets worse the more the mesh moves from it), and when the extent of its bones jumps by more than kSkinExtentJump of the largest side of
     // the box it was built for (a teleport of a bone, a new animation: the refit alone would trace a wrong tree).
     static constexpr std::uint32_t kSkinRebuildFrames = 60;
+    static constexpr std::uint32_t kSkinRebuildSpread =
+        16;  // the rebuilds due are spread over this many frames (by BLAS id)
     static constexpr float kSkinExtentJump = 0.35f;
     // The scratch memory the builds of the skinned BLASes of one frame get side by side (builds past it share the start, which the backend
     // serializes): 64 MiB.
     static constexpr std::uint64_t kSkinScratchBytes = 64ull << 20;
-    // Frames a destroyed BLAS is kept: a TLAS of a frame in flight still names it (Device::destroy_accel_structure).
-    static constexpr std::uint64_t kRetireFrames = 4;
 
     RtScene() = default;
     ~RtScene();
@@ -119,8 +120,8 @@ public:
     std::uint32_t instance_count() const { return tlasBuilt_ ? tlasInstances_ : 0; }
     const RtSceneStats& stats() const { return stats_; }
 
-    // The compute pipeline of the skinning kernel (rt_skin.glsl: slots in rt_skin.h), asked for once a frame that has skinned instances until it
-    // answers a valid one. The renderer makes it on first use; without it (or without compute shaders) the skinned instances are not traced.
+    // The compute pipeline of the skinning kernel (rt_skin.glsl: slots in rt_skin.h), asked for in every frame that skins (the handle is never
+    // kept: the renderer's pipeline cache destroys an idle one). The renderer makes it on first use; without it (or without compute shaders) the skinned instances are not traced.
     std::function<gpu::Pipeline()> skinKernel;
 
     // For the tests: the instances and records of the last collect() (after the cap and the filter of record()), and the records of the
@@ -143,6 +144,12 @@ public:
         return it == blas_.end() ? gpu::Buffer{} : it->second.positions;
     }
     bool blas_has_asset(const MeshAsset* mesh) const { return meshes_.count(mesh) != 0; }
+    // The structure of a live BLAS (invalid for one that is gone), and how many are waiting to be destroyed, for a test.
+    gpu::AccelStructure blas_structure(std::uint32_t id) const {
+        const auto it = blas_.find(id);
+        return it == blas_.end() ? gpu::AccelStructure{} : it->second.structure;
+    }
+    std::size_t retired_count() const { return graveyard_.size(); }
 
 private:
     enum class State : std::uint8_t { Pending, Built, Queried, Reading, CopyPending, Swap, Compacted, Failed };
@@ -191,10 +198,9 @@ private:
         std::uint64_t version = 0;
         std::uint64_t signature = 0;      // the buffers of the parts (their ids): a change of any rebuilds the BLASes
         std::vector<std::uint32_t> blas;  // per part; 0 = none
-        std::vector<std::uint8_t>
-            untraceable;  // per part: 1 = nothing a build can read; 2 = a skinned part: its static BLAS is made when an item draws it unskinned
-        std::vector<SkinSource> sources;  // per part, once a skinned instance of it was traced
-        std::uint64_t checkedFrame = 0;   // the frameCounter_ of the last signature check (once per frame)
+        std::vector<std::uint8_t> untraceable;  // per part: 1 = nothing a build can read
+        std::vector<SkinSource> sources;        // per part, once a skinned instance of it was traced
+        std::uint64_t checkedFrame = 0;         // the frameCounter_ of the last signature check (once per frame)
     };
     struct Item {
         const MeshAsset* mesh = nullptr;
@@ -232,14 +238,19 @@ private:
     void record_skin_dispatches(gpu::CommandList& list, const std::vector<SkinWork>& work);
     std::uint32_t record_skin_builds(gpu::CommandList& list, const std::vector<SkinWork>& work);
     void release_skin();
+    gpu::Pipeline skin_kernel() const;
     void warn_skin_budget(const std::string& key, std::uint32_t vertices);
+    // A BLAS that is no longer wanted. A TLAS does not keep its BLASes alive, so the structure of a BLAS the frames in flight may still trace
+    // goes to the graveyard and is destroyed kRetireFrames frames later (begin_frame); never destroy a BLAS with destroy_accel_structure.
     void retire_blas(gpu::AccelStructure structure);
-    void collect_retired(bool all);
+    void drain_graveyard(bool all);
     void free_blas(std::uint32_t id);
+    void record_frame(gpu::CommandList& list);
     void free_mesh_entry(MeshEntry& e);
     void poll_compaction(bool headless, const std::function<void()>& commit);
     void apply_compacted(std::uint32_t id, std::uint64_t size);
-    void ensure_buffers(std::uint64_t scratch, std::uint32_t instances);
+    bool ensure_buffers(std::uint64_t scratch,
+                        std::uint32_t instances);  // false: a buffer could not be made, the frame builds nothing
     void warn_once(bool& flag, const char* what, const std::string& message);
     std::int32_t take_slot();
 
@@ -263,12 +274,6 @@ private:
     gpu::Buffer paletteBuffer_{};
     gpu::View paletteView_{};
     std::uint32_t paletteCapacity_ = 0;  // palettes the buffer holds
-    gpu::Pipeline skinPipeline_{};
-    struct Retired {
-        gpu::AccelStructure structure;
-        std::uint64_t frame = 0;
-    };
-    std::vector<Retired> retired_;  // destroyed BLASes waiting for the frames in flight
     // The compacted-size answers.
     gpu::Buffer sizeBuffer_{};
     std::vector<std::int32_t> freeSlots_;
@@ -279,7 +284,6 @@ private:
         std::int32_t slot = 0;
     };
     std::vector<Reading> reading_;  // the BLASes the ticket (or the next synchronous read) answers
-    std::int32_t readSlots_ = 0;    // slots the ticket covers
     // The frame.
     std::vector<Item> items_;
     std::vector<FrameInstance> frame_;
@@ -293,7 +297,14 @@ private:
     gpu::Buffer scratch_{};
     std::uint64_t scratchSize_ = 0;
     RtSceneStats stats_;
-    bool warnedCap_ = false, warnedSkinned_ = false, warnedBlas_ = false, warnedRead_ = false,
+    struct Retired {
+        gpu::AccelStructure structure{};
+        std::uint64_t frame = 0;  // frameCounter_ when it was retired
+    };
+    std::vector<Retired> graveyard_;  // in retirement order
+    // One flag per cause of a warning: each says itself once.
+    bool warnedCap_ = false, warnedSkinned_ = false, warnedBlasMake_ = false, warnedBlasBuild_ = false,
+         warnedTlasMake_ = false, warnedTlasBuild_ = false, warnedBuffers_ = false, warnedRead_ = false,
          warnedSkinKernel_ = false;
 };
 
