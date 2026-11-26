@@ -35,7 +35,7 @@ default) writes nothing to `factoria.json`.
 | `ao` | `true`, `false` | `false` | Ambient occlusion traced with rays, instead of the screen-space one ("Ambient occlusion", below). |
 | `reflections` | `true`, `false` | `false` | Reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel; one from 0.25 to 0.65 gets `raysPerPixel` rays spread by its roughness, denoised, and fades into the screen-space reflections and the probes towards 0.65 ("Reflections" below). Rougher surfaces keep the old reflections. |
 | `translucency` | `true`, `false` | `false` | Refraction through glass and liquids traced with rays: a ray bent at every interface of the closed mesh, tinted by the volume, instead of the screen-space refraction ("Translucency", below). Coloured shadows are not made. |
-| `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination. `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
+| `gi` | `off`, `probes`, `perPixel` | `off` | Global illumination (`perPixel` is accepted but not drawn yet). `off` = the engine's own (light probes and the ambient). `probes` = light probes updated with rays. `perPixel` = a bounce traced for every pixel (the most expensive). |
 | `raysPerPixel` | whole number, 1 to 16 | `1` | Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside the range is **clamped**, not an error. |
 | `maxInstances` | whole number, 1 to 1048576 | `65536` | The most instances the top-level acceleration structure holds; when a scene has more, the nearest to the camera come first. Clamped like `raysPerPixel`. |
 
@@ -49,6 +49,36 @@ factoria.json#/render/rayTracing/shadows: "sofft" is not a valid shadows mode  (
 ```
 
 The settings are read from `factoria.json` at the start and changed while the game runs with the command `render.ray_tracing`.
+
+## Graphics presets, the editor and the menu kit
+
+The graphics preset (`render.graphicsPreset`, the command `graphics.preset`; [UPSCALING.md](UPSCALING.md), "Graphics presets") caps ray
+tracing like it caps the other costly effects: it only lowers what the project asks for and **never turns ray tracing on**. A project
+with `render.rayTracing.enabled` false traces nothing at any preset.
+
+| preset | traced with rays (at most) | rays per pixel | why |
+|---|---|---|---|
+| `low`, `medium` | nothing: the shadow maps, the screen-space occlusion and reflections, the probes | | A trace costs a top-level structure build and a pass per effect every frame; the two presets are for a GPU that has little to spare, or none that traces. |
+| `high` | `shadows: "hard"` and `ao` | 2 | The two cheapest effects: one ray per pixel towards the sun, and the ambient occlusion with a short ray. |
+| `ultra`, `custom` | everything the project asks for | no limit | The soft shadows (`raysPerPixel` rays), reflections and translucency cost several rays per pixel; `gi: "probes"` is a ray pass over the probes. `gi: "perPixel"` is not drawn yet (a bounce per pixel needs its own package), so no preset names it. |
+
+A device that cannot trace (Direct3D 11, OpenGL, OpenGL ES 3, WebGL2, or a GPU without the ray queries) behaves as before: the presets
+change nothing there, because there is nothing to cap. The cap is applied by the renderer, so the order of `graphics.preset` and
+`render.ray_tracing` does not matter: the setting you wrote stays as you wrote it (`render.ray_tracing` returns it), and
+`presetCap` of the same command says what is drawn: `{preset, capped, effective}`, `effective` being the setting after the caps;
+`active` and `reason` follow `effective`. Picking `ultra` or `custom` again lifts the cap.
+
+The editor's **Graphics settings** window (View > Graphics; [editor/EDITOR_PANELS_WORLD.md](editor/EDITOR_PANELS_WORLD.md), "Graphics
+settings window") has a **Ray tracing** group (the switch, `shadows`, `ao`, `reflections`, `translucency`, `gi`, `raysPerPixel`) and a **Path
+tracer** group (the switch, `samplesPerFrame`, `maxSamples`) that write `render.rayTracing` and `render.pathTracer` of `factoria.json`. A
+line at the top of the group says whether this machine can trace; where it cannot, the controls are greyed out with the reason and a hint
+to choose a backend that traces with `graphics.backend`, because a project is written for the players' machines: the file may ask for
+rays all the same. `gi: "perPixel"` is listed greyed out ("coming").
+
+The menu kit's Graphics tab ([MENUS.md](MENUS.md)) has a fifth page, **Ray tracing**: an on/off switch and a quality that cycles `high`
+(hard shadows and ambient occlusion) and `ultra` (everything above), the two tiers of the presets. A player's choice is saved in
+`settings.graphics.rayTracing` (`{enabled, quality}`) and applied with `render.ray_tracing` at each start; the page's note says when the preset
+caps it, and on a device that cannot trace both rows are greyed out with the reason.
 
 ## The command
 

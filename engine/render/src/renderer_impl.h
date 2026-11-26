@@ -631,7 +631,10 @@ struct Renderer::Impl {
     bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
     // M79 P1s: the scene's acceleration structures (rt_scene.h). `rtSettings` is the engine's setting; rt_begin_frame (Renderer::begin_frame)
     // turns the scene on or off from it and from what the device can do, so a frame sees one answer.
-    render::RayTracingSettings rtSettings;
+    render::RayTracingSettings
+        rtSettings;  // what the frame traces: rtRequested under the graphics preset's caps (M79-P6a)
+    render::RayTracingSettings
+        rtRequested;  // the setting the engine gave (Renderer::set_ray_tracing), before the preset's caps
     // M79-P5a: the path tracer (rt_pathtrace.h). `ptSettings` is the engine's setting; ptState is the accumulation's bookkeeping, one entry per
     // camera job (pt_hook); ptStatus is what the last frame did.
     render::PathTracerSettings ptSettings;

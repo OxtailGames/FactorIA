@@ -551,3 +551,114 @@ TEST_CASE("gpu benchmark on a GPU: a game in the Linear colour space keeps its t
     CHECK(g.renderer.color_space() == ColorSpace::Linear);
     CHECK(RendererTestAccess::taa_images(g.renderer) == histories);
 }
+
+// M79-P6a: the ray tracing tier of the presets.
+TEST_CASE("graphics presets: the ray tracing tier of each preset (low and medium none, high hard shadows and ao, ultra "
+          "no limit)") {
+    const auto lim = [](GraphicsPreset p) { return graphics_preset_table(p).limits; };
+    for (GraphicsPreset p : {GraphicsPreset::Low, GraphicsPreset::Medium}) {
+        const QualityLimits q = lim(p);
+        CHECK(q.rtShadows == RtShadows::Off);
+        CHECK_FALSE(q.rtAo);
+        CHECK_FALSE(q.rtReflections);
+        CHECK_FALSE(q.rtTranslucency);
+        CHECK(q.rtGi == RtGi::Off);
+    }
+    const QualityLimits high = lim(GraphicsPreset::High);
+    CHECK(high.rtShadows == RtShadows::Hard);
+    CHECK(high.rtAo);
+    CHECK_FALSE(high.rtReflections);
+    CHECK_FALSE(high.rtTranslucency);
+    CHECK(high.rtGi == RtGi::Off);
+    CHECK(high.rtRaysPerPixel == 2);
+    // Ultra and custom limit nothing: the project's own setting is what traces.
+    const QualityLimits ultra = lim(GraphicsPreset::Ultra);
+    CHECK(ultra.rtShadows == RtShadows::Soft);
+    CHECK(ultra.rtAo);
+    CHECK(ultra.rtReflections);
+    CHECK(ultra.rtTranslucency);
+    CHECK(ultra.rtGi == RtGi::PerPixel);
+    CHECK(ultra.rtRaysPerPixel == kRtMaxRaysPerPixel);
+    // The JSON of the limits names them.
+    const Json j = quality_limits_to_json(high);
+    CHECK(j["rtShadows"] == "hard");
+    CHECK(j["rtAo"] == true);
+    CHECK(j["rtGi"] == "off");
+    CHECK(j["rtRaysPerPixel"] == 2);
+}
+
+TEST_CASE("graphics presets: a preset caps the ray tracing setting and never turns it on") {
+    RayTracingSettings all;
+    all.enabled = true;
+    all.shadows = RtShadows::Soft;
+    all.ao = true;
+    all.reflections = true;
+    all.translucency = true;
+    all.gi = RtGi::PerPixel;
+    all.raysPerPixel = 8;
+    all.maxInstances = 1234;
+    // Custom and ultra: the setting is what traces.
+    CHECK(apply_quality_to_ray_tracing(all, QualityLimits{}) == all);
+    CHECK(apply_quality_to_ray_tracing(all, graphics_preset_table(GraphicsPreset::Ultra).limits) == all);
+    // Low and medium: nothing is asked of the rays, but the master switch and the instance cap are the project's.
+    for (GraphicsPreset p : {GraphicsPreset::Low, GraphicsPreset::Medium}) {
+        const RayTracingSettings r = apply_quality_to_ray_tracing(all, graphics_preset_table(p).limits);
+        CHECK(r.enabled);
+        CHECK(r.maxInstances == 1234);
+        CHECK_FALSE(rt_any_effect(r));
+        CHECK(r.raysPerPixel == 1);
+    }
+    // High: hard shadows and the ambient occlusion, two rays at most.
+    const RayTracingSettings h = apply_quality_to_ray_tracing(all, graphics_preset_table(GraphicsPreset::High).limits);
+    CHECK(h.enabled);
+    CHECK(h.shadows == RtShadows::Hard);
+    CHECK(h.ao);
+    CHECK_FALSE(h.reflections);
+    CHECK_FALSE(h.translucency);
+    CHECK(h.gi == RtGi::Off);
+    CHECK(h.raysPerPixel == 2);
+    // A project that asks for less keeps less: hard stays hard, probes under a limit of per-pixel stay probes, nothing is turned on.
+    RayTracingSettings mild;
+    mild.enabled = true;
+    mild.shadows = RtShadows::Off;
+    mild.raysPerPixel = 1;
+    const RayTracingSettings m = apply_quality_to_ray_tracing(mild, graphics_preset_table(GraphicsPreset::High).limits);
+    CHECK(m == mild);
+    // The master switch stays off under every preset.
+    RayTracingSettings off = all;
+    off.enabled = false;
+    for (int i = 0; i < kGraphicsPresetCount; ++i)
+        CHECK_FALSE(apply_quality_to_ray_tracing(off, graphics_preset_table(GraphicsPreset(i)).limits).enabled);
+}
+
+TEST_CASE(
+    "graphics presets: a preset on a live renderer caps what the frames trace, in either order, and custom lifts it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    RayTracingSettings want;
+    want.enabled = true;
+    want.shadows = RtShadows::Soft;
+    want.reflections = true;
+    want.raysPerPixel = 4;
+    g.renderer.set_quality(QualityLimits{});
+    g.renderer.set_ray_tracing(want);
+    CHECK(g.renderer.ray_tracing() == want);
+    g.renderer.set_quality(graphics_preset_table(GraphicsPreset::High).limits);  // the preset after the setting
+    CHECK(g.renderer.ray_tracing().shadows == RtShadows::Hard);
+    CHECK_FALSE(g.renderer.ray_tracing().reflections);
+    CHECK(g.renderer.ray_tracing().raysPerPixel == 2);
+    CHECK(g.renderer.ray_tracing().enabled);
+    g.renderer.set_quality(graphics_preset_table(GraphicsPreset::Low).limits);
+    CHECK_FALSE(rt_any_effect(g.renderer.ray_tracing()));
+    g.renderer.set_quality(QualityLimits{});  // custom: the project's own setting is back
+    CHECK(g.renderer.ray_tracing() == want);
+    g.renderer.set_quality(graphics_preset_table(GraphicsPreset::High).limits);
+    RayTracingSettings later = want;
+    later.ao = true;
+    g.renderer.set_ray_tracing(later);  // the setting after the preset
+    CHECK(g.renderer.ray_tracing().ao);
+    CHECK(g.renderer.ray_tracing().shadows == RtShadows::Hard);
+    CHECK_FALSE(g.renderer.ray_tracing().reflections);
+    g.renderer.set_quality(QualityLimits{});
+    g.renderer.set_ray_tracing(RayTracingSettings{});
+}

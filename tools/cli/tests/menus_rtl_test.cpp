@@ -239,6 +239,46 @@ TEST_CASE("menus fixture in Arabic: the options panel mirrors, and it matches th
                  "return 1; })")["ok"] == true);
     engine.step(3);
     check_framegen_page("every SDK unsupported");
+    // The fifth page: the ray tracing rows: a device that traces with the effect on (the tier's description in the note), then one that
+    // cannot (the longest note of the page: why and how to get one), each language, every row inside the section with a margin below.
+    const auto check_raytracing_page = [&](const char* what) {
+        for (const char* lang : {"en", "es", "ar"}) {
+            INFO("ray tracing page (" << what << "), language " << lang);
+            REQUIRE(set_language(lang)["ok"] == true);
+            engine.step(5);
+            const fa::Json st = command(*session, R"({"command":"ui.state","args":{}})");
+            REQUIRE(st["ok"] == true);
+            const std::vector<float> rbox = rect_of(st, "raytracing_section"), rnote = rect_of(st, "raytracing_note"),
+                                     rback = rect_of(st, "gfx_rt_back"), rroot = rect_of(st, "options");
+            for (const char* id :
+                 {"gfx_rt_label", "gfx_rt_enabled", "gfx_rt_quality", "raytracing_note", "gfx_rt_back"}) {
+                CAPTURE(id);
+                const std::vector<float> r = rect_of(st, id);
+                CHECK(r[0] >= rbox[0] - 0.5f);
+                CHECK(r[0] + r[2] <= rbox[0] + rbox[2] + 0.5f);
+                CHECK(r[1] + r[3] <= rbox[1] + rbox[3] + 0.5f);
+            }
+            CHECK(rnote[1] + rnote[3] <= rback[1] + 0.5f);
+            CHECK(rback[1] + rback[3] <= rbox[1] + rbox[3] - 8.0f);  // the margin
+            CHECK(rroot[1] >= 0.0f);
+            CHECK(rroot[1] + rroot[3] <= 720.0f);
+        }
+    };
+    REQUIRE(eval("world.find('framegen_section').active = false; world.find('raytracing_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports((x) => x === 'raytracing'); m.setRayTracing({ enabled: true, quality: "
+                 "'ultra' }); "
+                 "return 1; })")["ok"] == true);
+    engine.step(3);
+    check_raytracing_page("ultra on");
+    REQUIRE(eval("Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.overrideRenderSupports(() => false); return 1; })")["ok"] == true);
+    engine.step(3);
+    check_raytracing_page("device cannot trace");
+    REQUIRE(eval("world.find('raytracing_section').active = false; world.find('framegen_section').active = true; "
+                 "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
+                 "m.setRayTracing({ enabled: false }); return 1; })")["ok"] == true);
+    engine.step(3);
     REQUIRE(eval("world.find('framegen_section').active = false; world.find('graphics_section').active = true; "
                  "Promise.all([import('scripts/settings.js'), import('factoria')]).then(([m, f]) => { "
                  "m.overrideRenderSupports(null); m.setLatency({ mode: 'off', boost: false }); "
@@ -343,15 +383,16 @@ TEST_CASE("menus fixture at 1024x642: the preset and upscaling page fits in Engl
     // Every other page of the panel, with no renderer table of its own: the panel (never taller than the screen) and the Back button are on screen.
     // (The first page of the Graphics tab, graphics_section, is checked at 1280x720 above: its section is 468 high and its three notes
     // need it, so it is taller than 642.)
-    for (const char* page : {"video_section", "latency_section", "framegen_section", "audio_section",
-                             "controls_section", "language_section"}) {
+    for (const char* page : {"video_section", "latency_section", "framegen_section", "raytracing_section",
+                             "audio_section", "controls_section", "language_section"}) {
         for (const char* lang : {"es", "ar", "en"}) {
             INFO(std::string(page) << ", language " << std::string(lang));
             REQUIRE(set_language(lang)["ok"] == true);
             REQUIRE(
                 eval(std::string(
                          "for (const id of ['video_section', 'graphics_section', 'quality_section', 'latency_section', "
-                         "'framegen_section', 'audio_section', 'controls_section', 'language_section']) "
+                         "'framegen_section', 'raytracing_section', 'audio_section', 'controls_section', "
+                         "'language_section']) "
                          "world.find(id).active = id === '") +
                      page + "'; 1")["ok"] == true);
             engine.step(3);

@@ -43,7 +43,10 @@ void Renderer::Impl::rt_release_skin_shader() {
 }
 
 void Renderer::set_ray_tracing(const render::RayTracingSettings& settings) {
-    if (impl_) impl_->rtSettings = settings;
+    if (!impl_) return;
+    impl_->rtRequested = settings;
+    // The graphics preset only caps what the project asked for (QualityLimits::rt*): never turns an effect on.
+    impl_->rtSettings = impl_->qualityOn ? render::apply_quality_to_ray_tracing(settings, impl_->quality) : settings;
 }
 
 void Renderer::set_path_tracer(const render::PathTracerSettings& settings) {
