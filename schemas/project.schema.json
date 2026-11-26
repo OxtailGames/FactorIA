@@ -295,7 +295,7 @@
                 "soft"
               ],
               "default": "off",
-              "description": "off = the shadow maps of the lighting; hard = one ray per light towards its centre (a sharp edge); soft = rays towards a point of the light's disc (the edge softens with the distance to the caster). Default off."
+              "description": "off = the shadow maps of the lighting; hard = one ray per pixel towards the sun (a sharp edge); soft = raysPerPixel rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; the disc is the scene setting skySunSize). Only the directional light that casts shadows is traced: point, spot and area lights keep their shadow maps. Default off."
             },
             "ao": {
               "type": "boolean",

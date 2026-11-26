@@ -6,12 +6,23 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray traced soft sun shadows, and no caster loses its shadow (M79-P2a-2):** `render.rayTracing.shadows = "soft"` now draws: `raysPerPixel` rays
+  (1 to 16) per pixel toward points of the sun's disc (its angular diameter is the scene's `skySunSize`, 0.53 degrees by default) with a
+  deterministic per-pixel sequence from the frame serial, denoised by the `RtDenoiser` (`Visibility`) and packed into the image the lit pass reads;
+  `hard` stays one ray and no denoiser. Terrain, impostors, GPU-driven meshes, cutouts (the ray kernel has no alpha texture), meshes over
+  `maxInstances` and meshes whose acceleration structure is not built yet are counted each frame (`RtSceneStats::untracedCasters`): when there is
+  one the lit pass takes the darker of the ray traced and the cascaded shadow, so none loses its shadow; with none the ray traced shadow stands
+  alone. Point, spot and area lights keep their shadow maps. Also from the review of P2a-1: a compute pipeline the driver rejects and a prepass
+  of another size are warned once and `render.ray_tracing` answers `active: false` with the reason; no ray pass is recorded with the shadows or
+  the cascades off; the denoiser and the scene release in the opposite order of their making; the shadow depth tolerance follows the surface's
+  slope under MSAA; RAY_TRACING.md's image size is 8.3 MB. The Metal kernel is tested on a real GPU (penumbra widens with the sun's size, umbra
+  equals the hard result); the D3D12 and Vulkan kernels have run nowhere yet. docs/RAY_TRACING.md, docs/design/ARCHITECTURE_RT_EFFECTS.md.
 - **Ray traced hard shadows (M79-P2a-1):** `render.rayTracing.shadows = "hard"` now draws: with ray tracing on, a device that can trace
   and a sun with `castShadows`, one compute pass per camera casts one ray per pixel from the surface toward the sun against the scene's
   top-level structure (the meshes that cast a shadow in the shadow pass), and the lit pass takes the sun's shadow of an opaque mesh from
   that mask instead of the cascades, wherever the mask holds the same surface; on a silhouette edge, for a full-shader material, a blended
-  draw and every other light, the shadow is the one it was (a cutout does not cast a ray traced shadow yet: the rays pass through it). The
-  cascades are still drawn. `"soft"` draws the hard shadow and says so once; a device that traces but refuses the kernel says so once and keeps the cascades.
+  draw and every other light, the shadow is the one it was (a cutout's rays pass through it: its shadow is the cascade's, M79-P2a-2). The
+  cascades are still drawn. `"soft"` is the next entry; a device that traces but refuses the kernel says so once and keeps the cascades.
   Off, nothing is made. The effects share one scaffold (`rt_effect.h`: the pass, the bindings, a 400-byte constants block, the output
   image, freed when the effect stops) that the ambient occlusion, reflections and translucency packages build on. `render.ray_tracing`
   reports `active: true` with the shadows on a device that traces, and its reason says so. The DXIL and SPIR-V blobs are built, the Metal

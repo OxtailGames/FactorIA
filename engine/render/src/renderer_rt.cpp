@@ -46,6 +46,8 @@ void Renderer::set_ray_tracing(const render::RayTracingSettings& settings) {
     if (impl_) impl_->rtSettings = settings;
 }
 
+std::string Renderer::ray_tracing_failure() const { return impl_ ? impl_->rtEffects.failure() : std::string(); }
+
 const render::RayTracingSettings& Renderer::ray_tracing() const {
     static const render::RayTracingSettings none;
     return impl_ ? impl_->rtSettings : none;
@@ -54,6 +56,7 @@ const render::RayTracingSettings& Renderer::ray_tracing() const {
 // Start of Renderer::begin_frame (before sokol's frame begins, next to hiz_submit): the scene follows the setting and the device, and the
 // compaction answers of the frames before arrive. With ray tracing off every line below is a compare and a return.
 void Renderer::Impl::rt_begin_frame() {
+    rtShadowDraws = {};
     const bool wanted = render::rt_any_effect(rtSettings) && gpu.has_device();
     bool on = false;
     if (wanted) {
@@ -75,19 +78,14 @@ void Renderer::Impl::rt_begin_frame() {
     if (!wanted) {
         rtWarnedUnsupported = false;  // turned off: a later turn-on says it again
         rtWarnedEffect = false;
-        rtInformedSoft = false;
     }
     // The effects' own shaders and images exist only while ray tracing is on and traces here (rt_effect.h): free when off.
     if (!on) {
         if (gpu.has_device() && !rtEffects.empty()) rtEffects.release(gpu);
+        if (gpu.has_device() && (rtDenoiser.shaders_made() || rtDenoiser.history_image_count() > 0))
+            rtDenoiser.release();
     } else {
         rtEffects.sweep(gpu, frameSerial + 1);
-        if (rtSettings.shadows == render::RtShadows::Soft && !rtInformedSoft) {
-            rtInformedSoft = true;
-            FA_INFO("render", "render.rayTracing.shadows is \"soft\": the ray traced soft shadows are not made yet, "
-                              "the sun's shadow is the hard "
-                              "one (one ray per pixel). Set it to \"hard\" to say what you get.");
-        }
     }
     // Mesh buffers carry the usage a build reads only while the scene is on (Assets::set_accel_input reloads the meshes made before).
     if (assets) assets->set_accel_input(on);
