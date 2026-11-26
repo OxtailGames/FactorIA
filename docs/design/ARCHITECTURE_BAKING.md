@@ -221,7 +221,12 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   world; `plan_to_json` / `plan_from_json` in `lightmap_plan_json.cpp`, checked field by field with JSON pointers) into the argument of
   `lightmap.bake_plan_start`, polls `lightmap.bake_status` every 100 ms and passes the child's phase and progress to its own `report`, and
   on the cancel flag sends `lightmap.bake_cancel`; at the end it sends `session.quit`. The child writes the pages and the manifest with the
-  same code (`execute_here`), so the files are the ones an in-process bake writes; `device.process` says `"helper"`. The child is a
+  same code (`execute_here`), so the files are the ones an in-process bake writes; `device.process` says `"helper"`. A plan says where the
+  job writes, so `lightmap.bake_plan_start` is not a command for callers: it answers only a process that has `FA_LIGHTMAP_HELPER_SESSION=1`
+  (`run_in_helper` sets it in the child and nowhere else), refuses with `internal_command` otherwise, and even then checks the plan like an argument:
+  `plan_from_json` holds the ranges of `lightmap.bake_start` (`check_bake_settings`, page size, texels per meter), finite floats, probe groups that stay
+  inside their positions and grids with `nx * ny * nz` probes, names without `..` or a drive, and the command resolves `manifestProject` with the
+  project's write sandbox (`resolve_caller_write_path`, the rule of `x-fa-path: write`): a `.lightmap.json` inside the project that `manifestAbs` names. The child is a
   `fa::ChildProcess`: it is killed with its tree when the parent lets go, a child silent for 15 minutes or one that ignores a cancel for 2
   minutes is killed, and a crash or a GPU reset (TDR) in it never reaches the editor: `gpu` fails with the reason (`device "gpu": the helper
   process ended ...`), `auto` bakes on the CPU in the parent with the reason in `device.note`. No `factoria` found (it is looked for in

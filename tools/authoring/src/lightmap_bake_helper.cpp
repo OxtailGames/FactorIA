@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
@@ -72,6 +73,25 @@ bool env_override(stdfs::path& out) {
     return true;
 }
 
+// What a failed or stopped helper tells the user about the files: the pages are written first and the manifest last, so a helper that
+// died while it was writing may have left new pages next to the old manifest.
+std::string files_hint(const std::string& lastPhase, const std::string& advice) {
+    if (lastPhase == "writing")
+        return "The helper stopped while it was writing the files: the manifest is the old one or the new one, but a "
+               "page next to it "
+               "can be new. Bake again to replace the set. " +
+               advice;
+    return "Nothing was changed. " + advice;
+}
+
+bool iequals_ascii(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    return true;
+}
+
 enum class Ask { Ok, Failed, Dead, TimedOut };
 struct Reply {
     Ask kind = Ask::Dead;
@@ -84,7 +104,8 @@ Reply ask(ChildProcess& child, const char* command, const Json& args, double tim
     Reply reply;
     const Json request = Json::object({{"command", command}, {"args", args}});
     if (!child.write(request.dump() + "\n")) return reply;
-    const auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeoutSeconds));
+    const auto deadline =
+        Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(timeoutSeconds));
     std::string line;
     for (;;) {
         const double left = std::chrono::duration<double>(deadline - Clock::now()).count();
@@ -161,13 +182,20 @@ std::string helper_executable() {
         return stdfs::is_regular_file(override, ec) ? fs::path_to_utf8(override) : std::string();
     stdfs::path exe = own_executable();
     if (exe.empty()) return {};
-    if (exe.stem() != "factoria") {  // the editor or a game: the command line tool sits next to it
+    if (!iequals_ascii(
+            fs::path_to_utf8(exe.stem()),
+            "factoria")) {  // Factoria.exe on Windows too  // the editor or a game: the command line tool sits next to it
         stdfs::path sibling = exe.parent_path() / "factoria";
         sibling += exe.extension();  // ".exe" on Windows, nothing elsewhere; no round trip through std::string
         if (!stdfs::is_regular_file(sibling, ec)) return {};
         exe = sibling;
     }
     return fs::path_to_utf8(exe);
+}
+
+bool in_helper_session() {
+    const char* env = std::getenv(kHelperSessionEnv);  // the value is ASCII
+    return env != nullptr && std::string(env) == "1";
 }
 
 bool helper_wanted(const Plan& plan) {
@@ -204,6 +232,7 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
     ChildOptions options;
     options.argv = {exe, "session", "--project", rootUtf8, "--no-graphics"};
     options.workingDir = rootUtf8;
+    options.env[kHelperSessionEnv] = "1";  // lightmap.bake_plan_start answers only a session that has it
     auto started = ChildProcess::start(options);
     if (!started.ok())
         return outcome(HelperOutcome::Kind::Unavailable,
@@ -212,7 +241,8 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
 
     // The first line it prints says it is ready.
     {
-        const auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kReadySeconds));
+        const auto deadline =
+            Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kReadySeconds));
         std::string line;
         bool ready = false;
         while (!ready) {
@@ -242,15 +272,15 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
         }
     }
 
-    Reply started1 = ask(child, "lightmap.bake_plan_start", Json::object({{"plan", plan_to_json(plan)}}), kAnswerSeconds);
+    Reply started1 =
+        ask(child, "lightmap.bake_plan_start", Json::object({{"plan", plan_to_json(plan)}}), kAnswerSeconds);
     if (started1.kind == Ask::Failed) {
         child.terminate();
         return outcome(HelperOutcome::Kind::Failed, started1.error.message, started1.error.hint);
     }
     if (started1.kind != Ask::Ok) {
         child.terminate();
-        return outcome(HelperOutcome::Kind::Crashed,
-                       "the helper process did not take the bake: " + tail_of(child),
+        return outcome(HelperOutcome::Kind::Crashed, "the helper process did not take the bake: " + tail_of(child),
                        "Bake with device \"cpu\", or report this with the scene.");
     }
     const std::string jobId = started1.result.value("job", std::string());
@@ -265,18 +295,20 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
     for (;;) {
         if (cancel_requested() && !cancelSent) {
             cancelSent = true;
-            cancelDeadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kCancelSeconds));
+            cancelDeadline = Clock::now() +
+                             std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kCancelSeconds));
             (void)ask(child, "lightmap.bake_cancel", Json::object({{"job", jobId}}), kAnswerSeconds);
         }
         Reply status = ask(child, "lightmap.bake_status", jobArgs, kAnswerSeconds);
         if (status.kind != Ask::Ok) {
             const bool hung = status.kind == Ask::TimedOut;
-            const std::string why = hung ? "the helper process stopped answering"
-                                         : "the helper process stopped (a driver crash or a GPU reset?): " + tail_of(child);
+            const std::string why =
+                hung ? "the helper process stopped answering"
+                     : "the helper process stopped (a driver crash or a GPU reset?): " + tail_of(child);
             child.terminate();
             if (cancelSent) return outcome(HelperOutcome::Kind::Cancelled, "cancelled", "");
             return outcome(HelperOutcome::Kind::Crashed, why,
-                           "Nothing was changed. Bake with device \"cpu\" if the graphics driver keeps failing.");
+                           files_hint(lastPhase, "Bake with device \"cpu\" if the graphics driver keeps failing."));
         }
         const std::string state = status.result.value("state", std::string());
         if (state == "running") {
@@ -294,7 +326,7 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
                 return outcome(HelperOutcome::Kind::Crashed,
                                "the helper process made no progress for " + std::to_string(int(kHelperStallSeconds)) +
                                    " seconds and was stopped",
-                               "Nothing was changed. Bake with device \"cpu\", or with fewer samples.");
+                               files_hint(lastPhase, "Bake with device \"cpu\", or with fewer samples."));
             }
             if (cancelSent && Clock::now() > cancelDeadline) {
                 child.terminate();
@@ -319,7 +351,8 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
             out.error = make_error(status.result.value("error", std::string("the bake failed in the helper process")),
                                    status.result.value("hint", std::string()));
         }
-        (void)child.write("{\"command\":\"session.quit\"}\n");  // it leaves by itself; the destructor waits for it and ends it if it does not
+        (void)child.write(
+            "{\"command\":\"session.quit\"}\n");  // it leaves by itself; the destructor waits for it and ends it if it does not
         return out;
     }
 }

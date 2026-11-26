@@ -20,10 +20,15 @@ struct HelperOutcome {
 // says Always or (Auto) the GPU tracer cannot open in this process but could in a process without graphics.
 bool helper_wanted(const Plan& plan);
 
+// The environment variable run_in_helper sets in the child: lightmap.bake_plan_start answers only a process that has it, so an agent or a
+// `factoria call` cannot hand the engine a plan of its own (a plan names where to write).
+inline constexpr const char* kHelperSessionEnv = "FA_LIGHTMAP_HELPER_SESSION";
+bool in_helper_session();
+
 // What set_helper_use last set (Auto at start).
 HelperUse helper_use();
 
-// Runs `plan` in a helper (see HelperOutcome). Checks the cancel flag of this thread (CommandCancelScope) every 50 ms and asks the helper to stop;
+// Runs `plan` in a helper (see HelperOutcome). Checks the cancel flag of this thread (CommandCancelScope) every 20 ms (it asks the helper for its progress every 100 ms) and asks the helper to stop;
 // a helper that does not answer for 2 minutes after a cancel is killed. Whatever happens the helper ends before this returns.
 HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report);
 

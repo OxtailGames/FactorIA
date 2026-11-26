@@ -229,9 +229,11 @@ std::size_t child_processes() {
     return tree.empty() ? 0 : tree.size() - 1;
 }
 
-bool no_children_soon() {
+// True once no more processes run under this one than at `baseline` (the count when the case began: another test of this binary, or the
+// machine's own helper of a framework, may have a child of its own).
+bool no_children_soon(std::size_t baseline) {
     for (int i = 0; i < 200; ++i) {
-        if (child_processes() == 0) return true;
+        if (child_processes() <= baseline) return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     return false;
@@ -250,6 +252,7 @@ TEST_CASE("factoria call lightmap.bake device: the GPU bake in a helper process 
         MESSAGE("FA_FACTORIA_EXE is not set (run this through ctest): the helper process cases are skipped");
         return;
     }
+    const std::size_t baseline = child_processes();
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_helper").value();
     const std::string project = (tmp / "game").string();
@@ -284,7 +287,7 @@ TEST_CASE("factoria call lightmap.bake device: the GPU bake in a helper process 
         CHECK(pages_sum(tmp / "game") == cpuSum);  // the CPU baked: the same bytes as the direct bake
     }
     CHECK(result["pages"].size() >= 1);
-    CHECK(no_children_soon());
+    CHECK(no_children_soon(baseline));
 
     // gpu by name: a GPU result, or the error with the helper's own reason (no GPU that traces rays here).
     const CliResult gpu =
@@ -297,7 +300,7 @@ TEST_CASE("factoria call lightmap.bake device: the GPU bake in a helper process 
         CHECK(gpu.code == 1);
         CHECK(gpu.err.find("device \"gpu\"") != std::string::npos);
     }
-    CHECK(no_children_soon());
+    CHECK(no_children_soon(baseline));
 
     // A mistake in the arguments is refused by this process, before any helper starts.
     const CliResult bad =
@@ -316,6 +319,7 @@ TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process 
         MESSAGE("FA_FACTORIA_EXE is not set (run this through ctest): the helper process cases are skipped");
         return;
     }
+    const std::size_t baseline = child_processes();
     const stdfs::path oldRoot = fa::fs::project_root();
     const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_lightmap_helper_cancel").value();
     const std::string project = (tmp / "game").string();
@@ -331,12 +335,15 @@ TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process 
         auto session = fa::cli::Session::open(project, so);
         fa::CommandRegistry& reg = session->registry();
         // A bake that takes a long time on any machine, so the cancel lands while the helper traces.
-        auto start = reg.call("lightmap.bake_start", fa::Json::object({{"device", "auto"},
-                                                                       {"texelsPerMeter", 48},
-                                                                       {"samples", 16384},
-                                                                       {"shadowSamples", 64},
-                                                                       {"maxPageSize", 1024},
-                                                                       {"apply", false}}));
+        auto start = reg.call(
+            "lightmap.bake_start",
+            fa::Json::object({{"device", "auto"},
+                              {"texelsPerMeter", 48},
+                              {"samples", 16384},
+                              {"shadowSamples", 64},
+                              {"maxPageSize", 1024},
+                              {"maxRays", std::uint64_t(1000000000000ULL)},  // far above the budget of any packing
+                              {"apply", false}}));
         REQUIRE_MESSAGE(start.ok, start.error.dump());
         const std::string job = start.result["job"].get<std::string>();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
@@ -366,7 +373,7 @@ TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process 
         CHECK((end["state"] == "cancelled" || end["state"] == "done"));
         if (end["state"] == "cancelled") CHECK_FALSE(stdfs::exists(tmp / "game" / "scenes" / "main.lightmap.json"));
     }
-    CHECK(no_children_soon());
+    CHECK(no_children_soon(baseline));
 
     fa::fs::set_project_root(oldRoot);
     std::error_code ec;
