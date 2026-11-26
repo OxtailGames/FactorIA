@@ -15,24 +15,34 @@
 namespace fa::render {
 
 // RtInstanceRecord::flags: what the surface of the instance is (one bit each).
-inline constexpr std::uint32_t kRtFlagOpaque = 1u << 0;    // the instance is forced opaque: a ray query commits the first hit, no alpha test
-inline constexpr std::uint32_t kRtFlagCutout = 1u << 1;    // alpha-tested (a custom material with alphaMode "clip"): the kernel tests the alpha itself
-inline constexpr std::uint32_t kRtFlagTwoSided = 1u << 2;  // back faces are hit too (the mesh or its material is double-sided)
-inline constexpr std::uint32_t kRtFlagBlended = 1u << 3;   // drawn with the blended or transmissive meshes (glass, water, particles-as-mesh)
-inline constexpr std::uint32_t kRtFlagUnlit = 1u << 4;     // MeshRenderer.unlit or a material with lighting "unlit": it is not lit by the scene
-inline constexpr std::uint32_t kRtFlagFoliage = 1u << 5;   // an instance of a Foliage
-inline constexpr std::uint32_t kRtFlagCastsShadow = 1u << 6;     // MeshRenderer.castShadows
-inline constexpr std::uint32_t kRtFlagCustomMaterial = 1u << 7;  // drawn with a material: albedo, roughness and metalness are the MeshRenderer's
-                                                                 // constants, not what the material's shader makes of them
+inline constexpr std::uint32_t kRtFlagOpaque =
+    1u << 0;  // the instance is forced opaque: a ray query commits the first hit, no alpha test
+inline constexpr std::uint32_t kRtFlagCutout =
+    1u << 1;  // alpha-tested (a custom material with alphaMode "clip"): the kernel tests the alpha itself
+inline constexpr std::uint32_t kRtFlagTwoSided =
+    1u << 2;  // back faces are hit too (the mesh or its material is double-sided)
+inline constexpr std::uint32_t kRtFlagBlended =
+    1u << 3;  // drawn with the blended or transmissive meshes (glass, water, particles-as-mesh)
+inline constexpr std::uint32_t kRtFlagUnlit =
+    1u << 4;  // MeshRenderer.unlit or a material with lighting "unlit": it is not lit by the scene
+inline constexpr std::uint32_t kRtFlagFoliage = 1u << 5;      // an instance of a Foliage
+inline constexpr std::uint32_t kRtFlagCastsShadow = 1u << 6;  // MeshRenderer.castShadows
+inline constexpr std::uint32_t kRtFlagCustomMaterial =
+    1u << 7;  // drawn with a material: albedo, roughness and metalness are the MeshRenderer's
+              // constants, not what the material's shader makes of them
+inline constexpr std::uint32_t kRtFlagSkinned =
+    1u
+    << 8;  // a skinned mesh: its BLAS is the instance's own, refitted every frame from the skinned positions (rt_scene.cpp)
 
 // The instance mask bits of the TLAS (AccelInstance::mask): a ray hits an instance when (ray mask & instance mask) != 0. Every instance
 // has at least one of the first three. 0x40 and 0x80 are reserved for the effects of later packages: a kernel never sets or tests them.
-inline constexpr std::uint8_t kRtMaskOpaque = 0x01;       // an opaque lit surface
-inline constexpr std::uint8_t kRtMaskCutout = 0x02;       // an alpha-tested surface (the instance is not forced opaque)
-inline constexpr std::uint8_t kRtMaskBlended = 0x04;      // a blended or transmissive surface
-inline constexpr std::uint8_t kRtMaskCastsShadow = 0x08;  // the surface casts shadows (MeshRenderer.castShadows): shadow rays use this bit
-inline constexpr std::uint8_t kRtMaskFoliage = 0x10;      // an instance of a Foliage
-inline constexpr std::uint8_t kRtMaskEmissive = 0x20;     // the surface emits light (emissive colour * strength above 0)
+inline constexpr std::uint8_t kRtMaskOpaque = 0x01;   // an opaque lit surface
+inline constexpr std::uint8_t kRtMaskCutout = 0x02;   // an alpha-tested surface (the instance is not forced opaque)
+inline constexpr std::uint8_t kRtMaskBlended = 0x04;  // a blended or transmissive surface
+inline constexpr std::uint8_t kRtMaskCastsShadow =
+    0x08;  // the surface casts shadows (MeshRenderer.castShadows): shadow rays use this bit
+inline constexpr std::uint8_t kRtMaskFoliage = 0x10;   // an instance of a Foliage
+inline constexpr std::uint8_t kRtMaskEmissive = 0x20;  // the surface emits light (emissive colour * strength above 0)
 inline constexpr std::uint8_t kRtMaskReserved = 0xC0;
 // What a ray that wants "every visible surface" (reflections, GI) uses.
 inline constexpr std::uint8_t kRtMaskSurfaces = kRtMaskOpaque | kRtMaskCutout | kRtMaskBlended;
@@ -46,12 +56,14 @@ struct RtInstanceRecord {
     // Object-to-world, row-major 3x4: three rows of (x axis, y axis, z axis, translation) -- the same numbers as the TLAS instance.
     // A normal is transformed with the inverse transpose of the upper 3x3.
     float objectToWorld[12];
-    float albedo[4];    // rgb: the base colour of the part as the draw uses it (MeshRenderer.color * the part's factor), in the scene's colour space; a: opacity
+    float albedo
+        [4];  // rgb: the base colour of the part as the draw uses it (MeshRenderer.color * the part's factor), in the scene's colour space; a: opacity
     float emissive[4];  // rgb: MeshRenderer.emissive * emissiveStrength, plus the model's own emission; w: 0, reserved
     float roughness;    // 0 to 1, the part's glTF value or MeshRenderer.roughness
     float metalness;    // 0 to 1
-    std::uint32_t flags;   // kRtFlag*
-    std::uint32_t blasId;  // the BLAS of the instance: one id per (mesh asset, submesh), the same for every instance of it, never reused
+    std::uint32_t flags;  // kRtFlag*
+    std::uint32_t
+        blasId;  // the BLAS of the instance: one id per (mesh asset, submesh), the same for every instance of it, never reused
 };
 
 static_assert(sizeof(RtInstanceRecord) == 96, "RtInstanceRecord is 96 bytes: rt_records.hlsli has the same layout");

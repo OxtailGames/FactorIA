@@ -712,6 +712,7 @@ void Renderer::shutdown() {
         im.hiz_release();
         im.rtScene
             .release();  // its BLASes, TLAS and buffers, while the device is open and before the assets that its BLASes read
+        im.rt_release_skin_shader();
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();

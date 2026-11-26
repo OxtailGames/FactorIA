@@ -631,6 +631,12 @@ struct Renderer::Impl {
     RtScene rtScene;
     bool rtWarnedUnsupported = false;
     void rt_begin_frame();
+    // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
+    // when the driver refuses the program: the answer is kept, the scene says so once).
+    gpu::Pipeline rt_skin_pipeline();
+    void rt_release_skin_shader();
+    gpu::Shader rtSkinShader{};
+    int rtSkinShaderState = 0;  // 0 not tried, 1 made, -1 refused
     bool warnedHizMode = false, warnedHizCameras = false;
     const World* hizWorld = nullptr;
     std::string hizScene;
