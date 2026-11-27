@@ -627,7 +627,7 @@ The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", t
 
 ## `render.path_tracer` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera.
 
@@ -649,7 +649,7 @@ The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with
 
 ## `render.pathtrace` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).
 
@@ -720,7 +720,7 @@ The first ask for a mesh draws one more frame (the renderer keeps the picks of t
 
 ## `render.ray_tracing` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Reads or changes the ray tracing setting: which effects the renderer traces with rays.
 

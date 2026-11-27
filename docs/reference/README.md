@@ -264,7 +264,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`image.to_pixel_art`](commands/assets.md#imageto_pixel_art-modifies-state): Turn a painted, generated or imported picture (a layer or a PNG) into palette-exact pixel art: area-aware downscale, quantize, clean up, into an indexed layer. _Since 0.16.0._
 - [`lightmap.bake`](commands/assets.md#lightmapbake-modifies-state): Bake the scene's baked and mixed lights and its sky into lightmaps, wait for it, and write the pages and the manifest. _Since 0.33.0._
 - [`lightmap.bake_cancel`](commands/assets.md#lightmapbake_cancel-modifies-state): Stop a running bake job; no file is changed unless it was already writing them. _Since 0.33.0._
-- [`lightmap.bake_plan_start`](commands/assets.md#lightmapbake_plan_start-modifies-state): Internal: start a bake job from a plan another process made (the helper process of a GPU bake). _Not released yet._
+- [`lightmap.bake_plan_start`](commands/assets.md#lightmapbake_plan_start-modifies-state): Internal: start a bake job from a plan another process made (the helper process of a GPU bake). _Since 0.39.0._
 - [`lightmap.bake_start`](commands/assets.md#lightmapbake_start-modifies-state): Start a lightmap bake in the background and get a job id; poll lightmap.bake_status, stop it with lightmap.bake_cancel. _Since 0.33.0._
 - [`lightmap.bake_status`](commands/assets.md#lightmapbake_status-modifies-state): The state of a bake job: running with a phase and progress, or done with its result, failed or cancelled. _Since 0.33.0._
 - [`model.bake`](commands/assets.md#modelbake-modifies-state): Build model documents into .glb files next to them (only the missing or stale ones unless forced), with their recipe in assets.json. _Since 0.16.0._
@@ -457,12 +457,12 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`render.material_cost`](commands/game.md#rendermaterial_cost): What the material of a mesh entity costs the renderer: its extra passes, its phase and the features that only add shader work. _Since 0.33.0._
 - [`render.occlusion`](commands/game.md#renderocclusion-modifies-state): The occlusion culling of the last frame (CPU Occluders and the GPU depth pyramid): Occluders rasterised, meshes tested and hidden; optionally the depth picture as a PNG. _Since 0.35.0._
 - [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Since 0.31.0._
-- [`render.path_tracer`](commands/game.md#renderpath_tracer-modifies-state): Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera. _Not released yet._
-- [`render.pathtrace`](commands/game.md#renderpathtrace-modifies-state): Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG). _Not released yet._
+- [`render.path_tracer`](commands/game.md#renderpath_tracer-modifies-state): Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera. _Since 0.39.0._
+- [`render.pathtrace`](commands/game.md#renderpathtrace-modifies-state): Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG). _Since 0.39.0._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.probe_refresh`](commands/game.md#renderprobe_refresh-modifies-state): Capture a realtime reflection probe again (or every realtime probe) as soon as the frame budget allows. _Since 0.33.0._
 - [`render.probes`](commands/game.md#renderprobes): The reflection probes the renderer keeps: the atlas, each probe's tile, state and last capture. _Since 0.33.0._
-- [`render.ray_tracing`](commands/game.md#renderray_tracing-modifies-state): Reads or changes the ray tracing setting: which effects the renderer traces with rays. _Not released yet._
+- [`render.ray_tracing`](commands/game.md#renderray_tracing-modifies-state): Reads or changes the ray tracing setting: which effects the renderer traces with rays. _Since 0.39.0._
 - [`render.reset_post_history`](commands/game.md#renderreset_post_history-modifies-state): Start again the history of the custom post passes that read their own output of the frame before (fa_history). _Since 0.32.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Since 0.31.0._
 - [`render.upscaler`](commands/game.md#renderupscaler-modifies-state): Reads or changes the upscaler setting: how a picture drawn at a lower resolution reaches the screen. _Since 0.36.0._

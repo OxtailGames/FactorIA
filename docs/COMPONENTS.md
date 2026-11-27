@@ -609,8 +609,8 @@ Realtime global illumination: a grid of probes over an axis-aligned box of the w
 | `nearExclusion` | float | `0.1` | Metres, 0.01..10: a surface closer to the probe than this is not captured (the near plane of the captures), so a prop right next to a probe does not paint it. Default 0.1. Range 0.01..10.0. |
 | `maxDistance` | float | `30.0` | Metres, 1..1000: the farthest surface a probe sees (the far plane of the captures); farther than this a ray shows the sky and counts as this distance. Default 30. Range 1.0..1000.0. |
 | `backfaceTolerance` | float | `0.25` | 0.02..0.9: a probe is inside geometry (invalid, not used by the shading) when more than this fraction of its directions hit the back of a surface before the front of any. Default 0.25. Range 0.02..0.9. |
-| `raysPerProbe` | int | `64` | 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64. Range 16..256. (not released yet, on main after 0.38.0) |
-| `rtProbesPerFrame` | int | `16` | 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16. Range 1..64. (not released yet, on main after 0.38.0) |
+| `raysPerProbe` | int | `64` | 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64. Range 16..256. (since 0.39.0) |
+| `rtProbesPerFrame` | int | `16` | 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16. Range 1..64. (since 0.39.0) |
 | `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. |
 | `hideTags` | json | `[]` | Culling mask, the deny list: an entity with one of these tags (or a parent that has) is not in the captures (use it for the player or for particles). Default []. |
 
@@ -6176,7 +6176,7 @@ Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the r
 
 ### `lightmap.bake_plan_start` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Internal: start a bake job from a plan another process made (the helper process of a GPU bake).
 
@@ -8502,7 +8502,7 @@ The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", t
 
 ### `render.path_tracer` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera.
 
@@ -8524,7 +8524,7 @@ The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with
 
 ### `render.pathtrace` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).
 
@@ -8595,7 +8595,7 @@ The first ask for a mesh draws one more frame (the renderer keeps the picks of t
 
 ### `render.ray_tracing` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Reads or changes the ray tracing setting: which effects the renderer traces with rays.
 
@@ -19916,12 +19916,12 @@ declare module "factoria" {
     backfaceTolerance: number;
     /**
      * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64.
-     * @since unreleased
+     * @since 0.39.0
      */
     raysPerProbe: number;
     /**
      * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16.
-     * @since unreleased
+     * @since 0.39.0
      */
     rtProbesPerFrame: number;
     /**
