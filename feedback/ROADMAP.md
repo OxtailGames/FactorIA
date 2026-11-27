@@ -111,9 +111,9 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-26):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+**What comes next (2026-11-27):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
 M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0), M96 (0.29.0), M98 (0.30.0, with M97.3-M97.5), M71 (0.31.0), M72
-(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0), M76 (0.36.0), M77 (0.37.0) and M78 (0.38.0) are done. M79 is under way; then M80-M89 in their own order. M99 waits for the
+(0.32.0), M73 (0.33.0), M74 (0.34.0), M75 (0.35.0), M76 (0.36.0), M77 (0.37.0), M78 (0.38.0) and M79 (0.39.0) are done. Then M80-M89 in their own order. M99 waits for the
 user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
@@ -871,7 +871,7 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
   wants exactly that pair. Giving the providers the depth and motion of a full-size temporal frame (the temporal upscaler's preparation pass
   at scale 1, DLAA's own jitter) would lift the refusal. Not planned yet.
 
-## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06
+## M79. Ray tracing (L; 5 packages) — the user, 2026-11-06 — DONE in 0.39.0
 
 - M79.1 (L) Acceleration structures: BLAS/TLAS for meshes (skinned refit, instances), on DXR (D3D12), Vulkan RT and
   Metal RT, with `renderer.supports("raytracing")`; the shader tool emits DXIL (DXC, SM6) for D3D12, which DXR needs
@@ -882,6 +882,9 @@ interface (external/ is not edited). They are the base of M78, M79, DirectStorag
   Reconstruction from M78 when present).
 - M79.5 (M) A path-traced reference mode for screenshots, store art and checking the raster look, and GPU baking for
   M73.4 lightmaps.
+- Known gap of M79.5: the GPU lightmap bake's tests run on Metal only; its D3D12 path was checked by hand on WARP with
+  the debug layer (POLISH-RK-3) and its Vulkan path not at all. A D3D12 and Vulkan bake case the CI runs (the small
+  Cornell room, without the large room that takes minutes in a Debug build) would close it. Not planned yet.
 
 ## M80. Retro looks done right (M; 4 packages) — the user, 2026-11-06
 
