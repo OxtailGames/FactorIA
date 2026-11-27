@@ -691,4 +691,10 @@ TEST_CASE("rt rr signals: a frame the provider itself fails sets rrSignalsLost b
     CHECK(RendererTestAccess::rr_signals_lost(r.renderer));
     CHECK_FALSE(r.renderer.ray_tracing_denoiser_status().giRr);
     CHECK(r.temporal_passes() >= 1);
+    // The reason of those later frames says DLSS failed earlier in this run, with the provider's own reason, not that the camera is another one.
+    const std::string later = r.renderer.ray_tracing_denoiser_status().reason;
+    INFO(later);
+    CHECK(later.find("failed a frame earlier in this run") != std::string::npos);
+    CHECK(later.find("the fake provider failed a frame") != std::string::npos);
+    CHECK(later.find("not the one DLSS resolves") == std::string::npos);
 }

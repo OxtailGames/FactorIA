@@ -1203,7 +1203,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     const bool ptRefused = ptJob != ptState.jobs.end() && !ptJob->second.failure.empty();
     const bool ptExpected =
         wantPathTrace && ctx.doPrepass && rtScene.active() && !ptRefused && rtScene.traceable_items() > 0;
-    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected;
+    // The frame that tries the pass again after a refusal (`retry`) is treated like an expected one: if the retry is accepted the frame pays for the path
+    // tracer only (one decision a frame), and if it is refused the next frame brings the occlusion back.
+    const bool ptRetry =
+        wantPathTrace && ctx.doPrepass && rtScene.active() && ptRefused && rtScene.traceable_items() > 0;
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected && !ptRetry;
     ctx.giPixel = {};
     if (wantRtGiPixel) {
         // A fallback is running (the kernel was refused, or did not run for a few frames): the probe and ambient term lights the surfaces until the retry.
@@ -1249,8 +1253,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.pathTrace = {};
     ctx.pathTrace.want = wantPathTrace && ctx.doPrepass && rtScene.active();
     ctx.pathTrace.expected = ptExpected;
-    ctx.pathTrace.retry =
-        wantPathTrace && ctx.doPrepass && rtScene.active() && ptRefused && rtScene.traceable_items() > 0;
+    ctx.pathTrace.retry = ptRetry;
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -6149,7 +6152,6 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             ctx.giPixel.res = out.res;
             ctx.giPixel.on = true;
             rtGiPixelFrame.declared = true;
-            rtGiPixelFrame.img = out.out;
             rtGiPixelFrame.imgs.push_back(out.out);
             // The denoiser call is this one function: DenoiseSignal::enabled false (a vendor denoiser takes the signal) draws nothing of it and the
             // kernel's image is read as it is. The kernel's output is the irradiance / pi, not multiplied by an albedo, so what the denoiser filters

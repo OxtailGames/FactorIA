@@ -196,7 +196,8 @@ TEST_CASE("rt gi pixel picture: a full material that keeps out of the prepass is
     for (int y = 0; y < img.height; ++y)
         for (int x = 0; x < img.width; ++x) {
             const Color px = img.pixel(x, y);
-            if (px.g > px.b + 0.1f && px.b > px.r + 0.05f) {
+            if (px.g > 1.3f * px.b && px.b > 1.3f * px.r &&
+                px.g > 0.05f) {  // relative: another tone map keeps the order of the channels
                 cr += px.r;
                 cg += px.g;
                 cb += px.b;
@@ -207,8 +208,11 @@ TEST_CASE("rt gi pixel picture: a full material that keeps out of the prepass is
     REQUIRE(cubePixels >= 100);
     const Color c{cr / float(cubePixels), cg / float(cubePixels), cb / float(cubePixels), 1.0f};
     INFO("cube mean " << c.r << " " << c.g << " " << c.b);
-    CHECK(c.g > c.b);
-    CHECK(c.b > c.r);
+    // The colour (0.2, 0.8, 0.4) has g/b = 2 and b/r = 2 before the tone map, which compresses the ratios: the mean stays well apart from the other
+    // channels, and red the wall's GI added to the cube would bring r up to b.
+    CHECK(c.g / c.b > 1.4f);
+    CHECK(c.g / c.b < 2.6f);
+    CHECK(c.r < 0.7f * c.b);
     if (!st.active) {
         MESSAGE("this device does not trace rays (" << st.reason << "): the draw counts are not checked");
         g.renderer.set_ray_tracing(render::RayTracingSettings{});

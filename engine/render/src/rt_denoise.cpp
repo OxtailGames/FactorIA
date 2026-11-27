@@ -504,7 +504,10 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
     const gpu::PixelFormat momFormat = momentsF32 ? gpu::PixelFormat::Rgba32F : gpu::PixelFormat::Rgba16F;
     // A half size signal runs at full size on a backend that did not compile the half size programs (said once, by half_ready).
     DenoiseSignal asked = signal;
-    if (asked.halfRes && !half_ready(*device_)) asked.halfRes = false;
+    // Only a kind make_denoise_plan lets go half asks for the half programs (a Specular or a Coverage signal never compiles them).
+    if (asked.halfRes && (asked.kind == DenoiseKind::Occlusion || asked.kind == DenoiseKind::Diffuse) &&
+        !half_ready(*device_))
+        asked.halfRes = false;
     const DenoisePlan plan = make_denoise_plan(asked, w, h, momentsF32);
     if (!plan.on) return fail("nothing to do");
     const DenoiseSettings& st = plan.settings;

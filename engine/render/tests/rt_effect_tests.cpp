@@ -6,6 +6,7 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstddef>
 #include <fstream>
@@ -1390,8 +1391,8 @@ TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass aft
     CHECK(index_of(r.lines(), "ssr-trace") < 0);
 }
 
-// M79 POLISH-last-D: the three programs of a half size chain are made when a half size signal asks. A backend that cannot compile them (the
-// GLSL ES, HLSL and WGSL ones are not tried yet) runs that signal at full size, says so once, and denoises every other signal as before.
+// M79 POLISH-last-D: the three programs of a half size chain are made when a half size signal asks. A backend that cannot compile them (only
+// Metal ran them on a real GPU here; CI compiles and runs the GL and D3D11 ones) runs that signal at full size, says so once, and denoises every other signal as before.
 TEST_CASE("rt denoise: half size shaders that do not compile run the half size signal at full size, and the other "
           "signals still denoise") {
     Logs log;
@@ -2052,6 +2053,8 @@ TEST_CASE(
     CHECK(path_trace_samples_cap(64, 1920, 1080) >= 4);
     CHECK(path_trace_samples_cap(2, 1920, 1080) == 2);
     CHECK(path_trace_samples_cap(64, 16384, 16384) == 1);
+    CHECK(path_trace_samples_cap(8, INT_MAX, INT_MAX, 32) ==
+          1);                                       // the pixel count is clamped to 2^31 before the division
     CHECK(path_trace_samples_cap(64, 0, 0) <= 64);  // a degenerate size is one pixel, never a division by zero
     // The step uses it, and the accumulation reaches the samples asked for over more frames.
     render::PathTracerSettings cfg;
@@ -2138,8 +2141,8 @@ TEST_CASE("rt pathtrace: a frame whose pass is declared but cannot run (no mesh 
     CHECK(count_labels(traced, "rt-pathtrace") >= 1);
     CHECK(count_labels(traced, "begin_pass 'ssao-") == 0);
     INFO(r.errors());
-    CHECK(r.errors()
-              .empty());  // no view is bound where a shader declares nothing (the SSAO search stage declares one slot)
+    // No view is bound where a shader declares nothing (the SSAO search stage declares one slot).
+    CHECK(r.errors().empty());
 }
 
 TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whatever another camera does in the frame") {
@@ -2175,6 +2178,31 @@ TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whate
     r.frame(w);
     CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
     CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+}
+
+TEST_CASE("rt pathtrace: a retry frame declares no ray traced occlusion either, and the next frames keep none") {
+    Rig r;
+    path_rays(r, true);
+    render::RayTracingSettings rs;
+    rs.enabled = true;
+    rs.shadows = render::RtShadows::Off;
+    rs.ao = true;
+    r.renderer.set_ray_tracing(rs);
+    World w;
+    make_scene(w, true, false);
+    for (int i = 0; i < 3; ++i) r.frame(w);
+    REQUIRE(RendererTestAccess::path_trace_jobs(r.renderer) == 1);
+    REQUIRE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:0", "the device refused the kernel"));
+    r.dev->clear_commands();
+    r.frame(w);  // the retry frame, accepted: the path tracer only
+    CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
+    CHECK(count_labels(r.lines(), "rt-ao") == 0);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
+    CHECK(count_labels(r.lines(), "rt-ao") == 0);
     INFO(r.errors());
     CHECK(r.errors().empty());
 }

@@ -195,7 +195,9 @@ void Renderer::Impl::rt_gi_pixel_finish() {
         rtGiPixelFallbackUntil = 0;
         rtGiPixelFallbackReason.clear();
     } else if (rtGiPixelFrame.declared) {
-        if (rtGiPixelFrame.img && rtGiPixelFrame.img->ran) {
+        bool ran = false;  // any camera that declared the kernel ran it (the same OR as the denoiser status below)
+        for (const RtEffectImage* im : rtGiPixelFrame.imgs) ran = ran || (im && im->ran);
+        if (ran) {
             rtGiPixelMisses = 0;
             st.active = rtGiPixelFrame.bound;
             if (!st.active)  // traced, but no pass could read the image: the surfaces keep the probe and ambient light
