@@ -871,13 +871,15 @@ TEST_CASE("d3d12: a full descriptor heap fails a view with a teaching error, and
 
     step = "the shader-visible heap: a bindless range and 8 descriptors per frame";
     d3d12::ShaderVisibleHeap& heap = dev->view_heap();
-    CHECK(heap.reserved().count == 16);
+    // A device whose runtime refuses the unbounded range makes no bindless table, so nothing is reserved.
+    const std::uint32_t bindless = dev->features().bindless ? 16u : 0u;
+    CHECK(heap.reserved().count == bindless);
     CHECK(heap.alloc(8).ok());
     CHECK(!heap.alloc(1).ok());
     dev->commit();
     const d3d12::ShaderVisibleHeap::Span next = heap.alloc(8);
     CHECK(next.ok());
-    CHECK(next.index >= 16);  // never inside the bindless range
+    CHECK(next.index >= bindless);  // never inside the bindless range
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
@@ -1468,7 +1470,9 @@ TEST_CASE("d3d12: equal descs share a PSO and a root signature; a root signature
     CHECK(lay->viewTable[1] == 1);
     CHECK(lay->samplerTable[0] == -1);
     CHECK(lay->samplerTable[1] == 2);
-    CHECK(lay->bindlessTable == 3);  // D3d12Options::bindlessDescriptors > 0: every root signature sees the table
+    // D3d12Options::bindlessDescriptors > 0: every root signature sees the table, unless the device made none (tier 1,
+    // or a runtime that refuses the unbounded range).
+    CHECK(lay->bindlessTable == (dev->features().bindless ? 3 : -1));
     CHECK(lay->viewCount[1] == 2);
     CHECK(lay->samplerCount[1] == 2);
     CHECK(lay->viewStage[1] == 1);
