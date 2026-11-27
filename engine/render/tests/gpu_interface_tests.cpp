@@ -532,7 +532,8 @@ TEST_CASE("RecordingDevice: a correct frame records no error and a readable stre
     ViewDesc sv;
     sv.storageBuffer.buffer = particles;
     const View particlesView = dev.make_view(sv);
-    ViewDesc structuredView = sv;  // a structured view (D3D12: the shader declares StructuredBuffer<T>) of 128 byte elements
+    ViewDesc structuredView =
+        sv;  // a structured view (D3D12: the shader declares StructuredBuffer<T>) of 128 byte elements
     structuredView.storageBuffer.structureStride = 128;
     CHECK(dev.state(dev.make_view(structuredView)) == ResourceState::Valid);
     ShaderDesc cd;
