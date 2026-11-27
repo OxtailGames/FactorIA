@@ -1392,7 +1392,7 @@ TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass aft
 }
 
 // M79 POLISH-last-D: the three programs of a half size chain are made when a half size signal asks. A backend that cannot compile them (only
-// Metal ran them on a real GPU here; CI compiles and runs the GL and D3D11 ones) runs that signal at full size, says so once, and denoises every other signal as before.
+// Metal ran them on a real GPU where this was written; the half size cases of rt_denoise_tests.cpp run them on the host's real device, so CI's GL and D3D11 jobs do) runs that signal at full size, says so once, and denoises every other signal as before.
 TEST_CASE("rt denoise: half size shaders that do not compile run the half size signal at full size, and the other "
           "signals still denoise") {
     Logs log;
@@ -2182,7 +2182,8 @@ TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whate
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt pathtrace: a retry frame declares no ray traced occlusion either, and the next frames keep none") {
+TEST_CASE("rt pathtrace: a retry frame keeps the ray traced occlusion (no flicker to screen space), the accepted "
+          "frames after it have none") {
     Rig r;
     path_rays(r, true);
     render::RayTracingSettings rs;
@@ -2196,9 +2197,10 @@ TEST_CASE("rt pathtrace: a retry frame declares no ray traced occlusion either, 
     REQUIRE(RendererTestAccess::path_trace_jobs(r.renderer) == 1);
     REQUIRE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:0", "the device refused the kernel"));
     r.dev->clear_commands();
-    r.frame(w);  // the retry frame, accepted: the path tracer only
+    r.frame(w);  // the retry frame, accepted: it pays for the occlusion and the path tracer for this one frame
     CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
-    CHECK(count_labels(r.lines(), "rt-ao") == 0);
+    CHECK(count_labels(r.lines(), "rt-ao") >= 1);
+    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);
     r.dev->clear_commands();
     r.frame(w);
     CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);

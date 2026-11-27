@@ -1421,6 +1421,9 @@ bool RendererTestAccess::path_trace_set_failure(Renderer& r, const std::string& 
     it->second.failure = why;
     return true;
 }
+void RendererTestAccess::gi_pixel_last_not_run(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->testGiPixelLastNotRun = on;
+}
 std::size_t RendererTestAccess::path_trace_jobs(Renderer& r) { return r.impl_ ? r.impl_->ptState.jobs.size() : 0; }
 render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {

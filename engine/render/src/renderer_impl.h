@@ -718,12 +718,17 @@ struct Renderer::Impl {
             imgs;         // every camera that declared the kernel (the denoiser status ORs their `ran`)
         std::string why;  // why nothing was declared (empty: no camera drew the scene)
     } rtGiPixelFrame;
+    // tests (RendererTestAccess): a later camera's per-pixel GI image that did not run is added to each frame's
+    bool testGiPixelLastNotRun = false;
+    RtEffectImage testGiPixelNotRunImage;
     int rtGiPixelMisses = 0;                   // frames in a row the declared pass did not run
     std::uint64_t rtGiPixelFallbackUntil = 0;  // frameSerial: the probe and ambient term lights the surfaces until then
     std::string rtGiPixelFallbackReason;
     render::RtGiPixelStatus rtGiPixelStatus;
     bool rtWarnedGiPixel = false;                           // the one-time message of the kernel
     static constexpr std::uint32_t kRtGiPixelSignalId = 7;  // DenoiseSignal::id of the per-pixel GI (Diffuse)
+    // "<provider> failed a frame earlier in this run (<why>)": the sentence render.supports and the Ray Reconstruction status share.
+    std::string vendor_failed_text(int index) const;
     void rt_gi_pixel_finish();
     static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
     bool rtWarnedEffect = false;

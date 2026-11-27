@@ -148,15 +148,16 @@ filtering blit's shader. The pass reads the image's resource, so the frame graph
 What follows is the raster's own: the post stack and the tonemap treat the path traced colour as the lit colour (it is HDR in the scene's linear
 space, drawn into the scene target). The SSAO apply is skipped when the path tracer drew (the occlusion is part of the picture; applying it again
 would darken it twice), and so are its passes: a frame whose path tracer pass is declared **and expected to run** (`ctx.pathTrace.res` valid and
-`ctx.pathTrace.expected`) adds no SSAO passes, and one that traces the pass also asks no ray traced ambient occlusion. "Expected" is decided in
+`ctx.pathTrace.expected`) adds no SSAO passes, and one that traces the pass (not the retry frame, below) also asks no ray traced ambient occlusion. "Expected" is decided in
 `plan_job`, per camera: the device traces, the camera has its prepass, **this camera's** `PathTraceJobState::failure` is empty (it is the refusal
 of the last time this camera declared the pass; `ptState.status.failure` is only the last camera's, for `render.pathtrace`, and is cleared by
 every camera's build, so it cannot decide this) and at least one mesh of the scene can be in the TLAS (`RtScene::traceable_items()`, what `collect` kept: terrain, impostors and GPU-driven
 meshes are left out, so a scene made only of them has no instance, the kernel does not run and the raster's occlusion stays; the TLAS itself is
 built later in the graph, and a BLAS that is only pending is built first, so the first frame of a scene with a traceable mesh already traces).
 While a device refuses the path tracer the pass returns no image and the raster occlusion is drawn. The frame that tries the pass again after a refusal
-(`ctx.pathTrace.retry`: the refusal is this camera's, the rest of "expected" holds) is decided once: if the pass is accepted that frame is the traced one and adds no
-SSAO passes; if it is refused again the occlusion stays. `traceable_items()` of a job planned before the main camera's `collect` of the frame is the count of the
+(`ctx.pathTrace.retry`: the refusal is this camera's, the rest of "expected" holds) keeps the ray traced occlusion (the decision is late, in `build_graph`, so
+dropping it would flicker the technique between ray traced and screen space every few frames while the pass stays refused): a retry that is accepted pays for the
+ray traced occlusion and the path tracer for that one frame, and adds no SSAO passes; if it is refused again the occlusion stays. The frames after an accepted retry are "expected" and have none. `traceable_items()` of a job planned before the main camera's `collect` of the frame is the count of the
 last `collect` (the scene of the frame before), never 0. The one case left is a traceable mesh whose BLAS build fails: that
 frame has no occlusion. The reflections, the per-pixel GI and the shadows are not skipped: they are other effects' passes (not this package's to drop) and the blended draws over the picture read them. The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
 picture** (they are not in the kernel's picture as raster draws): glass the path tracer already refracted shows twice, which is a known limit of

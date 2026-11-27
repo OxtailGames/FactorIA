@@ -314,7 +314,8 @@ TEST_CASE("rt gi pixel: with gi off, or probes, nothing of the per-pixel mode is
     }
 }
 
-TEST_CASE("rt gi pixel: with two cameras that trace, the status is the OR of their images (not the last camera's)") {
+TEST_CASE(
+    "rt gi pixel: the status is the OR of the images of the cameras that declared the kernel (not the last one's)") {
     Rig r;
     r.gi(render::RtGi::PerPixel, 1);
     World w;
@@ -332,6 +333,15 @@ TEST_CASE("rt gi pixel: with two cameras that trace, the status is the OR of the
     CHECK(st.wanted);
     CHECK(st.active);
     CHECK(st.reason.empty());
+    // A later camera's image that did not run is declared after the first one's, which ran: still the OR ("the last camera" would fall back).
+    RendererTestAccess::gi_pixel_last_not_run(r.renderer, true);
+    for (int i = 0; i < 3; ++i) r.frame(w);
+    RendererTestAccess::gi_pixel_last_not_run(r.renderer, false);
+    const render::RtGiPixelStatus st2 = r.status();
+    INFO(st2.reason);
+    CHECK(st2.active);
+    CHECK(st2.reason.empty());
+    CHECK(r.renderer.ray_tracing_denoiser_status().giTraced);
 }
 
 TEST_CASE(
