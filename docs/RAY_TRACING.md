@@ -465,7 +465,10 @@ What the table says:
   about 75 ms to the 14 ms frame (11 frames per second here).
 - `gi: "probes"` costs no more than the raster probes it replaces and updates more of them a frame; `gi: "perPixel"` is the dearest of the
   indirect effects.
-- Off, nothing: no pass, no image, no structure. The raster frame is the first row of the measurement and what a device that cannot trace draws.
+- Off, nothing: with `enabled` false there is no pass, no image, no structure. The raster frame is the first row of the measurement and what a device that cannot trace draws.
+- `enabled` on with every effect off is not free: the scene's instance table has its record of 128 bytes (it was 96; a third more for every instance, translucency or not)
+  and the engine reads each part's material once per part and frame (`resolve_part_transmission`) to fill the translucency fields the path tracer and
+  the glass back faces also read. Both scale with the number of instances and are not in the table above.
 
 To measure your own scene, copy the project (from the repository) or use your own, put `render.rayTracing` in its `factoria.json` and compare `perf.measure` runs of 60 and 360 frames
 timed from outside, as above (`time factoria call --project <dir> perf.measure '{"frames":360}'`). The GPU numbers of D3D12 and Vulkan are **not

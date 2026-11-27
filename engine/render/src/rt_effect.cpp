@@ -452,9 +452,12 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
             if (pre->w != out->width || pre->h != out->height) {
                 // The prepass has another size than the image this pass was declared for (a resize between the plan and the frame): the
                 // next frame makes the image again; say so once so a mismatch that lasts is not silent.
-                note_failure(key, "the prepass is " + std::to_string(pre->w) + " x " + std::to_string(pre->h) +
-                                      " but the effect's image is " + std::to_string(out->width) + " x " +
-                                      std::to_string(out->height));
+                // Said once per effect, not once per pair of sizes: under dynamic resolution the sizes change often.
+                note_failure(key,
+                             "the prepass is " + std::to_string(pre->w) + " x " + std::to_string(pre->h) +
+                                 " but the effect's image is " + std::to_string(out->width) + " x " +
+                                 std::to_string(out->height),
+                             "the prepass and the effect's image have different sizes");
                 return;
             }
             inView = pre->texView;
@@ -531,12 +534,12 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     return result;
 }
 
-void RtEffects::note_failure(const std::string& key, const std::string& why) {
+void RtEffects::note_failure(const std::string& key, const std::string& why, const std::string& said) {
     bool say = false;
     {
         std::lock_guard<std::mutex> lock(failureMutex_);
         failures_[key] = why;
-        say = warned_.insert(key + "\n" + why).second;
+        say = warned_.insert(key + "\n" + (said.empty() ? why : said)).second;
     }
     if (say)
         FA_WARN("render",

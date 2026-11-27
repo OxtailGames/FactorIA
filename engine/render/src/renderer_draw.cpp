@@ -197,7 +197,7 @@ struct Renderer::Impl::DrawContext {
         RtLocalParams params{};
         std::vector<char> skipView;
     } rtLocal;
-    // M79-P3a-1: ray traced sharp reflections. plan_job sets `want` (the setting is on, the scene is this job's, the prepass and the G-buffer are
+    // M79-P3a: ray traced reflections (sharp and glossy). plan_job sets `want` (the setting is on, the scene is this job's, the prepass and the G-buffer are
     // made); build_graph declares the pass, sets `img` and the PostPlan's rtReflectImg for the screen-space reflections' composite.
     struct {
         bool want = false;
@@ -755,15 +755,10 @@ bool Renderer::Impl::decide_hud_at_output(World& world) {
     return !glows && ensure_hud_output(anyFinal, filter, false);
 }
 
-// The constants of the kernels that shade what a ray hits (rt_hit.hlsli): the sun the lit pass shadows, else the first directional light (rank 0
-// or 1), the scene's ambient and sky colours and the shadow rays' limits. Fills req.hit and, with a sun, req.lightDir.
+// The constants of the kernels that shade what a ray hits (rt_hit.hlsli): the sun the lit pass shadows, else the brightest directional light (rank 0
+// or 1; pick_rt_sun), the scene's ambient and sky colours and the shadow rays' limits. Fills req.hit and, with a sun, req.lightDir.
 static void fill_rt_hit_request(const Renderer::Impl::DrawContext& ctx, RtEffectRequest& req) {
-    const LightData* sunLight = nullptr;
-    for (const LightData& l : ctx.lights)
-        if (l.rank <= 1) {
-            sunLight = &l;
-            break;
-        }
+    const LightData* sunLight = pick_rt_sun(ctx.lights);
     RtHitParams& hp = req.hit;
     if (sunLight) {
         const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});
@@ -1164,7 +1159,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
                 {ld.id, in.light,
                  render::local_shadow_importance(in.brightness, in.range, length(in.position - fr.cam.position))});
         }
-        ctx.rtLocal.pick = render::pick_rt_local_lights(rtLocalSlots[fr.cam.entity.bits()], candidates);
+        render::RtLocalSlots& slots = rtLocalSlots[fr.cam.entity.bits()];
+        slots.lastUsed = frameSerial;
+        ctx.rtLocal.pick = render::pick_rt_local_lights(slots, candidates);
         ctx.rtLocal.params = render::make_rt_local_params(ctx.lights, ctx.rtLocal.pick);
         for (int s = 0; s < kRtLocalMaxLights; ++s)
             if (ctx.rtLocal.pick.light[std::size_t(s)] >= 0)
@@ -3695,14 +3692,15 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
         sp.clearDepth = 1.0f;
         return sp;
     };
-    // M79-P2a-3: the maps of the lights whose shadow the rays make are not drawn when nothing would read them: the passes of the traced image are declared,
+    // M79-P2a-3: the maps of the lights whose shadow the rays make are not drawn when nothing would read them: the passes of the traced image are declared
+    // and the pack pass ran before this one (build_graph orders the shadow pass after it: `img->ran`),
     // the scene's TLAS is built (it is, by rt-accel, the first pass of the job), every caster of the frame is in it, the effects have not failed, and every
     // receiver of the job takes its shadow from the image (no blended mesh, decal, terrain, full-shader material, transmissive or subsurface draw: those
     // draws read the map). The atlas is still allocated and cleared (the sun's cascades and the lights beyond the cap use it).
     ctx.rtLocal.skipView.clear();
-    if (ctx.rtLocal.traced && rtScene.tlas().valid() && rtScene.stats().untracedCasters == 0 &&
-        rtEffects.failure().empty() && ctx.blended.empty() && ctx.decals.empty() && ctx.terrainDraws.empty() &&
-        !ctx.xmit.want && !ctx.sssOn) {
+    if (ctx.rtLocal.traced && ctx.rtShadow.img && ctx.rtShadow.img->ran && rtScene.tlas().valid() &&
+        rtScene.stats().untracedCasters == 0 && rtEffects.failure().empty() && ctx.blended.empty() &&
+        ctx.decals.empty() && ctx.terrainDraws.empty() && !ctx.xmit.want && !ctx.sssOn) {
         bool onlyEngineMaterials = true;
         for (const MeshItem& it : ctx.opaque)
             onlyEngineMaterials = onlyEngineMaterials && !(it.material && it.material->ok && it.material->full);
@@ -5802,10 +5800,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         ResourceId visRes = out.res;  // what the pack pass reads as its aux image
         PrepassRef visAux;
         const RtEffectImage* visImage = out.out;
+        // A light that took another slot, or left it, starts the signal again: its history is another light's. (Where the signal is new there is
+        // nothing to drop.) The lights hold their slots while they stay among the best (rt_local_shadows.h), so this is rare. Also in a frame that
+        // is not soft and so declares no denoiser pass: the history it leaves would be the old light's when the next soft frame reads it.
+        if (ctx.rtLocal.pick.changed) rtDenoiser.drop_signal(camKey, kRtLocalSignalId);
         if (out.valid && soft) {
-            // A light that took another slot, or left it, starts the signal again: its history is another light's. (Where the signal is new there is
-            // nothing to drop.) The lights hold their slots while they stay among the best (rt_local_shadows.h), so this is rare.
-            if (ctx.rtLocal.pick.changed) rtDenoiser.drop_signal(camKey, kRtLocalSignalId);
             DenoiseSignal sig;
             sig.kind = DenoiseKind::Diffuse;
             sig.id = kRtLocalSignalId;
@@ -5866,6 +5865,9 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             rtShadowRes = out.res;
             ctx.rtLocal.traced = true;
             rtLocalFrame.traced = std::max(rtLocalFrame.traced, ctx.rtLocal.pick.traced);
+            // The shadow pass was declared before this one: it runs after the pack pass, so it leaves a traced light's maps undrawn only when the
+            // image really was made this frame (`ran`), else those lights would have neither their rays nor their maps for a frame.
+            graph.add_after(plan.name + "/shadow", plan.name + "/rt-shadows-local");
         } else if (!rtWarnedLocal) {
             rtWarnedLocal = true;
             FA_WARN(
@@ -5899,13 +5901,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         req.frameSerial = frameSerial;
         // Sharp pixels take one mirror ray; the glossy ones take raysPerPixel (1 to 16), as the occlusion does.
         req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
-        // The sun the lit pass shadows, else its first directional light (rank 0 or 1): the direction toward it and its radiance.
-        const LightData* sunLight = nullptr;
-        for (const LightData& l : ctx.lights)
-            if (l.rank <= 1) {
-                sunLight = &l;
-                break;
-            }
+        // The sun the lit pass shadows, else its brightest directional light (pick_rt_sun): the direction toward it and its radiance.
+        const LightData* sunLight = pick_rt_sun(ctx.lights);
         RtHitParams& hp = req.hit;
         if (sunLight) {
             const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});

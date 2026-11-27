@@ -370,4 +370,9 @@ struct LightData {
 int select_lights(std::vector<LightData>& lights, std::size_t maxCount,
                   std::size_t maxDirectional = std::size_t(kMaxDirectionalLights));
 
+// The sun the ray traced effects aim at: the shadow-casting directional light the lit pass draws its cascades for (rank 0) when it gives light,
+// else the brightest directional light (the largest colour component; the first one on a tie). It does not depend on the order of `lights`.
+// nullptr when there is no directional light. A caster that gives no light (an intensity of 0, a sun below the horizon) is not the sun.
+const LightData* pick_rt_sun(const std::vector<LightData>& lights);
+
 }  // namespace fa::render

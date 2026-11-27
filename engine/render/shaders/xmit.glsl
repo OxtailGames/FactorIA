@@ -61,7 +61,10 @@ void main() {
             float v12 = floor(code / 4096.0);
             float u12 = code - v12 * 4096.0;
             vec2 quv = (vec2(u12, v12) + 0.5) / 4096.0;
-            frag_color = vec4(tap(src.xy + quv * src.zw).rgb * rt.rgb, 1.0);
+            // The centre of the texel the position falls in: the position is in 4096ths of the rectangle, so a tap at it would blend two texels
+            // (a rectangle wider than 4096 px has more texels than codes: the kernel's position is the nearest of 4096, and the tap is a whole texel of it).
+            vec2 texel = min(floor(quv * src.zw), src.zw - 1.0) + 0.5;
+            frag_color = vec4(tap(src.xy + texel).rgb * rt.rgb, 1.0);
         } else {
             frag_color = vec4(tap(p).rgb, 0.0);
         }

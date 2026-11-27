@@ -333,8 +333,10 @@ private:
     Kernel* kernel_for(Gpu& gpu, const rt_kernels::RtKernel& k, const RtEffectKernelSpec& spec, std::string* why);
     gpu::View records_view(Gpu& gpu, gpu::Buffer records);
 
-    void note_failure(const std::string& key,
-                      const std::string& why);  // the effect could not run: warns once per reason
+    // The effect could not run: warns once per reason. `said` is what the once is keyed on when `why` carries numbers that change without the cause
+    // changing (the sizes of the images under dynamic resolution): the warning is not repeated at every size change. Empty = `why` itself.
+    void note_failure(const std::string& key, const std::string& why, const std::string& said = std::string());
+    friend struct RtEffectsTestAccess;
     void clear_failure(const std::string& key);
 
     mutable std::mutex failureMutex_;
