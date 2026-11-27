@@ -240,14 +240,22 @@ struct Rig {
         dev->destroy_buffer(m.ib);
         dev->destroy_buffer(m.scratch);
     }
+    // Safe to call twice: a handle is destroyed once and zeroed.
     void release_images() {
-        dev->destroy_view(prepassView);
-        dev->destroy_view(outView);
-        dev->destroy_image(prepass);
-        dev->destroy_image(out);
-        dev->destroy_pipeline(pipeline);
-        dev->destroy_shader(shader);
-        dev->destroy_sampler(nearestSampler);
+        if (prepassView.id) dev->destroy_view(prepassView);
+        if (outView.id) dev->destroy_view(outView);
+        if (prepass.id) dev->destroy_image(prepass);
+        if (out.id) dev->destroy_image(out);
+        if (pipeline.id) dev->destroy_pipeline(pipeline);
+        if (shader.id) dev->destroy_shader(shader);
+        if (nearestSampler.id) dev->destroy_sampler(nearestSampler);
+        prepassView = {};
+        outView = {};
+        prepass = {};
+        out = {};
+        pipeline = {};
+        shader = {};
+        nearestSampler = {};
     }
 
     std::vector<float> trace(AccelStructure tlas, const fa::render::RtEffectParams& params,

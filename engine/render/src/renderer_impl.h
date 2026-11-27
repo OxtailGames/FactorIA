@@ -715,8 +715,7 @@ struct Renderer::Impl {
         bool declared = false;  // the kernel's pass is in the graph
         bool bound = false;     // the main pass bound the image at the lightmap slot (the surfaces can read it)
         std::vector<const RtEffectImage*>
-            imgs;  // every camera that declared the kernel (the denoiser status ORs their `ran`)
-        const RtEffectImage* img = nullptr;
+            imgs;         // every camera that declared the kernel (the denoiser status ORs their `ran`)
         std::string why;  // why nothing was declared (empty: no camera drew the scene)
     } rtGiPixelFrame;
     int rtGiPixelMisses = 0;                   // frames in a row the declared pass did not run

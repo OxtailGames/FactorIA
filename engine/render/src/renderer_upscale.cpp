@@ -427,6 +427,11 @@ Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool po
     }
     if (!upscaler.rayReconstruction || !(wantReflect || wantGi) || !gpu.has_device()) return s;
     s.asked = true;
+    if (vendorFailed[0]) {  // Ray Reconstruction is DLSS's: after its failure no camera is the one it resolves
+        s.why = "DLSS failed a frame earlier in this run (" + vendorFailedWhy[0] +
+                "): the engine denoises the signals for the rest of the run";
+        return s;
+    }
     if (!upscaleCamera || render::vendor_impl_index(upscaleImpl) != 0 || vendorFailed[0]) {
         s.why = "this camera is not the one DLSS resolves (a split screen or several cameras, a frame the renderer did "
                 "not jitter, or another upscaler: render.upscaler mode)";

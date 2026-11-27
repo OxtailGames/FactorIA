@@ -412,6 +412,7 @@ void main() {
     if (f.x > 0.5) {
         vec2 vuv = uv;
         if (hf.x > 0.5) {
+            // (tex_c is the full guide: fs_guide_half copies its depth unchanged, in the same format, so the == below is exact.)
             // The centre of a half pixel is the corner of four velocity texels: which one a point sample takes would depend on the GPU. The
             // texel is the one the half guide took (the first of the block's four with its depth, in the order the guide pass looks at them).
             vec2 q0 = min(ip * 2.0, hf.yz - 1.0);
