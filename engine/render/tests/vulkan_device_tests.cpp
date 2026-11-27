@@ -1552,6 +1552,103 @@ TEST_CASE("vulkan: a compute pass writes a storage image and a storage buffer, a
     CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
 }
 
+TEST_CASE(
+    "vulkan: a compute shader with no TLAS whose bindings are in other sets (as DXC emits) is accepted and its sets "
+    "moved") {
+    auto dev = make_vk();
+    if (!dev) return;
+    // The test kernel's SPIR-V (sokol-shdc: uniform block in set 0, views in set 1) with every set number rewritten the
+    // way a DXC kernel declares them: the uniform block in set 3, the views in set 5, the binding numbers kept.
+    ShaderDesc sd = compute_shader_desc();
+    REQUIRE(sd.computeFunc.bytecode.ptr != nullptr);
+    std::vector<std::uint32_t> words(sd.computeFunc.bytecode.size / 4);
+    std::memcpy(words.data(), sd.computeFunc.bytecode.ptr, words.size() * 4);
+    constexpr std::uint32_t kOpDecorate = 71, kDescriptorSet = 34;
+    int rewritten = 0;
+    for (std::size_t i = 5; i < words.size();) {
+        const std::uint32_t count = words[i] >> 16, op = words[i] & 0xFFFFu;
+        REQUIRE(count > 0);
+        REQUIRE(count <= words.size() - i);
+        if (op == kOpDecorate && count >= 4 && words[i + 2] == kDescriptorSet) {
+            REQUIRE(words[i + 3] <= 1);
+            words[i + 3] = words[i + 3] == 0 ? 3 : 5;
+            ++rewritten;
+        }
+        i += count;
+    }
+    REQUIRE(rewritten == 3);  // the uniform block, the storage image and the storage buffer
+    sd.computeFunc.bytecode = Range{words.data(), words.size() * 4};
+    sd.label = "dxc-like-sets";
+    REQUIRE(sd.uniformBlocks[0].stage == ShaderStage::Compute);
+    sd.uniformBlocks[0].binding.spirvSet = 3;
+    for (int i = 0; i < 2; ++i) {
+        REQUIRE(sd.views[i].stage() == ShaderStage::Compute);
+        BackendBinding& b = i == 0 ? sd.views[i].storageImage.binding : sd.views[i].storageBuffer.binding;
+        REQUIRE(b.spirvSet == 1);
+        b.spirvSet = 5;
+    }
+    CHECK(sd.accelStructures[0].stage ==
+          ShaderStage::None);  // no TLAS: nothing but the sets tells it from a plain kernel
+    CHECK_FALSE(sd.usesRayQuery);
+    const Shader shader = dev->make_shader(sd);
+    REQUIRE_MESSAGE(dev->state(shader) == ResourceState::Valid, all_errors(*dev));
+    PipelineDesc pd;
+    pd.compute = true;
+    pd.shader = shader;
+    pd.label = "dxc-like-sets";
+    const Pipeline pip = dev->make_pipeline(pd);
+    REQUIRE_MESSAGE(dev->state(pip) == ResourceState::Valid, all_errors(*dev));
+    // It runs: mode 0 writes texel (x, y) of the image and word x + 8y of the buffer through the moved sets.
+    ImageDesc id;
+    id.width = 8;
+    id.height = 8;
+    id.pixelFormat = PixelFormat::Rgba8;
+    id.usage.storageImage = true;
+    id.label = "moved-image";
+    const Image img = dev->make_image(id);
+    BufferDesc bd;
+    bd.size = 64 * 4;
+    bd.usage.storageBuffer = true;
+    bd.label = "moved-buffer";
+    const Buffer buf = dev->make_buffer(bd);
+    ViewDesc iv;
+    iv.storageImage.image = img;
+    ViewDesc bv;
+    bv.storageBuffer.buffer = buf;
+    Bindings b;
+    b.views[0] = dev->make_view(iv);
+    b.views[1] = dev->make_view(bv);
+    REQUIRE_MESSAGE(dev->state(b.views[1]) == ResourceState::Valid, all_errors(*dev));
+    const std::int32_t write[4] = {0, 0, 0, 0};
+    CommandList& list = dev->begin_commands("compute");
+    list.begin_compute_pass("compute");
+    list.set_pipeline(pip);
+    list.set_bindings(b);
+    list.set_uniforms(0, Range{write, sizeof write});
+    list.dispatch(1, 1, 1);
+    list.end_pass();
+    submit_and_finish(*dev, list);
+    const std::string bad = first_mismatch(read_rgba8(*dev, img, 8, 8), 8, 8, 0,
+                                           [](int x, int y) { return std::array<int, 4>{x * 32, y * 32, 0, 255}; });
+    CHECK_MESSAGE(bad.empty(), bad);
+    std::vector<std::uint8_t> raw;
+    auto r = dev->read_buffer(buf, 0, bd.size, raw);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    REQUIRE(raw.size() == bd.size);
+    std::vector<std::uint32_t> got(64), expected(64);
+    std::memcpy(got.data(), raw.data(), raw.size());
+    for (std::uint32_t i = 0; i < 64; ++i) expected[i] = i;
+    CHECK(got == expected);
+    CHECK_MESSAGE(all_errors(*dev).empty(), all_errors(*dev));
+
+    // A render shader keeps the strict layout: the same set numbers are refused with the fix.
+    ShaderDesc render = fill_shader_desc();
+    render.uniformBlocks[0].binding.spirvSet = 3;
+    const Shader refused = dev->make_shader(render);
+    CHECK(dev->state(refused) == ResourceState::Failed);
+    CHECK(contains(last_error(*dev), "uniform block 0 is in descriptor set 3"));
+}
+
 TEST_CASE("vulkan: equal descs share a pipeline and its layouts; a layout follows sokol-shdc's sets") {
     auto dev = make_vk();
     if (!dev) return;

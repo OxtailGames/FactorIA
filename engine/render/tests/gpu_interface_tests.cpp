@@ -566,6 +566,24 @@ TEST_CASE("RecordingDevice: a correct frame records no error and a readable stre
                                "frame 1 commit\n");
 }
 
+TEST_CASE("RecordingDevice: a structured view's element is at most 2048 bytes (D3D12's maximum)") {
+    RecordingDevice dev;
+    BufferDesc sb;
+    sb.size = 16384;
+    sb.usage.storageBuffer = true;
+    sb.label = "records";
+    const Buffer records = dev.make_buffer(sb);
+    ViewDesc vd;
+    vd.storageBuffer.buffer = records;
+    vd.storageBuffer.structureStride = 2048;
+    CHECK(dev.state(dev.make_view(vd)) == ResourceState::Valid);
+    CHECK(dev.errors().empty());
+    vd.storageBuffer.structureStride = 2052;  // a multiple of 4, but past the maximum
+    CHECK(dev.state(dev.make_view(vd)) != ResourceState::Valid);
+    INFO(joined(dev.errors()));
+    CHECK(has_error(dev.errors(), {"structureStride 2052", "above 2048", "hint"}));
+}
+
 TEST_CASE("RecordingDevice: misuses inside a list name the list, the command and the fix") {
     RecordingDevice dev;
     Scene s(dev);

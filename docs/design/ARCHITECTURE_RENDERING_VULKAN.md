@@ -259,7 +259,7 @@ samplers from binding 32 on), set 2 the bindless table when the device has one. 
 any Vulkan call: its stage belongs to the shader's kind (a compute shader's slots are `Compute`, a render shader's
 `Vertex` or `Fragment`), a uniform block has 1 to `min(maxUniformBufferRange, 64 KiB)` bytes, each slot is in its set,
 and no two slots share a binding; the error names the slot, the set and the binding. The one exception is a compute
-shader (the ray tracing effects' DXC kernels, which trace or not): its slots may name any `spirvSet`, `move_descriptor_sets`
+shader (kernels from DXC, traced or not, and sokol-shdc compute shaders): its slots may name any `spirvSet`, `move_descriptor_sets`
 rewrites the `DescriptorSet` decorations of the bindings its slots name (uniform blocks to set 0, views, samplers and
 acceleration structures to set 1, the binding numbers kept), and the one-binding-per-slot check then applies to the sets
 after the move. Its `ShaderAccelStructure` slots (compute stage only) are
