@@ -20,7 +20,7 @@
 //
 // With render.rayTracing.reflections the pass has more images (M79-P3a-1, P3a-2; rt_reflect.hlsl; all the size of the prepass): the kernel's raw image
 // (tex_r: rgb the mean radiance of the rays that hit, a = 0 not traced, > 0 the hit distance, -1 every ray left the scene), the denoised glossy
-// radiance (tex_d) and the denoised coverage (tex_k: the share of the pixel's rays that ended on a surface), and the G-buffer's roughness (tex_m).
+// radiance (tex_d) and the denoised coverage (tex_k: each ray's hit or miss as 1 or 0 at its pixel, averaged over the neighbouring pixels and the frames by the denoiser, so it is the share of the nearby rays that ended on a surface, not of this pixel's own), and the G-buffer's roughness (tex_m).
 // b.w says what is bound: 0 nothing, 1 the raw image alone (a GPU whose denoiser is off: every traced pixel reads it), 2 all of them. A pixel below the
 // sharp cutoff (g.x) reads the raw image (one mirror ray: nothing to denoise, and a history would lag a reflection that moves differently from the
 // surface); a rougher one the denoised image; both fade to nothing between g.y and g.z (the roughest traced). What they hold is premultiplied by the

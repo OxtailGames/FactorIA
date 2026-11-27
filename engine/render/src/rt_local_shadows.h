@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <span>
 
 #include "mesh_batch.h"
@@ -26,7 +27,12 @@ struct RtLocalCandidate {
 struct RtLocalSlots {
     std::array<std::uint64_t, kRtLocalMaxLights> id{};
     std::array<bool, kRtLocalMaxLights> used{};
+    std::uint64_t lastUsed = 0;  // the frame serial of the last frame its camera picked lights (sweep_rt_local_slots)
 };
+
+// Forgets the slots of a camera that picked no light for two frames (the camera is gone, or off, or ray traced local shadows are): the same rule as
+// RtEffects::sweep, `serial` being the frame serial plus one. Without it a game that makes and destroys cameras would grow the map for ever.
+void sweep_rt_local_slots(std::map<std::uint64_t, RtLocalSlots>& slots, std::uint64_t serial);
 
 // A newcomer replaces the weakest holder only when it is this much more important (hysteresis: two lights of equal importance never swap places).
 inline constexpr float kRtLocalSwapFactor = 1.25f;
