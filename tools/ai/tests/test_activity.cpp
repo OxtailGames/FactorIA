@@ -1,4 +1,5 @@
 
+#include "fa/core/fs.h"
 #include <filesystem>
 #include <fstream>
 
@@ -116,8 +117,7 @@ TEST_CASE("activity: format_duration") {
 
 TEST_CASE("activity: recent_file_changes finds fresh files and skips .git") {
     namespace sfs = std::filesystem;
-    const sfs::path dir = sfs::temp_directory_path() / "fa_activity_test";
-    sfs::remove_all(dir);
+    const sfs::path dir = fa::fs::make_temp_dir_until_exit("fa_activity_test").value();
     sfs::create_directories(dir / "scripts");
     sfs::create_directories(dir / ".git");
     std::ofstream(dir / "scripts" / "a.js") << "x";

@@ -1,17 +1,23 @@
 // shdc-slang: glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl:spirv_vk
 // FactorIA guides of DLSS Ray Reconstruction (M78-P4c): one fragment pass at the render resolution that makes, from what the depth prepass
 // wrote, the images the denoiser-upscaler reads next to the colour, the depth and the motion. The renderer is a forward renderer with no
-// material G-buffer, so two of the guides are approximations (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction"):
+// per-pixel material of its own, so the roughness and the two albedos come from the thin G-buffer when the frame has one (M79-P0c, the renderer asks
+// for it while Ray Reconstruction is on; docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction") and are constants where it has none:
 //
 //   in   tex_p  the prepass: r = the linear view depth in world units, gb = the octahedral view-space normal, a = 1 where a mesh was drawn
 //   out  location 0 (RGBA16F)  xyz = the WORLD-space unit normal (the view-space normal turned by the camera's own axes: right, up and
-//                              back = -forward), w = the roughness (a constant: the renderer has no per-pixel roughness).
-//                              Where no mesh was drawn (the sky): the normal faces the camera.
+//                              back = -forward), w = the roughness: the G-buffer's where a mesh was drawn (tex_m, when the frame has the
+//                              G-buffer), else a constant. Where no mesh was drawn (the sky): the normal faces the camera.
 //        location 1 (R32F)     the HARDWARE depth the camera's projection makes of the view distance: clip z / clip w of the unjittered
 //                              projection (0..1 growing with the distance on the backends the vendor SDKs run on; 1 where no mesh was
 //                              drawn). Ray Reconstruction rebuilds the view position from this depth and the projection it is told, so
 //                              the two must agree; the prepass's d / (d + 1) that Super Resolution reads does not.
-//   The diffuse and specular albedo are constants (the renderer has no per-pixel albedo): the caller clears their images.
+//   The diffuse and specular albedo come from `fs_albedo` (program rr_albedo, a second pass over the G-buffer: diffuse = albedo * (1 - metalness),
+//   specular = mix(0.04, albedo, metalness), the constants where no mesh was drawn); a frame without the G-buffer has the constants for the
+//   whole picture, which the caller clears into their images.
+//   The specular hit distance (M79-P4b-2) comes from `fs_hit` (program rr_hit, a third pass, only on a frame whose ray traced reflections go to
+//   Ray Reconstruction): the alpha of the reflection signal (> 0 the distance in world units where a ray ended on a surface; 0 not traced; -1 every
+//   ray left the scene) into an R32F image, 0 where there is no distance.
 //
 // Like upscale_mfx.glsl the vendor SDKs run on Metal, D3D11/D3D12 and Vulkan, whose texture space is top-down, so the uv needs no flip.
 @module upscale_rr
@@ -27,14 +33,17 @@ void main() {
 
 @fs fs
 layout(binding=0) uniform texture2D tex_p;
+layout(binding=1) uniform texture2D tex_m;  // the G-buffer's material image (r = roughness, a = 1 where a mesh was drawn); any image when flags.x is 0
 layout(binding=0) uniform sampler smp_pt;
 @image_sample_type tex_p unfilterable_float
+@image_sample_type tex_m unfilterable_float
 @sampler_type smp_pt nonfiltering
 layout(binding=0) uniform rr_params {
     vec4 right;   // xyz = the camera's right axis in the world, w = the roughness of every pixel
     vec4 up;      // xyz = the camera's up axis in the world
     vec4 back;    // xyz = the axis the camera looks away from (-forward), w = 1 when the prepass is bound (else every pixel is sky)
     vec4 zrow;    // the projection's depth terms: P22, P23, P32, P33 (clip z = P22 * z + P23, clip w = P32 * z + P33, z the view-space z)
+    vec4 flags;   // x = 1 when tex_m is the G-buffer's material image
 };
 in vec2 uv;
 layout(location=0) out vec4 out_normal_roughness;
@@ -52,7 +61,12 @@ void main() {
     bool drawn = back.w > 0.5 && pre.a > 0.5;
     vec3 n = drawn ? oct_decode(pre.gb) : vec3(0.0, 0.0, 1.0);
     vec3 world = normalize(right.xyz * n.x + up.xyz * n.y + back.xyz * n.z);
-    out_normal_roughness = vec4(world, right.w);
+    float rough = right.w;
+    if (drawn && flags.x > 0.5) {
+        vec4 m = textureLod(sampler2D(tex_m, smp_pt), uv, 0.0);
+        if (m.a > 0.5) rough = m.r;
+    }
+    out_normal_roughness = vec4(world, rough);
     float z = -pre.r;  // the view-space z of the surface: the prepass stores the distance along the view axis
     float clipW = zrow.z * z + zrow.w;
     float hw = drawn && abs(clipW) > 1e-12 ? (zrow.x * z + zrow.y) / clipW : 1.0;
@@ -60,4 +74,51 @@ void main() {
 }
 @end
 
+// The two albedo guides from the G-buffer (M79-P0c): colour 0 = the diffuse albedo, colour 1 = the specular albedo (the reflectance at normal
+// incidence), both RGBA8. A pixel no mesh wrote (the sky) takes the constants.
+@fs fs_albedo
+layout(binding=2) uniform texture2D tex_alb;
+layout(binding=3) uniform texture2D tex_mat;
+layout(binding=1) uniform sampler smp_alb;
+@image_sample_type tex_alb unfilterable_float
+@image_sample_type tex_mat unfilterable_float
+@sampler_type smp_alb nonfiltering
+layout(binding=1) uniform rr_albedo_params {
+    vec4 defaults;  // x = the diffuse albedo, y = the specular albedo of a pixel no mesh wrote
+};
+in vec2 uv;
+layout(location=0) out vec4 out_diffuse;
+layout(location=1) out vec4 out_specular;
+void main() {
+    vec4 a = textureLod(sampler2D(tex_alb, smp_alb), uv, 0.0);
+    vec4 m = textureLod(sampler2D(tex_mat, smp_alb), uv, 0.0);
+    if (a.a < 0.5 || m.a < 0.5) {
+        out_diffuse = vec4(vec3(defaults.x), 1.0);
+        out_specular = vec4(vec3(defaults.y), 1.0);
+        return;
+    }
+    float metal = m.g;
+    out_diffuse = vec4(a.rgb * (1.0 - metal), 1.0);
+    out_specular = vec4(mix(vec3(0.04), a.rgb, metal), 1.0);
+}
+@end
+
+// The specular hit distance guide (M79-P4b-2): the alpha of the ray traced reflection signal (rt_reflect: > 0 the hit distance in world units, 0 a pixel
+// that was not traced, -1 every ray left the scene) in an R32F image, the distance where there is one and 0 elsewhere. The signal has the size of the
+// prepass, which is the size of this pass.
+@fs fs_hit
+layout(binding=4) uniform texture2D tex_refl;
+layout(binding=2) uniform sampler smp_refl;
+@image_sample_type tex_refl unfilterable_float
+@sampler_type smp_refl nonfiltering
+in vec2 uv;
+layout(location=0) out vec4 out_hit;
+void main() {
+    float d = textureLod(sampler2D(tex_refl, smp_refl), uv, 0.0).a;
+    out_hit = vec4(d > 0.0 ? d : 0.0, 0.0, 0.0, 1.0);
+}
+@end
+
 @program rr vs fs
+@program rr_albedo vs fs_albedo
+@program rr_hit vs fs_hit

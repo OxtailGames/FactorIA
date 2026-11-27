@@ -280,6 +280,18 @@ std::string prepare_validation_layer();
     X(vkGetSwapchainImagesKHR)                                                                                         \
     X(vkAcquireNextImageKHR)                                                                                           \
     X(vkQueuePresentKHR)
+// VK_KHR_acceleration_structure, core 1.2's buffer device address and the query copy query_compacted_size records
+// (device functions; null when the device has no ray tracing: VulkanDevice::ray_tracing_status says why).
+#define FA_VK_ACCEL_FUNCTIONS(X)                                                                                       \
+    X(vkGetBufferDeviceAddress)                                                                                        \
+    X(vkCmdCopyQueryPoolResults)                                                                                       \
+    X(vkCreateAccelerationStructureKHR)                                                                                \
+    X(vkDestroyAccelerationStructureKHR)                                                                               \
+    X(vkGetAccelerationStructureBuildSizesKHR)                                                                         \
+    X(vkGetAccelerationStructureDeviceAddressKHR)                                                                      \
+    X(vkCmdBuildAccelerationStructuresKHR)                                                                             \
+    X(vkCmdWriteAccelerationStructuresPropertiesKHR)                                                                   \
+    X(vkCmdCopyAccelerationStructureKHR)
 
 // The functions a swapchain is called with (VulkanDevice::swapFns_): the device's, or a device hook's.
 struct VkSwapFunctions {
@@ -301,6 +313,7 @@ struct VkFunctions {
     FA_VK_DEVICE_FUNCTIONS(FA_VK_MEMBER)
     FA_VK_SURFACE_FUNCTIONS(FA_VK_MEMBER)
     FA_VK_SWAPCHAIN_FUNCTIONS(FA_VK_MEMBER)
+    FA_VK_ACCEL_FUNCTIONS(FA_VK_MEMBER)
 #undef FA_VK_MEMBER
     // vkCmdPipelineBarrier2 (Vulkan 1.3) or vkCmdPipelineBarrier2KHR; null = the Vulkan 1.0 barriers.
     PFN_vkCmdPipelineBarrier2 vkCmdPipelineBarrier2 = nullptr;
@@ -398,7 +411,10 @@ public:
     void init(VulkanDevice* device, const VkPhysicalDeviceMemoryProperties& properties, VkDeviceSize blockBytes,
               VkDeviceSize dedicatedThreshold);
     // Memory for `req` (a buffer, or an image: linear = false). `dedicated` forces an allocation of its own.
-    Result<Allocation> alloc(const VkMemoryRequirements& req, MemoryUse use, bool linear, bool dedicated);
+    // `deviceAddress`: a buffer with SHADER_DEVICE_ADDRESS usage (its memory has VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+    // such blocks are a pool of their own).
+    Result<Allocation> alloc(const VkMemoryRequirements& req, MemoryUse use, bool linear, bool dedicated,
+                             bool deviceAddress = false);
     void free(Allocation& a);
     // Frees every block (device teardown, after every resource was destroyed).
     void destroy();
@@ -417,9 +433,11 @@ private:
     struct BlockPool {
         std::uint32_t type = 0;
         bool linear = false;
+        bool deviceAddress = false;
         std::vector<std::unique_ptr<Block>> blocks;  // null = a freed block (indices stay)
     };
-    Result<VkDeviceMemory> allocate_memory(VkDeviceSize size, std::uint32_t type, std::uint8_t** mapped);
+    Result<VkDeviceMemory> allocate_memory(VkDeviceSize size, std::uint32_t type, bool deviceAddress,
+                                           std::uint8_t** mapped);
     void free_memory(VkDeviceMemory memory, VkDeviceSize size, bool mapped);
 
     mutable std::mutex mutex_;
@@ -450,7 +468,8 @@ inline constexpr VkImageLayout kUnknownLayout = VK_IMAGE_LAYOUT_MAX_ENUM;
 inline constexpr VkAccessFlags2 kWriteAccess = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
                                                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
                                                VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT |
-                                               VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+                                               VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                                               VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 inline bool access_writes(VkAccessFlags2 a) { return (a & kWriteAccess) != 0; }
 // A copy writes it / reads it (buffers keep the layout UNDEFINED, which nothing reads).
 inline SubState transfer_write_state(bool image) {
@@ -624,6 +643,7 @@ enum DescriptorKind : int {
     kDescStorageBuffer,
     kDescUniformBufferDynamic,
     kDescCombinedImageSampler,
+    kDescAccelStructure,  // the pools hold them only on a device with ray tracing
     kDescKinds,
 };
 // How many descriptors of each kind one set holds.
@@ -708,6 +728,7 @@ struct ShaderInfo {
     ImageType viewImageType[kMaxViews]{};            // textures and storage images: what the view must be
     std::string codeKey;                             // SHA-256 of the SPIR-V and the entries (the pipeline cache key)
     bool pointSize = false;  // the vertex stage writes its PointSize output (what a point-list pipeline needs)
+    bool accelUsed[kMaxAccelStructureBindings]{};  // a ray-query kernel's acceleration structure slots (set 1)
     ShaderInfo() = default;
     ShaderInfo(const ShaderInfo&) = delete;
     ShaderInfo& operator=(const ShaderInfo&) = delete;
@@ -754,7 +775,9 @@ struct PipelineLayoutInfo {
     VkPipelineStageFlags2 viewStage[kMaxViews]{};  // the stage that reads the view (what its barriers wait for)
     std::uint32_t samplerBinding[kMaxSamplers]{};
     std::uint32_t samplerUsed = 0;  // bit i = sampler slot i
-    bool bindless = false;          // set 2 is the bindless table
+    std::uint32_t accelBinding[kMaxAccelStructureBindings]{};
+    std::uint32_t accelUsed = 0;  // bit i = acceleration structure slot i (compute only)
+    bool bindless = false;        // set 2 is the bindless table
     std::string key;
     PipelineLayoutInfo() = default;
     PipelineLayoutInfo(const PipelineLayoutInfo&) = delete;
@@ -833,9 +856,15 @@ public:
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
     QueueKind queue() const override { return queue_; }
+    Backend backend() const override { return Backend::Vulkan; }  // the ray tracing refusals name it
     Result<NativeCommands> begin_native(std::span<const NativeUse> uses) override;
     Result<void> end_native(std::span<const NativeUse> leftIn) override;
     using CommandList::end_native;
+    // Acceleration structures (vulkan_raytracing.cpp): refused with no_ray_tracing() on a device without ray tracing.
+    Result<void> build_blas(const BlasBuild& build) override;
+    Result<void> build_tlas(const TlasBuild& build) override;
+    Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) override;
+    Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) override;
 
     // ---- the backend's side ------------------------------------------------------------------------------------------
     // Resource `t`'s subresource `sub` (or every one, kAllSubresources) must be in `state` for the next command.
@@ -873,6 +902,11 @@ private:
     Result<void> open(const char* label);
     // Reports "CommandList::<what> in list '<label>': <error>".
     void fail(const char* what, const std::string& error);
+    // fail() with "<problem> (hint: <fix>)", and the same as the Error a ray tracing call answers.
+    Error reject(const char* what, const std::string& problem, const std::string& fix);
+    // "" when an acceleration structure command can be recorded now (open, outside passes and native sections, not
+    // on the transfer queue); else the problem, with `fix` set.
+    std::string accel_command_problem(std::string& fix) const;
     // Forgets the pipeline, uniforms and bindings (a new pass or pipeline).
     void reset_bind_state();
     // A command of the open pass needs mips [mip, mip + mipCount) of layers [layer, layer + layerCount) of `t` in
@@ -1096,6 +1130,17 @@ public:
     ResourceState state(Shader shader) const override;
     ResourceState state(Pipeline pipeline) const override;
 
+    // Ray tracing (vulkan_raytracing.cpp; ARCHITECTURE_RENDERING_RAYTRACING.md, "Vulkan"): VK_KHR_acceleration_structure
+    // and VK_KHR_ray_query, enabled at device creation only when the device has both, their features and core 1.2's
+    // bufferDeviceAddress. Without them every call is refused with the reason ray_tracing_status() gives.
+    bool ray_tracing_status(std::string* why) const override;
+    Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags) override;
+    Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) override;
+    Result<AccelStructure> make_accel_structure(const AccelStructureDesc& desc) override;
+    void destroy_accel_structure(AccelStructure accel) override;
+    ResourceState accel_structure_state(AccelStructure accel) const override;
+    std::uint32_t accel_scratch_alignment() const override { return scratchAlign_; }
+
     using Device::begin_commands;
     using Device::submit_token;
     CommandList& begin_commands(const char* label) override;
@@ -1189,6 +1234,8 @@ public:
     bool validation_active() const { return validation_; }
     bool synchronization_validation_active() const { return syncValidation_; }
     bool synchronization2_active() const { return fn_.vkCmdPipelineBarrier2 != nullptr; }
+    // VK_KHR_acceleration_structure, VK_KHR_ray_query and bufferDeviceAddress are enabled (ray_tracing_status).
+    bool ray_tracing_active() const { return rayTracing_; }
     // VK_KHR_portability_subset is on (MoltenVK).
     bool portability_subset() const { return portability_; }
     int frames_in_flight() const { return framesInFlight_; }
@@ -1368,7 +1415,37 @@ private:
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        VkAccelerationStructureKHR accel = VK_NULL_HANDLE;  // destroyed before `tracked` (its storage) goes
+        VkQueryPool queryPool = VK_NULL_HANDLE;             // a query_compacted_size's pool
     };
+    // An acceleration structure (vulkan_raytracing.cpp). `tracked` is its storage buffer (one of its own, or the
+    // caller's AccelStructureDesc::storage): the barriers of its builds and reads are that buffer's.
+    struct AccelRecord {
+        std::shared_ptr<TrackedResource> tracked;  // null when the creation failed
+        VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
+        VkDeviceAddress address = 0;  // what a TLAS instance names a BLAS by
+        AccelKind kind = AccelKind::Blas;
+        std::size_t size = 0;
+        std::string label;
+        // What its last build left (an update must match it; a copy inherits it).
+        bool built = false;
+        bool allowUpdate = false;
+        bool allowCompaction = false;
+        std::vector<std::uint32_t> primitiveCounts;  // BLAS: triangles per geometry
+        std::uint32_t instances = 0;                 // TLAS
+        // TLAS: the device-local buffer its instances are copied into before each build (grows; the old one is
+        // deferred), and how many instances it holds.
+        std::shared_ptr<TrackedResource> instanceBuffer;
+        std::uint32_t instanceCapacity = 0;
+        // What an update must keep (Vulkan: the flags and each geometry's vertex count, index type and opaque flag).
+        VkBuildAccelerationStructureFlagsKHR buildFlags = 0;
+        std::vector<std::uint64_t> geometryShapes;
+    };
+    // The sizes Vulkan answers for a build of `info` with `maxPrimitives[i]` primitives in geometry i.
+    AccelSizes build_sizes(const VkAccelerationStructureBuildGeometryInfoKHR& info,
+                           const std::uint32_t* maxPrimitives) const;
+    // A buffer's device address (made with SHADER_DEVICE_ADDRESS).
+    VkDeviceAddress buffer_address(VkBuffer buffer) const;
     struct FramebufferEntry {
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         std::vector<std::uint64_t> serials;  // the views it was made with
@@ -1553,6 +1630,16 @@ private:
     DeviceInfo info_{};
     Features features_{};
     Limits limits_{};
+    // Ray tracing (init_device): on when the device has every piece; otherwise rtWhy_ names the first one missing.
+    bool rayTracing_ = false;
+    bool rayTracingPipeline_ = false;  // VK_KHR_ray_tracing_pipeline exists (reported, never enabled)
+    // VK_KHR_ray_tracing_maintenance1 is on and so is synchronization2: vkCmdCopyAccelerationStructureKHR then runs in
+    // its own stage (VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR, which the legacy 32-bit stage flags
+    // lack); else it runs in the build stage. vulkan_raytracing.cpp, copy_accel_structure.
+    bool accelCopyStage_ = false;
+    std::string rtWhy_;
+    std::uint32_t scratchAlign_ = 256;
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR accelProps_{};
     EnvironmentDefaults defaults_{};
     std::array<PixelFormatCaps, std::size_t(PixelFormat::Count)> caps_{};
 
@@ -1567,6 +1654,7 @@ private:
     Pool<SamplerRecord> samplers_;
     Pool<ShaderRecord> shaders_;
     Pool<PipelineRecord> pipelines_;
+    Pool<AccelRecord> accels_;
 
     // The caches (cacheMutex_). The pipelines stay while a live shader has their code (codeUsers_), the layouts while
     // a shader or pipeline holds them (weak entries), the framebuffers until one of their views is destroyed; render
@@ -1771,6 +1859,19 @@ private:
 // to draw a point list: a store to a variable decorated BuiltIn PointSize, to that member of gl_PerVertex or to the whole
 // block. A declaration alone does not count (glslang declares the member in every vertex shader). vulkan_pipelines.cpp.
 bool spirv_writes_point_size(const std::vector<std::uint32_t>& words);
+
+// Moves the descriptor sets of a ray-query kernel's bindings where the backend's layout has them: `moves` maps a
+// (set << 8 | binding) the SPIR-V declares (OpDecorate DescriptorSet and Binding) to the set it goes to; the binding
+// number stays, and a pair `moves` does not name is left as it is. vulkan_pipelines.cpp.
+void move_descriptor_sets(std::vector<std::uint32_t>& words, const std::map<std::uint32_t, std::uint32_t>& moves);
+
+// The ray tracing Features and Limits of a device (init_caps; vulkan_raytracing.cpp): rayQuery, accelerationStructure
+// and bufferDeviceAddress are `rayTracing`, rayTracingPipeline is reported as found (never enabled), and the limits are
+// those of `props` (instances and geometries clamped to 32 bits; all 0 without ray tracing). Returns the alignment
+// accel_scratch_alignment() answers: at least 256, or the device's minAccelerationStructureScratchOffsetAlignment.
+std::uint32_t fill_ray_tracing_caps(bool rayTracing, bool rayTracingPipeline,
+                                    const VkPhysicalDeviceAccelerationStructurePropertiesKHR& props, Features& f,
+                                    Limits& l);
 
 // The platform's surfaces (vulkan_surface.cpp): the instance extension a surface on this platform's windows needs
 // (VK_KHR_win32_surface, VK_KHR_xlib_surface, VK_KHR_android_surface, VK_EXT_metal_surface; null where there is none),

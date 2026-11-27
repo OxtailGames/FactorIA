@@ -73,12 +73,21 @@ int MemoryAllocator::find_type(std::uint32_t typeBits, MemoryUse use) const {
     return -1;
 }
 
-Result<VkDeviceMemory> MemoryAllocator::allocate_memory(VkDeviceSize size, std::uint32_t type, std::uint8_t** mapped) {
+Result<VkDeviceMemory> MemoryAllocator::allocate_memory(VkDeviceSize size, std::uint32_t type, bool deviceAddress,
+                                                        std::uint8_t** mapped) {
     const VkFunctions& f = device_->fn();
     VkMemoryAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     ai.allocationSize = size;
     ai.memoryTypeIndex = type;
+    // A buffer with SHADER_DEVICE_ADDRESS usage (acceleration structures, their inputs and scratch) needs memory
+    // allocated with the device address flag (core 1.2 bufferDeviceAddress, enabled only with ray tracing).
+    VkMemoryAllocateFlagsInfo flags{};
+    if (deviceAddress) {
+        flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+        flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+        ai.pNext = &flags;
+    }
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkResult r = f.vkAllocateMemory(device_->vk_device(), &ai, nullptr, &memory);
     if (r != VK_SUCCESS)
@@ -107,7 +116,8 @@ void MemoryAllocator::free_memory(VkDeviceMemory memory, VkDeviceSize, bool mapp
     f.vkFreeMemory(device_->vk_device(), memory, nullptr);
 }
 
-Result<Allocation> MemoryAllocator::alloc(const VkMemoryRequirements& req, MemoryUse use, bool linear, bool dedicated) {
+Result<Allocation> MemoryAllocator::alloc(const VkMemoryRequirements& req, MemoryUse use, bool linear, bool dedicated,
+                                          bool deviceAddress) {
     const int type = find_type(req.memoryTypeBits, use);
     if (type < 0)
         return make_error("gpu vulkan: no memory type of " + device_->device_name() + " fits a " + use_name(use) +
@@ -123,7 +133,7 @@ Result<Allocation> MemoryAllocator::alloc(const VkMemoryRequirements& req, Memor
 
     if (dedicated || req.size >= dedicatedThreshold_ || req.size > blockBytes_) {
         std::uint8_t* mapped = nullptr;
-        auto m = allocate_memory(req.size, std::uint32_t(type), host ? &mapped : nullptr);
+        auto m = allocate_memory(req.size, std::uint32_t(type), deviceAddress, host ? &mapped : nullptr);
         if (!m) return m.error();
         a.memory = m.value();
         a.offset = 0;
@@ -139,11 +149,14 @@ Result<Allocation> MemoryAllocator::alloc(const VkMemoryRequirements& req, Memor
     std::lock_guard<std::mutex> lock(mutex_);
     int poolIndex = -1;
     for (std::size_t i = 0; i < pools_.size(); ++i)
-        if (pools_[i].type == std::uint32_t(type) && pools_[i].linear == linear) poolIndex = int(i);
+        if (pools_[i].type == std::uint32_t(type) && pools_[i].linear == linear &&
+            pools_[i].deviceAddress == deviceAddress)
+            poolIndex = int(i);
     if (poolIndex < 0) {
         BlockPool p;
         p.type = std::uint32_t(type);
         p.linear = linear;
+        p.deviceAddress = deviceAddress;
         pools_.push_back(std::move(p));
         poolIndex = int(pools_.size() - 1);
     }
@@ -173,7 +186,7 @@ Result<Allocation> MemoryAllocator::alloc(const VkMemoryRequirements& req, Memor
         if (pool.blocks[i]) placed = carve(*pool.blocks[i], int(i));
     if (!placed) {
         std::uint8_t* mapped = nullptr;
-        auto m = allocate_memory(blockBytes_, std::uint32_t(type), host ? &mapped : nullptr);
+        auto m = allocate_memory(blockBytes_, std::uint32_t(type), deviceAddress, host ? &mapped : nullptr);
         if (!m) return m.error();
         auto b = std::make_unique<Block>();
         b->memory = m.value();
@@ -328,12 +341,19 @@ std::size_t UploadRing::in_use() const {
 namespace {
 
 const VkDescriptorType kKindTypes[kDescKinds] = {
-    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          VK_DESCRIPTOR_TYPE_SAMPLER,
-    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+    VK_DESCRIPTOR_TYPE_SAMPLER,
+    VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+    VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
 };
 const char* const kKindNames[kDescKinds] = {
-    "sampled image", "sampler", "storage image", "storage buffer", "dynamic uniform buffer", "combined image-sampler",
+    "sampled image",          "sampler",
+    "storage image",          "storage buffer",
+    "dynamic uniform buffer", "combined image-sampler",
+    "acceleration structure",
 };
 
 // The bindless table's layout: `count` sampled images in binding 0, partially bound and updated after bind. The
@@ -375,11 +395,15 @@ bool DescriptorPools::bindless_supported(const VulkanDevice& device, std::uint32
 
 Result<VkDescriptorPool> DescriptorPools::make_pool() const {
     VkDescriptorPoolSize sizes[kDescKinds]{};
-    for (int k = 0; k < kDescKinds; ++k) sizes[k] = {kKindTypes[k], perKind_};
+    // Acceleration structure descriptors only on a device that enabled VK_KHR_acceleration_structure (the type is
+    // invalid without it); the kind is the last one, so it is left out by the count.
+    const std::uint32_t kinds =
+        device_->ray_tracing_active() ? std::uint32_t(kDescKinds) : std::uint32_t(kDescKinds - 1);
+    for (std::uint32_t k = 0; k < kinds; ++k) sizes[k] = {kKindTypes[k], perKind_};
     VkDescriptorPoolCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     ci.maxSets = maxSets_;
-    ci.poolSizeCount = kDescKinds;
+    ci.poolSizeCount = kinds;
     ci.pPoolSizes = sizes;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     const VkResult r = device_->fn().vkCreateDescriptorPool(device_->vk_device(), &ci, nullptr, &pool);

@@ -33,8 +33,9 @@ inline constexpr int kMaxVertexBuffers = 8;      // vertex buffer slots of Bindi
 inline constexpr int kMaxUniformBlocks = 8;      // uniform block slots of a shader (CommandList::set_uniforms)
 inline constexpr int kMaxViews = 32;             // view slots of a shader / Bindings (textures, storage)
 inline constexpr int kMaxSamplers = 12;          // sampler slots of a shader / Bindings
-inline constexpr int kMaxTextureSamplerPairs = 32;  // texture-sampler pairs of a shader (GL combines them)
-inline constexpr int kInflightFrames = 2;           // frames the CPU may record ahead of the GPU (sokol's value)
+inline constexpr int kMaxTextureSamplerPairs = 32;    // texture-sampler pairs of a shader (GL combines them)
+inline constexpr int kMaxAccelStructureBindings = 4;  // acceleration structure slots of a shader / Bindings (M79)
+inline constexpr int kInflightFrames = 2;             // frames the CPU may record ahead of the GPU (sokol's value)
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Handles
@@ -56,6 +57,9 @@ using View = Handle<struct ViewTag>;          // how a pass or a shader sees an 
 using Sampler = Handle<struct SamplerTag>;    // filtering and addressing state
 using Shader = Handle<struct ShaderTag>;      // a compiled program and its reflection
 using Pipeline = Handle<struct PipelineTag>;  // a shader plus the fixed-function state it draws (or dispatches) with
+// A ray tracing acceleration structure (M79, gpu/accel.h): a BLAS (the triangles of one mesh) or a TLAS (instances of
+// BLASes with a transform each). A compute shader traces rays against a TLAS with an inline ray query.
+using AccelStructure = Handle<struct AccelStructureTag>;
 
 // A pointer and a size: data the call reads (and never keeps).
 struct Range {
@@ -389,6 +393,19 @@ struct Features {
                             // from any thread, record in parallel); false = the render thread's list only
     bool bindless = false;  // Device::bindless_index(view) names the view's slot in the global table that
                             // shaders index; false = no table, bindless_index() answers kNoBindlessIndex
+    // M79 ray tracing (the contract is in gpu/accel.h and docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md). Every one
+    // is false on the GL, GLES3, WebGL2, D3D11 and RecordingDevice (default caps) devices, and on a D3D12, Vulkan or
+    // Metal device whose GPU (and OS) cannot trace.
+    bool rayQuery = false;               // a compute shader can trace rays with an inline ray query (DXR 1.1
+                                         // RayQuery, GL_EXT_ray_query, Metal intersector); no RT pipelines
+    bool accelerationStructure = false;  // make_accel_structure / build_blas / build_tlas work
+    bool rayTracingPipeline = false;     // the GPU has RT pipelines and shader tables: reported only, the engine
+                                         // never uses them (decision D1: inline ray query only)
+    bool bufferDeviceAddress = false;    // a buffer has an explicit GPU address a shader or a build can be handed
+                                         // (Vulkan's bufferDeviceAddress, D3D12's GPU virtual address). Only that: the
+                                         // acceleration structure calls never need it (Metal binds by index and answers
+                                         // false), so a buffer with usage accelBuildInput, accelStorage or accelScratch
+                                         // is valid on every device that has accelerationStructure
 };
 
 // Limits of the device (sg_limits).
@@ -407,6 +424,10 @@ struct Limits {
     int glMaxCombinedTextureImageUnits = 0;     // GL only
     int d3d11MaxUnorderedAccessViews = 0;       // D3D11 only
     int vkMinUniformBufferOffsetAlignment = 0;  // Vulkan only
+    // M79 ray tracing: per acceleration structure; 0 = no ray tracing (Features::accelerationStructure is false)
+    std::uint32_t maxAccelInstances = 0;   // instances of one TLAS
+    std::uint32_t maxAccelGeometries = 0;  // triangle geometries of one BLAS
+    std::uint64_t maxAccelPrimitives = 0;  // triangles of one BLAS (all its geometries)
 };
 
 // The maker of the GPU (M78: a vendor SDK such as DLSS, XeSS or FSR runs on its own vendor's GPUs only).
@@ -483,6 +504,11 @@ struct BufferUsage {
     bool writeTransient = false;      // rewritten every frame with CommandList::write_buffer
     bool copySrc = false;             // a source of copy_buffer_to_buffer / copy_buffer_to_image
     bool copyDst = false;             // a destination of copy_buffer_to_buffer
+    // M79 ray tracing (Features::accelerationStructure): the usages an acceleration structure build asks of a buffer
+    bool accelBuildInput = false;  // vertex, index or instance data a build reads (BLAS triangles); a vertexBuffer or
+                                   // indexBuffer that is also accelBuildInput can still be drawn from
+    bool accelStorage = false;     // the memory an acceleration structure lives in (make_accel_structure takes it)
+    bool accelScratch = false;     // the scratch memory of a build (size from Device::accel_*_sizes, offset aligned)
 };
 
 // A buffer (sg_buffer_desc). `size` 0 = data.size. Without writeTransient/copyDst the buffer is immutable and needs
@@ -568,6 +594,12 @@ struct ViewDesc {
     struct BufferView {
         Buffer buffer{};
         int offset = 0;  // bytes (a multiple of 256 for portability)
+        // 0: a raw view (the shader declares a ByteAddressBuffer or a sokol-shdc storage buffer). More than 0: a
+        // structured view of elements of this many bytes (a multiple of 4, at most 2048 as D3D12 allows), for a shader
+        // that declares StructuredBuffer<T> / RWStructuredBuffer<T>: D3D12 needs the view's kind to match the
+        // declaration (the debug layer reports a raw view read as structured). `offset` is then a multiple of it too.
+        // The other backends bind the same bytes either way and ignore it.
+        int structureStride = 0;
     };
     struct ImageView {
         Image image{};
@@ -603,7 +635,9 @@ struct BackendBinding {
     std::uint8_t hlslSpace = 0;    // D3D12: register space (space0 for every shader sokol-shdc writes)
     std::uint8_t mslIndex = 0;     // Metal: [[buffer(n)]], [[texture(n)]] or [[sampler(n)]]
     std::uint8_t wgslBinding = 0;  // WebGPU: binding in its group (0 for uniform blocks, 1 for the rest)
-    std::uint8_t spirvSet = 0;     // Vulkan: descriptor set (sokol-shdc: 0 for uniform blocks, 1 for the rest)
+    // Vulkan: descriptor set where the SPIR-V declares it (sokol-shdc: 0 for uniform blocks, 1 for the rest; a compute
+    // shader may name any set, the backend moves it)
+    std::uint8_t spirvSet = 0;
     std::uint8_t spirvBinding = 0;  // Vulkan: binding in that set
     std::uint8_t glslBinding = 0;   // GL: binding point (storage buffers and storage images)
 };
@@ -686,6 +720,15 @@ struct ShaderSampler {
     BackendBinding binding{};  // hlslRegister = s<n>, mslIndex = sampler(n), spirvSet 1
 };
 
+// One acceleration structure slot of a compute shader (index = the slot Bindings::accelStructures names): the TLAS an
+// inline ray query traces against. `stage` None = the slot is unused; only ShaderStage::Compute is accepted.
+struct ShaderAccelStructure {
+    ShaderStage stage = ShaderStage::None;
+    BackendBinding binding{};  // hlslRegister = t<n> (RaytracingAccelerationStructure), mslIndex = buffer(n)
+    // (instance_acceleration_structure), spirvSet + spirvBinding = where the SPIR-V declares it
+    // (accelerationStructureEXT; any set for a compute kernel, which the Vulkan backend moves into set 1)
+};
+
 // Which texture slot is sampled with which sampler slot (GL combines them into one sampler2D named glslName).
 struct ShaderTextureSamplerPair {
     ShaderStage stage = ShaderStage::None;
@@ -708,6 +751,10 @@ struct ShaderDesc {
     ShaderTextureSamplerPair textureSamplerPairs[kMaxTextureSamplerPairs]{};
     int mtlThreadsPerThreadgroup[3]{};  // Metal compute: the threadgroup size (x, y, z)
     const char* label = "";
+    // M79 ray tracing. A ray-query kernel is an ordinary compute shader (ShaderStage::Compute: SPIR-V with
+    // OpRayQuery*, DXIL with RayQuery<>, MSL with intersector<>): computeFunc carries it, and these say what it adds.
+    bool usesRayQuery = false;  // the kernel traces rays: make_shader needs Features::rayQuery
+    ShaderAccelStructure accelStructures[kMaxAccelStructureBindings]{};
 
     bool compute() const { return computeFunc.source != nullptr || computeFunc.bytecode.ptr != nullptr; }
 };
@@ -826,6 +873,7 @@ struct Bindings {
     int indexBufferOffset = 0;
     View views[kMaxViews]{};
     Sampler samplers[kMaxSamplers]{};
+    AccelStructure accelStructures[kMaxAccelStructureBindings]{};  // compute only: the TLAS of each declared slot
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

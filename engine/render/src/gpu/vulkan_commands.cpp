@@ -758,6 +758,9 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
     BoundBuffer ib;
     BoundView views[kMaxViews];
     VkSampler samplers[kMaxSamplers]{};
+    // A ray-query kernel's TLAS per slot: its storage (what the dispatch's barrier names) and its handle.
+    std::shared_ptr<TrackedResource> accelTracked[kMaxAccelStructureBindings];
+    VkAccelerationStructureKHR accels[kMaxAccelStructureBindings]{};
     std::string error;
     auto bad = [&](const std::string& e) {
         if (error.empty()) error = e;
@@ -871,6 +874,38 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
             else
                 samplers[i] = r->sampler;
         }
+        for (int i = 0; i < kMaxAccelStructureBindings && error.empty(); ++i) {
+            const AccelStructure a = b.accelStructures[i];
+            const std::string what = "accelStructures[" + std::to_string(i) + "]";
+            if (!((lay.accelUsed >> i) & 1u)) {
+                if (a.id != 0)
+                    bad(what + " is bound but " + shaderName +
+                        " declares no acceleration structure there (hint: leave the acceleration structure slots the "
+                        "shader does not declare empty)");
+                continue;
+            }
+            const VulkanDevice::AccelRecord* r = device_.accels_.get(a.id);
+            if (a.id == 0)
+                bad(what + " is empty and " + shaderName +
+                    " declares a TLAS there (hint: bind a live, built TLAS in every acceleration structure slot the "
+                    "shader declares)");
+            else if (!r || !r->tracked)
+                bad(what + " (acceleration structure " + std::to_string(a.id) +
+                    ") is not a live acceleration structure (hint: bind a live, built TLAS)");
+            else if (r->kind != AccelKind::Tlas)
+                bad(what + " is the BLAS '" + r->label +
+                    "', but a ray query traces against a TLAS (hint: build a TLAS over it with build_tlas, one "
+                    "instance "
+                    "with the identity transform will do, and bind that)");
+            else if (!r->built)
+                bad(what + " is the TLAS '" + r->label +
+                    "', which build_tlas has not built yet (hint: record build_tlas on the structure before the "
+                    "dispatch that traces it)");
+            else {
+                accelTracked[i] = r->tracked;
+                accels[i] = r->handle;
+            }
+        }
     }
     if (!error.empty()) {
         drawsFailed_ = true;
@@ -902,6 +937,16 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
     for (int i = 0; i < kMaxVertexBuffers && error.empty(); ++i)
         if (vbs[i].t) need(vbs[i].t, 0, 1, 0, 1, kVertexBufferState, error);
     if (error.empty() && ib.t) need(ib.t, 0, 1, 0, 1, kIndexBufferState, error);
+    // A traced TLAS: its build (AS_BUILD, AS_WRITE) is made visible to the compute shader's ray queries. The BLASes it
+    // names were made visible to compute when build_tlas read them (accel_read_state there).
+    for (int i = 0; i < kMaxAccelStructureBindings && error.empty(); ++i) {
+        if (!accelTracked[i]) continue;
+        need(accelTracked[i], 0, 1, 0, 1,
+             {VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+              VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR},
+             error);
+        if (!error.empty()) error = "accelStructures[" + std::to_string(i) + "]: " + error;
+    }
     if (!error.empty()) {
         drawsFailed_ = true;
         fail("set_bindings", error);
@@ -920,7 +965,8 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
         }
         VkDescriptorImageInfo images[kMaxViews + kMaxSamplers]{};
         VkDescriptorBufferInfo buffers[kMaxViews]{};
-        VkWriteDescriptorSet writes[kMaxViews + kMaxSamplers]{};
+        VkWriteDescriptorSetAccelerationStructureKHR accelWrites[kMaxAccelStructureBindings]{};
+        VkWriteDescriptorSet writes[kMaxViews + kMaxSamplers + kMaxAccelStructureBindings]{};
         std::uint32_t n = 0, ni = 0, nb = 0;
         for (int i = 0; i < kMaxViews; ++i) {
             const BoundView& v = views[i];
@@ -952,6 +998,20 @@ void VulkanCommandList::set_bindings(const Bindings& b) {
             w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
             images[ni] = {samplers[i], VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
             w.pImageInfo = &images[ni++];
+        }
+        for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+            if (!accels[i]) continue;
+            VkWriteDescriptorSetAccelerationStructureKHR& a = accelWrites[i];
+            a.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+            a.accelerationStructureCount = 1;
+            a.pAccelerationStructures = &accels[i];
+            VkWriteDescriptorSet& w = writes[n++];
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.pNext = &a;
+            w.dstSet = *set;
+            w.dstBinding = lay.accelBinding[i];
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         }
         if (n > 0) f.vkUpdateDescriptorSets(device_.device_, n, writes, 0, nullptr);
         viewSet_ = *set;  // bound by ready_to_run, after set 0

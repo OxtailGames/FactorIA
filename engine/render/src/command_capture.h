@@ -49,6 +49,13 @@ public:
     void end_timed_scope() override;
     // A capture is replayed later and on another thread: native commands cannot be kept (the answer names the capture).
     Result<gpu::NativeCommands> begin_native(std::span<const gpu::NativeUse> uses) override;
+    // Acceleration structure builds and copies are not captured either: they take the resources' backing memory and
+    // scratch of the real device, in an order a replay on another thread cannot keep (the answer names the capture).
+    Result<void> build_blas(const gpu::BlasBuild& build) override;
+    Result<void> build_tlas(const gpu::TlasBuild& build) override;
+    Result<void> query_compacted_size(gpu::AccelStructure blas, gpu::Buffer dst, std::size_t dstOffset) override;
+    Result<void> copy_accel_structure(gpu::AccelStructure src, gpu::AccelStructure dst,
+                                      gpu::AccelCopyMode mode) override;
 
     // Records every captured call on `list`, in order. Reads only this capture (any thread, once the capture is done).
     void replay(gpu::CommandList& list) const;

@@ -44,8 +44,8 @@ void run_pass(gpu::CommandList& list, Gpu& gpu, const Target& dst, SsaoStage sta
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_ssao_pre_tex] = pre;
-    b.views[VIEW_ssao_ao_tex] =
-        ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
+    if (ao.id)
+        b.views[VIEW_ssao_ao_tex] = ao;  // the search has no occlusion image yet and its program declares no such slot
     b.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     ssao_ssao_vs_params_t vu{};
@@ -89,6 +89,43 @@ SsaoSettings ssao_debug_settings(const SsaoSettings& own) {
     s.enabled = true;
     s.view = true;
     return s;
+}
+
+SsaoSettings ssao_rt_settings(const SsaoSettings& own) {
+    SsaoSettings s = own;
+    if (!own.enabled) {
+        const PostProcess defaults;
+        s.quality = int(defaults.ssaoQuality);
+        s.intensity = defaults.ssaoIntensity;
+        s.radius = defaults.ssaoRadius;
+    }
+    // The ray's reach and the power come from the same ranges add_passes uses (a NaN or an out of range number never reaches the kernel).
+    s.intensity = std::clamp(finite_or(s.intensity, 1.0f), 0.0f, kMaxIntensity);
+    s.radius = std::clamp(finite_or(s.radius, 0.5f), kMinRadius, kMaxRadius);
+    s.enabled = true;
+    return s;
+}
+
+bool Ssao::apply_available(Gpu& gpu) {
+    const gpu::PixelFormatCaps fmtInfo = gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba16F);
+    return fmtInfo.render && fmtInfo.blend && fmtInfo.filter && gpu.ssao_ready();
+}
+
+SsaoApply ssao_apply_for_image(const SsaoSettings& s, const SsaoCamera& cam, bool linear, bool gl, ResourceId ao,
+                               gpu::View aoView, ResourceId prepass, int w, int h) {
+    SsaoApply a;
+    a.valid = true;
+    a.ao = ao;
+    a.aoView = aoView;
+    a.prepass = prepass;
+    a.power = s.intensity * kPower * (linear || s.view ? 1.0f : 1.0f / kGamma);
+    a.scale = 1.0f;
+    const float sizes[4] = {float(w), float(h), float(w), float(h)};
+    const float cam4[4] = {cam.halfX, cam.halfY, cam.ortho ? 1.0f : 0.0f, gl ? 1.0f : 0.0f};
+    std::copy(sizes, sizes + 4, a.sz);
+    std::copy(cam4, cam4 + 4, a.cam);
+    a.view = s.view;
+    return a;
 }
 
 SsaoCamera ssao_camera(const CameraGeometry& cam) {

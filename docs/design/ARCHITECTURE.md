@@ -19,10 +19,20 @@ layout, the AI integration, the feedback loop and the testing rules; the rest is
 - [Rendering, the D3D12 backend](ARCHITECTURE_RENDERING_D3D12.md): the engine's own Direct3D 12 device (M77): descriptors and heaps, shaders and pipelines, passes, timers, asynchronous reads, the window, its tests.
 - [Rendering, the Vulkan backend](ARCHITECTURE_RENDERING_VULKAN.md): the engine's own Vulkan device (M77): loading without a link, memory, barriers, uploads, descriptors, SPIR-V shaders, layouts, pipelines, render passes, the command list, its tests.
 - [Rendering, device hooks for vendor SDKs](ARCHITECTURE_RENDERING_HOOKS.md): how Streamline, FidelityFX and XeSS take part (and the low-latency seam, "Low latency (M78)") in making the D3D12 and Vulkan devices and swapchains (M78): extensions, features and queues, wrapped functions and objects, swapchains made or wrapped, present callbacks, degrading without failing.
+- [Rendering, the ray tracing seam](ARCHITECTURE_RENDERING_RAYTRACING.md): the acceleration structure calls of `fa::gpu` (M79): inline ray query only, sizes, barriers, the RecordingDevice checks, the `raytracing` supports rows, the settings, the route Metal takes.
+- [Rendering, the scene's acceleration structures](ARCHITECTURE_RT_SCENE.md): what the renderer puts in the BLASes and the TLAS each frame (M79-P1s): one BLAS per submesh and its compaction, the instances traced and skipped, the cap, the mask bits, the per-instance record buffer, the floating origin, the tests.
+- [Rendering, the ray traced effects](ARCHITECTURE_RT_EFFECTS.md): the scaffold every ray traced effect shares (M79-P2a-1): the pass, the bindings of every kernel in each backend, the 400-byte constants, the kernel table and how to add a row, hard shadows and how the lit pass reads them, the fallbacks, the tests.
+- [Rendering, ray traced shadows of point, spot and area lights](ARCHITECTURE_RT_SHADOWS.md): which lights are traced (cap 3, sticky slots), the two kernels and the packed image, the denoiser signal, how the lit pass reads it, the maps that are skipped, the fallbacks (M79-P2a-3).
+- [Rendering, the ray traced translucency](ARCHITECTURE_RT_TRANSLUCENCY.md): refraction through glass and liquids (M79-P3b): the glass instance (mask `0x40`, the 128-byte record), the Snell and Beer-Lambert kernel, the hybrid output, how the refraction copy hands it to the glass shader, the fallbacks, the tests.
+- [Rendering, the realtime GI probes updated by rays](ARCHITECTURE_RT_GI.md): `gi = "probes"` (M79-P4a): the inline-ray kernel that updates the probes of the `RealtimeGI` grids, the per-frame budget, the band image and its blend into the atlas, the SH, depth and back-face texels, the front-face sense per backend, the fallbacks, the tests, and what P4b can reuse.
+- [Rendering, the path tracer](ARCHITECTURE_RT_PATHTRACER.md): the reference mode (M79-P5a): the unidirectional kernel and its bindings, the accumulation and its reset reasons, how the image is drawn over the main pass, `render.pathTracer`, `render.pathtrace`, the limits, the tests.
+- [Rendering, the ray tracing kernels](ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md): the ray query kernels of M79 (D3D12, Vulkan, Metal): why HLSL through DXC plus a hand-written MSL twin, `factoria setup dxc`, `compile_rt_shaders.sh` and the committed headers, what the Linux and Windows CI jobs check.
 - [Rendering on several queues and threads](ARCHITECTURE_RENDERING_QUEUES.md): the shadow views recorded on job threads, the depth pyramid on the async compute queue, the switches and why the picture stays the same (M77-P10d).
+- [Rendering, the thin G-buffer](ARCHITECTURE_RENDERING_GBUFFER.md): the albedo and material images drawn after the prepass only when something asks (DLSS Ray Reconstruction guides, the debug views albedo and material, M79-P0c): formats, what each draw writes, the request, the tests.
 - [Rendering, the PostProcess stack](ARCHITECTURE_POSTPROCESS.md): the linear HDR frame, the `PostProcess` data, the effect order and the CPU resolve, the stack's passes, history and the final pass.
 - [Rendering, the post-processing effects](ARCHITECTURE_RENDERING_POST.md): the grading and lens effects, radial blur and transient screen effects, outline, ambient occlusion, prepass, depth of field, the MetalFX wrapper and the renderer's MetalFX stage.
 - [Rendering, motion vectors and temporal antialiasing](ARCHITECTURE_RENDERING_TEMPORAL.md): the camera jitter, the velocity image and who writes it (meshes, skinned meshes, sprites, particles, the reactive mask), the temporal antialiasing resolve, the texture LOD bias (M76).
+- [Rendering, the ray tracing denoiser](ARCHITECTURE_DENOISE.md): the spatio-temporal denoiser of the M79 ray traced signals (shadows, occlusion, diffuse, specular): the guide, temporal and a-trous passes, the history and its reset rules, the budget, the debug views, the tests (M79-P1n).
 - [Baked lighting: the CPU lightmap baker](ARCHITECTURE_BAKING.md): the triangle BVH, the path tracer, the lightmap and probe API, the determinism rules.
 - [Rendering, the lighting of M73](ARCHITECTURE_RENDERING_LIGHTING.md): the shader files of the mesh program, the texture slots, the feature rows and the new fields.
 - [Rendering, the 2D global illumination field](ARCHITECTURE_RENDERING_GI2D.md): the emission, occluder and distance images of a 2D camera, the contract the radiance cascades read ("2D GI field: what P3b reads"), snapping, caps.
@@ -88,7 +98,7 @@ tools/             developer tools (desktop only)
   vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
   bench/           fa_bench    the engine's microbenchmarks (ECS queries, hierarchy, physics, render gather, command dispatch, script bridge, audio mix) with a baseline per machine kind (docs/PERFORMANCE.md, "Microbenchmarks")
   fuzz/            fuzz targets of the loaders and decoders (libFuzzer with `FA_FUZZ`, a corpus replay ctest otherwise; docs/design/BUILDING_TESTS.md, "Fuzzing")
-  shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc
+  shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc; compile_rt_shaders.sh: the ray tracing kernels (DXC)
   feedback-server/ the Cloudflare Worker behind feedback sharing (JavaScript, its own npm tooling; docs/design/FEEDBACK_SHARING.md)
   ci/              docker/: the image of the local Linux CI job (scripts/ci-local.sh)
 templates/         project templates used by `factoria new`
@@ -210,8 +220,10 @@ becomes the engine roadmap.
   (`cmake/fa_doctest_split_check.cmake`, plain CMake) fails unless the entries together list exactly the test cases of the
   whole executable, each once. Entries run at the same time, so two test cases never share a fixed name outside their
   process: temp folders come from `fa::fs::make_temp_dir` (they carry the process id) and servers bind port 0. The one
-  fixed name is `~/Library/Containers/com.factoria.sandboxprobe`, the container of `sign.macos`'s sandboxed app: one
-  test case uses it, so one entry. `ctest -L tooling` runs the five entries and the check.
+  shared name is the container of `sign.macos`'s sandboxed app in `~/Library/Containers`: that test case takes one of
+  16 slot ids `com.factoria.sandboxprobe0` to `15` with an `flock` on `~/Library/Caches/FactorIA/sandboxprobe-slot<N>.lock`
+  (held until it ends, so checkouts running at once never share a container; macOS keeps the empty folder of a
+  container, so the ids are slots and not pids). `ctest -L tooling` runs the five entries and the check.
 - Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus the menus and export goldens in
   `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
   mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of

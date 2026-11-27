@@ -476,17 +476,15 @@ TEST_CASE(
     const std::string refused = all_errors(*dev);
     for (const char* call : {"write_buffer", "copy_buffer_to_buffer", "write_image", "copy_buffer_to_image"})
         CHECK_MESSAGE(contains(refused, std::string("CommandList::") + call +
-                                            " in list 'native-misuse': a native "
-                                            "section is open (hint: end_native() "
-                                            "first; the call is skipped)"),
-                      call);
+                                            " in list 'native-misuse': a native section is open"),
+                      call);  // the key phrase; the hint's wording is not matched
     auto closed = list.end_native();
     CHECK_MESSAGE(closed, closed.error().to_string());  // still open: the refused calls did not close it
     n = list.begin_native(one);
     REQUIRE_MESSAGE(n, n.error().to_string());
     submit_and_finish(*dev, list);
     const std::string errors = all_errors(*dev);
-    CHECK(contains(errors, "a native section is open (hint: end_native() first"));
+    CHECK(contains(errors, "a native section is open"));
     CHECK(contains(errors, "still has a native section open"));
 
     // A submitted list records nothing: begin_native says so instead of opening a section on it.

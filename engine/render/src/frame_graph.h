@@ -111,6 +111,9 @@ public:
 
     // Adds a pass; passes run in declaration order unless a dependency says otherwise. Returns its index.
     int add_pass(GraphPass pass);
+    // Adds `before` to the `after` list of the declared pass named `pass` (for an order only known once later passes are declared: a pass that must run
+    // after a pass the renderer declares further on). The name `before` must be declared by compile(). False when no pass has that name.
+    bool add_after(const std::string& pass, const std::string& before);
 
     // What compile() does with a cycle (see "Cycles" above); Error until set.
     void set_cycle_policy(CyclePolicy policy) { cyclePolicy_ = policy; }

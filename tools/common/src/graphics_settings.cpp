@@ -12,6 +12,7 @@
 #include "fa/render/framegen.h"
 #include "fa/render/graphics_preset.h"
 #include "fa/render/latency.h"
+#include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
 #include "fa/tooling/json_patch.h"
 
@@ -49,6 +50,9 @@ Json frame_gen_json(const GraphicsSettings& s) {
     return j;
 }
 
+Json ray_tracing_json(const GraphicsSettings& s) { return render::ray_tracing_to_json(s.rayTracing); }
+Json path_tracer_json(const GraphicsSettings& s) { return render::path_tracer_to_json(s.pathTracer); }
+
 // The render.supports row (feature name) of a frame-generation SDK mode, or null for off and auto.
 const char* frame_gen_row_name(const std::string& mode) {
     return mode == "dlss" ? "dlssFrameGen" : mode == "fsr" ? "fsrFrameGen" : mode == "xess" ? "xessFrameGen" : nullptr;
@@ -65,6 +69,58 @@ std::string fixed1(double v) {
 const std::vector<std::string>& frame_gen_modes() {
     static const std::vector<std::string> v(render::kFrameGenModeNames.begin(), render::kFrameGenModeNames.end());
     return v;
+}
+
+const std::vector<std::string>& ray_tracing_shadow_modes() {
+    static const std::vector<std::string> v(render::kRtShadowsNames.begin(), render::kRtShadowsNames.end());
+    return v;
+}
+const std::vector<std::string>& ray_tracing_gi_modes() {
+    static const std::vector<std::string> v(render::kRtGiNames.begin(), render::kRtGiNames.end());
+    return v;
+}
+
+RayTracingSupport ray_tracing_support(const Json& supportsReport) {
+    RayTracingSupport r;
+    const auto features = supportsReport.is_object() ? supportsReport.find("features") : supportsReport.end();
+    if (features == supportsReport.end() || !features->is_array()) {
+        r.usable = false;
+        r.why = "The editor has no GPU to ask whether this machine can trace rays.";
+        return r;
+    }
+    for (const Json& f : *features) {
+        if (!f.is_object() || f.value("name", std::string()) != "raytracing") continue;
+        r.usable = f.value("supported", false);
+        if (!r.usable)
+            r.why = f.value("status", std::string("This device cannot trace rays.")) +
+                    " Choose a backend that traces with graphics.backend (d3d12 or vulkan on Windows, vulkan on "
+                    "Linux and Android, metal on macOS and iOS).";
+        return r;
+    }
+    r.usable = false;
+    r.why = "This engine has no ray tracing row in render.supports.";
+    return r;
+}
+
+std::string ray_tracing_preset_note(const GraphicsSettings& s) {
+    const auto preset = render::parse_graphics_preset(s.preset);
+    if (!preset || *preset == render::GraphicsPreset::Custom || !s.rayTracing.enabled) return {};
+    const render::RayTracingSettings eff =
+        render::apply_quality_to_ray_tracing(s.rayTracing, render::graphics_preset_table(*preset).limits);
+    if (eff == s.rayTracing) return {};
+    std::string dropped;
+    const auto add = [&](const char* what) { dropped += (dropped.empty() ? "" : ", ") + std::string(what); };
+    if (eff.shadows != s.rayTracing.shadows)
+        add(eff.shadows == render::RtShadows::Off ? "shadows (off)" : "shadows (hard)");
+    if (eff.ao != s.rayTracing.ao) add("ao");
+    if (eff.reflections != s.rayTracing.reflections) add("reflections");
+    if (eff.translucency != s.rayTracing.translucency) add("translucency");
+    if (eff.gi != s.rayTracing.gi) add(eff.gi == render::RtGi::Off ? "gi (off)" : "gi (probes)");
+    if (eff.raysPerPixel != s.rayTracing.raysPerPixel)
+        add(("raysPerPixel (" + std::to_string(eff.raysPerPixel) + ")").c_str());
+    return "The preset \"" + s.preset + "\" caps the ray tracing of a run: " + dropped +
+           ". These settings are the project's own; the preset only lowers them while it is on, and never turns an "
+           "effect on.";
 }
 
 FrameGenModeSupport frame_gen_mode_support(const Json& supportsReport, const std::string& mode) {
@@ -231,6 +287,26 @@ std::vector<GraphicsSettingsProblem> check_graphics_settings(const GraphicsSetti
         if (!r.ok())
             out.push_back({std::string("/render/frameGeneration/") + key, r.error().message + " " + r.error().hint});
     }
+    // The ray tracing and the path tracer, one key at a time. The values are typed, so only a number that is not finite can be wrong; a
+    // whole number outside its range is clamped by the engine, never an error.
+    for (const char* key :
+         {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"}) {
+        Json one = Json::object();
+        one[key] = ray_tracing_json(s)[key];
+        auto r = render::parse_ray_tracing_settings(one, std::string(kFile) + "#/render/rayTracing", {});
+        if (!r.ok())
+            out.push_back({std::string("/render/rayTracing/") + key, r.error().message + " " + r.error().hint});
+    }
+    for (const char* key :
+         {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"}) {
+        Json one = Json::object();
+        one[key] = path_tracer_json(s)[key];
+        if (std::string(key) == "fireflyClamp" && !std::isfinite(double(s.pathTracer.fireflyClamp)))
+            one[key] = "not a number";
+        auto r = render::parse_path_tracer_settings(one, std::string(kFile) + "#/render/pathTracer", {});
+        if (!r.ok())
+            out.push_back({std::string("/render/pathTracer/") + key, r.error().message + " " + r.error().hint});
+    }
     return out;
 }
 
@@ -285,6 +361,16 @@ Result<GraphicsSettings> graphics_settings_from_json(const Json& json, const std
         s.frameGenMode = std::string(render::frame_gen_mode_name(parsed->mode));
         s.frameGenMinBaseFps = parsed->minBaseFps;
     }
+    if (auto rt = render->find("rayTracing"); rt != render->end() && !rt->is_null()) {
+        auto parsed = render::parse_ray_tracing_settings(*rt, file + "#/render/rayTracing", {});
+        if (!parsed.ok()) return parsed.error();
+        s.rayTracing = *parsed;
+    }
+    if (auto pt = render->find("pathTracer"); pt != render->end() && !pt->is_null()) {
+        auto parsed = render::parse_path_tracer_settings(*pt, file + "#/render/pathTracer", {});
+        if (!parsed.ok()) return parsed.error();
+        s.pathTracer = *parsed;
+    }
     return s;
 }
 
@@ -308,9 +394,11 @@ struct KeyOp {
 };
 
 // Patches the keys `ops` name into <projectDir>/factoria.json (the others, the order and the formatting stay) and
-// answers whether the file changed. `preset`, `upscaler`, `dynamic`, `latency` and `frameGen` are the five keys of `render`.
+// answers whether the file changed. `preset`, `upscaler`, `dynamic`, `latency`, `frameGen`, `rayTracing` and `pathTracer` are the seven keys of
+// `render`.
 Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& preset, const KeyOp& upscaler,
-                               const KeyOp& dynamic, const KeyOp& latency, const KeyOp& frameGen) {
+                               const KeyOp& dynamic, const KeyOp& latency, const KeyOp& frameGen,
+                               const KeyOp& rayTracing, const KeyOp& pathTracer) {
     const std::string path = project_file_path(projectDir);
     // The raw bytes, so a UTF-8 BOM the file starts with is written back (read_text drops it).
     auto bytes = fs::read_bytes(path);
@@ -346,6 +434,8 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
     apply("dynamicResolution", dynamic);
     apply("latency", latency);
     apply("frameGeneration", frameGen);
+    apply("rayTracing", rayTracing);
+    apply("pathTracer", pathTracer);
     if (render.empty()) {
         // Would `render` be empty afterwards? Then the key goes too.
         if (hasRender) ops.push_back({{"render"}, std::nullopt});
@@ -360,6 +450,8 @@ Result<bool> patch_render_keys(const std::string& projectDir, const KeyOp& prese
         push("dynamicResolution", dynamic);
         push("latency", latency);
         push("frameGeneration", frameGen);
+        push("rayTracing", rayTracing);
+        push("pathTracer", pathTracer);
     }
     auto patched = patch_json_text(hasBom ? rawText.substr(3) : rawText, ops, path);
     if (!patched.ok()) return patched.error();
@@ -377,6 +469,16 @@ KeyOp set_or_remove(bool isDefault, const Json& value) {
     return op;
 }
 
+// The op for a block of keys: only the keys of `value` that differ from `defaults` stay; none left removes the block.
+KeyOp block_op(const Json& value, const Json& defaults) {
+    Json differing = Json::object();
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        const auto d = defaults.find(it.key());
+        if (d == defaults.end() || *d != it.value()) differing[it.key()] = it.value();
+    }
+    return set_or_remove(differing.empty(), differing);
+}
+
 }  // namespace
 
 Result<void> write_graphics_settings(const std::string& projectDir, const GraphicsSettings& s) {
@@ -384,13 +486,13 @@ Result<void> write_graphics_settings(const std::string& projectDir, const Graphi
         return make_error(problems.front().pointer + ": " + problems.front().message,
                           "Fix the field before saving; nothing was written.");
     const GraphicsSettings def;
-    const bool upscalerDefault = s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness;
+    // One rule for every block: the keys that differ from the defaults are written, the others are not (a block with none
+    // is removed). A reader gives an absent key its default, so the file says only what the project changed.
     auto r = patch_render_keys(
-        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)),
-        set_or_remove(upscalerDefault, upscaler_json(s)), set_or_remove(s.dynamic == def.dynamic, dynamic_json(s)),
-        set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s)),
-        set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
-                      frame_gen_json(s)));
+        projectDir, set_or_remove(s.preset == "custom", Json(s.preset)), block_op(upscaler_json(s), upscaler_json(def)),
+        block_op(dynamic_json(s), dynamic_json(def)), block_op(latency_json(s), latency_json(def)),
+        block_op(frame_gen_json(s), frame_gen_json(def)), block_op(ray_tracing_json(s), ray_tracing_json(def)),
+        block_op(path_tracer_json(s), path_tracer_json(def)));
     if (!r.ok()) return r.error();
     return {};
 }
@@ -401,30 +503,29 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
     info.category = "project";
     info.readOnly = false;
     info.summary =
-        "Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode and the frame "
-        "generation a game starts with, in factoria.json.";
+        "Reads or writes the graphics preset, the upscaler, the dynamic resolution, the low-latency mode, the frame "
+        "generation, the ray tracing and the path tracer a game starts with, in factoria.json.";
     info.description =
-        "Edits the keys `render.graphicsPreset`, `render.upscaler`, `render.dynamicResolution`, `render.latency` and "
-        "`render.frameGeneration` of factoria.json (docs/UPSCALING.md, \"Graphics presets\"; docs/LATENCY.md; "
-        "docs/FRAME_GENERATION.md): the settings the run starts with, "
-        "the ones the editor's View > "
-        "Graphics window edits. With no argument it only reads and writes nothing. `preset` is low, medium, high, "
-        "ultra "
-        "or custom; `upscaler` is {mode, quality, sharpness} and `dynamicResolution` is {enabled, targetMs, minScale, "
-        "maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or xell) and `frameGeneration` is "
-        "{mode, "
-        "minBaseFps} (mode: off, auto, dlss, fsr or xess; minBaseFps a whole number of 0 to 1000): the keys you give "
-        "replace those of the file, the others stay. A value at its default removes its key (a `render` object left "
-        "empty is "
-        "removed), and every other key and the formatting of the file stay as "
-        "they are. Every value is checked by the code that loads the project, so a wrong one is named with its JSON "
-        "pointer and a \"did you mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
+        "Edits the keys `render.graphicsPreset`, `render.upscaler`, `render.dynamicResolution`, `render.latency`, "
+        "`render.frameGeneration`, `render.rayTracing` and `render.pathTracer` of factoria.json (docs/UPSCALING.md, "
+        "\"Graphics presets\"; docs/LATENCY.md; docs/FRAME_GENERATION.md; docs/RAY_TRACING.md): the settings the run "
+        "starts with, the ones the editor's View > Graphics window edits. With no argument it only reads and writes "
+        "nothing. The keys you give replace those of the file, the others stay. A value at its default removes its "
+        "key (a `render` object left empty is removed) and the rest of the file stays as it is. Every value is "
+        "checked by the code that loads the project, so a wrong one is named with its JSON pointer and a \"did you "
+        "mean\", and nothing is written. Examples: {\"preset\":\"medium\"}, "
         "{\"upscaler\":{\"mode\":\"auto\",\"quality\":\"balanced\"}}." FA_COMMAND_DETAILS
+        "`preset` is low, medium, high, ultra or custom; `upscaler` is {mode, quality, sharpness}, `dynamicResolution` "
+        "is {enabled, targetMs, minScale, maxScale}, `latency` is {mode, boost} (mode: off, auto, reflex, antilag2 or "
+        "xell), `frameGeneration` is {mode, minBaseFps} (mode: off, auto, dlss, fsr or xess; minBaseFps a whole number "
+        "of 0 to 1000), `rayTracing` is {enabled, shadows, ao, reflections, translucency, gi, raysPerPixel, "
+        "maxInstances} and `pathTracer` is {enabled, maxBounces, samplesPerFrame, maxSamples, fireflyClamp, lights, "
+        "seed} (the keys of render.ray_tracing and render.path_tracer). "
         "It does not change a running game: graphics.preset, render.upscaler, render.dynamic_resolution, "
-        "render.latency and render.frame_generation do that, "
+        "render.latency, render.frame_generation, render.ray_tracing and render.path_tracer do that, "
         "and the engine does not save the player's choice. Returns {file, preset, upscaler: {mode, quality, "
         "sharpness}, dynamicResolution: {enabled, targetMs, minScale, maxScale}, latency: {mode, boost}, "
-        "frameGeneration: {mode, minBaseFps}, written}; "
+        "frameGeneration: {mode, minBaseFps}, rayTracing: {...}, pathTracer: {...}, written}; "
         "`written` is false when "
         "the file's bytes did not change (a read, or the same values written the same way; a key given at its "
         "default that the file spelled out is removed, so that counts as a write). Errors: `invalid_argument` (unknown "
@@ -442,20 +543,38 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         "latency":{"type":"object","description":"render.latency (docs/LATENCY.md): the keys given replace the file's.","properties":{
             "mode":{"type":"string","enum":["off","auto","reflex","antilag2","xell"]},"boost":{"type":"boolean"}}},
         "frameGeneration":{"type":"object","description":"render.frameGeneration (docs/FRAME_GENERATION.md): the keys given replace the file's.","properties":{
-            "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"]},"minBaseFps":{"type":"integer","minimum":0,"maximum":1000}}}}})");
+            "mode":{"type":"string","enum":["off","auto","dlss","fsr","xess"]},"minBaseFps":{"type":"integer","minimum":0,"maximum":1000}}},
+        "rayTracing":{"type":"object","description":"render.rayTracing (docs/RAY_TRACING.md): the keys given replace the file's.","properties":{
+            "enabled":{"type":"boolean","description":"The master switch. Default false."},
+            "shadows":{"type":"string","enum":["off","hard","soft"],"description":"off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off."},
+            "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
+            "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
+            "translucency":{"type":"boolean","description":"Refraction through glass and liquids traced with rays instead of the screen-space refraction. Default false."},
+            "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes (the RealtimeGI grids updated with rays) or perPixel. Default off."},
+            "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame. Clamped to 1..16. Default 1."},
+            "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds. Clamped to 1..1048576. Default 65536."}}},
+        "pathTracer":{"type":"object","description":"render.pathTracer (docs/RAY_TRACING.md, \"The path tracer\"): the keys given replace the file's.","properties":{
+            "enabled":{"type":"boolean","description":"Draw the main camera's lit colour with the path tracer. Default false."},
+            "maxBounces":{"type":"integer","description":"Path length: 1 = direct light only. Clamped to 1..32. Default 4."},
+            "samplesPerFrame":{"type":"integer","description":"Paths per pixel each frame adds to the accumulation. Clamped to 1..64. Default 1."},
+            "maxSamples":{"type":"integer","description":"The accumulation stops after this many samples per pixel; 0 = never stops. Clamped to 0..16777216. Default 0."},
+            "fireflyClamp":{"type":"number","minimum":0,"description":"Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0."},
+            "lights":{"type":"boolean","description":"Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true."},
+            "seed":{"type":"integer","description":"Changes the noise pattern; the same seed gives the same picture. Clamped to 0..1073741824. Default 0."}}}}})");
     registry.add(info, [projectDir](const Json& args) {
         if (!args.is_null() && !args.is_object())
             throw CommandError("invalid_argument",
                                "project.graphics takes an object, got " + std::string(args.type_name()) + ".",
                                "Example: {\"preset\":\"medium\"}, or {} to read.");
-        const std::vector<std::string> keys = {"preset", "upscaler", "dynamicResolution", "latency", "frameGeneration"};
+        const std::vector<std::string> keys = {"preset",          "upscaler",   "dynamicResolution", "latency",
+                                               "frameGeneration", "rayTracing", "pathTracer"};
         if (args.is_object())
             for (auto it = args.begin(); it != args.end(); ++it)
                 if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
                     throw CommandError("invalid_argument",
                                        "Unknown argument '" + it.key() + "'. " + did_you_mean(it.key(), keys),
-                                       "project.graphics takes `preset`, `upscaler`, `dynamicResolution`, `latency` "
-                                       "and `frameGeneration`.");
+                                       "project.graphics takes `preset`, `upscaler`, `dynamicResolution`, `latency`, "
+                                       "`frameGeneration`, `rayTracing` and `pathTracer`.");
         // The numbers of the file as they are (no rounding of the editor's sliders): a key this call does not name is
         // not written, and one it names keeps what the caller wrote.
         auto current = read_graphics_settings(projectDir, false);
@@ -520,17 +639,26 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
             s.frameGenMode = std::string(render::frame_gen_mode_name(parsed->mode));
             s.frameGenMinBaseFps = parsed->minBaseFps;
         }
+        if (const Json* rt = object_arg("rayTracing")) {
+            // Over the file's own setting: the keys given replace its keys, a wrong one is the parser's error with its place.
+            auto parsed = render::parse_ray_tracing_settings(*rt, "project.graphics rayTracing", s.rayTracing);
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            s.rayTracing = *parsed;
+        }
+        if (const Json* pt = object_arg("pathTracer")) {
+            auto parsed = render::parse_path_tracer_settings(*pt, "project.graphics pathTracer", s.pathTracer);
+            if (!parsed.ok()) throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+            s.pathTracer = *parsed;
+        }
         if (auto problems = check_graphics_settings(s); !problems.empty())
             throw CommandError("invalid_argument", problems.front().pointer + ": " + problems.front().message,
                                "Fix the value; nothing was written.");
-        // Only the keys the call names are written.
+        // Only the blocks the call names are written, and in each only the keys that differ from the defaults (block_op).
         const GraphicsSettings def;
-        KeyOp presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp;
+        KeyOp presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp, rayTracingOp, pathTracerOp;
         if (args.is_object() && args.contains("preset") && !args["preset"].is_null())
             presetOp = set_or_remove(s.preset == "custom", Json(s.preset));
-        if (object_arg("upscaler"))
-            upscalerOp = set_or_remove(s.mode == def.mode && s.quality == def.quality && s.sharpness == def.sharpness,
-                                       upscaler_json(s));
+        if (object_arg("upscaler")) upscalerOp = block_op(upscaler_json(s), upscaler_json(def));
         if (const Json* dyn = object_arg("dynamicResolution")) {
             Json value = dynamic_json(s);
             for (const char* key : {"enabled", "targetMs", "minScale", "maxScale"}) {
@@ -539,18 +667,18 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
                 else if (rawDynamic.contains(key))
                     value[key] = rawDynamic[key];
             }
-            dynamicOp = set_or_remove(s.dynamic == def.dynamic, value);
+            dynamicOp =
+                block_op(value, dynamic_json(def));  // the caller's literal numbers, the same rule as the window
         }
-        if (object_arg("latency"))
-            latencyOp =
-                set_or_remove(s.latencyMode == def.latencyMode && s.latencyBoost == def.latencyBoost, latency_json(s));
-        if (object_arg("frameGeneration"))
-            frameGenOp =
-                set_or_remove(s.frameGenMode == def.frameGenMode && s.frameGenMinBaseFps == def.frameGenMinBaseFps,
-                              frame_gen_json(s));
+        if (object_arg("latency")) latencyOp = block_op(latency_json(s), latency_json(def));
+        if (object_arg("frameGeneration")) frameGenOp = block_op(frame_gen_json(s), frame_gen_json(def));
+        if (object_arg("rayTracing")) rayTracingOp = block_op(ray_tracing_json(s), ray_tracing_json(def));
+        if (object_arg("pathTracer")) pathTracerOp = block_op(path_tracer_json(s), path_tracer_json(def));
         bool changed = false;
-        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch || frameGenOp.touch) {
-            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp);
+        if (presetOp.touch || upscalerOp.touch || dynamicOp.touch || latencyOp.touch || frameGenOp.touch ||
+            rayTracingOp.touch || pathTracerOp.touch) {
+            auto written = patch_render_keys(projectDir, presetOp, upscalerOp, dynamicOp, latencyOp, frameGenOp,
+                                             rayTracingOp, pathTracerOp);
             if (!written.ok()) throw CommandError("failed", written.error().message, written.error().hint);
             changed = *written;
         }
@@ -561,6 +689,8 @@ void register_graphics_settings_commands(CommandRegistry& registry, const std::s
         out["dynamicResolution"] = dynamic_json(s);
         out["latency"] = latency_json(s);
         out["frameGeneration"] = frame_gen_json(s);
+        out["rayTracing"] = ray_tracing_json(s);
+        out["pathTracer"] = path_tracer_json(s);
         out["written"] = changed;
         return out;
     });

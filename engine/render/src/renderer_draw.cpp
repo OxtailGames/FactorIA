@@ -26,6 +26,7 @@
 
 namespace fa {
 
+using render::part_base_color;  // mesh_batch.h
 using render::to_scene;
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,8 @@ struct Renderer::Impl::DrawContext {
     Px fullPx, camPx;
     Gi2dJobPlan gi2d;  // gi2d_plan: the field this job's passes fill (inactive without an enabled GlobalIllumination2D)
     bool partial = false, clearByQuad = false, clearByLoad = false;
+    bool rtCollected =
+        false;  // gather_meshes: this job's meshes are the ray tracing scene's (it builds the BLASes and the TLAS)
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
     std::vector<MeshItem> opaque, blended;
     ImpostorDraws impostorDraws;           // gather_meshes: what the MeshItems of the impostor cards point at
@@ -146,6 +149,12 @@ struct Renderer::Impl::DrawContext {
     // plan_prepass: this job declares the prepass (its image is a transient of the graph, PostPlan::prepass) and, with a debug view on,
     // the pass that paints it over the game image.
     bool doPrepass = false, debugPrepass = false;
+    // M79-P0c, the thin G-buffer: plan_prepass decided the job draws it (PostPlan::needsGbuffer, the GPU made the images); build_graph declares the
+    // "gbuffer" pass and the images (PostPlan::gbufferAlbedo / gbufferMaterial).
+    bool doGbuffer = false;
+    // The G-buffer programs of the terrain and of the impostor cards exist (plan_prepass makes them when the job's opaque batches hold such a draw, so
+    // that none is made while the frame graph runs); gbuffer_pass draws their batches only when set.
+    bool gbufferTerrainOk = false, gbufferImpostorOk = false;
     // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
     // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
     bool collectPrev = false, doVelocity = false;
@@ -173,12 +182,79 @@ struct Renderer::Impl::DrawContext {
     // (view 28) of the opaque meshes; screenView is that image, set by main_pass (the transient exists from the graph's execution on).
     bool contactOn = false;
     gpu::View screenView{};
+    // M79-P2a-1: ray traced hard shadows. plan_job sets `want` (the sun's shadow is asked of the kernel: ray tracing on, the scene collected by this
+    // job, a sun that casts, the prepass); build_graph declares the pass and sets `img` (rt_effect.h: valid until the next sweep). The lit pass
+    // reads the mask only while `img->ran` is true when it draws (the scene had a TLAS this frame), else the cascades answer.
+    // M79-P2a-3: `img` is the image view 28 holds in the main pass: the sun's (or the prepass, when the sun is not traced) with the local lights' visibility
+    // packed in b when rtLocal.traced; `sunTraced`: the sun's visibility in its g is the kernel's.
+    struct {
+        bool want = false, sunTraced = false;
+        const RtEffectImage* img = nullptr;
+    } rtShadow;
+    // M79-P2a-3: ray traced shadows of point, spot and area lights (rt_local_shadows.h, ARCHITECTURE_RT_SHADOWS.md). plan_job sets `want` and picks the lights
+    // (`pick`, their LightData::rtSlot, `params` for the kernel); build_graph declares the passes and sets `traced`; shadow_pass leaves the maps of
+    // the traced lights undrawn (`skipView`, per view) when every receiver takes the mask.
+    struct {
+        bool want = false, traced = false;
+        render::RtLocalPick pick;
+        RtLocalParams params{};
+        std::vector<char> skipView;
+    } rtLocal;
+    // M79-P3a: ray traced reflections (sharp and glossy). plan_job sets `want` (the setting is on, the scene is this job's, the prepass and the G-buffer are
+    // made); build_graph declares the pass, sets `img` and the PostPlan's rtReflectImg for the screen-space reflections' composite.
+    struct {
+        bool want = false;
+    } rtReflect;
+    // M79-P4b-2: which of this camera's ray traced signals DLSS Ray Reconstruction takes (Renderer::Impl::rr_signals, decided in plan_job before any RT pass is
+    // declared): the reflections' and the per-pixel GI's denoiser passes are then not declared, their noisy images are what the picture composites.
+    Renderer::Impl::RrSignals rr;
+    // M79-P2b: ray traced ambient occlusion (rt_ao, ARCHITECTURE_RT_EFFECTS.md "The second effect: ambient occlusion (M79-P2b)"). plan_job sets `want` (rayTracing.ao on, the scene
+    // collected by this job, the prepass with its normals); build_graph declares the kernel, the denoiser and sets `img` and `on` (the SSAO passes are
+    // then not declared). The main pass applies the result only while `img->ran` is true when it draws, else the picture is not darkened.
+    struct {
+        bool want = false, on = false;
+        const RtEffectImage* img = nullptr;
+    } rtAo;
+    // M79-P4b-1: ray traced per-pixel global illumination (rt_gi_pixel, ARCHITECTURE_RT_GI.md "Per pixel"). plan_job sets `want` (render.rayTracing.gi is
+    // "perPixel", the scene collected by this job, the prepass with its normals, no fallback running); build_graph declares the kernel and the denoiser
+    // and sets `img`, `res` (the image the main pass reads: the denoised one, else the kernel's) and `denoised`. main_pass sets `view` (the image, from
+    // the graph's execution on) only while `img->ran` is true when it draws: the opaque meshes with no baked light then read it at the pixel in place of
+    // the probe and ambient term (fill_fs sets fa_gi_px, bind_textures binds it at the lightmap slot).
+    struct {
+        bool want = false, on = false, denoised = false;
+        const RtEffectImage* img = nullptr;
+        ResourceId res;
+        gpu::View view{};
+    } giPixel;
+    // M79-P3b: ray traced translucency (rt_refract, ARCHITECTURE_RT_TRANSLUCENCY.md). plan_job sets `want` (rayTracing.translucency on, the scene
+    // collected by this job, a transmissive draw whose refraction image can be made, the prepass); build_graph declares the kernel and sets `img`;
+    // main_pass hands the image to the refraction copy (Xmit::build) only while `img->ran` is true when it draws, else the glass keeps its
+    // screen-space refraction.
+    struct {
+        bool want = false;
+        const RtEffectImage* img = nullptr;
+        ResourceId res;
+    } rtTranslucency;
+    // M79-P5a: the path traced reference mode (rt_pathtrace.hlsl, ARCHITECTURE_RT_PATHTRACER.md). plan_job sets `want` (render.pathTracer on, the scene
+    // collected by this job, the prepass); build_graph declares the kernel and sets `img` and `res`; main_pass draws the image over the opaque
+    // picture only while `img->ran` is true when it draws (the scene had a TLAS this frame), else the raster picture stays.
+    struct {
+        bool want = false;
+        bool expected =
+            false;  // `want`, the pass was not refused and a mesh can be traced: its own occlusion replaces the ambient occlusion
+        bool retry =
+            false;  // `want` and a mesh can be traced, but this camera's last frame was refused: the pass is tried again, and if
+        // build_graph accepts it the frame is the path traced one (no ambient occlusion passes: one decision a frame)
+        const RtEffectImage* img = nullptr;
+        ResourceId res;
+    } pathTrace;
     // M73-P6b: a visible blended draw is transmissive. plan_job sets `want` when the copy can be made (renderer_xmit.h); main_pass splits the pass
     // after the opaque phase, makes the atlas and sets `on` (the blended draws bind `atlasView` at view 28 and refract) and `levels`. `want`
     // without `on` (the copy failed at run time) draws the plain blend.
     struct {
         bool want = false, on = false;
         int levels = 0;
+        bool traced = false;  // level 0 of the atlas holds the ray traced translucency (M79-P3b)
         gpu::View atlasView{};
     } xmit;
     // M74.4: the picture drawn so far, which Water2D, DistortionZone2D and the sprite materials that call fa_scene_color() read (water2d.h).
@@ -387,25 +463,6 @@ void apply_view(gpu::CommandList& list, const Px& r) {
     list.set_scissor(r.x, r.y, r.w, r.h, true);
 }
 
-// The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
-// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
-Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
-    if (authored) *authored = false;
-    if (!part.materialName.empty() && mr.materialColors.is_object()) {
-        auto it = mr.materialColors.find(part.materialName);
-        if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
-            float v[4] = {1, 1, 1, 1};
-            for (std::size_t i = 0; i < it->size(); ++i) {
-                if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
-                v[i] = (*it)[i].get<float>();
-            }
-            if (authored) *authored = true;
-            return Color{v[0], v[1], v[2], v[3]};
-        }
-    }
-    return part.baseColor;
-}
-
 // The material's params (fa_material_vs, fa_material), when the program declares them.
 void apply_material_params(gpu::CommandList& list, const MaterialProgram& prog, const MaterialInputs& in) {
     for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
@@ -593,6 +650,7 @@ void Renderer::Impl::begin_frame_graph(bool countPost) {
         graph.set_pass_hooks(std::move(hooks));
     }
     graph.clear();
+    rtScene.begin_graph();
     jobContexts.clear();
     postCams.clear();
     frameJobs.clear();
@@ -705,6 +763,51 @@ bool Renderer::Impl::decide_hud_at_output(World& world) {
     return !glows && ensure_hud_output(anyFinal, filter, false);
 }
 
+// The constants of the kernels that shade what a ray hits (rt_hit.hlsli): the sun the lit pass shadows, else the brightest directional light (rank 0
+// or 1; pick_rt_sun), the scene's ambient and sky colours and the shadow rays' limits. Fills req.hit and, with a sun, req.lightDir.
+static void fill_rt_hit_request(const Renderer::Impl::DrawContext& ctx, RtEffectRequest& req) {
+    const LightData* sunLight = pick_rt_sun(ctx.lights);
+    RtHitParams& hp = req.hit;
+    if (sunLight) {
+        const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});
+        hp.sunDir[0] = toSun.x;
+        hp.sunDir[1] = toSun.y;
+        hp.sunDir[2] = toSun.z;
+        hp.sunColor[0] = sunLight->color.x;
+        hp.sunColor[1] = sunLight->color.y;
+        hp.sunColor[2] = sunLight->color.z;
+        for (int i = 0; i < 3; ++i) req.lightDir[i] = hp.sunDir[i];
+    } else {
+        hp.sunDir[1] = 1.0f;
+    }
+    hp.ambient[0] = ctx.ss.ambientLight.r;
+    hp.ambient[1] = ctx.ss.ambientLight.g;
+    hp.ambient[2] = ctx.ss.ambientLight.b;
+    hp.sky[0] = ctx.ss.skyColor.r;
+    hp.sky[1] = ctx.ss.skyColor.g;
+    hp.sky[2] = ctx.ss.skyColor.b;
+    hp.sky[3] = ctx.fuScene.fa_env_sky[3] > 0.5f ? 1.0f : 0.0f;
+    hp.horizon[0] = ctx.ss.horizonColor.r;
+    hp.horizon[1] = ctx.ss.horizonColor.g;
+    hp.horizon[2] = ctx.ss.horizonColor.b;
+    hp.limits[0] = 0.02f;
+    hp.limits[1] = 0.002f;
+    hp.limits[2] = 10000.0f;
+    hp.limits[3] = 0.002f;
+}
+
+// The meshes of the job's blended batches that refract (MeshRenderer.transmission, KHR_materials_transmission): the draws the refraction image
+// (plan_transmission) and the ray traced translucency (plan_job) are made for. Reads: ctx.blendedBatches, ctx.blended.
+static int transmissive_mesh_count(const Renderer::Impl::DrawContext& ctx) {
+    int meshes = 0;
+    for (const MeshBatch& b : ctx.blendedBatches) {
+        if (b.mainCount == 0) continue;
+        const MeshItem& mi = ctx.blended[b.rep];
+        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
+    }
+    return meshes;
+}
+
 // Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also gets the post effects.
 // The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
@@ -746,6 +849,9 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
         }
         if (debugView == DebugView::MotionVectors || forceVelocity)
             pp.request_velocity();  // the debug view and the test hook
+        // The thin G-buffer (M79-P0c): only what asks for it pays for it. The debug views and the test hook; DLSS Ray Reconstruction below
+        // (upscaleTaa is known only there).
+        if (debugView == DebugView::Albedo || debugView == DebugView::Material || forceGbuffer) pp.request_gbuffer();
         if (pp.fx.grain)
             pp.fx.grainSeed =
                 grain_seed_for_camera(pp.fx.grainSeed, int(postCams.size()));  // not the same grain per half
@@ -926,6 +1032,11 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     // The temporal upscalers also reproject with the motion of the objects (M76-P1a), where the GPU can make the image: asked before
     // cull_and_batch, which decides whether the draws collect their previous models.
     if (draws && upscaleTaa.on && !plan.view) ctx.postPlan.request_velocity();
+    // DLSS Ray Reconstruction (M78-P4c) is told the albedo, the roughness and the normal of every pixel: this frame has them from the G-buffer when
+    // the setting is on and the machine and the frame can run it (run_rr_guides decides again, with the frame's size and format).
+    if (draws && upscaleTaa.on && !plan.view && upscaler.rayReconstruction && !rrFailed &&
+        render::vendor_impl_index(upscaleImpl) == 0 && gpu.has_device() && rr_probe().available)
+        ctx.postPlan.request_gbuffer();
     lastJobNeedsVelocity = ctx.postPlan.needsVelocity;
     gather_meshes(ctx);
     collect_lights(ctx);
@@ -987,6 +1098,39 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     if (draws && !fr.cam.studio)
         for (const LightData& l : ctx.lights) wantContact = wantContact || l.contactLength > 0.0f;
     if (wantContact) ctx.postPlan.needsDepth = true;
+    // Ray traced hard shadows (M79-P2a-1) read the prepass too: the camera whose meshes are the ray tracing scene's, with a sun that casts.
+    // A camera that cannot make the prepass keeps the cascades.
+    // A frame without shadows or without cascades takes no mask (the lit pass ignores it), so it asks for no rays either.
+    const bool wantRtShadow = draws && !fr.cam.studio && ctx.rtCollected && ctx.haveShadowCaster && ctx.doShadows &&
+                              ctx.cascades > 0 && rtSettings.shadows != render::RtShadows::Off;
+    if (wantRtShadow) ctx.postPlan.needsDepth = true;
+    // Ray traced shadows of point, spot and area lights (M79-P2a-3) read the prepass too. They need no sun: the lights the maps were planned for (shadow_bounds)
+    // are the candidates, and a frame whose shadows are off (no map placed: nothing receives) traces none.
+    const bool wantRtLocal = draws && !fr.cam.studio && ctx.rtCollected && ctx.doShadows && !ctx.localInputs.empty() &&
+                             rtSettings.shadows != render::RtShadows::Off;
+    if (wantRtLocal) ctx.postPlan.needsDepth = true;
+    // Ray traced reflections (M79-P3a-1) read the prepass and the thin G-buffer's roughness, metalness and albedo.
+    const bool wantRtReflect = draws && !fr.cam.studio && ctx.rtCollected && rtSettings.reflections;
+    if (wantRtReflect) {
+        ctx.postPlan.needsDepth = true;
+        ctx.postPlan.request_gbuffer();
+    }
+    // Ray traced ambient occlusion (M79-P2b) reads the prepass with its normals, from the camera that has the scene's meshes. It draws in place of the
+    // camera's SSAO (the radius and the intensity of the SSAO stay), so it is asked for by the setting alone; a camera that cannot make the prepass
+    // keeps whatever the stack has.
+    const bool wantRtAo = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && rtSettings.ao;
+    if (wantRtAo) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // Per-pixel ray traced GI (M79-P4b-1) reads the prepass with its normals, from the camera that has the scene's meshes.
+    const bool wantRtGiPixel = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && rtSettings.enabled &&
+                               rtSettings.gi == render::RtGi::PerPixel;
+    if (wantRtGiPixel) ctx.postPlan.needsDepth = ctx.postPlan.needsNormals = true;
+    // Ray traced translucency (M79-P3b) reads the prepass: the glass in view (a transmissive mesh) is what it traces. A job with none asks for nothing.
+    const bool wantRtTranslucency = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld &&
+                                    rtSettings.translucency && transmissive_mesh_count(ctx) > 0;
+    if (wantRtTranslucency) ctx.postPlan.needsDepth = true;
+    // The path tracer (M79-P5a) reads the prepass: the surface the raster hides is not drawn over.
+    const bool wantPathTrace = draws && !fr.cam.studio && ctx.rtCollected && fr.wantWorld && ptSettings.enabled;
+    if (wantPathTrace) ctx.postPlan.needsDepth = true;
     // Subsurface scattering (M73.5): a camera with an opaque mesh that scatters asks for the prepass (the shader keeps only the surface the camera sees)
     // and for the images and programs of the passes. A camera that cannot make them draws the meshes as they are.
     bool wantSss = false;
@@ -1008,6 +1152,90 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     plan_prepass(ctx);
     plan_quad_motion(ctx);
     ctx.contactOn = wantContact && ctx.doPrepass;
+    ctx.rtShadow = {};
+    ctx.rtShadow.want = wantRtShadow && ctx.doPrepass;
+    ctx.rtLocal = {};
+    ctx.rtLocal.want = wantRtLocal && ctx.doPrepass && rtScene.active();
+    if (ctx.rtLocal.want) {
+        // The lights that asked for a map are the candidates; the best of them (by brightness, range and distance, the order the maps' budget uses) up to
+        // the cap are traced, and a light keeps its slot from frame to frame (the denoiser's history is the slot's).
+        std::vector<render::RtLocalCandidate> candidates;
+        candidates.reserve(ctx.localInputs.size());
+        for (const render::LocalShadowInput& in : ctx.localInputs) {
+            const LightData& ld = ctx.lights[std::size_t(in.light)];
+            candidates.push_back(
+                {ld.id, in.light,
+                 render::local_shadow_importance(in.brightness, in.range, length(in.position - fr.cam.position))});
+        }
+        render::RtLocalSlots& slots = rtLocalSlots[fr.cam.entity.bits()];
+        slots.lastUsed = frameSerial;
+        ctx.rtLocal.pick = render::pick_rt_local_lights(slots, candidates);
+        ctx.rtLocal.params = render::make_rt_local_params(ctx.lights, ctx.rtLocal.pick);
+        for (int s = 0; s < kRtLocalMaxLights; ++s)
+            if (ctx.rtLocal.pick.light[std::size_t(s)] >= 0)
+                ctx.lights[std::size_t(ctx.rtLocal.pick.light[std::size_t(s)])].rtSlot = s + 1;
+        rtLocalFrame.candidates = std::max(rtLocalFrame.candidates, ctx.rtLocal.pick.candidates);
+    }
+    ctx.rtReflect = {};
+    ctx.rtReflect.want = wantRtReflect && ctx.doPrepass && ctx.doGbuffer && rtScene.active();
+    if (wantRtReflect && ctx.doPrepass && !ctx.doGbuffer && rtScene.active() && !rtWarnedReflectGbuffer) {
+        rtWarnedReflectGbuffer = true;
+        FA_WARN("render", "render.rayTracing.reflections is on but this camera has no thin G-buffer (the GPU cannot "
+                          "make its images, or the frame draws "
+                          "none). The reflections stay the screen-space ones and the probes. Hint: set "
+                          "render.rayTracing.reflections to false to silence "
+                          "this.");
+    }
+    if (ctx.rtReflect.want) {
+        // The reflections' composite is the screen-space reflections' trace pass: a camera whose stack has none gets the plan with intensity 0 (only
+        // the traced pixels change). It is decided here because the HUD ordering below asks the plan.
+        if (!ctx.postPlan.ssr.any()) ctx.postPlan.ssr = make_ssr_rt_plan(fr.cam);
+        ctx.postPlan.ssr.rt = ctx.postPlan.ssr.any();
+    }
+    ctx.rtAo = {};
+    // The path tracer's picture replaces the lit colour of the opaque meshes and has its own occlusion: a frame it draws traces no ambient
+    // occlusion (its kernel and denoiser) for nothing. It is known only a frame late whether the path tracer works on this device, so the
+    // occlusion comes back the frame after a refusal (this camera's PathTraceJobState::failure, not another camera's). The same goes for a
+    // frame whose pass is declared but cannot run because no mesh of the scene can be in the TLAS (terrain, impostors and GPU-driven meshes
+    // are left out; known here, the TLAS is built later in the graph, but a BLAS that is only pending is built first): that frame keeps its
+    // occlusion too. A mesh whose BLAS build fails leaves one frame without it.
+    const auto ptJob = ptState.jobs.find(plan.name);
+    const bool ptRefused = ptJob != ptState.jobs.end() && !ptJob->second.failure.empty();
+    const bool ptExpected =
+        wantPathTrace && ctx.doPrepass && rtScene.active() && !ptRefused && rtScene.traceable_items() > 0;
+    // The frame that tries the pass again after a refusal (`retry`) keeps the ray traced occlusion: the decision is late (build_graph), so no
+    // frame can know the retry is accepted, and dropping the occlusion for it would make the technique flicker (ray traced, screen space, ray traced)
+    // every few frames while the pass stays refused. A retry that is accepted pays for the occlusion and the path tracer for that one frame.
+    const bool ptRetry =
+        wantPathTrace && ctx.doPrepass && rtScene.active() && ptRefused && rtScene.traceable_items() > 0;
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected;
+    ctx.giPixel = {};
+    if (wantRtGiPixel) {
+        // A fallback is running (the kernel was refused, or did not run for a few frames): the probe and ambient term lights the surfaces until the retry.
+        const bool inFallback = frameSerial < rtGiPixelFallbackUntil;
+        if (inFallback)
+            rtGiPixelFrame.why = rtGiPixelFallbackReason;
+        else if (!ctx.doPrepass)
+            rtGiPixelFrame.why = "this camera has no prepass (the GPU cannot make its images, or the frame draws none)";
+        else if (!rtScene.active())
+            rtGiPixelFrame.why = "this device cannot trace rays here (render.supports raytracing says why)";
+        ctx.giPixel.want = !inFallback && ctx.doPrepass && rtScene.active();
+    }
+    // The signals Ray Reconstruction denoises (M79-P4b-2). Asked once, here, before the kernels and the denoisers are declared. The camera the upscaler
+    // resolves is the one with a jittered temporal plan (`upscaleTaa.on`, the frame's only one); another camera keeps its denoisers.
+    {
+        const bool upscaleCamera = draws && upscaleTaa.on && !plan.view;
+        RrSignals r = rr_signals(upscaleCamera, ctx.postPlan.final_pass(), ctx.rtReflect.want, ctx.giPixel.want);
+        if (r.asked && (upscaleCamera || !rrSignalsDeclared)) {
+            ctx.rr = r;
+            rrSignalsFrame = r;
+            rrSignalsDeclared = true;
+            // The hit distance guide's program is made now, before the frame graph: a failure is known here and only leaves that guide out.
+            if (r.reflections && gpu.has_device() && rrPrep.ready(gpu.device())) rrPrep.prepare_hit();
+        } else if (upscaleCamera) {
+            ctx.rr = r;
+        }
+    }
     ctx.sssOn = ctx.postPlan.sss.on && ctx.doPrepass;
     if (ctx.sssOn)
         ++stats.subsurfaceCameras;
@@ -1020,6 +1248,13 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     }
     plan_outline(ctx);
     plan_transmission(ctx);
+    // The traced image replaces the refraction copy's level 0, so it needs the copy (ctx.xmit.want) as well as the prepass.
+    ctx.rtTranslucency = {};
+    ctx.rtTranslucency.want = wantRtTranslucency && ctx.doPrepass && ctx.xmit.want && rtScene.active();
+    ctx.pathTrace = {};
+    ctx.pathTrace.want = wantPathTrace && ctx.doPrepass && rtScene.active();
+    ctx.pathTrace.expected = ptExpected;
+    ctx.pathTrace.retry = ptRetry;
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -1413,6 +1648,11 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
     };
     rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
+    // The ray tracing scene (rt_scene.h): the main camera's items, every one of them (the ones outside the view too: a ray may hit them).
+    if (lodMainJob && rtScene.active() && !rtScene.collected()) {
+        rtScene.collect(opaque, blended, fr.cam.position, fr.linear);
+        ctx.rtCollected = true;
+    }
 }
 
 // ---- lights and studio rig ----
@@ -1442,6 +1682,7 @@ void Renderer::Impl::collect_lights(DrawContext& ctx) {
             if (!entity_active(world, e)) return;
             Mat4 m = world.world_matrix(e);
             LightData ld;
+            ld.id = e.bits();
             const Color lc = to_scene(l.color, fr.linear);  // picked as sRGB; the light adds up in linear light
             Vec3 col{lc.r * l.intensity, lc.g * l.intensity, lc.b * l.intensity};
             const float brightness = std::max({col.x, col.y, col.z});
@@ -2589,7 +2830,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
     // The contact shadows' view of the camera (M73.2c; shaders/light_loop.glsl, fa_contact): three rows of the view-projection matrix and the
     // forward axis, the prepass's size and the distance where the shadows are gone. fa_ct_a.x, which turns them on, is set per draw (fill_fs). The
     // subsurface draw reads the same view for its visibility test against the prepass.
-    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want) {
+    if (ctx.contactOn || ctx.sssOn || ctx.xmit.want || ctx.rtShadow.want || ctx.rtLocal.want || ctx.giPixel.want) {
         const Mat4& vp = fr.cam.drawViewProj;
         const Vec3& fwd = fr.cam.forward;
         for (int c = 0; c < 4; ++c) {
@@ -2910,18 +3151,14 @@ static void fill_layers(mesh_fa_mesh_fs_params_t& fu, const MeshRenderer& mr, co
         rotation = num(mr.anisotropyRotation, 0.0f) != 0.0f ? num(mr.anisotropyRotation, 0.0f) * (3.14159265f / 180.0f)
                                                             : g.anisotropyRotation;
         spec = std::clamp(pick(mr.specular, 1.0f, g.specular), 0.0f, 1.0f);
-        ior = std::clamp(pick(mr.ior, 1.5f, g.ior), 1.0f, 3.0f);
         for (int i = 0; i < 3; ++i) specColor[i] = g.specularColor[std::size_t(i)];
         // Transmission and volume (M73.6b): a MeshRenderer field that is not at its default replaces the model's value, as above.
-        transmission = std::clamp(pick(mr.transmission, defaults.transmission, g.transmission), 0.0f, 1.0f);
-        thickness = std::clamp(pick(mr.thickness, defaults.thickness, g.thickness), 0.0f, 1000.0f);
-        attDistance = std::clamp(pick(mr.attenuationDistance, defaults.attenuationDistance, g.attenuationDistance),
-                                 0.0f, 100000.0f);
-        const Color ac = to_scene(mr.attenuationColor, linear);
-        const bool mrAtt = mr.attenuationColor.r < 1.0f || mr.attenuationColor.g < 1.0f || mr.attenuationColor.b < 1.0f;
-        attColor[0] = std::clamp(mrAtt ? ac.r : g.attenuationColor[0], 0.0f, 1.0f);
-        attColor[1] = std::clamp(mrAtt ? ac.g : g.attenuationColor[1], 0.0f, 1.0f);
-        attColor[2] = std::clamp(mrAtt ? ac.b : g.attenuationColor[2], 0.0f, 1.0f);
+        const PartTransmission pt = resolve_part_transmission(mr, part, linear);
+        ior = pt.ior;
+        transmission = pt.transmission;
+        thickness = pt.thickness;
+        attDistance = pt.attenuationDistance;
+        for (int i = 0; i < 3; ++i) attColor[i] = pt.attenuationColor[i];
     }
     fu.fa_layers_a[0] = coat;
     fu.fa_layers_a[1] = coatRough;
@@ -2989,9 +3226,30 @@ void Renderer::Impl::fill_probe_fs(const DrawContext& ctx, const MeshItem& mi, b
     }
 }
 
+// Whether the prepass draws this part (prepass_pass and gi_pixel_receiver ask it, so the two never differ): a full shader that keeps out of the
+// depth and normal image, a mesh whose buffers failed, and a draw from GPU buffers with no prepass program of the material (the engine's program
+// cannot place what the buffers place) are not in the image. `mbu` is resolve_mesh_buffers of the mesh.
+static bool prepass_draws_part(const MeshItem& mi, const SubMesh& part, const Renderer::Impl::PartDraw& pd0,
+                               const MeshBufferUse& mbu) {
+    const MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+    const bool skinned = mi.anim && part.skinVb.id;
+    const MaterialProgram* custom = pd0.mat ? &pd0.mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
+    return prepass_draws(mat && mat->full && !mat->prepass, mbu,
+                         custom && custom->shader.id);  // no program: a twin made before the prepass
+}
+
+// Whether the per-pixel GI image holds this part's surface at its pixels (M79-P4b-1): the prepass drew it, and it is not a terrain node or an
+// impostor card (their programs and the rays' scene do not agree on the surface, so they keep the probes and the ambient light), and no mesh the
+// subsurface pass scatters (`sssOn`): that pass runs before the main pass and lights its image with the probes, and its delta
+// strength * (blur(A) - A) must be added over that same light.
+static bool gi_pixel_receiver_for(const MeshItem& mi, const SubMesh& part, const Renderer::Impl::PartDraw& pd0,
+                                  const MeshBufferUse& mbu, bool sssOn) {
+    return !mi.terrain && !mi.impostor && !(sssOn && sss_scatters(mi)) && prepass_draws_part(mi, part, pd0, mbu);
+}
+
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
-                                                 const PartDraw& d, bool blended) {
+                                                 const PartDraw& d, const MeshBufferUse& mbu, bool blended) {
     const mesh_fa_mesh_fs_params_t& fuScene = blended ? ctx.fuBlend : ctx.fuScene;
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
@@ -2999,6 +3257,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     fu.fa_counts[3] = float(
         decal_recv(mr));  // 0 = receives no decal, else 1 + MeshRenderer.decalLayer (the view's decals: fa_counts.y)
     fu.fa_gi[3] = mi.lodFade;  // the dithered LOD cross-fade (mesh_common.glsl fa_lod_dither); 0 = none
+    fu.fa_gi_px[0] = 0.0f;     // set at the end of the probe block below: it depends on the draw's baked light
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
     fill_probe_fs(ctx, mi, !unlit, fu);
     // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
@@ -3018,6 +3277,20 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // they (and a main pass whose prepass image is missing) draw with it off: the slot there holds the white image, not a prepass.
     fu.fa_ct_a[0] =
         (ctx.contactOn && ctx.screenView.id && !blended && mr.receiveShadows && !(d.mat && d.mat->full)) ? 1.0f : 0.0f;
+    // The sun's shadow from the ray traced mask (view 28 holds the kernel's image, set by main_pass when it ran): the same draws take it.
+    const bool rtImageOk = ctx.rtShadow.img && ctx.rtShadow.img->ran &&
+                           ctx.screenView.id == ctx.rtShadow.img->texture.id && !blended && mr.receiveShadows &&
+                           !(d.mat && d.mat->full);
+    fu.fa_ct_b[1] = rtImageOk && ctx.rtShadow.sunTraced ? 1.0f : 0.0f;
+    // M79-P2a-3: the point, spot and area lights of the image's slots take their shadow from it too (fa_shadow_local_rt).
+    fu.fa_ct_b[3] = rtImageOk && ctx.rtLocal.traced ? 1.0f : 0.0f;
+    // When the scene has casters the rays do not see (terrain, impostors, GPU-driven meshes, cutouts, instances over the cap, BLASes not built yet) the
+    // lit pass takes the darker of the mask and the cascades, so those casters keep their shadow (mesh_common.glsl fa_shadow_factor).
+    fu.fa_ct_b[2] =
+        ((fu.fa_ct_b[1] > 0.5f || fu.fa_ct_b[3] > 0.5f) && (rtScene.stats().untracedCasters > 0)) ? 1.0f : 0.0f;
+    rtShadowDraws.mask += fu.fa_ct_b[1] > 0.5f ? 1 : 0;
+    rtShadowDraws.withCascades += fu.fa_ct_b[2] > 0.5f ? 1 : 0;
+    rtShadowDraws.local += fu.fa_ct_b[3] > 0.5f ? 1 : 0;
     bool authoredPart = false;
     const Color partColor = d.error ? Color{} : part_base_color(mr, part, &authoredPart);
     const Color base = d.error ? Color{1, 0, 1, 1}
@@ -3049,7 +3322,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
         fu.fa_tr_a[0] = 0.0f;
         fu.fa_tr_a[3] = 0.0f;
     } else {
-        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? 1.0f : 2.0f;
+        fu.fa_tr_a[3] = (blended && ctx.xmit.on) ? (ctx.xmit.traced ? 3.0f : 1.0f) : 2.0f;
         fu.fa_tr_b[3] = float(ctx.xmit.levels);
     }
     // Baked light probes (M73.4d): the SH the mesh receives (coverage 0 = none: the shader keeps the sky's ambient).
@@ -3062,6 +3335,20 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
             fu.fa_probe_sh[k][2] = mi.probe->sh.c[k].z;
         }
         fu.fa_probe_sh[0][3] = std::clamp(mi.probe->coverage, 0.0f, 1.0f);
+    }
+    // The per-pixel ray traced GI replaces the probe and ambient term of the opaque draws of the main pass that have no baked light (bind_textures puts
+    // the image at the lightmap slot of the same draws); the shader reads it where fa_lm.z is 0 and the draw has no baked light probes (the baked
+    // light keeps its priority, docs/RAY_TRACING.md). Only a draw the prepass drew is a receiver: the image holds the surface of the prepass at each
+    // pixel, and a draw it skipped would read the one behind it (or the sky).
+    fu.fa_gi_px[0] = (ctx.giPixel.view.id && !blended && !d.lightmap.id && !(fu.fa_probe_sh[0][3] > 0.0f) &&
+                      gi_pixel_receiver_for(mi, part, d, mbu, ctx.sssOn))
+                         ? 1.0f
+                         : 0.0f;
+    if (ctx.giPixel.view.id && !blended) {
+        if (fu.fa_gi_px[0] > 0.5f)
+            ++giPixelDraws.on;
+        else
+            ++giPixelDraws.off;
     }
     if (mi.flash.a > 0.0f && !d.error) {
         // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
@@ -3151,6 +3438,9 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
     b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
     b.views[VIEW_mesh_fa_lightmap] = d.lightmap.id ? d.lightmap : white->view;
+    // M79-P4b-1: the per-pixel GI image takes the lightmap slot of an opaque draw that has no lightmap (fill_fs sets fa_gi_px for the same draws).
+    if (!shadowPass && opaquePhase && !d.lightmap.id && ctx.giPixel.view.id)
+        b.views[VIEW_mesh_fa_lightmap] = ctx.giPixel.view;
     b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
     b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
     // The light data of the view (the shadow pass has no lights: any image does for a program that declares the slot).
@@ -3163,7 +3453,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, gpu::Bindings& b, const Par
     // transmissive draw, the refraction atlas (renderer_xmit.h); a white image otherwise (no fragment reads it).
     gpu::View screenSlot = white->view;
     if (!shadowPass) {
-        if (opaquePhase && ctx.contactOn && ctx.screenView.id)
+        if (opaquePhase && (ctx.contactOn || ctx.rtShadow.img) && ctx.screenView.id)
             screenSlot = ctx.screenView;
         else if (!opaquePhase && ctx.xmit.on && ctx.xmit.atlasView.id)
             screenSlot = ctx.xmit.atlasView;
@@ -3429,10 +3719,36 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
         sp.clearDepth = 1.0f;
         return sp;
     };
+    // M79-P2a-3: the maps of the lights whose shadow the rays make are not drawn when nothing would read them: the passes of the traced image are declared,
+    // the pack pass ran before this one (build_graph orders the shadow pass after it: `img->ran`), the scene's TLAS is built (it is, by
+    // rt-accel, the first pass of the job), every caster of the frame is in it, the effects have not failed, and every
+    // receiver of the job takes its shadow from the image (no blended mesh, decal, terrain, full-shader material, transmissive or subsurface draw: those
+    // draws read the map). The atlas is still allocated and cleared (the sun's cascades and the lights beyond the cap use it).
+    ctx.rtLocal.skipView.clear();
+    if (ctx.rtLocal.traced && ctx.rtShadow.img && ctx.rtShadow.img->ran && rtScene.tlas().valid() &&
+        rtScene.stats().untracedCasters == 0 && rtEffects.failure().empty() && ctx.blended.empty() &&
+        ctx.decals.empty() && ctx.terrainDraws.empty() && !ctx.xmit.want && !ctx.sssOn) {
+        bool onlyEngineMaterials = true;
+        for (const MeshItem& it : ctx.opaque)
+            onlyEngineMaterials = onlyEngineMaterials && !(it.material && it.material->ok && it.material->full);
+        if (onlyEngineMaterials) {
+            ctx.rtLocal.skipView.assign(ctx.viewProj.size(), 0);
+            // The volumetric fog's march reads the local maps too (vol_shadow_local): the map of a traced light that the march lights (the fog is on for this
+            // camera and the light's `volumetric` is above 0, the test renderer_volumetric.cpp's usable-light check makes) is drawn, or its shafts would go
+            // through the casters. A traced light with no volumetric share skips its map as before.
+            for (const render::LocalShadowLight& l : ctx.localPlan.lights) {
+                const LightData& ld = ctx.lights[std::size_t(l.light)];
+                if (ld.rtSlot > 0 && !(ctx.postPlan.vol.on && ld.volumetric > 0.0f))
+                    for (int f = 0; f < l.tiles; ++f) ctx.rtLocal.skipView[std::size_t(l.firstTile + f)] = 1;
+            }
+        }
+    }
     std::vector<int> placed;  // the views shadow_views draws
     for (int view = 0; view < int(ctx.viewProj.size()); ++view) {
         const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
-        if (tile.placed() && !(view >= ctx.cascades && view < ctx.sunViews)) placed.push_back(view);
+        if (tile.placed() && !(view >= ctx.cascades && view < ctx.sunViews) &&
+            !(std::size_t(view) < ctx.rtLocal.skipView.size() && ctx.rtLocal.skipView[std::size_t(view)]))
+            placed.push_back(view);
     }
     if (!gpu.parallel_recording() || placed.size() < 2) {
         gpu::CommandList& cl = gpu.commands();
@@ -3493,6 +3809,8 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
     for (int view = viewFirst; view < viewEnd && view < int(ctx.viewProj.size()); ++view) {
         const render::ShadowTile& tile = ctx.atlas.tiles[std::size_t(view)];
         if (!tile.placed() || (view >= ctx.cascades && view < ctx.sunViews)) continue;
+        if (std::size_t(view) < ctx.rtLocal.skipView.size() && ctx.rtLocal.skipView[std::size_t(view)])
+            continue;  // M79-P2a-3: traced
         cl.set_viewport(tile.x, tile.y, tile.size, tile.size, true);
         cl.set_scissor(tile.x, tile.y, tile.size, tile.size, true);
         copy_mat(u.fa_light_vp, ctx.viewProj[std::size_t(view)]);
@@ -3544,7 +3862,7 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
                         apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                     if (prog) {
                         if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) {
-                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd);
+                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd, mbu);
                             fu.fa_env_horizon[3] =
                                 0.0f;  // a shadow map is not the jittered picture: no texture LOD bias
                             apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fu);
@@ -3575,7 +3893,8 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
 // ctx.opaqueBatches, debugView. Writes: ctx.doPrepass, ctx.debugPrepass.
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
-    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = false;
+    ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = ctx.doGbuffer = false;
+    ctx.gbufferTerrainOk = ctx.gbufferImpostorOk = false;
     if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return false;
@@ -3585,7 +3904,7 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
                            debugView != DebugView::Occlusion &&
                            (debugView != DebugView::MotionVectors || ctx.collectPrev);
     if (!(ctx.plan.gi || ctx.hiz || pp.needsDepth || pp.needsNormals || (pp.needsVelocity && ctx.collectPrev) ||
-          debugPass))
+          pp.needsGbuffer || debugPass))
         return false;
     bool anyMesh = false;
     for (const MeshBatch& b : ctx.opaqueBatches) anyMesh = anyMesh || b.mainCount > 0;
@@ -3624,9 +3943,47 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
             ctx.doVelocity = true;
         }
     }
+    // M79-P0c: the thin G-buffer, two RGBA8 images of the prepass's size drawn after it. A GPU that cannot make them (or their shaders) leaves
+    // PostPlan::gbufferAlbedo invalid and whoever asked reads its constants.
+    if (pp.needsGbuffer && !ctx.plan.gi && gpu.gbuffer_ready()) {
+        TransientDesc ad = d;
+        ad.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::Depth, 1};
+        ad.label = "gbuffer-albedo";
+        TransientDesc md = d;
+        md.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::None, 1};
+        md.label = "gbuffer-material";
+        const std::uint64_t ha = transient_targets().pool.acquire(ad);
+        const std::uint64_t hb = ha ? transient_targets().pool.acquire(md) : 0;
+        if (hb) transient_targets().pool.release(hb);
+        if (ha) transient_targets().pool.release(ha);
+        if (ha && hb) {
+            ctx.doGbuffer = true;
+            // The programs of the terrain and the impostor cards are made now (a frame graph pass makes nothing): one that does not build leaves
+            // its draws out of the images, with one logged error.
+            bool anyTerrain = false, anyImpostor = false;
+            for (const MeshBatch& batch : ctx.opaqueBatches) {
+                if (batch.mainCount == 0) continue;
+                const MeshItem& mi = ctx.opaque[batch.rep];
+                anyTerrain = anyTerrain || mi.terrain;
+                anyImpostor = anyImpostor || mi.impostor;
+            }
+            ctx.gbufferTerrainOk = anyTerrain && terrains.ensure_gbuffer(gpu.device());
+            ctx.gbufferImpostorOk = anyImpostor && impostors.ensure_gbuffer(gpu.device());
+        } else if (!gbufferWarned) {
+            gbufferWarned = true;
+            FA_ERROR("render",
+                     "The thin G-buffer images ({}x{}) could not be made: what asked for the albedo and the roughness "
+                     "(DLSS Ray "
+                     "Reconstruction, the debug views albedo and material) reads constants instead. Hint: lower the "
+                     "window size or "
+                     "the render scale.",
+                     ctx.camPx.w, ctx.camPx.h);
+        }
+    }
     ctx.debugPrepass = !ctx.plan.gi &&
                        (debugView == DebugView::Depth || debugView == DebugView::Normals ||
-                        (debugView == DebugView::MotionVectors && ctx.doVelocity)) &&
+                        (debugView == DebugView::MotionVectors && ctx.doVelocity) ||
+                        ((debugView == DebugView::Albedo || debugView == DebugView::Material) && ctx.doGbuffer)) &&
                        gpu.prepass_view_ready();
     return true;
 }
@@ -3757,12 +4114,7 @@ void Renderer::Impl::quad_motion_pass(DrawContext& ctx, const Target& t, bool re
 void Renderer::Impl::plan_transmission(DrawContext& ctx) {
     ctx.xmit = {};
     if (!ctx.fr.wantWorld || !ctx.doMainPass || ctx.camPx.w < 1 || ctx.camPx.h < 1) return;
-    int meshes = 0;
-    for (const MeshBatch& b : ctx.blendedBatches) {
-        if (b.mainCount == 0) continue;
-        const MeshItem& mi = ctx.blended[b.rep];
-        if (mesh_is_transmissive(*mi.mr, *mi.mesh, mi.material)) meshes += int(b.mainCount);
-    }
+    const int meshes = transmissive_mesh_count(ctx);
     if (meshes == 0) return;
     stats.transmissiveMeshes += meshes;
     if (xmit.can_make(transient_targets(), gpu, ctx.camPx.w, ctx.camPx.h))
@@ -3865,16 +4217,17 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
         MaterialInputs inputs{};
         if (mat && (mat->programs[kProgPrepass].shader.id || mat->programs[kProgPrepassSkin].shader.id))
             material_inputs(mi, mat, inputs);
-        if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
         const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
         if (mbu.skip) continue;
         for (const SubMesh& part : mi.mesh->parts) {
             const bool skinned = mi.anim && part.skinVb.id;
             const PartDraw pd0 = part_draw(ctx, mi, part);
+            // A full shader that keeps out of the image, a draw from buffers the engine's program cannot place: not drawn (the per-pixel GI of
+            // such a part is off, gi_pixel_receiver_for asks the same question).
+            if (!prepass_draws_part(mi, part, pd0, mbu)) continue;
             const MaterialProgram* custom =
                 pd0.mat ? &mat->programs[skinned ? kProgPrepassSkin : kProgPrepass] : nullptr;
             if (custom && !custom->shader.id) custom = nullptr;  // a twin made before the prepass: the engine's program
-            if (mbu.active && !custom) continue;  // the engine's program cannot place what the buffers place
             const MaterialProgram* prog = custom ? custom : &gpu.prepass_program(skinned);
             PartDraw bind = pd0;
             if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
@@ -3924,10 +4277,103 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0, mbu));
             if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
             apply_material_params(cl, *prog, inputs);
             cl.draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
+            ++stats.drawCalls;
+        }
+    }
+    cl.end_pass();
+}
+
+// The thin G-buffer (M79-P0c, docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): the opaque meshes of the job drawn again into two RGBA8 images, `albedo`
+// (rgb = the albedo, a = 1 where a mesh was drawn) and `material` (r = roughness, g = metalness, b = 0, a = 1), cleared to zero (a = 0: nothing was
+// drawn, whoever reads it uses its constants). Same batches, instances, skins and uniforms as the prepass, with the "gbuffer" programs (the prepass's
+// vertex stage, the surface of the main pass in the fragment stage); a fragment the prepass did not keep (an alpha-tested hole, a cross-fading level of
+// detail) is dropped by the program's visibility test against `pre`. A mesh with a custom (M72) or layered (M73) material is drawn with the engine's
+// program, so it writes the mesh renderer's own base colour, roughness and metalness (and the textures of its glTF parts); terrain nodes and impostor
+// cards have a gbuffer program of their own. A mesh the engine's program cannot place (GPU-placed buffers) and a full-shader material that keeps out
+// of the prepass keep the clear value. Reads: ctx.opaque / opaqueBatches, ctx.mainInst, ctx.vuScene, ctx.fr.cam. Writes: the targets; stats.drawCalls.
+void Renderer::Impl::gbuffer_pass(DrawContext& ctx, const Target& albedo, const Target& material, const Target& pre) {
+    if (!albedo.colorAtt.id || !material.colorAtt.id || !pre.texView.id) return;
+    PassDesc pd = pass_into(albedo, "gbuffer");
+    pd.format = Gpu::gbuffer_target_format();
+    pd.color1 = material.colorAtt;
+    pd.colorLoad = gpu::LoadAction::Clear;
+    pd.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.clearColor1 = {0.0f, 0.0f, 0.0f, 0.0f};
+    pd.colorStore = gpu::StoreAction::Store;
+    pd.depthLoad = gpu::LoadAction::Clear;
+    pd.clearDepth = 1.0f;
+    // The programs of the terrain and the impostor cards were made by plan_prepass (ctx.gbufferTerrainOk, ctx.gbufferImpostorOk).
+    gpu::CommandList& cl = gpu.commands();
+    cl.begin_pass(pd);
+    mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
+    copy_mat(vu.fa_light_vp,
+             ctx.fr.cam.view);  // the prepass programs read the view matrix where the shadow programs read the light's
+    mesh_fa_vel_params_t velU{};  // fa_vel_on.x = 0: the vertex stage skips the motion work
+    for (const MeshBatch& batch : ctx.opaqueBatches) {
+        if (batch.mainCount == 0) continue;
+        const MeshItem& mi = ctx.opaque[batch.rep];
+        const bool own = mi.terrain || mi.impostor;  // a program of its own, or nothing: the engine's cannot place it
+        if (own && !(mi.terrain ? ctx.gbufferTerrainOk : ctx.gbufferImpostorOk)) continue;
+        vu.fa_uv_scale[0] = mi.mr->uvScale.x;
+        vu.fa_uv_scale[1] = mi.mr->uvScale.y;
+        MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
+        MaterialInputs inputs{};
+        if (mat && own && mat->programs[kProgGbuffer].shader.id) material_inputs(mi, mat, inputs);
+        if (mat && mat->full && !mat->prepass) continue;  // a full shader that keeps out of the depth and normal image
+        const MeshBufferUse mbu = resolve_mesh_buffers(*assets, compute, mi);
+        if (mbu.skip) continue;
+        for (const SubMesh& part : mi.mesh->parts) {
+            const bool skinned = mi.anim && part.skinVb.id;
+            const PartDraw pd0 = part_draw(ctx, mi, part);
+            const MaterialProgram* custom = own && pd0.mat ? &mat->programs[kProgGbuffer] : nullptr;
+            if (custom && !custom->shader.id) custom = nullptr;
+            if (own && !custom) continue;
+            if (mbu.active) continue;  // the engine's program cannot place what the buffers place
+            const MaterialProgram* prog = custom ? custom : &gpu.gbuffer_program(skinned);
+            PartDraw bind = pd0;
+            if (!custom) bind.mat = nullptr;  // the engine's program has no material textures
+            const gpu::Pipeline pipe = gpu.prepass_pipeline(
+                pd.format, part.doubleSided || (pd0.mat && pd0.mat->doubleSided), skinned,
+                custom ? custom->shader : gpu::Shader{}, custom ? mat->extras() : MeshExtras{}, false, false, true);
+            if (!pipe.id) continue;
+            cl.set_pipeline(pipe);
+            gpu::Bindings b;
+            b.vertexBuffers[0] = part.vb;
+            b.vertexBuffers[1] = ctx.mainInst;
+            b.vertexBufferOffsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+            if (skinned) b.vertexBuffers[2] = part.skinVb;
+            if (custom) bind_extras(b, *mat, part, ctx.mainExtra, batch.mainExtra);
+            // The previous model of each instance (vertex buffer 6) is in the vertex layout of the prepass's programs: the instance buffer stands
+            // in for it (never read: fa_vel_on.x is 0).
+            if (prepass_prev_attr(skinned, custom != nullptr, custom ? mat->extras() : MeshExtras{}) >= 0) {
+                b.vertexBuffers[kPrevModelBuffer] = ctx.mainInst;
+                b.vertexBufferOffsets[kPrevModelBuffer] = int(batch.mainFirst * kMeshInstanceBytes);
+            }
+            b.indexBuffer = part.ib;
+            b.indexBufferOffset = part.ibOffset;
+            bind_textures(ctx, b, bind, prog, inputs, true);
+            // The visibility test of the fragment stage reads the prepass through the screen slot (the shadow pass binds a white image there).
+            if ((prog->viewMask >> VIEW_mesh_fa_screen_tex) & 1u) b.views[VIEW_mesh_fa_screen_tex] = pre.texView;
+            if (skinned) {
+                if ((prog->viewMask >> VIEW_mesh_fa_prev_pal_tex) & 1u)
+                    b.views[VIEW_mesh_fa_prev_pal_tex] = ctx.white->view;
+                if ((prog->samplerMask >> SMP_mesh_fa_prev_pal_smp) & 1u)
+                    b.samplers[SMP_mesh_fa_prev_pal_smp] = gpu.sampler(SamplerKind::Nearest);
+            }
+            cl.set_bindings(b);
+            apply_uniforms(cl, UB_mesh_fa_mesh_vs_params, vu);
+            if (prog->has_ub(UB_mesh_fa_vel_params)) apply_uniforms(cl, UB_mesh_fa_vel_params, velU);
+            if (skinned && prog->has_ub(UB_mesh_fa_skin))
+                apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
+            if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0, mbu));
+            if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
+            apply_material_params(cl, *prog, inputs);
+            cl.draw(0, part.indexCount, int(batch.mainCount));
             ++stats.drawCalls;
         }
     }
@@ -3995,7 +4441,7 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
             if (skinned && prog.has_ub(UB_mesh_fa_skin))
                 apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog.has_ub(UB_mesh_fa_mesh_fs_params))
-                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d));
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d, mbu));
             if (prog.has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
             if (prog.has_ub(UB_mesh_fa_sss_params)) apply_uniforms(cl, UB_mesh_fa_sss_params, su);
             cl.draw(0, part.indexCount, int(batch.mainCount));
@@ -4025,7 +4471,11 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = debugView == DebugView::Normals ? 2.0f : debugView == DebugView::MotionVectors ? 3.0f : 1.0f;
+    fu.mode[0] = debugView == DebugView::Normals         ? 2.0f
+                 : debugView == DebugView::MotionVectors ? 3.0f
+                 : debugView == DebugView::Albedo        ? 5.0f
+                 : debugView == DebugView::Material      ? 6.0f
+                                                         : 1.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_fs_params, fu);
     cl.draw(0, 3, 1);
     ++stats.drawCalls;
@@ -4037,8 +4487,10 @@ void Renderer::Impl::prepass_view_pass(DrawContext& ctx, const Target& t) {
 // the image is sampled row for row, so the copy keeps the texture's own row order, bottom row first); read_image_rgba16f turns the rows over on
 // GL as read_image_rgba8 does, so on every backend the vector of the pixel (x, y) is out[(y * w + x) * 4], the top row first. (Reasoned from
 // those two, as the GL backend is not run by this host's tests.)
-constexpr float kPrepassViewRaw = 4.0f;
-void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label) {
+constexpr float kPrepassViewRaw4 =
+    7.0f;  // the four channels as they are (the thin G-buffer's images, RendererTestAccess::read_gbuffer)
+void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocity, Target& probe, const char* label,
+                                         float mode) {
     const int w = ctx.camPx.w, h = ctx.camPx.h;
     if (!velocity.texView.id || w < 1 || h < 1) return;
     if (!probe.valid(gpu.device()) || probe.w != w || probe.h != h) {
@@ -4066,7 +4518,7 @@ void Renderer::Impl::velocity_probe_pass(DrawContext& ctx, const Target& velocit
     vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(cl, UB_prepass_view_prepass_view_vs_params, vu);
     prepass_view_prepass_view_fs_params_t fu{};
-    fu.mode[0] = kPrepassViewRaw;
+    fu.mode[0] = mode;
     apply_uniforms(cl, UB_prepass_view_prepass_view_fs_params, fu);
     cl.draw(0, 3, 1);
     cl.end_pass();
@@ -4080,6 +4532,19 @@ bool Renderer::Impl::read_reactive(std::vector<float>& out, int& w, int& h, std:
     w = reactiveProbe.w;
     h = reactiveProbe.h;
     return render::result_ok(gpu.device().read_image_rgba16f(reactiveProbe.color, w, h, out), error);
+}
+
+bool Renderer::Impl::read_gbuffer(int which, std::vector<float>& out, int& w, int& h, std::string* error) {
+    const Target& t = gbufferProbe[which == 0 ? 0 : 1];
+    if (!t.valid(gpu.device())) {
+        if (error)
+            *error = "no G-buffer was drawn (force_gbuffer is off, or the frame drew no prepass, or the GPU makes no "
+                     "such image)";
+        return false;
+    }
+    w = t.w;
+    h = t.h;
+    return render::result_ok(gpu.device().read_image_rgba16f(t.color, w, h, out), error);
 }
 
 bool Renderer::Impl::read_velocity(std::vector<float>& out, int& w, int& h, std::string* error) {
@@ -4535,6 +5000,24 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // read by the effects after them (below).
         const Target* preT = ctx.postPlan.prepass.target(pc);
         ctx.screenView = preT ? preT->texView : gpu::View{};
+        // The ray traced shadow image has the prepass's depth in r and its mesh flag in a: it stands in for the prepass at the screen slot
+        // (the contact shadows read the same two), and holds the sun's visibility in g.
+        if (ctx.rtShadow.img && ctx.rtShadow.img->ran && ctx.rtShadow.img->texture.id)
+            ctx.screenView = ctx.rtShadow.img->texture;
+        // The per-pixel GI image (M79-P4b-1), only when its kernel ran this frame (it had a TLAS): the denoised transient, else the kernel's own image.
+        ctx.giPixel.view = gpu::View{};
+        if (ctx.giPixel.on && ctx.giPixel.img && ctx.giPixel.img->ran) {
+            if (ctx.giPixel.denoised) {
+                if (const Target* gt = transient_targets().get(pc.handle(ctx.giPixel.res)))
+                    ctx.giPixel.view = gt->texView;
+            } else if (gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba32F).filter) {
+                // The kernel's own image is RGBA32F and the lit shader reads it through the lightmap slot's filtering sampler (a texel fetch, but a
+                // 32-bit float image bound to a filtering sampler is invalid on a device that cannot filter it: Vulkan validation, WebGPU, GLES): so
+                // without the denoiser's RGBA16F image such a device keeps the probes and the ambient light.
+                ctx.giPixel.view = ctx.giPixel.img->texture;
+            }
+        }
+        if (ctx.giPixel.view.id) rtGiPixelFrame.bound = true;
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? gpu::LoadAction::Clear : gpu::LoadAction::Load;
         const Color clearScene = to_scene(fr.cam.clearColor, fr.linear);
@@ -4694,7 +5177,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         }
                         if (declares(prog, UB_mesh_fa_mesh_fs_params)) {
                             if (!fragmentMade) {
-                                fragmentParams = fill_fs(ctx, mi, part, pd, isBlend);
+                                fragmentParams = fill_fs(ctx, mi, part, pd, mbu, isBlend);
                                 fragmentMade = true;
                             }
                             apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fragmentParams);
@@ -4730,12 +5213,38 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         // camera's fog, as full-screen draws over the camera's rectangle, reading the prepass. What is drawn after them (blended meshes,
         // sprites, particles, 3D text, the HUD) is not darkened, and fogs itself by its own distance (mesh_common.glsl, quad.glsl).
         bool fogDrawn = false;
+        // The path tracer's picture over the opaque one (premultiplied: where its primary rays missed or the raster has something nearer, the
+        // raster stays). It has its own occlusion, so the ambient occlusion below is not applied over it; the fog is.
+        bool pathTraceDrawn = false;
+        const gpu::Pipeline keepOver = ctx.pathTrace.img && ctx.pathTrace.img->ran && ctx.pathTrace.img->texture.id
+                                           ? gpu.blit_keep_over_pipeline(mp.format)
+                                           : gpu::Pipeline{};
+        if (keepOver.id) {
+            if (partial) apply_view(cl, camPx);
+            cl.set_pipeline(keepOver);
+            gpu::Bindings b;
+            b.vertexBuffers[0] = gpu.fullscreen_triangle();
+            b.views[VIEW_blit_tex] = ctx.pathTrace.img->texture;
+            b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
+            cl.set_bindings(b);
+            blit_blit_vs_params_t vu{};
+            apply_uniforms(cl, UB_blit_blit_vs_params, vu);
+            blit_blit_fs_params_t fu{};  // encode 0: the image holds the scene's own values
+            apply_uniforms(cl, UB_blit_blit_fs_params, fu);
+            cl.draw(0, 3, 1);
+            ++stats.drawCalls;
+            pathTraceDrawn = true;
+        }
         if (preT && preT->texView.id) {
             if (partial) apply_view(cl, camPx);
-            if (ctx.ssaoApply.valid) {
-                const Target* aoT = transient_targets().get(pc.handle(ctx.ssaoApply.ao));
-                if (aoT && aoT->texView.id) {
-                    Ssao::draw_apply(cl, gpu, ctx.ssaoApply, aoT->texView, preT->texView, mp.format);
+            if (ctx.ssaoApply.valid && !pathTraceDrawn && (!ctx.rtAo.on || (ctx.rtAo.img && ctx.rtAo.img->ran))) {
+                // The ray traced occlusion is applied only when its kernel ran this frame (it has a TLAS); the SSAO's image is a transient.
+                const Target* aoT =
+                    ctx.ssaoApply.aoView.id ? nullptr : transient_targets().get(pc.handle(ctx.ssaoApply.ao));
+                const gpu::View aoView =
+                    ctx.ssaoApply.aoView.id ? ctx.ssaoApply.aoView : (aoT ? aoT->texView : gpu::View{});
+                if (aoView.id) {
+                    Ssao::draw_apply(cl, gpu, ctx.ssaoApply, aoView, preT->texView, mp.format);
                     ++stats.drawCalls;
                 }
             }
@@ -4761,8 +5270,13 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
         if (ctx.xmit.want) {
             cl.end_pass();
             const int row = gpu.is_gl() ? gameTarget.h - camPx.y - camPx.h : camPx.y;  // image rows (xmit.h)
-            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages)) {
+            // The ray traced translucency's image, when the kernel ran this frame (a device or a scene without a TLAS leaves `ran` false).
+            gpu::View traced{};
+            if (ctx.rtTranslucency.img && ctx.rtTranslucency.img->ran && ctx.rtTranslucency.img->texture.id)
+                traced = ctx.rtTranslucency.img->texture;
+            if (xmit.build(transient_targets(), gpu, gameTarget, camPx.x, row, camPx.w, camPx.h, xmitImages, traced)) {
                 ctx.xmit.on = true;
+                ctx.xmit.traced = xmitImages.traced;
                 ctx.xmit.levels = xmitImages.levels;
                 ctx.xmit.atlasView = xmitImages.atlasView;
                 ++stats.transmissionCopies;
@@ -4916,6 +5430,25 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                    bool sideEffect = false) {
         add_job(plan.name, name, std::move(reads), std::move(writes), std::forward<decltype(fn)>(fn), sideEffect);
     };
+    // The ray tracing scene's acceleration structures (rt_scene.h): built before any pass of the job, so what a later package's effect reads
+    // (the TLAS, the record buffer) is there. A side effect: nothing in this graph reads what it makes yet.
+    if (ctx.rtCollected)
+        add(
+            "rt-accel", {}, {},
+            [this](const PassContext& c) {
+                if (gpu::CommandList* list = c.commands()) rtScene.record(*list);
+            },
+            true);
+    // The GI probes updated by rays (renderer_gi.cpp, gi_plan, after the jobs) order their pass after this one and shade a hit with this job's sun.
+    // Only the job that collected the scene (the main camera's: rtScene.collect runs once a frame) names the pass and the sun; a later job
+    // with rtCollected set (there is none today) must not replace them.
+    if (ctx.rtCollected && rtSettings.gi == render::RtGi::Probes && !rtGiHitValid) {
+        RtEffectRequest hitOnly;
+        fill_rt_hit_request(ctx, hitOnly);
+        rtGiHit = hitOnly.hit;
+        rtGiHitValid = true;
+        rtAccelPass = plan.name + "/rt-accel";
+    }
     // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
     auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
         if (slot.valid())
@@ -5127,6 +5660,33 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     // The subsurface draw (M73.5): in this camera's own job, after its shadow and prepass passes (it reads this job's shadow atlas); the blur and the pass that
     // adds the change to the picture are declared with the post stack, in the last job.
+    // The thin G-buffer (M79-P0c): only a job whose plan_prepass said so (something asked and the GPU made the images) has the pass and the images.
+    ResourceId gbAlbedoRes, gbMaterialRes;
+    if (ctx.doGbuffer && ctx.doPrepass) {
+        TransientDesc ad;
+        ad.width = ctx.camPx.w;
+        ad.height = ctx.camPx.h;
+        ad.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::Depth, 1};
+        ad.label = plan.name + "/gbuffer-albedo";
+        TransientDesc md = ad;
+        md.format = TargetFormat{Gpu::gbuffer_format(), gpu::PixelFormat::None, 1};
+        md.label = plan.name + "/gbuffer-material";
+        gbAlbedoRes = graph.create_transient(ad);
+        gbMaterialRes = graph.create_transient(md);
+        ctx.postPlan.gbufferAlbedo = PrepassRef{gbAlbedoRes, &transient_targets()};
+        ctx.postPlan.gbufferMaterial = PrepassRef{gbMaterialRes, &transient_targets()};
+        // Never culled: the effects that read the images list the pass before them through the resources; the debug view and the test probe are
+        // declared below.
+        add(
+            "gbuffer", {prepassRes}, {gbAlbedoRes, gbMaterialRes},
+            [this, &ctx, gbAlbedoRes, gbMaterialRes, prepassRes](const PassContext& c) {
+                const Target* a = transient_targets().get(c.handle(gbAlbedoRes));
+                const Target* m = transient_targets().get(c.handle(gbMaterialRes));
+                const Target* p = transient_targets().get(c.handle(prepassRes));
+                if (a && m && p) gbuffer_pass(ctx, *a, *m, *p);
+            },
+            true);
+    }
     if (ctx.sssOn && ctx.postPlan.prepass.valid()) {
         const ResourceId lightRes_ = graph.create_transient(SssFx::light_desc(ctx.postPlan.sss, plan.name));
         const ResourceId paramRes = graph.create_transient(SssFx::params_desc(ctx.postPlan.sss, plan.name + "/b"));
@@ -5144,16 +5704,632 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 if (at && bt && pt) sss_draw_pass(ctx, *at, *bt, *pt);
             });
     }
-    // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
-    // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
+    // Ray traced sun shadows (rt_effect.h, ARCHITECTURE_RT_EFFECTS.md "Soft shadows"). Hard: one compute pass after the scene's TLAS and the prepass,
+    // before the main pass, which reads the image it writes. Soft: the same kernel with raysPerPixel rays over the sun's disc into a noisy image, the
+    // RtDenoiser's passes (Visibility) and a pack pass that puts the denoised visibility in the layout the lit pass reads. A kernel, an image or a
+    // denoiser the device refuses is said once and leaves the cascades in place.
+    ctx.rtShadow.img = nullptr;
+    ResourceId rtShadowRes;
+    if (ctx.rtShadow.want && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        const bool soft = rtSettings.shadows == render::RtShadows::Soft;
+        RtEffectRequest req;
+        req.kernel = "rt_shadow";
+        req.effect = soft ? "shadows-trace" : "shadows";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = soft ? std::clamp(rtSettings.raysPerPixel, 1, 16) : 1;
+        const Vec3 toLight = normalize(-ctx.lightDirForShadow);
+        req.lightDir[0] = toLight.x;
+        req.lightDir[1] = toLight.y;
+        req.lightDir[2] = toLight.z;
+        for (int i = 0; i < 4; ++i) req.user0[i] = kRtShadowUser0[i];
+        // user1: the tangent of the sun's angular radius (SceneSettings.skySunSize is its diameter in degrees) and the layout of the image.
+        const float sunDeg = ctx.world.settings().skySunSize;
+        const float sunDiameter = std::isfinite(sunDeg) ? std::clamp(sunDeg, 0.1f, 10.0f) : 0.53f;
+        req.user1[0] = std::tan(0.5f * sunDiameter * 3.14159265f / 180.0f);
+        req.user1[1] = soft ? kRtShadowLayoutSoft : kRtShadowLayoutHard;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        std::string why = out.why;
+        if (out.valid && soft) {
+            // The denoiser reads the visibility in r of the trace image (a persistent image: its resource orders the passes) and the prepass.
+            DenoiseSignal sig;
+            sig.kind = DenoiseKind::Visibility;
+            sig.id = kRtShadowSignalId;
+            sig.name = "sun-shadow";
+            DenoiseInputs din;
+            din.noisy.res = out.res;
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            if (ctx.postPlan.velocity.valid()) {
+                din.velocity.res = ctx.postPlan.velocity.res;
+                din.velocity.targets = ctx.postPlan.velocity.targets;
+            }
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam =
+                make_denoise_camera(fr.cam, fr.cam.entity.bits(), postSerial, sceneKey, originShifts,
+                                    ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            const DenoiseOutput den =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls, plan.name);
+            out.valid = false;
+            if (den.valid) {
+                RtEffectRequest pack = req;
+                pack.kernel = "rt_shadow_pack";
+                pack.effect = "shadows";
+                pack.prepass = PrepassRef{};
+                pack.srcImage = out.out;
+                pack.srcRes = out.res;
+                pack.aux = PrepassRef{den.res, &transient_targets()};
+                pack.after.clear();
+                out = rtEffects.add_pass(graph, gpu, pack);
+                why = out.why;
+            } else {
+                why = "the denoiser could not be used: " + den.why;
+            }
+        }
+        if (out.valid) {
+            ctx.rtShadow.img = out.out;
+            ctx.rtShadow.sunTraced = true;
+            rtShadowRes = out.res;
+        } else if (!rtWarnedEffect) {
+            rtWarnedEffect = true;
+            FA_WARN("render",
+                    "render.rayTracing.shadows is on but the ray traced shadows cannot run on this device ({}). The "
+                    "sun keeps its shadow "
+                    "maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
+                    why);
+        }
+    }
+    // Ray traced shadows of point, spot and area lights (M79-P2a-3, rt_shadow_local.hlsl, docs/design/ARCHITECTURE_RT_SHADOWS.md): the trace of up to
+    // kRtLocalMaxLights lights into one image (r, g, b), the denoiser when a traced light is soft (one Diffuse signal for the three, the luminance
+    // edge-stop keeps the edges of each), and the pack pass that writes the image the lit pass reads: the sun's final image (or the prepass when the
+    // sun is not traced) with the three visibilities in b. That image replaces the sun's at the screen slot. A kernel, an image or a denoiser the
+    // device refuses is said once and leaves the shadow maps in place (the lights keep their maps; shadow_pass leaves them undrawn only when the
+    // passes are valid).
+    ctx.rtLocal.traced = false;
+    if (ctx.rtLocal.want && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        const bool anySoft = [&] {
+            for (int s = 0; s < ctx.rtLocal.pick.count; ++s) {
+                const render::RtLocalLight& l = ctx.rtLocal.params.lights[s];
+                if (l.posReach[3] > 0.0f && (l.kind[0] > 2.5f ? l.kind[2] > 0.0f : l.kind[1] > 0.0f)) return true;
+            }
+            return false;
+        }();
+        const bool soft = rtSettings.shadows == render::RtShadows::Soft && anySoft;
+        RtEffectRequest req;
+        req.kernel = "rt_shadow_local";
+        req.effect = "shadows-local-trace";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = soft ? std::clamp(rtSettings.raysPerPixel, 1, 16) : 1;
+        for (int i = 0; i < 4; ++i) req.user0[i] = kRtShadowUser0[i];
+        req.user1[1] = soft ? 1.0f : 0.0f;
+        req.local = ctx.rtLocal.params;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        std::string why = out.why;
+        const std::uint64_t camKey = fr.cam.entity.bits();
+        ResourceId visRes = out.res;  // what the pack pass reads as its aux image
+        PrepassRef visAux;
+        const RtEffectImage* visImage = out.out;
+        // A light that took another slot, or left it, starts the signal again: its history is another light's. (Where the signal is new there is
+        // nothing to drop.) The lights hold their slots while they stay among the best (rt_local_shadows.h), so this is rare. Also in a frame that
+        // is not soft and so declares no denoiser pass: the history it leaves would be the old light's when the next soft frame reads it.
+        if (ctx.rtLocal.pick.changed) rtDenoiser.drop_signal(camKey, kRtLocalSignalId);
+        if (out.valid && soft) {
+            DenoiseSignal sig;
+            sig.kind = DenoiseKind::Diffuse;
+            sig.id = kRtLocalSignalId;
+            sig.name = "local-shadows";
+            sig.settings.fireflyClamp = 0.0f;  // visibilities are in 0 .. 1: nothing to clamp
+            DenoiseInputs din;
+            din.noisy.res = out.res;
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            if (ctx.postPlan.velocity.valid()) {
+                din.velocity.res = ctx.postPlan.velocity.res;
+                din.velocity.targets = ctx.postPlan.velocity.targets;
+            }
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                           ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            const DenoiseOutput den =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls, plan.name);
+            out.valid = den.valid;
+            if (den.valid) {
+                visAux = PrepassRef{den.res, &transient_targets()};
+                visImage = nullptr;
+            } else {
+                why = "the denoiser could not be used: " + den.why;
+            }
+        }
+        if (out.valid) {
+            RtEffectRequest pack = req;
+            pack.kernel = "rt_shadow_local_pack";
+            pack.effect = "shadows-local";
+            pack.after.clear();
+            pack.prepass = PrepassRef{};
+            if (ctx.rtShadow.img && ctx.rtShadow.sunTraced && rtShadowRes.valid()) {
+                pack.srcImage =
+                    ctx.rtShadow.img;  // the sun's final image: its depth, visibility and mesh flag are kept
+                pack.srcRes = rtShadowRes;
+                pack.user1[0] = 1.0f;
+            } else {
+                pack.prepass = ctx.postPlan.prepass;  // the sun is not traced: the prepass's depth and mesh flag
+                pack.user1[0] = 0.0f;
+            }
+            pack.user1[1] = float(ctx.rtLocal.pick.count);
+            if (visAux.valid()) {
+                pack.aux = visAux;
+            } else {
+                pack.auxImage = visImage;
+                pack.auxRes = visRes;
+            }
+            out = rtEffects.add_pass(graph, gpu, pack);
+            why = out.why;
+        }
+        if (out.valid) {
+            ctx.rtShadow.img = out.out;
+            rtShadowRes = out.res;
+            ctx.rtLocal.traced = true;
+            rtLocalFrame.traced = std::max(rtLocalFrame.traced, ctx.rtLocal.pick.traced);
+            // The shadow pass was declared before this one: it runs after the pack pass, so it leaves a traced light's maps undrawn only when the
+            // image really was made this frame (`ran`), else those lights would have neither their rays nor their maps for a frame.
+            graph.add_after(plan.name + "/shadow", plan.name + "/rt-shadows-local");
+        } else if (!rtWarnedLocal) {
+            rtWarnedLocal = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.shadows is on but the ray traced shadows of point, spot and area lights cannot run "
+                "on this device ({}). "
+                "Those lights keep their shadow maps. Hint: set render.rayTracing.shadows to \"off\" to silence this.",
+                why);
+        }
+    }
+    // Ray traced reflections (M79-P3a-1/2, rt_reflect.hlsl): one compute pass after the TLAS, the prepass and the G-buffer (a mirror ray under the sharp
+    // cutoff, raysPerPixel glossy rays up to the limit, then the denoiser); the screen-space
+    // reflections' trace pass (planned in plan_job, declared with the post stack) composites the images. A device that refuses the kernel or the
+    // image keeps the screen-space reflections and the probes, said once.
+    ctx.postPlan.rtReflectImg = nullptr;
+    ctx.postPlan.rtReflectRes = ResourceId{};
+    if (ctx.rtReflect.want && ctx.postPlan.prepass.valid() && ctx.postPlan.gbufferAlbedo.valid() &&
+        ctx.postPlan.gbufferMaterial.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_reflect";
+        req.effect = "reflections";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.gbufferAlbedo = ctx.postPlan.gbufferAlbedo;
+        req.gbufferMaterial = ctx.postPlan.gbufferMaterial;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        // Sharp pixels take one mirror ray; the glossy ones take raysPerPixel (1 to 16), as the occlusion does.
+        req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
+        fill_rt_hit_request(ctx, req);  // the sun, the ambient and sky colours and the shadow rays' limits
+        // user0: the mirror ray's offset along the normal in metres and per metre of view depth, the roughness cutoff, TMax.
+        req.user0[0] = 0.02f;
+        req.user0[1] = 0.002f;
+        req.user0[2] = kRtReflectSharp;
+        req.user0[3] = 10000.0f;
+        req.user1[0] =
+            kRtReflectLimit;  // the roughest pixel that is traced (above it: the screen-space march and the probes)
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.postPlan.rtReflectImg = out.out;
+            ctx.postPlan.rtReflectRes = out.res;
+            rtReflectFrameImgs.push_back(out.out);
+            // The glossy pixels (roughness from the sharp cutoff up) are denoised: the radiance (with the hit distance, which steers the virtual-motion
+            // reprojection) and, as a second signal, where the rays ended on a surface, so the hand-off to the screen-space march and the probes has
+            // no seam. The sharp pixels read the raw image. A denoiser that cannot run leaves both invalid: the composite reads the raw image.
+            ctx.postPlan.rtGlossy = SsrRtGlossy{};
+            ctx.postPlan.rtGlossy.material = ctx.postPlan.gbufferMaterial.res;
+            ctx.postPlan.rtGlossy.targets = ctx.postPlan.gbufferMaterial.targets;
+            const std::uint64_t camKey = fr.cam.entity.bits();
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                           ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            DenoiseInputs din;
+            din.noisy.res = out.res;
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            din.roughness.res = ctx.postPlan.gbufferMaterial.res;
+            din.roughness.targets = ctx.postPlan.gbufferMaterial.targets;
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            DenoiseSignal color;
+            color.kind = DenoiseKind::Specular;
+            color.id = kRtReflectSignalId;
+            color.name = "reflections";
+            // DLSS Ray Reconstruction takes both signals (rr_signals): nothing of the engine's denoiser is declared (it drops their histories) and the
+            // composite reads the noisy image as it is (rtGlossy stays empty). The kernel's image also gives Ray Reconstruction its hit distance.
+            color.enabled = !ctx.rr.reflections;
+            // The composite reads the denoised image only where the roughness is in this window (the sharp pixels read the raw image, the
+            // rougher ones are not traced): the denoiser does not spend a pixel on the rest. (Pixels the kernel did not trace are skipped too.)
+            color.roughMin = kRtReflectSharp;
+            color.roughMax = kRtReflectLimit;
+            DenoiseSignal cover = color;
+            cover.kind = DenoiseKind::Coverage;
+            cover.id = kRtReflectCoverageSignalId;
+            cover.name = "reflections-coverage";
+            // The share of the rays that hit is a smooth one-channel signal (the lobe limit keeps it as narrow as the image): three iterations
+            // give the same picture where the five of the image's filter are what its noise needs.
+            cover.settings.iterations = std::min(cover.settings.iterations, 3);
+            const DenoiseOutput dc =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, color, din, &stats.drawCalls, plan.name);
+            if (ctx.rr.reflections) {
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, cover, din, &stats.drawCalls, plan.name);
+                upscaleReflectImg = out.out;
+                upscaleReflectRes = out.res;
+            } else if (dc.valid) {
+                const DenoiseOutput dk = rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, cover, din,
+                                                               &stats.drawCalls, plan.name);
+                if (dk.valid) {
+                    ctx.postPlan.rtGlossy.color = dc.res;
+                    ctx.postPlan.rtGlossy.coverage = dk.res;
+                }
+            }
+        } else if (!rtWarnedReflect) {
+            rtWarnedReflect = true;
+            FA_WARN("render",
+                    "render.rayTracing.reflections is on but the ray traced reflections cannot run on this device "
+                    "({}). The "
+                    "reflections stay the screen-space ones and the probes. Hint: set render.rayTracing.reflections to "
+                    "false to silence "
+                    "this.",
+                    out.why);
+        }
+    }
+    if (ctx.rr.reflections &&
+        !upscaleReflectImg) {  // the kernel was not declared after all: nothing was left to Ray Reconstruction
+        ctx.rr.reflections = false;
+        rrSignalsFrame.reflections = false;
+    }
+    // Ray traced ambient occlusion (M79-P2b, rt_effect.h): the kernel after the scene's TLAS and the prepass, then the denoiser (Occlusion), whose result
+    // the main pass applies in place of the SSAO's (the same apply, the same radius and intensity). A kernel the device refuses is said once and leaves
+    // the camera's SSAO in place; so does a device that cannot trace (the scene is not active).
+    ctx.rtAo.img = nullptr;
+    ctx.rtAo.on = false;
     ctx.ssaoApply = SsaoApply{};
-    if (ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+    // The apply is the screen-space occlusion's: a GPU that cannot draw it (no RGBA16F targets that blend, or its shaders failed) keeps neither.
+    if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active() &&
+        !Ssao::apply_available(gpu)) {
+        if (!rtWarnedAo) {
+            rtWarnedAo = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.ao is on but this GPU cannot draw the occlusion's apply (it needs RGBA16F render "
+                "targets that blend, and the occlusion shaders): no ambient occlusion is drawn. Hint: set "
+                "render.rayTracing.ao to false to silence this.");
+        }
+    } else if (ctx.rtAo.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        const SsaoSettings aoS = ssao_rt_settings(ctx.postPlan.ssao);
+        RtEffectRequest req;
+        req.kernel = "rt_ao";
+        req.effect = "ao";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
+        // user0: the ray's reach (the SSAO's radius, in metres), the normal offset in metres and per metre of view depth, TMin.
+        req.user0[0] = aoS.radius;
+        req.user0[1] = 0.02f;
+        req.user0[2] = 0.002f;
+        req.user0[3] = 0.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.rtAo.img = out.out;
+            ctx.rtAo.on = true;
+            const std::uint64_t camKey = fr.cam.entity.bits();
+            const std::uint64_t sceneKey =
+                std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+            const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                           ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+            DenoiseSignal sig;
+            sig.kind = DenoiseKind::Occlusion;
+            sig.id = kRtAoSignalId;
+            sig.name = "ao";
+            // The occlusion of a hemisphere is smooth: half size, then a depth and normal guided upsample.
+            sig.halfRes = true;
+            DenoiseInputs din;
+            din.noisy.res = out.res;  // the imported image: the denoiser's passes read it after the kernel wrote it
+            din.noisy.view = out.out->texture;
+            din.prepass.res = ctx.postPlan.prepass.res;
+            din.prepass.targets = ctx.postPlan.prepass.targets;
+            din.width = ctx.camPx.w;
+            din.height = ctx.camPx.h;
+            const DenoiseOutput den =
+                rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls, plan.name);
+            const SsaoCamera sc = ssao_camera(fr.cam);
+            if (den.valid)
+                ctx.ssaoApply = ssao_apply_for_image(aoS, sc, ctx.postPlan.sceneLinear, gpu.is_gl(), den.res,
+                                                     gpu::View{}, ctx.postPlan.prepass.res, ctx.camPx.w, ctx.camPx.h);
+            else  // the denoiser cannot run: the noisy image is applied as it is (still the traced occlusion)
+                ctx.ssaoApply =
+                    ssao_apply_for_image(aoS, sc, ctx.postPlan.sceneLinear, gpu.is_gl(), out.res, out.out->texture,
+                                         ctx.postPlan.prepass.res, ctx.camPx.w, ctx.camPx.h);
+        } else if (!rtWarnedAo) {
+            rtWarnedAo = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.ao is on but the ray traced ambient occlusion cannot run on this device ({}). The "
+                "camera keeps its screen-space occlusion (PostProcess.ssaoEnabled), if it has one (a camera with no "
+                "PostProcess has none; the traced occlusion, where it runs, takes the PostProcess "
+                "defaults for radius and intensity then). Hint: set "
+                "render.rayTracing.ao to false to silence this.",
+                out.why);
+        }
+    }
+    // Per-pixel ray traced global illumination (M79-P4b-1, rt_gi_pixel.hlsl): `raysPerPixel` cosine rays from each pixel's surface, the closest hit shaded
+    // with rt_hit plus the grids' light at it (one traced bounce and a cached tail), then the denoiser (Diffuse). The main pass reads the result in place of
+    // the probe and ambient term, only while the kernel ran. A kernel or image the device refuses falls back at once for kGiRtRetryFrames frames (said once).
+    ctx.giPixel.img = nullptr;
+    ctx.giPixel.on = ctx.giPixel.denoised = false;
+    ctx.giPixel.res = ResourceId{};
+    if (ctx.giPixel.want && !(ctx.doMainPass && ctx.postPlan.prepass.valid()))
+        rtGiPixelFrame.why = !ctx.doMainPass
+                                 ? "this camera does not draw the main pass this frame, so there is no picture to light"
+                                 : "the prepass of this camera was not made this frame (its depth and normals are what "
+                                   "the rays start from)";
+    if (ctx.giPixel.want && ctx.doMainPass && ctx.postPlan.prepass.valid()) {
+        RtEffectRequest req;
+        req.kernel = "rt_gi_pixel";
+        req.effect = "gipixel";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
+        fill_rt_hit_request(ctx, req);
+        // user0: the rays' reach in metres, the normal offset in metres and per metre of view depth, TMin.
+        req.user0[0] = 1000.0f;
+        req.user0[1] = 0.02f;
+        req.user0[2] = 0.002f;
+        req.user0[3] = 0.0f;
+        // The tail of a hit: the ready realtime GI grids the lit pass reads (their records are the kernel's rows), and the atlas they live in. The atlas is asked
+        // when the pass runs (it is made again when the probes change size); with no grid the white image stands in (the kernel never samples it).
+        {
+            const GiSystem& gis = probes.gi;
+            const int giCount = std::min(int(gis.records.size() / std::size_t(kGiRecordFloats)), kRtGiPixelMaxGrids);
+            req.giTail.count[0] = std::uint32_t(giCount);
+            for (int k = 0; k < giCount; ++k) {
+                const float* r = gis.records.data() + std::size_t(k) * std::size_t(kGiRecordFloats);
+                std::memcpy(req.giTail.grid0[k], r, 4 * sizeof(float));
+                std::memcpy(req.giTail.grid1[k], r + 4, 4 * sizeof(float));
+                std::memcpy(req.giTail.grid2[k], r + 8, 4 * sizeof(float));
+                std::memcpy(req.giTail.grid3[k], r + 12, 4 * sizeof(float));
+            }
+            TextureAsset* white = ctx.white;
+            req.atlas = [this, giCount, white] {
+                if (giCount > 0 && probes.atlas.valid()) return probes.atlas.tex;
+                return white->view;
+            };
+        }
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.giPixel.img = out.out;
+            ctx.giPixel.res = out.res;
+            ctx.giPixel.on = true;
+            rtGiPixelFrame.declared = true;
+            rtGiPixelFrame.imgs.push_back(out.out);
+            // The denoiser call is this one function: DenoiseSignal::enabled false (a vendor denoiser takes the signal) draws nothing of it and the
+            // kernel's image is read as it is. The kernel's output is the irradiance / pi, not multiplied by an albedo, so what the denoiser filters
+            // is already demodulated: the main pass multiplies it by the surface's own albedo, so textures stay sharp.
+            const auto denoise = [&](const RtEffectOutput& noisy) {
+                const std::uint64_t camKey = fr.cam.entity.bits();
+                const std::uint64_t sceneKey =
+                    std::hash<std::string>{}(ctx.world.scene_path()) * 1099511628211ull + ctx.world.scene_generation();
+                const DenoiseCamera dcam = make_denoise_camera(fr.cam, camKey, postSerial, sceneKey, originShifts,
+                                                               ctx.postPlan.prevViewProj, ctx.postPlan.prevValid);
+                DenoiseSignal sig;
+                // Ray Reconstruction takes the signal (rr_signals): nothing is declared, the history is dropped.
+                const bool rrTakesGi = ctx.rr.gi;
+                sig.enabled = !rrTakesGi;
+                sig.kind = DenoiseKind::Diffuse;
+                sig.id = kRtGiPixelSignalId;
+                sig.name = "gipixel";
+                // The indirect light is smooth (and multiplied by the albedo after): half size, guided upsample.
+                sig.halfRes = true;
+                DenoiseInputs din;
+                din.noisy.res =
+                    noisy.res;  // the imported image: the denoiser's passes read it after the kernel wrote it
+                din.noisy.view = noisy.out->texture;
+                din.prepass.res = ctx.postPlan.prepass.res;
+                din.prepass.targets = ctx.postPlan.prepass.targets;
+                din.width = ctx.camPx.w;
+                din.height = ctx.camPx.h;
+                return rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, sig, din, &stats.drawCalls,
+                                             plan.name);
+            };
+            const DenoiseOutput den = denoise(out);
+            if (den.valid) {
+                ctx.giPixel.res = den.res;
+                ctx.giPixel.denoised = true;
+            }
+        } else {
+            ctx.rr.gi = false;
+            rrSignalsFrame.gi = false;
+            rtGiPixelFrame.why = out.why;
+            rtGiPixelFallbackReason = out.why + " (the probe and ambient light is used; the rays are tried again in " +
+                                      std::to_string(kGiRtRetryFrames) + " frames)";
+            rtGiPixelFallbackUntil = frameSerial + std::uint64_t(kGiRtRetryFrames);
+            if (!rtWarnedGiPixel) {
+                rtWarnedGiPixel = true;
+                FA_WARN("render",
+                        "render.rayTracing.gi is \"perPixel\" but the ray traced per-pixel global illumination cannot "
+                        "run on this device ({}). The surfaces keep the probe and ambient light. Hint: set "
+                        "render.rayTracing.gi to \"off\" or \"probes\" to silence this.",
+                        out.why);
+            }
+        }
+    }
+    // Ray traced translucency (M79-P3b, rt_refract.hlsl): one compute pass after the TLAS and the prepass; the main pass hands its image to the
+    // refraction copy. A device that refuses the kernel or the image leaves the screen-space refraction, said once.
+    ctx.rtTranslucency.img = nullptr;
+    ctx.rtTranslucency.res = ResourceId{};
+    if (ctx.rtTranslucency.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_refract";
+        req.effect = "translucency";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        fill_rt_hit_request(ctx, req);
+        // user0: the offset after an interface in metres and per metre of the segment, the widest cone's tangent, the rays' TMax.
+        req.user0[0] = 0.02f;
+        req.user0[1] = 0.002f;
+        req.user0[2] = 0.35f;
+        req.user0[3] = 10000.0f;
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.rtTranslucency.img = out.out;
+            ctx.rtTranslucency.res = out.res;
+        } else if (!rtWarnedTranslucency) {
+            rtWarnedTranslucency = true;
+            FA_WARN(
+                "render",
+                "render.rayTracing.translucency is on but the ray traced translucency cannot run on this device ({}). "
+                "Glass and liquids keep the screen-space refraction. Hint: set render.rayTracing.translucency to false "
+                "to silence this.",
+                out.why);
+        }
+    }
+    // The path tracer (M79-P5a, rt_pathtrace.hlsl): one compute pass after the TLAS and the prepass accumulates the samples; the main pass draws the
+    // image over the opaque picture. A device that refuses the kernel or the image keeps the raster picture, said once.
+    ctx.pathTrace.img = nullptr;
+    ctx.pathTrace.res = ResourceId{};
+    if (ptSettings.enabled) {
+        ptState.status.active = false;
+        ptState.status.failure
+            .clear();  // the last camera's refusal of this frame (render.pathtrace); plan_job reads each camera's own
+    }
+    if (ctx.pathTrace.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
+        RtEffectRequest req;
+        req.kernel = "rt_pathtrace";
+        req.effect = "pathtrace";
+        req.job = plan.name;
+        req.after = plan.name + "/rt-accel";
+        req.width = ctx.camPx.w;
+        req.height = ctx.camPx.h;
+        req.prepass = ctx.postPlan.prepass;
+        req.camera = &fr.cam;
+        req.zeroToOne = ctx.z01;
+        req.frameSerial = frameSerial;
+        req.raysPerPixel = 1;
+        fill_rt_hit_request(ctx, req);
+        fill_path_trace_lights(req.lights, ctx.lights);
+        req.scene = &rtScene;
+        req.drawCalls = &stats.drawCalls;
+        const render::PathTracerSettings cfg = ptSettings;
+        const bool lightsUsed = cfg.lights && req.lights.count[0] > 0;
+        const std::uint64_t settingsHash = path_trace_settings_hash(cfg, req.hit, req.lights);
+        PathTraceJobState* job =
+            &ptState.jobs[plan.name];  // std::map: the node stays until rt_begin_frame purges it or clears the state
+        job->lastFrame = frameSerial;
+        render::PathTracerStatus* status = &ptState.status;
+        RtScene* scene = &rtScene;
+        req.prepare = [cfg, lightsUsed, settingsHash, job, status, scene](RtEffectParams& params,
+                                                                          const RtEffectImage& image) {
+            const PathTraceStep step = path_trace_step(*job, cfg, path_trace_camera_hash(params), scene->content_hash(),
+                                                       settingsHash, image.serial, image.width, image.height);
+            path_trace_fill_params(params, cfg, step, lightsUsed);
+            status->active = true;
+            status->samples = job->samples;
+            status->width = image.width;
+            status->height = image.height;
+            if (!step.reset.empty()) {
+                status->lastReset = step.reset;
+                if (step.reset != "start") ++status->resets;
+            }
+            return step.what;
+        };
+        const RtEffectOutput out = rtEffects.add_pass(graph, gpu, req);
+        if (out.valid) {
+            ctx.pathTrace.img = out.out;
+            ctx.pathTrace.res = out.res;
+            job->failure.clear();
+        } else {
+            ptState.status.failure = out.why;  // the kernel or the image could not be made: render.pathtrace says why
+            job->failure = out.why;
+        }
+        if (!out.valid && !rtWarnedPathTrace) {
+            rtWarnedPathTrace = true;
+            FA_WARN("render",
+                    "render.pathTracer is on but the path tracer cannot run on this device ({}). The frame is the "
+                    "raster one. Hint: set "
+                    "render.pathTracer.enabled to false to silence this.",
+                    out.why);
+        }
+    }
+    // The screen-space ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass,
+    // which applies them after the opaque meshes (main_pass). Only a job that draws the world and has the prepass
+    // declares them. A frame the path tracer draws (its pass is declared and expected to run: its image is drawn over
+    // the opaque picture, which has its own occlusion) makes no SSAO passes, and neither does the frame that tries the
+    // pass again after a refusal and has it accepted (`retry`: one decision a frame). The retry frame keeps the ray
+    // traced occlusion (rt-ao) all the same, so a retry that is refused again does not swap the occlusion technique for
+    // one frame. A declared pass that cannot run (the scene offers no mesh) leaves this one.
+    if (!ctx.rtAo.on && !(ctx.pathTrace.res.valid() && (ctx.pathTrace.expected || ctx.pathTrace.retry)) &&
+        ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
                         ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
                         &ctx.ssaoApply);
     if (ctx.doMainPass) {
         std::vector<ResourceId> reads;
         if (ctx.postPlan.prepass.valid()) reads.push_back(ctx.postPlan.prepass.res);
+        if (rtShadowRes.valid()) reads.push_back(rtShadowRes);
+        if (ctx.rtTranslucency.res.valid()) reads.push_back(ctx.rtTranslucency.res);
+        if (ctx.pathTrace.res.valid()) reads.push_back(ctx.pathTrace.res);
+        if (ctx.giPixel.res.valid()) reads.push_back(ctx.giPixel.res);
         if (ctx.ssaoApply.valid) reads.push_back(ctx.ssaoApply.ao);
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (cookieRes.valid()) reads.push_back(cookieRes);
@@ -5176,6 +6352,21 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                         velocity_probe_pass(ctx, *v, velocityProbe, "velocity-probe");
                 },
                 true);
+        // The test copies of the G-buffer's images (RendererTestAccess::read_gbuffer).
+        if (forceGbuffer && ctx.doGbuffer && (!probeCameraOnly || probeCamera == fr.cam.entity.bits())) {
+            for (int k = 0; k < 2; ++k) {
+                const ResourceId src = k == 0 ? gbAlbedoRes : gbMaterialRes;
+                add(
+                    k == 0 ? "gbuffer-albedo-probe" : "gbuffer-material-probe", {src}, {},
+                    [this, &ctx, src, k](const PassContext& c) {
+                        if (const Target* g = transient_targets().get(c.handle(src)))
+                            velocity_probe_pass(ctx, *g, gbufferProbe[k],
+                                                k == 0 ? "gbuffer-albedo-probe" : "gbuffer-material-probe",
+                                                kPrepassViewRaw4);
+                    },
+                    true);
+            }
+        }
         if (probed && ctx.postPlan.reactive.valid())
             add(
                 "reactive-probe", {ctx.postPlan.reactive.res}, {},
@@ -5187,7 +6378,11 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.debugPrepass) {
             // The debug view "motionVectors" paints the velocity image (the prepass's depth and normals are not part of it).
             const bool vv = debugView == DebugView::MotionVectors && velRes.valid();
-            const ResourceId viewRes = vv ? velRes : prepassRes;
+            // The debug views "albedo" and "material" paint the thin G-buffer's images (M79-P0c).
+            const ResourceId viewRes = debugView == DebugView::Albedo     ? gbAlbedoRes
+                                       : debugView == DebugView::Material ? gbMaterialRes
+                                       : vv                               ? velRes
+                                                                          : prepassRes;
             add("prepass-view", {viewRes, game}, {game}, [this, &ctx, viewRes](const PassContext& c) {
                 const Target* t = transient_targets().get(c.handle(viewRes));
                 if (t) prepass_view_pass(ctx, *t);
@@ -5245,6 +6440,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         upscalePrepass = PrepassRef{};
         upscaleVelocity = VelocityRef{};
         upscaleReactive = PrepassRef{};
+        upscaleGbufAlbedo = upscaleGbufMaterial = PrepassRef{};
         if ((upscaleImpl == render::UpscaleImpl::Temporal || upscaleImpl == render::UpscaleImpl::MetalFx ||
              render::vendor_impl_index(upscaleImpl) >= 0) &&
             upscaleTaa.on && !postCams.empty()) {
@@ -5255,6 +6451,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             if (upscalePrepass.valid()) upReads.push_back(upscalePrepass.res);
             if (upscaleVelocity.valid()) upReads.push_back(upscaleVelocity.res);
             if (upscaleReactive.valid()) upReads.push_back(upscaleReactive.res);
+            // The thin G-buffer, only a camera that made it for Ray Reconstruction (plan_job asked) has one.
+            upscaleGbufAlbedo = cam0.gbufferAlbedo;
+            upscaleGbufMaterial = cam0.gbufferMaterial;
+            if (upscaleGbufAlbedo.valid() && upscaleGbufMaterial.valid()) {
+                upReads.push_back(upscaleGbufAlbedo.res);
+                upReads.push_back(upscaleGbufMaterial.res);
+            } else {
+                upscaleGbufAlbedo = upscaleGbufMaterial = PrepassRef{};
+            }
+            // The reflections Ray Reconstruction denoises: their image is read for the hit distance guide, after the kernel wrote it.
+            if (upscaleReflectImg && upscaleReflectRes.valid()) upReads.push_back(upscaleReflectRes);
         }
         add(render::kPassUpscale, std::move(upReads), {outRes}, [this](const PassContext& c) {
             outputPassLog.push_back(render::kPassUpscale);
@@ -5387,12 +6594,15 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // and the fog are already in it), before the sun shafts, the depth of field and the rest of the stack.
     for (DrawContext* c : postCams) {
         if (!c->postPlan.ssr.any() || !c->postPlan.prepass.valid()) continue;
+        if (c->postPlan.ssr.intensity <= 0.0f && !c->postPlan.rtReflectImg)
+            continue;  // the ray traced reflections' own plan, and none were traced
         const BloomTarget ssrDst =
             ctx.hudAfterBloom && ctx.msaa
                 ? BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()}
                 : BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, gpu::View{}, 1};
         ssr.add_passes(graph, transient_targets(), gpu, c->postPlan.ssr, c->postPlan.rect, physW, physH, game,
-                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name);
+                       gameTarget.texView, ssrDst, c->postPlan.prepass, &stats.drawCalls, c->plan.name,
+                       c->postPlan.rtReflectImg, c->postPlan.rtReflectRes, &c->postPlan.rtGlossy);
     }
     custom_slot(PostSlot::AfterSsr);
     // The sun shafts of every camera (renderer_fog.h), over its rectangle of the scene colour, before the depth of field. (The fog is

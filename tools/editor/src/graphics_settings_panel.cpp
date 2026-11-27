@@ -1,8 +1,8 @@
-// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler, dynamic resolution, low latency and frame
-// generation, the keys `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness}, `render.dynamicResolution` {enabled, targetMs,
+// The Graphics settings window (View > Graphics): the project's graphics preset, upscaler, dynamic resolution, low latency, frame
+// generation, ray tracing and path tracer, the keys `render.graphicsPreset`, `render.upscaler` {mode, quality, sharpness}, `render.dynamicResolution` {enabled, targetMs,
 // minScale, maxScale} (M76, docs/UPSCALING.md), `render.latency` {mode, boost} (M78, docs/LATENCY.md) and `render.frameGeneration` {mode,
-// minBaseFps} (M78, docs/FRAME_GENERATION.md) of factoria.json. It
-// edits a working copy: Save writes only those five keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
+// minBaseFps} (M78, docs/FRAME_GENERATION.md), `render.rayTracing` and `render.pathTracer` (M79, docs/RAY_TRACING.md) of factoria.json. It
+// edits a working copy: Save writes only those seven keys (fa/tooling/graphics_settings.h, validated by the engine's own parsers),
 // Revert reads the file again. It does not preview: the editor has no render-settings preview toggle, and what a mode or a
 // preset looks like is seen by playing the project (Play) after Save, or by the player's own menu.
 #include <algorithm>
@@ -223,6 +223,136 @@ FrameGenLines draw_frame_gen_group(GraphicsSettings& g, const Json& support, con
     return out;
 }
 
+// The doc string of one key of a command's input schema: the documentation of the field, which is the tooltip of its widget (the
+// settings of render.ray_tracing and render.path_tracer are documented once, in those commands).
+std::string command_field_doc(const CommandRegistry& commands, const char* command, const char* key) {
+    const CommandInfo* info = commands.info(command);
+    if (info && info->inputSchema.is_object()) {
+        const auto props = info->inputSchema.find("properties");
+        if (props != info->inputSchema.end() && props->is_object()) {
+            const auto field = props->find(key);
+            if (field != props->end() && field->is_object())
+                if (const auto d = field->find("description"); d != field->end() && d->is_string())
+                    return d->get<std::string>();
+        }
+    }
+    return std::string(command) + " `" + key + "`.";
+}
+
+// What the "Ray tracing" group shows, for the autotest: the line about this machine, the note that this window cannot show the effect (empty
+// when the device traces) and the line about the graphics preset's caps (empty when none).
+struct RayTracingLines {
+    std::string device, cannotShow, presetNote;
+};
+
+// The "Ray tracing" and "Path tracer" groups (render.rayTracing and render.pathTracer, docs/RAY_TRACING.md): whether this machine's
+// renderer traces rays, with the reason when it does not (the row `raytracing` of render.supports), and the settings themselves. The
+// controls are editable on every device: a project is written for the players' machines, and which backend a player runs is the player's
+// choice (graphics.backend, FA_GPU_BACKEND), so the project file cannot say whether its game will trace (the editor on Windows draws with
+// Direct3D 11 while the game may ship d3d12 or vulkan). A device that cannot trace only adds a note: the change is saved, this window
+// cannot show it. Every tooltip is the doc string of the field in render.ray_tracing or render.path_tracer. It edits `g` only; `support`
+// is the renderer's render.supports report.
+RayTracingLines draw_ray_tracing_groups(GraphicsSettings& g, const Json& support, const CommandRegistry& commands,
+                                        const std::function<void(const std::string&, bool)>& track,
+                                        const std::function<void(const char*)>& show_problem) {
+    RayTracingLines out;
+    const RayTracingSupport device = ray_tracing_support(support);
+    const auto rt_doc = [&](const char* key) { return command_field_doc(commands, "render.ray_tracing", key); };
+    const auto pt_doc = [&](const char* key) { return command_field_doc(commands, "render.path_tracer", key); };
+    render::RayTracingSettings& rt = g.rayTracing;
+    ImGui::SeparatorText("Ray tracing");
+    out.device = device.usable ? std::string("This machine can trace rays (render.supports raytracing).")
+                               : "This machine cannot trace rays: " + device.why;
+    ImGui::PushStyleColor(ImGuiCol_Text, device.usable ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : kStatusWarn);
+    ImGui::TextWrapped("%s", out.device.c_str());
+    ImGui::PopStyleColor();
+    if (!device.usable) {
+        out.cannotShow =
+            "This window cannot show the effect, but the settings below are saved in factoria.json: a run on a machine "
+            "that traces uses them.";
+        ImGui::TextWrapped("%s", out.cannotShow.c_str());
+    }
+    ImGui::Checkbox("Enabled##rt", &rt.enabled);
+    track("gfx:rtEnabled", true);
+    gfx_tip_always(rt_doc("enabled").c_str());
+    show_problem("/render/rayTracing/enabled");
+    ImGui::BeginDisabled(!rt.enabled);
+    {
+        const bool open = ImGui::BeginCombo("Shadows##rt", std::string(render::rt_shadows_name(rt.shadows)).c_str());
+        track("gfx:rtShadows", rt.enabled);
+        if (open) {
+            for (int i = 0; i < render::kRtShadowsCount; ++i) {
+                const std::string name(render::kRtShadowsNames[std::size_t(i)]);
+                if (ImGui::Selectable(name.c_str(), int(rt.shadows) == i)) rt.shadows = render::RtShadows(i);
+                track("gfx:rtShadows:" + name, true);
+            }
+            ImGui::EndCombo();
+        }
+        gfx_tip_always(rt_doc("shadows").c_str());
+        show_problem("/render/rayTracing/shadows");
+    }
+    ImGui::Checkbox("Ambient occlusion##rt", &rt.ao);
+    track("gfx:rtAo", rt.enabled);
+    gfx_tip_always(rt_doc("ao").c_str());
+    ImGui::Checkbox("Reflections##rt", &rt.reflections);
+    track("gfx:rtReflections", rt.enabled);
+    gfx_tip_always(rt_doc("reflections").c_str());
+    ImGui::Checkbox("Translucency##rt", &rt.translucency);
+    track("gfx:rtTranslucency", rt.enabled);
+    gfx_tip_always(rt_doc("translucency").c_str());
+    {
+        const bool open = ImGui::BeginCombo("Global illumination##rt", std::string(render::rt_gi_name(rt.gi)).c_str());
+        track("gfx:rtGi", rt.enabled);
+        if (open) {
+            for (int i = 0; i < render::kRtGiCount; ++i) {
+                const std::string name(render::kRtGiNames[std::size_t(i)]);
+                if (ImGui::Selectable(name.c_str(), int(rt.gi) == i)) rt.gi = render::RtGi(i);
+                track("gfx:rtGi:" + name, true);
+            }
+            ImGui::EndCombo();
+        }
+        gfx_tip_always(rt_doc("gi").c_str());
+        show_problem("/render/rayTracing/gi");
+    }
+    int rays = rt.raysPerPixel;
+    if (ImGui::SliderInt("Rays per pixel##rt", &rays, render::kRtMinRaysPerPixel, render::kRtMaxRaysPerPixel))
+        rt.raysPerPixel = rays;
+    track("gfx:rtRays", rt.enabled);
+    gfx_tip_always(rt_doc("raysPerPixel").c_str());
+    show_problem("/render/rayTracing/raysPerPixel");
+    ImGui::EndDisabled();
+    out.presetNote = ray_tracing_preset_note(g);
+    if (!out.presetNote.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
+        ImGui::TextWrapped("%s", out.presetNote.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::SeparatorText("Path tracer");
+    render::PathTracerSettings& pt = g.pathTracer;
+    ImGui::Checkbox("Enabled##pt", &pt.enabled);
+    track("gfx:ptEnabled", true);
+    gfx_tip_always(pt_doc("enabled").c_str());
+    show_problem("/render/pathTracer/enabled");
+    ImGui::BeginDisabled(!pt.enabled);
+    int perFrame = pt.samplesPerFrame;
+    if (ImGui::SliderInt("Samples per frame##pt", &perFrame, render::kPtMinSamplesPerFrame,
+                         render::kPtMaxSamplesPerFrame))
+        pt.samplesPerFrame = perFrame;
+    track("gfx:ptSamplesPerFrame", pt.enabled);
+    gfx_tip_always(pt_doc("samplesPerFrame").c_str());
+    show_problem("/render/pathTracer/samplesPerFrame");
+    int maxSamples = pt.maxSamples;
+    if (ImGui::InputInt("Samples to accumulate##pt", &maxSamples, 16, 256))
+        pt.maxSamples = std::max(0, std::min(maxSamples, render::kPtMaxMaxSamples));
+    track("gfx:ptMaxSamples", pt.enabled);
+    gfx_tip_always(pt_doc("maxSamples").c_str());
+    show_problem("/render/pathTracer/maxSamples");
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("A reference picture, not a game mode. 0 samples to accumulate: it never stops.");
+    return out;
+}
+
 }  // namespace
 
 void Editor::graphics_settings_reload() {
@@ -269,10 +399,11 @@ void Editor::draw_graphics_settings_panel() {
     }
     if (graphicsDir_ != projectDir_) graphics_settings_reload();
     ImGui::TextWrapped(
-        "The preset, the upscaler, the dynamic resolution, the low-latency mode and the frame generation a run of this "
+        "The preset, the upscaler, the dynamic resolution, the low-latency mode, the frame generation, the ray tracing "
+        "and the path tracer a run of this "
         "game starts with (factoria.json: render.graphicsPreset, render.upscaler, render.dynamicResolution, "
-        "render.latency "
-        "and render.frameGeneration). A game "
+        "render.latency, render.frameGeneration, render.rayTracing "
+        "and render.pathTracer). A game "
         "can let the player change them at run time (the menu kit's Graphics tab).");
     draw_play_banner(*this);
     if (!graphicsLoadError_.empty()) {
@@ -384,6 +515,12 @@ void Editor::draw_graphics_settings_panel() {
     graphicsFrameGenLine_ = fg.describe;
     graphicsFrameGenHint_ = fg.hint;
     graphicsFrameGenState_ = fg.state;
+    const RayTracingLines rtLines = draw_ray_tracing_groups(
+        g, graphicsSupport_, engine_->commands(),
+        [this](const std::string& id, bool enabled) { at_track(id, enabled); }, show_problem);
+    graphicsRayTracingLine_ = rtLines.device;
+    graphicsRayTracingCannotShow_ = rtLines.cannotShow;
+    graphicsRayTracingPresetNote_ = rtLines.presetNote;
     ImGui::EndChild();
 
     ImGui::Separator();
@@ -400,8 +537,8 @@ void Editor::draw_graphics_settings_panel() {
     if (ImGui::Button("Save", ImVec2(110, 0))) graphics_settings_save();
     ImGui::EndDisabled();
     at_track("gfx:save", canSave);
-    gfx_tip("Writes render.graphicsPreset, render.upscaler, render.dynamicResolution, render.latency and "
-            "render.frameGeneration of factoria.json; nothing else "
+    gfx_tip("Writes render.graphicsPreset, render.upscaler, render.dynamicResolution, render.latency, "
+            "render.frameGeneration, render.rayTracing and render.pathTracer of factoria.json; nothing else "
             "in the file changes. "
             "Settings at their default are removed from the file.");
     ImGui::SameLine();

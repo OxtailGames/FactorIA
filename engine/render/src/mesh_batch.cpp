@@ -559,4 +559,23 @@ int select_lights(std::vector<LightData>& lights, std::size_t maxCount, std::siz
     return dropped;
 }
 
+const LightData* pick_rt_sun(const std::vector<LightData>& lights) {
+    const auto brightness = [](const LightData& l) {
+        const float b = std::max({l.color.x, l.color.y, l.color.z});
+        return b == b ? b : 0.0f;  // a NaN colour gives no light
+    };
+    const LightData* best = nullptr;
+    float bestBrightness = 0.0f;
+    for (const LightData& l : lights) {
+        if (l.rank > 1) continue;
+        const float b = brightness(l);
+        if (l.rank == 0 && b > 0.0f) return &l;
+        if (!best || b > bestBrightness) {
+            best = &l;
+            bestBrightness = b;
+        }
+    }
+    return best;
+}
+
 }  // namespace fa::render

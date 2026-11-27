@@ -5,7 +5,7 @@
 //
 // The atlas is one image of the picture's colour format, in IMAGE ROWS (row 0 is the first row of the image's memory on every backend):
 //
-//   level 0  the camera's rectangle of the picture, at (0,0), size W x H
+//   level 0  the camera's rectangle of the picture, at (0,0), size W x H (with the ray traced translucency, M79-P3b: the traced pixels replaced)
 //   level 1  half size (each pixel a smooth 4x4 weighting of level 0), at (W, 0)
 //   level k  half of level k-1, stacked under level 1 at x = W (y = the heights of levels 1..k-1)
 //
@@ -48,6 +48,8 @@ struct XmitImages {
     std::uint64_t reduced[kXmitMaxLevels]{};  // the images of levels 1.., index = level
     gpu::View atlasView{};
     int levels = 0;
+    bool traced =
+        false;  // level 0 holds the ray traced translucency (alpha 1 where it traced a pixel, 0 elsewhere): the glass shader reads it (mode 3)
 };
 
 class Xmit {
@@ -63,7 +65,10 @@ public:
 
     // Copies the camera's rectangle of `game` (its texture view, resolved when multisampled) into the atlas: (x, row, w, h) in image rows of
     // the game image. Must be called outside any pass. False (and nothing held) when an image or the shader is missing.
-    bool build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, XmitImages& out);
+    // `traced`: the image of the ray traced translucency (rt_refract.hlsl; RGBA32F, w x h) or none. Level 0 of the atlas is then the picture with
+    // the traced pixels replaced by what the glass shows (shaders/xmit.glsl, mode 2) and alpha 1 there; the reduced levels stay the picture's.
+    bool build(TransientTargets& targets, Gpu& gpu, const Target& game, int x, int row, int w, int h, XmitImages& out,
+               gpu::View traced = {});
     // Gives the images back to the pool (after the blended draws).
     void finish(TransientTargets& targets, XmitImages& images);
 

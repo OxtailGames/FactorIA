@@ -595,3 +595,228 @@ TEST_CASE("frame generation modes: what render.supports says of each one, and th
     CHECK(frame_gen_state_line(Json::parse(R"({"state":null,"provider":null,"reason":null})"), 60) ==
           "Off: nothing is generated.");
 }
+
+TEST_CASE("graphics settings: render.rayTracing and render.pathTracer are saved as their own keys, read back and read "
+          "by the project loader") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.preset = "high";
+    g.rayTracing.enabled = true;
+    g.rayTracing.shadows = render::RtShadows::Soft;
+    g.rayTracing.ao = true;
+    g.rayTracing.gi = render::RtGi::Probes;
+    g.rayTracing.raysPerPixel = 4;
+    g.pathTracer.enabled = true;
+    g.pathTracer.samplesPerFrame = 2;
+    g.pathTracer.maxSamples = 128;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    const std::string text = d.read();
+    CHECK(text.find("\"rayTracing\"") != std::string::npos);
+    CHECK(text.find("\"pathTracer\"") != std::string::npos);
+    CHECK(text.find("\"physics\": { \"fixedHz\": 60 }") != std::string::npos);
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == g);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->rayTracing == g.rayTracing);
+    CHECK(project->pathTracer.enabled);
+    CHECK(project->pathTracer.samplesPerFrame == 2);
+    CHECK(project->pathTracer.maxSamples == 128);
+
+    // Back to the defaults removes both keys and keeps the others.
+    g.rayTracing = render::RayTracingSettings{};
+    g.pathTracer = render::PathTracerSettings{};
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    const std::string text2 = d.read();
+    CHECK(text2.find("rayTracing") == std::string::npos);
+    CHECK(text2.find("pathTracer") == std::string::npos);
+    CHECK(text2.find("\"graphicsPreset\": \"high\"") != std::string::npos);
+}
+
+TEST_CASE("graphics settings: only the keys that differ from the defaults are written, in every block") {
+    Dir d;
+    d.write(kBare);
+    GraphicsSettings g;
+    g.rayTracing.enabled = true;
+    g.rayTracing.ao = true;
+    g.pathTracer.samplesPerFrame = 3;
+    g.latencyMode = "auto";
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    auto text = Json::parse(d.read());
+    const Json& render = text["render"];
+    REQUIRE(render.contains("rayTracing"));
+    CHECK(render["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    CHECK(render["pathTracer"] == Json::parse(R"({"samplesPerFrame":3})"));
+    CHECK(render["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK_FALSE(render.contains("upscaler"));
+    CHECK_FALSE(render.contains("frameGeneration"));
+    auto back = read_graphics_settings(d.str());
+    REQUIRE(back.ok());
+    CHECK(*back == g);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->rayTracing == g.rayTracing);
+    CHECK(project->pathTracer == g.pathTracer);
+    // A key that comes back to its default leaves the block; the last one takes the block with it.
+    g.rayTracing.ao = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    g.rayTracing.enabled = false;
+    REQUIRE(write_graphics_settings(d.str(), g).ok());
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
+TEST_CASE("project.graphics writes only the keys that differ from the defaults, in every block it is given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call(
+        "project.graphics",
+        Json::parse(R"({"rayTracing":{"enabled":true},"pathTracer":{"samplesPerFrame":2},"latency":{"mode":"auto"},)"
+                    R"("frameGeneration":{"mode":"fsr"},"upscaler":{"mode":"spatial"},)"
+                    R"("dynamicResolution":{"enabled":true,"minScale":0.333}})"));
+    REQUIRE(r.ok);
+    const Json file = Json::parse(d.read());
+    CHECK(file["render"]["rayTracing"] == Json::parse(R"({"enabled":true})"));
+    CHECK(file["render"]["pathTracer"] == Json::parse(R"({"samplesPerFrame":2})"));
+    CHECK(file["render"]["latency"] == Json::parse(R"({"mode":"auto"})"));
+    CHECK(file["render"]["frameGeneration"] == Json::parse(R"({"mode":"fsr"})"));
+    CHECK(file["render"]["upscaler"] == Json::parse(R"({"mode":"spatial"})"));
+    CHECK(file["render"]["dynamicResolution"] == Json::parse(R"({"enabled":true,"minScale":0.333})"));  // as written
+    // A second key joins its block; a value back at its default leaves it; the last one takes the block along.
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"ao":true}})"));
+    REQUIRE(r.ok);
+    CHECK(Json::parse(d.read())["render"]["rayTracing"] == Json::parse(R"({"enabled":true,"ao":true})"));
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"enabled":false,"ao":false}})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(Json::parse(d.read())["render"].contains("rayTracing"));
+}
+
+TEST_CASE("project.graphics: every property of rayTracing and pathTracer in the input schema has a description") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    const CommandInfo* info = registry.info("project.graphics");
+    REQUIRE(info != nullptr);
+    for (const char* block : {"rayTracing", "pathTracer"}) {
+        const Json& props = info->inputSchema["properties"][block]["properties"];
+        REQUIRE(props.is_object());
+        CHECK(props.size() >= 7);
+        for (auto it = props.begin(); it != props.end(); ++it) {
+            INFO(block << "." << it.key());
+            REQUIRE(it.value().contains("description"));
+            CHECK(it.value()["description"].is_string());
+            CHECK_FALSE(it.value()["description"].get<std::string>().empty());
+        }
+    }
+}
+
+TEST_CASE("graphics settings: a number that is not finite in the ray tracing keys is named by pointer") {
+    GraphicsSettings g;
+    CHECK(check_graphics_settings(g).empty());
+    // Whole numbers outside their range are clamped by the engine, never an error.
+    g.rayTracing.raysPerPixel = 99;
+    g.pathTracer.samplesPerFrame = -4;
+    CHECK(check_graphics_settings(g).empty());
+    g.pathTracer.fireflyClamp = std::nanf("");
+    const auto problems = check_graphics_settings(g);
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].pointer == "/render/pathTracer/fireflyClamp");
+    CHECK_FALSE(problems[0].message.empty());
+}
+
+TEST_CASE("project.graphics reads and writes the rayTracing and pathTracer keys, and only when they are given") {
+    Dir d;
+    d.write(kBare);
+    CommandRegistry registry;
+    register_graphics_settings_commands(registry, d.str());
+    auto r = registry.call("project.graphics", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["rayTracing"]["enabled"] == false);
+    CHECK(r.result["rayTracing"]["shadows"] == "off");
+    CHECK(r.result["pathTracer"]["enabled"] == false);
+    CHECK(d.read() == kBare);
+
+    r = registry.call(
+        "project.graphics",
+        Json::parse(
+            R"({"rayTracing":{"enabled":true,"shadows":"hard","ao":true},"pathTracer":{"samplesPerFrame":3}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["written"] == true);
+    CHECK(r.result["rayTracing"]["shadows"] == "hard");
+    CHECK(r.result["pathTracer"]["samplesPerFrame"] == 3);
+    // A later call that names one key keeps the others.
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"reflections":true}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["rayTracing"]["enabled"] == true);
+    CHECK(r.result["rayTracing"]["ao"] == true);
+    CHECK(r.result["rayTracing"]["reflections"] == true);
+    CHECK(r.result["pathTracer"]["samplesPerFrame"] == 3);
+    auto project = load_project(d.str());
+    REQUIRE(project.ok());
+    CHECK(project->rayTracing.reflections);
+    CHECK(project->rayTracing.shadows == render::RtShadows::Hard);
+    // The same values again write nothing.
+    const std::string before = d.read();
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"shadows":"hard"}})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["written"] == false);
+    CHECK(d.read() == before);
+    // A wrong name is refused with a did-you-mean and writes nothing.
+    r = registry.call("project.graphics", Json::parse(R"({"rayTracing":{"shadows":"sofft"}})"));
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.dump().find("soft") != std::string::npos);
+    CHECK(d.read() == before);
+    // Back to the defaults removes the keys.
+    r = registry.call(
+        "project.graphics",
+        Json::parse(
+            R"({"rayTracing":{"enabled":false,"shadows":"off","ao":false,"reflections":false},"pathTracer":{"samplesPerFrame":1}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(d.read().find("rayTracing") == std::string::npos);
+    CHECK(d.read().find("pathTracer") == std::string::npos);
+}
+
+TEST_CASE("ray tracing in the window: the lists, the support row, the preset's note") {
+    CHECK(ray_tracing_shadow_modes() == std::vector<std::string>{"off", "hard", "soft"});
+    CHECK(ray_tracing_gi_modes() == std::vector<std::string>{"off", "probes", "perPixel"});
+
+    const Json yes = Json::parse(R"({"features":[{"name":"raytracing","supported":true,"status":"supported"}]})");
+    const Json no =
+        Json::parse(R"({"features":[{"name":"raytracing","supported":false,"status":"opengl has no ray queries"}]})");
+    CHECK(ray_tracing_support(yes).usable);
+    const RayTracingSupport cannot = ray_tracing_support(no);
+    CHECK_FALSE(cannot.usable);
+    CHECK(cannot.why.find("opengl has no ray queries") == 0);
+    CHECK(cannot.why.find("graphics.backend") != std::string::npos);
+    CHECK_FALSE(ray_tracing_support(Json::object()).usable);
+    CHECK_FALSE(ray_tracing_support(Json::parse(R"({"features":[]})")).usable);
+
+    GraphicsSettings g;
+    g.preset = "low";
+    CHECK(ray_tracing_preset_note(g).empty());  // ray tracing is off: nothing to cap
+    g.rayTracing.enabled = true;
+    g.rayTracing.shadows = render::RtShadows::Soft;
+    g.rayTracing.ao = true;
+    const std::string low = ray_tracing_preset_note(g);
+    CHECK(low.find("\"low\"") != std::string::npos);
+    CHECK(low.find("shadows (off)") != std::string::npos);
+    CHECK(low.find("ao") != std::string::npos);
+    CHECK(low.find("never turns") != std::string::npos);
+    g.preset = "high";
+    const std::string high = ray_tracing_preset_note(g);
+    CHECK(high.find("shadows (hard)") != std::string::npos);
+    CHECK(high.find("ao") == std::string::npos);
+    g.preset = "ultra";
+    CHECK(ray_tracing_preset_note(g).empty());
+    g.preset = "custom";
+    CHECK(ray_tracing_preset_note(g).empty());
+    // A preset that allows what is asked changes nothing: high with hard shadows and ao.
+    g.preset = "high";
+    g.rayTracing.shadows = render::RtShadows::Hard;
+    CHECK(ray_tracing_preset_note(g).empty());
+}

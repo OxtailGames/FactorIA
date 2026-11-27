@@ -164,17 +164,37 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
     else if (desc.data.ptr && desc.data.size > desc.size)
         error = "its initial data has " + std::to_string(desc.data.size) + " bytes, more than its size " +
                 std::to_string(desc.size) + " (hint: BufferDesc::size is the buffer's bytes, at least data.size)";
+    const BufferUsage& u = desc.usage;
+    const bool accelUsage = u.accelBuildInput || u.accelStorage || u.accelScratch;
+    if (error.empty() && accelUsage && !features_.accelerationStructure) {
+        error = "usage.accelBuildInput, accelStorage or accelScratch on a device without acceleration structures "
+                "(Features::accelerationStructure is false: " +
+                (rtWhy_.empty() ? std::string("this device has no ray query") : rtWhy_) +
+                ") (hint: check Device::features().accelerationStructure first)";
+    } else if (error.empty() && u.accelStorage) {
+        // D3D12 makes an acceleration structure's buffer in its own state and never moves it out of it.
+        const bool other = u.vertexBuffer || u.indexBuffer || u.storageBuffer || u.stagingBuffer ||
+                           u.stagingIndexBuffer || u.writeUnsealed || u.writeTransient || u.copySrc || u.copyDst ||
+                           u.accelBuildInput || u.accelScratch;
+        if (other || desc.data.ptr)
+            error = std::string("usage.accelStorage with ") + (other ? "another usage" : "initial data") +
+                    ": D3D12 keeps an acceleration structure's buffer in the acceleration structure state, which "
+                    "nothing else may use (hint: make the storage buffer with usage.accelStorage only and no data; "
+                    "builds write it)";
+    }
     if (error.empty()) {
-        const D3D12_RESOURCE_DESC d =
-            buffer_desc(align_up(desc.size, 256), desc.usage.storageBuffer ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-                                                                           : D3D12_RESOURCE_FLAG_NONE);
-        Com<ID3D12Resource> r =
-            make_committed(d, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON, "make_buffer", label.c_str());
+        const bool uav = u.storageBuffer || u.accelStorage || u.accelScratch;
+        const D3D12_RESOURCE_DESC d = buffer_desc(
+            align_up(desc.size, 256), uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
+        const D3D12_RESOURCE_STATES initial =
+            u.accelStorage ? D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE : D3D12_RESOURCE_STATE_COMMON;
+        Com<ID3D12Resource> r = make_committed(d, D3D12_HEAP_TYPE_DEFAULT, initial, "make_buffer", label.c_str());
         if (r) {
             auto t = std::make_shared<TrackedResource>();
             t->resource = std::move(r);
-            t->states.assign(1, StateBits(D3D12_RESOURCE_STATE_COMMON));
+            t->states.assign(1, StateBits(initial));
             t->buffer = true;
+            t->accel = u.accelStorage;
             // Unnamed: empty, so the ownership errors say "an unnamed buffer" (TrackedResource::display_name).
             t->label = desc.label && *desc.label ? "buffer '" + label + "'" : std::string();
             rec.tracked = std::move(t);
@@ -190,10 +210,13 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
             const UploadAlloc a = upload(desc.data.size, 16, &p);
             if (a.ok()) {
                 std::memcpy(a.cpu, desc.data.ptr, desc.data.size);
-                p.require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST);
-                p.flush_barriers();
-                p.list_->CopyBufferRegion(t->resource.get(), 0, a.resource, a.offset, desc.data.size);
-                p.empty_ = false;
+                if (p.require(
+                        t, 0,
+                        D3D12_RESOURCE_STATE_COPY_DEST)) {  // false: reported, no copy into acceleration structures
+                    p.flush_barriers();
+                    p.list_->CopyBufferRegion(t->resource.get(), 0, a.resource, a.offset, desc.data.size);
+                    p.empty_ = false;
+                }
             }
         }
     }
@@ -503,6 +526,14 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             fail("its buffer " + std::to_string(desc.storageBuffer.buffer.id) + " is not a live buffer");
         else if (!b->usage.storageBuffer)
             fail("buffer '" + b->label + "' was not made with BufferUsage::storageBuffer");
+        else if (desc.storageBuffer.structureStride > 2048)
+            fail("structureStride " + std::to_string(desc.storageBuffer.structureStride) +
+                 " is above 2048, the most D3D12 allows for the element of a structured buffer (hint: split the "
+                 "element, or use a raw view with structureStride 0 and read the words yourself)");
+        else if (desc.storageBuffer.structureStride < 0 || desc.storageBuffer.structureStride % 4 != 0 ||
+                 (desc.storageBuffer.structureStride > 0 && offset % desc.storageBuffer.structureStride != 0))
+            fail("structureStride " + std::to_string(desc.storageBuffer.structureStride) +
+                 " is not 0 (a raw view) or a multiple of 4 that divides the offset " + std::to_string(offset));
         else if (offset < 0 || offset % 16 != 0 || std::size_t(offset) + 4 > b->size)
             fail("offset " + std::to_string(offset) + " is not a multiple of 16 inside the buffer's " +
                  std::to_string(b->size) +
@@ -512,26 +543,31 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             rec.buffer = desc.storageBuffer.buffer;
             rec.tracked = b->tracked;
             rec.heap = kHeapView;
-            const UINT first = UINT(offset / 4);
-            const UINT count = UINT((b->size - std::size_t(offset)) / 4);
+            // A raw view counts 4 byte words; a structured one (the shader declares StructuredBuffer<T>) counts elements.
+            const UINT stride = UINT(desc.storageBuffer.structureStride);
+            const UINT unit = stride ? stride : 4u;
+            const UINT first = UINT(std::size_t(offset) / unit);
+            const UINT count = UINT((b->size - std::size_t(offset)) / unit);
             rec.descriptor = take(kHeapView);
             if (error.empty()) rec.uavDescriptor = take(kHeapView);
             if (error.empty()) {
                 D3D12_SHADER_RESOURCE_VIEW_DESC s{};
-                s.Format = DXGI_FORMAT_R32_TYPELESS;
+                s.Format = stride ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_R32_TYPELESS;
                 s.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
                 s.Shader4ComponentMapping = kDefaultMapping;
                 s.Buffer.FirstElement = first;
                 s.Buffer.NumElements = count;
-                s.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+                s.Buffer.StructureByteStride = stride;
+                s.Buffer.Flags = stride ? D3D12_BUFFER_SRV_FLAG_NONE : D3D12_BUFFER_SRV_FLAG_RAW;
                 dev->CreateShaderResourceView(rec.tracked->resource.get(), &s,
                                               cpuHeaps_[kHeapView].cpu(rec.descriptor));
                 D3D12_UNORDERED_ACCESS_VIEW_DESC v{};
-                v.Format = DXGI_FORMAT_R32_TYPELESS;
+                v.Format = stride ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_R32_TYPELESS;
                 v.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
                 v.Buffer.FirstElement = first;
                 v.Buffer.NumElements = count;
-                v.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+                v.Buffer.StructureByteStride = stride;
+                v.Buffer.Flags = stride ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
                 dev->CreateUnorderedAccessView(rec.tracked->resource.get(), nullptr, &v,
                                                cpuHeaps_[kHeapView].cpu(rec.uavDescriptor));
             }

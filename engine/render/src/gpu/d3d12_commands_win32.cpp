@@ -30,6 +30,7 @@ std::uint32_t extent_or_rest(int size, int at, std::uint32_t level) {
 Result<void> D3d12CommandList::create(const char* what, QueueKind kind) {
     ID3D12Device* dev = device_.device_.get();
     // A list made for another queue before: its fix-up list goes too (its type must be the queue's).
+    list4_.reset();
     list_.reset();
     allocator_.reset();
     fixup_.reset();
@@ -50,6 +51,8 @@ Result<void> D3d12CommandList::create(const char* what, QueueKind kind) {
                               "): CreateCommandList failed with " + hr_text(hr) + device_.removed_reason(),
                           "the GPU ran out of memory or the device was lost");
     list_->Close();  // made open: closed here, so open() can always Reset it
+    // The DXR calls (M79): only on a device that traces rays (build_blas and the others refuse otherwise).
+    if (device_.device5_) list4_ = list_.as<ID3D12GraphicsCommandList4>();
     return {};
 }
 
@@ -75,6 +78,8 @@ Result<void> D3d12CommandList::open(const char* label) {
     waits_.clear();
     nativeOpen_ = false;
     nativeDecls_.clear();
+    accelLast_.clear();
+    accelWritten_ = false;
     // Every list that can bind sees the two shader-visible heaps (the bindings' tables and the bindless table point
     // into them); a copy list binds nothing and may not set them.
     if (kind_ != QueueKind::Transfer) {
@@ -127,6 +132,7 @@ void D3d12CommandList::reset_bind_state() {
     drawsFailed_ = false;
     boundUavs_.clear();
     uavsWritten_ = false;
+    boundAccels_.clear();
 }
 
 // A timed scope: a timestamp in the open timed frame's query heap at each end (d3d12_timers_win32.cpp resolves them).
@@ -343,13 +349,13 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     UINT rtvCount = 0;
     for (const Attachment* a : {&color, &color1}) {
         if (!a->bound) continue;
-        require(a->t, a->t->subresource(a->mip, a->layer, 0), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        require_plain(a->t, a->t->subresource(a->mip, a->layer, 0), D3D12_RESOURCE_STATE_RENDER_TARGET);
         rtvs[rtvCount++] = a->handle;
     }
     const bool stencil = depth.bound && format_info(depth.format).planes > 1;
     if (depth.bound)
         for (std::uint32_t p = 0; p < depth.t->planes; ++p)
-            require(depth.t, depth.t->subresource(depth.mip, depth.layer, p), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            require_plain(depth.t, depth.t->subresource(depth.mip, depth.layer, p), D3D12_RESOURCE_STATE_DEPTH_WRITE);
     flush_barriers();
     list_->OMSetRenderTargets(rtvCount, rtvCount ? rtvs : nullptr, FALSE, depth.bound ? &depth.handle : nullptr);
     if (color.bound && clears(pass.colorLoad)) {
@@ -424,8 +430,8 @@ void D3d12CommandList::end_pass() {
         return;
     }
     if (passState_ == PassState::Render && !passFailed_ && resolveSrc_ && resolveDst_) {
-        require(resolveSrc_, resolveSrcSub_, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-        require(resolveDst_, resolveDstSub_, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        require_plain(resolveSrc_, resolveSrcSub_, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        require_plain(resolveDst_, resolveDstSub_, D3D12_RESOURCE_STATE_RESOLVE_DEST);
         flush_barriers();
         list_->ResolveSubresource(resolveDst_->resource.get(), resolveDstSub_, resolveSrc_->resource.get(),
                                   resolveSrcSub_, resolveFormat_);
@@ -543,6 +549,8 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
     BoundBuffer ib;
     BoundView views[kMaxViews];
     D3D12_CPU_DESCRIPTOR_HANDLE samplers[kMaxSamplers]{};
+    std::shared_ptr<TrackedResource> accels[kMaxAccelStructureBindings];
+    D3D12_GPU_VIRTUAL_ADDRESS accelAddress[kMaxAccelStructureBindings]{};
     std::string error;
     auto bad = [&](const std::string& e) {
         if (error.empty()) error = e;
@@ -647,6 +655,33 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
             else
                 samplers[i] = device_.cpuHeaps_[D3d12Device::kHeapSampler].cpu(r->descriptor);
         }
+        for (int i = 0; i < kMaxAccelStructureBindings && error.empty(); ++i) {
+            const AccelStructure a = b.accelStructures[i];
+            const std::string what = "accelStructures[" + std::to_string(i) + "]";
+            if (!sh.accelDeclared[i]) {
+                if (a.id != 0)
+                    bad(what + " is bound but " + shaderName +
+                        " declares no acceleration structure there (hint: leave the acceleration structure slots the "
+                        "shader does not declare empty)");
+                continue;
+            }
+            const D3d12Device::AccelRecord* r = device_.accels_.get(a.id);
+            if (a.id == 0 || !r || !r->tracked)
+                bad(what + " (" + shaderName + ") is " + (a.id == 0 ? std::string("empty") : "not a live structure") +
+                    " (hint: bind a live, built TLAS in every acceleration structure slot the shader declares)");
+            else if (r->kind != AccelKind::Tlas)
+                bad(what + " is the BLAS '" + r->label +
+                    "', but a ray query traces against a TLAS (hint: build a TLAS over it with build_tlas, one "
+                    "instance with the identity transform will do, and bind that)");
+            else if (!r->built)
+                bad(what + " is the TLAS '" + r->label +
+                    "', which build_tlas has not built yet (hint: record build_tlas on the structure before the "
+                    "dispatch that traces it)");
+            else {
+                accels[i] = r->tracked;
+                accelAddress[i] = r->address;
+            }
+        }
     }
     if (!error.empty()) {
         lock.unlock();
@@ -686,6 +721,7 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
     const std::uint32_t viewInc = device_.viewHeap_.increment(), samplerInc = device_.samplerHeap_.increment();
     boundUavs_.clear();
     uavsWritten_ = false;
+    bool statesOk = true;  // require() reported a resource it cannot put in the state this command needs
     for (int i = 0; i < kMaxViews; ++i) {
         const BoundView& v = views[i];
         if (!v.t) continue;
@@ -697,9 +733,10 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         if (v.writable) {
             uav_barrier_if_written(v.t);
             if (v.type == ViewType::StorageBuffer)
-                require(v.t, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                statesOk = require(v.t, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) && statesOk;
             else
-                require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                statesOk =
+                    require_range(v.t, v.mip, 1, layer, layers, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) && statesOk;
             if (std::find(boundUavs_.begin(), boundUavs_.end(), v.t) == boundUavs_.end()) boundUavs_.push_back(v.t);
         } else {
             // A compute list's queue has no pixel shader state (a COMPUTE list may not use it).
@@ -708,9 +745,9 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
                                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
                                   : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             if (v.type == ViewType::StorageBuffer)
-                require(v.t, 0, read);
+                statesOk = require(v.t, 0, read) && statesOk;
             else
-                require_range(v.t, v.mip, v.mipCount, layer, layers, read);
+                statesOk = require_range(v.t, v.mip, v.mipCount, layer, layers, read) && statesOk;
         }
     }
     for (int i = 0; i < kMaxSamplers; ++i) {
@@ -734,12 +771,23 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
                 list_->SetGraphicsRootDescriptorTable(UINT(lay.samplerTable[s]), samplerSpan[s].gpu);
         }
     }
+    // The TLASes: root SRVs at their GPU addresses (a compute shader only: make_shader refuses them elsewhere). The
+    // structure's buffer stays in the acceleration structure state; ready_to_run orders the dispatch after the
+    // builds that wrote it (accel_access).
+    boundAccels_.clear();
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!accels[i] || lay.accelParam[i] < 0) continue;
+        list_->SetComputeRootShaderResourceView(UINT(lay.accelParam[i]), accelAddress[i]);
+        statesOk = require(accels[i], 0, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) && statesOk;
+        if (std::find(boundAccels_.begin(), boundAccels_.end(), accels[i]) == boundAccels_.end())
+            boundAccels_.push_back(accels[i]);
+    }
 
     // The vertex and index buffers.
     for (int i = 0; i < kMaxVertexBuffers; ++i) {
         const BoundBuffer& v = vbs[i];
         if (!v.t) continue;
-        require(v.t, 0, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+        statesOk = require(v.t, 0, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER) && statesOk;
         D3D12_VERTEX_BUFFER_VIEW vbv{};
         vbv.BufferLocation = v.t->resource->GetGPUVirtualAddress() + v.offset;
         vbv.SizeInBytes = UINT(std::min<std::uint64_t>(v.size - v.offset, 0xFFFFFFFFu));
@@ -747,12 +795,16 @@ void D3d12CommandList::set_bindings(const Bindings& b) {
         list_->IASetVertexBuffers(UINT(i), 1, &vbv);
     }
     if (ib.t) {
-        require(ib.t, 0, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+        statesOk = require(ib.t, 0, D3D12_RESOURCE_STATE_INDEX_BUFFER) && statesOk;
         D3D12_INDEX_BUFFER_VIEW ibv{};
         ibv.BufferLocation = ib.t->resource->GetGPUVirtualAddress() + ib.offset;
         ibv.SizeInBytes = UINT(std::min<std::uint64_t>(ib.size - ib.offset, 0xFFFFFFFFu));
         ibv.Format = st.indexType == IndexType::Uint16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
         list_->IASetIndexBuffer(&ibv);
+    }
+    if (!statesOk) {  // require() reported it: no draw or dispatch runs on bindings it could not put in state
+        drawsFailed_ = true;
+        return;
     }
     bindingsSet_ = true;
     empty_ = false;
@@ -873,13 +925,30 @@ bool D3d12CommandList::ready_to_run(const char* what, bool compute) {
             return false;
         }
     const RootLayout& lay = *st.layout;
+    bool tracesRays = false;
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) tracesRays = tracesRays || sh.accelDeclared[i];
     const bool needsBindings = lay.viewCount[0] + lay.viewCount[1] + lay.samplerCount[0] + lay.samplerCount[1] > 0 ||
-                               st.buffersUsed != 0 || st.indexType != IndexType::None;
+                               st.buffersUsed != 0 || st.indexType != IndexType::None || tracesRays;
     if (needsBindings && !bindingsSet_) {
         fail(what, "shader '" + sh.label +
-                       "' reads buffers, views or samplers and set_bindings was not called since set_pipeline");
+                       "' reads buffers, views, samplers or acceleration structures and set_bindings was not called "
+                       "since set_pipeline");
         return false;
     }
+    // A dispatch that traces runs after every build, refit and copy of this list: a UAV barrier over all resources (a
+    // null pResource), because the BLASes a TLAS points at are no binding of the dispatch (a BLAS refit after the TLAS
+    // build, then a trace, has no per-resource barrier to hang on). A build or refit in an EARLIER list needs none:
+    // every list is its own ExecuteCommandLists call (D3d12Device::submit), and D3D12 finishes the work of one call
+    // before the next call's work starts (frame 5 of the d3d12_raytracing test refits in one list and traces in the next).
+    if (tracesRays && accelWritten_) {
+        D3D12_RESOURCE_BARRIER b{};
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        b.UAV.pResource = nullptr;
+        pending_.push_back(b);
+        accelWritten_ = false;
+    }
+    // A dispatch that traces a TLAS runs after the builds of this list that wrote it (a UAV barrier on its buffer).
+    for (const std::shared_ptr<TrackedResource>& t : boundAccels_) accel_access(t, AccelAccess::Read);
     // A command after one that wrote the bound UAVs sees its writes.
     if (uavsWritten_)
         for (const std::shared_ptr<TrackedResource>& t : boundUavs_) {
@@ -962,9 +1031,17 @@ void D3d12CommandList::transition(Use& u, std::uint32_t sub, StateBits state) {
     current = state;
 }
 
-void D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub,
+bool D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub,
                                D3D12_RESOURCE_STATES state) {
-    if (!t) return;
+    if (!t) return true;
+    if (t->accel && state != D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) {
+        // D3D12 allows no transition out of the acceleration structure state; make_buffer refuses every usage that
+        // would ask for one, so this is an engine bug, reported instead of recorded.
+        device_.report("d3d12: " + t->display_name() +
+                       " holds acceleration structures and was asked for another resource state (" +
+                       std::to_string(unsigned(state)) + "); the barrier was not recorded");
+        return false;  // the caller does not record the command that wanted it
+    }
     auto [it, added] = useIndex_.try_emplace(t.get(), uses_.size());
     if (added) {
         Use u;
@@ -979,16 +1056,19 @@ void D3d12CommandList::require(const std::shared_ptr<TrackedResource>& t, std::u
     } else if (sub < t->subresource_count()) {
         transition(u, sub, StateBits(state));
     }
+    return true;
 }
 
-void D3d12CommandList::require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip,
+bool D3d12CommandList::require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip,
                                      std::uint32_t mipCount, std::uint32_t layer, std::uint32_t layerCount,
                                      D3D12_RESOURCE_STATES state) {
-    if (!t) return;
+    if (!t) return true;
+    bool ok = true;
     for (std::uint32_t p = 0; p < t->planes; ++p)
         for (std::uint32_t l = layer; l < layer + layerCount && l < t->layers; ++l)
             for (std::uint32_t m = mip; m < mip + mipCount && m < t->mips; ++m)
-                require(t, t->subresource(m, l, p), state);
+                ok = require(t, t->subresource(m, l, p), state) && ok;
+    return ok;
 }
 
 void D3d12CommandList::flush_barriers() {
@@ -1055,6 +1135,11 @@ std::string D3d12CommandList::resolve_native(std::span<const NativeUse> uses, co
         });
     }
     if (!error.empty()) return error;
+    for (std::size_t i = 0; i < uses.size(); ++i)
+        if (found[i] && found[i]->accel)
+            return std::string(name) + "[" + std::to_string(i) + "]: " + found[i]->display_name() +
+                   " holds acceleration structures, which D3D12 keeps in their own state (no native state names it): "
+                   "leave it out of the native section";
     for (std::size_t i = 0; i < uses.size(); ++i) out.push_back({found[i], ranges[i], uses[i].state});
     return {};
 }
@@ -1089,8 +1174,12 @@ Result<NativeCommands> D3d12CommandList::begin_native(std::span<const NativeUse>
     for (const NativeDecl& d : decls) {
         // UAV after UAV: the engine's writes finish before the native commands read or write it.
         if (d.state == NativeState::UnorderedAccess) uav_barrier_if_written(d.res);
-        require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount), std::uint32_t(d.range.layer),
-                      std::uint32_t(d.range.layerCount), native_state(d.state, kind_));
+        if (!require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount),
+                           std::uint32_t(d.range.layer), std::uint32_t(d.range.layerCount),
+                           native_state(d.state, kind_)))
+            return make_error(at + "a resource in 'uses' holds acceleration structures, which have no resource state "
+                                   "native commands could use",
+                              "leave it out of 'uses'; no native command was recorded");
     }
     flush_barriers();
     nativeOpen_ = true;
@@ -1152,6 +1241,8 @@ void D3d12CommandList::write_buffer(const BufferWrite& w) {
     std::string error;
     if (!t)
         error = "buffer " + std::to_string(w.buffer.id) + " is not a live buffer";
+    else if (t->accel)
+        error = accel_storage_copy_error(label) + " (hint: " + kAccelStorageCopyHint + ")";
     else if (!w.data.ptr || size == 0 || w.srcOffset + size > w.data.size)
         error = "the source range (offset " + std::to_string(w.srcOffset) + ", " + std::to_string(size) +
                 " bytes) is empty or past the data's " + std::to_string(w.data.size) + " bytes";
@@ -1165,7 +1256,7 @@ void D3d12CommandList::write_buffer(const BufferWrite& w) {
     const UploadAlloc a = device_.upload(size, 16, this);
     if (!a.ok()) return;  // reported
     std::memcpy(a.cpu, static_cast<const std::uint8_t*>(w.data.ptr) + w.srcOffset, size);
-    require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    if (!require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST)) return;  // reported: the copy is not recorded
     flush_barriers();
     list_->CopyBufferRegion(t->resource.get(), w.dstOffset, a.resource, a.offset, size);
     empty_ = false;
@@ -1184,6 +1275,8 @@ void D3d12CommandList::copy_buffer_to_buffer(const BufferCopy& c) {
     else if (src == dst)
         error = "the source and the destination are the same buffer '" + srcLabel +
                 "' (hint: copy through a second buffer)";
+    else if (src->accel || dst->accel)
+        error = accel_storage_copy_error(src->accel ? srcLabel : dstLabel) + " (hint: " + kAccelStorageCopyHint + ")";
     else if (c.size == 0 || c.srcOffset % 4 || c.dstOffset % 4)
         error = "the size is 0 or an offset is not a multiple of 4";
     else if (c.srcOffset + c.size > srcSize || c.dstOffset + c.size > dstSize)
@@ -1194,8 +1287,8 @@ void D3d12CommandList::copy_buffer_to_buffer(const BufferCopy& c) {
         device_.report("gpu d3d12: CommandList::copy_buffer_to_buffer in list '" + label_ + "': " + error);
         return;
     }
-    require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
-    require(dst, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    const bool srcOk = require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    if (!require(dst, 0, D3D12_RESOURCE_STATE_COPY_DEST) || !srcOk) return;  // reported: the copy is not recorded
     flush_barriers();
     list_->CopyBufferRegion(dst->resource.get(), c.dstOffset, src->resource.get(), c.srcOffset, c.size);
     empty_ = false;
@@ -1222,7 +1315,7 @@ void D3d12CommandList::copy_placed(ID3D12Resource* src, std::uint64_t offset, st
     to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     if (is3d) {
         to.SubresourceIndex = t->subresource(mip, 0, 0);
-        require(t, to.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_DEST);
+        require_plain(t, to.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_DEST);
         flush_barriers();
         from.PlacedFootprint.Offset = offset;
         from.PlacedFootprint.Footprint.Depth = count;
@@ -1230,7 +1323,7 @@ void D3d12CommandList::copy_placed(ID3D12Resource* src, std::uint64_t offset, st
     } else {
         from.PlacedFootprint.Footprint.Depth = 1;
         for (std::uint32_t i = 0; i < count; ++i)
-            require(t, t->subresource(mip, layer + i, 0), D3D12_RESOURCE_STATE_COPY_DEST);
+            require_plain(t, t->subresource(mip, layer + i, 0), D3D12_RESOURCE_STATE_COPY_DEST);
         flush_barriers();
         for (std::uint32_t i = 0; i < count; ++i) {
             to.SubresourceIndex = t->subresource(mip, layer + i, 0);
@@ -1359,6 +1452,8 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     Region r;
     if (!src)
         r.error = "the source " + std::to_string(c.src.id) + " is not a live buffer";
+    else if (src->accel)
+        r.error = accel_storage_copy_error(srcLabel) + " (hint: " + kAccelStorageCopyHint + ")";
     else if (!device_.image_info(c.dst.image, im))
         r.error = "the destination " + std::to_string(c.dst.image.id) + " is not a live image";
     else
@@ -1371,7 +1466,7 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
         return;
     }
     const bool is3d = im.type == ImageType::Tex3d;
-    require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    if (!require(src, 0, D3D12_RESOURCE_STATE_COPY_SOURCE)) return;  // reported: the copy is not recorded
     const bool placed =
         c.srcOffset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT == 0 &&
         r.rowPitch % D3D12_TEXTURE_DATA_PITCH_ALIGNMENT == 0 &&
@@ -1404,13 +1499,13 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     // Named as the errors name a resource ("buffer 'x'", "an unnamed buffer"): the copy's own rows buffer.
     scratch->label = "the scratch buffer of copy_buffer_to_image";
     scratch->owner = kind_;  // this list's own, on whichever queue it runs
-    require(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    require_plain(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     flush_barriers();
     for (std::uint32_t i = 0; i < r.count; ++i)
         for (std::uint32_t row = 0; row < r.rows; ++row)
             list_->CopyBufferRegion(raw.get(), slice * i + std::uint64_t(pitch) * row, src->resource.get(),
                                     c.srcOffset + r.slicePitch * i + r.rowPitch * row, r.rowBytes);
-    require(scratch, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    require_plain(scratch, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
     copy_placed(raw.get(), 0, pitch, slice, im.tracked, im.format, is3d, r.mip, r.layer, r.count, r.x, r.y, r.width,
                 r.height);
     keep_until_done(std::move(raw));

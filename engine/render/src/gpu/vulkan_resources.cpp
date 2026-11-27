@@ -171,18 +171,33 @@ Buffer VulkanDevice::make_buffer(const BufferDesc& desc) {
         std::lock_guard<std::mutex> lock(resMutex_);
         poolFull = buffers_.alive() >= buffers_.capacity();
     }
+    const bool accelUsage = desc.usage.accelBuildInput || desc.usage.accelStorage || desc.usage.accelScratch;
     if (desc.size == 0)
         error = "size is 0 (hint: give BufferDesc::size the buffer's bytes)";
+    else if (accelUsage && !rayTracing_)
+        error = std::string("usage ") +
+                (desc.usage.accelStorage   ? "accelStorage"
+                 : desc.usage.accelScratch ? "accelScratch"
+                                           : "accelBuildInput") +
+                " on a device without acceleration structures (Features::accelerationStructure is false: " + rtWhy_ +
+                ") (hint: check Device::features().accelerationStructure before making ray tracing buffers)";
     else if (desc.data.ptr && desc.data.size > desc.size)
         error = "its initial data has " + std::to_string(desc.data.size) + " bytes, more than its size " +
                 std::to_string(desc.size) + " (hint: BufferDesc::size is the buffer's bytes, at least data.size)";
     if (error.empty() && !poolFull) {
         const BufferUsage& u = desc.usage;
         VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        if (u.vertexBuffer || !(u.indexBuffer || u.storageBuffer || u.stagingBuffer || u.stagingIndexBuffer))
+        if (u.vertexBuffer ||
+            !(u.indexBuffer || u.storageBuffer || u.stagingBuffer || u.stagingIndexBuffer || accelUsage))
             usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
         if (u.indexBuffer || u.stagingIndexBuffer) usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (u.storageBuffer) usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        // Ray tracing: what a build reads, where a structure lives, its scratch; each is named by its device address
+        // (make_raw_buffer then takes memory with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT).
+        if (u.accelBuildInput) usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+        if (u.accelStorage) usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+        if (u.accelScratch) usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;  // build scratch is a storage buffer
+        if (accelUsage) usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         // whole 16-byte words, so a storage view's last word and a fill of the whole buffer stay inside it
         rec.tracked = make_raw_buffer(align_up(desc.size, 16), usage, MemoryUse::GpuOnly, false, label.c_str(), error);
     }

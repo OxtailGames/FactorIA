@@ -53,7 +53,7 @@ nothing changed) registers `origin_shifted` with `World::on_origin_shifted` for 
 leaves (`World::lifetime()` expires with the world, so a renderer never touches a dead one, in either order of destruction).
 `origin_shifted` runs on the main thread between frames and moves the state that holds world positions across frames: `prevViewProj`
 (times a translation by the offset), `Gi2dSystem::shift` (field geometry and history origin), the realtime GI `anchor` and layout
-origin, the occlusion debug boxes, and re-collects `lastCams`. Where a position is snapped, the snap is in ABSOLUTE space with the
+origin, the occlusion debug boxes, the ray tracing scene's cache of the last frame's instance records (`RtScene::shift`; the TLAS itself is rebuilt each frame in rebased space, ARCHITECTURE_RT_SCENE.md), and re-collects `lastCams`. Where a position is snapped, the snap is in ABSOLUTE space with the
 origin added in double (`fit_cascade(.., origin)`, `gi2d_geometry(.., originX, originY)`), so a shift lands on whole texels whatever
 the texel size; height-fog bases (`fogHeightBase`, `volumetricHeightBase`) are absolute heights: their caps (1e6 and 10 000 m) apply to the authored value and the base is used as `base - origin.y`, subtracted in double and rounded to a float once. A world-space cache the origin changes without a rebase (`World::clear()` puts it back to 0, a scene load sets the file's) is shifted too: `set_origin` and `clear` call the observers with the change. State rebuilt each frame needs nothing. A
 new cache of a world position in the renderer must be shifted there. Tests: `origin_render_tests.cpp`.

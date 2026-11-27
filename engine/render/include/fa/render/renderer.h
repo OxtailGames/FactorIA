@@ -44,6 +44,7 @@
 #include "fa/render/ui_painter.h"
 #include "fa/render/framegen.h"
 #include "fa/render/latency.h"
+#include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
 #include "fa/scene/rich_text.h"
 #include "fa/scene/text_fit.h"
@@ -66,7 +67,9 @@ struct RendererTestAccess;
 // (M75.2b) it also draws a coarse mip of it in the top left corner (nearer = brighter, black = a cell that shows no mesh somewhere).
 // MotionVectors (M76) paints the per-pixel motion vectors the prepass writes (direction as hue, magnitude as brightness, grey where no mesh
 // wrote one), over the picture, with the prepass drawn only for it.
-enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors };
+// Albedo and Material (M79-P0c) paint the thin G-buffer's two images, which the renderer draws only while something asks for them: the albedo
+// (linear colour), and the roughness as red and the metalness as green; black where no opaque mesh was drawn.
+enum class DebugView : std::uint8_t { None, Depth, Normals, Ao, Cascades, Occlusion, MotionVectors, Albedo, Material };
 
 enum class ScaleMode : std::int32_t {
     Fit,          // keep aspect, letterbox (default)
@@ -485,6 +488,34 @@ public:
     // generates this frame is the controller's: it needs the temporal upscaler's frame and a base frame rate of at least minBaseFps. Needs an
     // initialised renderer (before init() the calls do nothing). Off (the default) costs nothing.
     void set_frame_generation(const render::FrameGenSettings& settings);
+    // The ray tracing setting (fa/render/raytracing.h, M79; docs/RAY_TRACING.md). With an effect on and a device that can trace, the renderer
+    // keeps the scene's acceleration structures (a BLAS per mesh, a TLAS every frame; docs/design/ARCHITECTURE_RT_SCENE.md); off, or on a device
+    // that cannot, it makes no buffer and does no work (a device that cannot says why once in the log). Applied at the start of the next frame.
+    void set_ray_tracing(const render::RayTracingSettings& settings);
+    // What the frames trace: the setting above under the graphics preset's caps (QualityLimits::rtShadows..., set_quality), which never turn an
+    // effect on. The same as the setting while no preset caps it.
+    const render::RayTracingSettings& ray_tracing() const;
+    // Why an effect that is on is drawing its raster version this frame although the device traces (a kernel the driver rejected, a prepass
+    // that does not match the output): one line per effect, empty when every effect that is on runs. Thread-safe.
+    std::string ray_tracing_failure() const;
+    // The path tracer (M79-P5a, fa/render/raytracing.h PathTracerSettings; docs/design/ARCHITECTURE_RT_PATHTRACER.md): a progressive reference picture
+    // of the main camera in place of the raster's lit colour. Applied at the start of the next frame; off (the default) it costs nothing. It turns the
+    // scene's acceleration structures on by itself. path_tracer_status() is what the last drawn frame did (the accumulated samples, why it restarted,
+    // why it could not run); call it from the thread that draws.
+    void set_path_tracer(const render::PathTracerSettings& settings);
+    const render::PathTracerSettings& path_tracer() const;
+    render::PathTracerStatus path_tracer_status() const;
+    // M79-P2a-3: the point, spot and area lights of the last whole frame: how many asked for a shadow (`candidates`, the lights the shadow maps were
+    // planned for) and how many of them the rays shadowed (`traced`, at most the cap `render::kRtLocalShadowMaxLights` (raytracing.h); the rest kept their maps).
+    // 0 and 0 while ray tracing is off, no camera traced them or the device refused the kernel. Thread-safe.
+    void ray_tracing_local_shadows(int& candidates, int& traced) const;
+    // M79-P4a: the realtime GI probes updated by rays, as of the last whole frame (RtGiStatus). Thread-safe.
+    render::RtGiStatus ray_tracing_gi_status() const;
+    // M79-P4b-1: the per-pixel ray traced GI (gi "perPixel"), as of the last whole frame (RtGiPixelStatus). Thread-safe.
+    render::RtGiPixelStatus ray_tracing_gi_pixel_status() const;
+    // M79-P4b-2: whether DLSS Ray Reconstruction denoised the ray traced reflections and the per-pixel GI in the last whole frame (RtDenoiserStatus).
+    // Thread-safe.
+    render::RtDenoiserStatus ray_tracing_denoiser_status() const;
     const render::FrameGenSettings& frame_generation() const;
     render::FrameGenSlot effective_frame_generation() const;
     // What the setting is and why: {"mode", "minBaseFps", "provider", "state" (off, refused, measuring, paused, active), "reason", "modes": {name:

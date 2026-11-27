@@ -18,6 +18,19 @@
 // most 0.75.
 // The fresnel term is the only "material": there is no roughness or metalness image, so F = 0.2 + 0.8 (1 - N.V)^5, whatever the surface.
 //
+// With render.rayTracing.reflections the pass has more images (M79-P3a-1, P3a-2; rt_reflect.hlsl; all the size of the prepass): the kernel's raw image
+// (tex_r: rgb the mean radiance of the rays that hit, a = 0 not traced, > 0 the hit distance, -1 every ray left the scene), the denoised glossy
+// radiance (tex_d) and the denoised coverage (tex_k: each ray's hit or miss as 1 or 0 at its pixel, averaged over the neighbouring
+// pixels and the frames by the denoiser, so it is the share of the nearby rays that ended on a surface, not of this pixel's own), and the G-buffer's
+// roughness (tex_m).
+// b.w says what is bound: 0 nothing, 1 the raw image alone (a GPU whose denoiser is off: every traced pixel reads it), 2 all of them. A pixel below the
+// sharp cutoff (g.x) reads the raw image (one mirror ray: nothing to denoise, and a history would lag a reflection that moves differently from the
+// surface); a rougher one the denoised image; both fade to nothing between g.y and g.z (the roughest traced). What they hold is premultiplied by the
+// coverage, so the mix is  picture * (1 - k * coverage) + radiance * k  with the same fresnel weight k (capped at SSR_MAX_MIX) as the march. The share
+// of the pixel the rays did not reach (a ray that left the scene, a roughness fading out) goes to the screen-space march below (when the stack has
+// reflections, intensity > 0), and what the march does not find stays what the lit pass drew, the probes' and the environment's reflection.
+// A pixel that was not traced (the sky, a roughness over g.z) follows the march alone.
+//
 // Coordinates: `uv` is the texture coordinate of an image of the pass's own size (the same orientation on every backend, as bloom.glsl).
 // `s` is the same point in camera-local top-left uv; the picture is read at fl(s * rc.zw + rc.xy), where rc is the camera's rectangle.
 // View space: the camera looks down -z; the prepass depth is -z. The projection terms come from the camera's matrix (as motion_blur.glsl).
@@ -41,16 +54,25 @@ void main() {
 @fs fs_trace
 layout(binding=0) uniform texture2D tex_c;
 layout(binding=1) uniform texture2D tex_p;
+layout(binding=2) uniform texture2D tex_r;
+layout(binding=3) uniform texture2D tex_d;
+layout(binding=4) uniform texture2D tex_k;
+layout(binding=5) uniform texture2D tex_m;
 layout(binding=0) uniform sampler smp_lin;
 layout(binding=1) uniform sampler smp_pt;
 @image_sample_type tex_p unfilterable_float
+@image_sample_type tex_r unfilterable_float
+@image_sample_type tex_d unfilterable_float
+@image_sample_type tex_k unfilterable_float
+@image_sample_type tex_m unfilterable_float
 @sampler_type smp_pt nonfiltering
 layout(binding=1) uniform ssr_params {
     vec4 a;         // x = 1 when render targets are bottom-up (OpenGL), yz = the camera's rectangle in pixels, w = steps (8 .. 128)
     vec4 rc;        // the rectangle of the source picture the pass covers (top-left, fractions of the picture): xy corner, zw size
-    vec4 b;         // x = intensity (0 .. 1), y = longest ray in world units, z = thickness in world units, w = 0
+    vec4 b;         // x = intensity (0 .. 1), y = longest ray in world units, z = thickness in world units, w = 0 no ray traced image, 1 only tex_r, 2 tex_r, tex_d, tex_k
     vec4 pa;        // the projection of the camera: P00, P11, P02, P12 (what the view-space position of a pixel needs)
     vec4 pb;        // P03, P13, P32, P33
+    vec4 g;         // the ray traced reflections' roughness: x = the sharp cutoff (under it a mirror ray, read raw), y = where the fade out starts, z = the roughest traced, w = 1 when tex_m is bound
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -103,7 +125,7 @@ void main() {
     vec4 here = textureLod(sampler2D(tex_c, smp_lin), game_uv(s), 0.0);
     frag_color = here;
     vec4 pre = pre_at(s);
-    if (pre.a < 0.5 || b.x <= 0.0) return;  // the sky, a sprite: nothing to reflect off
+    if (pre.a < 0.5 || (b.x <= 0.0 && b.w < 0.5)) return;  // the sky, a sprite: nothing to reflect off
 
     float d0 = pre.r;
     vec3 P = view_pos(s, d0);
@@ -112,6 +134,28 @@ void main() {
     vec3 V = persp ? normalize(P) : vec3(0.0, 0.0, -1.0);  // from the camera into the scene
     vec3 R = reflect(V, N);
     float fres = 0.2 + 0.8 * pow(1.0 - clamp(dot(N, -V), 0.0, 1.0), 5.0);
+    float rtW = 0.0;   // the share of the pixel the traced reflection covers (0 .. 1)
+    if (b.w > 0.5) {
+        vec4 rt = textureLod(sampler2D(tex_r, smp_pt), fl(s), 0.0);
+        if (rt.a != 0.0) {  // the kernel traced this pixel
+            float rough = g.w > 0.5 ? textureLod(sampler2D(tex_m, smp_pt), fl(s), 0.0).r : 0.0;
+            vec3 rcol = vec3(0.0);
+            float cov = 0.0;
+            if (b.w < 1.5 || rough < g.x) {
+                if (rt.a > 0.0) { rcol = vec3(sane(rt.r), sane(rt.g), sane(rt.b)); cov = 1.0; }
+            } else {
+                vec4 d = textureLod(sampler2D(tex_d, smp_pt), fl(s), 0.0);
+                rcol = vec3(sane(d.r), sane(d.g), sane(d.b));
+                cov = clamp(sane(textureLod(sampler2D(tex_k, smp_pt), fl(s), 0.0).r), 0.0, 1.0);
+            }
+            float fade = 1.0 - smoothstep(g.y, max(g.z, g.y + 1e-4), rough);
+            rtW = cov * fade;
+            float kRt = min(fres, SSR_MAX_MIX);
+            frag_color = vec4(here.rgb * (1.0 - kRt * rtW) + rcol * fade * kRt, here.a);
+            if (rtW > 0.999) return;
+        }
+    }
+    if (b.x <= 0.0) return;
     float toward = smoothstep(-0.1, 0.15, dot(R, V));      // a ray back to the camera finds nothing the screen shows
     float k0 = b.x * fres * toward;
     if (k0 < 0.002) return;
@@ -174,10 +218,10 @@ void main() {
     vec2 edge = min(sh, 1.0 - sh);
     float onScreen = smoothstep(0.0, 0.1, min(edge.x, edge.y));
     // No roughness image yet, so no pixel is a pure mirror: the mix is capped, which also keeps a hit next to a miss from showing as a hard patch.
-    float k = clamp(k0 * backFace * reach * onScreen, 0.0, SSR_MAX_MIX);
+    float k = clamp(k0 * backFace * reach * onScreen, 0.0, SSR_MAX_MIX) * (1.0 - rtW);
     vec3 hc = textureLod(sampler2D(tex_c, smp_lin), game_uv(sh), 0.0).rgb;
     hc = vec3(sane(hc.r), sane(hc.g), sane(hc.b));
-    frag_color = vec4(mix(here.rgb, hc, k), here.a);
+    frag_color = vec4(mix(frag_color.rgb, hc, k), here.a);
 }
 @end
 

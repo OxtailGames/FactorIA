@@ -18,16 +18,32 @@ debug layer (and GPU-based validation, which needs it), the frames in flight (1 
 descriptor counts. Contradictions are errors before any D3D12 call. Without the "Graphics Tools" feature the debug
 layer is missing: the device is made without it, warns, and `debug_layer_active()` is false. A device needs feature
 level 11.0. On resource binding tier 1 (no unbounded descriptor ranges) the device makes no bindless table whatever
-`bindlessDescriptors` asks, and warns when it asked for one; `resource_binding_tier()` and `bindless_descriptors()`
-say what it found and made.
+`bindlessDescriptors` asks, and warns when it asked for one. On a higher tier it still makes, once at start-up, a root
+signature holding only the bindless table (the debug layer's messages held back for that call): a runtime that refuses
+it gets no bindless table either, with a warning (the D3D12 runtime of Windows Server 2022 with the WARP of the
+Microsoft.Direct3D.WARP NuGet package says tier 2 or more and refuses the unbounded range), so the device never makes
+a root signature its runtime rejects. `resource_binding_tier()` and `bindless_descriptors()` say what it found and
+made.
 
 **Errors.** Every failed HRESULT becomes a message with its hex value and name (`hr_text`) and, after a device
 removal, `GetDeviceRemovedReason`. With the debug layer, the InfoQueue keeps ERROR, CORRUPTION and WARNING messages;
 the device moves them into `errors()` / `warnings()` (prefixed `gpu d3d12 debug layer:`) and the log after each
-commit and whenever `errors()` or `warnings()` is read. A misuse the backend catches itself (a write past a buffer's
-end, a destroyed handle) is reported the same way and records nothing. `make_shader` and `make_pipeline` report on
-every failing call (`gpu d3d12: make_shader '<label>': ...`) and return a handle whose state is `Failed`; a
-`CommandList` method reports `gpu d3d12: CommandList::<method> in list '<label>': ...` and records nothing.
+commit and whenever `errors()` or `warnings()` is read. A device asked for the debug layer also switches on DRED
+(auto-breadcrumbs and page faults; process-wide, so later devices of the process have it too): the first time the
+device sees its removal it logs one error, `gpu d3d12: DRED, ...`, with each command list the GPU began and did not
+finish (its name, its queue, how many commands finished and the ones around the first that did not) and the faulting
+GPU address with the allocations there, when the driver reports one. That names the command of a removal the debug
+layer has no message for. Every removal message says what the device was doing when it first saw it: it checks
+`GetDeviceRemovedReason` right after each `ExecuteCommandLists` and after each PSO made or loaded from the pipeline
+library, and reports once `gpu d3d12: device lost; the device was removed while executing list '<label>' on the
+<queue> queue ...` or `... while creating pipeline '<label>' (shader '<label>')`, followed by the last pipeline made or
+loaded (not one the in-memory cache already held) and the last list executed (`d3d12_removal_text`); later errors of
+the removal add `first seen while ...` when it was elsewhere. A removal that happens on the GPU after the call
+returned is first seen by the next check, so those two names are the suspects, not a proof: DRED's breadcrumbs name
+the command. A misuse the backend catches itself (a write past a buffer's end, a destroyed handle) is reported the
+same way and records nothing. `make_shader` and `make_pipeline` report on every failing call (`gpu d3d12:
+make_shader '<label>': ...`) and return a handle whose state is `Failed`; a `CommandList` method reports `gpu d3d12:
+CommandList::<method> in list '<label>': ...` and records nothing.
 
 **Frames, fences, deferred destruction.** Three queues, each with its own 64-bit fence (see "Queues" below).
 `submit(list)` closes the list and executes it on its queue, then signals that queue's fence; `commit()` signals the

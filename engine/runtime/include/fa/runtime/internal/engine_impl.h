@@ -220,6 +220,12 @@ struct Engine::Impl {
     render::FrameGenSettings frameGeneration;
     std::optional<render::FrameGenSettings>
         appliedProjectFrameGen;  // the project's render.frameGeneration last applied
+    // The ray tracing setting (M79, docs/RAY_TRACING.md): the project's render.rayTracing, or what render.ray_tracing /
+    // Engine::set_ray_tracing last set. Nothing reads it yet but the command's status: the renderer's passes come with the backends.
+    render::RayTracingSettings rayTracing;
+    std::optional<render::RayTracingSettings> appliedProjectRayTracing;  // the project's render.rayTracing last applied
+    render::PathTracerSettings pathTracer;  // render.pathTracer / render.path_tracer (M79-P5a)
+    std::optional<render::PathTracerSettings> appliedProjectPathTracer;  // the project's render.pathTracer last applied
     // The refresh rate the engine's own pacing aligns to: the display's while vsync paces a windowed game, else 0 (no pacing).
     double latency_pacing_hz() const;
     float dynamic_factor() const;

@@ -3,6 +3,7 @@
 #include <optional>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -736,7 +737,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "renderer supports it). {grids: [], atlas: null} "
          "while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} "
          "See docs/rendering/RENDERING_LIGHT_PROBES.md, \"Realtime global illumination\"." FA_COMMAND_DETAILS
-         "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x "
+         "Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock, rtUpdates, "
+         "rtProbesPerFrameLimit; per grid updatedBy, raysPerProbe, rtProbesPerFrame, rtUpdatesLastFrame. "
+         "`updatedBy` is \"rays\" when the frame traced rays for the grid (render.rayTracing.gi \"probes\" on a "
+         "device that traces), else \"captures\" (`framesPerCycle` follows it). A grid costs `probes` x "
          "10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces "
          "of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any "
          "RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, "
@@ -1327,6 +1331,301 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"render.ray_tracing", "Reads or changes the ray tracing setting: which effects the renderer traces with rays.",
+         "The ray tracing seam of M79 (docs/RAY_TRACING.md): `enabled` (the master switch, default false), `shadows` "
+         "(off, hard, soft), `ao`, `reflections`, `translucency` (booleans), `gi` (off, probes, perPixel), "
+         "`raysPerPixel` "
+         "(a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns "
+         "the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, "
+         "reason, localShadows, giProbes, giPixel, denoiser, presetCap, changed}: `supported` is "
+         "renderer.supports(\"raytracing\") of this device, `active` whether any effect is traced and `reason` says "
+         "why not. Example: render.ray_tracing {\"enabled\":true,\"shadows\":\"soft\"}" FA_COMMAND_DETAILS
+         "`localShadows` {cap, candidates, traced} counts the point, spot and area lights whose shadow the rays make: "
+         "the cap per camera, the lights that asked in the last frame and how many of them were traced. `giProbes` "
+         "{active, wanted, reason, grids, probesPerFrame, budget} says whether the realtime GI probes (gi "
+         "\"probes\") were updated by rays in the last frame, why not, the grids and probes updated and the budget "
+         "per frame. `giPixel` {active, wanted, reason} says the "
+         "same for the per-pixel bounce (gi \"perPixel\"): whether the last frame's meshes read it, and why not. "
+         "`denoiser` {reflections, gi, reason} says who denoises the traced reflections and the per-pixel bounce in "
+         "the last frame: \"rayReconstruction\" (DLSS Ray Reconstruction does, the picture holds their noisy images), "
+         "\"engine\" or \"off\" (the effect is not drawn); the ambient occlusion and the shadows always keep the "
+         "engine's; `reason` says why Ray Reconstruction was asked for (render.upscaler) and does not take them. "
+         "`presetCap` {preset, capped, effective} says what the graphics preset (graphics.preset: low and medium "
+         "trace nothing, high hard shadows and ambient occlusion, ultra and custom no limit) allows: it caps the "
+         "setting and never turns an effect on, `effective` is the setting after "
+         "the caps "
+         "and `active`, `reason`, `giProbes` and `giPixel` follow it. "
+         "Ray tracing is off by default and free when off. This version has the shared interface (acceleration "
+         "structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a "
+         "device that builds and traces "
+         "them; so far `shadows` (the sun's shadow), `ao` (ambient occlusion), `reflections` (sharp mirror "
+         "reflections), `translucency` (refraction through glass) and `gi` (\"probes\": the RealtimeGI grids updated "
+         "with rays; \"perPixel\": a bounce per pixel) draw with rays, so `active` is true "
+         "when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or "
+         "type fails with "
+         "`invalid_argument`, a JSON pointer and a \"did you mean\", and changes nothing. The start value is "
+         "factoria.json \"render\": {\"rayTracing\": {...}}. Works with graphics=false too (the value is only "
+         "remembered).",
+         parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","description":"The master switch. Default false."},
+               "shadows":{"type":"string","enum":["off","hard","soft"],"description":"off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off."},
+               "ao":{"type":"boolean","description":"Ambient occlusion with rays. Default false."},
+               "reflections":{"type":"boolean","description":"Reflections with rays. Default false."},
+               "translucency":{"type":"boolean","description":"Refraction through glass and liquids traced with rays (a ray bent at every interface, tinted by the volume), instead of the screen-space refraction. Default false."},
+               "gi":{"type":"string","enum":["off","probes","perPixel"],"description":"Global illumination: off, probes (the RealtimeGI grids updated with rays instead of raster captures), or perPixel (one denoised bounce traced for every pixel of the main camera, in place of the probes' and the ambient light of the lit meshes; raysPerPixel rays per pixel). Default off."},
+               "raysPerPixel":{"type":"integer","description":"Rays of each effect per pixel and frame, clamped to 1..16. Default 1."},
+               "maxInstances":{"type":"integer","description":"The most instances the top-level structure holds, clamped to 1..1048576. Default 65536."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            check_args_known(
+                a, {"enabled", "shadows", "ao", "reflections", "translucency", "gi", "raysPerPixel", "maxInstances"},
+                "render.ray_tracing");
+            const render::RayTracingSettings before = I.self->ray_tracing();
+            bool changed = false;
+            if (a.is_object() && !a.empty()) {
+                const std::string err = I.self->set_ray_tracing(a, "render.ray_tracing");
+                if (!err.empty())
+                    throw CommandError("invalid_argument", err,
+                                       "Call render.ray_tracing with no argument to read the setting.");
+                changed = I.self->ray_tracing() != before;
+            }
+            Json out = I.self->ray_tracing_status();
+            out["changed"] = changed;
+            return out;
+        });
+
+    I.commands.add({"render.path_tracer",
+                    "Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of "
+                    "the main camera.",
+                    "The path tracer of M79 (docs/design/ARCHITECTURE_RT_PATHTRACER.md, docs/RAY_TRACING.md): "
+                    "`enabled` (default false), "
+                    "`maxBounces` (1 = direct light only, 1 to 32, default 4), `samplesPerFrame` (paths per pixel each "
+                    "frame adds, 1 to 64, "
+                    "default 1), `maxSamples` (the accumulation stops after this many samples per pixel; 0 = never), "
+                    "`fireflyClamp` (0 = off), "
+                    "`lights` (direct light from up to 8 point and spot lights, default true) and `seed` (changes the "
+                    "noise pattern). With no "
+                    "argument it returns the setting; with any key it changes those and keeps the rest. Returns the "
+                    "setting plus {supported, "
+                    "active, samples, width, height, resets, lastReset, reason, changed}: `samples` is the samples per "
+                    "pixel accumulated so far "
+                    "and `lastReset` why the accumulation restarted last (\"start\", \"image\" when the window was "
+                    "resized, \"camera\" "
+                    "when it moved, \"scene\" or \"settings\" when they changed; `resets` counts the restarts after "
+                    "the first). Example: render.path_tracer {\"enabled\":true,\"maxBounces\":6}" FA_COMMAND_DETAILS
+                    "The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with "
+                    "graphics.backend; renderer.supports "
+                    "(\"raytracing\") says whether this one can). On any other device `active` is false, `reason` says "
+                    "so and the raster picture "
+                    "stays. Off it costs nothing. The post stack and the tonemap apply to the path-traced picture as "
+                    "to the raster one. To write a "
+                    "converged image use render.pathtrace. The start value is factoria.json \"render\": "
+                    "{\"pathTracer\": {...}}. A wrong name or "
+                    "type fails with `invalid_argument` and a JSON pointer and changes nothing. Works with "
+                    "graphics=false too (the value is only "
+                    "remembered).",
+                    parse_schema(R"({"type":"object","properties":{
+               "enabled":{"type":"boolean","description":"Draw the main camera's lit colour with the path tracer. Default false."},
+               "maxBounces":{"type":"integer","description":"Path length: 1 = direct light only, up to 32 (clamped). Russian roulette ends a dark path sooner. Default 4."},
+               "samplesPerFrame":{"type":"integer","description":"Paths per pixel each frame adds to the accumulation, clamped to 1..64. Default 1."},
+               "maxSamples":{"type":"integer","description":"The accumulation stops (the picture is kept) after this many samples per pixel; 0 = never. Default 0."},
+               "fireflyClamp":{"type":"number","description":"Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0."},
+               "lights":{"type":"boolean","description":"Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true."},
+               "seed":{"type":"integer","description":"Changes the noise pattern; the same seed gives the same picture on a device. Default 0."}}})"),
+                    false, "game"},
+                   [&I](const Json& a) {
+                       check_args_known(
+                           a,
+                           {"enabled", "maxBounces", "samplesPerFrame", "maxSamples", "fireflyClamp", "lights", "seed"},
+                           "render.path_tracer");
+                       const render::PathTracerSettings before = I.self->path_tracer();
+                       bool changed = false;
+                       if (a.is_object() && !a.empty()) {
+                           const std::string err = I.self->set_path_tracer(a, "render.path_tracer");
+                           if (!err.empty())
+                               throw CommandError("invalid_argument", err,
+                                                  "Call render.path_tracer with no argument to read the setting.");
+                           changed = I.self->path_tracer() != before;
+                       }
+                       Json out = I.self->path_tracer_status();
+                       out["changed"] = changed;
+                       return out;
+                   });
+
+    I.commands.add(
+        {"render.pathtrace",
+         "Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).",
+         "Accumulates `samples` paths per pixel (default 64) from the current camera at `scale` times the design size, "
+         "then writes the "
+         "picture as the engine shows it (the post stack and the tonemap apply, so the file is an 8-bit PNG: there is "
+         "no EXR writer "
+         "yet). `maxBounces` (default: the render.path_tracer setting) is the path length. `timeBudgetMs` (default 0 = "
+         "none) stops "
+         "early and returns `converged` false with the samples reached. The path tracer setting and the render scale "
+         "are put back "
+         "afterwards. Returns {path, samples, converged, timeMs, device, width, height, maxBounces}. Example: "
+         "render.pathtrace "
+         "{\"samples\":256,\"path\":\"shots/ref.png\"}" FA_COMMAND_DETAILS
+         "Needs a GPU that traces rays: on any other device the command fails with `unavailable` and says to choose "
+         "D3D12, Vulkan or "
+         "Metal with graphics.backend (renderer.supports(\"raytracing\") says whether this device can). The same "
+         "camera, scene, `seed` "
+         "and samples give the same picture on a device. The path tracer has no textures, hard sun shadows and treats "
+         "area lights as "
+         "points (docs/design/ARCHITECTURE_RT_PATHTRACER.md, \"Limits\"). `timeMs` is the wall time of the render and "
+         "is not part of "
+         "the picture.",
+         parse_schema(R"({"type":"object","properties":{
+               "path":{"type":"string","x-fa-path":"write","description":"Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere). Omitted: a temporary picture under .factoria/screenshots/."},
+               "samples":{"type":"integer","minimum":1,"maximum":16384,"default":64,"description":"Samples per pixel to accumulate."},
+               "scale":{"type":"number","minimum":0.25,"maximum":4,"default":1,"description":"Image size = design size * scale, drawn natively."},
+               "maxBounces":{"type":"integer","minimum":1,"maximum":32,"description":"Path length: 1 = direct light only. Default: the render.path_tracer setting."},
+               "timeBudgetMs":{"type":"integer","minimum":0,"maximum":3600000,"default":0,"description":"Stop after this many milliseconds even if the samples are not reached (0 = no limit). A safety net: the result then has converged false."}}})"),
+         false, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {"path", "samples", "scale", "maxBounces", "timeBudgetMs"}, "render.pathtrace");
+            const auto int_arg = [&a](const char* key, long long def, long long lo, long long hi) -> long long {
+                if (!a.contains(key)) return def;
+                const Json& v = a[key];
+                if (!v.is_number())
+                    throw CommandError("invalid_argument", std::string("/") + key + " must be a number.",
+                                       std::string("Example: render.pathtrace {\"") + key +
+                                           "\":" + std::to_string(def) + "}");
+                const double d = v.get<double>();
+                if (!(d >= double(lo) && d <= double(hi)))
+                    throw CommandError("invalid_argument",
+                                       std::string("/") + key + " " + std::to_string(d) + " is out of range (" +
+                                           std::to_string(lo) + " to " + std::to_string(hi) + ").",
+                                       std::string("Use a whole number from ") + std::to_string(lo) + " to " +
+                                           std::to_string(hi) + ".");
+                return (long long)std::llround(d);
+            };
+            const int samples = int(int_arg("samples", 64, 1, 16384));
+            if (a.contains("scale") && !a["scale"].is_number())
+                throw CommandError("invalid_argument", "/scale must be a number.",
+                                   "scale is the image size over the design size: 1.5 on 1280x720 gives 1920x1080.");
+            const double scale = a.contains("scale") ? a["scale"].get<double>() : 1.0;
+            if (a.contains("scale") && !(scale >= 0.25 && scale <= 4.0))
+                throw CommandError("invalid_argument",
+                                   "/scale " + std::to_string(scale) + " is out of range (0.25 to 4).",
+                                   "scale is the image size over the design size: 1.5 on 1280x720 gives 1920x1080.");
+            const render::PathTracerSettings previous = I.self->path_tracer();
+            const int bounces =
+                int(int_arg("maxBounces", previous.maxBounces, render::kPtMinMaxBounces, render::kPtMaxMaxBounces));
+            const long long budgetMs = int_arg("timeBudgetMs", 0, 0, 3600000);
+            std::string given =
+                a.contains("path") && a["path"].is_string() ? a["path"].get<std::string>() : std::string();
+            const bool temporary = given.empty();
+            if (!temporary) given = resolve_caller_write_path(given, "render.pathtrace");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError(
+                    "unavailable", "No renderer: the engine runs with graphics=false.",
+                    "The path tracer needs a GPU that traces rays (graphics.backend: d3d12, vulkan or metal).");
+            const Json status = I.self->ray_tracing_status();
+            if (!status.value("supported", false))
+                throw CommandError("unavailable",
+                                   "This device cannot trace rays, so there is no path-traced picture: " +
+                                       status.value("reason", std::string()),
+                                   "Choose a backend that traces with graphics.backend (d3d12, vulkan or metal; "
+                                   "renderer.supports(\"raytracing\") "
+                                   "says whether the device can), then call render.pathtrace again.");
+            if (I.inFrame)
+                throw CommandError("unavailable", "render.pathtrace cannot draw from inside a frame.",
+                                   "Call it from a tool or the command line, not from a script callback.");
+            // Everything the command changes is put back when it ends, also when it fails.
+            const double previousScale = I.heldScale;
+            const bool previousPlayer = I.playerScale;
+            struct Restore {
+                Engine& engine;
+                Engine::Impl& I;
+                render::PathTracerSettings settings;
+                double scale;
+                bool player;
+                ~Restore() {
+                    engine.set_path_tracer(render::path_tracer_to_json(settings), "render.pathtrace");
+                    if (I.heldScale != scale || I.playerScale != player) {
+                        I.heldScale = scale;
+                        I.playerScale = player;
+                        I.apply_render_scale();
+                    }
+                    I.renderStale = true;
+                }
+            } restore{engine, I, previous, previousScale, previousPlayer};
+            std::string err;
+            if (!engine.hold_render_scale(scale, &err))
+                throw CommandError("invalid_argument", err, "Use a smaller scale.");
+            render::PathTracerSettings run = previous;
+            run.enabled = true;
+            run.maxBounces = bounces;
+            run.samplesPerFrame = std::min(samples, 4);
+            run.maxSamples = samples;
+            if (const std::string e = engine.set_path_tracer(render::path_tracer_to_json(run), "render.pathtrace");
+                !e.empty())
+                throw CommandError("invalid_argument", e, "See render.path_tracer.");
+            const auto t0 = std::chrono::steady_clock::now();
+            const auto elapsed_ms = [&t0] {
+                return double(
+                           std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0)
+                               .count()) /
+                       1000.0;
+            };
+            I.renderStale = true;
+            render::PathTracerStatus st;
+            // Each frame adds samplesPerFrame samples; the cap holds the accumulation at `samples`. The number of frames is bounded by
+            // the samples asked for (not by the time), plus a few frames for the first resize and the scene's own loading.
+            const int maxFrames = samples + 64;
+            bool done = false;
+            for (int frame = 0; frame < maxFrames && !done; ++frame) {
+                I.draw(0.0);
+                st = I.renderer->path_tracer_status();
+                if (!st.failure.empty())
+                    throw CommandError(
+                        "unavailable", "The path tracer could not run: " + st.failure,
+                        "render.path_tracer's `reason` repeats it; the raster picture is what a screenshot shows.");
+                done = st.active && st.samples >= std::uint32_t(samples);
+                if (!done && budgetMs > 0 && elapsed_ms() >= double(budgetMs)) break;
+            }
+            if (!st.active)
+                throw CommandError(
+                    "unavailable",
+                    "The path tracer did not draw: the main camera needs a scene with meshes, and the frame must "
+                    "draw the lit colour (no prepass means no rays).",
+                    "Load a scene with a camera and meshes, then call render.pathtrace again.");
+            // The picture: what the last frame drew (no further frame, so no further sample).
+            Image img;
+            std::string cerr;
+            if (!I.renderer->capture(img, &cerr))
+                throw CommandError("unavailable", "Capture failed: " + cerr,
+                                   "Check the device is running (render.supports).");
+            const double timeMs = elapsed_ms();
+            const std::string path =
+                temporary ? ".factoria/screenshots/pathtrace_" + std::to_string(I.frame) + ".png" : given;
+            auto saved = save_png(img, path);
+            if (!saved.ok())
+                throw CommandError("unavailable", saved.error().message,
+                                   saved.error().hint.empty() ? "Check the path is inside a writable folder."
+                                                              : saved.error().hint);
+            const std::string abs = abs_path(path);
+            Json j = Json::object();
+            if (!temporary) j["path"] = abs;
+            j["samples"] = st.samples;
+            j["converged"] = st.samples >= std::uint32_t(samples);
+            j["timeMs"] = std::round(timeMs);
+            j["device"] = std::string(gpu_backend_name(I.renderer->device_backend()));
+            j["width"] = img.width;
+            j["height"] = img.height;
+            j["maxBounces"] = bounces;
+            Json image = Json::object({{"path", abs}, {"mimeType", "image/png"}});
+            if (temporary) {
+                j["temporary"] = true;
+                j["note"] = "Temporary picture: whoever shows it deletes the file. Pass `path` to keep it.";
+                image["temporary"] = true;
+            }
+            j["$image"] = image;
+            return j;
+        });
+
+    I.commands.add(
         {"render.dynamic_resolution",
          "Reads or changes the dynamic resolution: the render scale follows the frame time so the game holds a target.",
          "While `enabled`, the engine measures the frame (the GPU's time on Direct3D 11 and OpenGL, the time between "
@@ -1561,6 +1860,12 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the "
          "sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image "
          "on while it is shown. "
+         "`albedo` and `material` paint the thin G-buffer (M79) the renderer draws only when something asks for it: "
+         "`albedo` the "
+         "albedo of what the camera sees (linear colour), `material` the roughness as red and the metalness as green; "
+         "black where no opaque "
+         "mesh was drawn (a mesh with a custom or layered material shows its mesh renderer's own colour, roughness "
+         "and metallic); they turn the images on while they are shown. "
          "`occlusion` keeps the game picture and draws the Occluder boxes green and "
          "the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "
          "\"Occlusion\"; render.occlusion saves its depth buffer). "
@@ -1568,11 +1873,11 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "at start. The picture changes only on a frame "
          "that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, \"Depth and "
          "normals\"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a "
-         "`view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a "
+         "`view` that is not none, depth, normals, ao, cascades, occlusion, motionVectors, albedo or material (with a "
          "did-you-mean); "
          "`unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.",
          parse_schema(R"({"type":"object","properties":{
-               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view."}}})"),
+               "view":{"type":"string","enum":["none","depth","normals","ao","cascades","occlusion","motionVectors","albedo","material"],"description":"none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red), motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector), albedo (the thin G-buffer's albedo) or material (its roughness as red and metalness as green). Omitted: report the current view."}}})"),
          false, "game"},
         [&I](const Json& a) {
             check_args_known(a, {"view"}, "render.debug_view");
@@ -1583,6 +1888,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                        : v == DebugView::Cascades      ? "cascades"
                        : v == DebugView::Occlusion     ? "occlusion"
                        : v == DebugView::MotionVectors ? "motionVectors"
+                       : v == DebugView::Albedo        ? "albedo"
+                       : v == DebugView::Material      ? "material"
                                                        : "none";
             };
             // The schema (enum) already turned a value that is not a string, or not one of the three, into an
@@ -1601,6 +1908,8 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                            : wanted == "cascades"      ? DebugView::Cascades
                                            : wanted == "occlusion"     ? DebugView::Occlusion
                                            : wanted == "motionVectors" ? DebugView::MotionVectors
+                                           : wanted == "albedo"        ? DebugView::Albedo
+                                           : wanted == "material"      ? DebugView::Material
                                                                        : DebugView::None);
             return Json::object({{"view", name_of(I.renderer->debug_view())}, {"previous", name_of(previous)}});
         });
@@ -1658,6 +1967,9 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
                                                  {"render.upscaler", capability_sets::changes_state()},
                                                  {"render.latency", capability_sets::changes_state()},
                                                  {"render.frame_generation", capability_sets::changes_state()},
+                                                 {"render.ray_tracing", capability_sets::changes_state()},
+                                                 {"render.path_tracer", capability_sets::changes_state()},
+                                                 {"render.pathtrace", capability_sets::changes_state()},
                                                  {"render.dynamic_resolution", capability_sets::changes_state()},
                                                  {"graphics.preset", capability_sets::changes_state()},
                                                  {"graphics.detect", capability_sets::reads()},

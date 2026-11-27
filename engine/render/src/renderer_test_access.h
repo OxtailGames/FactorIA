@@ -19,6 +19,10 @@ namespace render {
 
 class Gpu;
 class FrameGraph;
+class RtScene;
+class RtEffects;
+class RtGiProbes;
+class RtDenoiser;
 
 // The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats).
 struct TransientPoolStats {
@@ -68,6 +72,35 @@ struct RendererTestAccess {
     static std::uint64_t gi2d_shifts(Renderer& r);
     // M75.2b: the depth reduce passes run so far, and the cameras that keep a depth pyramid.
     static int hiz_reduces(Renderer& r);
+    // M79 P1s: the ray tracing scene (rt_scene.h); null before init.
+    static render::RtScene* rt_scene(Renderer& r);
+    // M79-P2a-1: the shaders and images of the ray traced effects (rt_effect.h); null before init.
+    static render::RtEffects* rt_effects(Renderer& r);
+    // M79-P4a: the GI probes updated by rays (rt_gi.h); null before init.
+    static render::RtGiProbes* rt_gi(Renderer& r);
+    // M79 POLISH-RA: the "the kernel reads the atlas" flag (RtGiParams::grid3[2]) of each dispatch the last frame planned for the probes.
+    static std::vector<float>
+    gi_rt_bounce_flags(Renderer& r);  // empty until gi_log_rt_bounce(r, true) was called before the frame
+    static void gi_log_rt_bounce(Renderer& r, bool on);
+    // M79 POLISH-RA: the cameras the path tracer keeps an accumulation state for (PathTraceState::jobs).
+    static std::size_t path_trace_jobs(Renderer& r);
+    // M79 POLISH-last-A: sets the refusal the next frame's plan reads for one camera's path tracer pass (PathTraceJobState::failure; the frame's own
+    // declaration of a pass that is accepted clears it again). False when the camera has no accumulation state.
+    static bool path_trace_set_failure(Renderer& r, const std::string& job, const std::string& why);
+    // M79 POLISH-last-F: adds a later camera's per-pixel GI image that did not run (ran=false) to each frame's, so the one that ran is not the last: tells the status's OR from "the last camera" (only the main camera traces, so no scene makes two).
+    static void gi_pixel_last_not_run(Renderer& r, bool on);
+    // M79-P2a-2: the draws of the last frame that read the sun's shadow from the ray traced image, and those that took min(image, cascades).
+    struct RtShadowDraws {
+        int mask = 0, withCascades = 0, local = 0;
+    };
+    static RtShadowDraws rt_shadow_draws(Renderer& r);
+    // M79-P4b-1: the opaque draws of the last frame that read the per-pixel GI image (`on`) and those drawn with it bound that kept the probes (`off`).
+    struct GiPixelDraws {
+        int on = 0, off = 0;
+    };
+    static GiPixelDraws rt_gi_pixel_draws(Renderer& r);
+    static render::RtDenoiser* rt_denoiser(Renderer& r);  // the soft sun shadow's denoiser; null before init
+    static std::string rt_effect_failure(Renderer& r);    // RtEffects::failure()
     static int hiz_cameras(Renderer& r);
     // The view-projection the renderer keeps of `camera`'s last frame (what motion blur reprojects from); false when it keeps none.
     static bool prev_view_proj(Renderer& r, Entity camera, Mat4& out);
@@ -85,6 +118,27 @@ struct RendererTestAccess {
     static bool last_job_needs_velocity(Renderer& r);
     // M78: whether the images of the DLSS Ray Reconstruction guides (the normal and roughness, the albedos, the depth) exist now.
     static bool rr_guide_images(Renderer& r);
+    // M79-P4b-2: whether the hit distance guide of the ray traced reflections (the R32F image made while they go to Ray Reconstruction) exists now, and the
+    // DenoiseSignal ids the engine's denoiser gives the per-pixel GI and the reflections (RtDenoiser::last_reset asks by camera and signal).
+    static bool rr_hit_image(Renderer& r);
+    static std::uint32_t rt_gi_pixel_signal_id();
+    static std::uint32_t rt_reflect_signal_id();
+    // M79 POLISH-RB: whether the engine's denoiser keeps the ray traced signals because a frame left to Ray Reconstruction was drawn without it
+    // (Impl::rrSignalsLost), and a way to set it (a transient disagreement has no other natural cause: every refusal of the provider sets rrFailed).
+    static bool rr_signals_lost(Renderer& r);
+    static void set_rr_signals_lost(Renderer& r, bool lost);
+    // Whether DLSS Ray Reconstruction was refused for the run (rrFailed) and the reason it says.
+    static bool rr_failed(Renderer& r);
+    // Whether the program of the hit distance guide was made (RrGuidesPrep) and whether it failed.
+    static bool rr_hit_program_failed(Renderer& r);
+    // M79-P0c: makes the programs of the Ray Reconstruction guides (the normal and depth pass and the albedo pass that reads the thin G-buffer) on this
+    // GPU and says whether both pipelines are valid, with the formats the renderer draws them with. No NVIDIA GPU or DLSS needed.
+    static bool rr_guide_programs(Renderer& r);
+    // M79-P0c, the thin G-buffer: every camera asks for it (as DLSS Ray Reconstruction and the debug views albedo and material do), and the frame keeps
+    // a copy of the last camera's two images. read_gbuffer(0 = albedo, 1 = material) gives that copy after a frame: `out` = w * h * 4 floats
+    // (RGBA, top row first, the RGBA8 values as 0..1). False + `error` when no frame drew one (the GPU makes no such image, or no opaque mesh).
+    static void force_gbuffer(Renderer& r, bool on);
+    static bool read_gbuffer(Renderer& r, int which, std::vector<float>& out, int& w, int& h, std::string* error);
     // With several cameras in a frame the probe holds the last one's images; this names the only camera whose images it copies (a null entity: every camera again).
     static void probe_camera(Renderer& r, Entity camera);
     // M76-P1c: behave as a GPU that cannot render to RG16F (Gpu::velocity_ready() false): no velocity image, no previous-model work, one warning.

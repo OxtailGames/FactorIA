@@ -871,8 +871,8 @@ void Editor::at_section_J(AtScript& at) {
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
         at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher directstorage "
-                        "streamline xess fidelityfx ",
-                 "the window lists the fourteen components, in order (" + ids + ")");
+                        "streamline xess fidelityfx dxc ",
+                 "the window lists the fifteen components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(),
                  "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)

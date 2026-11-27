@@ -61,6 +61,9 @@ enum class RenderMode { Always, OnDemand };
 struct EngineConfig {
     std::string projectDir = ".";  // folder containing factoria.json
     std::string scene;             // start scene override ("" = project mainScene)
+    // Start with an empty world: no scene is loaded (neither `scene` nor mainScene), so no script of a scene runs. For tools that only
+    // need the commands (`factoria session --no-scene`, the lightmap bake helper).
+    bool noStartScene = false;
     // Props of the start scene (a JSON object; null = none): what its scripts read with game.sceneProps() from their first
     // start(). `factoria run --props` sets it. Like scene.load(path, {props}), a reload keeps them.
     Json sceneProps;
@@ -358,6 +361,20 @@ public:
     Json frame_generation_status();
     // The base and presented frame rates and the generated frames of the last frames ({} without a renderer).
     Json frame_generation_report();
+    // render.ray_tracing (M79, docs/RAY_TRACING.md): the ray tracing setting {enabled, shadows, ao, reflections, translucency, gi, raysPerPixel,
+    // maxInstances}. An error is returned and nothing changes. The setting is only stored: no effect reads it yet.
+    std::string set_ray_tracing(const Json& value, const std::string& where = "render.ray_tracing");
+    const render::RayTracingSettings& ray_tracing() const;
+    // The setting, whether this device could trace (renderer.supports("raytracing") and its reason) and whether anything is traced
+    // ("active": always false in this version), as render.ray_tracing returns it.
+    Json ray_tracing_status();
+    // render.path_tracer (M79-P5a, docs/design/ARCHITECTURE_RT_PATHTRACER.md): the path-traced reference picture {enabled, maxBounces, samplesPerFrame,
+    // maxSamples, fireflyClamp, lights, seed}. An error is returned and nothing changes.
+    std::string set_path_tracer(const Json& value, const std::string& where = "render.path_tracer");
+    const render::PathTracerSettings& path_tracer() const;
+    // The setting, whether this device could trace, and what the last drawn frame did (the samples accumulated, why the accumulation restarted),
+    // as render.path_tracer returns it.
+    Json path_tracer_status();
     // window.dynamicResolution / render.dynamic_resolution (M76-P6c): the settings (ScriptHost's) and the controller that follows them. A change
     // starts the controller again at the largest scale when the range moved; an error is returned and nothing changes.
     std::string set_dynamic_resolution(const Json& value,

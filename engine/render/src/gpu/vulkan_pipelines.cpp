@@ -64,6 +64,7 @@ const char* descriptor_type_name(VkDescriptorType t) {
         case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE: return "simg";
         case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER: return "sbuf";
         case VK_DESCRIPTOR_TYPE_SAMPLER: return "smp";
+        case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: return "as";
         default: return "?";
     }
 }
@@ -216,6 +217,31 @@ bool spirv_words(const ShaderFunction& fn, const char* stage, std::vector<std::u
 
 }  // namespace
 
+// Moves the descriptor sets of a compute kernel's bindings where the engine's layout has them: `moves` maps a
+// (set << 8 | binding) the SPIR-V declares to the set it goes to (the binding number stays). DXC puts every binding of
+// an HLSL kernel in the set its [[vk::binding]] names (set 0 for rt_probe); the backend's layout keeps uniform blocks in
+// set 0 and the views, samplers and acceleration structures in set 1, so the OpDecorate DescriptorSet literals change.
+void move_descriptor_sets(std::vector<std::uint32_t>& words, const std::map<std::uint32_t, std::uint32_t>& moves) {
+    constexpr std::uint32_t kOpDecorate = 71, kBinding = 33, kDescriptorSet = 34;
+    std::unordered_map<std::uint32_t, std::uint32_t> binding;  // variable id -> its Binding
+    std::unordered_map<std::uint32_t, std::size_t> setWord;    // variable id -> the word of its DescriptorSet literal
+    for (std::size_t i = 5; i < words.size();) {
+        const std::uint32_t count = words[i] >> 16, op = words[i] & 0xFFFFu;
+        if (count == 0 || count > words.size() - i) break;  // spirv_words checked it already
+        if (op == kOpDecorate && count >= 4) {
+            if (words[i + 2] == kBinding) binding[words[i + 1]] = words[i + 3];
+            if (words[i + 2] == kDescriptorSet) setWord[words[i + 1]] = i + 3;
+        }
+        i += count;
+    }
+    for (const auto& [id, at] : setWord) {
+        const auto b = binding.find(id);
+        if (b == binding.end() || b->second > 0xFFu || words[at] > 0xFFu) continue;
+        const auto m = moves.find(words[at] << 8 | b->second);
+        if (m != moves.end()) words[at] = m->second;
+    }
+}
+
 // Whether a vertex stage's (checked) SPIR-V stores to its PointSize built-in: an OpStore to a variable decorated
 // BuiltIn PointSize, to the member of gl_PerVertex decorated so (through an access chain with a constant index), or to
 // the whole gl_PerVertex. glslang declares the member in every vertex shader, written or not, and a point list draws
@@ -334,18 +360,41 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
     // The slots: each in a stage the shader has, uniform blocks in set 0 and the rest in set 1, each on a binding of its
     // own.
     const char* kind = info->compute ? "a compute shader" : "a render shader";
-    std::map<std::uint32_t, std::string> taken;  // set << 8 | binding -> what is there
+    // M79: a compute shader may declare its bindings in any set: the kernels from DXC (traced or not: the packing and
+    // denoising kernels trace nothing) do, a sokol-shdc compute shader has them in sets 0 and 1 already (the move
+    // changes nothing). They move into the engine's sets 0 and 1 (move_descriptor_sets), the binding numbers kept. A
+    // render shader is laid out as sokol-shdc does.
+    const bool moveSets = info->compute;
+    if (desc.usesRayQuery && !info->compute)
+        fail("usesRayQuery on a render shader: ray queries run in compute shaders (hint: a kernel keeps "
+             "ShaderStage::Compute; there are no ray tracing pipelines)");
+    if (desc.usesRayQuery && !rayTracing_)
+        fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + rtWhy_ +
+             ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
+    std::map<std::uint32_t, std::string> taken;       // set << 8 | binding -> what is there
+    std::map<std::uint32_t, std::uint32_t> setMoves;  // a compute kernel's (set << 8 | binding) -> the engine's set
     auto claim = [&](const std::string& what, std::uint32_t wantSet, const BackendBinding& b) {
-        if (b.spirvSet != wantSet) {
+        if (b.spirvSet != wantSet && !moveSets) {
             fail(what + " is in descriptor set " + std::to_string(b.spirvSet) + " (hint: Vulkan lays shaders out as " +
                  "sokol-shdc does: the uniform blocks in set 0, the views and samplers in set 1; set 2 is the "
                  "bindless table)");
             return;
         }
-        const std::uint32_t at = std::uint32_t(b.spirvSet) << 8 | b.spirvBinding;
+        if (moveSets) {  // spirvSet and spirvBinding are bytes: (set << 8 | binding) names one pair
+            const std::uint32_t from = std::uint32_t(b.spirvSet) << 8 | b.spirvBinding;
+            auto [m, fresh] = setMoves.try_emplace(from, wantSet);
+            if (!fresh && m->second != wantSet) {
+                fail(what + " is on binding " + std::to_string(b.spirvBinding) + " of set " +
+                     std::to_string(b.spirvSet) +
+                     ", which a slot of another kind is on already (hint: every uniform "
+                     "block, view, sampler and acceleration structure needs a binding of its own)");
+                return;
+            }
+        }
+        const std::uint32_t at = wantSet << 8 | b.spirvBinding;
         auto [it, added] = taken.try_emplace(at, what);
         if (!added)
-            fail(what + " is on binding " + std::to_string(b.spirvBinding) + " of set " + std::to_string(b.spirvSet) +
+            fail(what + " is on binding " + std::to_string(b.spirvBinding) + " of set " + std::to_string(wantSet) +
                  ", which " + it->second +
                  " is on already (hint: every uniform block, view and sampler needs a binding of its own)");
     };
@@ -406,6 +455,27 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         }
         claim(what, 1, sm.binding);
     }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const ShaderAccelStructure& a = desc.accelStructures[i];
+        if (a.stage == ShaderStage::None) continue;
+        const std::string what = "accelStructures[" + std::to_string(i) + "]";
+        if (a.stage != ShaderStage::Compute || !info->compute) {
+            fail(what + " has a stage other than Compute: only a compute shader traces rays (hint: declare the TLAS "
+                        "slot with ShaderStage::Compute on a ray-query kernel)");
+            continue;
+        }
+        if (!desc.usesRayQuery) {
+            fail(what + " is declared but usesRayQuery is false (hint: set it on a ray-query kernel)");
+            continue;
+        }
+        if (!rayTracing_) {
+            fail(what + " on a device without acceleration structures (Features::accelerationStructure is false: " +
+                 rtWhy_ + ")");
+            continue;
+        }
+        info->accelUsed[i] = true;
+        claim(what, 1, a.binding);
+    }
 
     // The modules
     Sha256 h;
@@ -419,6 +489,7 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         }
         entry = fn.entry && *fn.entry ? fn.entry : "main";
         if (&out == &info->vs) info->pointSize = spirv_writes_point_size(words);
+        if (moveSets) move_descriptor_sets(words, setMoves);
         h.update(std::string(stage) + ":" + std::to_string(words.size()) + ":" + entry + ":");
         h.update(words.data(), words.size() * 4);
         VkShaderModuleCreateInfo ci{};
@@ -575,6 +646,14 @@ std::shared_ptr<const PipelineLayoutInfo> VulkanDevice::pipeline_layout(const Sh
         layout->samplerUsed |= 1u << i;
         layout->counts[1].n[kDescSampler]++;
         add('s', i, 1, sm.binding.spirvBinding, VK_DESCRIPTOR_TYPE_SAMPLER, sm.stage);
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!info.accelUsed[i]) continue;
+        const ShaderAccelStructure& a = desc.accelStructures[i];
+        layout->accelBinding[i] = a.binding.spirvBinding;
+        layout->accelUsed |= 1u << i;
+        layout->counts[1].n[kDescAccelStructure]++;
+        add('a', i, 1, a.binding.spirvBinding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, ShaderStage::Compute);
     }
     key.add(bindless ? "bindless" : "-");
     layout->key = key.s;

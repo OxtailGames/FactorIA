@@ -1,0 +1,11 @@
+{
+  "format": "factoria.project/1",
+  "name": "RT cost scene",
+  "id": "com.factoria.rtcost",
+  "version": "0.1.0",
+  "engine": "0.38.0",
+  "mainScene": "scenes/main.scene.json",
+  "display": { "width": 1920, "height": 1080, "scaleMode": "fit", "fullscreen": false, "vsync": false, "orientation": "landscape", "pixelArt": false },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "platforms": ["windows", "macos", "linux"]
+}

@@ -119,6 +119,8 @@ void ImpostorRenderer::destroy() {
         s = {};
     }
     matState_ = 0;
+    gbufferFailed_ = false;
+    gbufferWhy_.clear();
     device_ = nullptr;
 }
 
@@ -209,6 +211,31 @@ MaterialAsset* ImpostorRenderer::material(gpu::Device& device) {
     material_ = std::move(m);
     matState_ = 1;
     return material_.get();
+}
+
+// The G-buffer program of the impostor (shaders/impostor.glsl, program "gbuffer"): the prepass's vertex stage and the albedo and material outputs of
+// fa_prepass_fs_main. Made on first use, after material() (the slots of the material are the prepass's).
+bool ImpostorRenderer::ensure_gbuffer(gpu::Device& device) {
+    if (!material_ || matState_ <= 0) return false;
+    if (material_->programs[kProgGbuffer].shader.id) return true;
+    if (gbufferFailed_) return false;
+    const gpu::ShaderDesc desc = gpu::generated_shader_desc(device, impostor_gbuffer_shader_desc);
+    shaders_[3] = make_shader(device, desc, "impostor_gbuffer");
+    if (!shaders_[3].id || device.state(shaders_[3]) != gpu::ResourceState::Valid) {
+        if (shaders_[3].id) device.destroy_shader(shaders_[3]);
+        shaders_[3] = {};
+        gbufferFailed_ = true;
+        gbufferWhy_ = "the impostor's G-buffer shader (impostor_gbuffer) did not compile on this device, so its draws "
+                      "keep the constants in the albedo and material images (the compiler's lines are in the log)";
+        FA_ERROR(
+            "render",
+            "The G-buffer program of the impostor could not be built for this graphics backend (see the sokol log "
+            "lines above): "
+            "the impostor keeps the constants in the albedo and material images. Hint: update the graphics driver.");
+        return false;
+    }
+    material_->programs[kProgGbuffer] = program_slots(shaders_[3], desc);
+    return true;
 }
 
 bool ImpostorRenderer::resolve(gpu::Device& device, Assets& assets, std::uint64_t serial, const MeshRenderer& mr,
