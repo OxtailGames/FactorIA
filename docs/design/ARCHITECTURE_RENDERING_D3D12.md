@@ -41,8 +41,9 @@ loaded (not one the in-memory cache already held) and the last list executed (`d
 the removal add `first seen while ...` when it was elsewhere. A removal that happens on the GPU after the call
 returned is first seen by the next check, so those two names are the suspects, not a proof: DRED's breadcrumbs name
 the command. A misuse the backend catches itself (a write past a buffer's end, a destroyed handle) is reported the
-same way and records nothing. `make_shader` and `make_pipeline` report on every failing call (`gpu d3d12: make_shader '<label>': ...`) and return a handle whose state is `Failed`; a
-`CommandList` method reports `gpu d3d12: CommandList::<method> in list '<label>': ...` and records nothing.
+same way and records nothing. `make_shader` and `make_pipeline` report on every failing call (`gpu d3d12:
+make_shader '<label>': ...`) and return a handle whose state is `Failed`; a `CommandList` method reports `gpu d3d12:
+CommandList::<method> in list '<label>': ...` and records nothing.
 
 **Frames, fences, deferred destruction.** Three queues, each with its own 64-bit fence (see "Queues" below).
 `submit(list)` closes the list and executes it on its queue, then signals that queue's fence; `commit()` signals the
