@@ -60,6 +60,10 @@ A kernel declares only the resources it reads; the numbers never change. The eng
 | view 3 | the G-buffer's albedo (kernels with `usesGbuffer`) | `t3` | binding 5 | `texture(2)` |
 | view 4 | the G-buffer's material (kernels with `usesGbuffer`) | `t4` | binding 6 | `texture(3)` |
 | uniform 1 | `RtHitParams`, 96 bytes (kernels with `usesHit`) | `b1` | binding 7 | `buffer(3)` |
+| view 5 | the second input image `aux` (kernels with `usesAux`) | `t5` | binding 9 | `texture(4)` |
+
+Vulkan binding 7 is the hit (or local) constants only and binding 8 the lights, so a kernel may declare the aux image next to the hit constants;
+the aux image sat on binding 7 until M79 POLISH-RK-1 and `add_pass` refused the two together.
 
 **Metal's buffer numbers.** Sokol numbers the uniform blocks `buffer(0)` to `buffer(7)` and the storage buffers `buffer(8)` to `buffer(23)`, so the
 records are `buffer(8)` (a kernel that declared `buffer(2)` fails at pipeline creation, `METAL_STORAGEBUFFER_MSL_BUFFER_SLOT_OUT_OF_RANGE`; no

@@ -535,7 +535,7 @@ Result<void> D3d12Device::present() {
         std::lock_guard<std::mutex> lock(queueMutex_);
         flush_prelude();
         if (D3d12CommandList* list = acquire_list("fa-d3d12-present", true)) {
-            if (back) list->require(back, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_PRESENT);
+            if (back) list->require_plain(back, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_PRESENT);
             execute(*list);
         }
     }

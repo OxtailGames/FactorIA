@@ -1291,6 +1291,14 @@ TEST_CASE("rt reflect: the kernel has a spec that asks for the records, the G-bu
         CHECK(d.views[3].texture.binding.mslIndex == 2);
         CHECK(d.views[4].texture.binding.mslIndex == 3);
     }
+    // The hit constants and the aux image have their own Vulkan bindings (7 and 9): a kernel may read both.
+    {
+        fa::render::RtEffectKernelSpec both = *spec;
+        both.usesAux = true;
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, both, gpu::Backend::Vulkan);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.spirvBinding == 7);
+        CHECK(d.views[fa::render::RtEffectBindings::kViewAux].texture.binding.spirvBinding == 9);
+    }
     // A kernel without the hit constants has no second block.
     const gpu::ShaderDesc shadow = fa::render::rt_effect_shader_desc(
         *rt_kernels::find_rt_kernel("rt_shadow"), *fa::render::find_rt_effect_spec("rt_shadow"), gpu::Backend::Metal);

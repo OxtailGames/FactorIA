@@ -6,7 +6,7 @@
 //   binding 1  g_out      storage image, rgba32f                          (Metal: texture(0))
 //   binding 2  g_params   constant buffer, RtEffectParams                 (Metal: buffer(1))
 //   binding 3  g_src      Texture2D, the soft kernel's image              (Metal: texture(1))   t1   (the slot of the prepass)
-//   binding 7  g_aux      Texture2D, the denoiser's output, r = signal    (Metal: texture(4))   t5
+//   binding 9  g_aux      Texture2D, the denoiser's output, r = signal    (Metal: texture(4))   t5
 [[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> g_out : register(u0);
 
 // BEGIN RtEffectParams
@@ -27,7 +27,7 @@ struct RtEffectParams {
 // END RtEffectParams
 [[vk::binding(2, 0)]] ConstantBuffer<RtEffectParams> g_params : register(b0);
 [[vk::binding(3, 0)]] Texture2D<float4> g_src : register(t1);
-[[vk::binding(7, 0)]] Texture2D<float4> g_aux : register(t5);
+[[vk::binding(9, 0)]] Texture2D<float4> g_aux : register(t5);
 
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {

@@ -7,8 +7,6 @@
 namespace fa::render {
 
 namespace {
-constexpr float kRtLocalShorter =
-    0.02f;  // the ray stops this fraction short of its target: a light inside a mesh's skin does not shadow itself
 
 bool usable(float v) { return v == v && v > 0.0f; }
 }  // namespace
@@ -124,7 +122,8 @@ RtLocalLight make_rt_local_light(const LightData& l) {
 RtLocalParams make_rt_local_params(std::span<const LightData> table, const RtLocalPick& pick) {
     RtLocalParams p{};
     p.header[0] = float(pick.count);
-    p.header[1] = kRtLocalShorter;
+    p.header[1] = kRtLocalStopMetres;
+    p.header[2] = kRtLocalStopCap;
     for (int s = 0; s < kRtLocalMaxLights; ++s) {
         const int i = pick.light[std::size_t(s)];
         if (i >= 0 && std::size_t(i) < table.size()) p.lights[s] = make_rt_local_light(table[std::size_t(i)]);

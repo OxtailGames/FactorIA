@@ -66,6 +66,8 @@ gpu::View RtGiProbes::records_view(Gpu& gpu, gpu::Buffer records) {
     recordsBuffer_ = {};
     gpu::ViewDesc vd{};
     vd.storageBuffer.buffer = records;
+    vd.storageBuffer.structureStride =
+        int(sizeof(RtInstanceRecord));  // the kernels declare StructuredBuffer<RtInstanceRecord>
     vd.label = "rt gi records";
     const gpu::View v = device.make_view(vd);
     if (!v.id || device.state(v) != gpu::ResourceState::Valid) {
