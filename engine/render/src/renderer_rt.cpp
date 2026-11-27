@@ -112,7 +112,7 @@ void Renderer::Impl::rt_begin_frame() {
     rrSignalsDeclared = false;
     rrDrewFrame = false;
     rrWouldTake = false;
-    rtReflectFrameImg = nullptr;
+    rtReflectFrameImgs.clear();
     upscaleReflectImg = nullptr;
     upscaleReflectRes = ResourceId{};
     rtLocalCandidatesShown = rtLocalFrame.candidates;
@@ -223,23 +223,27 @@ void Renderer::Impl::rt_gi_pixel_finish() {
     render::RtDenoiserStatus ds;
     // What the frame traced: the status tells "off" for a signal no camera traced (a camera with no prepass, a device that refused the kernel).
     ds.settled = true;
-    ds.reflectionsTraced = rtReflectFrameImg && rtReflectFrameImg->ran;
-    ds.giTraced = rtGiPixelFrame.declared && rtGiPixelFrame.img && rtGiPixelFrame.img->ran;
+    for (const RtEffectImage* im : rtReflectFrameImgs) ds.reflectionsTraced = ds.reflectionsTraced || (im && im->ran);
+    for (const RtEffectImage* im : rtGiPixelFrame.imgs) ds.giTraced = ds.giTraced || (im && im->ran);
     if (rrSignalsDeclared) {
         const bool drew = rrDrewFrame;
         // Ray Reconstruction only "took" a signal the frame traced: a kernel that did not run (no prepass, a refused pipeline) has nothing to denoise.
         ds.reflectionsRr = rrSignalsFrame.reflections && drew && ds.reflectionsTraced;
         ds.giRr = rrSignalsFrame.gi && drew && ds.giTraced;
+        // A refused frame (rrFailed) or a provider that failed the frame for good (vendorFailed) never gives the signals back this run.
+        const bool forRun = rrFailed || vendorFailed[0];
         if (!drew && (rrSignalsFrame.reflections || rrSignalsFrame.gi))
             ds.reason =
                 "DLSS Ray Reconstruction did not draw the frame the signals were left to it for (" +
                 (rrFailed ? (rrFailedWhy.empty() ? std::string("no reason given") : rrFailedWhy)
-                          : std::string("the frame was drawn without it, which the decision did not expect")) +
+                 : vendorFailed[0]
+                     ? (vendorFailedWhy[0].empty() ? std::string("DLSS failed the frame") : vendorFailedWhy[0])
+                     : std::string("the frame was drawn without it, which the decision did not expect")) +
                 "): they were drawn noisy once and the engine's denoiser takes them from the next frame" +
-                (rrFailed ? std::string(", for the rest of this run (Ray Reconstruction stays off until the game is "
-                                        "started again)")
-                          : "; they go back to Ray Reconstruction after " + std::to_string(render::kRrRecoverFrames) +
-                                " frames in a row in which it draws again") +
+                (forRun ? std::string(", for the rest of this run (Ray Reconstruction stays off until the game is "
+                                      "started again)")
+                        : "; they go back to Ray Reconstruction after " + std::to_string(render::kRrRecoverFrames) +
+                              " frames in a row in which it draws again") +
                 ".";
         else
             ds.reason = rrSignalsFrame.why;
@@ -249,6 +253,11 @@ void Renderer::Impl::rt_gi_pixel_finish() {
                 std::string(ds.reason.empty() ? "" : "; ") +
                 "the reflections' hit distance guide is left out (its shader did not compile on this device), so "
                 "Ray Reconstruction denoises the reflections without it";
+    }
+    // The G-buffer programs of the terrain and the impostor cards: Ray Reconstruction reads the constants for what a program that did not compile leaves out.
+    if (rrSignalsDeclared) {
+        for (const std::string* why : {&terrains.gbuffer_failure(), &impostors.gbuffer_failure()})
+            if (!why->empty()) ds.reason += std::string(ds.reason.empty() ? "" : "; ") + *why;
     }
     // A frame whose signals were left to Ray Reconstruction and that it did not draw (the decision looked at what it could, the frame had another
     // answer) is not tried again at once: the engine's denoiser keeps the signals, from a reset history, until the decision and DLSS have agreed

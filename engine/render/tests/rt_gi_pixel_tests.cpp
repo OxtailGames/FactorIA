@@ -718,8 +718,9 @@ TEST_CASE(
     CHECK(r.renderer.stats().impostors == 0);
 }
 
-TEST_CASE("gbuffer: the impostor's G-buffer program is made before the frame graph runs, and one that does not compile "
-          "is skipped with one error") {
+TEST_CASE(
+    "gbuffer: an impostor G-buffer program that does not compile is made once (one error, no retry per frame), the "
+    "card still draws and the G-buffer pass still runs for the meshes") {
     Rig r;
     r.dev->fail_shaders_labelled("impostor_gbuffer_shader");
     RendererTestAccess::force_gbuffer(r.renderer, true);
@@ -731,10 +732,9 @@ TEST_CASE("gbuffer: the impostor's G-buffer program is made before the frame gra
     for (const std::string& e : r.dev->errors())
         impostorErrors += e.find("fail_shaders_labelled") != std::string::npos ? 1 : 0;
     INFO(r.errors());
-    CHECK(impostorErrors ==
-          1);  // made once in plan_prepass, then remembered as failed (no retry per frame, none in the pass)
+    CHECK(impostorErrors == 1);  // made once (plan_prepass), then remembered as failed: no retry on the later frames
     CHECK(r.renderer.stats().impostors >= 1);  // the card still draws in the main pass
-    // The G-buffer pass still ran for the opaque meshes, and nothing was made while it recorded.
+    // The G-buffer pass still ran for the opaque meshes.
     r.dev->clear_commands();
     r.frame(w);
     CHECK(count_labels(r.lines(), "begin_pass 'gbuffer'") == 1);
