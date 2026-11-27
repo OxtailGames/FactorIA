@@ -12,7 +12,7 @@ Pages of this guide (the page name for `docs_read` is `ai-guide-<name>`; a headi
 - [scripts](ai-guide/AI_GUIDE_SCRIPTS.md): sections 8, 9.1 to 9.7. The JavaScript API, platformer, top-down, spawning, HUD, collisions, camera, sounds.
 - [tilemaps](ai-guide/AI_GUIDE_TILEMAPS.md): section 9.8. Tilemap levels and collision.
 - [recipes-world](ai-guide/AI_GUIDE_RECIPES_WORLD.md): sections 9.9 to 9.18. 3D scene, saves, levels, particles.
-- [recipes-world-2](ai-guide/AI_GUIDE_RECIPES_WORLD_2.md): sections 9.19 to 9.21.2. Raycasts, glow, sweeps, water, terrain.
+- [recipes-world-2](ai-guide/AI_GUIDE_RECIPES_WORLD_2.md): sections 9.19 to 9.21.2. Raycasts, glow, ray tracing, sweeps, water, terrain.
 - [recipes-ui-assets](ai-guide/AI_GUIDE_RECIPES_UI_ASSETS.md): sections 9.22 to 9.25. Menus, art, sound, characters.
 - [recipes-production](ai-guide/AI_GUIDE_RECIPES_PRODUCTION.md): sections 9.26 to 9.32. 2D production, enemy AI, multiplayer.
 - [checks](ai-guide/AI_GUIDE_CHECKS.md): sections 10 to 14. Tests, debugging, mistakes, speed.

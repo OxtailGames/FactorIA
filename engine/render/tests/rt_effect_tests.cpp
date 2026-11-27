@@ -957,19 +957,27 @@ TEST_CASE("rt effect: every effect on, on a device that cannot trace, draws exac
         }
         World w;
         make_scene(w);
-        r.frame(w);
-        r.frame(w);
-        r.dev->clear_commands();
-        r.frame(w);
-        CHECK(r.errors().empty());
-        CHECK(r.compute_passes().empty());
-        CHECK(r.effects().empty());
-        return r.lines();
+        // Every frame it draws, the first ones too (where a pipeline, an image or a message would show first).
+        std::vector<std::vector<std::string>> frames;
+        for (int i = 0; i < 3; ++i) {
+            r.dev->clear_commands();
+            r.frame(w);
+            CHECK(r.errors().empty());
+            CHECK(r.compute_passes().empty());
+            CHECK(r.effects().empty());
+            frames.push_back(r.lines());
+        }
+        return frames;
     };
-    const std::vector<std::string> off = stream(false);
-    const std::vector<std::string> allOn = stream(true);
-    REQUIRE(off.size() > 5);
-    CHECK(off == allOn);
+    const std::vector<std::vector<std::string>> off = stream(false);
+    const std::vector<std::vector<std::string>> allOn = stream(true);
+    REQUIRE(off.size() == 3);
+    REQUIRE(allOn.size() == 3);
+    for (size_t i = 0; i < off.size(); ++i) {
+        INFO("frame " << i + 1);
+        REQUIRE(off[i].size() > 5);
+        CHECK(off[i] == allOn[i]);
+    }
     CHECK(log.count("cannot trace rays") == 1);
 }
 
@@ -1380,6 +1388,70 @@ TEST_CASE("rt reflect: reflections declare the G-buffer and one compute pass aft
     r.frame(w);
     CHECK(r.compute_passes().empty());
     CHECK(index_of(r.lines(), "ssr-trace") < 0);
+}
+
+// M79 POLISH-last-D: the three programs of a half size chain are made when a half size signal asks. A backend that cannot compile them (the
+// GLSL ES, HLSL and WGSL ones are not tried yet) runs that signal at full size, says so once, and denoises every other signal as before.
+TEST_CASE("rt denoise: half size shaders that do not compile run the half size signal at full size, and the other "
+          "signals still denoise") {
+    Logs log;
+    auto frame_lines = [](Rig& r, World& w, int frames) {
+        for (int i = 0; i < frames; ++i) r.frame(w);
+        r.dev->clear_commands();
+        r.frame(w);
+        return r.lines();
+    };
+    // The control: the occlusion is a half size chain (down, up, one iteration fewer than the full 5).
+    {
+        Rig r;
+        ao_rays(r, true);
+        World w;
+        make_scene(w, true, false);
+        const std::vector<std::string> lines = frame_lines(r, w, 2);
+        CHECK(count_labels(lines, "begin_pass 'rtd-guide-half'") == 1);
+        CHECK(count_labels(lines, "begin_pass 'rtd-up'") == 1);
+        CHECK(count_labels(lines, "begin_pass 'rtd-atrous'") == 4);
+        CHECK_FALSE(RendererTestAccess::rt_denoiser(r.renderer)->half_unavailable());
+    }
+    // The occlusion alone: the full chain, five iterations, one temporal pass, and no half size pass at all.
+    {
+        Rig r;
+        r.dev->fail_shaders_labelled("rt_denoise_guidehalf_shader");
+        ao_rays(r, true);
+        World w;
+        make_scene(w, true, false);
+        const std::vector<std::string> lines = frame_lines(r, w, 2);
+        CHECK(count_labels(lines, "begin_pass 'rtd-guide-half'") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-down'") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-up'") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-temporal'") == 1);
+        CHECK(count_labels(lines, "begin_pass 'rtd-atrous'") == 5);
+        const auto* denoiser = RendererTestAccess::rt_denoiser(r.renderer);
+        CHECK(denoiser->half_unavailable());
+        CHECK_FALSE(denoiser->unavailable());
+        CHECK(denoiser->history_image_count() ==
+              2 + 4);  // the camera's guide pair, the signal's colour and moments pairs (no half guide history)
+        CHECK(log.count("half resolution shaders failed") == 1);  // said once, however many frames
+    }
+    // The occlusion and the reflections (two signals of their own): all three still denoise.
+    {
+        Rig r;
+        r.dev->fail_shaders_labelled("rt_denoise_guidehalf_shader");
+        render::RayTracingSettings s;
+        s.enabled = true;
+        s.shadows = render::RtShadows::Off;
+        s.ao = true;
+        s.reflections = true;
+        r.renderer.set_ray_tracing(s);
+        World w;
+        make_reflect_scene(w);
+        const std::vector<std::string> lines = frame_lines(r, w, 2);
+        CHECK(count_labels(lines, "begin_pass 'rtd-guide-half'") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-up'") == 0);
+        CHECK(count_labels(lines, "begin_pass 'rtd-temporal'") == 3);
+        CHECK_FALSE(RendererTestAccess::rt_denoiser(r.renderer)->unavailable());
+        CHECK(log.count("half resolution shaders failed") == 2);  // one per renderer
+    }
 }
 
 TEST_CASE("rt reflect: the shadows and the reflections are two effects of the same frame, and the frame is the same "

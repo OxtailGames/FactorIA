@@ -1,6 +1,6 @@
 # AI guide: recipes for the world, part 2
 
-Part of [AI guide](../AI_GUIDE.md): recipes 9.19 to 9.21.2: 3D ground checks and raycasts, glow and tonemap, colour-blind players, antialiasing and upscaling, sweeps, 2D water and glass, terrain. Recipes 9.9 to 9.18 are on [recipes for the world](AI_GUIDE_RECIPES_WORLD.md).
+Part of [AI guide](../AI_GUIDE.md): recipes 9.19 to 9.21.2: 3D ground checks and raycasts, glow and tonemap, colour-blind players, antialiasing and upscaling, ray tracing (when to use it, what it costs), sweeps, 2D water and glass, terrain. Recipes 9.9 to 9.18 are on [recipes for the world](AI_GUIDE_RECIPES_WORLD.md).
 
 ### 9.19 3D ground checks and raycasts
 
@@ -88,7 +88,7 @@ Ray tracing (`render.rayTracing` in `factoria.json`, command `render.ray_tracing
 | The same, for every pixel, not only per probe | `"gi": "perPixel"` | +9 ms; the dearest indirect light |
 
 Rules of thumb:
-- The effects **add up** (a frame with soft shadows, occlusion and reflections is about 34 ms there), and the denoiser is the larger part of most of them: 4 rays cost 2 to 6 ms more than 1. Turn on the one or two the look needs; never all. The numbers are from one GPU (D3D12 and Vulkan are not measured), so offer the choice to the player (the menu kit's Ray tracing page) instead of fixing it.
+- The effects **add up** (a frame with soft shadows, occlusion and reflections is about 34 ms there), and the denoiser is the larger part of most of them: 4 rays cost 1.5 to 6 ms more than 1 (soft shadows the most). Turn on the one or two the look needs; never all. The numbers are from one GPU (D3D12 and Vulkan are not measured), so offer the choice to the player (the menu kit's Ray tracing page) instead of fixing it.
 - The graphics preset caps it and never turns it on: `low` and `medium` trace nothing, `high` allows `shadows: "hard"` and `ao` with 2 rays, `ultra` and `custom` everything the project asks for (soft shadows, `reflections`, `translucency` and `gi`, probes or perPixel, only there).
 - The path tracer (`render.pathTracer`, `render.pathtrace`) is a **reference tool**, not a game mode: about 34 ms per sample, a clean picture needs dozens. Use it to check that your lighting is right or to take a clean screenshot; it ignores textures and normal maps.
 - A headless run (`--no-graphics`) traces nothing. Judge an effect from a windowed run or `game.screenshot` with graphics, and say which GPU the numbers came from.

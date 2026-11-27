@@ -965,6 +965,13 @@ TEST_CASE("denoise: a faint pattern is left as it is by the later iterations, a 
     for (int run = 0; run < 2; ++run) {
         Rig rig;
         REQUIRE_MESSAGE(rig.ok, rig.error);
+        // A pattern of +-0.001 needs the float32 moments: with 16-bit ones (a GPU that cannot render to RGBA32F) the variance of the faint
+        // region is rounded to a spread the calm test does not take as calm, so the test says nothing there.
+        const gpu::PixelFormatCaps f32 = rig.gpu.device().pixel_format_caps(gpu::PixelFormat::Rgba32F);
+        if (!(f32.render && f32.sample)) {
+            MESSAGE("skipped: this GPU cannot render to RGBA32F, so the denoiser keeps 16-bit moments");
+            return;
+        }
         const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
         rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; }, facing));
         DenoiseSignal sig = visibility();
@@ -1167,6 +1174,39 @@ TEST_CASE("denoise: a half size occlusion declares its own chain and converges t
     CHECK(plan.chainWidth == 32);
     CHECK(plan.chainHeight == 24);
     CHECK(rig.dn.history_image_count() == 2 + 4 + 2);  // the camera's guide pair, the signal's, the half guide's
+}
+
+// M79 POLISH-last-D: the temporal pass of a half size chain reads the full size velocity at the texel the half guide took, not at the
+// corner of the block's four texels (where the texel a point sampler takes depends on the GPU). With one depth everywhere that texel is
+// the block's first (even column, even row): the others hold a motion of 400 units, which would reject every history.
+TEST_CASE("denoise: a half size chain reads the velocity of the texel its guide took") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    constexpr int w = 63, h = 47;
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(w, h), pre = rig.make_tex(w, h), vel = rig.make_tex(w, h);
+    rig.upload(pre, make_prepass(w, h, [](int, int) { return 5.0f; }, facing));
+    std::vector<float> v(size_t(w) * h * 4, 0.0f);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            if ((x & 1) || (y & 1))
+                v[(size_t(y) * w + size_t(x)) * 4] = v[(size_t(y) * w + size_t(x)) * 4 + 1] = 400.0f;
+    rig.upload(vel, v);
+    const auto truth = [](int, int) { return 0.3f; };
+    Frame last;
+    for (int f = 1; f <= 24; ++f) {
+        rig.upload(noisy, bernoulli(w, h, std::uint32_t(f), truth));
+        last = rig.run(make_camera(w, h, std::uint64_t(f)), half_occlusion(), noisy, pre, w, h, int(vel));
+        REQUIRE(last.out.valid);
+        REQUIRE(last.read);
+        if (f > 1) CHECK(last.out.reset == DenoiseReset::None);
+    }
+    const double lastError = mae(last.color, w, 4, 4, 58, 43, 0, truth);
+    INFO("after 24 frames " << lastError);
+    CHECK(
+        lastError <
+        0.008);  // the history was used all along: 0.004 measured (a rejected history stays at the first frame's 0.013)
 }
 
 // M79 POLISH-denoise-2: the upsample is guided by depth and normal: a depth edge on an odd column (inside a 2 x 2 block) keeps the two
