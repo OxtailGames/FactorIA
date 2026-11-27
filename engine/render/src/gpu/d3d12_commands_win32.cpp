@@ -1174,8 +1174,12 @@ Result<NativeCommands> D3d12CommandList::begin_native(std::span<const NativeUse>
     for (const NativeDecl& d : decls) {
         // UAV after UAV: the engine's writes finish before the native commands read or write it.
         if (d.state == NativeState::UnorderedAccess) uav_barrier_if_written(d.res);
-        require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount), std::uint32_t(d.range.layer),
-                      std::uint32_t(d.range.layerCount), native_state(d.state, kind_));
+        if (!require_range(d.res, std::uint32_t(d.range.mip), std::uint32_t(d.range.mipCount),
+                           std::uint32_t(d.range.layer), std::uint32_t(d.range.layerCount),
+                           native_state(d.state, kind_)))
+            return make_error(at + "a resource in 'uses' holds acceleration structures, which have no resource state "
+                                   "native commands could use",
+                              "leave it out of 'uses'; no native command was recorded");
     }
     flush_barriers();
     nativeOpen_ = true;
