@@ -217,7 +217,7 @@ bool spirv_words(const ShaderFunction& fn, const char* stage, std::vector<std::u
 
 }  // namespace
 
-// Moves the descriptor sets of a ray-query kernel's bindings where the engine's layout has them: `moves` maps a
+// Moves the descriptor sets of a compute kernel's bindings where the engine's layout has them: `moves` maps a
 // (set << 8 | binding) the SPIR-V declares to the set it goes to (the binding number stays). DXC puts every binding of
 // an HLSL kernel in the set its [[vk::binding]] names (set 0 for rt_probe); the backend's layout keeps uniform blocks in
 // set 0 and the views, samplers and acceleration structures in set 1, so the OpDecorate DescriptorSet literals change.
@@ -360,9 +360,11 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
     // The slots: each in a stage the shader has, uniform blocks in set 0 and the rest in set 1, each on a binding of its
     // own.
     const char* kind = info->compute ? "a compute shader" : "a render shader";
-    // M79: a ray-query kernel (DXC's SPIR-V) may declare its bindings in any set; they move into the engine's sets 0
-    // and 1 (move_descriptor_sets), the binding numbers kept. Every other shader is laid out as sokol-shdc does.
-    const bool rayQuery = desc.usesRayQuery && info->compute;
+    // M79: a compute kernel of the ray tracing effects (DXC's SPIR-V, with or without a TLAS: the packing and denoising
+    // kernels trace nothing) may declare its bindings in any set; they move into the engine's sets 0 and 1
+    // (move_descriptor_sets), the binding numbers kept. A sokol-shdc compute shader has them there already (the move
+    // changes nothing). A render shader is laid out as sokol-shdc does.
+    const bool moveSets = info->compute;
     if (desc.usesRayQuery && !info->compute)
         fail("usesRayQuery on a render shader: ray queries run in compute shaders (hint: a kernel keeps "
              "ShaderStage::Compute; there are no ray tracing pipelines)");
@@ -370,15 +372,15 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + rtWhy_ +
              ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
     std::map<std::uint32_t, std::string> taken;       // set << 8 | binding -> what is there
-    std::map<std::uint32_t, std::uint32_t> setMoves;  // a ray-query kernel's (set << 8 | binding) -> the engine's set
+    std::map<std::uint32_t, std::uint32_t> setMoves;  // a compute kernel's (set << 8 | binding) -> the engine's set
     auto claim = [&](const std::string& what, std::uint32_t wantSet, const BackendBinding& b) {
-        if (b.spirvSet != wantSet && !rayQuery) {
+        if (b.spirvSet != wantSet && !moveSets) {
             fail(what + " is in descriptor set " + std::to_string(b.spirvSet) + " (hint: Vulkan lays shaders out as " +
                  "sokol-shdc does: the uniform blocks in set 0, the views and samplers in set 1; set 2 is the "
                  "bindless table)");
             return;
         }
-        if (rayQuery) {  // spirvSet and spirvBinding are bytes: (set << 8 | binding) names one pair
+        if (moveSets) {  // spirvSet and spirvBinding are bytes: (set << 8 | binding) names one pair
             const std::uint32_t from = std::uint32_t(b.spirvSet) << 8 | b.spirvBinding;
             auto [m, fresh] = setMoves.try_emplace(from, wantSet);
             if (!fresh && m->second != wantSet) {
@@ -487,7 +489,7 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
         }
         entry = fn.entry && *fn.entry ? fn.entry : "main";
         if (&out == &info->vs) info->pointSize = spirv_writes_point_size(words);
-        if (rayQuery) move_descriptor_sets(words, setMoves);
+        if (moveSets) move_descriptor_sets(words, setMoves);
         h.update(std::string(stage) + ":" + std::to_string(words.size()) + ":" + entry + ":");
         h.update(words.data(), words.size() * 4);
         VkShaderModuleCreateInfo ci{};
