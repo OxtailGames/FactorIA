@@ -105,20 +105,16 @@ struct VkRig {
 
 }  // namespace
 
-TEST_CASE("vulkan renderer: the shadow of a ray traced point light stays at low render scales") {
-    if (!gfx().ok) {  // the window environment of the fixture
-        if (env_is_one("FA_VULKAN_REQUIRE")) FAIL("no GPU here (" << gfx().error << ") but FA_VULKAN_REQUIRE=1");
-        MESSAGE("no GPU here (" << gfx().error << "): the Vulkan frame test is skipped");
-        return;
-    }
-    VkRig rig;
+// Starts `rig` on Vulkan with the ray traced hard shadows of a point light. Returns its device, or null when this machine
+// cannot run the test (said, and a pass) or the renderer did not start (a failure already reported).
+static gpu::vk::VulkanDevice* start_rig(VkRig& rig) {
     if (!rig.ok) {
         if (cannot_run_vulkan_here(rig.error) && !env_is_one("FA_VULKAN_REQUIRE")) {
             MESSAGE("vulkan: skipped, " << rig.error);
-            return;
+            return nullptr;
         }
         FAIL("the renderer did not start on Vulkan: " << rig.error);
-        return;
+        return nullptr;
     }
     auto* vulkan = dynamic_cast<gpu::vk::VulkanDevice*>(RendererDeviceAccess::device(rig.renderer));
     REQUIRE(vulkan != nullptr);
@@ -126,28 +122,52 @@ TEST_CASE("vulkan renderer: the shadow of a ray traced point light stays at low 
     if (!vulkan->ray_tracing_status(&why)) {
         if (env_is_one("FA_VULKAN_REQUIRE_RT")) FAIL("vulkan ray tracing: FA_VULKAN_REQUIRE_RT=1, but " << why);
         MESSAGE("vulkan ray tracing: skipped, " << why);
-        return;
+        return nullptr;
     }
     render::RayTracingSettings rt;
     rt.enabled = true;
     rt.shadows = render::RtShadows::Hard;
     rt.ao = false;
     rig.renderer.set_ray_tracing(rt);
+    return vulkan;
+}
 
+TEST_CASE("vulkan renderer: the shadow of a ray traced point light stays at low render scales") {
+    if (!gfx().ok) {  // the window environment of the fixture
+        if (env_is_one("FA_VULKAN_REQUIRE")) FAIL("no GPU here (" << gfx().error << ") but FA_VULKAN_REQUIRE=1");
+        MESSAGE("no GPU here (" << gfx().error << "): the Vulkan frame test is skipped");
+        return;
+    }
     World lit, shadowed;
     make_scene(lit, false);  // the light does not cast: nothing darkens the floor
     make_scene(shadowed, true);
     for (float scale : {1.0f, 0.5f, 0.25f}) {
         INFO("render scale " << scale);
-        const fa::Image ref = rig.draw(lit, scale, 4);
-        const fa::Image got = rig.draw(shadowed, scale, 6);
+        // A renderer of its own for each picture: the denoiser's history of the previous scale (and of the other world)
+        // must not decide this one. One lives at a time.
+        std::string errors;
+        fa::Image ref, got;
+        int candidates = 0, traced = 0;
+        {
+            VkRig rig;
+            gpu::vk::VulkanDevice* vulkan = start_rig(rig);
+            if (!vulkan) return;
+            ref = rig.draw(lit, scale, 4);
+            for (const std::string& e : vulkan->errors()) errors += e + "\n";
+        }
+        {
+            VkRig rig;
+            gpu::vk::VulkanDevice* vulkan = start_rig(rig);
+            if (!vulkan) return;
+            got = rig.draw(shadowed, scale, 6);
+            rig.renderer.ray_tracing_local_shadows(candidates, traced);
+            INFO("ray tracing failure: " << rig.renderer.ray_tracing_failure());
+            CHECK(candidates == 1);
+            CHECK(traced == 1);
+            for (const std::string& e : vulkan->errors()) errors += e + "\n";
+        }
         REQUIRE(got.width == ref.width);
         REQUIRE(got.height == ref.height);
-        int candidates = 0, traced = 0;
-        rig.renderer.ray_tracing_local_shadows(candidates, traced);
-        INFO("ray tracing failure: " << rig.renderer.ray_tracing_failure());
-        CHECK(candidates == 1);
-        CHECK(traced == 1);
         // The traced shadow darkens part of the picture and brightens none of it beyond the noise of the trace.
         const int n = got.width * got.height;
         int darker = 0, brighter = 0;
@@ -159,11 +179,9 @@ TEST_CASE("vulkan renderer: the shadow of a ray traced point light stays at low 
         INFO("pixels darker " << darker << ", brighter " << brighter << " of " << n);
         CHECK(darker > n / 100);
         CHECK(brighter <= n / 100);
+        INFO(errors);
+        CHECK(errors.empty());
     }
-    std::string errors;
-    for (const std::string& e : vulkan->errors()) errors += e + "\n";
-    INFO(errors);
-    CHECK(vulkan->errors().empty());
 }
 
 #else

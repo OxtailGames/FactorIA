@@ -92,9 +92,8 @@ inline constexpr int kRtMaxLights = 8;
 struct RtLightParams {
     std::uint32_t count[4];      // x: the number of lights
     float pos[kRtMaxLights][4];  // xyz: the position (the renderer's space), w: the range
-    float color
-        [kRtMaxLights]
-        [4];  // rgb: colour * intensity, w: the type (1 point, 2 spot; an area light is a point light at its centre)
+    // rgb: colour * intensity, w: the type (1 point, 2 spot; an area light is a point light at its centre)
+    float color[kRtMaxLights][4];
     float dir[kRtMaxLights][4];    // xyz: a spot's axis, w: cos(outer angle)
     float extra[kRtMaxLights][4];  // x: cos(inner angle) of a spot (above 1.5: the lit pass's default fade)
 };
@@ -112,15 +111,15 @@ inline constexpr float kRtLocalStopCap = 0.25f;
 // What the kernel needs of one light (5 float4, 80 bytes; rt_shadow_local.hlsl / .metal have the same struct between `// BEGIN RtLocalLight` and
 // `// END RtLocalLight`). Kinds: 1 point, 2 spot, 3 rectangle, 4 disc, 5 tube.
 struct RtLocalLight {
-    float posReach
-        [4];  // xyz: the light's position; w: how far it reaches (its range plus an area light's radius), the pixels past it are lit
+    // xyz: the light's position; w: how far it reaches (its range plus an area light's radius), the pixels past it are lit
+    float posReach[4];
     float axisCos[4];  // xyz: a spot's axis / an area light's front (unit); w: a spot's cos(half angle) (-2 = no cone)
-    float kind
-        [4];  // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z: the
+    // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z: the
     // factor on an area light's half sizes (Light.shadowSoftness; 0 = hard); w: 0
+    float kind[4];
     float right[4];  // xyz: an area light's first axis times its half size (a tube: along its length); w: 0
-    float up
-        [4];  // xyz: the second axis times its half size (a disc: the same as `right`; a tube: its half thickness); w: 0
+    // xyz: the second axis times its half size (a disc: the same as `right`; a tube: its half thickness); w: 0
+    float up[4];
 };
 // The constants block of rt_shadow_local at uniform slot RtEffectBindings::kUniformHit: 16 float4, 256 bytes (the header, then the lights).
 struct RtLocalParams {
