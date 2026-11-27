@@ -6,6 +6,10 @@
 // where the machine's Vulkan device traces rays (lavapipe of Mesa 24.1 or later on the Linux CI job); a machine without
 // Vulkan or without ray tracing says so and passes, unless FA_VULKAN_REQUIRE=1 / FA_VULKAN_REQUIRE_RT=1 (the CI job)
 // turn the skip into a failure.
+// Time (M79 POLISH-RK-3; Mesa 25.2.8 lavapipe, validation layer, Release build, xvfb-run, FA_VULKAN_REQUIRE=1
+// FA_VULKAN_REQUIRE_RT=1): about 2 s with every core and about 2 s limited to one (`taskset -c 0`), for the three scales
+// with a renderer of its own for each picture. Far below the 20 s that would ask for a ctest entry of its own, so it
+// stays in `render`.
 #include "test_util.h"
 
 #include <cstdlib>
