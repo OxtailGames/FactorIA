@@ -22,6 +22,7 @@ using namespace fa::test;
 using render::DenoiseCamera;
 using render::DenoiseDebug;
 using render::DenoiseKind;
+using render::DenoisePlan;
 using render::DenoiseReset;
 using render::DenoiseSignal;
 
@@ -637,9 +638,9 @@ TEST_CASE("denoise: nothing exists until a signal asks, a disabled signal is fre
     Frame fr = rig.run(make_camera(kW, kH, 11), a, noisy, pre, kW, kH);
     CHECK_FALSE(fr.out.valid);
     CHECK(fr.out.why.find("budget") != std::string::npos);
-    // The refusal teaches: the budget, what the signal wanted and what is in use, in MB.
-    CHECK(fr.out.why.find("MB wanted") != std::string::npos);
-    CHECK(fr.out.why.find("MB in use") != std::string::npos);
+    // The refusal teaches: the budget, what the signal wanted and what is in use, in MiB.
+    CHECK(fr.out.why.find("MiB wanted") != std::string::npos);
+    CHECK(fr.out.why.find("MiB in use") != std::string::npos);
     CHECK(rig.dn.history_image_count() == 0);
     CHECK(rig.dn.refused());
 }
@@ -723,7 +724,8 @@ TEST_CASE(
         sig.debug = DenoiseDebug::Variance;
         Frame last;
         float mx = 0.0f, mean = 0.0f;
-        for (int f = 1; f <= 5; ++f) {  // the variance and the weights it feeds are the same from the second frame on
+        for (int f = 1; f <= 10;
+             ++f) {  // 10 frames: the variance and the weights it feeds settle, and a NaN that grows would show
             std::vector<float> in(size_t(kW) * kH * 4, 0.0f);
             for (int y = 0; y < kH; ++y)
                 for (int x = 0; x < kW; ++x) {
@@ -894,23 +896,31 @@ TEST_CASE("denoise: every filter iteration reads the guide image the guide pass 
             guideOut = p["writes"][0].get<std::string>();
     }
     REQUIRE_FALSE(guideOut.empty());
-    int atrous = 0, readGuide = 0;
+    int atrous = 0, readGuide = 0, temporal = 0, temporalReadsGuide = 0;
     for (size_t i = 0; i < passes.size(); ++i) {
         const Json& p = passes[i];
-        if (p["name"].get<std::string>().find("-atrous") == std::string::npos) continue;
-        ++atrous;
-        for (size_t k = 0; k < p["reads"].size(); ++k)
-            if (p["reads"][k].get<std::string>() == guideOut) ++readGuide;
+        const std::string name = p["name"].get<std::string>();
+        const bool isAtrous = name.find("-atrous") != std::string::npos;
+        const bool isTemporal = name.find("-temporal") != std::string::npos;
+        if (!isAtrous && !isTemporal) continue;
+        (isAtrous ? atrous : temporal)++;
+        for (size_t k = 0; k < p["reads"].size(); ++k) {
+            const std::string r = p["reads"][k].get<std::string>();
+            if (r == guideOut) ++(isAtrous ? readGuide : temporalReadsGuide);
+        }
     }
     CHECK(atrous == 5);
     CHECK(readGuide == 5);
+    // The temporal pass reads the guide too (its depth and world normal): the depth it tests the history with and the normal it gathers by.
+    CHECK(temporal == 1);
+    CHECK(temporalReadsGuide == 1);
 }
 
-// M79 POLISH-denoise: the late iterations leave a pixel whose estimate is already clean as it is; the first one never does, so a pixel whose
-// own history has not seen the signal yet (a Bernoulli signal that was 0 every frame so far: its variance is exactly 0) still takes it from
-// its neighbours.
-TEST_CASE("denoise: a clean region is left as it is, a pixel whose history saw only zeros still takes the signal from "
-          "its neighbours") {
+// M79 POLISH-denoise: the first iteration never skips a calm pixel (only the later ones do), so a pixel whose own history has not seen the
+// signal yet (a Bernoulli signal that was 0 every frame so far: its variance is exactly 0) still takes it from its neighbours. (That the later
+// iterations leave a calm pixel alone is the test "a faint pattern ..." below.)
+TEST_CASE("denoise: a pixel whose history saw only zeros still takes the signal from its neighbours (the first "
+          "iteration never skips)") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     Rig rig;
@@ -943,4 +953,296 @@ TEST_CASE("denoise: a clean region is left as it is, a pixel whose history saw o
     CHECK(leftWorst < 0.002);
     CHECK(dark < total / 20);
     CHECK(right < 0.06);
+}
+
+// M79 POLISH-denoise-2: the iterations after the first leave a pixel whose estimate is already calm (a standard deviation under kCalmSd of
+// 0.25 + its luminance) bit for bit as it is. Two filters of 2 and 5 iterations see the same noise: a faint pattern far from any strong noise
+// must come out identical, the strong noise must be smoothed further by the longer one.
+TEST_CASE("denoise: a faint pattern is left as it is by the later iterations, a strong one is smoothed by them") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    std::vector<float> out[2];
+    for (int run = 0; run < 2; ++run) {
+        Rig rig;
+        REQUIRE_MESSAGE(rig.ok, rig.error);
+        const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+        rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 5.0f; }, facing));
+        DenoiseSignal sig = visibility();
+        sig.settings.iterations = run == 0 ? 2 : 5;
+        Frame last;
+        for (int f = 1; f <= 12; ++f) {
+            std::vector<float> in(size_t(kW) * kH * 4, 1.0f);
+            for (int y = 0; y < kH; ++y)
+                for (int x = 0; x < kW; ++x) {
+                    const float n = rnd(std::uint32_t(f), std::uint32_t(x), std::uint32_t(y));
+                    // x < 24: 0.5 +- 0.001. x >= 32: 0 or 1 with the probability 0.5. The 8 columns between keep the two apart.
+                    const float v = x < 24 ? 0.5f + 0.002f * (n - 0.5f) : (n < 0.5f ? 1.0f : 0.0f);
+                    float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
+                    p[0] = p[1] = p[2] = v;
+                }
+            rig.upload(noisy, in);
+            last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH);
+            REQUIRE(last.read);
+        }
+        out[run] = last.color;
+    }
+    int faintDiffers = 0;
+    double strongDiff = 0;
+    for (int y = 4; y < 44; ++y) {
+        for (int x = 4; x < 20; ++x)
+            for (int c = 0; c < 3; ++c)
+                if (at(out[0], kW, x, y, c) != at(out[1], kW, x, y, c)) ++faintDiffers;
+        for (int x = 40; x < 60; ++x)
+            strongDiff += std::fabs(double(at(out[0], kW, x, y)) - double(at(out[1], kW, x, y)));
+    }
+    strongDiff /= 40.0 * 20.0;
+    INFO("faint pixels that differ " << faintDiffers << ", strong region mean difference " << strongDiff);
+    CHECK(faintDiffers == 0);
+    CHECK(strongDiff > 0.005);
+}
+
+// M79 POLISH-denoise-2: a reflection pixel the caller does not read (a roughness outside [roughMin, roughMax]) is not filtered: it comes out as
+// the sample, and it does not feed its neighbours. A pixel the kernel did not trace (alpha exactly 0) is skipped the same way.
+TEST_CASE(
+    "denoise: a specular pixel outside the roughness window passes through, one inside is filtered, and a skipped one "
+    "does not bleed into its neighbours") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH), rr = rig.make_tex(kW, kH);
+    rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 4.0f; }, facing));
+    std::vector<float> rv(size_t(kW) * kH * 4, 0.4f);
+    for (int y = 0; y < kH; ++y)
+        for (int x = 0; x < 32; ++x) rv[(size_t(y) * kW + size_t(x)) * 4] = 0.1f;  // the left half: a sharp mirror
+    rig.upload(rr, rv);
+    DenoiseSignal sig;
+    sig.kind = DenoiseKind::Specular;
+    sig.id = 2;
+    sig.roughMin = 0.25f;
+    sig.roughMax = 0.65f;
+    sig.settings.fireflyClamp = 0.0f;  // the sample itself is compared
+    Frame last;
+    std::vector<float> in;
+    for (int f = 1; f <= 6; ++f) {
+        in.assign(size_t(kW) * kH * 4, 0.0f);
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x) {
+                float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
+                const bool untraced = y >= 40;  // the bottom rows: no ray was traced, the kernel left alpha at 0
+                for (int c = 0; c < 3; ++c)
+                    p[c] = untraced ? 50.0f : rnd(std::uint32_t(f * 3 + c), std::uint32_t(x), std::uint32_t(y));
+                p[3] = untraced ? 0.0f : 6.0f;
+            }
+        rig.upload(noisy, in);
+        last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH, -1, int(rr));
+        REQUIRE(last.read);
+    }
+    // Sharp pixels and untraced ones: the sample, to the half-float's rounding.
+    double worst = 0;
+    for (int y = 0; y < kH; ++y)
+        for (int x = 0; x < kW; ++x) {
+            if (x < 32 || y >= 40)
+                for (int c = 0; c < 3; ++c)
+                    worst =
+                        std::max(worst, std::fabs(double(at(last.color, kW, x, y, c)) - double(at(in, kW, x, y, c))) /
+                                            std::max(1.0, double(at(in, kW, x, y, c))));
+        }
+    // The filtered half: close to the mean 0.5 although the untraced rows (50) are next to it.
+    const double filtered = mae(last.color, kW, 36, 4, 60, 40, 0, [](int, int) { return 0.5f; });
+    const double nearSkipped = mae(last.color, kW, 36, 34, 60, 40, 0, [](int, int) { return 0.5f; });
+    INFO("worst difference of a skipped pixel " << worst << ", filtered error " << filtered
+                                                << ", next to the skipped rows " << nearSkipped);
+    CHECK(worst < 2e-3);
+    CHECK(filtered < 0.04);     // the raw sample's error is 0.25, measured 0.008
+    CHECK(nearSkipped < 0.05);  // the untraced rows hold 50: a neighbour that bled in would be far off
+}
+
+// M79 POLISH-denoise-2: the lobe limit applies to the coverage of a reflection as it does to the reflection itself (a mirror's coverage is the
+// raw rays of the frames accumulated, a rough surface's is filtered like its image).
+TEST_CASE("denoise: the coverage of a mirror keeps its sharpness, the coverage of a rough surface is filtered") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    double err[2] = {0, 0};
+    for (int rough = 0; rough < 2; ++rough) {
+        Rig rig;
+        REQUIRE_MESSAGE(rig.ok, rig.error);
+        const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH), rr = rig.make_tex(kW, kH);
+        rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 4.0f; }, facing));
+        rig.upload(rr, std::vector<float>(size_t(kW) * kH * 4, rough ? 1.0f : 0.0f));
+        DenoiseSignal sig;
+        sig.kind = DenoiseKind::Coverage;
+        sig.id = 4;
+        Frame last;
+        for (int f = 1; f <= 6; ++f) {
+            std::vector<float> in(size_t(kW) * kH * 4, 0.0f);
+            for (int y = 0; y < kH; ++y)
+                for (int x = 0; x < kW; ++x) {
+                    float* p = &in[(size_t(y) * kW + size_t(x)) * 4];
+                    const bool hit = rnd(std::uint32_t(f), std::uint32_t(x), std::uint32_t(y)) < 0.5f;
+                    p[0] = hit ? 0.7f : 0.0f;
+                    p[3] = hit ? 6.0f : -1.0f;
+                }
+            rig.upload(noisy, in);
+            last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH, -1, int(rr));
+            REQUIRE(last.read);
+        }
+        err[rough] = mae(last.color, kW, 4, 4, 60, 44, 0, [](int, int) { return 0.5f; });
+    }
+    INFO("mirror " << err[0] << ", rough " << err[1]);
+    CHECK(err[0] > 0.08);  // 6 frames of a Bernoulli(0.5): about 0.16 left
+    CHECK(err[1] < 0.5 * err[0]);
+}
+
+namespace {
+DenoiseSignal half_occlusion() {
+    DenoiseSignal s;
+    s.kind = DenoiseKind::Occlusion;
+    s.id = 5;
+    s.halfRes = true;
+    return s;
+}
+// How many passes of `graph` have `part` in their name.
+int count_passes(const Json& graph, const char* part) {
+    int n = 0;
+    const Json& passes = graph["passes"];
+    for (size_t i = 0; i < passes.size(); ++i)
+        if (passes[i]["name"].get<std::string>().find(part) != std::string::npos) ++n;
+    return n;
+}
+}  // namespace
+
+// M79 POLISH-denoise-2: an occlusion or a diffuse signal may run on half the width and height (DenoiseSignal::halfRes): the half guide, the
+// block mean of the signal, the temporal pass and the filter at half size (one iteration fewer), the guided upsample. 63 x 47: odd sizes.
+TEST_CASE("denoise: a half size occlusion declares its own chain and converges to its truth") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    constexpr int w = 63, h = 47;
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(w, h), pre = rig.make_tex(w, h);
+    // The right part (x >= 50) is sky: it must come out as it went in.
+    rig.upload(pre, make_prepass(w, h, [](int x, int) { return x < 50 ? 5.0f : 0.0f; }, facing));
+    const auto truth = [](int, int) { return 0.3f; };
+    const DenoiseSignal sig = half_occlusion();
+    Frame first, last;
+    double firstError = 0, rawError = 0;
+    std::vector<float> lastIn;
+    for (int f = 1; f <= 24; ++f) {
+        lastIn = bernoulli(w, h, std::uint32_t(f), truth);
+        rig.upload(noisy, lastIn);
+        last = rig.run(make_camera(w, h, std::uint64_t(f)), sig, noisy, pre, w, h);
+        REQUIRE(last.out.valid);
+        REQUIRE(last.read);
+        CHECK(last.out.width == w);
+        CHECK(last.out.height == h);
+        if (f == 1) {
+            first = last;
+            CHECK(last.out.reset == DenoiseReset::Fresh);
+            firstError = mae(last.color, w, 4, 4, 44, 43, 0, truth);
+            rawError = mae(lastIn, w, 4, 4, 44, 43, 0, truth);
+            // guide, half guide, down, temporal, 5 - 1 iterations, up
+            CHECK(last.out.passes == 1 + 1 + 1 + 1 + 4 + 1);
+            CHECK(count_passes(last.graph, "-guide-half") == 1);
+            CHECK(count_passes(last.graph, "-down") == 1);
+            CHECK(count_passes(last.graph, "-temporal") == 1);
+            CHECK(count_passes(last.graph, "-atrous") == 4);
+            CHECK(count_passes(last.graph, "-up") == 1);
+        } else {
+            CHECK(last.out.reset == DenoiseReset::None);
+            CHECK(count_passes(last.graph, "-guide-half") == 1);
+        }
+    }
+    const double lastError = mae(last.color, w, 4, 4, 44, 43, 0, truth);
+    INFO("raw " << rawError << ", first frame " << firstError << ", after 24 frames " << lastError);
+    CHECK(rawError > 0.38);
+    CHECK(firstError < 0.05);  // measured 0.013 on Metal: the block mean of four samples, then the filter
+    CHECK(lastError < 0.012);  // measured 0.004
+    // The sky passes through untouched.
+    for (int y = 4; y < 43; ++y)
+        for (int x = 54; x < 62; ++x)
+            REQUIRE(at(last.color, w, x, y, 0) == doctest::Approx(at(lastIn, w, x, y, 0)).epsilon(1e-3));
+    // The memory is a chain of half the size (and the half guide's own history), the camera's guide the full size.
+    const DenoisePlan plan = render::make_denoise_plan(sig, w, h, true);
+    CHECK(plan.chainWidth == 32);
+    CHECK(plan.chainHeight == 24);
+    CHECK(rig.dn.history_image_count() == 2 + 4 + 2);  // the camera's guide pair, the signal's, the half guide's
+}
+
+// M79 POLISH-denoise-2: the upsample is guided by depth and normal: a depth edge on an odd column (inside a 2 x 2 block) keeps the two
+// surfaces apart, and the pixels that do not agree with the half-size block take their own sample.
+TEST_CASE("denoise: a half size signal does not blur across a depth edge inside a block") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    constexpr int w = 64, h = 48;
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(w, h), pre = rig.make_tex(w, h);
+    rig.upload(pre, make_prepass(w, h, [](int x, int) { return x < 33 ? 3.0f : 6.0f; }, facing));
+    const auto truth = [](int x, int) { return x < 33 ? 0.2f : 0.8f; };
+    Frame last;
+    for (int f = 1; f <= 20; ++f) {
+        rig.upload(noisy, bernoulli(w, h, std::uint32_t(f), truth));
+        last = rig.run(make_camera(w, h, std::uint64_t(f)), half_occlusion(), noisy, pre, w, h);
+        REQUIRE(last.read);
+    }
+    const double left = mae(last.color, w, 4, 4, 29, 44, 0, truth);
+    const double right = mae(last.color, w, 37, 4, 60, 44, 0, truth);
+    // The two columns of the edge: a pixel of one surface in a block that shows the other.
+    const double edgeL = mae(last.color, w, 32, 4, 33, 44, 0, truth);
+    const double edgeR = mae(last.color, w, 33, 4, 34, 44, 0, truth);
+    INFO("left " << left << ", right " << right << ", the edge columns " << edgeL << " and " << edgeR);
+    CHECK(left < 0.02);   // measured 0.004
+    CHECK(right < 0.02);  // measured 0.002
+    // Blurred across the edge a column would be 0.3 off (the other surface's mean); kept apart it is about as good as the others (measured 0.005).
+    CHECK(edgeL < 0.06);
+    CHECK(edgeR < 0.06);
+}
+
+TEST_CASE("denoise: a half size diffuse signal keeps its colours and a kind that cannot run at half size ignores the "
+          "request") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Rig rig;
+    REQUIRE_MESSAGE(rig.ok, rig.error);
+    const size_t noisy = rig.make_tex(kW, kH), pre = rig.make_tex(kW, kH);
+    rig.upload(pre, make_prepass(kW, kH, [](int, int) { return 4.0f; }, facing));
+    DenoiseSignal sig;
+    sig.kind = DenoiseKind::Diffuse;
+    sig.halfRes = true;
+    const float truthRgb[3] = {0.8f, 0.4f, 0.1f};
+    Frame last;
+    for (int f = 1; f <= 20; ++f) {
+        std::vector<float> in(size_t(kW) * kH * 4, 1.0f);
+        for (int y = 0; y < kH; ++y)
+            for (int x = 0; x < kW; ++x)
+                for (int c = 0; c < 3; ++c)
+                    in[(size_t(y) * kW + size_t(x)) * 4 + size_t(c)] =
+                        2.0f * truthRgb[c] *
+                        rnd(std::uint32_t(f) * 3 + std::uint32_t(c), std::uint32_t(x), std::uint32_t(y));
+        rig.upload(noisy, in);
+        last = rig.run(make_camera(kW, kH, std::uint64_t(f)), sig, noisy, pre, kW, kH);
+        REQUIRE(last.read);
+    }
+    for (int c = 0; c < 3; ++c) {
+        const double e = mae(last.color, kW, 4, 4, 60, 44, c, [&](int, int) { return truthRgb[c]; });
+        INFO("channel " << c << " error " << e);
+        CHECK(e < 0.015);  // measured 0.004
+    }
+    // A specular signal asking for half size runs at full size.
+    Rig rig2;
+    REQUIRE_MESSAGE(rig2.ok, rig2.error);
+    const size_t n2 = rig2.make_tex(kW, kH), p2 = rig2.make_tex(kW, kH);
+    rig2.upload(p2, make_prepass(kW, kH, [](int, int) { return 4.0f; }, facing));
+    std::vector<float> in(size_t(kW) * kH * 4, 0.5f);
+    for (size_t i = 3; i < in.size(); i += 4) in[i] = 6.0f;
+    rig2.upload(n2, in);
+    DenoiseSignal spec;
+    spec.kind = DenoiseKind::Specular;
+    spec.halfRes = true;
+    const Frame f2 = rig2.run(make_camera(kW, kH, 1), spec, n2, p2, kW, kH);
+    REQUIRE(f2.out.valid);
+    CHECK(count_passes(f2.graph, "-guide-half") == 0);
+    CHECK(count_passes(f2.graph, "-up") == 0);
+    CHECK(count_passes(f2.graph, "-atrous") == 5);
 }
