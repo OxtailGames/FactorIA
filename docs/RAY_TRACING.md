@@ -431,40 +431,42 @@ thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md 
 
 ## What it costs
 
-Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build, commit 70745d88f of the M79 branch), the project
+Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build of the M79 POLISH-denoise-2 branch, with the denoiser of docs/design/ARCHITECTURE_DENOISE.md, "Cost", repository only, not in the binary), the project
 `tools/cli/tests/perf/rt_cost` (repository only, not in the binary; a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
 spheres, cylinders and cones of every roughness, four glass spheres, a mirror, a `RealtimeGI` grid), drawn at **1920 x 1080** with vsync off. Each
 row is one effect on top of the raster frame; `raysPerPixel` is 1 unless the row says more. The numbers are the **frame time**, the wall clock
-per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out): `factoria call perf.measure` (a headless engine with the GPU renderer, at the
+per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out; the three runs of each row alternate with the other rows, and the Mac was shared with other builds, so each figure can be off by a millisecond or two): `factoria call perf.measure` (a headless engine with the GPU renderer, at the
 project's `display` size) for 60 and for 360 frames, each run timed from outside (`time` on macOS and Linux, `Measure-Command` on Windows),
 the difference over 300. Metal has no GPU timer in the engine, so the cost of one pass cannot be read; `perf.measure`'s own `cpuMs*`
-is CPU time and does not see the GPU. The raster frame of this scene takes **14.1 ms** (about 6.5 ms of it CPU), so read each cost as "added to
-a 14 ms frame", and as the order of magnitude, not a promise: another scene, size or GPU moves it.
+is CPU time and does not see the GPU. The raster frame of this scene takes **15.8 ms** (about 6.5 ms of it CPU), so read each cost as "added to
+a 16 ms frame", and as the order of magnitude, not a promise: another scene, size or GPU moves it.
 
-| effect | rays per pixel | images (RGBA32F, the camera's size: 33 MB at 1080p) | added frame time on M5 Metal | other GPUs |
+| effect | rays per pixel | images (RGBA32F, the camera's size: 32 MiB at 1080p) | added frame time on M5 Metal | other GPUs |
 |---|---|---|---|---|
-| `shadows: "hard"` (the sun and 3 local lights) | 1 per light | 1, and 2 more when local lights are traced | **+0.8 ms** | not measured |
-| `shadows: "soft"`, 1 ray | 1 per light | 2, denoiser history | +31.7 ms | not measured |
-| `shadows: "soft"`, `raysPerPixel` 4 | 4 per light | the same | +36.6 ms | not measured |
-| `ao`, 1 ray | 1 | 1, denoiser history | +17.6 ms | not measured |
-| `ao`, 4 rays | 4 | the same | +18.7 ms | not measured |
-| `reflections`, 1 ray | 1 (mirror), 1 (glossy), 3 more at a hit | 1, two denoised signals | +26.0 ms | not measured |
-| `reflections`, 4 rays | 1 (mirror), 4 (glossy) | the same | +27.7 ms | not measured |
-| `translucency` | 1, and a few per glass interface | 1, no denoiser | +3.2 ms | not measured |
-| `gi: "probes"` (one grid of 189 probes, 64 rays, 16 probes a frame) | 64 per probe updated | the probe atlas, no per-pixel image | **-4.9 ms** (it replaces the raster captures, which cost more here) | not measured |
-| `gi: "perPixel"`, 1 ray | 1 (+1 shadow ray at a hit) | 1, denoiser history | +22.1 ms | not measured |
-| `gi: "perPixel"`, 2 rays | 2 | the same | +26.2 ms | not measured |
-| every pixel effect together (soft shadows, `ao`, `reflections`, `translucency`, `gi: "perPixel"`, 1 ray) | | | +102.3 ms (measured on its own: about the sum of the rows, 100.6 ms; the costs add up) | not measured |
-| the path tracer (`render.pathTracer`, `maxBounces` 4) | 1 path per sample | the accumulation image | **29 ms per sample** (a 64 sample picture takes 2 s; it replaces the raster frame while it is on) | not measured |
+| `shadows: "hard"` (the sun and 3 local lights) | 1 per light | 1, and 2 more when local lights are traced | **+0.9 ms** | not measured |
+| `shadows: "soft"`, 1 ray | 1 per light | 2, denoiser history | +8.1 ms | not measured |
+| `shadows: "soft"`, `raysPerPixel` 4 | 4 per light | the same | +13.7 ms | not measured |
+| `ao`, 1 ray | 1 | 1, denoiser history | +3.5 ms | not measured |
+| `ao`, 4 rays | 4 | the same | +5.4 ms | not measured |
+| `reflections`, 1 ray | 1 (mirror), 1 (glossy), 3 more at a hit | 1, two denoised signals | +6.1 ms | not measured |
+| `reflections`, 4 rays | 1 (mirror), 4 (glossy) | the same | +7.6 ms | not measured |
+| `translucency` | 1, and a few per glass interface | 1, no denoiser | +3.8 ms | not measured |
+| `gi: "probes"` (one grid of 189 probes, 64 rays, 16 probes a frame) | 64 per probe updated | the probe atlas, no per-pixel image | **-5.7 ms** (it replaces the raster captures, which cost more here) | not measured |
+| `gi: "perPixel"`, 1 ray | 1 (+1 shadow ray at a hit) | 1, denoiser history | +8.8 ms | not measured |
+| `gi: "perPixel"`, 2 rays | 2 | the same | +13.1 ms | not measured |
+| every pixel effect together (soft shadows, `ao`, `reflections`, `translucency`, `gi: "perPixel"`, 1 ray) | | | +37 ms (three runs: +31, +37 and +43 ms; the sum of the rows is 30 ms: the costs add up) | not measured |
+| the path tracer (`render.pathTracer`, `maxBounces` 4) | 1 path per sample | the accumulation image | **34 ms per sample** (a 64 sample picture takes 2 s; it replaces the raster frame while it is on) | not measured |
 
 What the table says:
 
-- **The rays are cheap, the denoiser is not.** `shadows: "hard"` and `translucency` have no denoiser and cost 1 to 3 ms. Every denoised effect
-  costs 18 to 32 ms at 1080p, and going from 1 to 4 rays adds only 1 to 5 ms more: the filter, not the number of rays, is the price. Pick the rays
-  a look needs, not the fewest. (This is an inference from the rows, not a timing of the passes; the engine's denoiser and its cost on this
-  GPU are the first thing to look at when a frame must be faster. There is no switch that turns it off.)
+- **The rays are cheap, the denoiser is the larger part of most of the rest.** `shadows: "hard"` and `translucency` have no denoiser and cost 1 to 4
+  ms. A denoised effect costs 3.5 to 9 ms at 1080p with one ray, and going from 1 to 4 rays adds 2 to 6 ms (soft shadows the most). A
+  temporary GPU timestamp per pass (not in the engine; docs/design/ARCHITECTURE_DENOISE.md, "Cost"; repository only, not in the binary) puts the denoiser at about 6 of the 8 ms of the soft shadows, 2 of
+  the 3.5 of the ambient occlusion and 5 of the 6 of the reflections; the per-pixel GI is the exception (its rays are about 6 of 9 ms, the
+  denoiser under 3). The ambient occlusion and the per-pixel GI are denoised at half the resolution. Pick the rays a look needs, not the fewest. (There
+  is no switch that turns the denoiser off.)
 - The costs **add up**: each effect has its own kernel, image and denoiser. Soft shadows, ambient occlusion and reflections together add
-  about 75 ms to the 14 ms frame (11 frames per second here).
+  about 18 ms to the 16 ms frame (30 frames per second here).
 - `gi: "probes"` costs no more than the raster probes it replaces and updates more of them a frame; `gi: "perPixel"` is the dearest of the
   indirect effects.
 - Off, nothing: with `enabled` false there is no pass, no image, no structure. The raster frame is the first row of the measurement and what a device that cannot trace draws.

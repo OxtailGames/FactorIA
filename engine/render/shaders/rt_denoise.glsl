@@ -30,6 +30,7 @@
 @image_sample_type tex_n unfilterable_float
 @image_sample_type tex_p unfilterable_float
 @image_sample_type tex_g unfilterable_float
+@image_sample_type tex_gh unfilterable_float
 @image_sample_type tex_v unfilterable_float
 @image_sample_type tex_hc unfilterable_float
 @image_sample_type tex_hm unfilterable_float
@@ -81,6 +82,23 @@ float rtd_kernel(int i) {
     return k == 0 ? 0.375 : (k == 1 ? 0.25 : 0.0625);
 }
 
+// The texture-space uv of the pixel centre ip (counted from the top of the picture) of an image of `size` pixels; `flip` is 1 on OpenGL.
+vec2 rtd_uv_of(vec2 ip, vec2 size, float flip) {
+    vec2 t = (ip + 0.5) / size;
+    return vec2(t.x, mix(t.y, 1.0 - t.y, flip));
+}
+
+// The pixel (counted from the top of the picture) the texture-space uv of an image of `size` pixels falls on.
+vec2 rtd_pixel_of(vec2 uv, vec2 size, float flip) {
+    return floor(vec2(uv.x, mix(uv.y, 1.0 - uv.y, flip)) * size);
+}
+
+// A sample of a noisy signal as the filter sees it: a NaN channel is 0, the others are bounded; a one-channel signal is its r in all three.
+vec3 rtd_clean(vec4 t, float channels) {
+    vec3 c = channels < 1.5 ? vec3(t.r) : t.rgb;
+    return rtd_nan3(c) ? vec3(0.0) : clamp(c, vec3(0.0), vec3(65000.0));
+}
+
 // The view-space position of the surface at the picture's top-down uv with linear depth d (cam: xy = what a unit of normalised device
 // coordinates is in view space at depth 1, or at any depth for an orthographic camera, z = 1 for an orthographic one).
 vec3 rtd_view_pos(vec2 suv, float d, vec4 cam) {
@@ -116,13 +134,144 @@ void main() {
 @end
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
+// The guide of a half-resolution signal (M79 POLISH-denoise-2): one pixel of it stands for a 2x2 block of the full guide, the one of the
+// four drawn pixels that is nearest to the camera (the surface that is in front is what the block shows at an edge).
+@fs fs_guide_half
+layout(binding=1) uniform texture2D tex_g;
+layout(binding=0) uniform sampler smp_pt;
+layout(binding=1) uniform rtd_guide_half_params {
+    vec4 a;   // x = 1 when render targets are bottom-up (OpenGL), yz = the size of the half image in pixels
+    vec4 b;   // xy = the size of the full guide in pixels
+};
+in vec2 uv;
+out vec4 frag_color;
+@include_block rtd_common
+
+void main() {
+    vec2 ip = rtd_pixel_of(uv, a.yz, a.x);
+    vec4 best = vec4(0.0);
+    for (int k = 0; k < 4; k++) {
+        vec2 q = min(ip * 2.0 + vec2(float(k & 1), float(k >> 1)), b.xy - 1.0);
+        vec4 g = textureLod(sampler2D(tex_g, smp_pt), rtd_uv_of(q, b.xy, a.x), 0.0);
+        if (g.r > 0.0 && (!(best.r > 0.0) || g.r < best.r)) best = g;
+    }
+    frag_color = best;
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// The signal of a half-resolution signal: the mean of the (up to four) pixels of the 2x2 block that show the half guide's surface (the same
+// plane, facing the same way), so a block over an edge does not mix the two sides. Rgba16F out: rgb, or r of a one-channel signal.
+@fs fs_down
+layout(binding=0) uniform texture2D tex_n;
+layout(binding=1) uniform texture2D tex_g;
+layout(binding=2) uniform texture2D tex_gh;
+layout(binding=0) uniform sampler smp_pt;
+layout(binding=1) uniform rtd_down_params {
+    vec4 a;   // x = 1 when render targets are bottom-up (OpenGL), yz = the size of the half image in pixels
+    vec4 b;   // xy = the size of the full images in pixels, z = the share of the depth a pixel of the block may be off the plane, w = the least cosine between the normals
+    vec4 s;   // x = channels (1 or 3)
+};
+in vec2 uv;
+out vec4 frag_color;
+@include_block rtd_common
+
+void main() {
+    vec2 ip = rtd_pixel_of(uv, a.yz, a.x);
+    vec4 gh = textureLod(sampler2D(tex_gh, smp_pt), uv, 0.0);
+    vec3 sum = vec3(0.0);
+    float cnt = 0.0;
+    vec3 mean4 = vec3(0.0);
+    for (int k = 0; k < 4; k++) {
+        vec2 q = min(ip * 2.0 + vec2(float(k & 1), float(k >> 1)), b.xy - 1.0);
+        vec2 tq = rtd_uv_of(q, b.xy, a.x);
+        vec3 c = rtd_clean(textureLod(sampler2D(tex_n, smp_pt), tq, 0.0), s.x);
+        mean4 += c * 0.25;
+        if (!(gh.r > 0.0)) continue;
+        vec4 gq = textureLod(sampler2D(tex_g, smp_pt), tq, 0.0);
+        if (!(gq.r > 0.0) || abs(gq.r - gh.r) > b.z * gh.r || dot(gq.gba, gh.gba) < b.w) continue;
+        sum += c;
+        cnt += 1.0;
+    }
+    frag_color = vec4(cnt > 0.0 ? sum / cnt : mean4, 1.0);   // a block of the sky (nothing drawn) passes its mean through
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// The result of a half-resolution signal at the full size: every pixel takes the four nearest pixels of the half image with the bilinear
+// weights times the plane and normal terms of the full guide against the half guide (a joint bilateral upsample), so an edge of the picture
+// stays an edge. A pixel with nothing drawn passes the noisy signal through, as the temporal pass does.
+@fs fs_up
+layout(binding=0) uniform texture2D tex_n;
+layout(binding=1) uniform texture2D tex_g;
+layout(binding=2) uniform texture2D tex_gh;
+layout(binding=6) uniform texture2D tex_c;
+layout(binding=0) uniform sampler smp_pt;
+layout(binding=1) uniform rtd_up_params {
+    vec4 a;     // x = 1 when render targets are bottom-up (OpenGL), yz = the size of the full image in pixels
+    vec4 b;     // xy = the size of the half image in pixels, z = the share of the depth a neighbour may be off the plane, w = the exponent of the normal weight
+    vec4 s;     // x = channels (1 or 3)
+    vec4 cam;   // xy = what a unit of normalised device coordinates is in view space at depth 1, z = 1 for an orthographic camera
+    vec4 wx;    // the rotation of the view matrix, as in rtd_guide_params
+    vec4 wy;
+    vec4 wz;
+};
+in vec2 uv;
+out vec4 frag_color;
+@include_block rtd_common
+
+void main() {
+    vec4 g = textureLod(sampler2D(tex_g, smp_pt), uv, 0.0);
+    if (!(g.r > 0.0)) {
+        frag_color = vec4(rtd_clean(textureLod(sampler2D(tex_n, smp_pt), uv, 0.0), s.x), 0.0);
+        return;
+    }
+    vec2 ip = rtd_pixel_of(uv, a.yz, a.x);
+    vec3 nwp = normalize(g.gba);
+    vec3 np = nwp.x * wx.xyz + nwp.y * wy.xyz + nwp.z * wz.xyz;
+    vec3 pp = rtd_view_pos((ip + 0.5) / a.yz, g.r, cam);
+    float invPtol = 1.0 / max(2.0 * b.z * g.r, 1e-5);
+    vec2 hp = (ip + 0.5) * 0.5 - 0.5;   // this pixel's place in the half image, in pixels
+    vec2 i0 = floor(hp);
+    vec2 fr = hp - i0;
+    const float LOG2E = 1.4426950408889634;
+    vec3 acc = vec3(0.0);
+    float vacc = 0.0;
+    float wsum = 0.0;
+    for (int k = 0; k < 4; k++) {
+        vec2 o = vec2(float(k & 1), float(k >> 1));
+        vec2 q = i0 + o;
+        if (q.x < 0.0 || q.y < 0.0 || q.x >= b.x || q.y >= b.y) continue;
+        float wb = (o.x > 0.5 ? fr.x : 1.0 - fr.x) * (o.y > 0.5 ? fr.y : 1.0 - fr.y);
+        vec2 tq = rtd_uv_of(q, b.xy, a.x);
+        vec4 gq = textureLod(sampler2D(tex_gh, smp_pt), tq, 0.0);
+        if (!(gq.r > 0.0)) continue;
+        vec4 cq = textureLod(sampler2D(tex_c, smp_pt), tq, 0.0);
+        float dist = dot(rtd_view_pos((q + 0.5) / b.xy, gq.r, cam) - pp, np) * invPtol;
+        float cosN = dot(nwp, gq.gba);
+        // 0.001 of the bilinear weight stays whatever the tests say: a pixel no half pixel matches (a thin feature) still gets a value.
+        float w = wb * ((cosN > 0.0 ? exp2(-dist * dist * LOG2E + b.w * log2(cosN)) : 0.0) + 0.001);
+        acc += w * cq.rgb;
+        vacc += w * max(cq.a, 0.0);
+        wsum += w;
+    }
+    if (wsum <= 0.0) {   // no drawn pixel of the half image around (the half guide of a thin feature): the noisy signal
+        frag_color = vec4(rtd_clean(textureLod(sampler2D(tex_n, smp_pt), uv, 0.0), s.x), 0.0);
+        return;
+    }
+    frag_color = vec4(acc / wsum, min(vacc / wsum, RTD_VAR_MAX));
+}
+@end
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
 @fs fs_temporal
 layout(binding=0) uniform texture2D tex_n;
-layout(binding=1) uniform texture2D tex_p;
+layout(binding=1) uniform texture2D tex_g;      // this frame's guide (the fs_guide pass wrote it): r = linear depth (0 = nothing drawn), gba = world normal
 layout(binding=2) uniform texture2D tex_v;
 layout(binding=3) uniform texture2D tex_hc;
 layout(binding=4) uniform texture2D tex_hm;
 layout(binding=5) uniform texture2D tex_hg;
+layout(binding=7) uniform texture2D tex_r;      // the roughness (a reflection kind with a roughness window)
 layout(binding=0) uniform sampler smp_pt;
 layout(binding=1) uniform rtd_temporal_params {
     vec4 a;     // x = 1 when render targets are bottom-up (OpenGL), yz = the size of every image in pixels, w = 1 when the history holds the frame before
@@ -135,6 +284,7 @@ layout(binding=1) uniform rtd_temporal_params {
     vec4 wy;
     vec4 wz;
     vec4 sv;    // x = the depth share the spatial variance estimate takes as one plane, y = the least cosine of the normals there
+    vec4 rr;    // x, y = the roughness window of a reflection kind: a pixel outside it is not denoised, z = 1 when the roughness is bound
 };
 in vec2 uv;
 layout(location=0) out vec4 out_color;
@@ -177,27 +327,42 @@ void rtd_gather(vec2 pu, float d, float prevDepth, bool velKnown, float tol, vec
         vec4 hc = textureLod(sampler2D(tex_hc, smp_pt), tq, 0.0);
         vec4 hm = textureLod(sampler2D(tex_hm, smp_pt), tq, 0.0);
         if (rtd_nan3(hc.rgb) || rtd_nanf(hm.x) || rtd_nanf(hm.y) || rtd_nanf(hm.z) || rtd_nanf(hm.w)) continue;
+        if (hm.z < 0.5) continue;   // a pixel that was not denoised (no history length): nothing to blend
         accA += vec4(hc.rgb * w, w);
         accB += vec4(hm.xy * w, hm.z * w, hm.w * w);
     }
 }
 
 void main() {
-    vec4 pre = textureLod(sampler2D(tex_p, smp_pt), uv, 0.0);
+    vec4 gc = textureLod(sampler2D(tex_g, smp_pt), uv, 0.0);
     vec4 nz = textureLod(sampler2D(tex_n, smp_pt), uv, 0.0);
     vec3 cur = rtd_read(nz);
     float hit = 0.0;
     if (f.w > 0.5) {
         hit = rtd_nanf(nz.a) ? 0.0 : (nz.a < 0.0 ? RTD_FAR : min(nz.a, RTD_FAR));
     }
-    if (pre.a < 0.5) {   // nothing was drawn here: the signal as it is, no variance, no history
+    if (!(gc.r > 0.0)) {   // nothing was drawn here: the signal as it is, no variance, no history
         out_color = vec4(cur, 0.0);
         out_moments = vec4(0.0, 0.0, 0.0, hit);
         return;
     }
-    float d = pre.r;
-    vec3 nv = rtd_oct_decode(pre.gb);
-    vec3 nw = normalize(vec3(dot(wx.xyz, nv), dot(wy.xyz, nv), dot(wz.xyz, nv)));
+    if (s.y > 2.5 && f.w > 0.5) {
+        // A reflection pixel nobody reads is not denoised: the kernel traced nothing there (the alpha of its image is exactly 0), or its
+        // roughness is outside the window the caller reads the result for. It comes out as the sample, flagged by a variance of -1, with a
+        // history length of 0 (no later frame blends with it).
+        bool skip = nz.a == 0.0;
+        if (!skip && rr.z > 0.5) {
+            float rg = textureLod(sampler2D(tex_r, smp_pt), uv, 0.0).r;
+            skip = rg < rr.x || rg > rr.y;
+        }
+        if (skip) {
+            out_color = vec4(cur, -1.0);
+            out_moments = vec4(0.0, 0.0, 0.0, hit);
+            return;
+        }
+    }
+    float d = gc.r;
+    vec3 nw = normalize(gc.gba);
     vec2 ip = floor(vec2(uv.x, mix(uv.y, 1.0 - uv.y, a.x)) * a.yz);
 
     // The 3x3 around: the depth change per pixel on the flat side of the pixel (what a sub-pixel error of the reprojection moves a surface by)
@@ -212,8 +377,8 @@ void main() {
             vec2 q = ip + vec2(float(x), float(y));
             if (q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
             vec2 tq = rtd_uv(q);
-            vec4 pq = textureLod(sampler2D(tex_p, smp_pt), tq, 0.0);
-            if (pq.a < 0.5) continue;
+            vec4 pq = textureLod(sampler2D(tex_g, smp_pt), tq, 0.0);
+            if (!(pq.r > 0.0)) continue;
             float dd = abs(pq.r - d);
             if (y == 0) slopeX = min(slopeX, dd);
             if (x == 0) slopeY = min(slopeY, dd);
@@ -304,10 +469,10 @@ void main() {
                 vec2 q = ip + vec2(float(x), float(y));
                 if (q.x < 0.0 || q.y < 0.0 || q.x >= a.y || q.y >= a.z) continue;
                 vec2 tq = rtd_uv(q);
-                vec4 pq = textureLod(sampler2D(tex_p, smp_pt), tq, 0.0);
-                if (pq.a < 0.5) continue;
+                vec4 pq = textureLod(sampler2D(tex_g, smp_pt), tq, 0.0);
+                if (!(pq.r > 0.0)) continue;
                 if (abs(pq.r - d) > sv.x * d + slope * max(abs(float(x)), abs(float(y)))) continue;
-                if (dot(rtd_oct_decode(pq.gb), nv) < sv.y) continue;
+                if (dot(pq.gba, nw) < sv.y) continue;
                 float lq = min(rtd_luma(rtd_read(textureLod(sampler2D(tex_n, smp_pt), tq, 0.0)), s.x), RTD_LUMA_MOM);
                 sm1 += lq;
                 sm2 += lq * lq;
@@ -347,7 +512,7 @@ out vec4 out_color;
 void main() {
     vec4 gc = textureLod(sampler2D(tex_g, smp_pt), uv, 0.0);
     vec4 cc = textureLod(sampler2D(tex_c, smp_pt), uv, 0.0);
-    if (!(gc.r > 0.0)) {
+    if (!(gc.r > 0.0) || cc.a < 0.0) {   // nothing drawn here, or a reflection pixel the temporal pass did not denoise (variance -1)
         out_color = cc;
         return;
     }
@@ -360,7 +525,7 @@ void main() {
         return;
     }
     float dp = gc.r;
-    vec3 nwp = gc.gba;
+    vec3 nwp = normalize(gc.gba);   // a 16-bit unit vector is a hair off: its own length is taken out (the taps' are not, one rsqrt each)
     vec3 np = nwp.x * wx.xyz + nwp.y * wy.xyz + nwp.z * wz.xyz;   // the view-space normal: the plane test is made in view space
     vec2 ip = floor(vec2(uv.x, mix(uv.y, 1.0 - uv.y, a.x)) * a.yz);
     vec3 pp = rtd_view_pos((ip + 0.5) / a.yz, dp, cam);
@@ -370,7 +535,7 @@ void main() {
     float st = a.w;
     bool reflection = s.y > 2.5;   // a specular signal or the coverage of one: two pixels of another roughness are not one surface
     float roughP = (reflection && f.y > 0.5) ? textureLod(sampler2D(tex_r, smp_pt), uv, 0.0).r : -1.0;
-    if (s.y > 2.5 && s.y < 3.5) {
+    if (reflection) {   // a specular signal and its coverage (both carry the accumulated hit distance)
         float hitD = textureLod(sampler2D(tex_hm, smp_pt), uv, 0.0).a;
         float rough = f.y > 0.5 ? roughP : f.z;
         rough = clamp(rough, 0.0, 1.0);
@@ -426,6 +591,7 @@ void main() {
                 vec4 gq = textureLod(sampler2D(tex_g, smp_pt), tq, 0.0);
                 if (!(gq.r > 0.0)) continue;
                 cq = textureLod(sampler2D(tex_c, smp_pt), tq, 0.0);
+                if (cq.a < 0.0) continue;   // a pixel that was not denoised is not a neighbour
                 vec3 pn = rtd_view_pos(sq, gq.r, cam);
                 float dist = dot(pn - pp, np) * invPtol;
                 float cosN = dot(nwp, gq.gba);
@@ -467,6 +633,9 @@ void main() {
 @end
 
 @program guide vs fs_guide
+@program guidehalf vs fs_guide_half
+@program down vs fs_down
+@program up vs fs_up
 @program temporal vs fs_temporal
 @program atrous vs fs_atrous
 @program debug vs fs_debug
