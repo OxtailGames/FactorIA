@@ -69,6 +69,73 @@ TEST_CASE("denoise plan: the passes and images of each kind") {
     CHECK(cv.historyImages == 4);
 }
 
+// M79 POLISH-denoise-2: the half size chain of an occlusion or a diffuse signal (DenoiseSignal::halfRes).
+TEST_CASE("denoise plan: a half size signal has its own chain, one iteration fewer and its own guide history") {
+    DenoiseSignal s;
+    s.kind = DenoiseKind::Occlusion;
+    s.halfRes = true;
+    const DenoisePlan full = make_denoise_plan(DenoiseSignal{.kind = DenoiseKind::Occlusion}, 641, 361, true);
+    const DenoisePlan h = make_denoise_plan(s, 641, 361, true);
+    CHECK(h.halfRes);
+    CHECK(h.chainWidth == 321);
+    CHECK(h.chainHeight == 181);
+    CHECK(h.settings.iterations == 4);
+    CHECK(h.signalPasses ==
+          1 + 4 + 3);  // the temporal pass, the iterations, the half guide, the down pass and the upsample
+    CHECK(h.transients ==
+          1 + 2 + 2);  // the accumulation, the two a-trous buffers, the down image and the full size result
+    CHECK(h.historyImages == 6);
+    const std::uint64_t px = 321ull * 181ull;
+    CHECK(h.historyBytes ==
+          px * (16 + 32 + 16));              // two colour images, two moment images of 16 bytes, two half guides of 8
+    CHECK(h.guideBytes == full.guideBytes);  // the camera's guide keeps the full size
+    CHECK(h.historyBytes < full.historyBytes);  // a quarter of the pixels beats the extra images
+    CHECK(h.configKey != full.configKey);       // another size of history: a signal that switches starts again
+
+    // At the least of two iterations it stays at two.
+    s.settings.iterations = 2;
+    CHECK(make_denoise_plan(s, 64, 48, true).settings.iterations == 2);
+    // A kind that cannot run at half size ignores the request.
+    for (DenoiseKind k : {DenoiseKind::Visibility, DenoiseKind::Specular, DenoiseKind::Coverage}) {
+        s.kind = k;
+        s.settings.iterations = 5;
+        const DenoisePlan p = make_denoise_plan(s, 64, 48, true);
+        CHECK_FALSE(p.halfRes);
+        CHECK(p.chainWidth == 64);
+        CHECK(p.settings.iterations == 5);
+        CHECK(p.historyImages == 4);
+    }
+    s.kind = DenoiseKind::Diffuse;
+    CHECK(make_denoise_plan(s, 64, 48, true).halfRes);
+}
+
+// The roughness window of a reflection kind is sanitized, and it is part of the history's meaning.
+TEST_CASE("denoise plan: the roughness window of a reflection kind is clamped and changes the config key") {
+    DenoiseSignal s;
+    s.kind = DenoiseKind::Specular;
+    const DenoisePlan open = make_denoise_plan(s, 64, 48, true);
+    CHECK(open.roughMin == 0.0f);
+    CHECK(open.roughMax == 1.0f);
+    s.roughMin = 0.25f;
+    s.roughMax = 0.65f;
+    const DenoisePlan win = make_denoise_plan(s, 64, 48, true);
+    CHECK(win.roughMin == doctest::Approx(0.25f));
+    CHECK(win.roughMax == doctest::Approx(0.65f));
+    CHECK(win.configKey != open.configKey);
+    s.roughMin = 0.9f;
+    s.roughMax = 0.1f;  // the most is never below the least
+    CHECK(make_denoise_plan(s, 64, 48, true).roughMax == doctest::Approx(0.9f));
+    s.roughMin = std::nanf("");
+    s.roughMax = 7.0f;
+    const DenoisePlan bad = make_denoise_plan(s, 64, 48, true);
+    CHECK(bad.roughMin == 0.0f);
+    CHECK(bad.roughMax == 1.0f);
+    // A signal that is not a reflection has no window.
+    s.kind = DenoiseKind::Visibility;
+    s.roughMin = 0.25f;
+    CHECK(make_denoise_plan(s, 64, 48, true).roughMin == 0.0f);
+}
+
 TEST_CASE("denoise plan: a disabled signal or an empty image costs nothing") {
     DenoiseSignal s;
     s.enabled = false;
