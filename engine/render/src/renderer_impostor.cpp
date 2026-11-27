@@ -120,6 +120,7 @@ void ImpostorRenderer::destroy() {
     }
     matState_ = 0;
     gbufferFailed_ = false;
+    gbufferWhy_.clear();
     device_ = nullptr;
 }
 
@@ -224,6 +225,8 @@ bool ImpostorRenderer::ensure_gbuffer(gpu::Device& device) {
         if (shaders_[3].id) device.destroy_shader(shaders_[3]);
         shaders_[3] = {};
         gbufferFailed_ = true;
+        gbufferWhy_ = "the impostor's G-buffer shader (impostor_gbuffer) did not compile on this device, so its draws "
+                      "keep the constants in the albedo and material images (the compiler's lines are in the log)";
         FA_ERROR(
             "render",
             "The G-buffer program of the impostor could not be built for this graphics backend (see the sokol log "

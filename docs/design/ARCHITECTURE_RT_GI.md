@@ -204,8 +204,8 @@ lets the tests choose). The decision is remembered (`rrSignalsFrame`, `rrSignals
 works out the decision (`rrWouldTake`) and hands back a "held" answer; `rt_gi_pixel_finish` feeds both to `rr_recovery_step` (`render_upscale_rr.h`), which gives the
 signals back after `kRrRecoverFrames` (8) frames in a row that DLSS drew with Ray Reconstruction where the decision would take them (a frame it did not draw
 starts the count again). A frame DLSS refused (`rrFailed`) never recovers: `rr_refusal` keeps returning `rrFailedWhy` and the texts say "for the rest of this
-run". The hit distance program (`rr_hit`) is made by `RrGuidesPrep::hit_pipeline` on the first frame that hands reflections over; if it does not compile
-(`hit_failed()`) only that optional guide is left out, with one warning and a note in the reason. `rt_gi_pixel_finish` publishes the
-result as `RtDenoiserStatus` (`ray_tracing_denoiser_status`, `render.ray_tracing` `denoiser`), with `reflectionsTraced` and `giTraced` (a kernel that did not
+run". The hit distance program (`rr_hit`) is made by `RrGuidesPrep::prepare_hit` when a frame is planned (`plan_job`, the frame's Ray Reconstruction signals include the reflections), so a failure is known
+before the graph runs; if it does not compile (`hit_failed()`) only that optional guide is left out, with one warning and a note in the reason. `rt_gi_pixel_finish` publishes the
+result as `RtDenoiserStatus` (`ray_tracing_denoiser_status`, `render.ray_tracing` `denoiser`), with `reflectionsTraced` and `giTraced` (the OR over every camera that declared the kernel; a kernel that did not
 run on any camera: the status says `"off"` for it, and Ray Reconstruction is never reported as having taken it). Free denoiser signal ids: 8 and up
 (7 is this one, 6 the local shadows). Never run on NVIDIA hardware (docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction").

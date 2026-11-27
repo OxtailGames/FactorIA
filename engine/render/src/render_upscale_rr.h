@@ -55,10 +55,13 @@ public:
     gpu::Pipeline pipeline(const TargetFormat& format);
     // The same for the albedo pass (rr_albedo: colour 0 = the diffuse albedo, colour 1 = the specular albedo).
     gpu::Pipeline albedo_pipeline(const TargetFormat& format);
-    // M79-P4b-2: the same for the specular hit distance pass (rr_hit: one R32F colour target). Its program is made on the first call (a frame with ray
-    // traced reflections to hand over): an invalid pipeline (one warning, once) means the optional hit distance guide is left out, and hit_failed() says so.
+    // M79-P4b-2: the same for the specular hit distance pass (rr_hit: one R32F colour target). Its program is made by prepare_hit (the planner calls it for a frame with ray
+    // traced reflections to hand over) or, failing that, on the first call: an invalid pipeline (one warning, once) means the optional hit distance guide is left out, and hit_failed() says so.
     // The other guides do not depend on it.
     gpu::Pipeline hit_pipeline(const TargetFormat& format);
+    // Makes the hit distance program now (plan time, before the frame graph runs; the frame's Ray Reconstruction signals include reflections), so a
+    // failure is known before any pass. False when it cannot be made (hit_failed() is then true) or ready() has not succeeded. Cheap once made.
+    bool prepare_hit();
     // The hit distance program (or its pipeline) could not be made: Ray Reconstruction runs without that guide.
     bool hit_failed() const { return hitFailed_; }
     // Destroys everything made; ready() makes it again.

@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Last polish of the Ray Reconstruction signals, the denoiser status and the thin G-buffer (M79 POLISH-last-B):** `denoiser` / `reflectionsTraced` / `giTraced` say
+  whether some camera traced the signal (not only the last camera); the hit distance shader is compiled when the frame is planned, before the graph, and still only
+  leaves that guide out; a terrain or impostor G-buffer shader that does not compile is named in the denoiser `reason`; a provider that fails a frame for good now
+  says "for the rest of this run" instead of promising a recovery; the full-material picture test finds the cube by its colour.
+
 - **Last polish of the GPU lightmap helper, the GI probes and the path tracer (M79 POLISH-last-A):** the GPU bake's wait for a helper that never says it is ready
   looks at the cancel flag every 20 ms (a cancel ends it at once, with a test); the insured raster captures of a retry or miss frame cover at most
   4 probes (not up to 32) and the bounce log of the probes is kept only for a test; a path tracer frame in a scene with no mesh keeps the

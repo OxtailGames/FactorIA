@@ -371,6 +371,7 @@ void TerrainRenderer::destroy() {
     }
     matState_ = 0;
     gbufferFailed_ = false;
+    gbufferWhy_.clear();
     device_ = nullptr;
 }
 
@@ -524,6 +525,8 @@ bool TerrainRenderer::ensure_gbuffer(gpu::Device& device) {
         if (shaders_[3].id) device.destroy_shader(shaders_[3]);
         shaders_[3] = {};
         gbufferFailed_ = true;
+        gbufferWhy_ = "the terrain's G-buffer shader (terrain_gbuffer) did not compile on this device, so its draws "
+                      "keep the constants in the albedo and material images (the compiler's lines are in the log)";
         FA_ERROR(
             "render",
             "The G-buffer program of the terrain could not be built for this graphics backend (see the sokol log lines "

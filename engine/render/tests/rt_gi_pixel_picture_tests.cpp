@@ -187,9 +187,26 @@ TEST_CASE("rt gi pixel picture: a full material that keeps out of the prepass is
     INFO("giPixel: wanted " << st.wanted << " active " << st.active << " reason " << st.reason);
     CHECK(log.messages().empty());
     CHECK(g.renderer.stats().materialFallbacks.empty());
-    // The full shader's own colour (0.2, 0.8, 0.4) is in the middle of the picture, where the camera looks: nothing of the rays touches it.
-    const Color c = patch(img, img.width / 2, img.height / 2, 2);
-    INFO("cube " << c.r << " " << c.g << " " << c.b);
+    // The full shader's own colour (0.2, 0.8, 0.4) is the only one in this room where green leads blue and blue leads red (the floor is grey, the wall red,
+    // the sky black), so the cube is found by its colour wherever the projection puts it, not by a pixel position. The mean over those pixels keeps the
+    // tone mapping's and the filtering's last digits out of the check, which only needs the order of the channels and a cube-sized area (the cube covers
+    // about a fifth of the picture's height: 100 pixels is far below it and far above the edge pixels a mistake could leave).
+    float cr = 0, cg = 0, cb = 0;
+    int cubePixels = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x) {
+            const Color px = img.pixel(x, y);
+            if (px.g > px.b + 0.1f && px.b > px.r + 0.05f) {
+                cr += px.r;
+                cg += px.g;
+                cb += px.b;
+                ++cubePixels;
+            }
+        }
+    INFO("cube pixels " << cubePixels);
+    REQUIRE(cubePixels >= 100);
+    const Color c{cr / float(cubePixels), cg / float(cubePixels), cb / float(cubePixels), 1.0f};
+    INFO("cube mean " << c.r << " " << c.g << " " << c.b);
     CHECK(c.g > c.b);
     CHECK(c.b > c.r);
     if (!st.active) {

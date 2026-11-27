@@ -325,7 +325,8 @@ struct Renderer::Impl {
     // The reflections' raw image of the camera the upscaler resolves, while they go to Ray Reconstruction (its hit distance is a guide).
     const RtEffectImage* upscaleReflectImg = nullptr;
     // This frame: the reflections' kernel declared by some camera (the status says whether the engine, Ray Reconstruction or nobody denoised them).
-    const RtEffectImage* rtReflectFrameImg = nullptr;
+    std::vector<const RtEffectImage*>
+        rtReflectFrameImgs;  // one per camera that declared it; the status ORs their `ran`
     ResourceId upscaleReflectRes;
     render::VendorProbe rrProbe;
     bool rrProbed = false;
@@ -713,6 +714,8 @@ struct Renderer::Impl {
     struct RtGiPixelFrame {
         bool declared = false;  // the kernel's pass is in the graph
         bool bound = false;     // the main pass bound the image at the lightmap slot (the surfaces can read it)
+        std::vector<const RtEffectImage*>
+            imgs;  // every camera that declared the kernel (the denoiser status ORs their `ran`)
         const RtEffectImage* img = nullptr;
         std::string why;  // why nothing was declared (empty: no camera drew the scene)
     } rtGiPixelFrame;
