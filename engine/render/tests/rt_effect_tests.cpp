@@ -356,12 +356,12 @@ struct Rig {
         d.headless = true;
         d.backend = GpuBackend::Recording;
         std::string error;
-        const bool ok = renderer.init(d, gfx().gpu.environment(), &error);
+        const bool initOk = renderer.init(d, gfx().gpu.environment(), &error);
         RendererDeviceAccess::set_next_device(nullptr);
         if (pipelinePool > 0) {
-            this->ok = ok;
+            this->ok = initOk;
         } else {
-            REQUIRE_MESSAGE(ok, error);
+            REQUIRE_MESSAGE(initOk, error);
         }
     }
     ~Rig() {
@@ -1290,6 +1290,14 @@ TEST_CASE("rt reflect: the kernel has a spec that asks for the records, the G-bu
         CHECK(d.views[2].storageBuffer.binding.spirvBinding == 4);
         CHECK(d.views[3].texture.binding.mslIndex == 2);
         CHECK(d.views[4].texture.binding.mslIndex == 3);
+    }
+    // The hit constants and the aux image have their own Vulkan bindings (7 and 9): a kernel may read both.
+    {
+        fa::render::RtEffectKernelSpec both = *spec;
+        both.usesAux = true;
+        const gpu::ShaderDesc d = fa::render::rt_effect_shader_desc(*k, both, gpu::Backend::Vulkan);
+        CHECK(d.uniformBlocks[fa::render::RtEffectBindings::kUniformHit].binding.spirvBinding == 7);
+        CHECK(d.views[fa::render::RtEffectBindings::kViewAux].texture.binding.spirvBinding == 9);
     }
     // A kernel without the hit constants has no second block.
     const gpu::ShaderDesc shadow = fa::render::rt_effect_shader_desc(

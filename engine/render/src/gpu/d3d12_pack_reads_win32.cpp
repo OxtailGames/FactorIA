@@ -515,7 +515,8 @@ Result<PackReadTicket> D3d12Device::start_pack_read(PackRead& r, const char* wha
                               "see errors() for D3D12's reason");
         }
         if (r.image) {
-            list->require(r.tracked, r.sub, D3D12_RESOURCE_STATE_COMMON);  // DirectStorage writes a COMMON texture
+            list->require_plain(r.tracked, r.sub,
+                                D3D12_RESOURCE_STATE_COMMON);  // DirectStorage writes a COMMON texture
         }
 #if defined(_WIN64)
         std::size_t at = 0, failedFrom = r.partialParts.size();
@@ -527,7 +528,7 @@ Result<PackReadTicket> D3d12Device::start_pack_read(PackRead& r, const char* wha
                 break;
             }
             std::memcpy(a.cpu, r.partial.data() + at, part.length);
-            list->require(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+            list->require_plain(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
             list->flush_barriers();
             list->native()->CopyBufferRegion(r.tracked->resource.get(), r.dstOffset + part.outOffset, a.resource,
                                              a.offset, part.length);
@@ -614,7 +615,7 @@ void D3d12Device::cpu_pack_read(PackRead& r) {
         ok = a.ok();
         if (ok) {
             std::memcpy(a.cpu, bytes.value().data(), bytes.value().size());
-            list->require(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+            list->require_plain(r.tracked, 0, D3D12_RESOURCE_STATE_COPY_DEST);
             list->flush_barriers();
             list->native()->CopyBufferRegion(r.tracked->resource.get(), r.dstOffset, a.resource, a.offset,
                                              bytes.value().size());

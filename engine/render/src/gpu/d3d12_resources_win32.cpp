@@ -210,10 +210,13 @@ Buffer D3d12Device::make_buffer(const BufferDesc& desc) {
             const UploadAlloc a = upload(desc.data.size, 16, &p);
             if (a.ok()) {
                 std::memcpy(a.cpu, desc.data.ptr, desc.data.size);
-                p.require(t, 0, D3D12_RESOURCE_STATE_COPY_DEST);
-                p.flush_barriers();
-                p.list_->CopyBufferRegion(t->resource.get(), 0, a.resource, a.offset, desc.data.size);
-                p.empty_ = false;
+                if (p.require(
+                        t, 0,
+                        D3D12_RESOURCE_STATE_COPY_DEST)) {  // false: reported, no copy into acceleration structures
+                    p.flush_barriers();
+                    p.list_->CopyBufferRegion(t->resource.get(), 0, a.resource, a.offset, desc.data.size);
+                    p.empty_ = false;
+                }
             }
         }
     }
@@ -523,6 +526,10 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             fail("its buffer " + std::to_string(desc.storageBuffer.buffer.id) + " is not a live buffer");
         else if (!b->usage.storageBuffer)
             fail("buffer '" + b->label + "' was not made with BufferUsage::storageBuffer");
+        else if (desc.storageBuffer.structureStride < 0 || desc.storageBuffer.structureStride % 4 != 0 ||
+                 (desc.storageBuffer.structureStride > 0 && offset % desc.storageBuffer.structureStride != 0))
+            fail("structureStride " + std::to_string(desc.storageBuffer.structureStride) +
+                 " is not 0 (a raw view) or a multiple of 4 that divides the offset " + std::to_string(offset));
         else if (offset < 0 || offset % 16 != 0 || std::size_t(offset) + 4 > b->size)
             fail("offset " + std::to_string(offset) + " is not a multiple of 16 inside the buffer's " +
                  std::to_string(b->size) +
@@ -532,26 +539,31 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             rec.buffer = desc.storageBuffer.buffer;
             rec.tracked = b->tracked;
             rec.heap = kHeapView;
-            const UINT first = UINT(offset / 4);
-            const UINT count = UINT((b->size - std::size_t(offset)) / 4);
+            // A raw view counts 4 byte words; a structured one (the shader declares StructuredBuffer<T>) counts elements.
+            const UINT stride = UINT(desc.storageBuffer.structureStride);
+            const UINT unit = stride ? stride : 4u;
+            const UINT first = UINT(std::size_t(offset) / unit);
+            const UINT count = UINT((b->size - std::size_t(offset)) / unit);
             rec.descriptor = take(kHeapView);
             if (error.empty()) rec.uavDescriptor = take(kHeapView);
             if (error.empty()) {
                 D3D12_SHADER_RESOURCE_VIEW_DESC s{};
-                s.Format = DXGI_FORMAT_R32_TYPELESS;
+                s.Format = stride ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_R32_TYPELESS;
                 s.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
                 s.Shader4ComponentMapping = kDefaultMapping;
                 s.Buffer.FirstElement = first;
                 s.Buffer.NumElements = count;
-                s.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+                s.Buffer.StructureByteStride = stride;
+                s.Buffer.Flags = stride ? D3D12_BUFFER_SRV_FLAG_NONE : D3D12_BUFFER_SRV_FLAG_RAW;
                 dev->CreateShaderResourceView(rec.tracked->resource.get(), &s,
                                               cpuHeaps_[kHeapView].cpu(rec.descriptor));
                 D3D12_UNORDERED_ACCESS_VIEW_DESC v{};
-                v.Format = DXGI_FORMAT_R32_TYPELESS;
+                v.Format = stride ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_R32_TYPELESS;
                 v.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
                 v.Buffer.FirstElement = first;
                 v.Buffer.NumElements = count;
-                v.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+                v.Buffer.StructureByteStride = stride;
+                v.Buffer.Flags = stride ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
                 dev->CreateUnorderedAccessView(rec.tracked->resource.get(), nullptr, &v,
                                                cpuHeaps_[kHeapView].cpu(rec.uavDescriptor));
             }

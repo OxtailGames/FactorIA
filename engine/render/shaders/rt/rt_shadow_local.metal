@@ -31,7 +31,7 @@ struct RtLocalLight {
 };
 // END RtLocalLight
 struct RtLocalParams {
-    float4 header;
+    float4 header;  // x: how many lights are traced; y: metres short of the light a ray stops; z: the most of the ray's length that stop may be
     RtLocalLight lights[3];
 };
 
@@ -74,7 +74,7 @@ kernel void rt_shadow_local(instance_acceleration_structure tlas [[buffer(0)]],
     const float3 n = normalize(params.viewRight.xyz * nv.x + params.viewUp.xyz * nv.y + params.viewBack.xyz * nv.z);
     const float3 origin = pos + n * (params.user0.x + params.user0.y * depth);
     const uint count = min(uint(local.header.x), 3u);
-    const float shorter = 1.0 - clamp(local.header.y, 0.0, 0.5);
+    const float stopMetres = max(local.header.y, 0.0), stopCap = clamp(local.header.z, 0.0, 0.5);
     float vis[3] = {1.0, 1.0, 1.0};
     for (uint li = 0u; li < count; ++li) {
         const RtLocalLight L = local.lights[li];
@@ -117,7 +117,7 @@ kernel void rt_shadow_local(instance_acceleration_structure tlas [[buffer(0)]],
             r.origin = origin;
             r.min_distance = params.user0.z;
             r.direction = v / len;
-            r.max_distance = len * shorter;
+            r.max_distance = len - min(stopMetres, len * stopCap);
             intersection_query<instancing, triangle_data> q;
             intersection_params ip;
             ip.accept_any_intersection(true);

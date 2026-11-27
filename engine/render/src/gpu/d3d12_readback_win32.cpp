@@ -94,7 +94,7 @@ void D3d12Device::record_texture_read(D3d12CommandList& list, const ImageRecord&
     from.pResource = rec.tracked->resource.get();
     from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     from.SubresourceIndex = rec.tracked->subresource(mip, is3d ? 0 : layer, 0);
-    list.require(rec.tracked, from.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    list.require_plain(rec.tracked, from.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_SOURCE);
     list.flush_barriers();
     D3D12_TEXTURE_COPY_LOCATION to{};
     to.pResource = dst;
@@ -236,7 +236,7 @@ Result<void> D3d12Device::read_buffer(Buffer buffer, std::size_t offset, std::si
         flush_prelude();
         D3d12CommandList* list = acquire_list("fa-d3d12-readback", true);
         if (!list) return make_error("gpu d3d12: read_buffer: no command list", "see errors() for D3D12's reason");
-        list->require(t, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->require_plain(t, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->flush_barriers();
         list->list_->CopyBufferRegion(rb.get(), 0, t->resource.get(), offset, bytes);
         list->empty_ = false;
@@ -348,7 +348,7 @@ Result<ReadTicket> D3d12Device::request_buffer_read(Buffer buffer, std::size_t o
     r.rows = r.rowBytes = r.rowPitch = 0;
     ID3D12Resource* dst = r.buffer.get();
     return start_async_read(slot, "request_buffer_read", [&](D3d12CommandList& list) {
-        list.require(t, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list.require_plain(t, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list.flush_barriers();
         list.list_->CopyBufferRegion(dst, 0, t->resource.get(), offset, bytes);
     });

@@ -118,6 +118,16 @@ std::size_t allocations_of(Sim& s, int steps) {
 // The absolute counts are printed. The counter sees every thread, so no pool may be running.
 bool pool_is_off() { return !jobs::running() || jobs::inline_mode(); }
 
+// MSVC's checked iterators (_ITERATOR_DEBUG_LEVEL 1 or 2: every Debug build, no Release one) give each container
+// object a heap allocated proxy, so the standard containers that a step builds per body allocate once per body. That
+// count does grow with the bodies and says nothing about the solver's own vectors, so a Debug build of MSVC prints
+// the counts and does not compare them (CI's Windows job builds the Release preset, which compares them).
+#if defined(_MSC_VER) && defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL > 0
+constexpr bool kContainerProxies = true;
+#else
+constexpr bool kContainerProxies = false;
+#endif
+
 // A pit of `bodies` bodies, run through the drop and the first impacts so every working vector has met its biggest
 // scene, then counted over 30 steps in which bodies still fall, collide and begin or end contacts.
 std::size_t awake_pit_allocations(int bodies) {
@@ -150,6 +160,7 @@ TEST_CASE("3d alloc: the allocations of a step of an awake pit do not grow with 
     const std::size_t small = awake_pit_allocations(50);
     const std::size_t big = awake_pit_allocations(300);
     std::printf("[alloc] awake pit: %zu allocations in 30 steps with 50 bodies, %zu with 300\n", small, big);
+    if (kContainerProxies) return;  // see kContainerProxies
     CHECK(big <= small + 30 * 2);
 }
 
@@ -158,5 +169,6 @@ TEST_CASE("3d alloc: the allocations of a step of a sleeping scene do not grow w
     const std::size_t small = sleeping_allocations(20);
     const std::size_t big = sleeping_allocations(200);
     std::printf("[alloc] sleeping: %zu allocations in 30 steps with 20 bodies, %zu with 200\n", small, big);
+    if (kContainerProxies) return;  // see kContainerProxies
     CHECK(big <= small + 30 * 2);
 }
