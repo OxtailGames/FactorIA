@@ -60,7 +60,8 @@ The light data texture holds, per light, `z = rtSlot`: 0 not traced, 1..3 the sl
 fragment's (`0.002 d + 0.01 + fa_rt_slope`, the sun's test; `fa_rt_slope` is the depth slope of the fragment, taken once per fragment at the start of
 `fa_cluster_begin` where the derivatives are in uniform flow, not inside the per-light branch). When the own texel does not match (the edge of a
 silhouette, a pixel the camera's jitter moved) the eight texels around it are tried and the **darkest** of those that show the same surface answers
-(a thin caster keeps its shadow instead of flickering to lit). It decodes the byte (`mod(floor(b / 256^slot), 256) / 255`) and returns it, or
+(a thin caster keeps its shadow instead of flickering to lit); the eight are eight calls of `fa_rt_local_tap`, not a `for`: a loop of texel reads in the
+light loop made the in-box WARP of Windows Server 2022 (D3D12 10.0.20348) lose the device on the first frame of a lit mesh. It decodes the byte (`mod(floor(b / 256^slot), 256) / 255`) and returns it, or
 `min(rt, map)` when `fa_ct_b.z` is set, i.e. when `RtSceneStats::untracedCasters > 0` (the sun's rule: a caster the rays miss keeps its shadow from
 the map; terrain, impostors, GPU-driven meshes, cutouts, meshes over the instance cap or without a built acceleration structure). When no texel of the
 3 x 3 shows the surface, the answer is the map where there are untraced casters and lit otherwise. The full-shader template (`mesh_full_common.glsl`) still calls the map version: a material with a
