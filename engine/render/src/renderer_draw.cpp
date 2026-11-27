@@ -6311,11 +6311,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                     out.why);
         }
     }
-    // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
-    // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
-    // A frame the path tracer draws (its pass is declared and expected to run: its image is drawn over the opaque picture, which has its own
-    // occlusion) makes none, and so does the frame that tries the pass again after a refusal and has it accepted (`retry`: one decision a frame, no
-    // occlusion passes under the path traced picture); a declared pass that cannot run (the scene offers no mesh) leaves this one.
+    // The screen-space ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass,
+    // which applies them after the opaque meshes (main_pass). Only a job that draws the world and has the prepass
+    // declares them. A frame the path tracer draws (its pass is declared and expected to run: its image is drawn over
+    // the opaque picture, which has its own occlusion) makes no SSAO passes, and neither does the frame that tries the
+    // pass again after a refusal and has it accepted (`retry`: one decision a frame). The retry frame keeps the ray
+    // traced occlusion (rt-ao) all the same, so a retry that is refused again does not swap the occlusion technique for
+    // one frame. A declared pass that cannot run (the scene offers no mesh) leaves this one.
     if (!ctx.rtAo.on && !(ctx.pathTrace.res.valid() && (ctx.pathTrace.expected || ctx.pathTrace.retry)) &&
         ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
