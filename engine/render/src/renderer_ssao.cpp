@@ -44,8 +44,8 @@ void run_pass(gpu::CommandList& list, Gpu& gpu, const Target& dst, SsaoStage sta
     gpu::Bindings b;
     b.vertexBuffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_ssao_pre_tex] = pre;
-    b.views[VIEW_ssao_ao_tex] =
-        ao.id ? ao : pre;  // the search has no occlusion image yet (its program ignores the slot)
+    if (ao.id)
+        b.views[VIEW_ssao_ao_tex] = ao;  // the search has no occlusion image yet and its program declares no such slot
     b.samplers[SMP_ssao_smp] = gpu.sampler(SamplerKind::Nearest);
     list.set_bindings(b);
     ssao_ssao_vs_params_t vu{};

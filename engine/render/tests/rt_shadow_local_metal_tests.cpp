@@ -123,6 +123,7 @@ struct Rig {
     gpu::Image prepass{}, out{}, srcImage{}, packOut{};
     View prepassView{}, outView{}, outTexture{}, srcView{}, packOutView{};
     Pipeline traceP{}, packP{};
+    std::vector<Shader> shaders;  // one a pipeline made by make_pipeline
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -224,6 +225,7 @@ struct Rig {
         PipelineDesc pd;
         pd.compute = true;
         pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shaders.push_back(pd.shader);
         pd.label = kernel;
         Pipeline p = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
@@ -246,6 +248,22 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         traceP = make_pipeline("rt_shadow_local");
         packP = make_pipeline("rt_shadow_local_pack");
+    }
+
+    // Everything the rig made that the test body does not destroy itself (as rt_reflect_metal_tests.cpp's Rig::release): a mesh's buffers
+    // and the scratch of its BLAS, then the images, views, pipelines, shaders and the sampler.
+    void release(Mesh& m) {
+        dev->destroy_buffer(m.vb);
+        dev->destroy_buffer(m.ib);
+        dev->destroy_buffer(m.scratch);
+    }
+    void release_images() {
+        for (const View v : {prepassView, outView, outTexture, srcView, packOutView}) dev->destroy_view(v);
+        for (const gpu::Image im : {prepass, out, srcImage, packOut}) dev->destroy_image(im);
+        dev->destroy_pipeline(traceP);
+        dev->destroy_pipeline(packP);
+        for (const Shader s : shaders) dev->destroy_shader(s);
+        dev->destroy_sampler(nearestSampler);
     }
 
     std::vector<float> read(gpu::Image image) {
@@ -730,6 +748,10 @@ TEST_CASE("rt shadow local on Metal: the visibility of a spot and an area light 
     dev.destroy_accel_structure(tlas);
     dev.destroy_accel_structure(ground.blas);
     dev.destroy_accel_structure(box.blas);
+    dev.destroy_buffer(tlasScratch);
+    rig.release(ground);
+    rig.release(box);
+    rig.release_images();
 }
 
 #else
