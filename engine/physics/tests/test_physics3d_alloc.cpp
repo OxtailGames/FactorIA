@@ -160,8 +160,11 @@ TEST_CASE("3d alloc: the allocations of a step of an awake pit do not grow with 
     const std::size_t small = awake_pit_allocations(50);
     const std::size_t big = awake_pit_allocations(300);
     std::printf("[alloc] awake pit: %zu allocations in 30 steps with 50 bodies, %zu with 300\n", small, big);
-    if (kContainerProxies) return;  // see kContainerProxies
-    CHECK(big <= small + 30 * 2);
+    if constexpr (kContainerProxies) {
+        MESSAGE("MSVC checked iterators: the counts are printed, not compared (see kContainerProxies)");
+    } else {
+        CHECK(big <= small + 30 * 2);
+    }
 }
 
 TEST_CASE("3d alloc: the allocations of a step of a sleeping scene do not grow with the bodies") {
@@ -169,6 +172,9 @@ TEST_CASE("3d alloc: the allocations of a step of a sleeping scene do not grow w
     const std::size_t small = sleeping_allocations(20);
     const std::size_t big = sleeping_allocations(200);
     std::printf("[alloc] sleeping: %zu allocations in 30 steps with 20 bodies, %zu with 200\n", small, big);
-    if (kContainerProxies) return;  // see kContainerProxies
-    CHECK(big <= small + 30 * 2);
+    if constexpr (kContainerProxies) {
+        MESSAGE("MSVC checked iterators: the counts are printed, not compared (see kContainerProxies)");
+    } else {
+        CHECK(big <= small + 30 * 2);
+    }
 }
