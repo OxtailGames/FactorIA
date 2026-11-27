@@ -83,7 +83,12 @@ Part of [Building FactorIA](BUILDING.md) (the entry page lists every page).
   loads first. The Windows CI job sets `FA_D3D12_REQUIRE` for every test, configures with `-DFA_D3D12_REQUIRE_RT=ON`
   (CMake then puts `FA_D3D12_REQUIRE_RT=1` in the environment of the ctest `render_d3d12_raytracing` alone, so the
   whole-suite `render` run never fails for it), and exports `FA_WARP_DIR` on every shard when the runner's own WARP is
-  older.
+  older. That ctest alone runs on the D3D12 Agility SDK runtime (`-DFA_D3D12_AGILITY_DIR=<folder with D3D12Core.dll and
+  d3d12SDKLayers.dll of the NuGet package Microsoft.Direct3D.D3D12>` with `-DFA_D3D12_AGILITY_SDK_VERSION=<its D3D12SDKVersion>`,
+  620 for 1.620.2): CMake builds a program of its own, `fa_test_render_d3d12_rt`, that exports the SDK version and has the DLLs in
+  `D3D12\` beside it, because the NuGet WARP misses every ray on the in-box runtime of Windows Server 2022. A program that
+  exports the version fails device creation without the folder, so no other test gets it: they keep the in-box runtime a game has.
+  Without the two variables (a developer's build) the ctest runs `fa_test_render` on the system's runtime.
 - **Vulkan ray tracing tests, `FA_VULKAN_REQUIRE` and `FA_VULKAN_REQUIRE_RT`.** The Vulkan backend's tests run on the
   machine's Vulkan device with the validation layer and skip, saying why, where there is no loader, no device or no layer;
   `FA_VULKAN_REQUIRE=1` turns that skip into a failure. Its ray tracing cases (`render_vulkan_raytracing`,
