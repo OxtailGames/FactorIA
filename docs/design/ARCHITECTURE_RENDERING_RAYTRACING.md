@@ -305,12 +305,12 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
   `CLONE` or `COMPACT` mode (its barriers use the copy stage when `accelCopyStage_` is on, the build stage otherwise), and the copy inherits the source's counts and `allowUpdate`; a copy is never compacted again.
 - **Destruction** is deferred like every resource: the handle goes once the frames that may use it have completed, before its
   storage.
-- **Kernels.** A compute `ShaderDesc` with `usesRayQuery` takes DXC's SPIR-V as it is: the bindings its slots name
+- **Kernels.** A compute `ShaderDesc` (with `usesRayQuery` or without it: the packing and denoising kernels trace nothing) takes DXC's SPIR-V as it is: the bindings its slots name
   (`BackendBinding::spirvSet` and `spirvBinding`) may sit in any descriptor set, and `move_descriptor_sets` rewrites
   their `DescriptorSet` decorations into the engine's layout: uniform blocks to set 0, views, samplers and acceleration
   structures to set 1, the binding numbers kept. Two slots of different kinds on one (set, binding) pair, and two slots
   that end on one binding of one set, are refused; a binding no slot names is left where the SPIR-V has it, and set 2 stays
-  the bindless table. Any other shader is not moved: a binding outside set 0 for a uniform block or set 1 for the rest is
+  the bindless table. A render shader is not moved: a binding outside set 0 for a uniform block or set 1 for the rest is
   refused. `ShaderAccelStructure` slots are compute-stage only and become `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR`
   bindings of set 1; the descriptor pools hold that kind only on a device with ray tracing active (`kDescAccelStructure`),
   so such a shader on a device without it is refused first. Without ray query the shader is refused with the device's reason.
