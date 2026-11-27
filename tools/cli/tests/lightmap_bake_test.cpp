@@ -346,13 +346,16 @@ TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process 
                               {"apply", false}}));
         REQUIRE_MESSAGE(start.ok, start.error.dump());
         const std::string job = start.result["job"].get<std::string>();
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+        // 600 s, as lightmap_commands_tests.cpp's cancel case (0.35.2): Coverage's instrumented helper went past 180 s
+        // before "trace" (M79 CI round 4).
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(600);
         fa::Json seen;
         for (;;) {
             auto s = reg.call("lightmap.bake_status", fa::Json::object({{"job", job}}));
             REQUIRE_MESSAGE(s.ok, s.error.dump());
             seen = s.result;
             if (seen["state"] != "running" || seen["phase"] == "trace") break;
+            INFO("last status: " << seen.dump());
             REQUIRE(std::chrono::steady_clock::now() < deadline);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
@@ -365,7 +368,8 @@ TEST_CASE("factoria call lightmap.bake_start device: a bake in a helper process 
             REQUIRE_MESSAGE(s.ok, s.error.dump());
             end = s.result;
             if (end["state"] != "running") break;
-            REQUIRE(std::chrono::steady_clock::now() < deadline + std::chrono::seconds(180));
+            INFO("last status: " << end.dump());
+            REQUIRE(std::chrono::steady_clock::now() < deadline + std::chrono::seconds(600));
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         // Cancelled; a machine fast enough to finish before the cancel got there ends done, and then the pages are whole.
