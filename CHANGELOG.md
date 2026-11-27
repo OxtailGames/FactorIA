@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Ray traced shadows of local lights and translucency, polished (M79-POLISH-RC):** the lit pass reads the traced visibility of a point, spot or area
+  light over the 3 x 3 texels around the fragment and takes the darkest that shows the same surface (a thin caster no longer flickers to lit), with the
+  depth slope taken once per fragment outside the light loop; the shadow maps of the traced lights are drawn after the trace and only skipped when the
+  pack pass really ran; a hard frame whose lights changed also drops the denoiser's history; the slots of a camera that is gone are freed; an effect
+  that fails is warned once per cause, not at every dynamic-resolution size; the sun the rays aim at is the shadow-casting one, else the brightest
+  directional light (the effects that shade what a ray hits); the glass picture is read at the centre of one texel; the docs and the status text say which effects trace today.
 - **What ray tracing costs, and when to use it (M79-P6b):** docs/RAY_TRACING.md has a "What it costs" table, measured on an Apple M5 on Metal at
   1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.8 ms, soft +32, ambient occlusion +18, reflections +26, translucency +3,
   per-pixel GI +22, the path tracer 29 ms a sample; the denoiser, not the rays, is the price; D3D12 and Vulkan not measured) and an "effect by backend"

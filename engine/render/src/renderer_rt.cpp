@@ -160,6 +160,7 @@ void Renderer::Impl::rt_begin_frame() {
             rtDenoiser.release();
     } else {
         rtEffects.sweep(gpu, frameSerial + 1);
+        render::sweep_rt_local_slots(rtLocalSlots, frameSerial + 1);  // a camera that is gone keeps no slots
         if (rtSettings.gi != render::RtGi::Probes && gpu.has_device() && !rtGi.empty())
             rtGi.release(gpu);
         else

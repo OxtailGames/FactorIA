@@ -142,7 +142,9 @@ std::vector<FeatureDef> build_table() {
          "(DXR 1.1), Vulkan (VK_KHR_ray_query) and Metal on a GPU that has them; never OpenGL, GLES3, WebGL2 or D3D11. "
          "The row is false where it cannot run, with the reason in render.supports. Today Direct3D 12 builds them "
          "on a device with DXR tier 1.1 and shader model 6.5, Vulkan on one with VK_KHR_acceleration_structure "
-         "and VK_KHR_ray_query, and Metal on a GPU and OS with ray tracing; no effect traces rays yet."});
+         "and VK_KHR_ray_query, and Metal on a GPU and OS with ray tracing. With render.rayTracing on, the engine "
+         "traces shadows, ambient occlusion, reflections, translucency and global illumination with them "
+         "(docs/RAY_TRACING.md)."});
     t.push_back(
         {"raytracingPipeline", FeatureKind::Capability, bit(FeatureBackend::Metal), "", nullptr,
          "The GPU has ray tracing pipelines and shader binding tables (DXR 1.0 and VK_KHR_ray_tracing_pipeline). "

@@ -2764,3 +2764,31 @@ TEST_CASE("materials: a LOD cross-fade dithers a clip material and the engine's 
           std::make_pair(0, 1));  // no dither in its program: a hard switch
     CHECK(log.messages().empty());
 }
+
+TEST_CASE("rt sun: the shadow-casting sun, else the brightest directional light, whatever the order of the lights") {
+    using fa::render::LightData;
+    const auto make = [](int rank, float brightness) {
+        LightData l;
+        l.rank = rank;
+        l.color = Vec4{brightness, brightness * 0.5f, 0.0f, 0.0f};
+        return l;
+    };
+    std::vector<LightData> lights;
+    CHECK(fa::render::pick_rt_sun(lights) == nullptr);
+    lights.push_back(make(2, 50.0f));  // a point light is never the sun
+    CHECK(fa::render::pick_rt_sun(lights) == nullptr);
+    lights.push_back(make(1, 2.0f));
+    lights.push_back(make(1, 5.0f));  // not the first one: the brightest
+    lights.push_back(make(1, 5.0f));
+    const LightData* sun = fa::render::pick_rt_sun(lights);
+    REQUIRE(sun != nullptr);
+    CHECK(sun == &lights[2]);  // the first of the two equal ones
+    // The caster that gives light is the sun, even when another directional light is brighter.
+    lights.push_back(make(0, 1.0f));
+    CHECK(fa::render::pick_rt_sun(lights) == &lights[4]);
+    // A caster that gives no light is not the sun: the brightest of the others is.
+    lights[4].color = Vec4{0.0f, 0.0f, 0.0f, 0.0f};
+    CHECK(fa::render::pick_rt_sun(lights) == &lights[2]);
+    lights[2].color = Vec4{std::nanf(""), 0.0f, 0.0f, 0.0f};  // a NaN colour counts as dark
+    CHECK(fa::render::pick_rt_sun(lights) == &lights[3]);
+}

@@ -17,6 +17,9 @@
 #include <string>
 #include <vector>
 
+#if defined(__APPLE__)
+
+// Only a Mac builds what needs Metal and the device headers; every other host compiles the one skipped case below.
 #include "fa/core/math.h"
 #include "fa/scene/camera_geometry.h"
 #include "fa/scene/components.h"
@@ -27,8 +30,6 @@
 #include "rt_kernels.h"
 #include "rt_records.h"
 #include "test_util.h"
-
-#if defined(__APPLE__)
 
 using namespace fa;
 using namespace fa::gpu;

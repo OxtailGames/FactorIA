@@ -13,6 +13,15 @@ constexpr float kRtLocalShorter =
 bool usable(float v) { return v == v && v > 0.0f; }
 }  // namespace
 
+void sweep_rt_local_slots(std::map<std::uint64_t, RtLocalSlots>& slots, std::uint64_t serial) {
+    for (auto it = slots.begin(); it != slots.end();) {
+        if (it->second.lastUsed + 2 < serial)
+            it = slots.erase(it);
+        else
+            ++it;
+    }
+}
+
 RtLocalPick pick_rt_local_lights(RtLocalSlots& slots, std::span<const RtLocalCandidate> candidates) {
     RtLocalPick pick;
     pick.candidates = int(candidates.size());
