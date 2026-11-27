@@ -5920,35 +5920,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         req.frameSerial = frameSerial;
         // Sharp pixels take one mirror ray; the glossy ones take raysPerPixel (1 to 16), as the occlusion does.
         req.raysPerPixel = std::clamp(rtSettings.raysPerPixel, 1, 16);
-        // The sun the lit pass shadows, else its brightest directional light (pick_rt_sun): the direction toward it and its radiance.
-        const LightData* sunLight = pick_rt_sun(ctx.lights);
-        RtHitParams& hp = req.hit;
-        if (sunLight) {
-            const Vec3 toSun = normalize(Vec3{sunLight->pos.x, sunLight->pos.y, sunLight->pos.z});
-            hp.sunDir[0] = toSun.x;
-            hp.sunDir[1] = toSun.y;
-            hp.sunDir[2] = toSun.z;
-            hp.sunColor[0] = sunLight->color.x;
-            hp.sunColor[1] = sunLight->color.y;
-            hp.sunColor[2] = sunLight->color.z;
-            for (int i = 0; i < 3; ++i) req.lightDir[i] = hp.sunDir[i];
-        } else {
-            hp.sunDir[1] = 1.0f;
-        }
-        hp.ambient[0] = ctx.ss.ambientLight.r;
-        hp.ambient[1] = ctx.ss.ambientLight.g;
-        hp.ambient[2] = ctx.ss.ambientLight.b;
-        hp.sky[0] = ctx.ss.skyColor.r;
-        hp.sky[1] = ctx.ss.skyColor.g;
-        hp.sky[2] = ctx.ss.skyColor.b;
-        hp.sky[3] = ctx.fuScene.fa_env_sky[3] > 0.5f ? 1.0f : 0.0f;
-        hp.horizon[0] = ctx.ss.horizonColor.r;
-        hp.horizon[1] = ctx.ss.horizonColor.g;
-        hp.horizon[2] = ctx.ss.horizonColor.b;
-        hp.limits[0] = 0.02f;
-        hp.limits[1] = 0.002f;
-        hp.limits[2] = 10000.0f;
-        hp.limits[3] = 0.002f;
+        fill_rt_hit_request(ctx, req);  // the sun, the ambient and sky colours and the shadow rays' limits
         // user0: the mirror ray's offset along the normal in metres and per metre of view depth, the roughness cutoff, TMax.
         req.user0[0] = 0.02f;
         req.user0[1] = 0.002f;
@@ -6082,8 +6054,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             sig.kind = DenoiseKind::Occlusion;
             sig.id = kRtAoSignalId;
             sig.name = "ao";
-            sig.halfRes =
-                true;  // the occlusion of a hemisphere is smooth: half size, then a depth and normal guided upsample
+            // The occlusion of a hemisphere is smooth: half size, then a depth and normal guided upsample.
+            sig.halfRes = true;
             DenoiseInputs din;
             din.noisy.res = out.res;  // the imported image: the denoiser's passes read it after the kernel wrote it
             din.noisy.view = out.out->texture;
@@ -6187,8 +6159,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 sig.kind = DenoiseKind::Diffuse;
                 sig.id = kRtGiPixelSignalId;
                 sig.name = "gipixel";
-                sig.halfRes =
-                    true;  // the indirect light is smooth (and multiplied by the albedo after): half size, guided upsample
+                // The indirect light is smooth (and multiplied by the albedo after): half size, guided upsample.
+                sig.halfRes = true;
                 DenoiseInputs din;
                 din.noisy.res =
                     noisy.res;  // the imported image: the denoiser's passes read it after the kernel wrote it

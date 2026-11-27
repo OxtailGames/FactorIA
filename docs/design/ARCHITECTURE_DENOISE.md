@@ -110,9 +110,8 @@ Each iteration is a kernel with holes (`step` pixels apart): a 3x3 `[1 2 1]/4` p
 ones of the 3x3 variance read, so the pass costs about half of what a 5x5 did, and the filtered result is still the history), a 5x5 B3 spline
 in the second (without its four corners, 1/256 each and 1.6% of the weight together: the weights of the other 21 taps are normalised without
 them) and a 3x3 again from the third on (`kWideFrom`; those steps are 4, 8 and 16 pixels, the taps are far apart and the outer ring of a B3
-adds little there: a quarter of the taps). Before this change (M79 POLISH-denoise-2) the first iteration was the 5x5 and the single biggest
-pass of every effect (2.4 to 2.6 ms for AO, soft shadows and per-pixel GI; M5, Metal, 54-entity scene, 1080p); the 3x3 takes it to 1.3 ms for
-a full size signal and the quality tests did not move (the first filtered frame of the visibility test: 0.047 before, 0.044 after). A neighbour's weight is the kernel weight times
+adds little there: 9 taps instead of 21). The first iteration of a full size signal takes 1.3 ms at 1080p (M5, Metal, 54-entity scene; "Cost"
+has the rest). A neighbour's weight is the kernel weight times
 - a plane term, `exp(-d^2)` with `d` the distance of the neighbour's view-space position to this pixel's tangent plane over
   `depthTolerance * depth * (1 + 0.1 * step)`,
 - the cosine of the normals to the power `normalPower` (a neighbour facing away has no weight),
@@ -173,10 +172,17 @@ a joint bilateral upsample brings the edges back from the full guide. The soft s
    cosine of at least 0.9), so a block over an edge does not mix the two sides; a block of sky passes the plain mean.
 3. `-temporal` and the iterations at the half size. One iteration fewer (`max(2, iterations - 1)`): a step of 2 full-size pixels covers
    what two steps did. The history is `ceil(w / 2) x ceil(h / 2)` and its config key changes, so a signal that switches size starts anew.
+   The velocity image has the full size: the temporal pass reads it at the texel of the block that the half guide took (the first of the
+   four with the half guide's depth), never at the corner the four texels share, where a point sampler's choice depends on the GPU.
 4. `-up`: every full-size pixel takes the four nearest half pixels with the bilinear weights times a plane term and the cosine of the
    normals to the power `normalPower` (full guide against half guide), plus a floor of 0.001 of the bilinear weight so that a pixel that
    no half pixel matches (a thin feature) still gets a value; a pixel with nothing drawn, or with no weight at all, passes the noisy
-   sample through, as the temporal pass does.
+   sample through, as the temporal pass does. A half pixel `q` is at `(2q + 1) / full size` in the full image (not `(q + 0.5) / half size`,
+   which differs on an odd size).
+
+The three half size programs (`guidehalf`, `down`, `up`) are compiled when the first half size signal asks, not with the others. A backend
+that cannot compile them (only Metal has been tried; the GLSL ES, HLSL and WGSL ones are not) runs that signal as a full size one, says so
+once in the log (`RtDenoiser::half_unavailable()`), and every other signal denoises as before.
 
 Memory: the history is 64 bytes per half pixel (the 48 and the two 8-byte guide images), a third of a full size signal's 48 per pixel of
 the camera: 31.6 MiB at 1080p against 94.9. The signals that carry a sharp edge in their own pixels (a shadow, a mirror) lose it at half
@@ -230,8 +236,9 @@ does not make the next frame believe it blended with a history that was never wr
 
 ### Memory
 
-Every pixel of a signal's history is 48 bytes (a half size signal: 64 bytes per pixel of its half size image) (two colour images of Rgba16F, 8 bytes, and two moment images of Rgba32F, 16 bytes;
+Every pixel of a signal's history is 48 bytes (two colour images of Rgba16F, 8 bytes, and two moment images of Rgba32F, 16 bytes;
 32 bytes when the GPU cannot render to Rgba32F and the moments are Rgba16F), and every camera's guide 16 bytes (two Rgba16F images).
+A half size signal's history is 64 bytes per pixel of its half size image: the same images and its own guide history (two more Rgba16F images).
 The budget counts these persistent images only. The frame's transient images (the accumulation and the two filter buffers, Rgba16F,
 8 bytes a pixel each, the debug picture when asked) come from the frame graph's pool and alias with its other transients; they are not
 in the budget.
@@ -251,7 +258,7 @@ for the guide, 4 full size ones of 168.8 and two half ones of 56.3), so all six 
 
 ## Cost
 
-The GPU time of the denoiser's passes in one frame (M5, Metal, 54-entity scene `tools/cli/tests/perf/rt_cost`, 1920x1080, a Release build, a
+The GPU time of the denoiser's passes in one frame (M5, Metal, 54-entity scene `tools/cli/tests/fixtures/rt_cost`, 1920x1080, a Release build, a
 temporary GPU timestamp per pass that is not in the engine, the median of three interleaved runs of the builds below, a static camera; a moving
 camera, a second project of the same scene with the camera moving, gave 4.5 to 1.9, 9.0 to 6.5, 9.7 to 3.4 and 8.3 to 2.4 ms in the same order):
 
