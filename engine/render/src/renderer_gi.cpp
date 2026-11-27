@@ -149,7 +149,7 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
     }
     g.rtJobs.clear();
     g.rtPrevSerial.clear();
-    g.rtBounceLog.clear();
+    g.rtBounceLog.clear();  // (filled only while a test asks: RendererTestAccess::gi_log_rt_bounce)
     g.rtReason.clear();
     g.rtBudget = 0;
     g.rtInsured = false;
@@ -173,6 +173,7 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
 
     // The probes captured this frame, grid by grid in entity order, each as six face jobs.
     int left = kGiMaxFrameProbes;
+    int insuredTaken = 0;
     int index = 0;
     for (auto& [id, gr] : g.grids) {
         gr.lastFrameCaptures = 0;
@@ -182,12 +183,16 @@ void Renderer::Impl::gi_plan(World& world, bool atlasRemade) {
         std::vector<int> picks;
         std::vector<char> firsts;  // insured: whether the rays' pick was the probe's first update
         if (g.rtInsured) {
-            const std::size_t most = std::size_t(std::max(0, std::min(gr.probesPerFrame, left)));
+            // Only the first kGiInsuredMaxProbes of the rays' picks (all grids together) get their six faces planned: the rays usually run,
+            // and these captures are dropped by gi_finish then. The picks left out are given back like those of a pass that did not run.
+            const std::size_t most =
+                std::size_t(std::max(0, std::min({gr.probesPerFrame, left, kGiInsuredMaxProbes - insuredTaken})));
             for (const GiSystem::RtJob& rj : g.rtJobs) {
                 if (rj.grid != id || picks.size() >= most) continue;
                 picks.push_back(rj.probe);
                 firsts.push_back(rj.first ? 1 : 0);
             }
+            insuredTaken += int(picks.size());
         } else {
             picks = gi_pick(gr.last, gr.retry, g.frame, std::min(gr.probesPerFrame, left));
         }
@@ -322,7 +327,7 @@ bool Renderer::Impl::gi_plan_rays() {
         // filling, was made again or whose layout changed holds nothing of it, or the old grid's light), as the lit shader reads ready grids only.
         const bool ready = gr.captured >= gr.layout.count;
         p.grid3[2] = l.bounce > 0.0f && ready ? 1.0f : 0.0f;
-        g.rtBounceLog.push_back(p.grid3[2]);
+        if (g.rtLogBounce) g.rtBounceLog.push_back(p.grid3[2]);
         p.grid3[3] = l.nearPlane;
         p.frame[0] = std::uint32_t(g.frame & 0xffffffffu);
         p.frame[1] = rt_effect_seed(g.frame);

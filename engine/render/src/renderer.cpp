@@ -1411,6 +1411,16 @@ render::RtGiProbes* RendererTestAccess::rt_gi(Renderer& r) { return r.impl_ ? &r
 std::vector<float> RendererTestAccess::gi_rt_bounce_flags(Renderer& r) {
     return r.impl_ ? r.impl_->probes.gi.rtBounceLog : std::vector<float>{};
 }
+void RendererTestAccess::gi_log_rt_bounce(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->probes.gi.rtLogBounce = on;
+}
+bool RendererTestAccess::path_trace_set_failure(Renderer& r, const std::string& job, const std::string& why) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->ptState.jobs.find(job);
+    if (it == r.impl_->ptState.jobs.end()) return false;
+    it->second.failure = why;
+    return true;
+}
 std::size_t RendererTestAccess::path_trace_jobs(Renderer& r) { return r.impl_ ? r.impl_->ptState.jobs.size() : 0; }
 render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
 RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {

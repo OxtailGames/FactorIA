@@ -1502,7 +1502,25 @@ exec sleep 600
     // The child took the whole line: it ends with the newline and parses as one request (a cut plan would not).
     std::ifstream in(planFile, std::ios::binary);
     std::string line((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    CHECK(line.size() > 500000);
+    // The parent's own plan, serialized the way the helper's request is: the helper got exactly those bytes (not a number picked by eye).
+    // (the bake resolves the manifest's folder: /var is /private/var on a Mac)
+    lightmap_job::Options opt;
+    opt.texelsPerMeter = 4.0;
+    opt.maxPageSize = 256;
+    opt.settings.samples = 8;
+    opt.settings.shadowSamples = 2;
+    opt.settings.denoiseRadius = 0;
+    opt.device = lightmap_job::DeviceChoice::Auto;
+    auto own = lightmap_job::make_plan(e.world(), std::string("scenes/main.scene.json"), opt,
+                                       (stdfs::canonical(p.dir) / "scenes/main.lightmap.json").generic_string(),
+                                       "scenes/main.lightmap.json");
+    REQUIRE_MESSAGE(own.ok(), own.error().message);
+    const std::string expected = Json::object({{"command", "lightmap.bake_plan_start"},
+                                               {"args", Json::object({{"plan", lightmap_job::plan_to_json(*own)}})}})
+                                     .dump() +
+                                 "\n";
+    CHECK(expected.size() > 500000);  // the scene really makes a plan far over any pipe's buffer
+    CHECK(line.size() == expected.size());
     REQUIRE(!line.empty());
     CHECK(line.back() == '\n');
     auto parsed = parse_json(line, "<the plan the helper read>");
@@ -1516,6 +1534,42 @@ exec sleep 600
     CHECK(std::chrono::steady_clock::now() - cancelledAt <
           std::chrono::seconds(30));  // not the 10 minutes of the sleep
     CHECK(helper_gone(pidFile));
+    e.shutdown();
+}
+
+TEST_CASE("lightmap bake helper: a cancel ends the wait for a helper that never says it is ready") {
+    TempProject p("neverready");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    const stdfs::path pidFile = p.dir / "helper.pid";
+    // Starts and prints nothing (a helper stuck loading): the parent waits for the first line, up to two minutes.
+    const stdfs::path script =
+        write_fake_factoria(p, "mute-factoria", "echo $$ > \"" + pidFile.generic_string() + "\"\nexec sleep 600\n");
+    const EnvVar exe("FA_FACTORIA_EXE", script.generic_string());
+    const HelperAlways always;
+    auto& c = e.commands();
+    auto start = c.call("lightmap.bake_start", small(Json::object({{"device", "auto"}, {"apply", false}})));
+    REQUIRE_MESSAGE(start.ok, start.error.dump());
+    const std::string job = start.result["job"].get<std::string>();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    while (!stdfs::exists(pidFile) || stdfs::file_size(pidFile) == 0) {
+        REQUIRE(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto status = c.call("lightmap.bake_status", Json::object({{"job", job}}));
+    REQUIRE_MESSAGE(status.ok, status.error.dump());
+    CHECK_MESSAGE(status.result["state"] == "running", status.result.dump());
+    auto cancel = c.call("lightmap.bake_cancel", Json::object({{"job", job}}));
+    REQUIRE_MESSAGE(cancel.ok, cancel.error.dump());
+    const auto cancelledAt = std::chrono::steady_clock::now();
+    const Json done = wait_done(e, job);
+    CHECK_MESSAGE(done["state"] == "cancelled", done.dump());
+    CHECK(std::chrono::steady_clock::now() - cancelledAt <
+          std::chrono::seconds(30));  // not the 120 s of the ready wait
+    CHECK(helper_gone(pidFile));
+    for (const std::string& f : p.files()) CHECK(f.find("lightmap") == std::string::npos);
     e.shutdown();
 }
 
