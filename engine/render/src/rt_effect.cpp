@@ -178,7 +178,7 @@ gpu::ShaderDesc rt_effect_shader_desc(const rt_kernels::RtKernel& kernel, const 
     }
     if (spec.usesAtlas)
         texture(RtEffectBindings::kViewAlbedo, 3, 2, 5);             // t3 / binding 5 / texture(2): the probe atlas
-    if (spec.usesAux) texture(RtEffectBindings::kViewAux, 5, 4, 7);  // t5 / binding 7 / texture(4)
+    if (spec.usesAux) texture(RtEffectBindings::kViewAux, 5, 4, 9);  // t5 / binding 9 / texture(4)
     if (spec.usesHit || spec.usesLocal) {                            // b1 / binding 7 / buffer(3)
         ShaderUniformBlock& h = d.uniformBlocks[RtEffectBindings::kUniformHit];
         h.stage = ShaderStage::Compute;
@@ -279,6 +279,8 @@ gpu::View RtEffects::records_view(Gpu& gpu, gpu::Buffer records) {
     recordsBuffer_ = {};
     gpu::ViewDesc vd{};
     vd.storageBuffer.buffer = records;
+    vd.storageBuffer.structureStride =
+        int(sizeof(RtInstanceRecord));  // the kernels declare StructuredBuffer<RtInstanceRecord>
     vd.label = "rt effect records";
     const gpu::View v = device.make_view(vd);
     if (!v.id || device.state(v) != gpu::ResourceState::Valid) {
@@ -301,8 +303,7 @@ RtEffectOutput RtEffects::add_pass(FrameGraph& graph, Gpu& gpu, const RtEffectRe
     const bool fromImage = req.srcImage != nullptr;
     const bool auxFromImage = req.auxImage != nullptr;
     if (!req.camera || !req.scene || !(fromImage ? req.srcRes.valid() : req.prepass.valid()) || req.width < 1 ||
-        req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesHit && spec->usesAux) ||
-        (spec->usesLocal && (spec->usesHit || spec->usesAux)) ||
+        req.height < 1 || (spec->usesHit && !spec->usesRecords) || (spec->usesLocal && spec->usesHit) ||
         (spec->usesGbuffer && !(req.gbufferAlbedo.valid() && req.gbufferMaterial.valid())) ||
         (spec->usesAtlas && (spec->usesGbuffer || !req.atlas)) ||
         (spec->usesAux && !(auxFromImage ? req.auxRes.valid() : req.aux.valid())) ||

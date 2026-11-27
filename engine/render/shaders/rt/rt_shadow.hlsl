@@ -11,10 +11,10 @@
 //   binding 1  g_out      storage image, rgba32f                          (Metal: texture(0))
 //   binding 2  g_params   constant buffer, RtEffectParams                 (Metal: buffer(1))
 //   binding 3  g_prepass  Texture2D, the camera's prepass                 (Metal: texture(1))   t1
-//   binding 4  g_records  StructuredBuffer of RtInstanceRecord            (Metal: buffer(2))   t2   (not used here)
+//   binding 4  g_records  StructuredBuffer of RtInstanceRecord            (Metal: buffer(8))   t2   (not used here)
 //   binding 5  g_albedo   Texture2D, the G-buffer's albedo                (Metal: texture(2))   t3   (not used here)
 //   binding 6  g_material Texture2D, the G-buffer's roughness and metal   (Metal: texture(3))   t4   (not used here)
-//   binding 7  g_aux      Texture2D, a kernel's second input image        (Metal: texture(4))   t5   (not used here)
+//   binding 9  g_aux      Texture2D, a kernel's second input image        (Metal: texture(4))   t5   (not used here)
 //
 // Output (Rgba32F, the size of the prepass), two layouts, chosen by user1.y:
 //   hard (0, one ray at the sun's centre): r = the linear view depth of the surface (kRtNoMesh where no mesh was drawn; the contact shadows of

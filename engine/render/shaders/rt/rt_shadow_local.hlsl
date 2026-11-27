@@ -52,7 +52,9 @@ struct RtLocalLight {
 };
 // END RtLocalLight
 struct RtLocalParams {
-    float4 header;  // x: how many lights are traced (0 .. 3); y: how much shorter than its length a ray is (a fraction): it stops short of the light
+    // x: how many lights are traced (0 .. 3); y: how many metres short of the light a ray stops (so a light inside a mesh's skin does not shadow
+    // itself); z: the most of the ray's length that stop may be (a fraction, so a light very near the surface still shadows it); w: 0
+    float4 header;
     RtLocalLight lights[3];
 };
 [[vk::binding(7, 0)]] ConstantBuffer<RtLocalParams> g_local : register(b1);
@@ -95,7 +97,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     // user0: x = the normal offset in metres, y = more of it per metre of view depth, z = TMin, w = TMax (unused: a ray ends at its light).
     const float3 origin = pos + n * (g_params.user0.x + g_params.user0.y * depth);
     const uint count = min((uint)g_local.header.x, 3u);
-    const float shorter = 1.0 - clamp(g_local.header.y, 0.0, 0.5);
+    const float stopMetres = max(g_local.header.y, 0.0), stopCap = clamp(g_local.header.z, 0.0, 0.5);
     float vis[3] = {1.0, 1.0, 1.0};
     for (uint li = 0u; li < count; ++li) {
         const RtLocalLight L = g_local.lights[li];
@@ -138,7 +140,7 @@ void main(uint3 id : SV_DispatchThreadID) {
             ray.Origin = origin;
             ray.TMin = g_params.user0.z;
             ray.Direction = v / len;
-            ray.TMax = len * shorter;
+            ray.TMax = len - min(stopMetres, len * stopCap);
             RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
             q.TraceRayInline(g_tlas, RAY_FLAG_NONE, kRtMaskCastsShadow, ray);
             while (q.Proceed()) {}  // a non-opaque candidate (a cutout) is never committed here

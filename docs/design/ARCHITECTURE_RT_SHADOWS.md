@@ -94,8 +94,9 @@ neither its ray image nor its map).
 - No `Light.shadowDistance` fade for a traced light: the rays reach as far as the light's range. The distance still matters once: a light whose
   whole range is farther from the camera than its `shadowDistance` (or the scene's) is not a candidate (`shadow_bounds`), so it is never traced and
   its map, which fades there, is the one that answers; a light in range at the camera's distance is traced in full.
-- The ray stops `kRtLocalShorter` = 0.02 of its length short of the light (a fraction, so the stop is 2 cm for a light 1 m away and 40 cm at
-  20 m): an absolute stop with a cap would need the kernel's header to carry metres, which is a kernel change; it stays a fraction.
+- The ray stops `kRtLocalStopMetres` = 0.03 m short of the light, and never more than `kRtLocalStopCap` = 0.25 of its length (`RtLocalParams::header`
+  y and z; the kernel's `TMax = len - min(stopMetres, len * stopCap)`): 3 cm for a light 1 m away and for one 20 m away (the fraction it replaced,
+  0.02 of the length, was 40 cm at 20 m, so a thin occluder near a far light was missed), and a light 4 cm from a surface still shadows it.
 - Memory: two RGBA32F images per camera (the trace and the pack, the size of the prepass) plus the denoiser's history for signal 6. They are freed two frames after the last use.
 - `render.ray_tracing` answers `localShadows: { cap, candidates, traced }` (the last whole frame) and its `reason` names the lights and the cap.
 

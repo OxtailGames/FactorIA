@@ -82,6 +82,7 @@ kernel void rt_gi(instance_acceleration_structure tlas [[buffer(0)]],
     threadgroup float3 s_radiance[kMaxRays];
     threadgroup float s_dist[kMaxRays];
     threadgroup float s_back[kMaxRays];
+    threadgroup float3 s_dir[kMaxRays];  // the ray's direction, computed once by the thread that traces it
 
     const uint job = group.x;
     if (job >= params.frame.w) return;
@@ -118,6 +119,7 @@ kernel void rt_gi(instance_acceleration_structure tlas [[buffer(0)]],
         } else {
             color = rt_miss_color(hit, dir);
         }
+        s_dir[r] = dir;
         s_radiance[r] = color;
         s_dist[r] = dist;
         s_back[r] = back;
@@ -126,7 +128,7 @@ kernel void rt_gi(instance_acceleration_structure tlas [[buffer(0)]],
 
     if (t < 9) {
         float3 sum = float3(0.0, 0.0, 0.0);
-        for (uint r = 0; r < n; ++r) sum += s_radiance[r] * gi_sh_basis(t, gi_rotate(rot, gi_fibonacci(r, n)));
+        for (uint r = 0; r < n; ++r) sum += s_radiance[r] * gi_sh_basis(t, s_dir[r]);
         out_img.write(float4(sum * (4.0 * kRtHitPi / float(n)), weight), uint2(uint(block.x) + t, uint(block.y) + 10));
     }
     if (t == 9) {
@@ -141,7 +143,7 @@ kernel void rt_gi(instance_acceleration_structure tlas [[buffer(0)]],
         const float3 td = gi_oct_decode(e);
         float wsum = 0.0, m1 = 0.0, m2 = 0.0;
         for (uint r = 0; r < n; ++r) {
-            const float c = dot(td, gi_rotate(rot, gi_fibonacci(r, n)));
+            const float c = dot(td, s_dir[r]);
             if (c <= 0.0) continue;
             const float w = pow(c, lobe);
             wsum += w;

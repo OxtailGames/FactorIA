@@ -569,6 +569,11 @@ View RecordingDevice::make_view(const ViewDesc& d) {
         else if (d.storageBuffer.offset < 0 || std::size_t(d.storageBuffer.offset) >= b->info.size)
             add(what, "offset " + std::to_string(d.storageBuffer.offset) + " is outside the buffer (" +
                           std::to_string(b->info.size) + " bytes)");
+        else if (d.storageBuffer.structureStride < 0 || d.storageBuffer.structureStride % 4 != 0 ||
+                 (d.storageBuffer.structureStride > 0 && d.storageBuffer.offset % d.storageBuffer.structureStride != 0))
+            add(what, "structureStride " + std::to_string(d.storageBuffer.structureStride) +
+                          " is not 0 (raw) or a multiple of 4 that divides the offset " +
+                          std::to_string(d.storageBuffer.offset));
     } else {
         const ViewDesc::ImageView* iv = info.type == ViewType::StorageImage             ? &d.storageImage
                                         : info.type == ViewType::ColorAttachment        ? &d.colorAttachment

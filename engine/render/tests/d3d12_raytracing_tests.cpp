@@ -658,6 +658,26 @@ TEST_CASE(
         CHECK_MESSAGE(bad.empty(), bad);
     }
 
+    // Frame 5: the refit is in one list and the trace in the next, submitted one after the other with no wait between
+    // them. The engine records no UAV barrier between the two lists: ID3D12CommandQueue::ExecuteCommandLists
+    // guarantees that the work of the first call finishes before the work of the second starts, and every list is its
+    // own call (D3d12Device::submit).
+    step = "frame 5: refit in one list, trace in the next one";
+    {
+        CommandList& refit = dev->begin_commands("rt frame 5 refit");
+        build_blas(refit, blas.value(), narrowVb, true);
+        build_tlas(refit, blas.value(), moved, true);
+        dev->submit(refit);
+        CommandList& tracing = dev->begin_commands("rt frame 5 trace");
+        trace(tracing, tlas.value());
+        dev->submit(tracing);
+        dev->commit();
+        auto idle = dev->wait_idle();
+        REQUIRE_MESSAGE(idle, idle.error().to_string());
+        const std::string bad = first_mismatch(read_hits(), expected_hits(moved, 0.5f));
+        CHECK_MESSAGE(bad.empty(), bad);
+    }
+
     step = "the refusals: an acceleration structure buffer is never copied, a build checks its sizes";
     {
         CommandList& list = dev->begin_commands("rt refusals");

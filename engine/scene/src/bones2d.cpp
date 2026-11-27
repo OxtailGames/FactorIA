@@ -228,7 +228,7 @@ Result<void> skin_bind(World& w, Entity e) {
         return make_error(
             "SpriteSkin on '" + label_of(w, e) + "' has no bones to bind.",
             "Set SpriteSkin.bones to the ids or names of the Bone2D entities, e.g. [\"hip\", \"spine\"].");
-    for (const std::string& p : bones.problems) return make_error(p, "Fix SpriteSkin.bones, then bind again.");
+    if (!bones.problems.empty()) return make_error(bones.problems.front(), "Fix SpriteSkin.bones, then bind again.");
     bool ok = true;
     const Affine2 inv = world_affine(w, e).inverse(&ok);
     if (!ok)
