@@ -5973,10 +5973,17 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             // DLSS Ray Reconstruction takes both signals (rr_signals): nothing of the engine's denoiser is declared (it drops their histories) and the
             // composite reads the noisy image as it is (rtGlossy stays empty). The kernel's image also gives Ray Reconstruction its hit distance.
             color.enabled = !ctx.rr.reflections;
+            // The composite reads the denoised image only where the roughness is in this window (the sharp pixels read the raw image, the
+            // rougher ones are not traced): the denoiser does not spend a pixel on the rest. (Pixels the kernel did not trace are skipped too.)
+            color.roughMin = kRtReflectSharp;
+            color.roughMax = kRtReflectLimit;
             DenoiseSignal cover = color;
             cover.kind = DenoiseKind::Coverage;
             cover.id = kRtReflectCoverageSignalId;
             cover.name = "reflections-coverage";
+            // The share of the rays that hit is a smooth one-channel signal (the lobe limit keeps it as narrow as the image): three iterations
+            // give the same picture where the five of the image's filter are what its noise needs.
+            cover.settings.iterations = std::min(cover.settings.iterations, 3);
             const DenoiseOutput dc =
                 rtDenoiser.add_passes(graph, transient_targets(), gpu, dcam, color, din, &stats.drawCalls, plan.name);
             if (ctx.rr.reflections) {
@@ -6058,6 +6065,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             sig.kind = DenoiseKind::Occlusion;
             sig.id = kRtAoSignalId;
             sig.name = "ao";
+            sig.halfRes =
+                true;  // the occlusion of a hemisphere is smooth: half size, then a depth and normal guided upsample
             DenoiseInputs din;
             din.noisy.res = out.res;  // the imported image: the denoiser's passes read it after the kernel wrote it
             din.noisy.view = out.out->texture;
@@ -6161,6 +6170,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
                 sig.kind = DenoiseKind::Diffuse;
                 sig.id = kRtGiPixelSignalId;
                 sig.name = "gipixel";
+                sig.halfRes =
+                    true;  // the indirect light is smooth (and multiplied by the albedo after): half size, guided upsample
                 DenoiseInputs din;
                 din.noisy.res =
                     noisy.res;  // the imported image: the denoiser's passes read it after the kernel wrote it

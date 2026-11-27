@@ -7,10 +7,15 @@
 // gives the kind of the signal, the noisy image, the guides of the camera (the prepass, the velocity, a roughness image for a specular signal)
 // and the camera's matrices; the module owns the history (per camera and signal), makes it, resets it and frees it.
 //
-//   guide     once per camera and frame: the prepass -> the guide history (linear depth + WORLD normal), for the next frame's disocclusion test
-//   temporal  noisy + guides + history -> the accumulated colour and its variance (transient), the moments (history)
+//   guide     once per camera and frame: the prepass -> the guide (linear depth + WORLD normal); the next frame's disocclusion test reads it
+//             as the history, and every pass of this frame reads it instead of decoding the prepass's octahedral normal
+//   temporal  noisy + guide + history -> the accumulated colour and its variance (transient), the moments (history)
 //   atrous    N iterations (steps 1, 2, 4, ...); the first one's result is the history, the last one's is the denoised image
 //   debug     (optional) the history length or the variance as a grey picture
+//
+// A signal of kind Occlusion or Diffuse may run at HALF resolution (DenoiseSignal::halfRes): its own half guide (the nearest pixel of every 2x2
+// block), a `down` pass (the block's mean over the pixels of the guide's surface), the temporal and a-trous passes at half size (a quarter of
+// the pixels, history included), and an `up` pass (a joint bilateral upsample steered by the full guide) that gives the full-size image.
 //
 // What is free when nothing asks: no shader is compiled, no pipeline, image or history exists until a first add_passes with an enabled signal
 // (ready()); a signal whose `enabled` is false (a vendor denoiser, DLSS Ray Reconstruction, does its job) declares nothing and frees its
@@ -72,6 +77,14 @@ struct DenoiseSignal {
     std::string name;
     DenoiseSettings settings;
     DenoiseDebug debug = DenoiseDebug::None;
+    // Occlusion and Diffuse only (another kind ignores it): the temporal and filter passes run on half the width and height and an upsample
+    // gives the full-size image. A low-frequency signal (the occlusion of a hemisphere, the indirect light) loses nothing the eye sees; a
+    // shadow edge or a reflection would (they keep the full size). One fewer a-trous iteration runs (its step of 2 pixels covers the same).
+    bool halfRes = false;
+    // A reflection kind (Specular, Coverage) with a roughness image: a pixel whose roughness is outside [roughMin, roughMax] is not denoised (it
+    // comes out as the sample, flagged by a variance of -1; the filter does not take it as a neighbour), the caller does not read its result
+    // there. A pixel the kernel did not trace (the alpha of its image is exactly 0) is skipped the same way, with or without a window.
+    float roughMin = 0.0f, roughMax = 1.0f;
 };
 
 // What the denoiser needs of the camera and the frame (the history is keyed by camKey; the rules of TaaPlan decide when it holds).
@@ -152,16 +165,24 @@ struct DenoisePlan {
     int channels = 0;
     DenoiseSettings settings;
     int width = 0, height = 0;
-    int signalPasses = 0;  // the signal's own passes: the temporal one, the iterations and the debug view
+    bool halfRes = false;  // the signal runs at half size (only an Occlusion or a Diffuse one)
+    float roughMin = 0.0f,
+          roughMax = 1.0f;  // a reflection kind: the window of roughness that is denoised (sanitized, else 0 .. 1)
+    int chainWidth = 0,
+        chainHeight =
+            0;  // the size of the temporal and a-trous passes and of the history (the half size, else the camera's)
+    int signalPasses =
+        0;  // the signal's own passes: the temporal one, the iterations (one fewer at half size), the half size's three, the debug view
     int guidePasses =
         0;  // the camera's shared pass (1 when this call is the camera's first this frame and the guide is needed)
     int transients =
-        0;  // the frame's images the graph makes (the accumulation, the two a-trous buffers, the debug picture)
+        0;  // the frame's images the graph makes (the accumulation, the two a-trous buffers, the debug picture; half size: and two more)
     int historyImages = 0;     // the persistent images of the signal (two of the colour, two of the moments)
     bool hitDistance = false;  // the signal carries a hit distance (specular, and the coverage of one)
     std::uint64_t configKey = 0;
-    std::uint64_t historyBytes = 0;  // of the signal's history images (saturated)
-    std::uint64_t guideBytes = 0;    // of the camera's guide history (saturated)
+    std::uint64_t historyBytes =
+        0;  // of the signal's history images, a half size signal's own guide history included (saturated)
+    std::uint64_t guideBytes = 0;  // of the camera's guide history (saturated)
 };
 // `momentsF32`: the moments are 32-bit floats (else 16-bit: a GPU that cannot render to RGBA32F).
 DenoisePlan make_denoise_plan(const DenoiseSignal& signal, int width, int height, bool momentsF32);
@@ -227,7 +248,7 @@ public:
     // The GPU lost its targets or the window was resized: the histories go (they are made again for the new size).
     void forget_targets();
 
-    enum class Prog { Guide, Temporal, Atrous, Debug, Count };
+    enum class Prog { Guide, GuideHalf, Down, Up, Temporal, Atrous, Debug, Count };
     gpu::Pipeline pipeline(Prog prog, const TargetFormat& format);
 
 private:
@@ -254,14 +275,18 @@ private:
     struct SignalSlot {
         Target col[2];  // Rgba16F: the history colour (the first a-trous iteration's result) and its variance
         Target mom[2];  // RGBA32F (RGBA16F): moments of the luminance, the history length, the accumulated hit distance
+        Target hg
+            [2];  // a half size signal's own guide history (Rgba16F at the chain's size): the half guide of the frame before
+        bool halfGuide = false;
         gpu::PixelFormat momFormat = gpu::PixelFormat::None;
-        int w = 0, h = 0;
+        int w = 0, h = 0;  // the chain's size
         int last = -1;
         bool wrote = false;
         std::uint64_t serial = 0, sceneKey = 0, originShifts = 0, configKey = 0, planned = 0;
         std::uint64_t frameSerial = 0;
         const FrameGraph* frameGraph = nullptr;
         std::uint64_t temporalSerial = 0;  // the frame whose temporal pass ran (the moments are written)
+        std::uint64_t guideSerial = 0;     // the frame whose half guide pass ran
         DenoiseReset lastReset = DenoiseReset::Fresh;
         bool usedHistory = false;
     };

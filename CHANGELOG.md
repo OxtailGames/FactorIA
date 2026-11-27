@@ -7,22 +7,29 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 ## Unreleased
 
 - **What ray tracing costs, and when to use it (M79-P6b):** docs/RAY_TRACING.md has a "What it costs" table, measured on an Apple M5 on Metal at
-  1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.8 ms, soft +32, ambient occlusion +18, reflections +26, translucency +3,
-  per-pixel GI +22, the path tracer 29 ms a sample; the denoiser, not the rays, is the price; D3D12 and Vulkan not measured) and an "effect by backend"
+  1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.9 ms, soft +8, ambient occlusion +3.5, reflections +6, translucency +4,
+  per-pixel GI +9, the path tracer 34 ms a sample; re-measured after M79 POLISH-denoise-2 made the denoiser cheaper, it had been +32, +18, +26, +3, +22 and 29; D3D12 and Vulkan not measured) and an "effect by backend"
   table that says what is traced, what falls back and what has run on a real GPU, on CI only (WARP, lavapipe) or never. The AI guide has a short
   section 9.20.3 (which effect for which look, the preset tiers, the fallbacks, the path tracer as a reference tool). A new test checks that every
   effect asked for on a device that cannot trace draws the frame of ray tracing off, command for command, and makes nothing.
 - **DLSS Ray Reconstruction takes the ray traced reflections and the per-pixel GI (M79-P4b-2):** when Ray Reconstruction will draw the frame, the engine no longer denoises the traced reflections (`render.rayTracing.reflections`) and the per-pixel GI (`gi` `"perPixel"`): their noisy images are composited as the rays wrote them and the network denoises them, with the specular hit distance of the reflections as a new optional guide (Streamline buffer 42, made by a small pass from the reflection image's alpha). The ambient occlusion and the shadows keep the engine's denoiser (they are visibility, not light). The decision is made once per frame before the ray traced passes are recorded; a frame that falls back to Super Resolution shows its signals noisy once and the engine's denoiser starts again from a reset history; the per-pixel GI stays with the engine on a device that cannot filter 32-bit float images. `render.ray_tracing` reports `denoiser` `{reflections, gi, reason}`. With Ray Reconstruction off, or no reflections or GI traced, the frame has the same passes as before. Tested on the recording device with a fake provider; never run on NVIDIA hardware.
-- **The ray tracing denoiser costs a third to a half of what it did (M79 POLISH-denoise):** measured with a GPU timer per pass on an Apple M5 (Metal,
-  1920x1080, a 54-entity scene, the same project and camera for both builds), the denoiser was 90% a-trous iterations at 2 to 2.7 ms each (the
+- **The ray tracing denoiser costs a fifth to a third of what it did (M79 POLISH-denoise, POLISH-denoise-2):** measured with a GPU timer per pass on an Apple M5 (Metal,
+  1920x1080, a 54-entity scene, the same project and camera for every build, interleaved runs), the denoiser was 90% a-trous iterations at 2 to 2.7 ms each (the
   guide 0.2 to 0.5 ms, the temporal pass 0.8 to 1.5 ms). The iterations now read the camera's guide image (depth and world normal, one fetch a tap)
-  instead of decoding the prepass's octahedral normal in every tap, weigh a tap with one `exp2` instead of four transcendentals, drop the four
-  corner taps of the 5x5 (1.6% of the weight), use a 3x3 kernel from the third iteration on (steps 4, 8, 16) and copy a pixel whose filtered
-  variance is under one 8-bit level (not in the first iteration, so a pixel whose history saw only zeros still takes the signal from its
-  neighbours). The denoiser's GPU time per frame, before and after: ambient occlusion 14.1 to 4.2 ms, soft shadows 29.6 to 8.4, reflections
-  28.1 to 11.7, per-pixel GI 16.0 to 8.4. The denoiser's quality tests keep their tolerances. A signal the 1 GB history budget refuses now says
-  how many MB it wanted and how many are in use, and ARCHITECTURE_DENOISE.md states the memory at 1080p, 1440p and 4K (48 bytes a pixel for each
-  signal, 16 for a camera's guide: at 4K two signals fit, so the third effect that asks is shown noisy).
+  instead of decoding the prepass's octahedral normal in every tap, and so does the temporal pass; a tap weighs with one `exp2` instead of four
+  transcendentals; the four corner taps of the 5x5 (1.6% of the weight) are gone; the first iteration is a 3x3 (half the cost of the 5x5 it was)
+  and the kernel is a 3x3 again from the third on; a pixel whose filtered variance is under one 8-bit level is copied (not in the first iteration, so a
+  pixel whose history saw only zeros still takes the signal from its neighbours). The ambient occlusion and the per-pixel GI run on half the width and
+  height (`DenoiseSignal::halfRes`: a guide-consistent block mean, the temporal pass and the filter at half size with one iteration fewer, a depth- and
+  normal-guided upsample); the soft shadows and the reflections keep the full size, since a shadow edge and a mirror are sharp. A reflection pixel
+  outside the roughness window the composite reads (0.25 to 0.65) or that the kernel did not trace is skipped by the temporal pass and costs nothing
+  more, the lobe limit now applies to the reflections' coverage too (it was the image's only), and the coverage runs three iterations. The denoiser's GPU
+  time per frame, before M79 POLISH-denoise, after it, and now: ambient occlusion 14.1, 4.8, 1.9 ms; soft shadows 29.6, 9.0, 6.2; reflections 28.1, 11.1, 4.9;
+  per-pixel GI 16.0, 9.5, 2.8 (each effect's whole frame, the same runs: 29.3 to 22.9 ms, 35.5 to 29.5, 35.1 to 25.4, 40.0 to 30.9). The denoiser's quality tests keep
+  their tolerances, and new ones cover the half size chain, the roughness window, the coverage's lobe limit and that a calm pixel is left bit for bit as it is by the
+  later iterations. A signal the 1 GiB history budget refuses now says how many MiB it wanted and how many are in use, and ARCHITECTURE_DENOISE.md states the
+  memory at 1080p, 1440p and 4K (48 bytes a pixel for each full size signal, 64 per half size pixel, 16 for a camera's guide: at 4K two full size signals fit, so
+  the third effect that asks is shown noisy).
 - **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
   `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
   is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so
