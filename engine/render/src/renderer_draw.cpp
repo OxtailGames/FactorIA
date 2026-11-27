@@ -1222,6 +1222,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
             ctx.rr = r;
             rrSignalsFrame = r;
             rrSignalsDeclared = true;
+            // The hit distance guide's program is made now, before the frame graph: a failure is known here and only leaves that guide out.
+            if (r.reflections && gpu.has_device() && rrPrep.ready(gpu.device())) rrPrep.prepare_hit();
         } else if (upscaleCamera) {
             ctx.rr = r;
         }
@@ -5962,7 +5964,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (out.valid) {
             ctx.postPlan.rtReflectImg = out.out;
             ctx.postPlan.rtReflectRes = out.res;
-            rtReflectFrameImg = out.out;
+            rtReflectFrameImgs.push_back(out.out);
             // The glossy pixels (roughness from the sharp cutoff up) are denoised: the radiance (with the hit distance, which steers the virtual-motion
             // reprojection) and, as a second signal, where the rays ended on a surface, so the hand-off to the screen-space march and the probes has
             // no seam. The sharp pixels read the raw image. A denoiser that cannot run leaves both invalid: the composite reads the raw image.
@@ -6171,6 +6173,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             ctx.giPixel.on = true;
             rtGiPixelFrame.declared = true;
             rtGiPixelFrame.img = out.out;
+            rtGiPixelFrame.imgs.push_back(out.out);
             // The denoiser call is this one function: DenoiseSignal::enabled false (a vendor denoiser takes the signal) draws nothing of it and the
             // kernel's image is read as it is. The kernel's output is the irradiance / pi, not multiplied by an albedo, so what the denoiser filters
             // is already demodulated: the main pass multiplies it by the surface's own albedo, so textures stay sharp.
