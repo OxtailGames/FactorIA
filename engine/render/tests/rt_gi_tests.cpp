@@ -496,6 +496,7 @@ TEST_CASE("rt gi: the multi-bounce reads the grid's own probes only once every p
     World w;
     make_scene(w, 4);  // 9 probes, 4 a frame: three frames fill the grid; RealtimeGI.bounce is 1
     int zeros = 0, ones = 0;
+    RendererTestAccess::gi_log_rt_bounce(r.renderer, true);  // the renderer logs the flags only when a test asks
     for (int i = 0; i < 8; ++i) {
         const Json before = r.renderer.gi_report();
         const Json* grid = grid_json(before, "gi");
@@ -539,6 +540,32 @@ TEST_CASE("rt gi: the retry frame and the frames after a miss update the grids b
     CHECK(frames == total - 2);
     CHECK(idle == 0);
     CHECK(r.renderer.gi_report()["rtUpdates"].get<double>() == 0.0);
+}
+
+TEST_CASE("rt gi: the insured raster captures are limited to kGiInsuredMaxProbes probes, and the bounce log is off "
+          "unless a test "
+          "asks") {
+    Rig r;
+    r.dev->inject_faults(false, true);  // the scene never builds: the pass is declared and never runs
+    r.gi(render::RtGi::Probes);
+    World w;
+    make_scene(w, 8);  // the rays pick 8 of the 9 probes a frame
+    w.get<RealtimeGI>(w.find("gi"))->probesPerFrame =
+        8;  // and the raster rate of the grid does not limit the insured ones first
+    std::vector<double> delta;
+    double last = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        r.frame(w);
+        const double captures = r.renderer.gi_report()["captures"].get<double>();
+        delta.push_back(captures - last);
+        last = captures;
+        CHECK(RendererTestAccess::gi_rt_bounce_flags(r.renderer).empty());  // nothing asked for the log
+    }
+    // Frame 0 plans only the rays (nothing says yet that they will not run); frame 1 is insured: it captures the insured probes, not 8.
+    MESSAGE("probes captured per frame: " << delta[0] << ", " << delta[1] << ", " << delta[2] << ", " << delta[3]);
+    CHECK(delta[0] == 0.0);
+    CHECK(delta[1] == double(render::kGiInsuredMaxProbes));
+    for (double d : delta) CHECK(d <= 8.0);
 }
 
 TEST_CASE("rt gi: the recorded frame is the same every run (the seed is the frame's, no clock, no random number)") {

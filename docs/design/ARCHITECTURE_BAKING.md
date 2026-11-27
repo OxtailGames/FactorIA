@@ -248,7 +248,7 @@ asks for no more, and a GPU image can differ in the last bits between GPUs and d
   budget (no dispatch over 2^23 ray units, minimum batch included). `tools/authoring/tests/lightmap_commands_tests.cpp`: a tracer of the
   test (`set_tracer_opener`) that fails after N texels (auto bakes on the CPU with the same bytes, gpu fails and keeps the old manifest), only
   probes (note and warning), samples out of range refused, the plan surviving its JSON byte for byte, and (POSIX) a fake `factoria` shell
-  script that streams progress, is cancelled, dies or never becomes ready. `tools/cli/tests/lightmap_bake_test.cpp` runs the real child
+  script that streams progress, is cancelled, dies or never becomes ready (the parent's wait for the first line looks at the cancel flag every 20 ms, so a cancel ends it at once; the whole-plan test compares the bytes the helper read with the parent's own serialized request). `tools/cli/tests/lightmap_bake_test.cpp` runs the real child
   (`FA_FACTORIA_EXE`): the device report, progress, cancel, and no process left behind (`process_tree()`); where there is no ray tracing the
   child falls back to the CPU by itself, so the test passes on every CI machine. The editor autotest L4 bakes with Device Auto and GPU
   (on a Mac through the helper). A real GPU ran only on the Mac; D3D12 and Vulkan never.

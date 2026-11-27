@@ -114,6 +114,9 @@ public:
                  bool linear);
     // Whether collect() ran since begin_frame().
     bool collected() const { return collected_; }
+    // The items of the last collect() that can be in the TLAS (the kinds the scene leaves out, a mesh with no triangle and the ones over the cap are
+    // not counted). Known at plan time, while the TLAS is built later in the graph: 0 means this frame's TLAS will have no instance.
+    std::uint32_t traceable_items() const { return collected_ ? std::uint32_t(items_.size()) : 0; }
     // The frame graph pass: records on `list` (outside any pass). Does nothing without instances.
     void record(gpu::CommandList& list);
     void forget(const MeshAsset* mesh);
