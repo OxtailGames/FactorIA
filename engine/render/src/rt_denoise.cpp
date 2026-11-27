@@ -24,9 +24,9 @@ static_assert(UB_rt_denoise_rtd_guide_params == 1 && UB_rt_denoise_rtd_temporal_
               "the denoise fragment uniform slots");
 static_assert(VIEW_rt_denoise_tex_n == 0 && VIEW_rt_denoise_tex_p == 1 && VIEW_rt_denoise_tex_v == 2 &&
                   VIEW_rt_denoise_tex_hc == 3 && VIEW_rt_denoise_tex_hm == 4 && VIEW_rt_denoise_tex_hg == 5 &&
-                  VIEW_rt_denoise_tex_c == 6 && VIEW_rt_denoise_tex_r == 7 && VIEW_rt_denoise_tex_g == 1 &&
-                  VIEW_rt_denoise_tex_gh == 2,
+                  VIEW_rt_denoise_tex_c == 6 && VIEW_rt_denoise_tex_r == 7,
               "the denoise view slots");
+static_assert(VIEW_rt_denoise_tex_g == 1 && VIEW_rt_denoise_tex_gh == 2, "the denoise guide view slots");
 static_assert(SMP_rt_denoise_smp_pt == 0, "the denoise sampler slot");
 
 constexpr gpu::PixelFormat kColorFormat = gpu::PixelFormat::Rgba16F;
