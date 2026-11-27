@@ -123,11 +123,13 @@ FNV-1a 64 over the bytes the kernel's picture depends on; the `seed` is part of 
 are drawn however many frames it took to draw them, so a run is reproducible (`render.pathtrace` twice gives the same bytes on a device).
 A frame the renderer draws with the path tracer on but no TLAS (the scene is empty) dispatches nothing and the raster picture stays.
 
-**The samples a dispatch adds are capped by the image's pixels** (`path_trace_samples_cap`): at most `kPtMaxPathsPerDispatch` (2^24, 16.7 million
-paths) divided by `width x height`, never fewer than 1, so a 1080p image adds at most 8 samples a frame and a 4K one 2, whatever `samplesPerFrame`
-asks (64 at most). One submit then never runs long enough for a driver's watchdog (a Windows TDR is about two seconds), and the accumulation
+**The samples a dispatch adds are capped by the image's pixels and the path length** (`path_trace_samples_cap`): at most
+`kPtMaxPathsPerDispatch` (2^24, 16.7 million paths of `kPtCapBounces` = 4 bounces, the default) divided by `width x height`, and by
+`maxBounces / 4` when the paths are deeper (`maxBounces` 32 adds an eighth of the samples; fewer than 4 bounces are not credited), never fewer
+than 1. At the default 4 bounces a 1080p image adds at most 8 samples a frame and a 4K one 2, at 32 bounces 1 and 1, whatever `samplesPerFrame`
+asks (64 at most); the work of a dispatch, samples times bounces, stays under one size. One submit then never runs long enough for a driver's watchdog (a Windows TDR is about two seconds), and the accumulation
 spreads the samples over more frames: the picture after N samples is the same, only the number of frames it takes changes. The cap is a pixel
-count, never a time. `render.pathtrace` asks for `min(samples, 4)` a frame; on a very big image it gets fewer, still at least one a frame, so its bound of `samples + 64` frames holds.
+count, never a time (the bounces are the setting's, not the ones Russian roulette ends up taking). `render.pathtrace` asks for `min(samples, 4)` a frame; on a very big image it gets fewer, still at least one a frame, so its bound of `samples + 64` frames holds.
 
 **The state of a camera is forgotten when it goes.** `PathTraceState::jobs` has one `PathTraceJobState` per camera (`plan.name`), stamped with
 the frame that planned it (`lastFrame`); `PathTraceState::purge`, called by `rt_begin_frame`, erases the cameras no frame planned for two
@@ -145,9 +147,15 @@ filtering blit's shader. The pass reads the image's resource, so the frame graph
 
 What follows is the raster's own: the post stack and the tonemap treat the path traced colour as the lit colour (it is HDR in the scene's linear
 space, drawn into the scene target). The SSAO apply is skipped when the path tracer drew (the occlusion is part of the picture; applying it again
-would darken it twice), and so are its passes: a frame whose path tracer pass is declared (`ctx.pathTrace.res`) adds no SSAO passes, and one that
-traces the pass also asks no ray traced ambient occlusion (`ctx.rtAo.want` is false while `ptState.status.failure` is empty, so the occlusion
-comes back the frame after a device refuses the path tracer). The reflections, the per-pixel GI and the shadows are not skipped: they are other effects' passes (not this package's to drop) and the blended draws over the picture read them. The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
+would darken it twice), and so are its passes: a frame whose path tracer pass is declared **and expected to run** (`ctx.pathTrace.res` valid and
+`ctx.pathTrace.expected`) adds no SSAO passes, and one that traces the pass also asks no ray traced ambient occlusion. "Expected" is decided in
+`plan_job`, per camera: the device traces, the camera has its prepass, **this camera's** `PathTraceJobState::failure` is empty (it is the refusal
+of the last time this camera declared the pass; `ptState.status.failure` is only the last camera's, for `render.pathtrace`, and is cleared by
+every camera's build, so it cannot decide this) and at least one mesh of the scene can be in the TLAS (`RtScene::traceable_items()`, what `collect` kept: terrain, impostors and GPU-driven
+meshes are left out, so a scene made only of them has no instance, the kernel does not run and the raster's occlusion stays; the TLAS itself is
+built later in the graph, and a BLAS that is only pending is built first, so the first frame of a scene with a traceable mesh already traces).
+The occlusion comes back the frame after a device refuses the path tracer. The one case left is a traceable mesh whose BLAS build fails: that
+frame has no occlusion. The reflections, the per-pixel GI and the shadows are not skipped: they are other effects' passes (not this package's to drop) and the blended draws over the picture read them. The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
 picture** (they are not in the kernel's picture as raster draws): glass the path tracer already refracted shows twice, which is a known limit of
 this version.
 

@@ -2002,6 +2002,102 @@ TEST_CASE(
     CHECK(s.count == 1);
 }
 
+TEST_CASE("rt pathtrace: the samples of a dispatch are weighed by the bounces: a deep path adds fewer, a shallow one "
+          "no more") {
+    using fa::render::kPtCapBounces;
+    using fa::render::kPtMaxPathsPerDispatch;
+    using fa::render::path_trace_samples_cap;
+    const std::uint32_t atCap = path_trace_samples_cap(64, 1920, 1080, kPtCapBounces);
+    CHECK(atCap == std::uint32_t(kPtMaxPathsPerDispatch / (1920u * 1080u)));  // the default (4 bounces): as it was
+    CHECK(path_trace_samples_cap(64, 1920, 1080) == atCap);
+    CHECK(path_trace_samples_cap(64, 1920, 1080, 1) == atCap);  // fewer bounces are not credited
+    // 32 bounces: an eighth of the paths, so the dispatch's work (samples x bounces) stays at the cap's.
+    const std::uint32_t deep = path_trace_samples_cap(64, 1920, 1080, 32);
+    CHECK(deep == std::uint32_t(kPtMaxPathsPerDispatch * 4 / (1920u * 1080u * 32u)));
+    CHECK(deep >= 1);
+    CHECK(std::uint64_t(deep) * 32 <= std::uint64_t(atCap) * kPtCapBounces);
+    CHECK(path_trace_samples_cap(64, 3840, 2160, 32) == 1);  // never fewer than one
+    CHECK(path_trace_samples_cap(2, 160, 96, 32) == 2);      // a small image keeps what was asked
+    // path_trace_step uses the setting's bounces.
+    render::PathTracerSettings cfg;
+    cfg.samplesPerFrame = 64;
+    cfg.maxSamples = 0;
+    cfg.maxBounces = 32;
+    fa::render::PathTraceJobState st;
+    const auto step = fa::render::path_trace_step(st, cfg, 1, 2, 3, 7, 1920, 1080);
+    CHECK(step.count == deep);
+    cfg.maxBounces = 4;
+    fa::render::PathTraceJobState st4;
+    CHECK(fa::render::path_trace_step(st4, cfg, 1, 2, 3, 7, 1920, 1080).count == atCap);
+}
+
+TEST_CASE("rt pathtrace: a frame whose pass is declared but cannot run (no mesh the rays can see) keeps the "
+          "screen-space occlusion") {
+    Rig r;
+    path_rays(r, true);
+    World w;
+    Entity cam = make(w, "cam", {0, 3, 12});
+    w.add<Camera>(cam).projection = Projection::Perspective;
+    w.add<Terrain3D>(make(w, "terrain", {0, -1, 0})).size = {16,
+                                                             16};  // drawn by the raster, left out of the traced scene
+    add_ssao_to_camera(w);
+    path_rays(r, false);  // the same scene without the path tracer: the occlusion's passes are there to compare with
+    for (int i = 0; i < 2; ++i) r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    const int rasterAo = count_labels(r.lines(), "begin_pass 'ssao-");
+    REQUIRE(rasterAo >= 1);
+    path_rays(r, true);
+    for (int i = 0; i < 2; ++i) r.frame(w);
+    r.dev->clear_commands();
+    r.frame(w);
+    const std::vector<std::string> lines = r.lines();
+    CHECK(count_labels(lines, "rt-pathtrace") == 0);  // nothing to trace: the kernel did not run
+    CHECK(count_labels(lines, "begin_pass 'ssao-") == rasterAo);
+    CHECK(r.compute_passes().empty());
+    // The mesh comes: the frame it appears in already traces (the TLAS is built in the same graph, before the kernel) and has no occlusion.
+    World full;
+    make_scene(full, true, false);
+    add_ssao_to_camera(full);
+    r.frame(full);
+    r.dev->clear_commands();
+    r.frame(full);
+    const std::vector<std::string> traced = r.lines();
+    CHECK(count_labels(traced, "rt-pathtrace") >= 1);
+    CHECK(count_labels(traced, "begin_pass 'ssao-") == 0);
+}
+
+TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whatever another camera does in the frame") {
+    Rig r;
+    path_rays(r, true);
+    World w;
+    make_scene(w, true, false);
+    add_ssao_to_camera(w);
+    Entity second =
+        make(w, "second", {6, 3, 8});  // a second camera, drawn after the first, that never has the path tracer
+    auto& c2 = w.add<Camera>(second);
+    c2.projection = Projection::Perspective;
+    c2.renderTarget = "second-view";
+    c2.renderTargetSize = {64, 48};
+    for (int i = 0; i < 3; ++i) r.frame(w);
+    REQUIRE(RendererTestAccess::path_trace_jobs(r.renderer) == 1);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
+    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);  // the working path tracer replaces it
+    // Another camera's refusal (a name that has no state) changes nothing for this one.
+    CHECK_FALSE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:9", "x"));
+    // This camera's refusal: its frame draws the raster occlusion again, the other camera's job being drawn after it does not clear it.
+    REQUIRE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:0", "the device refused the kernel"));
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") >= 1);
+    // The next frame's declaration was accepted (the refusal was a test's): the path tracer takes the frame back.
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);
+}
+
 TEST_CASE("rt pathtrace: the state of a camera that no frame draws any more is forgotten after two frames") {
     using fa::render::PathTraceState;
     PathTraceState ps;

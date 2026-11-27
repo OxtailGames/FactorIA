@@ -240,6 +240,8 @@ struct Renderer::Impl::DrawContext {
     // picture only while `img->ran` is true when it draws (the scene had a TLAS this frame), else the raster picture stays.
     struct {
         bool want = false;
+        bool expected =
+            false;  // `want`, the pass was not refused and a mesh can be traced: its own occlusion replaces the ambient occlusion
         const RtEffectImage* img = nullptr;
         ResourceId res;
     } pathTrace;
@@ -1190,9 +1192,15 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.rtAo = {};
     // The path tracer's picture replaces the lit colour of the opaque meshes and has its own occlusion: a frame it draws traces no ambient
     // occlusion (its kernel and denoiser) for nothing. It is known only a frame late whether the path tracer works on this device, so the
-    // occlusion comes back the frame after a refusal (ptState.status.failure).
-    ctx.rtAo.want = wantRtAo && ctx.doPrepass &&
-                    !(wantPathTrace && ctx.doPrepass && rtScene.active() && ptState.status.failure.empty());
+    // occlusion comes back the frame after a refusal (this camera's PathTraceJobState::failure, not another camera's). The same goes for a
+    // frame whose pass is declared but cannot run because no mesh of the scene can be in the TLAS (terrain, impostors and GPU-driven meshes
+    // are left out; known here, the TLAS is built later in the graph, but a BLAS that is only pending is built first): that frame keeps its
+    // occlusion too. A mesh whose BLAS build fails leaves one frame without it.
+    const auto ptJob = ptState.jobs.find(plan.name);
+    const bool ptRefused = ptJob != ptState.jobs.end() && !ptJob->second.failure.empty();
+    const bool ptExpected =
+        wantPathTrace && ctx.doPrepass && rtScene.active() && !ptRefused && rtScene.traceable_items() > 0;
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected;
     ctx.giPixel = {};
     if (wantRtGiPixel) {
         // A fallback is running (the kernel was refused, or did not run for a few frames): the probe and ambient term lights the surfaces until the retry.
@@ -1235,6 +1243,7 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.rtTranslucency.want = wantRtTranslucency && ctx.doPrepass && ctx.xmit.want && rtScene.active();
     ctx.pathTrace = {};
     ctx.pathTrace.want = wantPathTrace && ctx.doPrepass && rtScene.active();
+    ctx.pathTrace.expected = ptExpected;
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -6247,7 +6256,8 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     ctx.pathTrace.res = ResourceId{};
     if (ptSettings.enabled) {
         ptState.status.active = false;
-        ptState.status.failure.clear();
+        ptState.status.failure
+            .clear();  // the last camera's refusal of this frame (render.pathtrace); plan_job reads each camera's own
     }
     if (ctx.pathTrace.want && ctx.doMainPass && ctx.postPlan.prepass.valid() && rtScene.active()) {
         RtEffectRequest req;
@@ -6293,8 +6303,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (out.valid) {
             ctx.pathTrace.img = out.out;
             ctx.pathTrace.res = out.res;
+            job->failure.clear();
         } else {
             ptState.status.failure = out.why;  // the kernel or the image could not be made: render.pathtrace says why
+            job->failure = out.why;
         }
         if (!out.valid && !rtWarnedPathTrace) {
             rtWarnedPathTrace = true;
@@ -6307,9 +6319,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     }
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
-    // A frame the path tracer draws (its pass is declared, its image is drawn over the opaque picture, which has its own occlusion) makes none.
-    if (!ctx.rtAo.on && !ctx.pathTrace.res.valid() && ctx.doMainPass && ctx.doPrepass && fr.wantWorld &&
-        ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+    // A frame the path tracer draws (its pass is declared and expected to run: its image is drawn over the opaque picture, which has its own
+    // occlusion) makes none; a declared pass that cannot run (the scene offers no mesh) leaves this one.
+    if (!ctx.rtAo.on && !(ctx.pathTrace.res.valid() && ctx.pathTrace.expected) && ctx.doMainPass && ctx.doPrepass &&
+        fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
                         ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
                         &ctx.ssaoApply);

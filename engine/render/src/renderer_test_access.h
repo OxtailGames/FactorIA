@@ -79,9 +79,14 @@ struct RendererTestAccess {
     // M79-P4a: the GI probes updated by rays (rt_gi.h); null before init.
     static render::RtGiProbes* rt_gi(Renderer& r);
     // M79 POLISH-RA: the "the kernel reads the atlas" flag (RtGiParams::grid3[2]) of each dispatch the last frame planned for the probes.
-    static std::vector<float> gi_rt_bounce_flags(Renderer& r);
+    static std::vector<float>
+    gi_rt_bounce_flags(Renderer& r);  // empty until gi_log_rt_bounce(r, true) was called before the frame
+    static void gi_log_rt_bounce(Renderer& r, bool on);
     // M79 POLISH-RA: the cameras the path tracer keeps an accumulation state for (PathTraceState::jobs).
     static std::size_t path_trace_jobs(Renderer& r);
+    // M79 POLISH-last-A: sets the refusal the next frame's plan reads for one camera's path tracer pass (PathTraceJobState::failure; the frame's own
+    // declaration of a pass that is accepted clears it again). False when the camera has no accumulation state.
+    static bool path_trace_set_failure(Renderer& r, const std::string& job, const std::string& why);
     // M79-P2a-2: the draws of the last frame that read the sun's shadow from the ray traced image, and those that took min(image, cascades).
     struct RtShadowDraws {
         int mask = 0, withCascades = 0, local = 0;
