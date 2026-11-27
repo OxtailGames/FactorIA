@@ -314,6 +314,26 @@ TEST_CASE("rt gi pixel: with gi off, or probes, nothing of the per-pixel mode is
     }
 }
 
+TEST_CASE("rt gi pixel: with two cameras that trace, the status is the OR of their images (not the last camera's)") {
+    Rig r;
+    r.gi(render::RtGi::PerPixel, 1);
+    World w;
+    make_scene(w);
+    auto& c1 = *w.get<Camera>(w.find("cam"));
+    c1.viewport = {0.0f, 0.0f, 0.5f, 1.0f};
+    Entity second = make(w, "second", {4, 3, 12});
+    auto& c2 = w.add<Camera>(second);
+    c2.projection = Projection::Perspective;
+    c2.viewport = {0.5f, 0.0f, 0.5f, 1.0f};
+    for (int i = 0; i < 4; ++i) r.frame(w);
+    INFO(r.errors());
+    const render::RtGiPixelStatus st = r.status();
+    INFO(st.reason);
+    CHECK(st.wanted);
+    CHECK(st.active);
+    CHECK(st.reason.empty());
+}
+
 TEST_CASE(
     "rt gi pixel: perPixel declares one compute pass after the TLAS and the prepass, then the denoiser, before the "
     "lit pass") {
