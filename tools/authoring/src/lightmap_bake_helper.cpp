@@ -306,7 +306,8 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
                        "the helper process could not be started: " + started.error().message, started.error().hint);
     ChildProcess& child = *started.value();
 
-    // The first line it prints says it is ready.
+    // The first line it prints says it is ready. The wait looks at the cancel flag every kCancelSlice (as ask() does), so a cancel does not
+    // wait for a helper that never says it (up to kReadySeconds).
     {
         const auto deadline =
             Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kReadySeconds));
@@ -325,7 +326,8 @@ HelperOutcome run_in_helper(const Plan& plan, const ReportFn& report) {
                     "the helper process did not become ready within " + std::to_string(int(kReadySeconds)) + " seconds",
                     "Run `factoria session --no-graphics --no-scene` in the project to see why it does not start.");
             }
-            switch (child.read_line(line, std::min(left, 0.1), nullptr)) {
+            switch (
+                child.read_line(line, std::min(left, std::chrono::duration<double>(kCancelSlice).count()), nullptr)) {
                 case ChildProcess::Read::Timeout: continue;
                 case ChildProcess::Read::Closed:
                 case ChildProcess::Read::Cancelled:

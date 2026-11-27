@@ -38,6 +38,9 @@ inline constexpr int kGiRtDefaultProbesPerFrame = 16, kGiRtMinProbesPerFrame = 1
 // row, or one that says why it cannot run (RtGiProbes::failure), makes the renderer capture by raster for kGiRtRetryFrames frames, then try the
 // rays again once. Frame counts, never a time, so the result does not depend on the speed of the machine.
 inline constexpr int kGiRtMissFrames = 2, kGiRtRetryFrames = 120;
+// A frame whose rays may not run also plans the raster captures of the probes the rays picked (the insurance): at most this many probes, all
+// grids together, six face passes each; the picks left out are given back when the rays do not run, so such a frame updates fewer probes.
+inline constexpr int kGiInsuredMaxProbes = 4;
 
 // The constants block of the kernel at uniform slot RtEffectBindings::kUniformParams: 70 float4, 1120 bytes, the same struct as rt_gi.hlsl and
 // rt_gi.metal between the lines `// BEGIN RtGiParams` and `// END RtGiParams` (a test compares the field names with these).

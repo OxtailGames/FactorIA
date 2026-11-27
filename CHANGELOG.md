@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Last polish of the GPU lightmap helper, the GI probes and the path tracer (M79 POLISH-last-A):** the GPU bake's wait for a helper that never says it is ready
+  looks at the cancel flag every 20 ms (a cancel ends it at once, with a test); the insured raster captures of a retry or miss frame cover at most
+  4 probes (not up to 32) and the bounce log of the probes is kept only for a test; a path tracer frame in a scene with no mesh keeps the
+  screen-space occlusion, a camera's refusal is kept per camera (another camera's frame no longer clears it), and the samples a path tracer dispatch
+  adds are weighed by `maxBounces` as well as by the image's pixels (32 bounces add an eighth).
 - **Polish of the GI probes and the path tracer (M79-P4a/P5a):** the probes the rays update are blended into the atlas in one pass instead of one
   pass a probe (a tiled GPU loads and stores the atlas once); the multi-bounce reads a grid's own probes only once the grid is full; the retry frame
   and the frames after a missed pass are insured by the raster captures of the same probes, so they update the grids too; the path tracer skips the

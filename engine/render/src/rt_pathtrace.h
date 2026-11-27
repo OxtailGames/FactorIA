@@ -30,17 +30,24 @@ struct PathTraceJobState {
     int width = 0, height = 0;
     std::uint64_t lastFrame =
         0;  // the frameSerial of the last frame that planned this camera's pass (PathTraceState::purge)
+    // Why this camera's pass was refused the last time it was declared (the kernel or the image could not be made); empty once it was accepted.
+    // Per camera, so a camera that works keeps its occlusion when another one is refused (plan_job reads it a frame later).
+    std::string failure;
 };
 
 // The most paths (pixels x samples) one dispatch traces: a frame's samples are capped by the image's area, so a big image adds fewer samples a
 // frame (the accumulation spreads the rest over the next frames) and no single submit runs long enough for a driver's watchdog (Windows TDR,
-// about two seconds). A pixel count, never a time, so the picture a number of frames gives does not depend on the machine.
+// about two seconds). A pixel count, never a time, so the picture a number of frames gives does not depend on the machine. The count is of paths of
+// kPtCapBounces bounces: a path of more bounces counts as many paths as it has bounces over kPtCapBounces (the work of a path is its bounces).
 inline constexpr std::uint64_t kPtMaxPathsPerDispatch = std::uint64_t(1)
                                                         << 24;  // 16.7 million: 8.1 samples of a 1080p image
+inline constexpr int kPtCapBounces =
+    4;  // the bounces a path of the cap's count has (the default maxBounces); fewer bounces are not credited
 
-// The samples one dispatch of an image of `width` x `height` may add: `wanted` (samplesPerFrame), at most kPtMaxPathsPerDispatch / pixels, never
-// less than 1.
-std::uint32_t path_trace_samples_cap(std::uint32_t wanted, int width, int height);
+// The samples one dispatch of an image of `width` x `height` with paths of up to `maxBounces` bounces may add: `wanted` (samplesPerFrame), at
+// most kPtMaxPathsPerDispatch x kPtCapBounces / (pixels x max(maxBounces, kPtCapBounces)), never less than 1. 32 bounces add an eighth of the
+// samples of 4 (or fewer) bounces, so a deep configuration does one dispatch's work of the same size.
+std::uint32_t path_trace_samples_cap(std::uint32_t wanted, int width, int height, int maxBounces = kPtCapBounces);
 
 // What a frame does with the image.
 struct PathTraceStep {

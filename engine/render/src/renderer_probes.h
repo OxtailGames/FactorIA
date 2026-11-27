@@ -264,7 +264,8 @@ struct GiSystem {
     // the same probes are planned too (Job::insurance): no frame goes without an update of the grids.
     bool rtInsured = false;
     std::vector<float>
-        rtBounceLog;  // this frame: the "the kernel reads the atlas" flag of each dispatch (tests, RendererTestAccess)
+        rtBounceLog;  // this frame: the "the kernel reads the atlas" flag of each dispatch (filled only while `rtLogBounce`)
+    bool rtLogBounce = false;  // set by RendererTestAccess::gi_log_rt_bounce: the log costs nothing in a game
     std::uint64_t rtFallbackUntil =
         0;  // the raster captures run while `frame` is below this (the rays failed); then the rays are tried once
     std::string rtFallbackReason;  // why (what `render.ray_tracing` says while the fallback lasts)

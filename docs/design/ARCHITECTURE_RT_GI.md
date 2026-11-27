@@ -44,7 +44,13 @@ pass: the raster captures update the grids as before and the status says why (`g
    `insurance`): the retry frame after a failure (`rtRetry`, the first try after the 120 frames of `kGiRtRetryFrames`) and the frames after a
    miss (`rtMisses > 0`). `gi_finish` drops those captures when the rays ran and keeps them as the probes' update when they did not (the order of
    the probes, `gr.last` and `gr.serial`, is the one the rays' pick already took), so those frames update the grids as the others do, and no
-   probe is counted twice. The cost is the raster captures of up to the frame's budget on a frame that is tried, once a retry. **The first
+   probe is counted twice. Only the first `kGiInsuredMaxProbes` (4) of the rays' picks, all grids together,
+   get their captures planned: the rays usually run and the captures are dropped, but **the planning is not free** (six face passes of the scene
+   a probe, drawn by the GPU before `gi_finish` knows whether the rays ran, since the raster views are built with the graph), so the cap bounds
+   the GPU cost of a tried frame to at most 24 scene draws (4 probes, 6 faces) instead of 6 per probe of the budget (up to 32 probes, 192).
+   The picks left out are given back like those of a pass that did not run, so a frame whose rays do not run updates up to 4 probes, not the
+   whole budget; the fallback frames after it (rays refused, `kGiRtRetryFrames`) capture the grids' own `probesPerFrame` as before. The cost is
+   paid once a retry and on the one frame after a miss. **The first
    frame of a miss is not insured** (nothing says yet that the pass will not run: a scene may need one frame to build its TLAS): it updates no
    probe, as before.
 
@@ -104,7 +110,7 @@ same for the same seed, different for another, uniform on the sphere); `gi = "of
 pass after the TLAS build with a 1120-byte uniform and `dispatch 4 1 1` for four probes; the cap of 64 probes; two runs record the same stream; a
 device that cannot trace falls back to the raster captures and says why; turning the mode off frees the kernel and the image; a scene without
 a `RealtimeGI` says so; the blend into the atlas is one pass with one draw and one viewport a probe; the multi-bounce flag is 0 until the grid is
-full and 1 after (`RendererTestAccess::gi_rt_bounce_flags`); with a scene that never builds, no frame after the first of the misses updates no probe
+full and 1 after (`RendererTestAccess::gi_rt_bounce_flags`, filled only after `gi_log_rt_bounce(r, true)`: a game does not keep the log); with a scene that never builds, no frame after the first of the misses updates no probe
 (the insurance, the retry frames included).
 
 The two real-device tests share their scene and rig in `tests/rt_gi_test_scene.h` (`fa::test::gi`: the quad and the box, `Place`, `Rig` with the
