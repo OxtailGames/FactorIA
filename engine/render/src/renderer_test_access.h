@@ -116,6 +116,14 @@ struct RendererTestAccess {
     static bool rr_hit_image(Renderer& r);
     static std::uint32_t rt_gi_pixel_signal_id();
     static std::uint32_t rt_reflect_signal_id();
+    // M79 POLISH-RB: whether the engine's denoiser keeps the ray traced signals because a frame left to Ray Reconstruction was drawn without it
+    // (Impl::rrSignalsLost), and a way to set it (a transient disagreement has no other natural cause: every refusal of the provider sets rrFailed).
+    static bool rr_signals_lost(Renderer& r);
+    static void set_rr_signals_lost(Renderer& r, bool lost);
+    // Whether DLSS Ray Reconstruction was refused for the run (rrFailed) and the reason it says.
+    static bool rr_failed(Renderer& r);
+    // Whether the program of the hit distance guide was made (RrGuidesPrep) and whether it failed.
+    static bool rr_hit_program_failed(Renderer& r);
     // M79-P0c: makes the programs of the Ray Reconstruction guides (the normal and depth pass and the albedo pass that reads the thin G-buffer) on this
     // GPU and says whether both pipelines are valid, with the formats the renderer draws them with. No NVIDIA GPU or DLSS needed.
     static bool rr_guide_programs(Renderer& r);

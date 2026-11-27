@@ -12,6 +12,7 @@
 #include "fa/render/upscaler.h"
 #include "gpu/recording_device.h"
 #include "render_upscale.h"
+#include "render_upscale_rr.h"
 #include "render_upscale_vendor.h"
 #include "renderer_test_access.h"
 #include "rt_denoise.h"
@@ -43,7 +44,8 @@ public:
             ++rrFrames;
             hitGuide = frame.hitDistance.id != 0 && in.hitDistance.id != 0;
             if (refuses)
-                frame.rayReconstructionFallback = "DLSS Ray Reconstruction could not draw a frame (the fake refused it).";
+                frame.rayReconstructionFallback =
+                    "DLSS Ray Reconstruction could not draw a frame (the fake refused it).";
             else
                 frame.usedRayReconstruction = true;
         }
@@ -168,7 +170,8 @@ int temporal_of(bool rr, bool reflections, bool gi, bool ao) {
 
 }  // namespace
 
-TEST_CASE("rt rr signals: with Ray Reconstruction drawing, the reflections' and the GI's denoiser passes are not recorded and the hit distance is a guide") {
+TEST_CASE("rt rr signals: with Ray Reconstruction drawing, the reflections' and the GI's denoiser passes are not "
+          "recorded and the hit distance is a guide") {
     Rig r;
     r.upscaler(true);
     r.tracing(true, true);
@@ -250,7 +253,8 @@ TEST_CASE("rt rr signals: the AO keeps the engine's denoiser, and only the refle
     CHECK(temporal_of(true, false, true, false) == 0);
 }
 
-TEST_CASE("rt rr signals: a frame Ray Reconstruction refuses shows the signals noisy once, and the engine's denoiser starts from a reset history") {
+TEST_CASE("rt rr signals: a frame Ray Reconstruction refuses shows the signals noisy once, and the engine's denoiser "
+          "starts from a reset history") {
     Rig r;
     r.upscaler(true);
     r.tracing(true, true);
@@ -287,7 +291,8 @@ TEST_CASE("rt rr signals: a frame Ray Reconstruction refuses shows the signals n
     CHECK(r.errors().empty());
 }
 
-TEST_CASE("rt rr signals: switching Ray Reconstruction off gives the signals back to the engine's denoiser, and the hit distance image goes") {
+TEST_CASE("rt rr signals: switching Ray Reconstruction off gives the signals back to the engine's denoiser, and the "
+          "hit distance image goes") {
     Rig r;
     r.upscaler(true);
     r.tracing(true, true);
@@ -308,7 +313,8 @@ TEST_CASE("rt rr signals: switching Ray Reconstruction off gives the signals bac
     CHECK(r.renderer.ray_tracing_denoiser_status().giRr);
 }
 
-TEST_CASE("rt rr signals: a gamma scene (Ray Reconstruction cannot draw it) keeps the engine's denoiser from the first frame, with the reason") {
+TEST_CASE("rt rr signals: a gamma scene (Ray Reconstruction cannot draw it) keeps the engine's denoiser from the first "
+          "frame, with the reason") {
     Rig r;
     r.w.settings().colorSpace = ColorSpace::Gamma;
     r.upscaler(true);
@@ -323,7 +329,8 @@ TEST_CASE("rt rr signals: a gamma scene (Ray Reconstruction cannot draw it) keep
     CHECK(st.reason.find("linear") != std::string::npos);
 }
 
-TEST_CASE("rt rr signals: a device that cannot filter 32-bit floats keeps the GI's denoiser (the lit meshes read its 16-bit image) and gives the reflections to Ray Reconstruction") {
+TEST_CASE("rt rr signals: a device that cannot filter 32-bit floats keeps the GI's denoiser (the lit meshes read its "
+          "16-bit image) and gives the reflections to Ray Reconstruction") {
     Rig r(false);
     r.upscaler(true);
     r.tracing(true, true);
@@ -338,4 +345,236 @@ TEST_CASE("rt rr signals: a device that cannot filter 32-bit floats keeps the GI
     // The GI's one signal is the engine's: one guide, one temporal and one a-trous pass for it, and none for the reflections.
     CHECK(r.temporal_passes() == 1);
     CHECK(r.denoiser().history_image_count() > 0);
+}
+
+// ---- M79 POLISH-RB: what the status says when a camera does not trace, a recovery that is true, the optional hit guide, two cameras -------------------------
+
+TEST_CASE("rt rr signals: a kernel the driver refused is reported as not traced, and Ray Reconstruction did not take "
+          "what was never traced") {
+    Rig r;
+    r.dev->inject_faults(true, false);  // every compute pipeline is refused: neither kernel runs
+    r.upscaler(true);
+    r.tracing(true, true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    const render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    CHECK(st.settled);
+    CHECK_FALSE(st.reflectionsTraced);
+    CHECK_FALSE(st.giTraced);
+    CHECK_FALSE(st.reflectionsRr);
+    CHECK_FALSE(st.giRr);
+    // A healthy rig of the same settings traces both and says so.
+    Rig ok;
+    ok.upscaler(true);
+    ok.tracing(true, true);
+    ok.settle();
+    const render::RtDenoiserStatus good = ok.renderer.ray_tracing_denoiser_status();
+    CHECK(good.settled);
+    CHECK(good.reflectionsTraced);
+    CHECK(good.giTraced);
+    CHECK(good.reflectionsRr);
+    CHECK(good.giRr);
+    // Before any frame nothing is known.
+    Rig fresh;
+    CHECK_FALSE(fresh.renderer.ray_tracing_denoiser_status().settled);
+}
+
+TEST_CASE("rt rr signals: the recovery step counts frames in a row that the decision and DLSS agree on") {
+    int agree = 0;
+    // A frame the decision has no answer for counts neither way.
+    for (int i = 0; i < 3 * render::kRrRecoverFrames; ++i) CHECK_FALSE(render::rr_recovery_step(agree, false, true));
+    CHECK(agree == 0);
+    for (int i = 0; i < render::kRrRecoverFrames - 1; ++i) CHECK_FALSE(render::rr_recovery_step(agree, true, true));
+    CHECK(render::rr_recovery_step(agree, true, true));
+    CHECK(agree == 0);
+    // A frame DLSS drew without it starts the count over.
+    for (int i = 0; i < render::kRrRecoverFrames - 1; ++i) CHECK_FALSE(render::rr_recovery_step(agree, true, true));
+    CHECK_FALSE(render::rr_recovery_step(agree, true, false));
+    CHECK(agree == 0);
+    for (int i = 0; i < render::kRrRecoverFrames - 1; ++i) CHECK_FALSE(render::rr_recovery_step(agree, true, true));
+    CHECK(render::rr_recovery_step(agree, true, true));
+}
+
+TEST_CASE(
+    "rt rr signals: a transient disagreement recovers after kRrRecoverFrames agreeing frames, and the text says so") {
+    Rig r;
+    r.upscaler(true);
+    r.tracing(true, true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    REQUIRE(r.renderer.ray_tracing_denoiser_status().giRr);
+    CHECK_FALSE(RendererTestAccess::rr_signals_lost(r.renderer));
+    // A disagreement that is not a refusal for the run: the engine's denoiser keeps the signals.
+    RendererTestAccess::set_rr_signals_lost(r.renderer, true);
+    r.dev->clear_commands();
+    r.frame();
+    CHECK(r.temporal_passes() >= 3);
+    CHECK_FALSE(RendererTestAccess::rr_failed(r.renderer));
+    const render::RtDenoiserStatus held = r.renderer.ray_tracing_denoiser_status();
+    CHECK_FALSE(held.giRr);
+    CHECK(held.reason.find(std::to_string(render::kRrRecoverFrames) + " frames") != std::string::npos);
+    CHECK(held.reason.find("off and on") == std::string::npos);
+    CHECK(RendererTestAccess::rr_signals_lost(r.renderer));
+    // Frames in a row with the decision and DLSS in agreement give the signals back.
+    for (int i = 0; i < 3 * render::kRrRecoverFrames && RendererTestAccess::rr_signals_lost(r.renderer); ++i) r.frame();
+    CHECK_FALSE(RendererTestAccess::rr_signals_lost(r.renderer));
+    for (int i = 0; i < 3; ++i) r.frame();
+    r.dev->clear_commands();
+    r.frame();
+    CHECK(r.temporal_passes() == 0);
+    CHECK(r.denoiser().history_image_count() == 0);
+    const render::RtDenoiserStatus back = r.renderer.ray_tracing_denoiser_status();
+    CHECK(back.reflectionsRr);
+    CHECK(back.giRr);
+    CHECK(back.reason.empty());
+}
+
+TEST_CASE("rt rr signals: a frame DLSS refused for the run never recovers, and the text says the run, not a switch") {
+    Rig r;
+    r.upscaler(true);
+    r.tracing(true, true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    r.fake.refuses = true;
+    r.frame();
+    CHECK(RendererTestAccess::rr_failed(r.renderer));
+    const render::RtDenoiserStatus refused = r.renderer.ray_tracing_denoiser_status();
+    CHECK(refused.reason.find("rest of this run") != std::string::npos);
+    CHECK(refused.reason.find("off and on") == std::string::npos);
+    r.fake.refuses = false;
+    for (int i = 0; i < 4 * render::kRrRecoverFrames; ++i) r.frame();
+    CHECK(RendererTestAccess::rr_failed(r.renderer));
+    CHECK(RendererTestAccess::rr_signals_lost(r.renderer));
+    CHECK(r.temporal_passes() >= 3);  // still the engine's denoiser
+    const render::RtDenoiserStatus later = r.renderer.ray_tracing_denoiser_status();
+    CHECK_FALSE(later.giRr);
+    CHECK(later.reason.find("started again") != std::string::npos);
+    CHECK(later.reason.find("off and on") == std::string::npos);
+    // Switching the setting off and on does not bring it back either (rrFailed is for the run).
+    r.upscaler(false);
+    r.frame();
+    r.upscaler(true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    CHECK_FALSE(r.renderer.ray_tracing_denoiser_status().giRr);
+}
+
+TEST_CASE("rt rr signals: a hit distance shader that does not compile only leaves that guide out; the reflections "
+          "still go to Ray Reconstruction") {
+    Rig r;
+    r.dev->fail_shaders_labelled("upscale_rr_rr_hit_shader");
+    r.upscaler(true);
+    r.tracing(true, true);
+    r.settle();
+    REQUIRE(r.fake.rrFrames >= 1);
+    CHECK(RendererTestAccess::rr_hit_program_failed(r.renderer));
+    CHECK_FALSE(RendererTestAccess::rr_hit_image(r.renderer));
+    CHECK_FALSE(r.fake.hitGuide);
+    CHECK(r.count("begin_pass 'upscale-rr-hit'") == 0);
+    CHECK(r.count("begin_pass 'upscale-rr-guides'") == 1);  // the other guides are still made
+    CHECK(r.temporal_passes() == 0);
+    const render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    CHECK(st.reflectionsRr);
+    CHECK(st.giRr);
+    CHECK_FALSE(RendererTestAccess::rr_failed(r.renderer));
+    CHECK(st.reason.find("hit distance guide is left out") != std::string::npos);
+    // Without reflections the shader is never made, so its failure is never met.
+    Rig gi;
+    gi.dev->fail_shaders_labelled("upscale_rr_rr_hit_shader");
+    gi.upscaler(true);
+    gi.tracing(false, true);
+    gi.settle();
+    CHECK_FALSE(RendererTestAccess::rr_hit_program_failed(gi.renderer));
+    CHECK(gi.renderer.ray_tracing_denoiser_status().giRr);
+    CHECK(gi.renderer.ray_tracing_denoiser_status().reason.empty());
+}
+
+TEST_CASE("rt rr signals: a render target camera next to the screen camera leaves the screen camera's signals to Ray "
+          "Reconstruction") {
+    Rig r;
+    Entity second = make(r.w, "mini", {0, 3, 12});
+    auto& c = r.w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    c.renderTarget = "mini";
+    c.renderTargetSize = Vec2{64.0f, 48.0f};
+    r.upscaler(true);
+    r.tracing(true, true);
+    r.settle(6);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    REQUIRE(r.fake.rrFrames >= 1);
+    // The camera DLSS resolves handed its signals over: the engine's denoiser has no history for it, and the status says so.
+    CHECK(r.denoiser().last_used_history(r.cam.bits(), RendererTestAccess::rt_gi_pixel_signal_id()) == false);
+    CHECK(r.denoiser().last_reset(r.cam.bits(), RendererTestAccess::rt_gi_pixel_signal_id()) ==
+          render::DenoiseReset::Fresh);
+    CHECK(r.renderer.ray_tracing_denoiser_status().giRr);
+    CHECK(r.renderer.ray_tracing_denoiser_status().reflectionsRr);
+}
+
+TEST_CASE("rt rr signals: a split screen has no camera DLSS resolves, so both cameras keep the engine's denoiser and "
+          "no G-buffer is drawn for Ray Reconstruction") {
+    // One camera: the thin G-buffer pass is there for Ray Reconstruction.
+    int single = 0;
+    {
+        Rig r;
+        r.upscaler(true);
+        r.tracing(
+            false,
+            true);  // the GI only: the reflections ask for the G-buffer themselves, Ray Reconstruction is the only other one that does
+        r.settle();
+        single = r.count("begin_pass 'gbuffer'");
+        CHECK(single >= 1);
+    }
+    Rig r;
+    r.w.get<Camera>(r.cam)->viewport = Rect{0, 0, 0.5f, 1};
+    Entity second = make(r.w, "cam2", {4, 3, 12});
+    auto& c = r.w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    c.viewport = Rect{0.5f, 0, 0.5f, 1};
+    c.clear = false;
+    r.upscaler(true);
+    r.tracing(
+        false,
+        true);  // the GI only: the reflections ask for the G-buffer themselves, Ray Reconstruction is the only other one that does
+    r.settle(6);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
+    CHECK(r.fake.rrFrames == 0);
+    CHECK(r.count("begin_pass 'gbuffer'") == 0);
+    CHECK(r.count("upscale-rr-hit") == 0);
+    CHECK(r.temporal_passes() >= 1);
+    CHECK(r.denoiser().last_used_history(r.cam.bits(), RendererTestAccess::rt_gi_pixel_signal_id()));
+    const render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    CHECK_FALSE(st.giRr);
+    CHECK_FALSE(st.reflectionsRr);
+    CHECK(st.reason.find("not the one DLSS resolves") != std::string::npos);
+}
+
+TEST_CASE("rt rr signals: the upscaler switched off in the middle of a run gives the signals back to the engine's "
+          "denoiser with a fresh history") {
+    Rig r;
+    r.upscaler(true);
+    r.tracing(true, true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    REQUIRE(r.renderer.ray_tracing_denoiser_status().giRr);
+    // The upscale stage goes away altogether (not only Ray Reconstruction).
+    UpscalerSettings stretch;
+    stretch.mode = UpscalerMode::Stretch;
+    r.renderer.set_upscaler(stretch);
+    r.renderer.set_upscale_stage(false);
+    r.renderer.set_render_scale(1.0f);
+    const std::uint64_t cam = r.cam.bits();
+    r.dev->clear_commands();
+    r.frame();
+    CHECK(r.temporal_passes() >= 3);
+    CHECK(r.denoiser().history_image_count() > 0);
+    CHECK(r.denoiser().last_reset(cam, RendererTestAccess::rt_gi_pixel_signal_id()) == render::DenoiseReset::Fresh);
+    CHECK(r.denoiser().last_reset(cam, RendererTestAccess::rt_reflect_signal_id()) == render::DenoiseReset::Fresh);
+    r.frame();
+    CHECK_FALSE(RendererTestAccess::rr_hit_image(r.renderer));
+    CHECK_FALSE(RendererTestAccess::rr_guide_images(r.renderer));
+    const render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    CHECK_FALSE(st.giRr);
+    CHECK_FALSE(st.reflectionsRr);
+    CHECK(st.giTraced);
+    CHECK(r.denoiser().last_reset(cam, RendererTestAccess::rt_gi_pixel_signal_id()) == render::DenoiseReset::None);
+    CHECK(r.errors().empty());
 }

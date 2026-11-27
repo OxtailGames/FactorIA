@@ -90,7 +90,11 @@ struct RtGiPixelStatus {
 struct RtDenoiserStatus {
     bool reflectionsRr =
         false;  // the reflections' noisy radiance was composited as it is and DLSS Ray Reconstruction denoised it
-    bool giRr = false;  // the same for the per-pixel GI
+    bool giRr = false;     // the same for the per-pixel GI
+    bool settled = false;  // a whole frame has settled this status (false before the first one: nothing is known yet)
+    bool reflectionsTraced =
+        false;  // the last whole frame ran the reflections' kernel on some camera (false: nothing was traced, so nobody denoised it)
+    bool giTraced = false;  // the same for the per-pixel GI
     std::string
         reason;  // Ray Reconstruction was asked for, a signal is on and it did not take it: why (empty otherwise)
 };

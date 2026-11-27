@@ -535,6 +535,7 @@ TEST_CASE(
     hit.limits[2] = 10000.0f;
     hit.limits[3] = 0.002f;
 
+    View activeRecords = recordsView;  // the records the dispatches read (the cap's check below swaps them)
     auto trace = [&](CommandList* builds) {
         CommandList& cl = builds ? *builds : dev.begin_commands("rt gi pixel frame");
         cl.begin_compute_pass("rt gi pixel");
@@ -542,7 +543,7 @@ TEST_CASE(
         Bindings b;
         b.views[fa::render::RtEffectBindings::kViewOut] = outView;
         b.views[fa::render::RtEffectBindings::kViewPrepass] = prepassView;
-        b.views[fa::render::RtEffectBindings::kViewRecords] = recordsView;
+        b.views[fa::render::RtEffectBindings::kViewRecords] = activeRecords;
         b.views[fa::render::RtEffectBindings::kViewAlbedo] = standView;  // the atlas
         b.samplers[fa::render::RtEffectBindings::kSampler] = rig.nearestSampler;
         b.accelStructures[0] = tlas;
@@ -728,6 +729,36 @@ TEST_CASE(
         changed += std::fabs(withFarGrid[i] - first[i]) > 1e-4f ? 1 : 0;
     CHECK(changed == 0);
     full.tail.count[0] = 0;
+
+    // kRayLightCap: one ray adds at most 256 (irradiance / pi in scene units) per channel, so a tiny emitter that one ray in thousands hits cannot flash
+    // over its pixel. The red box shines at 1e6: a pixel that sees it with k of its 4 rays is 256 * k / 4 at most, and the cap is reached (64 for one ray).
+    {
+        std::vector<fa::render::RtInstanceRecord> bright = records;
+        for (int c = 0; c < 3; ++c) bright[1].emissive[c] = 1.0e6f;
+        BufferDesc bbd = rbd;
+        bbd.data = Range{bright.data(), rbd.size};
+        bbd.label = "rt gi pixel bright records";
+        const Buffer brightBuffer = dev.make_buffer(bbd);
+        ViewDesc bvd;
+        bvd.storageBuffer.buffer = brightBuffer;
+        bvd.label = "rt gi pixel bright records view";
+        const View brightView = dev.make_view(bvd);
+        activeRecords = brightView;
+        const std::vector<float> lit = trace(nullptr);
+        float brightest = 0.0f;
+        bool finite = true;
+        for (std::size_t i = 0; i < lit.size(); ++i) {
+            if (i % 4 == 3) continue;  // alpha
+            finite = finite && std::isfinite(lit[i]);
+            brightest = std::max(brightest, lit[i]);
+        }
+        CHECK(finite);
+        CHECK(brightest <= 256.0f * 1.001f);
+        CHECK(brightest >= 60.0f);  // the emitter is seen: the cap is what limits it, not a scene that has no hit
+        activeRecords = recordsView;
+        dev.destroy_view(brightView);
+        dev.destroy_buffer(brightBuffer);
+    }
 
     // Every pixel the sky: nothing to light, nothing traced.
     for (const View v : {outView, prepassView, standView, recordsView}) dev.destroy_view(v);

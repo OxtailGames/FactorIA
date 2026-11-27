@@ -53,6 +53,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "mesh_buffer_draw.h"
 #include "hiz.h"
 #include "rt_denoise.h"
 #include "rt_effect.h"
@@ -316,10 +317,15 @@ struct Renderer::Impl {
     bool rrSignalsDeclared = false;  // some camera declared its RT signals with the decision above this frame
     bool rrDrewFrame = false;
     bool rrSignalsLost =
-        false;  // a frame given the signals was not drawn by Ray Reconstruction: they stay with the engine's denoiser
+        false;  // a frame given the signals was not drawn by Ray Reconstruction: they stay with the engine's denoiser (until rr_recovery_step)
+    bool rrWouldTake =
+        false;  // this frame: the decision would give the signals to Ray Reconstruction (only worked out while rrSignalsLost)
+    int rrAgreeFrames = 0;  // frames in a row of rr_recovery_step
     render::RtDenoiserStatus rtDenoiserStatus;
     // The reflections' raw image of the camera the upscaler resolves, while they go to Ray Reconstruction (its hit distance is a guide).
     const RtEffectImage* upscaleReflectImg = nullptr;
+    // This frame: the reflections' kernel declared by some camera (the status says whether the engine, Ray Reconstruction or nobody denoised them).
+    const RtEffectImage* rtReflectFrameImg = nullptr;
     ResourceId upscaleReflectRes;
     render::VendorProbe rrProbe;
     bool rrProbed = false;
@@ -1178,9 +1184,10 @@ struct Renderer::Impl {
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
     // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
     void note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what);
+    // `mbu`: resolve_mesh_buffers of `mi`, asked once per mesh by the draw loop (the per-pixel GI asks which parts the prepass drew).
     // `blended`: a part of the blended meshes, which fog themselves with the camera's stack fog (DrawContext::fuBlend).
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
-                                     bool blended = false);
+                                     const MeshBufferUse& mbu, bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, gpu::Bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);
