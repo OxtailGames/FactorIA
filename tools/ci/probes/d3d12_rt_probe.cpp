@@ -6,6 +6,11 @@
 //
 //   adapter=<description>  tier=<D3D12_RAYTRACING_TIER: 0 none, 10 DXR 1.0, 11 DXR 1.1, 12 DXR 1.2>
 //   shaderModel=<highest shader model, hex: 65 = 6.5>  warpDll=<the d3d10warp.dll loaded>  warpVersion=<its file version>
+//   bindingTier=<D3D12_RESOURCE_BINDING_TIER: 1, 2 or 3>  unboundedSrvTable=<accepted, or refused (0x... HRESULT)>
+//
+// unboundedSrvTable makes the root signature of the engine's bindless table (one unbounded SRV range at t0, space1):
+// the D3D12 runtime of Windows Server 2022 with the NuGet WARP says tier 2 or more and refuses it, which the engine's
+// device checks the same way at start-up (D3d12Device::bindless_table_accepted) and then makes no bindless table.
 //
 // Build (an MSVC prompt): cl /nologo /EHsc /O1 d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib
 #include <windows.h>
@@ -13,6 +18,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 
+#include <climits>
 #include <cstddef>
 #include <cstdio>
 #include <string>
@@ -81,6 +87,40 @@ int main() {
         }
     }
     std::printf("shaderModel=%x\n", sm);
+    D3D12_FEATURE_DATA_D3D12_OPTIONS o{};
+    int bindingTier = 0;
+    if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &o, sizeof o)))
+        bindingTier = int(o.ResourceBindingTier);
+    std::printf("bindingTier=%d\n", bindingTier);
+    {
+        D3D12_DESCRIPTOR_RANGE range{};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        range.NumDescriptors = UINT_MAX;  // unbounded
+        range.RegisterSpace = 1;
+        D3D12_ROOT_PARAMETER p{};
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        p.DescriptorTable.NumDescriptorRanges = 1;
+        p.DescriptorTable.pDescriptorRanges = &range;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_SIGNATURE_DESC rd{};
+        rd.NumParameters = 1;
+        rd.pParameters = &p;
+        rd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        ID3DBlob* blob = nullptr;
+        ID3DBlob* messages = nullptr;
+        HRESULT hr = D3D12SerializeRootSignature(&rd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &messages);
+        ID3D12RootSignature* signature = nullptr;
+        if (SUCCEEDED(hr) && blob)
+            hr = device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
+                                             IID_PPV_ARGS(&signature));
+        if (SUCCEEDED(hr) && signature)
+            std::printf("unboundedSrvTable=accepted\n");
+        else
+            std::printf("unboundedSrvTable=refused (0x%08lX)\n", static_cast<unsigned long>(hr));
+        if (signature) signature->Release();
+        if (messages) messages->Release();
+        if (blob) blob->Release();
+    }
     if (HMODULE m = GetModuleHandleW(L"d3d10warp.dll")) {
         wchar_t path[MAX_PATH]{};
         GetModuleFileNameW(m, path, MAX_PATH);
