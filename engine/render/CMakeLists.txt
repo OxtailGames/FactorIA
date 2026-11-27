@@ -84,8 +84,42 @@ if(TARGET fa_test_render)
     # the d3d10warp.dll of the Microsoft.Direct3D.WARP NuGet package, which every Windows CI shard exports when the
     # runner's WARP is older) is loaded before its first device: this file runs alone here, so no earlier case of the
     # process has loaded another WARP (in the whole-suite `render` run one may have, and the case then skips).
+    #
+    # FA_D3D12_AGILITY_DIR + FA_D3D12_AGILITY_SDK_VERSION (the Windows CI job; docs/design/BUILDING_TESTS.md): this ctest runs
+    # a program of its own, fa_test_render_d3d12_rt, the same file on the D3D12 Agility SDK runtime (D3D12Core.dll and
+    # d3d12SDKLayers.dll of the NuGet package Microsoft.Direct3D.D3D12, copied to D3D12/ beside it). The NuGet WARP is built
+    # for a newer runtime than the in-box one of Windows Server 2022 and misses every ray there. The program exports the SDK
+    # version, which makes D3D12 load that folder or fail (no fallback to the system's runtime), so it is a program of its
+    # own: fa_test_render and every other test keep the system's runtime, the one a game on a player's machine has.
+    set(FA_D3D12_RT_TEST_EXE fa_test_render)
+    if(FA_D3D12_AGILITY_DIR OR FA_D3D12_AGILITY_SDK_VERSION)
+        if(NOT WIN32 OR NOT FA_D3D12_AGILITY_DIR OR NOT FA_D3D12_AGILITY_SDK_VERSION)
+            message(FATAL_ERROR "FA_D3D12_AGILITY_DIR and FA_D3D12_AGILITY_SDK_VERSION go together, on Windows: the folder with "
+                "D3D12Core.dll and d3d12SDKLayers.dll (x64) of the NuGet package Microsoft.Direct3D.D3D12, and its D3D12SDKVersion "
+                "(the middle number of the package version: 1.620.2 is 620).")
+        endif()
+        foreach(dll D3D12Core.dll d3d12SDKLayers.dll)
+            if(NOT EXISTS "${FA_D3D12_AGILITY_DIR}/${dll}")
+                message(FATAL_ERROR "FA_D3D12_AGILITY_DIR (${FA_D3D12_AGILITY_DIR}) has no ${dll}: it is the bin/x64 folder of the "
+                    "NuGet package Microsoft.Direct3D.D3D12 (docs/design/BUILDING_TESTS.md, \"D3D12 tests\").")
+            endif()
+        endforeach()
+        add_executable(fa_test_render_d3d12_rt
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/d3d12_raytracing_tests.cpp
+            ${FA_ROOT}/tools/ci/agility/d3d12_agility_exports.cpp
+            ${FA_ROOT}/cmake/doctest_main.cpp)
+        target_link_libraries(fa_test_render_d3d12_rt PRIVATE fa_render fa_ext_doctest fa_warnings)
+        target_include_directories(fa_test_render_d3d12_rt PRIVATE ${FA_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+        target_compile_definitions(fa_test_render_d3d12_rt PRIVATE FA_D3D12_AGILITY_SDK_VERSION=${FA_D3D12_AGILITY_SDK_VERSION})
+        add_custom_command(TARGET fa_test_render_d3d12_rt POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:fa_test_render_d3d12_rt>/D3D12"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${FA_D3D12_AGILITY_DIR}/D3D12Core.dll"
+                    "${FA_D3D12_AGILITY_DIR}/d3d12SDKLayers.dll" "$<TARGET_FILE_DIR:fa_test_render_d3d12_rt>/D3D12"
+            VERBATIM)
+        set(FA_D3D12_RT_TEST_EXE fa_test_render_d3d12_rt)
+    endif()
     add_test(NAME render_d3d12_raytracing
-        COMMAND fa_test_render --fa-files=d3d12_raytracing_tests.cpp
+        COMMAND ${FA_D3D12_RT_TEST_EXE} --fa-files=d3d12_raytracing_tests.cpp
         WORKING_DIRECTORY ${FA_ROOT})
     if(FA_D3D12_REQUIRE_RT)
         # APPEND: add_test (cmake/FactoriaHelpers.cmake) already put its own variables in ENVIRONMENT.
