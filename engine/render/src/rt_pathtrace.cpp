@@ -43,7 +43,9 @@ std::uint64_t path_trace_settings_hash(const PathTracerSettings& s, const RtHitP
 }
 
 std::uint32_t path_trace_samples_cap(std::uint32_t wanted, int width, int height, int maxBounces) {
-    const std::uint64_t pixels = std::uint64_t(std::max(width, 1)) * std::uint64_t(std::max(height, 1));
+    // Clamped so that pixels * bounces cannot overflow whatever the caller passes (no image has more than 2^31 pixels).
+    const std::uint64_t pixels = std::min<std::uint64_t>(
+        std::uint64_t(std::max(width, 1)) * std::uint64_t(std::max(height, 1)), std::uint64_t(1) << 31);
     const std::uint64_t bounces = std::uint64_t(std::clamp(maxBounces, kPtCapBounces, kPtMaxMaxBounces));
     const std::uint64_t most =
         std::max<std::uint64_t>(kPtMaxPathsPerDispatch * std::uint64_t(kPtCapBounces) / (pixels * bounces), 1);

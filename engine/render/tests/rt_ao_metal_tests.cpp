@@ -121,6 +121,7 @@ struct Rig {
     gpu::Image out{};
     View outView{};
     Pipeline pipeline{};
+    Shader shader{};
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -224,11 +225,29 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = shader;
         pd.label = "rt_ao";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
+    }
+
+    // Everything the rig made that the test body does not destroy itself (as rt_reflect_metal_tests.cpp's Rig::release): a mesh's buffers
+    // and the scratch of its BLAS, then the images, views, pipelines, shaders and the sampler.
+    void release(Mesh& m) {
+        dev->destroy_buffer(m.vb);
+        dev->destroy_buffer(m.ib);
+        dev->destroy_buffer(m.scratch);
+    }
+    void release_images() {
+        dev->destroy_view(prepassView);
+        dev->destroy_view(outView);
+        dev->destroy_image(prepass);
+        dev->destroy_image(out);
+        dev->destroy_pipeline(pipeline);
+        dev->destroy_shader(shader);
+        dev->destroy_sampler(nearestSampler);
     }
 
     std::vector<float> trace(AccelStructure tlas, const fa::render::RtEffectParams& params,
@@ -531,6 +550,10 @@ TEST_CASE(
     dev.destroy_accel_structure(tlas);
     dev.destroy_accel_structure(ground.blas);
     dev.destroy_accel_structure(box.blas);
+    dev.destroy_buffer(tlasScratch);
+    rig.release(ground);
+    rig.release(box);
+    rig.release_images();
 }
 
 #else

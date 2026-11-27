@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Last polish of SSAO, the path tracer and the ray tracing test rigs (M79 POLISH-last-C):** the SSAO search stage no longer binds an image slot its shader does
+  not declare (the recording device logged an error in every SSAO scene); the frame that retries the path tracer after a refusal is decided once (traced, with no
+  SSAO passes, or refused, with them); a job planned before the main camera's collect sees the last frame's traceable item count; the path tracer's sample cap
+  cannot overflow; the Metal ray tracing test rigs free their pipelines, shaders, samplers, buffers and images.
 - **Last polish of the GPU lightmap helper, the GI probes and the path tracer (M79 POLISH-last-A):** the GPU bake's wait for a helper that never says it is ready
   looks at the cancel flag every 20 ms (a cancel ends it at once, with a test); the insured raster captures of a retry or miss frame cover at most
   4 probes (not up to 32) and the bounce log of the probes is kept only for a test; a path tracer frame in a scene with no mesh keeps the
