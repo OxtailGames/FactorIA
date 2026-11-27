@@ -224,25 +224,28 @@ TEST_CASE("d3d12 pipeline cache: the leftovers of a crashed save are the old tem
     CHECK(d3d12_orphan_cache_temps({}, cache).empty());
 }
 
-#if !defined(_WIN32)
-
 TEST_CASE("d3d12: a device removal's text names what was going on and the last pipeline and list") {
     const std::string reason = "DXGI_ERROR_DEVICE_REMOVED (0x887a0005)";
-    // The call that saw it names itself first, then the suspects.
-    const std::string at = d3d12_removal_text(reason, "creating pipeline 'lit' (shader 'mesh')", "",
-                                              "pipeline 'lit' (shader 'mesh')", "'frame' (graphics queue)");
-    CHECK(
-        at ==
-        "; the device was removed while creating pipeline 'lit' (shader 'mesh'): " + reason +
-            "; last pipeline asked for: pipeline 'lit' (shader 'mesh'); last list executed: 'frame' (graphics queue)");
+    // The call that saw it first names itself, then the suspects.
+    const std::string at =
+        d3d12_removal_text(reason, "creating pipeline 'lit' (shader 'mesh')", "creating pipeline 'lit' (shader 'mesh')",
+                           "pipeline 'lit' (shader 'mesh')", "'frame' (graphics queue)");
+    CHECK(at == "; the device was removed while creating pipeline 'lit' (shader 'mesh'): " + reason +
+                    "; last pipeline made or loaded: pipeline 'lit' (shader 'mesh'); last list executed: 'frame' "
+                    "(graphics queue)");
     // A later call that names nothing still says where the removal was first seen.
     const std::string later = d3d12_removal_text(reason, "", "executing list 'frame'", "", "");
     CHECK(later == "; the device was removed: " + reason + "; first seen while executing list 'frame'");
+    // A later call that names itself also says where it was first seen when that was elsewhere.
+    CHECK(contains(d3d12_removal_text(reason, "executing list 'b'", "creating pipeline 'a'", "", ""),
+                   "while executing list 'b': " + reason + "; first seen while creating pipeline 'a'"));
+    // The same place is not said twice.
+    CHECK(!contains(d3d12_removal_text(reason, "a", "a", "", ""), "first seen"));
     // Nothing known: the plain text the callers always had.
     CHECK(d3d12_removal_text(reason, "", "", "", "") == "; the device was removed: " + reason);
-    // A call that names itself does not repeat the first sighting.
-    CHECK(!contains(d3d12_removal_text(reason, "a", "b", "", ""), "first seen"));
 }
+
+#if !defined(_WIN32)
 
 TEST_CASE("d3d12: make_d3d12_device off Windows is a teaching error") {
     auto d = make_d3d12_device();
