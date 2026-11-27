@@ -220,7 +220,7 @@ jobs:
         run: |
           h=tools/common/include/fa/tooling/setup.h
           ver=$(sed -n 's/.*kSetupDxcVersion = "\([^"]*\)".*/\1/p' "$h" | head -n 1 | tr -d '\r')
-          sha=$(grep -A1 '{"linux", "x64"' "$h" | grep -o '[0-9a-f]\{64\}' | head -n 1)
+          sha=$(grep -A1 '{"linux", "x64", "linux_dxc_' "$h" | grep -o '[0-9a-f]\{64\}' | head -n 1)
           test -n "$ver" && test -n "$sha" || { echo "::error::no kSetupDxcVersion or Linux x64 DXC build in $h"; exit 1; }
           echo "pin=$ver-${sha:0:12}" >> "$GITHUB_OUTPUT"
 
