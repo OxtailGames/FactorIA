@@ -107,6 +107,13 @@ struct PipelineCacheIdentity {
     std::int32_t luidHigh = 0;
 };
 
+// The text a device removal adds to an error (pure logic: every platform): "; the device was removed while <during>:
+// <reason>", then what the device had been doing: "; first seen while <firstSeen>" (when this call names nothing and an
+// earlier one did), "; last pipeline asked for: <lastPipeline>" and "; last list executed: <lastList>" (each only when
+// not empty). `reason` is the HRESULT's text. A removal is reported when the device first sees it, so a pipeline made or
+// a list executed just before is the first suspect; DRED (log_dred) names the command that was running.
+std::string d3d12_removal_text(const std::string& reason, const std::string& during, const std::string& firstSeen,
+                               const std::string& lastPipeline, const std::string& lastList);
 // Writes the header of `bytes` (PipelineCacheFile::kHeaderBytes, then the payload, which must be there already): the
 // magic, the version, `id`, the payload's size and SHA-256.
 void write_pipeline_cache_header(std::vector<std::uint8_t>& bytes, const PipelineCacheIdentity& id);
@@ -1190,7 +1197,9 @@ private:
     // The PSO of a desc (`key`, the canonical text of every field): from the in-memory cache, else loaded from the
     // pipeline library (the on-disk cache, named by a hash of `key`), else made and stored there. Null with `error`
     // when D3D12 refused it.
-    Com<ID3D12PipelineState> pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
+    // `what` names it in a removal's message ("pipeline '<label>' (shader '<label>')").
+    Com<ID3D12PipelineState> pso(const std::string& key, const std::string& what,
+                                 const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
                                  const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error);
     // The swapchain (d3d12_swapchain_win32.cpp). Adds an image record whose resource exists already (a back buffer);
     // takes resMutex_.
@@ -1208,9 +1217,14 @@ private:
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
     // Moves the debug layer's messages into errors_ / warnings_.
     void drain_messages();
-    // "; the device was removed: <reason>", or "" while the device lives. The first call that sees a removal on a
-    // device with DRED (dred_) logs what DRED recorded, once (log_dred).
-    std::string removed_reason() const;
+    // "; the device was removed [while <during>]: <reason>" (d3d12_removal_text), or "" while the device lives. The
+    // first call that sees a removal remembers `during` and, on a device with DRED (dred_), logs what DRED recorded,
+    // once (log_dred).
+    std::string removed_reason(const std::string& during = {}) const;
+    // Checks the device right after a call that may have lost it (`during`: what was going on). The first time it
+    // finds the device removed it reports one error that names `during` and the last pipeline and list; no
+    // error on a live device or after the first one.
+    void note_removal(const std::string& during);
     // Logs DRED's breadcrumbs (per command list: its name, its queue, how many of its commands the GPU finished and
     // the ones around the first it did not) and its page fault (the address and the allocations at it) as one error.
     void log_dred() const;
@@ -1289,6 +1303,13 @@ private:
     // last commands each list ran and, where the driver tells, the GPU address that faulted (log_dred).
     bool dred_ = false;
     mutable std::atomic<bool> dredLogged_{false};
+    // What the device was doing when it first saw its removal (removed_reason, note_removal), and the last pipeline and
+    // list it was asked to make or execute (the first suspects). A leaf lock.
+    mutable std::mutex trailMutex_;
+    mutable std::string removedDuring_;
+    std::string lastPipeline_;
+    std::string lastList_;
+    std::atomic<bool> removalNoted_{false};
     int framesInFlight_ = kInflightFrames;
 
     // What the device can do
