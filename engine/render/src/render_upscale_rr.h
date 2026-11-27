@@ -61,6 +61,7 @@ public:
     gpu::Pipeline hit_pipeline(const TargetFormat& format);
     // Makes the hit distance program now (plan time, before the frame graph runs; the frame's Ray Reconstruction signals include reflections), so a
     // failure is known before any pass. False when it cannot be made (hit_failed() is then true) or ready() has not succeeded. Cheap once made.
+    // The program is compiled even when the reflection kernel is refused (a one-time cost; the test asks for it).
     bool prepare_hit();
     // The hit distance program (or its pipeline) could not be made: Ray Reconstruction runs without that guide.
     bool hit_failed() const { return hitFailed_; }

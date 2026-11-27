@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
 
 ## Unreleased
 
+- **Review leftovers of the last polish (M79 POLISH-last-E):** the per-pixel GI status reads every camera that traced it (not the last one); Ray Reconstruction's reason after a DLSS failure says DLSS failed earlier in this run, with its reason; a path tracer retry frame declares no ray traced occlusion; `traceable_items()` counts the instances left after the skin trim; the half size denoiser programs are asked for only by the kinds that can run half; the picture test of the per-pixel GI compares the cube's colour ratio with a relative pixel filter.
 - **Last polish of the Ray Reconstruction signals, the denoiser status and the thin G-buffer (M79 POLISH-last-B):** `denoiser` / `reflectionsTraced` / `giTraced` say
   whether some camera traced the signal (not only the last camera); the hit distance shader is compiled when the frame is planned, before the graph, and still only
   leaves that guide out; a terrain or impostor G-buffer shader that does not compile is named in the denoiser `reason`; a provider that fails a frame for good now
@@ -57,7 +58,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   memory at 1080p, 1440p and 4K (48 bytes a pixel for each full size signal, 64 per half size pixel, 16 for a camera's guide: at 4K two full size signals fit, so
   the third effect that asks is shown noisy). Before this, the first iteration of the filter was a 5x5 (2.4 to 2.6 ms for the ambient occlusion, the soft
   shadows and the per-pixel GI; the 3x3 takes it to 1.3 ms for a full size signal, and the first filtered frame of the visibility test went from an error of 0.047 to 0.044). Polished: the
-  three half size programs are compiled when the first half size signal asks, and a backend that cannot compile them (only Metal has been tried) runs that signal at
+  three half size programs are compiled when the first half size signal asks, and a backend that cannot compile them (only Metal ran them on a real GPU here; CI compiles and runs the GL and D3D11 ones) runs that signal at
   full size, says so once and denoises the other signals as before (it turned the whole denoiser off); the temporal pass of a half size chain reads the full size
   velocity at the texel the half guide took, not at the corner of four texels (the texel a point sampler took depended on the GPU); the upsample places a half
   pixel at `(2q + 1) / full size` (an odd size was off by a fraction of a pixel); the calm-pixel test skips a GPU without float32 render targets.

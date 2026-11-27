@@ -181,7 +181,7 @@ a joint bilateral upsample brings the edges back from the full guide. The soft s
    which differs on an odd size).
 
 The three half size programs (`guidehalf`, `down`, `up`) are compiled when the first half size signal asks, not with the others. A backend
-that cannot compile them (only Metal has been tried; the GLSL ES, HLSL and WGSL ones are not) runs that signal as a full size one, says so
+that cannot compile them (only Metal ran them on a real GPU here; CI compiles and runs the GL and D3D11 ones) runs that signal as a full size one, says so
 once in the log (`RtDenoiser::half_unavailable()`), and every other signal denoises as before.
 
 Memory: the history is 64 bytes per half pixel (the 48 and the two 8-byte guide images), a third of a full size signal's 48 per pixel of

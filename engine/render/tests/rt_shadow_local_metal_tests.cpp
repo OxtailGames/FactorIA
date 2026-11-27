@@ -257,13 +257,26 @@ struct Rig {
         dev->destroy_buffer(m.ib);
         dev->destroy_buffer(m.scratch);
     }
+    // Safe to call twice: a handle is destroyed once and zeroed.
     void release_images() {
-        for (const View v : {prepassView, outView, outTexture, srcView, packOutView}) dev->destroy_view(v);
-        for (const gpu::Image im : {prepass, out, srcImage, packOut}) dev->destroy_image(im);
-        dev->destroy_pipeline(traceP);
-        dev->destroy_pipeline(packP);
-        for (const Shader s : shaders) dev->destroy_shader(s);
-        dev->destroy_sampler(nearestSampler);
+        for (View* v : {&prepassView, &outView, &outTexture, &srcView, &packOutView}) {
+            if (v->id) dev->destroy_view(*v);
+            *v = {};
+        }
+        for (gpu::Image* im : {&prepass, &out, &srcImage, &packOut}) {
+            if (im->id) dev->destroy_image(*im);
+            *im = {};
+        }
+        for (gpu::Pipeline* p : {&traceP, &packP}) {
+            if (p->id) dev->destroy_pipeline(*p);
+            *p = {};
+        }
+        for (Shader& s : shaders) {
+            if (s.id) dev->destroy_shader(s);
+            s = {};
+        }
+        if (nearestSampler.id) dev->destroy_sampler(nearestSampler);
+        nearestSampler = {};
     }
 
     std::vector<float> read(gpu::Image image) {

@@ -448,10 +448,14 @@ struct Rig {
         dev->destroy_buffer(m.ib);
         dev->destroy_buffer(m.scratch);
     }
+    // Safe to call twice: a handle is destroyed once and zeroed.
     void release_pipeline() {
-        dev->destroy_pipeline(pipeline);
-        dev->destroy_shader(shader);
-        dev->destroy_sampler(nearestSampler);
+        if (pipeline.id) dev->destroy_pipeline(pipeline);
+        if (shader.id) dev->destroy_shader(shader);
+        if (nearestSampler.id) dev->destroy_sampler(nearestSampler);
+        pipeline = {};
+        shader = {};
+        nearestSampler = {};
     }
 };
 
