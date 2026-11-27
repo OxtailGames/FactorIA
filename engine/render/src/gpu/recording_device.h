@@ -282,6 +282,9 @@ public:
     // label) fail as a driver that is out of memory would (the handle is Failed, a "gpu: make_buffer" line goes to errors()).
     // count 0 clears it. The faults are used up in call order.
     void fail_next_make_buffer(const std::string& label, int count = 1);
+    // Fault injection (M79 POLISH-RB): while set, make_shader of a shader whose ShaderDesc::label is `label` fails as a driver that cannot compile it
+    // would (the shader is Failed, errors() says so). The label of a generated shader is its module and program ("upscale_rr_rr_hit_shader"). "" clears it.
+    void fail_shaders_labelled(const std::string& label);
 
     // Test hooks (fault injection): while set, make_pipeline of a compute pipeline fails (the pipeline is Failed and errors() says so) and
     // build_tlas is refused. A real driver does both on a device that lies about its features or runs out of memory.
@@ -326,6 +329,7 @@ private:
     std::vector<std::unique_ptr<RecordingCommandList>> lists_;
     std::string failBufferLabel_;  // fail_next_make_buffer
     int failBufferCount_ = 0;
+    std::string failShaderLabel_;  // fail_shaders_labelled
 };
 
 }  // namespace fa::gpu

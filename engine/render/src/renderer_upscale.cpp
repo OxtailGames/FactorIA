@@ -421,15 +421,12 @@ std::string Renderer::Impl::rr_refusal(bool linear, bool dynamicResolution, bool
 Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool postFinal, bool wantReflect,
                                                      bool wantGi) {
     RrSignals s;
-    if (!upscaler.rayReconstruction) rrSignalsLost = false;
+    if (!upscaler.rayReconstruction) {
+        rrSignalsLost = false;
+        rrAgreeFrames = 0;
+    }
     if (!upscaler.rayReconstruction || !(wantReflect || wantGi) || !gpu.has_device()) return s;
     s.asked = true;
-    if (rrSignalsLost) {
-        s.why = "a frame whose signals were left to Ray Reconstruction was drawn without it, so the engine's denoiser "
-                "keeps them (switch "
-                "render.upscaler rayReconstruction off and on to try again)";
-        return s;
-    }
     if (!upscaleCamera || render::vendor_impl_index(upscaleImpl) != 0 || vendorFailed[0]) {
         s.why = "this camera is not the one DLSS resolves (a split screen or several cameras, a frame the renderer did "
                 "not jitter, or another upscaler: render.upscaler mode)";
@@ -439,7 +436,10 @@ Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool po
     const std::string refusal =
         rr_refusal(gpu.linear() && !postFinal, renderScale != renderBaseScale, upscaleTaa.perspective, &permanent);
     if (!refusal.empty()) {
-        s.why = refusal;
+        // A frame DLSS refused for good stays refused for the run (rrFailed, which switching the setting does not clear).
+        s.why = rrFailed ? "DLSS Ray Reconstruction failed earlier in this run (" + refusal +
+                               "), so the engine's denoiser keeps the signals until the game is started again"
+                         : refusal;
         return s;
     }
     s.reflections = wantReflect;
@@ -451,6 +451,19 @@ Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool po
         s.why = "the per-pixel GI keeps the engine's denoiser: this device cannot filter the 32-bit float image the "
                 "kernel writes, and the lit "
                 "meshes read the denoiser's 16-bit one";
+    }
+    if (rrSignalsLost) {
+        // A frame whose signals were left to Ray Reconstruction was drawn without it. The decision is still made (it is what rt_gi_pixel_finish
+        // compares with what DLSS did): the engine's denoiser keeps the signals until Ray Reconstruction has drawn kRrRecoverFrames frames in a
+        // row that the decision would have given the signals to (rr_recovery_step).
+        rrWouldTake = s.reflections || s.gi;
+        RrSignals held;
+        held.asked = true;
+        held.why =
+            "a frame whose signals were left to Ray Reconstruction was drawn without it, so the engine's denoiser "
+            "keeps them until it has drawn " +
+            std::to_string(render::kRrRecoverFrames) + " frames in a row again";
+        return held;
     }
     return s;
 }
@@ -476,17 +489,24 @@ bool Renderer::Impl::run_rr_guides(const UpscaleInput& in, const PassContext& c,
     gpu::CommandList& list = pass_list(c, gpu);
     // M79-P4b-2: the hit distance of the ray traced reflections, only when they were left to Ray Reconstruction (`reflect`, whose kernel ran this frame at
     // the render size); a frame without them gives the image back, and a pass that cannot be made leaves the guide out (it is optional).
-    const bool hit = reflect && reflect->ran && reflect->texture.id && reflect->width == in.renderW &&
-                     reflect->height == in.renderH &&
-                     ensure_mfx_target(rrHit, "rr-hit-distance", gpu::PixelFormat::R32F, in.renderW, in.renderH);
+    bool hit = reflect && reflect->ran && reflect->texture.id && reflect->width == in.renderW &&
+               reflect->height == in.renderH &&
+               ensure_mfx_target(rrHit, "rr-hit-distance", gpu::PixelFormat::R32F, in.renderW, in.renderH);
+    gpu::Pipeline hitPipeline;
+    PassDesc hp;
+    if (hit) {
+        hp = pass_into(rrHit, "upscale-rr-hit");
+        hp.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
+        hp.colorStore = gpu::StoreAction::Store;
+        // Made before the pass (nothing is made inside one). The program is made on the first frame that needs it; one that does not compile
+        // leaves only this guide out (RrGuidesPrep::hit_failed), Ray Reconstruction goes on with the others.
+        hitPipeline = rrPrep.hit_pipeline(hp.format);
+        hit = hitPipeline.id != 0;
+    }
     if (!hit) destroy_target(gpu.device(), rrHit);
     if (hit) {
-        PassDesc p = pass_into(rrHit, "upscale-rr-hit");
-        p.colorLoad = gpu::LoadAction::DontCare;  // every pixel is drawn
-        p.colorStore = gpu::StoreAction::Store;
-        const gpu::Pipeline pipeline = rrPrep.hit_pipeline(p.format);
-        list.begin_pass(p);
-        list.set_pipeline(pipeline);
+        list.begin_pass(hp);
+        list.set_pipeline(hitPipeline);
         gpu::Bindings b;
         b.vertexBuffers[0] = gpu.fullscreen_triangle();
         b.views[VIEW_upscale_rr_tex_refl] = reflect->texture;

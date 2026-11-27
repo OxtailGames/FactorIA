@@ -16,6 +16,7 @@
 #include "fa/render/raytracing.h"
 #include "fa/scene/light_probes.h"
 #include "fa/scene/lightmap_manifest.h"
+#include "fa/scene/impostor.h"
 #include "fa/scene/lightmap_uv.h"
 #include "fa/scene/terrain.h"
 #include "gpu/recording_device.h"
@@ -556,6 +557,44 @@ RendererTestAccess::GiPixelDraws draws_after(Rig& r, World& w) {
     return RendererTestAccess::rt_gi_pixel_draws(r.renderer);
 }
 
+// M79 POLISH-RB: an impostor atlas of one colour (3 x 3 frames of 8 pixels, a disc in each) in the project, and a tree that is its card from 40 m on.
+std::string write_flat_atlas(const std::string& name) {
+    namespace sfs = std::filesystem;
+    sfs::create_directories(gfx().projectDir / "assets" / "imp");
+    ImpostorAtlas a;
+    a.mode = ImpostorMode::Octahedral;
+    a.views = 3;
+    a.frameSize = 8;
+    a.albedo = "assets/imp/" + name + ".impostor.png";
+    a.normal = "assets/imp/" + name + ".impostor.normal.png";
+    a.center = {0, 0, 0};
+    a.radius = 1.0f;
+    const int side = a.views * a.frameSize;
+    Image albedo, normal;
+    albedo.width = albedo.height = normal.width = normal.height = side;
+    albedo.rgba.assign(std::size_t(side) * std::size_t(side) * 4, 255);
+    normal.rgba.assign(std::size_t(side) * std::size_t(side) * 4, 255);
+    for (std::size_t i = 0; i < normal.rgba.size(); i += 4) normal.rgba[i] = normal.rgba[i + 2] = 128;
+    for (auto [img, path] : {std::pair<const Image*, std::string>{&albedo, a.albedo}, {&normal, a.normal}}) {
+        const auto png = encode_png(*img);
+        REQUIRE(fs::write_bytes(fs::path_to_utf8(gfx().projectDir / fs::path_from_utf8(path)), png.data(), png.size())
+                    .ok());
+    }
+    const std::string file = "assets/imp/" + name + ".impostor.json";
+    const std::string text = impostor_to_json(a).dump(2);
+    REQUIRE(
+        fs::write_bytes(fs::path_to_utf8(gfx().projectDir / fs::path_from_utf8(file)), text.data(), text.size()).ok());
+    return file;
+}
+
+void add_far_tree(World& w, const std::string& atlas) {
+    Entity e = make(w, "tree", {0, 0, -30});  // 42 m from the camera: the card
+    auto& m = w.add<MeshRenderer>(e);
+    m.mesh = "cube";
+    m.impostor = atlas;
+    m.impostorDistance = 40.0f;
+}
+
 }  // namespace
 
 TEST_CASE("rt gi pixel: the opaque meshes read the image; a mesh with baked light probes keeps them (the baked light "
@@ -651,4 +690,53 @@ TEST_CASE("rt gi pixel: a mesh the subsurface pass scatters keeps the probes (it
         CHECK(d.on >= 2);
         CHECK(d.off == 0);
     }
+}
+
+TEST_CASE("rt gi pixel: an impostor's card keeps the probes and the ambient light (it never reads the image), the "
+          "meshes beside it do") {
+    Rig r;
+    r.gi(render::RtGi::PerPixel);
+    World w;
+    make_scene(w);
+    add_far_tree(w, write_flat_atlas("gipx_card"));
+    const auto d = draws_after(r, w);
+    INFO(r.errors());
+    CHECK(r.renderer.stats().impostors >= 1);  // the card was drawn
+    CHECK(d.on >= 2);                          // the floor and the box
+    CHECK(d.off >= 1);                         // the card
+    gfx().renderer.clear_asset_cache();
+}
+
+TEST_CASE(
+    "rt gi pixel: no impostor in the scene, nothing keeps the probes (the card is what the previous case counted)") {
+    Rig r;
+    r.gi(render::RtGi::PerPixel);
+    World w;
+    make_scene(w);
+    const auto d = draws_after(r, w);
+    CHECK(d.off == 0);
+    CHECK(r.renderer.stats().impostors == 0);
+}
+
+TEST_CASE("gbuffer: the impostor's G-buffer program is made before the frame graph runs, and one that does not compile "
+          "is skipped with one error") {
+    Rig r;
+    r.dev->fail_shaders_labelled("impostor_gbuffer_shader");
+    RendererTestAccess::force_gbuffer(r.renderer, true);
+    World w;
+    make_scene(w);
+    add_far_tree(w, write_flat_atlas("gbuf_card"));
+    for (int i = 0; i < 4; ++i) r.frame(w);
+    int impostorErrors = 0;
+    for (const std::string& e : r.dev->errors())
+        impostorErrors += e.find("fail_shaders_labelled") != std::string::npos ? 1 : 0;
+    INFO(r.errors());
+    CHECK(impostorErrors ==
+          1);  // made once in plan_prepass, then remembered as failed (no retry per frame, none in the pass)
+    CHECK(r.renderer.stats().impostors >= 1);  // the card still draws in the main pass
+    // The G-buffer pass still ran for the opaque meshes, and nothing was made while it recorded.
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(count_labels(r.lines(), "begin_pass 'gbuffer'") == 1);
+    gfx().renderer.clear_asset_cache();
 }
