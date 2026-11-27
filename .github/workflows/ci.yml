@@ -732,7 +732,7 @@ jobs:
           $tier = Tier $os
           $summary = "OS WARP: DXR tier $tier ($(($os | Select-String '^warpVersion=').Line))"
           if ($tier -ge 11) {
-            Write-Host "::notice title=WARP DXR::$summary: the OS's WARP runs inline ray queries, the NuGet package is not needed"
+            Write-Host "::notice title=WARP DXR::${summary}: the OS's WARP runs inline ray queries, the NuGet package is not needed"
           } else {
             $nupkg = Join-Path $HOME 'warp-nupkg\warp.nupkg'
             New-Item -ItemType Directory -Force (Split-Path $nupkg) | Out-Null
@@ -775,7 +775,7 @@ jobs:
             $summary = "$summary; NuGet WARP $env:WARP_VERSION beside the program: DXR tier $ntier ($(($nuget | Select-String '^warpVersion=').Line))"
             "FA_WARP_DIR=$warp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
             if ($ntier -ge 11) { Write-Host "::notice title=WARP DXR::$summary" }
-            else { Write-Host "::warning title=WARP DXR::$summary: neither WARP runs inline ray queries, render_d3d12_raytracing will fail (FA_D3D12_REQUIRE_RT=1)" }
+            else { Write-Host "::warning title=WARP DXR::${summary}: neither WARP runs inline ray queries, render_d3d12_raytracing will fail (FA_D3D12_REQUIRE_RT=1)" }
           }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
