@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -182,6 +183,24 @@ TEST_CASE("rt local shadows: a light keeps its slot while it stays a candidate, 
     CHECK(p.light[0] == 0);
     CHECK(p.light[1] == 1);
     CHECK(p.light[2] == 3);
+}
+
+TEST_CASE("rt local shadows: the slots of a camera that is gone are purged after two frames without a request") {
+    std::map<std::uint64_t, RtLocalSlots> all;
+    all[1].lastUsed = 10;
+    all[2].lastUsed = 12;
+    all[3].lastUsed = 8;
+    render::sweep_rt_local_slots(all, 12);  // serial 12: a camera used at 10 is 2 frames old and stays; 8 goes
+    CHECK(all.size() == 2);
+    CHECK(all.count(1) == 1);
+    CHECK(all.count(2) == 1);
+    render::sweep_rt_local_slots(all, 13);  // 10 + 2 < 13
+    CHECK(all.size() == 1);
+    CHECK(all.count(2) == 1);
+    render::sweep_rt_local_slots(all, 14);  // 12 + 2 < 14 is false: still there
+    CHECK(all.size() == 1);
+    render::sweep_rt_local_slots(all, 15);
+    CHECK(all.empty());
 }
 
 TEST_CASE("rt local shadows: a slot follows the light's entity when the light table is ordered differently, and a "
@@ -426,6 +445,13 @@ TEST_CASE(
     REQUIRE_FALSE(glsl.empty());
     const std::size_t fn = glsl.find("float fa_shadow_local_rt(");
     REQUIRE(fn != std::string::npos);
+    // The depth slope is read from the per-fragment global (no derivative inside a light's branch), and the texels around the fragment's own are
+    // searched in a 3 x 3 block, the darkest of those that show the surface answering (a silhouette does not flicker to "lit").
+    const std::string body = glsl.substr(fn, glsl.find("\n}\n", fn) - fn);
+    CHECK(body.find("fwidth(") == std::string::npos);
+    CHECK(body.find("fa_rt_slope") != std::string::npos);
+    CHECK(body.find("k < 9") != std::string::npos);
+    CHECK(body.find("min(best,") != std::string::npos);
     const std::string loop = read_repo_file("engine/render/shaders/light_loop.glsl");
     // The light loops call the traced version; the full-shader path (user materials) keeps the maps only.
     CHECK(loop.find("fa_shadow_local_rt(") != std::string::npos);
@@ -713,6 +739,25 @@ TEST_CASE("rt local shadows: at most three lights are traced, the others keep th
     r.dev->clear_commands();
     r.frame(w);
     CHECK(before == r.lines());
+}
+
+TEST_CASE("rt local shadows: the maps of the lights that stay on the maps are drawn after the pack pass, which decides "
+          "whether the traced lights need theirs") {
+    Rig r;
+    r.rays(render::RtShadows::Hard);
+    World w;
+    make_room(w);
+    add_lights(w, 5);  // three traced, two on their maps: the shadow pass exists
+    r.frames(w, 4);
+    r.dev->clear_commands();
+    r.frame(w);
+    CHECK(r.errors().empty());
+    const std::vector<std::string> lines = r.lines();
+    const int pack = index_of(lines, "begin_compute_pass 'camera:0/rt-shadows-local'");
+    const int shadow = index_of(lines, "begin_pass 'shadow'");
+    REQUIRE(pack >= 0);
+    REQUIRE(shadow >= 0);
+    CHECK(pack < shadow);
 }
 
 TEST_CASE("rt local shadows: the status names the traced lights and the cap in its reason") {

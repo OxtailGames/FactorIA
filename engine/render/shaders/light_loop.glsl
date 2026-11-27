@@ -79,6 +79,12 @@ int fa_cl_slot;
 int fa_cl_local;
 
 void fa_cluster_begin(vec3 world_pos) {
+    // The depth slope of the traced shadows' mask test (fa_rt_slope, mesh_common.glsl), once per fragment, here: the four pixels of the quad run this
+    // together (main() calls it before any discard or per-pixel branch). The derivative is taken outside the `if` (a gradient inside flow control is
+    // an error for fxc where it cannot prove the condition uniform); only the use of it depends on the draw reading a mask.
+    float rt_depth = dot(fa_ct_fwd.xyz, world_pos) + fa_ct_fwd.w;
+    float rt_dd = fwidth(rt_depth);
+    if (fa_ct_b.y > 0.5 || fa_ct_b.w > 0.5) fa_rt_slope = min(1.5 * rt_dd, 0.1 * rt_depth);
     fa_cl_ndir = int(fa_cl_info.z);
     ivec2 c = fa_cluster_lookup(world_pos);
     fa_cl_slot = c.x;

@@ -826,7 +826,17 @@ TEST_CASE("rt effect: only the sun's shadow factor of the lit shader takes the c
     CHECK(body.find("min(rt.g, fa_shadow_sun(") != std::string::npos);
     // The depth match between the mask's pixel and the fragment follows the surface's slope (MSAA grazing angles): no pixel flips between
     // the mask and the cascades.
-    CHECK(body.find("fwidth(") != std::string::npos);
+    // The slope is taken once per fragment, at the start of main (fa_cluster_begin), never inside a light's branch (a derivative of a lane that left).
+    CHECK(body.find("fa_rt_slope") != std::string::npos);
+    CHECK(body.find("fwidth(") == std::string::npos);
+    const std::string loopText = read_repo_file("engine/render/shaders/light_loop.glsl");
+    const std::size_t begin = loopText.find("void fa_cluster_begin(");
+    REQUIRE(begin != std::string::npos);
+    const std::size_t beginEnd = loopText.find("\n}\n", begin);
+    const std::string beginBody = loopText.substr(begin, beginEnd - begin);
+    CHECK(beginBody.find("fwidth(") != std::string::npos);
+    CHECK(beginBody.find("fa_rt_slope =") != std::string::npos);
+    CHECK(glsl.find("fwidth(") == std::string::npos);  // no other derivative of the shadow code in this file
     // fa_ct_b.z is read in that function and in the local lights' fa_shadow_local_rt (M79-P2a-3) and nowhere else: the maps' factor of a local
     // light (fa_shadow_local) and the full shaders never see the mask or the min.
     const std::size_t local = glsl.find("float fa_shadow_local_rt(");
@@ -868,6 +878,35 @@ TEST_CASE("rt effect: a compute pipeline the driver refuses is said once, shown 
         CHECK(r.compute_passes().empty());
     }
     CHECK(found);
+}
+
+namespace fa::render {
+// The friend of RtEffects that lets a test report a failure without a driver that fails.
+struct RtEffectsTestAccess {
+    static void note(RtEffects& e, const std::string& key, const std::string& why,
+                     const std::string& said = std::string()) {
+        e.note_failure(key, why, said);
+    }
+};
+}  // namespace fa::render
+
+TEST_CASE("rt effect: a failure whose text only changes in its sizes is warned once (dynamic resolution), another "
+          "cause again") {
+    Logs log;
+    Rig r;
+    using Access = fa::render::RtEffectsTestAccess;
+    const std::string said = "the prepass and the effect's image have different sizes";
+    Access::note(r.effects(), "camera:0/shadows", "the prepass is 160 x 96 but the effect's image is 120 x 72", said);
+    Access::note(r.effects(), "camera:0/shadows", "the prepass is 170 x 102 but the effect's image is 120 x 72", said);
+    Access::note(r.effects(), "camera:0/shadows", "the prepass is 180 x 108 but the effect's image is 120 x 72", said);
+    CHECK(log.count("could not run") == 1);
+    // A text without a `said` is its own key: a different cause is said, the same one is not said twice.
+    Access::note(r.effects(), "camera:0/shadows", "the graphics driver refused the compute pipeline");
+    Access::note(r.effects(), "camera:0/shadows", "the graphics driver refused the compute pipeline");
+    CHECK(log.count("could not run") == 2);
+    // Another effect has its own once.
+    Access::note(r.effects(), "camera:0/ao", "the prepass is 160 x 96 but the effect's image is 120 x 72", said);
+    CHECK(log.count("could not run") == 3);
 }
 
 TEST_CASE("rt effect: a device that cannot trace says so once and draws the frame it would draw with ray tracing off") {

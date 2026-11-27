@@ -852,6 +852,13 @@ const float FA_PI = 3.14159265;
 
 @include_block fa_shadow_common
 
+// What a pixel covers of depth along this surface (M79 POLISH-RC): a surface seen at a grazing angle changes depth fast from one pixel to the next,
+// and the sample of a multisampled fragment or of the jittered camera sits up to a pixel from the texel read, so the depth tolerance of the traced
+// mask grows with it. Taken ONCE per fragment, by fa_cluster_begin at the start of main() (light_loop.glsl), where the four pixels of the 2x2 quad
+// run together: a derivative needs them, and the shadow functions below run in the light loop (after a `continue` for a baked light that a lightmapped
+// fragment takes and its neighbour may not, and once per light of a cluster that differs between neighbours). 0 until fa_cluster_begin runs.
+float fa_rt_slope = 0.0;
+
 // The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
 //
 // M79-P2a-1: with ray traced shadows (fa_ct_b.y = 1: an opaque mesh that receives shadows, view 28 holds the image of the shadow kernel) the sun's
@@ -863,14 +870,8 @@ const float FA_PI = 3.14159265;
 // with the cascades' resolution at its edge (the trade-off of "No caster loses its shadow").
 float fa_shadow_factor(vec3 n, vec3 l) {
     if (fa_ct_b.y > 0.5 && fa_pbr.z > 0.5) {
-        // fwidth needs the pixels of a 2x2 quad to run this together. It is called from the light loop, after a `continue` for a baked light
-        // (fa_baked_keep) that a lightmapped or probe-lit fragment takes and its neighbour may not, so at the edge between two such objects the
-        // derivative can be taken from a lane that left: a wrong slope there only widens or narrows this tolerance for one pixel, and the
-        // fragment falls back to the cascades or takes the mask, both a valid shadow. Accepted rather than moving the call out of the light loop.
-        // What a pixel covers of depth along this surface: a surface seen at a grazing angle changes depth fast from one pixel to the next, and
-        // the sample of a multisampled fragment or of the jittered camera sits up to a pixel from the texel read, so the tolerance grows with it.
         float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;
-        float slope = min(1.5 * fwidth(d), 0.1 * d);
+        float slope = fa_rt_slope;
         vec4 pv = vec4(fa_world_pos, 1.0);
         float w = dot(fa_ct_vpw, pv);
         if (w > 1e-4) {
@@ -892,15 +893,17 @@ float fa_shadow_factor(vec3 n, vec3 l) {
 // light_data.glsl) takes its visibility from the same image view 28 holds for the sun's: b packs the three traced lights as three bytes of one
 // integer below 2^24 (light s: 255 v * 256^s), exact in a float, read here with floor and mod (no bit operations: legacy targets have none).
 // The texel read is the fragment's own when it shows the same surface (its depth in r, the same test as the sun's); where it does not (the edge of a
-// silhouette, a pixel the camera's jitter moved) the four texels around it are tried, and when none does the cascades' counterpart is the map when
-// the scene has casters the rays do not see (fa_ct_b.z = 1: the maps were drawn, the answer is the darker of the two as for the sun) and "lit"
-// otherwise (the maps of the traced lights were not drawn: nothing to fall back to, a texel at a silhouette's edge).
+// silhouette, a pixel the camera's jitter moved) the eight texels around it are tried and the DARKEST of those that show the same surface answers (a
+// thin caster or a silhouette's edge then keeps its shadow from one frame to the next instead of flickering to "lit" when the jitter moves the
+// fragment off the one texel that matched). When none does the cascades' counterpart is the map when the scene has casters the rays do not see
+// (fa_ct_b.z = 1: the maps were drawn, the answer is the darker of the two as for the sun) and "lit" otherwise (the maps of the traced lights were
+// not drawn: nothing to fall back to). The depth slope is fa_rt_slope, taken once per fragment outside the light loop.
 float fa_shadow_local_rt(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
     if (fa_ct_b.w > 0.5 && fa_pbr.z > 0.5 && fa_shadow_lcfg.x > 0.5) {
         float slot = fa_light_texel(int(fa_shadow_lcfg.x + 0.5) - 1 + li).z;
         if (slot > 0.5) {
             float d = dot(fa_ct_fwd.xyz, world) + fa_ct_fwd.w;
-            float slope = min(1.5 * fwidth(d), 0.1 * d);
+            float tol = 0.002 * d + 0.01 + fa_rt_slope;
             vec4 pv = vec4(world, 1.0);
             float w = dot(fa_ct_vpw, pv);
             if (w > 1e-4) {
@@ -909,14 +912,20 @@ float fa_shadow_local_rt(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
                 if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
                     ivec2 size = ivec2(fa_ct_a.zw);
                     ivec2 px0 = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), size - 1);
-                    for (int k = 0; k < 5; k++) {
-                        ivec2 o = k == 0 ? ivec2(0, 0) : (k == 1 ? ivec2(1, 0) : (k == 2 ? ivec2(-1, 0) : (k == 3 ? ivec2(0, 1) : ivec2(0, -1))));
+                    float div = slot < 1.5 ? 1.0 : (slot < 2.5 ? 256.0 : 65536.0);
+                    float best = 2.0;  // the darkest visibility among the texels that show this surface (2 = none does)
+                    for (int k = 0; k < 9; k++) {
+                        // the fragment's own texel first (k = 4 of a 3 x 3 block, moved to the front), then the eight around it
+                        int kk = k == 0 ? 4 : (k <= 4 ? k - 1 : k);
+                        ivec2 o = ivec2(kk % 3 - 1, kk / 3 - 1);
                         vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), clamp(px0 + o, ivec2(0), size - 1), 0);
-                        if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01 + slope) {
-                            float div = slot < 1.5 ? 1.0 : (slot < 2.5 ? 256.0 : 65536.0);
-                            float v = mod(floor(rt.b / div), 256.0) / 255.0;
-                            return fa_ct_b.z > 0.5 ? min(v, fa_shadow_local(li, lpos, world, n, l)) : v;
+                        if (rt.a > 0.5 && abs(d - rt.r) <= tol) {
+                            best = min(best, mod(floor(rt.b / div), 256.0) / 255.0);
+                            if (k == 0) { break; }  // the fragment's own texel shows this surface: it answers alone
                         }
+                    }
+                    if (best <= 1.0) {
+                        return fa_ct_b.z > 0.5 ? min(best, fa_shadow_local(li, lpos, world, n, l)) : best;
                     }
                 }
             }

@@ -2251,7 +2251,7 @@ Json Engine::ray_tracing_status() {
         }
     }
     j["supported"] = supported;
-    // The sun's shadows, the ambient occlusion, the sharp reflections and the translucency draw with rays so far (M79-P2a-1, P2b, P3a-1, P3b): an effect that is on,
+    // The shadows (the sun's and up to three local lights'), the ambient occlusion, the reflections (sharp and glossy), the translucency and the global illumination draw with rays (M79): an effect that is on,
     // on a device that traces, is active. Whether this frame has a sun that casts a shadow is the scene's business, and the reason says so.
     // An effect whose kernel the driver rejected (or whose prepass does not match the output) draws its raster version: it is not active.
     // M79-P6a: the graphics preset only caps what the project asked for (graphics.preset; QualityLimits::rt*): `rt` is what is drawn.
