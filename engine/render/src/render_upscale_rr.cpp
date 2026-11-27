@@ -54,25 +54,28 @@ gpu::Pipeline RrGuidesPrep::albedo_pipeline(const TargetFormat& format) {
     return p;
 }
 
+bool RrGuidesPrep::prepare_hit() {
+    if (state_ <= 0 || !device_ || hitFailed_) return false;
+    if (hitShader_.id) return true;
+    // A shader that does not compile only leaves the hit distance guide out (Ray Reconstruction works without it), so the rest of the guides stay.
+    hitShader_ =
+        make_shader(*device_, gpu::generated_shader_desc(*device_, upscale_rr_rr_hit_shader_desc), "upscale_rr_hit");
+    if (device_->state(hitShader_) != gpu::ResourceState::Valid) {
+        if (hitShader_.id) device_->destroy_shader(hitShader_);
+        hitShader_ = {};
+        hitFailed_ = true;
+        FA_WARN("render", "The DLSS Ray Reconstruction hit distance shader failed to compile (see the sokol log "
+                          "lines above): Ray Reconstruction goes on without the reflections' hit distance guide, "
+                          "which is optional. Hint: update the graphics driver.");
+        return false;
+    }
+    return true;
+}
+
 gpu::Pipeline RrGuidesPrep::hit_pipeline(const TargetFormat& format) {
     for (const Entry& e : hitPipelines_)
         if (e.format == format) return e.pipeline;
-    if (state_ <= 0 || !device_ || hitFailed_) return {};
-    if (!hitShader_.id) {
-        // Made now, not in ready(): a frame with no ray traced reflections never needs it, and a shader that does not compile only leaves the
-        // hit distance guide out (Ray Reconstruction works without it), so the rest of the guides stay.
-        hitShader_ = make_shader(*device_, gpu::generated_shader_desc(*device_, upscale_rr_rr_hit_shader_desc),
-                                 "upscale_rr_hit");
-        if (device_->state(hitShader_) != gpu::ResourceState::Valid) {
-            if (hitShader_.id) device_->destroy_shader(hitShader_);
-            hitShader_ = {};
-            hitFailed_ = true;
-            FA_WARN("render", "The DLSS Ray Reconstruction hit distance shader failed to compile (see the sokol log "
-                              "lines above): Ray Reconstruction goes on without the reflections' hit distance guide, "
-                              "which is optional. Hint: update the graphics driver.");
-            return {};
-        }
-    }
+    if (!prepare_hit()) return {};
     const gpu::Pipeline p = make_triangle_pipeline(*device_, hitShader_, format, "upscale-rr-hit");
     if (device_->state(p) != gpu::ResourceState::Valid) {
         FA_ERROR("render", "failed to create pipeline 'upscale-rr-hit'");

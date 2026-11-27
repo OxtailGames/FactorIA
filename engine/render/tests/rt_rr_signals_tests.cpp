@@ -10,6 +10,7 @@
 
 #include "fa/render/raytracing.h"
 #include "fa/render/upscaler.h"
+#include "fa/scene/terrain.h"
 #include "gpu/recording_device.h"
 #include "render_upscale.h"
 #include "render_upscale_rr.h"
@@ -38,6 +39,11 @@ public:
     VendorProbe probe_ray_reconstruction(const render::VendorEnv&) override { return {true, ""}; }
     bool upscale(const render::UpscaleInput& in, VendorFrame& frame) override {
         ++frames;
+        if (failNext) {  // the provider fails the frame itself (Renderer::vendor_fail: the provider is off for the rest of the run)
+            failNext = false;
+            frame.error = "the fake provider failed a frame.";
+            return false;
+        }
         asked = in.rayReconstruction;
         hitGuide = false;
         if (in.rayReconstruction) {
@@ -52,7 +58,7 @@ public:
         return true;
     }
     int frames = 0, rrFrames = 0;
-    bool refuses = false, asked = false, hitGuide = false;
+    bool refuses = false, asked = false, hitGuide = false, failNext = false;
 };
 
 struct ProviderGuard {
@@ -577,4 +583,112 @@ TEST_CASE("rt rr signals: the upscaler switched off in the middle of a run gives
     CHECK(st.giTraced);
     CHECK(r.denoiser().last_reset(cam, RendererTestAccess::rt_gi_pixel_signal_id()) == render::DenoiseReset::None);
     CHECK(r.errors().empty());
+}
+
+// ---- M79 POLISH-last-B ------------------------------------------------------------------------------------------------------------------------------
+
+TEST_CASE(
+    "rt rr signals: reflectionsTraced and giTraced say whether some camera traced the signal, not whether the last "
+    "one did") {
+    Rig r;
+    // A second camera, drawn after the screen camera, into an image of its own.
+    Entity second = make(r.w, "mini", {0, 3, 12});
+    auto& c = r.w.add<Camera>(second);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    c.renderTarget = "mini";
+    c.renderTargetSize = Vec2{64.0f, 48.0f};
+    r.upscaler(true);
+    r.tracing(true, true);
+    r.settle(6);
+    render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    CHECK(st.reflectionsTraced);
+    CHECK(st.giTraced);
+    // The second camera alone (the screen camera is switched off) is the only one that can trace: the status still reports it.
+    r.w.get<Camera>(r.cam)->primary = false;
+    r.settle(6);
+    st = r.renderer.ray_tracing_denoiser_status();
+    CHECK(st.settled);
+    INFO("reflectionsTraced " << st.reflectionsTraced << " giTraced " << st.giTraced << " reason " << st.reason);
+    CHECK(st.reflectionsTraced);
+    CHECK(st.giTraced);
+}
+
+TEST_CASE("rt rr signals: the hit distance shader is made when the frame is planned, so its failure is known even on a "
+          "frame whose reflections never reach the guide pass") {
+    Rig r;
+    r.dev->fail_shaders_labelled("upscale_rr_rr_hit_shader");
+    r.dev->inject_faults(true,
+                         false);  // the reflections' kernel is refused: no frame ever has an image for the hit pass
+    r.upscaler(true);
+    r.tracing(true, false);
+    r.frame();
+    CHECK(RendererTestAccess::rr_hit_program_failed(r.renderer));
+    CHECK(r.count("begin_pass 'upscale-rr-hit'") == 0);
+    // Without reflections the program is not asked for at all.
+    Rig gi;
+    gi.dev->fail_shaders_labelled("upscale_rr_rr_hit_shader");
+    gi.upscaler(true);
+    gi.tracing(false, true);
+    gi.frame();
+    CHECK_FALSE(RendererTestAccess::rr_hit_program_failed(gi.renderer));
+}
+
+TEST_CASE("rt rr signals: a terrain G-buffer shader that does not compile is in the status reason, with the shader's "
+          "name") {
+    Rig r;
+    constexpr int kSamples = 33;
+    GrayImage16 g;
+    g.width = g.height = kSamples;
+    g.sixteenBit = true;
+    g.samples.assign(std::size_t(kSamples) * kSamples, std::uint16_t(20000));
+    const auto png = encode_png_gray16(g);
+    const std::string file = fs::path_to_utf8(gfx().projectDir / "rr_flat.png");
+    REQUIRE(fs::write_bytes(file, png.data(), png.size()).ok());
+    Entity ground = make(r.w, "ground", {0, -2, 0});
+    auto& t = r.w.add<Terrain3D>(ground);
+    t.heightmap = file;
+    t.size = {32.0f, 32.0f};
+    t.heightScale = 4.0f;
+    r.dev->fail_shaders_labelled("terrain_gbuffer_shader");
+    r.upscaler(true);
+    r.tracing(false, true);
+    r.settle(6);
+    const render::RtDenoiserStatus st = r.renderer.ray_tracing_denoiser_status();
+    INFO(st.reason);
+    CHECK(st.reason.find("terrain_gbuffer") != std::string::npos);
+    CHECK(st.reason.find("did not compile") != std::string::npos);
+    // Ray Reconstruction still takes the signal: the guides only keep the constants for the terrain.
+    CHECK(st.giRr);
+    // A healthy rig says nothing of the kind.
+    Rig ok;
+    ok.upscaler(true);
+    ok.tracing(false, true);
+    ok.settle(6);
+    CHECK(ok.renderer.ray_tracing_denoiser_status().reason.empty());
+}
+
+TEST_CASE("rt rr signals: a frame the provider itself fails sets rrSignalsLost by the natural path, and the text says "
+          "the signals stay with the engine for the run") {
+    Rig r;
+    r.upscaler(true);
+    r.tracing(true, true);
+    for (int i = 0; i < 4; ++i) r.frame();
+    REQUIRE(r.renderer.ray_tracing_denoiser_status().giRr);
+    REQUIRE_FALSE(RendererTestAccess::rr_signals_lost(r.renderer));
+    r.fake.failNext = true;
+    r.frame();
+    CHECK(RendererTestAccess::rr_signals_lost(
+        r.renderer));  // no test access wrote it: the frame was handed the signals and DLSS did not draw it
+    CHECK_FALSE(RendererTestAccess::rr_failed(r.renderer));
+    const render::RtDenoiserStatus lost = r.renderer.ray_tracing_denoiser_status();
+    CHECK_FALSE(lost.giRr);
+    CHECK(lost.reason.find("started again") != std::string::npos);
+    CHECK(lost.reason.find("the fake provider failed a frame") != std::string::npos);
+    // A provider that failed for good draws no frame again, so the recovery count never reaches kRrRecoverFrames: the engine keeps the signals.
+    r.dev->clear_commands();
+    for (int i = 0; i < 3 * render::kRrRecoverFrames; ++i) r.frame();
+    CHECK(RendererTestAccess::rr_signals_lost(r.renderer));
+    CHECK_FALSE(r.renderer.ray_tracing_denoiser_status().giRr);
+    CHECK(r.temporal_passes() >= 1);
 }
