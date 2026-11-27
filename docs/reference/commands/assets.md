@@ -1948,7 +1948,7 @@ Sets the job's cancel flag: every phase (the BVH build, the texel mapping, the r
 
 ## `lightmap.bake_plan_start` (modifies state)
 
-Not released yet (on main after 0.38.0).
+Since 0.39.0.
 
 Internal: start a bake job from a plan another process made (the helper process of a GPU bake).
 
