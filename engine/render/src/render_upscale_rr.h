@@ -31,6 +31,22 @@ inline float rr_hardware_depth(const float terms[4], float distance, bool drawn)
     return (terms[0] * z + terms[1]) / w;
 }
 
+// M79-P4b-2: how a frame whose ray traced signals were left to Ray Reconstruction and that DLSS drew without it recovers. The engine's denoiser keeps the
+// signals (Renderer::Impl::rrSignalsLost); every frame the decision would give them to Ray Reconstruction again (`wouldTake`) counts when DLSS drew it
+// with Ray Reconstruction (`drew`) and starts the count over when it did not; kRrRecoverFrames in a row give the signals back. A frame the decision
+// has no answer for (`wouldTake` false: no camera DLSS resolves, a refusal) counts neither way. True: recovered.
+constexpr int kRrRecoverFrames = 8;
+inline bool rr_recovery_step(int& agreeFrames, bool wouldTake, bool drew) {
+    if (!wouldTake) return false;
+    if (!drew) {
+        agreeFrames = 0;
+        return false;
+    }
+    if (++agreeFrames < kRrRecoverFrames) return false;
+    agreeFrames = 0;
+    return true;
+}
+
 class RrGuidesPrep {
 public:
     // Makes the program on the first call. False (and one logged error, once) when it does not compile.
@@ -39,14 +55,19 @@ public:
     gpu::Pipeline pipeline(const TargetFormat& format);
     // The same for the albedo pass (rr_albedo: colour 0 = the diffuse albedo, colour 1 = the specular albedo).
     gpu::Pipeline albedo_pipeline(const TargetFormat& format);
-    // M79-P4b-2: the same for the specular hit distance pass (rr_hit: one R32F colour target).
+    // M79-P4b-2: the same for the specular hit distance pass (rr_hit: one R32F colour target). Its program is made on the first call (a frame with ray
+    // traced reflections to hand over): an invalid pipeline (one warning, once) means the optional hit distance guide is left out, and hit_failed() says so.
+    // The other guides do not depend on it.
     gpu::Pipeline hit_pipeline(const TargetFormat& format);
+    // The hit distance program (or its pipeline) could not be made: Ray Reconstruction runs without that guide.
+    bool hit_failed() const { return hitFailed_; }
     // Destroys everything made; ready() makes it again.
     void release();
 
 private:
     gpu::Device* device_ = nullptr;  // the device of the first ready()
     gpu::Shader shader_{}, albedoShader_{}, hitShader_{};
+    bool hitFailed_ = false;
     int state_ = 0;  // 0 = not tried, 1 = ready, -1 = failed
     struct Entry {
         TargetFormat format;

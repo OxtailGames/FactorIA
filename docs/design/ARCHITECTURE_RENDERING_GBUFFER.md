@@ -49,11 +49,14 @@ Like the velocity image: a private renderer request, never a project setting.
 
 - `PostPlan::request_gbuffer()` sets `needsGbuffer`. The requesters are the debug views `albedo` and `material`
   (`render.debug_view`, `Renderer::set_debug_view`), DLSS Ray Reconstruction while it is on (a perspective camera drawn through the
-  temporal path, the machine's probe available, no earlier failure), and the test hook `RendererTestAccess::force_gbuffer`.
+  temporal path, so only the one camera the upscaler resolves: a split screen or several cameras are not jittered and none asks, the machine's probe available, no earlier failure), and the test hook `RendererTestAccess::force_gbuffer`.
 - `plan_prepass` turns a request into a prepass (the G-buffer needs it: the visibility test below reads it), tries to make the two
   transient images (and hands them straight back to the pool, so a GPU that refuses them is one logged error, not a failed pass) and
   sets `DrawContext::doGbuffer`. `Gpu::gbuffer_ready()` builds the programs on the first request and logs one teaching error when the GPU
-  cannot render RGBA8 with two attachments or a shader does not compile on this backend.
+  cannot render RGBA8 with two attachments or a shader does not compile on this backend. It also makes the terrain and impostor programs
+  (`TerrainRenderer::ensure_gbuffer`, `ImpostorRenderer::ensure_gbuffer`) when the opaque batches hold such a draw (`DrawContext::gbufferTerrainOk`,
+  `gbufferImpostorOk`), so nothing is compiled while the frame graph runs; a program that does not compile logs one error and its draws are left out of
+  the pass (the other meshes still draw into it).
 - `build_graph` declares the pass after the prepass block and sets the two refs. Without `doGbuffer` nothing is declared.
 - A camera that draws into a texture, a CameraView and a realtime GI capture never make one (like the prepass).
 
@@ -63,8 +66,8 @@ Like the velocity image: a private renderer request, never a project setting.
 |---|---|---|
 | opaque mesh, alpha-tested mesh, LOD levels, instances, foliage, skinned mesh | `mesh_gbuffer`, `mesh_gbuffer_skin` (`@program gbuffer`, `gbuffer_skin` in `mesh.glsl`), fragment stage `gbuffer_fs` | the surface's albedo, roughness and metalness; the mesh's own base colour and the textures of its glTF parts |
 | custom (M72) and layered (M73) material on a mesh renderer | the engine's own `gbuffer` program | **documented default**: the mesh renderer's own colour, roughness and metallic and the textures of its glTF parts. The material's `surface()` is not run |
-| terrain nodes | `terrain_gbuffer` (`gbuffer_fs_plain`), built on the first terrain draw | the blended splat layers' albedo, roughness and metallic |
-| impostor cards | `impostor_gbuffer` (`gbuffer_fs_plain`), built on the first impostor draw | the card's albedo, the impostor's roughness, metalness 0 |
+| terrain nodes | `terrain_gbuffer` (`gbuffer_fs_plain`), built by `plan_prepass` before the first terrain draw | the blended splat layers' albedo, roughness and metallic |
+| impostor cards | `impostor_gbuffer` (`gbuffer_fs_plain`), built by `plan_prepass` before the first impostor draw | the card's albedo, the impostor's roughness, metalness 0 |
 | sprites, tiles, shapes, text (2D), blended and additive meshes, particles | none | nothing: alpha 0 (the consumer's constants) |
 | a mesh the engine's program cannot place (GPU-placed buffers: `MeshBuffers` active) and a full-shader (M72) material with no prepass program | none | nothing: the clear value |
 

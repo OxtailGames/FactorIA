@@ -111,6 +111,8 @@ void Renderer::Impl::rt_begin_frame() {
     rrSignalsFrame = {};
     rrSignalsDeclared = false;
     rrDrewFrame = false;
+    rrWouldTake = false;
+    rtReflectFrameImg = nullptr;
     upscaleReflectImg = nullptr;
     upscaleReflectRes = ResourceId{};
     rtLocalCandidatesShown = rtLocalFrame.candidates;
@@ -218,20 +220,44 @@ void Renderer::Impl::rt_gi_pixel_finish() {
     // Who denoised the signals of this frame (M79-P4b-2). A frame whose Ray Reconstruction decision was "take" and that DLSS then drew with Super
     // Resolution (the evaluation was refused) shows the noisy signals once: the status says the engine denoises (it will, from the next frame) and why.
     render::RtDenoiserStatus ds;
+    // What the frame traced: the status tells "off" for a signal no camera traced (a camera with no prepass, a device that refused the kernel).
+    ds.settled = true;
+    ds.reflectionsTraced = rtReflectFrameImg && rtReflectFrameImg->ran;
+    ds.giTraced = rtGiPixelFrame.declared && rtGiPixelFrame.img && rtGiPixelFrame.img->ran;
     if (rrSignalsDeclared) {
         const bool drew = rrDrewFrame;
-        ds.reflectionsRr = rrSignalsFrame.reflections && drew;
-        ds.giRr = rrSignalsFrame.gi && drew;
+        // Ray Reconstruction only "took" a signal the frame traced: a kernel that did not run (no prepass, a refused pipeline) has nothing to denoise.
+        ds.reflectionsRr = rrSignalsFrame.reflections && drew && ds.reflectionsTraced;
+        ds.giRr = rrSignalsFrame.gi && drew && ds.giTraced;
         if (!drew && (rrSignalsFrame.reflections || rrSignalsFrame.gi))
-            ds.reason = "DLSS Ray Reconstruction did not draw the frame the signals were left to it for (" +
-                        (rrFailedWhy.empty() ? std::string("no reason given") : rrFailedWhy) +
-                        "): they were drawn noisy once and the engine's denoiser takes them from the next frame.";
+            ds.reason =
+                "DLSS Ray Reconstruction did not draw the frame the signals were left to it for (" +
+                (rrFailed ? (rrFailedWhy.empty() ? std::string("no reason given") : rrFailedWhy)
+                          : std::string("the frame was drawn without it, which the decision did not expect")) +
+                "): they were drawn noisy once and the engine's denoiser takes them from the next frame" +
+                (rrFailed ? std::string(", for the rest of this run (Ray Reconstruction stays off until the game is "
+                                        "started again)")
+                          : "; they go back to Ray Reconstruction after " + std::to_string(render::kRrRecoverFrames) +
+                                " frames in a row in which it draws again") +
+                ".";
         else
             ds.reason = rrSignalsFrame.why;
+        // The hit distance guide is optional: a program that did not compile only leaves it out (the reflections are still denoised by Ray Reconstruction).
+        if (ds.reflectionsRr && rrPrep.hit_failed())
+            ds.reason +=
+                std::string(ds.reason.empty() ? "" : "; ") +
+                "the reflections' hit distance guide is left out (its shader did not compile on this device), so "
+                "Ray Reconstruction denoises the reflections without it";
     }
     // A frame whose signals were left to Ray Reconstruction and that it did not draw (the decision looked at what it could, the frame had another
-    // answer) is not tried again: the engine's denoiser keeps the signals until the setting is switched off and on. It starts from a reset history.
-    if (rrSignalsDeclared && (rrSignalsFrame.reflections || rrSignalsFrame.gi) && !rrDrewFrame) rrSignalsLost = true;
+    // answer) is not tried again at once: the engine's denoiser keeps the signals, from a reset history, until the decision and DLSS have agreed
+    // for kRrRecoverFrames frames in a row (rr_recovery_step). A frame DLSS refused for good (rrFailed) never recovers: rr_refusal keeps refusing.
+    if (rrSignalsDeclared && (rrSignalsFrame.reflections || rrSignalsFrame.gi) && !rrDrewFrame) {
+        rrSignalsLost = true;
+        rrAgreeFrames = 0;
+    } else if (rrSignalsLost && render::rr_recovery_step(rrAgreeFrames, rrWouldTake, rrDrewFrame)) {
+        rrSignalsLost = false;
+    }
     std::lock_guard<std::mutex> lock(rtGiStatusMutex);
     rtGiPixelStatus = std::move(st);
     rtDenoiserStatus = std::move(ds);
