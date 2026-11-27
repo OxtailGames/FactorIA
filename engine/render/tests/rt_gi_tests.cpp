@@ -528,16 +528,17 @@ TEST_CASE("rt gi: the retry frame and the frames after a miss update the grids b
         r.frame(w);
         const double captures = r.renderer.gi_report()["captures"].get<double>();
         // The first frame of a miss has nothing planned beside the rays (documented); every other frame updates 4 probes.
-        if (i >= 2) {
+        if (i >= render::kGiRtMissFrames) {
             ++frames;
             if (captures <= last) {
                 ++idle;
                 MESSAGE("frame " << i << " updated no probe");
             }
+            CHECK(captures - last <= double(render::kGiInsuredMaxProbes));  // the insured captures are capped
         }
         last = captures;
     }
-    CHECK(frames == total - 2);
+    CHECK(frames == total - render::kGiRtMissFrames);
     CHECK(idle == 0);
     CHECK(r.renderer.gi_report()["rtUpdates"].get<double>() == 0.0);
 }
@@ -563,8 +564,9 @@ TEST_CASE("rt gi: the insured raster captures are limited to kGiInsuredMaxProbes
     }
     // Frame 0 plans only the rays (nothing says yet that they will not run); frame 1 is insured: it captures the insured probes, not 8.
     MESSAGE("probes captured per frame: " << delta[0] << ", " << delta[1] << ", " << delta[2] << ", " << delta[3]);
-    CHECK(delta[0] == 0.0);
-    CHECK(delta[1] == double(render::kGiInsuredMaxProbes));
+    // The frames before the insurance starts (kGiRtMissFrames - 1 of them) plan only the rays; then every frame takes the insured probes.
+    for (int i = 0; i < render::kGiRtMissFrames - 1; ++i) CHECK(delta[std::size_t(i)] == 0.0);
+    CHECK(delta[std::size_t(render::kGiRtMissFrames - 1)] == double(render::kGiInsuredMaxProbes));
     for (double d : delta) CHECK(d <= 8.0);
 }
 

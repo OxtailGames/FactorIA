@@ -152,6 +152,7 @@ struct Rig {
     std::unique_ptr<Device> owner;
     Device* dev = nullptr;
     Pipeline pipeline{};
+    Shader shader{};
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -245,11 +246,20 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = shader;
         pd.label = "rt_pathtrace";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
+    }
+
+    // The pipeline, its shader and the sampler (the scene frees the rest); the device is the process's only one on this context.
+    ~Rig() {
+        if (!dev) return;
+        if (pipeline.id) dev->destroy_pipeline(pipeline);
+        if (shader.id) dev->destroy_shader(shader);
+        if (nearestSampler.id) dev->destroy_sampler(nearestSampler);
     }
 };
 
@@ -428,8 +438,13 @@ struct Scene {
         dev.destroy_buffer(recordBuffer);
         for (const Buffer bf : owned) dev.destroy_buffer(bf);
         dev.destroy_accel_structure(tlas);
-        for (Mesh* m : meshes)
-            if (m) dev.destroy_accel_structure(m->blas);
+        for (Mesh* m : meshes) {
+            if (!m) continue;
+            dev.destroy_accel_structure(m->blas);
+            dev.destroy_buffer(m->vb);
+            dev.destroy_buffer(m->ib);
+            dev.destroy_buffer(m->scratch);
+        }
     }
 };
 

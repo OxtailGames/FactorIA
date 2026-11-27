@@ -242,6 +242,9 @@ struct Renderer::Impl::DrawContext {
         bool want = false;
         bool expected =
             false;  // `want`, the pass was not refused and a mesh can be traced: its own occlusion replaces the ambient occlusion
+        bool retry =
+            false;  // `want` and a mesh can be traced, but this camera's last frame was refused: the pass is tried again, and if
+        // build_graph accepts it the frame is the path traced one (no ambient occlusion passes: one decision a frame)
         const RtEffectImage* img = nullptr;
         ResourceId res;
     } pathTrace;
@@ -1246,6 +1249,8 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.pathTrace = {};
     ctx.pathTrace.want = wantPathTrace && ctx.doPrepass && rtScene.active();
     ctx.pathTrace.expected = ptExpected;
+    ctx.pathTrace.retry =
+        wantPathTrace && ctx.doPrepass && rtScene.active() && ptRefused && rtScene.traceable_items() > 0;
     // The volumetric fog needs the prepass (its shaders and its image were checked above). A camera that draws it draws no analytic fog: neither the scene's
     // (ss.fogDensity, scene_uniforms) nor the stack's (fogFx.fog), the two would fog twice; the sun shafts of the stack stay.
     if (ctx.postPlan.vol.on) {
@@ -3710,9 +3715,9 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
         sp.clearDepth = 1.0f;
         return sp;
     };
-    // M79-P2a-3: the maps of the lights whose shadow the rays make are not drawn when nothing would read them: the passes of the traced image are declared
-    // and the pack pass ran before this one (build_graph orders the shadow pass after it: `img->ran`),
-    // the scene's TLAS is built (it is, by rt-accel, the first pass of the job), every caster of the frame is in it, the effects have not failed, and every
+    // M79-P2a-3: the maps of the lights whose shadow the rays make are not drawn when nothing would read them: the passes of the traced image are declared,
+    // the pack pass ran before this one (build_graph orders the shadow pass after it: `img->ran`), the scene's TLAS is built (it is, by
+    // rt-accel, the first pass of the job), every caster of the frame is in it, the effects have not failed, and every
     // receiver of the job takes its shadow from the image (no blended mesh, decal, terrain, full-shader material, transmissive or subsurface draw: those
     // draws read the map). The atlas is still allocated and cleared (the sun's cascades and the lights beyond the cap use it).
     ctx.rtLocal.skipView.clear();
@@ -6334,9 +6339,10 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     // The ambient occlusion (renderer_ssao.h): its images are made from the prepass before the main pass, which applies them after the
     // opaque meshes (main_pass). Only a job that draws the world and has the prepass declares them.
     // A frame the path tracer draws (its pass is declared and expected to run: its image is drawn over the opaque picture, which has its own
-    // occlusion) makes none; a declared pass that cannot run (the scene offers no mesh) leaves this one.
-    if (!ctx.rtAo.on && !(ctx.pathTrace.res.valid() && ctx.pathTrace.expected) && ctx.doMainPass && ctx.doPrepass &&
-        fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
+    // occlusion) makes none, and so does the frame that tries the pass again after a refusal and has it accepted (`retry`: one decision a frame, no
+    // occlusion passes under the path traced picture); a declared pass that cannot run (the scene offers no mesh) leaves this one.
+    if (!ctx.rtAo.on && !(ctx.pathTrace.res.valid() && (ctx.pathTrace.expected || ctx.pathTrace.retry)) &&
+        ctx.doMainPass && ctx.doPrepass && fr.wantWorld && ctx.postPlan.ssao.enabled && ctx.postPlan.prepass.valid())
         ssao.add_passes(graph, transient_targets(), gpu, ctx.postPlan.ssao, ssao_camera(fr.cam), ctx.postPlan.prepass,
                         ctx.postPlan.rect, physW, physH, ctx.postPlan.sceneLinear, &stats.drawCalls, plan.name,
                         &ctx.ssaoApply);

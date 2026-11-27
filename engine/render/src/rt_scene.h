@@ -116,7 +116,8 @@ public:
     bool collected() const { return collected_; }
     // The items of the last collect() that can be in the TLAS (the kinds the scene leaves out, a mesh with no triangle and the ones over the cap are
     // not counted). Known at plan time, while the TLAS is built later in the graph: 0 means this frame's TLAS will have no instance.
-    std::uint32_t traceable_items() const { return collected_ ? std::uint32_t(items_.size()) : 0; }
+    // A job planned before the main camera's collect() of this frame gets the last collect()'s count (the scene of the frame before), never 0.
+    std::uint32_t traceable_items() const { return collected_ ? std::uint32_t(items_.size()) : lastTraceable_; }
     // The frame graph pass: records on `list` (outside any pass). Does nothing without instances.
     void record(gpu::CommandList& list);
     void forget(const MeshAsset* mesh);
@@ -281,6 +282,8 @@ private:
     std::uint32_t maxInstances_ = 0;
     std::uint32_t cap_ = 0;
     bool collected_ = false;
+    std::uint32_t lastTraceable_ =
+        0;  // items_.size() of the last collect(), kept while the next frame has not collected yet
     std::uint32_t nextId_ = 1;
     std::map<std::uint32_t, Blas> blas_;  // by id: ordered, so every walk (builds, frees) is the same on every run
     std::unordered_map<const MeshAsset*, MeshEntry> meshes_;  // only looked up, never walked in order

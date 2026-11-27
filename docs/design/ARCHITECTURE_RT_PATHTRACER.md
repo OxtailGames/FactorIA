@@ -154,7 +154,10 @@ of the last time this camera declared the pass; `ptState.status.failure` is only
 every camera's build, so it cannot decide this) and at least one mesh of the scene can be in the TLAS (`RtScene::traceable_items()`, what `collect` kept: terrain, impostors and GPU-driven
 meshes are left out, so a scene made only of them has no instance, the kernel does not run and the raster's occlusion stays; the TLAS itself is
 built later in the graph, and a BLAS that is only pending is built first, so the first frame of a scene with a traceable mesh already traces).
-The occlusion comes back the frame after a device refuses the path tracer. The one case left is a traceable mesh whose BLAS build fails: that
+While a device refuses the path tracer the pass returns no image and the raster occlusion is drawn. The frame that tries the pass again after a refusal
+(`ctx.pathTrace.retry`: the refusal is this camera's, the rest of "expected" holds) is decided once: if the pass is accepted that frame is the traced one and adds no
+SSAO passes; if it is refused again the occlusion stays. `traceable_items()` of a job planned before the main camera's `collect` of the frame is the count of the
+last `collect` (the scene of the frame before), never 0. The one case left is a traceable mesh whose BLAS build fails: that
 frame has no occlusion. The reflections, the per-pixel GI and the shadows are not skipped: they are other effects' passes (not this package's to drop) and the blended draws over the picture read them. The **blended and glass draws of the raster come after the opaque phase and are drawn again over the path traced
 picture** (they are not in the kernel's picture as raster draws): glass the path tracer already refracted shows twice, which is a known limit of
 this version.
