@@ -8,7 +8,7 @@
 //   temporal  the noisy signal + the prepass + the velocity + the history of the frame before -> location 0: the accumulated colour in rgb and
 //             the variance OF THE ESTIMATE in a; location 1: the moments (r, g = first and second moment of the luminance, b = the history
 //             length in frames, a = the accumulated hit distance of a specular signal)
-//   atrous    one wavelet iteration (step 1, 2, 4, 8, 16 pixels): the 5x5 B3 spline kernel, every tap weighted by the plane distance, the normal
+//   atrous    one wavelet iteration (step 1, 2, 4, 8, 16 pixels): a 3x3 [1 2 1] kernel (the second iteration: the 5x5 B3 spline), every tap weighted by the plane distance, the normal
 //             and the luminance difference measured in standard deviations of the variance (the variance is filtered with the squared weights)
 //   debug     the history length or the variance as a grey picture (the "views" of the module)
 //
@@ -229,7 +229,7 @@ void main() {
     vec2 ip = rtd_pixel_of(uv, a.yz, a.x);
     vec3 nwp = normalize(g.gba);
     vec3 np = nwp.x * wx.xyz + nwp.y * wy.xyz + nwp.z * wz.xyz;
-    vec3 pp = rtd_view_pos((ip + 0.5) / a.yz, g.r, cam);
+    vec3 pp = rtd_view_pos((ip + 0.5) / a.yz, g.r, cam);   // this pixel's centre in the full image
     float invPtol = 1.0 / max(2.0 * b.z * g.r, 1e-5);
     vec2 hp = (ip + 0.5) * 0.5 - 0.5;   // this pixel's place in the half image, in pixels
     vec2 i0 = floor(hp);
@@ -247,7 +247,7 @@ void main() {
         vec4 gq = textureLod(sampler2D(tex_gh, smp_pt), tq, 0.0);
         if (!(gq.r > 0.0)) continue;
         vec4 cq = textureLod(sampler2D(tex_c, smp_pt), tq, 0.0);
-        float dist = dot(rtd_view_pos((q + 0.5) / b.xy, gq.r, cam) - pp, np) * invPtol;
+        float dist = dot(rtd_view_pos((q * 2.0 + 1.0) / a.yz, gq.r, cam) - pp, np) * invPtol;
         float cosN = dot(nwp, gq.gba);
         // 0.001 of the bilinear weight stays whatever the tests say: a pixel no half pixel matches (a thin feature) still gets a value.
         float w = wb * ((cosN > 0.0 ? exp2(-dist * dist * LOG2E + b.w * log2(cosN)) : 0.0) + 0.001);
@@ -271,6 +271,7 @@ layout(binding=2) uniform texture2D tex_v;
 layout(binding=3) uniform texture2D tex_hc;
 layout(binding=4) uniform texture2D tex_hm;
 layout(binding=5) uniform texture2D tex_hg;
+layout(binding=6) uniform texture2D tex_c;      // a half size chain: the camera's full size guide (the texel the half guide took is found in it)
 layout(binding=7) uniform texture2D tex_r;      // the roughness (a reflection kind with a roughness window)
 layout(binding=0) uniform sampler smp_pt;
 layout(binding=1) uniform rtd_temporal_params {
@@ -285,6 +286,7 @@ layout(binding=1) uniform rtd_temporal_params {
     vec4 wz;
     vec4 sv;    // x = the depth share the spatial variance estimate takes as one plane, y = the least cosine of the normals there
     vec4 rr;    // x, y = the roughness window of a reflection kind: a pixel outside it is not denoised, z = 1 when the roughness is bound
+    vec4 hf;    // x = 1 for a half size chain (tex_g is the half guide, tex_c the full guide, the velocity has the full size), yz = the size of the full images in pixels
 };
 in vec2 uv;
 layout(location=0) out vec4 out_color;
@@ -408,7 +410,22 @@ void main() {
     bool velKnown = false;
     vec2 mv = vec2(0.0);
     if (f.x > 0.5) {
-        vec2 v = textureLod(sampler2D(tex_v, smp_pt), uv, 0.0).rg;
+        vec2 vuv = uv;
+        if (hf.x > 0.5) {
+            // The centre of a half pixel is the corner of four velocity texels: which one a point sample takes would depend on the GPU. The
+            // texel is the one the half guide took (the first of the block's four with its depth, in the order the guide pass looks at them).
+            vec2 q0 = min(ip * 2.0, hf.yz - 1.0);
+            vec2 qv = q0;
+            for (int k = 0; k < 4; k++) {
+                vec2 q = min(ip * 2.0 + vec2(float(k & 1), float(k >> 1)), hf.yz - 1.0);
+                if (textureLod(sampler2D(tex_c, smp_pt), rtd_uv_of(q, hf.yz, a.x), 0.0).r == d) {
+                    qv = q;
+                    break;
+                }
+            }
+            vuv = rtd_uv_of(qv, hf.yz, a.x);
+        }
+        vec2 v = textureLod(sampler2D(tex_v, smp_pt), vuv, 0.0).rg;
         velKnown = abs(v.x) < 512.0 && abs(v.y) < 512.0;   // the same test as VelocityRef::is_none
         if (velKnown) mv = v;
     }
@@ -572,7 +589,7 @@ void main() {
     vec3 acc = vec3(0.0);
     float wsum = 0.0;
     float vacc = 0.0;
-    const int rad = f.w > 1.5 ? 2 : 1;   // the kernel's radius: the first iterations are 5x5, the wide ones 3x3 (a quarter of the taps)
+    const int rad = f.w > 1.5 ? 2 : 1;   // the kernel's radius: the first and the wide ones (step 1, then 4 and wider) are 3x3 (9 taps), the second is 5x5 (21 taps)
     for (int y = -2; y <= 2; y++) {
         if (abs(y) > rad) continue;
         for (int x = -2; x <= 2; x++) {

@@ -222,6 +222,8 @@ public:
     // True once the shaders failed (the signals are then not denoised); refused() once a history was refused (budget or GPU) since forget_targets().
     bool unavailable() const { return state_ < 0; }
     bool refused() const { return refused_; }
+    // True once the half size programs failed to compile: the signals that ask for half size run at full size.
+    bool half_unavailable() const { return halfState_ < 0; }
     // Tests: the bytes of all the histories together (0: the default, 1 GB; 256 MB on wasm32).
     void set_budget(std::uint64_t bytes) { budgetOverride_ = bytes; }
     // Tests: 16-bit moments, as a GPU that cannot render to RGBA32F has.
@@ -305,6 +307,8 @@ private:
     gpu::Shader shaders_[int(Prog::Count)]{};
     std::vector<PipelineEntry> pipelines_;
     int state_ = 0;  // 0 = shaders not made yet, 1 = ready, -1 = failed (logged)
+    int halfState_ =
+        0;  // the half size programs: 0 = not made yet (made when a half size signal asks), 1 = ready, -1 = failed (logged)
     bool refused_ = false;
     bool forceF16_ = false;
     std::uint64_t budgetOverride_ = 0;
@@ -316,6 +320,7 @@ private:
     static std::uint64_t signal_bytes_of(const SignalSlot& s);
     void destroy(GuideSlot& g);
     void destroy(SignalSlot& s);
+    bool half_ready(gpu::Device& device);
     bool draw(gpu::CommandList& list, Gpu& gpu, Prog prog, const PassDesc& pd, const DrawArgs& args);
 };
 

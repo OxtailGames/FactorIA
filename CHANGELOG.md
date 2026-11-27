@@ -33,7 +33,7 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   that fails is warned once per cause, not at every dynamic-resolution size; the sun the rays aim at is the shadow-casting one, else the brightest
   directional light (the effects that shade what a ray hits); the glass picture is read at the centre of one texel; the docs and the status text say which effects trace today.
 - **What ray tracing costs, and when to use it (M79-P6b):** docs/RAY_TRACING.md has a "What it costs" table, measured on an Apple M5 on Metal at
-  1080p with the new scene `tools/cli/tests/perf/rt_cost` (hard shadows +0.9 ms, soft +8, ambient occlusion +3.5, reflections +6, translucency +4,
+  1080p with the new scene `tools/cli/tests/fixtures/rt_cost` (hard shadows +0.9 ms, soft +8, ambient occlusion +3.5, reflections +6, translucency +4,
   per-pixel GI +9, the path tracer 34 ms a sample; re-measured after M79 POLISH-denoise-2 made the denoiser cheaper, it had been +32, +18, +26, +3, +22 and 29; D3D12 and Vulkan not measured) and an "effect by backend"
   table that says what is traced, what falls back and what has run on a real GPU, on CI only (WARP, lavapipe) or never. The AI guide has a short
   section 9.20.3 (which effect for which look, the preset tiers, the fallbacks, the path tracer as a reference tool). A new test checks that every
@@ -55,7 +55,16 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   their tolerances, and new ones cover the half size chain, the roughness window, the coverage's lobe limit and that a calm pixel is left bit for bit as it is by the
   later iterations. A signal the 1 GiB history budget refuses now says how many MiB it wanted and how many are in use, and ARCHITECTURE_DENOISE.md states the
   memory at 1080p, 1440p and 4K (48 bytes a pixel for each full size signal, 64 per half size pixel, 16 for a camera's guide: at 4K two full size signals fit, so
-  the third effect that asks is shown noisy).
+  the third effect that asks is shown noisy). Before this, the first iteration of the filter was a 5x5 (2.4 to 2.6 ms for the ambient occlusion, the soft
+  shadows and the per-pixel GI; the 3x3 takes it to 1.3 ms for a full size signal, and the first filtered frame of the visibility test went from an error of 0.047 to 0.044). Polished: the
+  three half size programs are compiled when the first half size signal asks, and a backend that cannot compile them (only Metal has been tried) runs that signal at
+  full size, says so once and denoises the other signals as before (it turned the whole denoiser off); the temporal pass of a half size chain reads the full size
+  velocity at the texel the half guide took, not at the corner of four texels (the texel a point sampler took depended on the GPU); the upsample places a half
+  pixel at `(2q + 1) / full size` (an odd size was off by a fraction of a pixel); the calm-pixel test skips a GPU without float32 render targets.
+- **The ray tracing docs and tests, polished again (M79 POLISH-last-D):** the reflection kernel's request is filled by the same function as the other
+  effects' (the sun, the ambient and sky colours and the ray limits were written twice); the scene that the costs of docs/RAY_TRACING.md were measured on is
+  `tools/cli/tests/fixtures/rt_cost` (a test project, not a budget file, so it sits with the other projects); the table's sentence on the rays now says 1.5 to 6 ms;
+  the test that an effect asked for on a device that cannot trace draws the frame of ray tracing off, command for command, compares every frame it draws, not the third only.
 - **Ray tracing reaches the presets, the editor and the menu kit (M79-P6a):** the graphics presets cap ray tracing (`low` and `medium` trace nothing,
   `high` hard shadows and ambient occlusion with two rays per pixel, `ultra` and `custom` no limit) and never turn it on when `render.rayTracing.enabled`
   is false; on a device that cannot trace the presets behave as before. The renderer keeps what the project asked for apart from what is drawn, so
