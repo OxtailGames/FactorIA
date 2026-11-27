@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -137,7 +138,7 @@ struct Rig {
     bool headless = true;
     RtScene scene;
     std::vector<std::unique_ptr<render::MeshAsset>> meshes;
-    std::vector<MeshRenderer> renderers;  // reserved up front: the items point into it
+    std::deque<MeshRenderer> renderers;  // a deque: the items point into it, and a new one moves none of the others
 
     explicit Rig(bool rayTracing = true, bool asyncReads = false) {
         gpu::DeviceInit init;
@@ -153,7 +154,6 @@ struct Rig {
         }
         dev = dynamic_cast<gpu::RecordingDevice*>(owned.get());
         REQUIRE(dev != nullptr);
-        renderers.reserve(256);
     }
     ~Rig() {
         scene.release();
