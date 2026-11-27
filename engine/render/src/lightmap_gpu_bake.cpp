@@ -254,8 +254,9 @@ struct LightmapGpuTracer::Impl {
     View make_storage_view(Buffer b, const char* label) {
         ViewDesc vd{};
         vd.storageBuffer.buffer = b;
-        // rt_bake.hlsl declares g_scene, g_texels and g_sky as StructuredBuffer<float4> / <uint4> (16 bytes): D3D12 needs a
-        // structured view for them (a raw one read as structured is a debug layer error); the other backends ignore it.
+        // rt_bake.hlsl declares g_scene, g_texels and g_sky as StructuredBuffer<float4> / <uint4> (16 bytes): D3D12
+        // needs a structured view for them (a raw one read as structured is a debug layer error); the other backends
+        // ignore it.
         vd.storageBuffer.structureStride = 16;
         vd.label = label;
         const View v = dev->make_view(vd);

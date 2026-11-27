@@ -111,11 +111,11 @@ inline constexpr float kRtLocalStopCap = 0.25f;
 // What the kernel needs of one light (5 float4, 80 bytes; rt_shadow_local.hlsl / .metal have the same struct between `// BEGIN RtLocalLight` and
 // `// END RtLocalLight`). Kinds: 1 point, 2 spot, 3 rectangle, 4 disc, 5 tube.
 struct RtLocalLight {
-    // xyz: the light's position; w: how far it reaches (its range plus an area light's radius), the pixels past it are lit
+    // xyz: the light's position; w: its reach (its range plus an area light's radius), the pixels past it are lit
     float posReach[4];
     float axisCos[4];  // xyz: a spot's axis / an area light's front (unit); w: a spot's cos(half angle) (-2 = no cone)
-    // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z: the
-    // factor on an area light's half sizes (Light.shadowSoftness; 0 = hard); w: 0
+    // x: the kind above; y: the tangent of the cone of rays of a point or spot light (0 = one ray to the centre); z:
+    // the factor on an area light's half sizes (Light.shadowSoftness; 0 = hard); w: 0
     float kind[4];
     float right[4];  // xyz: an area light's first axis times its half size (a tube: along its length); w: 0
     // xyz: the second axis times its half size (a disc: the same as `right`; a tube: its half thickness); w: 0
