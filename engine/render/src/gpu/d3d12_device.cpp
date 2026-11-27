@@ -65,6 +65,17 @@ void write_pipeline_cache_header(std::vector<std::uint8_t>& bytes, const Pipelin
     std::memcpy(bytes.data() + F::kChecksumAt, checksum.data(), 64);
 }
 
+std::string d3d12_removal_text(const std::string& reason, const std::string& during, const std::string& firstSeen,
+                               const std::string& lastPipeline, const std::string& lastList) {
+    std::string s = "; the device was removed";
+    if (!during.empty()) s += " while " + during;
+    s += ": " + reason;
+    if (during.empty() && !firstSeen.empty()) s += "; first seen while " + firstSeen;
+    if (!lastPipeline.empty()) s += "; last pipeline asked for: " + lastPipeline;
+    if (!lastList.empty()) s += "; last list executed: " + lastList;
+    return s;
+}
+
 std::string pipeline_cache_mismatch(const std::vector<std::uint8_t>& bytes, const PipelineCacheIdentity& self,
                                     const std::string& adapterName) {
     using F = PipelineCacheFile;
