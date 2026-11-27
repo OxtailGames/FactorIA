@@ -108,10 +108,11 @@ struct PipelineCacheIdentity {
 };
 
 // The text a device removal adds to an error (pure logic: every platform): "; the device was removed while <during>:
-// <reason>", then what the device had been doing: "; first seen while <firstSeen>" (when this call names nothing and an
-// earlier one did), "; last pipeline asked for: <lastPipeline>" and "; last list executed: <lastList>" (each only when
-// not empty). `reason` is the HRESULT's text. A removal is reported when the device first sees it, so a pipeline made or
-// a list executed just before is the first suspect; DRED (log_dred) names the command that was running.
+// <reason>", then what the device had been doing: "; first seen while <firstSeen>" (when it differs from `during`:
+// an earlier call saw the removal first), "; last pipeline made or loaded: <lastPipeline>" and "; last list executed:
+// <lastList>" (each only when not empty). `reason` is the HRESULT's text. A removal is reported when the device
+// first sees it, so a pipeline made or a list executed just before is the first suspect; DRED (log_dred) names the
+// command that was running.
 std::string d3d12_removal_text(const std::string& reason, const std::string& during, const std::string& firstSeen,
                                const std::string& lastPipeline, const std::string& lastList);
 // Writes the header of `bytes` (PipelineCacheFile::kHeaderBytes, then the payload, which must be there already): the

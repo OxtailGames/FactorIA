@@ -70,8 +70,8 @@ std::string d3d12_removal_text(const std::string& reason, const std::string& dur
     std::string s = "; the device was removed";
     if (!during.empty()) s += " while " + during;
     s += ": " + reason;
-    if (during.empty() && !firstSeen.empty()) s += "; first seen while " + firstSeen;
-    if (!lastPipeline.empty()) s += "; last pipeline asked for: " + lastPipeline;
+    if (!firstSeen.empty() && firstSeen != during) s += "; first seen while " + firstSeen;
+    if (!lastPipeline.empty()) s += "; last pipeline made or loaded: " + lastPipeline;
     if (!lastList.empty()) s += "; last list executed: " + lastList;
     return s;
 }

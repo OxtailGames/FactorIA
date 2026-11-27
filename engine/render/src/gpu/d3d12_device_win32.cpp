@@ -821,7 +821,7 @@ std::string D3d12Device::removed_reason(const std::string& during) const {
     if (r == S_OK) return {};
     if (dred_ && !dredLogged_.exchange(true)) log_dred();
     std::lock_guard<std::mutex> lock(trailMutex_);
-    if (removedDuring_.empty()) removedDuring_ = during;
+    if (removedDuring_.empty()) removedDuring_ = during.empty() ? "an unnamed call" : during;
     return d3d12_removal_text(hr_text(r), during, removedDuring_, lastPipeline_, lastList_);
 }
 
@@ -829,10 +829,10 @@ void D3d12Device::note_removal(const std::string& during) {
     if (removalNoted_.load(std::memory_order_relaxed)) return;
     const std::string text = removed_reason(during);
     if (text.empty() || removalNoted_.exchange(true)) return;
-    report("gpu d3d12: device lost" + text +
-           " (hint: the GPU or its driver refused work it was given; DRED's error above names the command, and the "
-           "debug layer (D3d12Options::debugLayer) the call; a failing shader is usually found by making its pipeline "
-           "alone)");
+    report("gpu d3d12: device lost" + text + " (hint: the GPU or its driver refused work it was given; " +
+           (dred_ ? "DRED's error above names the command, and the debug layer's messages the call"
+                  : "run with D3d12Options::debugLayer: its DRED error names the command and its messages the call") +
+           "; a failing shader is usually found by making its pipeline alone)");
 }
 
 namespace {
