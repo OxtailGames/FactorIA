@@ -966,7 +966,8 @@ std::shared_ptr<const RootLayout> D3d12Device::shader_root_layout(Shader shader)
 // Pipelines
 // ---------------------------------------------------------------------------------------------------------------------
 
-Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
+Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const std::string& what,
+                                          const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
                                           const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error) {
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -989,6 +990,10 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
         return it->second;
     };
     Com<ID3D12PipelineState> made;
+    {
+        std::lock_guard<std::mutex> lock(trailMutex_);
+        lastPipeline_ = what;
+    }
     {
         std::lock_guard<std::mutex> lock(libraryMutex_);
         if (library_) {
@@ -1023,6 +1028,7 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
                 add.libraryHits = 1;
                 d3d12_pipeline_cache_count(add);
                 made->SetName(L"fa-d3d12-pso");
+                note_removal("loading " + what + " from the pipeline library");
                 return keep(made);
             }
         }
@@ -1034,12 +1040,13 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
     if (FAILED(hr) || !made) {
         drain_messages();
         error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") + " failed with " +
-                hr_text(hr) + removed_reason() +
+                hr_text(hr) + removed_reason("creating " + what) +
                 " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
                 "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
         return {};
     }
     made->SetName(L"fa-d3d12-pso");
+    note_removal("creating " + what);  // made, and the device is gone already: the shader compiled for it killed it
     std::lock_guard<std::mutex> lock(libraryMutex_);
     // Another thread may have stored the same name meanwhile (E_INVALIDARG): the library has it either way.
     if (library_ && SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) {
@@ -1439,7 +1446,8 @@ Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {
             c.pRootSignature = layout->signature.get();
             c.CS.pShaderBytecode = shader->cs.data();
             c.CS.BytecodeLength = shader->cs.size();
-            st->pso = pso("compute|" + shader->codeKey + "|" + layout->key, nullptr, &c, e);
+            st->pso = pso("compute|" + shader->codeKey + "|" + layout->key,
+                          "pipeline '" + label + "' (shader '" + shader->label + "')", nullptr, &c, e);
         } else {
             GraphicsBuild g;
             e = graphics_desc(desc, *shader, defaults_, caps_, *st, g);
@@ -1449,7 +1457,8 @@ Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {
                 g.d.VS.BytecodeLength = shader->vs.size();
                 g.d.PS.pShaderBytecode = shader->fs.data();
                 g.d.PS.BytecodeLength = shader->fs.size();
-                st->pso = pso("render|" + shader->codeKey + "|" + layout->key + "|" + g.key.s, &g.d, nullptr, e);
+                st->pso = pso("render|" + shader->codeKey + "|" + layout->key + "|" + g.key.s,
+                              "pipeline '" + label + "' (shader '" + shader->label + "')", &g.d, nullptr, e);
             }
         }
         if (!st->pso) fail(e);

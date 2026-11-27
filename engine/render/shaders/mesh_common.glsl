@@ -889,6 +889,15 @@ float fa_shadow_factor(vec3 n, vec3 l) {
     return fa_shadow_sun(fa_world_pos, n, l);
 }
 
+// One texel of the 3 x 3 block around the fragment's own, for fa_shadow_local_rt: `best` darkened by this texel's visibility of the light (the byte
+// of the integer in b that `div` selects) when the texel shows the fragment's surface. A function called eight times, not a loop: a `for` over
+// the nine texels with a texelFetch in it made the in-box WARP of Windows Server 2022 (D3D12 10.0.20348) lose the device on its first use.
+float fa_rt_local_tap(ivec2 p, ivec2 size, float d, float tol, float div, float best) {
+    vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), clamp(p, ivec2(0), size - 1), 0);
+    if (rt.a > 0.5 && abs(d - rt.r) <= tol) { best = min(best, mod(floor(rt.b / div), 256.0) / 255.0); }
+    return best;
+}
+
 // M79-P2a-3: the shadow of a point, spot or area light. A light the renderer traced this frame (its texel of the shadow region has z = 1 + its slot,
 // light_data.glsl) takes its visibility from the same image view 28 holds for the sun's: b packs the three traced lights as three bytes of one
 // integer below 2^24 (light s: 255 v * 256^s), exact in a float, read here with floor and mod (no bit operations: legacy targets have none).
@@ -914,15 +923,20 @@ float fa_shadow_local_rt(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
                     ivec2 px0 = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), size - 1);
                     float div = slot < 1.5 ? 1.0 : (slot < 2.5 ? 256.0 : 65536.0);
                     float best = 2.0;  // the darkest visibility among the texels that show this surface (2 = none does)
-                    for (int k = 0; k < 9; k++) {
-                        // the fragment's own texel first (k = 4 of a 3 x 3 block, moved to the front), then the eight around it
-                        int kk = k == 0 ? 4 : (k <= 4 ? k - 1 : k);
-                        ivec2 o = ivec2(kk % 3 - 1, kk / 3 - 1);
-                        vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), clamp(px0 + o, ivec2(0), size - 1), 0);
-                        if (rt.a > 0.5 && abs(d - rt.r) <= tol) {
-                            best = min(best, mod(floor(rt.b / div), 256.0) / 255.0);
-                            if (k == 0) { break; }  // the fragment's own texel shows this surface: it answers alone
-                        }
+                    // The fragment's own texel first: when it shows this surface it answers alone.
+                    vec4 rt0 = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px0, 0);
+                    if (rt0.a > 0.5 && abs(d - rt0.r) <= tol) {
+                        best = mod(floor(rt0.b / div), 256.0) / 255.0;
+                    } else {
+                        // Else the eight around it, written out (a loop here made the Windows Server 2022 WARP lose the device).
+                        best = fa_rt_local_tap(px0 + ivec2(-1, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(0, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(-1, 0), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, 0), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(-1, 1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(0, 1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, 1), size, d, tol, div, best);
                     }
                     if (best <= 1.0) {
                         return fa_ct_b.z > 0.5 ? min(best, fa_shadow_local(li, lpos, world, n, l)) : best;

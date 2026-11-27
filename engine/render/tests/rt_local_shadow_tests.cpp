@@ -451,12 +451,21 @@ TEST_CASE(
     const std::size_t fn = glsl.find("float fa_shadow_local_rt(");
     REQUIRE(fn != std::string::npos);
     // The depth slope is read from the per-fragment global (no derivative inside a light's branch), and the texels around the fragment's own are
-    // searched in a 3 x 3 block, the darkest of those that show the surface answering (a silhouette does not flicker to "lit").
+    // searched in a 3 x 3 block, the darkest of those that show the surface answering (a silhouette does not flicker to "lit"). The eight are
+    // eight calls of fa_rt_local_tap, never a loop: a for over the nine texels made the WARP of Windows Server 2022 lose the device.
     const std::string body = glsl.substr(fn, glsl.find("\n}\n", fn) - fn);
     CHECK(body.find("fwidth(") == std::string::npos);
     CHECK(body.find("fa_rt_slope") != std::string::npos);
-    CHECK(body.find("k < 9") != std::string::npos);
-    CHECK(body.find("min(best,") != std::string::npos);
+    CHECK(body.find("for (") == std::string::npos);
+    std::size_t taps = 0;
+    for (std::size_t at = body.find("fa_rt_local_tap("); at != std::string::npos;
+         at = body.find("fa_rt_local_tap(", at + 1))
+        ++taps;
+    CHECK(taps == 8);
+    const std::size_t tap = glsl.find("float fa_rt_local_tap(");
+    REQUIRE(tap != std::string::npos);
+    CHECK(tap < fn);
+    CHECK(glsl.substr(tap, fn - tap).find("min(best,") != std::string::npos);
     const std::string loop = read_repo_file("engine/render/shaders/light_loop.glsl");
     // The light loops call the traced version; the full-shader path (user materials) keeps the maps only.
     CHECK(loop.find("fa_shadow_local_rt(") != std::string::npos);
