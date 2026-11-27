@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <set>
 #include <unordered_set>
 
@@ -52,7 +53,14 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "mesh_buffer_draw.h"
 #include "hiz.h"
+#include "rt_denoise.h"
+#include "rt_effect.h"
+#include "rt_gi.h"
+#include "rt_pathtrace.h"
+#include "rt_local_shadows.h"
+#include "rt_scene.h"
 #include "occlusion.h"
 #include "render_scene.h"
 #include "renderer_ssao.h"
@@ -236,6 +244,8 @@ struct Renderer::Impl {
     TaaPlan upscaleTaa;
     PrepassRef upscalePrepass;
     VelocityRef upscaleVelocity;
+    PrepassRef upscaleGbufAlbedo,
+        upscaleGbufMaterial;  // the thin G-buffer of that camera while DLSS Ray Reconstruction asks for it (M79-P0c); invalid: none
     PrepassRef upscaleReactive;  // the reactive mask of the camera the upscaler resolves (M76-P1d); invalid: none
     bool temporal_upscale(const render::UpscaleInput& in, Target& out, const PassContext& c);
     // M76-P5b, MetalFX (renderer_metalfx.cpp). mfxFrame: this frame's jittered picture goes to MetalFX's temporal scaler (render() decides it
@@ -288,6 +298,36 @@ struct Renderer::Impl {
     // of an unavailable setting. rrLastUsed: the last DLSS frame was drawn with Ray Reconstruction (tests).
     render::RrGuidesPrep rrPrep;
     Target rrNormal, rrDiffuse, rrSpecular, rrDepth;
+    // M79-P4b-2: the specular hit distance guide (R32F, the render size), made only on a frame whose ray traced reflections went to Ray Reconstruction
+    // and given back on the next frame that has none.
+    Target rrHit;
+    // M79-P4b-2: which ray traced signals DLSS Ray Reconstruction takes from the engine's denoiser this frame (rr_signals, decided once per camera before
+    // the RT passes are recorded), what the last whole frame did (rrSignalsFrame: reset by rt_begin_frame, settled by rt_gi_pixel_finish into
+    // rtDenoiserStatus under rtGiStatusMutex) and whether DLSS really drew the frame with it (rrDrewFrame).
+    struct RrSignals {
+        bool asked = false;        // render.upscaler rayReconstruction is on and an effect that makes a signal is on
+        bool reflections = false;  // the reflections (Specular and Coverage) go to Ray Reconstruction
+        bool gi = false;           // the per-pixel GI (Diffuse) goes to Ray Reconstruction
+        std::string why;           // asked and not (fully) taken: what stops it
+    };
+    RrSignals rr_signals(bool upscaleCamera, bool postFinal, bool wantReflect, bool wantGi);
+    // The conditions of one frame that stop Ray Reconstruction, shared by the decision above and by vendor_upscale: empty when none does.
+    std::string rr_refusal(bool linear, bool dynamicResolution, bool perspective, bool* permanent);
+    RrSignals rrSignalsFrame;
+    bool rrSignalsDeclared = false;  // some camera declared its RT signals with the decision above this frame
+    bool rrDrewFrame = false;
+    bool rrSignalsLost =
+        false;  // a frame given the signals was not drawn by Ray Reconstruction: they stay with the engine's denoiser (until rr_recovery_step)
+    bool rrWouldTake =
+        false;  // this frame: the decision would give the signals to Ray Reconstruction (only worked out while rrSignalsLost)
+    int rrAgreeFrames = 0;  // frames in a row of rr_recovery_step
+    render::RtDenoiserStatus rtDenoiserStatus;
+    // The reflections' raw image of the camera the upscaler resolves, while they go to Ray Reconstruction (its hit distance is a guide).
+    const RtEffectImage* upscaleReflectImg = nullptr;
+    // This frame: the reflections' kernel declared by some camera (the status says whether the engine, Ray Reconstruction or nobody denoised them).
+    std::vector<const RtEffectImage*>
+        rtReflectFrameImgs;  // one per camera that declared it; the status ORs their `ran`
+    ResourceId upscaleReflectRes;
     render::VendorProbe rrProbe;
     bool rrProbed = false;
     bool rrFailed = false;
@@ -295,7 +335,8 @@ struct Renderer::Impl {
     bool rrWarnedUnavailable = false, rrWarnedFrame = false;
     bool rrLastUsed = false;
     const render::VendorProbe& rr_probe();  // asked once; a refused frame says so
-    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass);
+    bool run_rr_guides(const render::UpscaleInput& in, const PassContext& c, const Target* prepass,
+                       const Target* gbAlbedo, const Target* gbMaterial, const RtEffectImage* reflect);
     void free_rr_images();
     // M78, low latency (render_latency.h; renderer_latency.cpp): the setting, the SDK or pacing that runs it and the markers. Attached to the device
     // at init and detached before the device goes.
@@ -375,7 +416,16 @@ struct Renderer::Impl {
     Target velocityProbe;
     // The same for the reactive mask (R8; the copy holds r in the first channel): RendererTestAccess::read_reactive.
     Target reactiveProbe;
-    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label);
+    // `mode`: prepass_view.glsl's mode of the copy: 4 the velocity's two channels (the default), 7 the four channels as they are.
+    void velocity_probe_pass(DrawContext& ctx, const Target& src, Target& probe, const char* label, float mode = 4.0f);
+    // M79-P0c, the thin G-buffer (renderer_draw.cpp, plan_prepass and gbuffer_pass; docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): `forceGbuffer`
+    // (RendererTestAccess::force_gbuffer) asks every camera for the two images and keeps a copy of the last camera's in gbufferProbe (RGBA16F,
+    // the four channels as they are), which read_gbuffer gives back. gbufferWarned: the one warning of images the GPU refused.
+    bool forceGbuffer = false;
+    bool gbufferWarned = false;
+    Target gbufferProbe[2];
+    bool read_gbuffer(int which, std::vector<float>& out, int& w, int& h, std::string* error);
+    void gbuffer_pass(DrawContext& ctx, const Target& albedo, const Target& material, const Target& pre);
     bool read_velocity(std::vector<float>& out, int& w, int& h, std::string* error);
     bool read_reactive(std::vector<float>& out, int& w, int& h, std::string* error);
     struct PrevModel {
@@ -612,6 +662,94 @@ struct Renderer::Impl {
     int hizSupport = 0;      // 0 not asked, 1 yes, -1 no
     std::string hizWhy;      // why not
     bool hizOn = false;      // the mode of this frame's world resolved to the pyramid
+    // M79 P1s: the scene's acceleration structures (rt_scene.h). `rtSettings` is the engine's setting; rt_begin_frame (Renderer::begin_frame)
+    // turns the scene on or off from it and from what the device can do, so a frame sees one answer.
+    render::RayTracingSettings
+        rtSettings;  // what the frame traces: rtRequested under the graphics preset's caps (M79-P6a)
+    render::RayTracingSettings
+        rtRequested;  // the setting the engine gave (Renderer::set_ray_tracing), before the preset's caps
+    // M79-P5a: the path tracer (rt_pathtrace.h). `ptSettings` is the engine's setting; ptState is the accumulation's bookkeeping, one entry per
+    // camera job (pt_hook); ptStatus is what the last frame did.
+    render::PathTracerSettings ptSettings;
+    PathTraceState ptState;
+    bool rtWarnedPathTrace = false;  // the one-time message of the kernel
+    RtScene rtScene;
+    bool rtWarnedUnsupported = false;
+    // M79-P2a-1 (rt_effect.h): the effects' shaders and images, and the one-time message (a device that traces but cannot run an effect).
+    RtEffects rtEffects;
+    // Tests (RendererTestAccess::rt_shadow_draws): the draws of the frame that took the sun's shadow from the ray traced mask, and those of
+    // them that also took the cascades' (the scene had casters the rays do not see). Reset by rt_begin_frame.
+    struct RtShadowDraws {
+        int mask = 0, withCascades = 0,
+            local =
+                0;  // local (M79-P2a-3): the draws that took a point, spot or area light's shadow from the traced image
+    } rtShadowDraws;
+    // Tests (RendererTestAccess::rt_gi_pixel_draws): while the per-pixel GI image is bound, the opaque draws that read it (`on`) and those that keep the
+    // probes and the ambient light (`off`: baked light, no prepass image of their own, a terrain node, an impostor card). Reset by rt_begin_frame.
+    struct GiPixelDraws {
+        int on = 0, off = 0;
+    } giPixelDraws;
+    // M79-P2a-3 (rt_local_shadows.h): which light holds each of the kRtLocalMaxLights slots of a camera (by camera entity bits), kept from frame to
+    // frame so a light keeps its slot and the denoiser its history; what the frame did for `render.ray_tracing` (the lights that asked, the lights
+    // traced; the highest over the frame's cameras, reset by rt_begin_frame) and the one-time message of a pipeline the device refused.
+    std::map<std::uint64_t, RtLocalSlots> rtLocalSlots;
+    struct RtLocalFrame {
+        int candidates = 0, traced = 0;
+    } rtLocalFrame;
+    std::atomic<int> rtLocalCandidatesShown{0},
+        rtLocalTracedShown{0};  // rtLocalFrame of the last whole frame (Renderer::ray_tracing_local_shadows)
+    bool rtWarnedLocal = false;
+    // M79-P4a (rt_gi.h, renderer_gi.cpp): the GI probes updated by rays. build_graph keeps the name of the main camera's `rt-accel` pass and the
+    // constants of the kernels that shade a hit (both reset by rt_begin_frame): gi_plan, which runs after the cameras' jobs, orders its pass
+    // after that one. `rtGiStatus` is what Renderer::ray_tracing_gi_status says (the last whole frame).
+    RtGiProbes rtGi;
+    std::string rtAccelPass;
+    RtHitParams rtGiHit{};
+    bool rtGiHitValid = false;
+    mutable std::mutex rtGiStatusMutex;
+    render::RtGiStatus rtGiStatus;
+    // M79-P4b-1 (rt_gi_pixel, ARCHITECTURE_RT_GI.md "Per pixel"): the main camera's per-pixel traced GI. `rtGiPixelFrame` is what build_graph did this
+    // frame (reset by rt_begin_frame); the fallback state counts frames like the probes' (kGiRtMissFrames, kGiRtRetryFrames); rt_gi_pixel_finish, after
+    // the frame graph ran, settles it and writes `rtGiPixelStatus` (under rtGiStatusMutex).
+    struct RtGiPixelFrame {
+        bool declared = false;  // the kernel's pass is in the graph
+        bool bound = false;     // the main pass bound the image at the lightmap slot (the surfaces can read it)
+        std::vector<const RtEffectImage*>
+            imgs;         // every camera that declared the kernel (the denoiser status ORs their `ran`)
+        std::string why;  // why nothing was declared (empty: no camera drew the scene)
+    } rtGiPixelFrame;
+    // tests (RendererTestAccess): a later camera's per-pixel GI image that did not run is added to each frame's
+    bool testGiPixelLastNotRun = false;
+    RtEffectImage testGiPixelNotRunImage;
+    int rtGiPixelMisses = 0;                   // frames in a row the declared pass did not run
+    std::uint64_t rtGiPixelFallbackUntil = 0;  // frameSerial: the probe and ambient term lights the surfaces until then
+    std::string rtGiPixelFallbackReason;
+    render::RtGiPixelStatus rtGiPixelStatus;
+    bool rtWarnedGiPixel = false;                           // the one-time message of the kernel
+    static constexpr std::uint32_t kRtGiPixelSignalId = 7;  // DenoiseSignal::id of the per-pixel GI (Diffuse)
+    // "<provider> failed a frame earlier in this run (<why>)": the sentence render.supports and the Ray Reconstruction status share.
+    std::string vendor_failed_text(int index) const;
+    void rt_gi_pixel_finish();
+    static constexpr std::uint32_t kRtLocalSignalId = 6;  // DenoiseSignal::id of the local lights' visibilities
+    bool rtWarnedEffect = false;
+    bool rtWarnedReflect = false, rtWarnedReflectGbuffer = false;  // M79-P3a-1: the reflections' one-time messages
+    // The denoiser of the ray traced effects (rt_denoise.h), empty and free until an effect asks: the soft sun shadow (P2a-2, signal id 1) and the
+    // ambient occlusion (P2b, signal id 2); each signal keeps its own history per camera.
+    RtDenoiser rtDenoiser;
+    bool rtWarnedTranslucency = false;  // M79-P3b: the one-time message of the translucency kernel
+    bool rtWarnedAo = false;            // M79-P2b: the one-time message of the occlusion kernel
+    static constexpr std::uint32_t kRtShadowSignalId = 1;
+    static constexpr std::uint32_t kRtAoSignalId =
+        2;  // DenoiseSignal::id of the occlusion (a camera denoises several signals)
+    // M79-P3a-2: the glossy reflections' two signals (the radiance and where the rays hit a surface); the ids stay apart from the occlusion's.
+    static constexpr std::uint32_t kRtReflectSignalId = 3, kRtReflectCoverageSignalId = 4;
+    void rt_begin_frame();
+    // The skinning kernel of the scene (rt_skin.glsl): its compute pipeline, made on the first frame with a skinned instance (an invalid one
+    // when the driver refuses the program: the answer is kept, the scene says so once).
+    gpu::Pipeline rt_skin_pipeline();
+    void rt_release_skin_shader();
+    gpu::Shader rtSkinShader{};
+    int rtSkinShaderState = 0;  // 0 not tried, 1 made, -1 refused
     bool warnedHizMode = false, warnedHizCameras = false;
     const World* hizWorld = nullptr;
     std::string hizScene;
@@ -955,6 +1093,7 @@ struct Renderer::Impl {
     // The records of the ready grids the meshes of this frame read (probes_build_volumes calls it): GiSystem::records, upload_lights packs them.
     void gi_build_records(World& world);
     void gi_plan(World& world, bool atlasRemade);
+    bool gi_plan_rays();
     void gi_finish();
     void gi_release();
     // The Frame of capture face `face` of `rp` seen from `position`: a 90 degree camera into an image of `resolution` squared.
@@ -1052,9 +1191,10 @@ struct Renderer::Impl {
     PartDraw part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part);
     // Reports once per material and mesh that `part` lacks the channel `what` ("uv1" / "color1") the material declares.
     void note_missing_channel(const MeshItem& mi, const SubMesh& part, const char* what);
+    // `mbu`: resolve_mesh_buffers of `mi`, asked once per mesh by the draw loop (the per-pixel GI asks which parts the prepass drew).
     // `blended`: a part of the blended meshes, which fog themselves with the camera's stack fog (DrawContext::fuBlend).
     mesh_fa_mesh_fs_params_t fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part, const PartDraw& d,
-                                     bool blended = false);
+                                     const MeshBufferUse& mbu, bool blended = false);
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, gpu::Bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass, bool opaquePhase = false);

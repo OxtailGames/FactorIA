@@ -111,6 +111,13 @@ captured probe adds six tiny passes of the scene plus a few filtering passes; no
 where it cannot (the RGBA8 fallback of the probe atlas) the grid says `unsupported` and nothing is captured. The distances come from the depth prepass
 of the opaque meshes: transparent surfaces and particles show in the light of a capture but not in its distances.
 
+**With rays (M79).** Turn on ray tracing (`render.rayTracing.enabled`) and set `render.rayTracing.gi` to `"probes"` (docs/RAY_TRACING.md, "Global
+illumination") on a GPU that traces rays, and the probes are updated by a compute shader that casts `raysPerProbe` rays (16 to 256, default 64) instead of
+the six captures: `rtProbesPerFrame` (1 to 64, default 16; 64 over all grids together) is then the cost, `hysteresis`, `bounce`, `intensity`,
+`maxDistance`, `backfaceTolerance` and `nearExclusion` (where the rays start) mean the same, an emissive surface lights the room without a capture,
+and `resolution`, `probesPerFrame`, `showTags` and `hideTags` are not used by the rays (they see the traced scene of ray tracing). `render.gi_grid`
+says `updatedBy: "rays"`. Without a device that traces, the captures above keep working.
+
 ## Not done yet
 
 Baked probes are not updated at run time (a moving light or a destroyed wall does not change them: bake again, or use a `RealtimeGI` grid), there is no occlusion of the

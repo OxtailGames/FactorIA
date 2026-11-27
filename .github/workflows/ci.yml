@@ -105,7 +105,26 @@ jobs:
       # missing driver, loader or layer from a skip into a failure. Only this job: the sanitizer jobs keep skipping
       # (an uninstrumented driver under ASan/LSan reports the driver's own leaks).
       - name: Install the Vulkan CPU driver and validation layers (lavapipe)
-        run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-validationlayers
+        run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 vulkan-validationlayers vulkan-tools
+
+      # M79 (inline ray query, docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, "What CI runs"): does lavapipe on this runner
+      # take SPV_KHR_ray_query kernels? An annotation, never a failure: it names the Mesa the runner installed (25.2 from
+      # noble-updates, whose lavapipe traces rays). The test step's FA_VULKAN_REQUIRE_RT=1 is what fails a lavapipe
+      # without ray tracing (render_vulkan_raytracing); this line says why when it does.
+      - name: Annotate lavapipe's ray tracing support (Mesa version, VK_KHR_ray_query, VK_KHR_acceleration_structure)
+        shell: bash
+        run: |
+          mesa=$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers 2>/dev/null || echo unknown)
+          info=$(vulkaninfo 2>/dev/null || true)
+          device=$(printf '%s\n' "$info" | grep -m1 'deviceName' | sed 's/^[^=]*= *//' || true)
+          rq=no; as=no; feature=unknown
+          # case, not `grep -q` in a pipeline: under pipefail grep's early exit makes printf fail with SIGPIPE.
+          case "$info" in *VK_KHR_ray_query*) rq=yes ;; esac
+          case "$info" in *VK_KHR_acceleration_structure*) as=yes ;; esac
+          if printf '%s\n' "$info" | grep 'rayQuery *= *true' >/dev/null; then feature=true; fi
+          msg="Mesa $mesa, device '${device:-none}': VK_KHR_ray_query $rq, VK_KHR_acceleration_structure $as, rayQuery feature $feature"
+          echo "::notice title=lavapipe ray tracing::$msg"
+          echo "lavapipe ray tracing: $msg" >> "$GITHUB_STEP_SUMMARY"
 
       # The key must not be a prefix of another job's (ccache-Linux-linux-asan-, -tsan-, -fuzz-, -coverage-): restore-keys
       # would hand this GCC job whichever Clang cache is the newest (2% hits, a 55-minute build). The `bench` job reads this
@@ -170,6 +189,7 @@ jobs:
           FA_REQUIRE_SHDC: '1'
           FA_REQUIRE_COMPUTE: '1'  # llvmpipe offers GL 4.5: a runner without compute must fail, not skip the compute tests
           FA_VULKAN_REQUIRE: '1'  # lavapipe and the validation layers are installed above: the Vulkan tests must run
+          FA_VULKAN_REQUIRE_RT: '1'  # Mesa 25.2's lavapipe traces rays: the Vulkan ray tracing cases must run, not skip
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release --parallel 4  # the runner's 4 vCPUs
 
       # A `_perf` test inside the warning band passes and ctest prints nothing: list those in the log and the job summary
@@ -186,6 +206,80 @@ jobs:
       - name: Replay hashes (linux) - physics, particles, feel, scripts, nav
         if: ${{ !cancelled() }}
         run: ctest --preset linux-release -R "physics_determinism|det_replay_hashes|det_probe_hashes" -V
+
+      # The engine's ray tracing kernels (engine/render/shaders/rt/*.hlsl): the DXIL (D3D12) and the SPIR-V (Vulkan) are made by
+      # DXC and committed (engine/render/src/shaders/rt/*.rt.h); DXC exists for Windows and Linux x86_64 only, so this job is the
+      # one that keeps them honest (a Mac contributor commits the .hlsl and the headers keep the old blobs). The job installs the
+      # pinned DXC like a contributor does (`factoria setup dxc`, SHA-256 checked, cached under the pin of setup.h), regenerates
+      # the headers and FAILS when they differ from the committed ones, with the regenerated headers as the artifact
+      # `rt-shader-headers` to commit. It runs after the tests so that a stale header does not hide what they found.
+      - name: DXC pin
+        if: ${{ !cancelled() }}
+        id: dxc-pin
+        shell: bash
+        run: |
+          h=tools/common/include/fa/tooling/setup.h
+          ver=$(sed -n 's/.*kSetupDxcVersion = "\([^"]*\)".*/\1/p' "$h" | head -n 1 | tr -d '\r')
+          sha=$(grep -A1 '{"linux", "x64", "linux_dxc_' "$h" | grep -o '[0-9a-f]\{64\}' | head -n 1)
+          test -n "$ver" && test -n "$sha" || { echo "::error::no kSetupDxcVersion or Linux x64 DXC build in $h"; exit 1; }
+          echo "pin=$ver-${sha:0:12}" >> "$GITHUB_OUTPUT"
+
+      # actions/cache saves only when the whole job passes, so a stale header (the failure this job exists to report) or a
+      # failed test would throw the download away: restore and save are two steps, the save runs `!cancelled()` right after
+      # the install (the download is the part worth keeping) and skips a key the restore hit.
+      - name: Restore DXC
+        if: ${{ !cancelled() }}
+        id: dxc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.factoria/tools/dxc
+          key: dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}
+
+      # `factoria setup dxc` downloads one GitHub release asset: three tries, 20 s and then 40 s apart, for a network
+      # that blinks (a checksum mismatch is retried the same way: the install leaves nothing half-installed, so it repeats cleanly).
+      - name: Install the pinned DXC (factoria setup dxc)
+        if: ${{ !cancelled() }}
+        id: dxc-install
+        shell: bash
+        run: |
+          cli=$(find build/linux-release/tools/cli -maxdepth 2 -type f -name factoria | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/linux-release/tools/cli"; exit 1; }
+          for attempt in 1 2 3; do
+            if "$cli" setup dxc; then exit 0; fi
+            echo "::warning::factoria setup dxc failed (attempt $attempt of 3)"
+            test "$attempt" -lt 3 && sleep $((attempt * 20))
+          done
+          echo "::error::factoria setup dxc failed three times"
+          exit 1
+
+      - name: Save DXC
+        if: ${{ !cancelled() && steps.dxc-install.outcome == 'success' && steps.dxc-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.factoria/tools/dxc
+          key: dxc-${{ runner.os }}-${{ steps.dxc-pin.outputs.pin }}
+
+      - name: Regenerate the ray tracing shader headers (compile_rt_shaders.sh) and compare with the committed ones
+        if: ${{ !cancelled() }}
+        id: rt-headers
+        shell: bash
+        run: |
+          tools/shaders/compile_rt_shaders.sh
+          if [ -n "$(git status --porcelain -- engine/render/src/shaders/rt)" ]; then
+            git --no-pager diff --stat -- engine/render/src/shaders/rt || true
+            echo "::error title=Ray tracing shader headers are stale::engine/render/src/shaders/rt/*.rt.h differ from what DXC ${{ steps.dxc-pin.outputs.pin }} makes of engine/render/shaders/rt/*.hlsl. Download the artifact rt-shader-headers of this run into engine/render/src/shaders/rt/ and commit it (or run tools/shaders/compile_rt_shaders.sh on Windows or Linux x86_64)."
+            exit 1
+          fi
+          echo "the ray tracing shader headers are up to date"
+
+      - name: Upload the regenerated ray tracing shader headers
+        if: ${{ failure() && steps.rt-headers.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rt-shader-headers
+          path: engine/render/src/shaders/rt/*.rt.h
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload test output on failure
         if: failure()
@@ -493,8 +587,42 @@ jobs:
         shell: bash
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
+      # M79 (docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, "What CI runs"): the ctest render_d3d12_raytracing runs on
+      # the D3D12 Agility SDK runtime, not on the in-box one of Windows Server 2022 (10.0.20348): the NuGet WARP below is built
+      # for a newer runtime and, under the in-box one, refuses the engine's bindless root signature and misses every ray. The
+      # pinned NuGet package Microsoft.Direct3D.D3D12 gives D3D12Core.dll and d3d12SDKLayers.dll (SHA-256 checked, cached);
+      # CMake copies them beside fa_test_render_d3d12_rt alone (-DFA_D3D12_AGILITY_DIR), so every other test keeps the in-box
+      # runtime a game has on a player's machine. CI-only: nothing of the package reaches a game, the editor or a release.
+      # Every shard: it builds fa_test_render_d3d12_rt and ctest_shard.py may put the test on any of the three.
+      - name: Restore the NuGet Agility SDK package
+        id: agility-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/agility-nupkg
+          key: agility-nupkg-${{ runner.os }}-1.620.2-70489669
+
+      - name: D3D12 Agility SDK runtime (pinned NuGet Microsoft.Direct3D.D3D12 1.620.2)
+        id: agility
+        shell: pwsh
+        run: >
+          ./tools/ci/agility/fetch_agility.ps1 -Version 1.620.2
+          -Sha256 70489669c2bbeaf318b62d72b0ac3e753d521387bfc848c9763791c4e920bfcc
+          -Cache "$HOME/agility-nupkg/agility.nupkg" -Out "$env:RUNNER_TEMP/agility"
+
+      # Saved as soon as the file's SHA-256 matched (the script deletes a wrong one), before a later step can fail; a push
+      # that cancels the round never saves a half-written file.
+      - name: Save the NuGet Agility SDK package
+        if: ${{ !cancelled() && steps.agility.outcome == 'success' && steps.agility-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/agility-nupkg
+          key: agility-nupkg-${{ runner.os }}-1.620.2-70489669
+
       - name: Configure (windows-release)
-        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
+        # -DFA_D3D12_REQUIRE_RT=ON: only the ctest render_d3d12_raytracing gets FA_D3D12_REQUIRE_RT=1 (a WARP without DXR
+        # tier 1.1 fails it); the other tests of a shard never see the variable. -DFA_D3D12_AGILITY_DIR/_SDK_VERSION: that
+        # ctest runs fa_test_render_d3d12_rt, the same file on the Agility SDK runtime (engine/render/CMakeLists.txt).
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_D3D12_REQUIRE_RT=ON "-DFA_D3D12_AGILITY_DIR=$env:FA_AGILITY_DIR" "-DFA_D3D12_AGILITY_SDK_VERSION=$env:FA_AGILITY_SDK_VERSION"
 
       - name: Build (windows-release)
         id: build
@@ -590,6 +718,125 @@ jobs:
             echo "::warning title=DirectStorage refused WARP::render's d3d12 pack reads checked the CPU fallback, not DirectStorage's writes: $refused"
           fi
           exit "$status"
+
+      # M79 (D3D12 ray queries run on WARP in CI, docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, "What CI runs"): which
+      # DXR tier does this runner's WARP report (tools/ci/probes/d3d12_rt_probe.cpp: D3D12_FEATURE_DATA_D3D12_OPTIONS5)? Inline
+      # ray queries need tier 1.1 (11) and shader model 6.5. When the OS's WARP is older, the pinned NuGet package
+      # Microsoft.Direct3D.WARP puts a newer d3d10warp.dll beside the program (D3D12 loads it from the program's folder): the
+      # step downloads it (SHA-256 checked, cached), prints the tier it gives and exports FA_WARP_DIR for the tests that need
+      # it. The package's licence allows testing only and no redistribution: it is CI-only and never reaches a game, the
+      # editor or a release. Every shard: ctest_shard.py may put render_d3d12_raytracing on any of the three, and the
+      # FA_D3D12_REQUIRE_RT=1 (CMake sets it on that ctest alone, -DFA_D3D12_REQUIRE_RT=ON) fails that test when its WARP
+      # has no DXR tier 1.1.
+      # Restore and save apart (actions/cache saves only when the whole job passes): the save step below runs `!cancelled()` (a push that cancels the round must not save a half-written file).
+      - name: Restore the NuGet WARP package
+        id: warp-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/warp-nupkg
+          key: warp-nupkg-${{ runner.os }}-1.0.22-afc058f4
+
+      - name: WARP DXR tier (OS WARP, else the pinned NuGet Microsoft.Direct3D.WARP 1.0.22)
+        id: warp-tier
+        shell: pwsh
+        env:
+          WARP_VERSION: '1.0.22'
+          WARP_SHA256: 'afc058f4d1066edc4231a38f3ab3592b1930f7287d4ac700e6a056e0874bb0be'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'warp-probe'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item tools/ci/probes/d3d12_rt_probe.cpp $dir
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          # A .cmd file, not `cmd /c "..."` with nested quotes (cmd strips the outer pair of quotes of such a line, and the
+          # path of Visual Studio has spaces).
+          $build = Join-Path $dir 'build_probe.cmd'
+          @('@echo off',
+            "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul || exit /b 1",
+            "cd /d `"$dir`"",
+            'cl /nologo /EHsc /O1 d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib') | Set-Content -Encoding ascii $build
+          & cmd.exe /d /c $build
+          if ($LASTEXITCODE -ne 0) { throw 'the WARP probe did not compile' }
+          function Run-Probe { & "$dir\d3d12_rt_probe.exe" | ForEach-Object { $_.ToString() } }
+          function Tier($lines) { $m = $lines | Select-String -Pattern '^tier=(-?\d+)'; if ($m) { [int]$m.Matches[0].Groups[1].Value } else { -1 } }
+          $os = Run-Probe
+          $os | ForEach-Object { "OS WARP: $_" }
+          $tier = Tier $os
+          $summary = "OS WARP: DXR tier $tier ($(($os | Select-String '^warpVersion=').Line))"
+          if ($tier -ge 11) {
+            Write-Host "::notice title=WARP DXR::${summary}: the OS's WARP runs inline ray queries, the NuGet package is not needed"
+          } else {
+            $nupkg = Join-Path $HOME 'warp-nupkg\warp.nupkg'
+            New-Item -ItemType Directory -Force (Split-Path $nupkg) | Out-Null
+            $url = "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.warp/$env:WARP_VERSION/microsoft.direct3d.warp.$env:WARP_VERSION.nupkg"
+            $part = "$nupkg.part"
+            # A restored file that is not the pinned one (a cache entry saved from a cut-off run) goes: it downloads again.
+            if ((Test-Path $nupkg) -and ((Get-FileHash $nupkg -Algorithm SHA256).Hash.ToLower() -ne $env:WARP_SHA256)) {
+              Write-Host "::warning title=WARP download::the cached warp.nupkg is not the pinned file: downloading it again"
+              Remove-Item $nupkg
+            }
+            if (-not (Test-Path $nupkg)) {
+              # nuget.org blinks now and then: four tries, a few seconds apart, before the step (and the job) fails.
+              # The file is written as warp.nupkg.part and renamed once its SHA-256 matches, so warp.nupkg (what the
+              # save step stores under an immutable key) is never a partial or a wrong file.
+              for ($attempt = 1; $attempt -le 4; $attempt++) {
+                try {
+                  Invoke-WebRequest $url -OutFile $part
+                  break
+                } catch {
+                  Remove-Item $part -ErrorAction SilentlyContinue
+                  if ($attempt -eq 4) { throw }
+                  Write-Host "::warning title=WARP download::attempt $attempt of 4 failed: $($_.Exception.Message)"
+                  Start-Sleep -Seconds (5 * $attempt)
+                }
+              }
+              $hash = (Get-FileHash $part -Algorithm SHA256).Hash.ToLower()
+              if ($hash -ne $env:WARP_SHA256) { Remove-Item $part; throw "Microsoft.Direct3D.WARP $env:WARP_VERSION is not the pinned file (SHA-256 $hash, pinned $env:WARP_SHA256)" }
+              Move-Item $part $nupkg -Force
+            }
+            $warp = Join-Path $env:RUNNER_TEMP 'warp'
+            Copy-Item $nupkg "$nupkg.zip" -Force
+            Expand-Archive "$nupkg.zip" "$warp-unpacked" -Force
+            New-Item -ItemType Directory -Force $warp | Out-Null
+            Copy-Item "$warp-unpacked\build\native\bin\x64\d3d10warp.dll" $warp -Force
+            Copy-Item "$warp-unpacked\LICENSE.TXT" $warp -Force
+            Copy-Item "$warp\d3d10warp.dll" $dir -Force
+            $nuget = Run-Probe
+            $nuget | ForEach-Object { "NuGet WARP: $_" }
+            $ntier = Tier $nuget
+            $summary = "$summary; NuGet WARP $env:WARP_VERSION beside the program: DXR tier $ntier ($(($nuget | Select-String '^warpVersion=').Line))"
+            "FA_WARP_DIR=$warp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+            if ($ntier -ge 11) { Write-Host "::notice title=WARP DXR::$summary" }
+            else { Write-Host "::warning title=WARP DXR::${summary}: neither WARP runs inline ray queries, render_d3d12_raytracing will fail (FA_D3D12_REQUIRE_RT=1)" }
+          }
+          # The same probe on the Agility SDK runtime the ctest render_d3d12_raytracing runs on (the program exports D3D12SDKVersion and
+          # D3D12SDKPath, D3D12\ beside it has the runtime), with the NuGet WARP beside it when there is one: the log shows
+          # whether the runtime is what lets that WARP take the unbounded SRV range (on the in-box runtime of Windows Server 2022
+          # it said `refused`).
+          $agility = Join-Path $dir 'D3D12'
+          New-Item -ItemType Directory -Force $agility | Out-Null
+          Copy-Item "$env:FA_AGILITY_DIR\D3D12Core.dll", "$env:FA_AGILITY_DIR\d3d12SDKLayers.dll" $agility -Force
+          $buildAgility = Join-Path $dir 'build_probe_agility.cmd'
+          @('@echo off',
+            "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul || exit /b 1",
+            "cd /d `"$dir`"",
+            "cl /nologo /EHsc /O1 /DFA_PROBE_AGILITY_SDK=$env:FA_AGILITY_SDK_VERSION /Fo:d3d12_rt_probe_agility.obj /Fe:d3d12_rt_probe_agility.exe d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib") | Set-Content -Encoding ascii $buildAgility
+          & cmd.exe /d /c $buildAgility
+          if ($LASTEXITCODE -ne 0) { throw 'the Agility probe did not compile' }
+          $ag = & "$dir\d3d12_rt_probe_agility.exe" | ForEach-Object { $_.ToString() }
+          $ag | ForEach-Object { "Agility SDK runtime: $_" }
+          $summary = "$summary; on the Agility SDK runtime ($(($ag | Select-String '^d3d12CoreVersion=').Line), $(($ag | Select-String '^warpVersion=').Line)): DXR tier $(Tier $ag), $(($ag | Select-String '^unboundedSrvTable=').Line)"
+          if ((Tier $ag) -lt 0) { Write-Host "::warning title=Agility probe::the probe found no WARP device on the Agility SDK runtime: render_d3d12_raytracing will fail" }
+          $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # The nupkg is in the cache folder only once its SHA-256 matched (a mismatch deletes it), so saving it is safe even
+      # when a later step fails; nothing there (the OS's WARP was enough) is a warning of the save action, not an error.
+      - name: Save the NuGet WARP package
+        if: ${{ !cancelled() && steps.warp-tier.outcome != 'skipped' && steps.warp-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/warp-nupkg
+          key: warp-nupkg-${{ runner.os }}-1.0.22-afc058f4
 
       # The runner's desktop is 1024x768, which shrinks the editor autotest's 1600x900 window and hides widgets it clicks.
       - name: Display resolution for the editor autotest

@@ -1,0 +1,194 @@
+// Metal twin of rt_hit.hlsli (M79-P3a-1): the same functions, the same numbers, the contract and the limits are written in the HLSL file.
+// MSL has no global resources, so the three resources of the HLSL file (the TLAS, the records, the RtHitParams block) are the first three
+// arguments of every function that reads them, in the order `tlas, records, hit`; the kernel binds them at buffer(0), buffer(8) and
+// buffer(3). The file is included by the .metal kernels (`#include "rt_hit.msli"`); tools/shaders/compile_rt_shaders.sh puts its text in
+// the kernel's source, since the Metal library is compiled at run time from one string. It needs <metal_stdlib> and <metal_raytracing>
+// with `using namespace metal; using namespace metal::raytracing;` before it.
+#ifndef FA_RT_HIT_MSLI
+#define FA_RT_HIT_MSLI
+
+// RtInstanceRecord::flags and the instance masks (rt_records.hlsli).
+constant uint kRtFlagTwoSided = 1u << 2;
+constant uint kRtFlagUnlit = 1u << 4;
+constant uint kRtFlagRefractive = 1u << 9;
+constant uint kRtMaskSurfaces = 0x07;
+constant uint kRtMaskCastsShadow = 0x08;
+constant uint kRtMaskRefractive = 0x40;
+
+struct RtInstanceRecord {
+    float4 objectToWorldRow0;
+    float4 objectToWorldRow1;
+    float4 objectToWorldRow2;
+    float4 albedo;
+    float4 emissive;
+    float roughness;
+    float metalness;
+    uint flags;
+    uint blasId;
+    float4 volume;
+    float4 attenuation;
+};
+
+// BEGIN RtHitParams
+struct RtHitParams {
+    float4 sunDir;
+    float4 sunColor;
+    float4 ambient;
+    float4 sky;
+    float4 horizon;
+    float4 limits;
+};
+// END RtHitParams
+
+constant float kRtHitPi = 3.14159265358979;
+
+struct RtSurface {
+    float3 position;
+    float3 normal;
+    float3 albedo;
+    float roughness;
+    float metalness;
+    float3 emissive;
+    bool unlit;
+    float t;
+    uint record;
+    bool front;  // the hardware's front-face flag of the hit triangle (the realtime GI probes count the back faces they see)
+};
+
+// `front`: the query's front-face flag of the committed triangle (false when nothing was hit). rt_closest_hit below is the same call without it.
+bool rt_closest_hit_ff(instance_acceleration_structure tlas, float3 origin, float3 dir, float tmin, float tmax, uint mask, bool anyHit,
+                       thread float& t, thread uint& record, thread uint& prim, thread bool& front) {
+    ray r;
+    r.origin = origin;
+    r.min_distance = tmin;
+    r.direction = dir;
+    r.max_distance = tmax;
+    intersection_query<instancing, triangle_data> q;
+    // One query site for every ray of the kernel: a second site with other parameters crashes Apple's GPU compiler (a pipeline that
+    // fails with XPC_ERROR_CONNECTION_INTERRUPTED), so the shadow ray goes through here too, with anyHit set.
+    intersection_params ip;
+    ip.accept_any_intersection(anyHit);
+    q.reset(r, tlas, mask, ip);
+    while (q.next()) {}  // a non-opaque candidate (a cutout) is never committed
+    t = 0.0;
+    record = 0;
+    prim = 0;
+    front = false;
+    if (q.get_committed_intersection_type() != intersection_type::triangle) return false;
+    t = q.get_committed_distance();
+    record = q.get_committed_user_instance_id();
+    prim = q.get_committed_primitive_id();
+    front = q.is_committed_triangle_front_facing();
+    return true;
+}
+
+bool rt_closest_hit(instance_acceleration_structure tlas, float3 origin, float3 dir, float tmin, float tmax, uint mask, bool anyHit,
+                    thread float& t, thread uint& record, thread uint& prim) {
+    bool front;
+    return rt_closest_hit_ff(tlas, origin, dir, tmin, tmax, mask, anyHit, t, record, prim, front);
+}
+
+float rt_sun_visibility(instance_acceleration_structure tlas, constant RtHitParams& hit, float3 p, float3 n, float rayLength) {
+    const float offset = hit.limits.x + hit.limits.y * rayLength;
+    float t;
+    uint record, prim;
+    const bool blocked =
+        rt_closest_hit(tlas, p + n * offset, hit.sunDir.xyz, 0.0, hit.limits.z, kRtMaskCastsShadow, true, t, record, prim);
+    return blocked ? 0.0 : 1.0;
+}
+
+bool rt_trace_surface_mask(instance_acceleration_structure tlas, const device RtInstanceRecord* records, constant RtHitParams& hit,
+                           float3 origin, float3 dir, float tmin, float tmax, uint mask, thread RtSurface& s) {
+    s = RtSurface();
+    float t0;
+    uint rec0, prim0;
+    bool front0;
+    if (!rt_closest_hit_ff(tlas, origin, dir, tmin, tmax, mask, false, t0, rec0, prim0, front0)) return false;
+    const device RtInstanceRecord& r = records[rec0];
+    s.position = origin + dir * t0;
+    s.t = t0;
+    s.record = rec0;
+    s.front = front0;
+    s.albedo = r.albedo.rgb;
+    s.roughness = saturate(r.roughness);
+    s.metalness = saturate(r.metalness);
+    s.emissive = r.emissive.rgb;
+    s.unlit = (r.flags & kRtFlagUnlit) != 0;
+    s.normal = -dir;
+    const float3 up = abs(dir.y) < 0.9 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    const float3 u = normalize(cross(up, dir));
+    const float3 v = cross(dir, u);
+    const float eps = max(hit.limits.w * t0, 0.001);
+    float t1, t2;
+    uint rec1, rec2, prim1, prim2;
+    const bool h1 = rt_closest_hit(tlas, origin + u * eps, dir, tmin, tmax, mask, false, t1, rec1, prim1);
+    const bool h2 = rt_closest_hit(tlas, origin + v * eps, dir, tmin, tmax, mask, false, t2, rec2, prim2);
+    if (h1 && h2 && rec1 == rec0 && rec2 == rec0 && prim1 == prim0 && prim2 == prim0) {
+        const float3 e1 = u * eps + dir * (t1 - t0);
+        const float3 e2 = v * eps + dir * (t2 - t0);
+        float3 n = cross(e1, e2);
+        const float len = length(n);
+        if (len > 1.0e-12) {
+            n /= len;
+            s.normal = dot(n, dir) > 0.0 ? -n : n;
+        }
+    }
+    return true;
+}
+
+bool rt_trace_surface(instance_acceleration_structure tlas, const device RtInstanceRecord* records, constant RtHitParams& hit,
+                      float3 origin, float3 dir, float tmin, float tmax, thread RtSurface& s) {
+    return rt_trace_surface_mask(tlas, records, hit, origin, dir, tmin, tmax, kRtMaskSurfaces, s);
+}
+
+float3 rt_environment(constant RtHitParams& hit, float3 d, float rough) {
+    const float blur = rough * rough;
+    const float h = clamp(d.y * (1.0 - 0.7 * blur), 0.0, 1.0);
+    const float3 up = mix(hit.horizon.xyz, hit.sky.xyz, pow(h, 0.55));
+    const float3 down = hit.horizon.xyz * 0.55;
+    const float k = smoothstep(-0.05 - 0.6 * blur, 0.05 + 0.6 * blur, d.y);
+    const float3 e = mix(down, up, k);
+    return mix(e, 0.5 * (hit.sky.xyz + hit.horizon.xyz) * 0.8, blur * 0.6);
+}
+
+float3 rt_miss_color(constant RtHitParams& hit, float3 dir) { return rt_environment(hit, dir, 0.0); }
+
+float2 rt_env_brdf(float rough, float ndv) {
+    const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+    const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
+    const float4 r = rough * c0 + c1;
+    const float a004 = min(r.x * r.x, exp2(-9.28 * ndv)) * r.x + r.y;
+    return float2(-1.04, 1.04) * a004 + r.zw;
+}
+
+float3 rt_shade_hit(instance_acceleration_structure tlas, constant RtHitParams& hit, RtSurface s, float3 toViewer) {
+    if (s.unlit) return s.albedo + s.emissive;
+    const float3 n = s.normal;
+    const float3 v = toViewer;
+    const float roughness = clamp(s.roughness, 0.05, 1.0);
+    const float3 diffuseColor = s.albedo * (1.0 - s.metalness);
+    const float3 f0 = mix(float3(0.04, 0.04, 0.04), s.albedo, s.metalness);
+    const float ndv = max(dot(n, v), 1.0e-4);
+    float3 color = hit.ambient.xyz * diffuseColor;
+    const float2 ab = rt_env_brdf(roughness, ndv);
+    color += rt_environment(hit, reflect(-v, n), roughness) * (f0 * ab.x + ab.y);
+    const float3 l = hit.sunDir.xyz;
+    const float ndl = dot(n, l);
+    if (ndl > 0.0 && max(hit.sunColor.x, max(hit.sunColor.y, hit.sunColor.z)) > 0.0) {
+        if (rt_sun_visibility(tlas, hit, s.position, n, s.t) > 0.5) {
+            const float alpha = roughness * roughness;
+            const float a2 = alpha * alpha;
+            const float3 h = normalize(l + v);
+            const float ndh = saturate(dot(n, h));
+            const float vdh = saturate(dot(v, h));
+            const float dd = ndh * ndh * (a2 - 1.0) + 1.0;
+            const float d = a2 / (kRtHitPi * dd * dd);
+            const float vis = 0.5 / (ndl * sqrt(ndv * ndv * (1.0 - a2) + a2) + ndv * sqrt(ndl * ndl * (1.0 - a2) + a2));
+            const float3 f = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
+            color += (diffuseColor + d * vis * f) * hit.sunColor.xyz * ndl;
+        }
+    }
+    return color + s.emissive;
+}
+
+#endif

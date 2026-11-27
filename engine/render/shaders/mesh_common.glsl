@@ -484,7 +484,11 @@ layout(binding=1) uniform fa_mesh_fs_params {
     // Contact shadows (M73.2c; light_loop.glsl, block fa_contact). A draw that takes none has fa_ct_a.x = 0 and the rest is not read.
     vec4 fa_ct_a;               // x = 1 when this draw takes contact shadows (an opaque mesh that receives shadows, view 28 holds the prepass),
                                 // y = 1 when images are bottom-up (OpenGL), zw = the prepass's size in pixels
-    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half)
+    vec4 fa_ct_b;               // x = the camera distance where the contact shadows are gone (they fade over its last half); y = 1 when view 28 holds
+                                // the image of the ray traced shadows kernel and the sun's shadow of this draw is read from it (fa_shadow_factor);
+                                // z = 1 when the scene has casters the rays do not see: the sun's shadow is then the darker of the mask and the cascades
+                                // (and the traced lights' shadow the darker of the mask and their map), w = 1 when view 28 holds the ray traced
+                                // visibility of up to three point, spot and area lights (fa_shadow_local_rt; M79-P2a-3)
     vec4 fa_ct_vpx;             // row 0 of the view-projection matrix: clip x of a world position
     vec4 fa_ct_vpy;             // row 1: clip y
     vec4 fa_ct_vpw;             // row 3: clip w
@@ -492,7 +496,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     // Transmission and volume (M73.6b; brdf_layers.glsl, block fa_transmission). fa_ct_vp*, fa_ct_a.yzw hold the camera's view of the frame
     // for a transmissive draw too (the atlas has the prepass's size, the camera's rectangle).
     vec4 fa_tr_a;               // x transmission, y thickness (metres), z attenuation distance (metres, 0 = no tint), w = how the draw is
-                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas)
+                                // made: 0 not transmissive, 1 refracts the atlas bound at view 28, 2 a plain blend (no atlas),
+                                // 3 as 1 and level 0 of the atlas also holds what the ray traced translucency saw (alpha 1 where it traced)
     vec4 fa_tr_b;               // rgb attenuation colour, w = the levels of the atlas (1 = the picture only)
     vec4 fa_probe_sh[9];        // baked light probes (M73.4d) of a mesh without a lightmap: coefficient k of the SH in [k].xyz (the order of
                                 // ShL2), [0].w = the coverage (0 = no probe reaches the mesh: the sky's ambient, nothing else changes)
@@ -513,6 +518,8 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_gi;                 // x = the first texel of the grid records (4 texels each), y = how many grids are ready (0 = none: nothing
                                 // below runs), z = 1 when the draw belongs to a capture of the grid's own probes (the grid's light is times its bounce),
                                 // w = the LOD cross-fade of the draw (fa_lod_dither): 0 = none, +a = the level fading in, -a = the level fading out
+    vec4 fa_gi_px;              // x = 1 when view 26 (fa_lightmap) holds the per-pixel ray traced GI of the camera (M79-P4b-1; fa_indirect_diffuse reads it
+                                // at the pixel the fragment's world position projects to, with the fa_ct_vp* rows and size), 0 = not; yzw = 0
 };
 
 // The texture LOD bias of the frame (M76-P4b, docs/UPSCALING.md "Texture mip bias"): negative while the temporal upscaler or the temporal
@@ -845,9 +852,101 @@ const float FA_PI = 3.14159265;
 
 @include_block fa_shadow_common
 
+// What a pixel covers of depth along this surface (M79 POLISH-RC): a surface seen at a grazing angle changes depth fast from one pixel to the next,
+// and the sample of a multisampled fragment or of the jittered camera sits up to a pixel from the texel read, so the depth tolerance of the traced
+// mask grows with it. Taken ONCE per fragment, by fa_cluster_begin at the start of main() (light_loop.glsl), where the four pixels of the 2x2 quad
+// run together: a derivative needs them, and the shadow functions below run in the light loop (after a `continue` for a baked light that a lightmapped
+// fragment takes and its neighbour may not, and once per light of a cluster that differs between neighbours). 0 until fa_cluster_begin runs.
+float fa_rt_slope = 0.0;
+
 // The directional shadow of the fragment: 1 lit, 0 in shadow (the cascaded shadow of shadow_common.glsl at the fragment's world position).
+//
+// M79-P2a-1: with ray traced shadows (fa_ct_b.y = 1: an opaque mesh that receives shadows, view 28 holds the image of the shadow kernel) the sun's
+// shadow is the kernel's visibility of this pixel (docs/design/ARCHITECTURE_RT_EFFECTS.md): the texel the fragment's world position projects to, read
+// when it holds the same surface (its depth, in g, is the fragment's within what a pixel covers). Where it does not (the edge of a silhouette, a
+// pixel the camera's jitter moved) the cascades answer, as they do for every draw that takes no mask.
+// M79-P2a-2: casters the rays do not see (terrain, impostors, GPU-driven meshes, cutouts, instances over the cap...) are only in the cascades, so
+// when the scene has any (fa_ct_b.z = 1) the shadow is the darker of the two: nothing loses its shadow, and a traced caster is shadowed by both
+// with the cascades' resolution at its edge (the trade-off of "No caster loses its shadow").
 float fa_shadow_factor(vec3 n, vec3 l) {
+    if (fa_ct_b.y > 0.5 && fa_pbr.z > 0.5) {
+        float d = dot(fa_ct_fwd.xyz, fa_world_pos) + fa_ct_fwd.w;
+        float slope = fa_rt_slope;
+        vec4 pv = vec4(fa_world_pos, 1.0);
+        float w = dot(fa_ct_vpw, pv);
+        if (w > 1e-4) {
+            vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+            vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+            if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
+                ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+                vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px, 0);
+                if (rt.a > 0.5 && abs(d - rt.r) <= 0.002 * d + 0.01 + slope) {
+                    return fa_ct_b.z > 0.5 ? min(rt.g, fa_shadow_sun(fa_world_pos, n, l)) : rt.g;
+                }
+            }
+        }
+    }
     return fa_shadow_sun(fa_world_pos, n, l);
+}
+
+// One texel of the 3 x 3 block around the fragment's own, for fa_shadow_local_rt: `best` darkened by this texel's visibility of the light (the byte
+// of the integer in b that `div` selects) when the texel shows the fragment's surface. A function called eight times, not a loop: a `for` over
+// the nine texels with a texelFetch in it made the in-box WARP of Windows Server 2022 (D3D12 10.0.20348) lose the device on its first use.
+float fa_rt_local_tap(ivec2 p, ivec2 size, float d, float tol, float div, float best) {
+    vec4 rt = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), clamp(p, ivec2(0), size - 1), 0);
+    if (rt.a > 0.5 && abs(d - rt.r) <= tol) { best = min(best, mod(floor(rt.b / div), 256.0) / 255.0); }
+    return best;
+}
+
+// M79-P2a-3: the shadow of a point, spot or area light. A light the renderer traced this frame (its texel of the shadow region has z = 1 + its slot,
+// light_data.glsl) takes its visibility from the same image view 28 holds for the sun's: b packs the three traced lights as three bytes of one
+// integer below 2^24 (light s: 255 v * 256^s), exact in a float, read here with floor and mod (no bit operations: legacy targets have none).
+// The texel read is the fragment's own when it shows the same surface (its depth in r, the same test as the sun's); where it does not (the edge of a
+// silhouette, a pixel the camera's jitter moved) the eight texels around it are tried and the DARKEST of those that show the same surface answers (a
+// thin caster or a silhouette's edge then keeps its shadow from one frame to the next instead of flickering to "lit" when the jitter moves the
+// fragment off the one texel that matched). When none does the cascades' counterpart is the map when the scene has casters the rays do not see
+// (fa_ct_b.z = 1: the maps were drawn, the answer is the darker of the two as for the sun) and "lit" otherwise (the maps of the traced lights were
+// not drawn: nothing to fall back to). The depth slope is fa_rt_slope, taken once per fragment outside the light loop.
+float fa_shadow_local_rt(int li, vec3 lpos, vec3 world, vec3 n, vec3 l) {
+    if (fa_ct_b.w > 0.5 && fa_pbr.z > 0.5 && fa_shadow_lcfg.x > 0.5) {
+        float slot = fa_light_texel(int(fa_shadow_lcfg.x + 0.5) - 1 + li).z;
+        if (slot > 0.5) {
+            float d = dot(fa_ct_fwd.xyz, world) + fa_ct_fwd.w;
+            float tol = 0.002 * d + 0.01 + fa_rt_slope;
+            vec4 pv = vec4(world, 1.0);
+            float w = dot(fa_ct_vpw, pv);
+            if (w > 1e-4) {
+                vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+                vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+                if (uv.x >= 0.0 && uv.x < 1.0 && uv.y >= 0.0 && uv.y < 1.0) {
+                    ivec2 size = ivec2(fa_ct_a.zw);
+                    ivec2 px0 = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), size - 1);
+                    float div = slot < 1.5 ? 1.0 : (slot < 2.5 ? 256.0 : 65536.0);
+                    float best = 2.0;  // the darkest visibility among the texels that show this surface (2 = none does)
+                    // The fragment's own texel first: when it shows this surface it answers alone.
+                    vec4 rt0 = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), px0, 0);
+                    if (rt0.a > 0.5 && abs(d - rt0.r) <= tol) {
+                        best = mod(floor(rt0.b / div), 256.0) / 255.0;
+                    } else {
+                        // Else the eight around it, written out (a loop here made the Windows Server 2022 WARP lose the device).
+                        best = fa_rt_local_tap(px0 + ivec2(-1, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(0, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, -1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(-1, 0), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, 0), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(-1, 1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(0, 1), size, d, tol, div, best);
+                        best = fa_rt_local_tap(px0 + ivec2(1, 1), size, d, tol, div, best);
+                    }
+                    if (best <= 1.0) {
+                        return fa_ct_b.z > 0.5 ? min(best, fa_shadow_local(li, lpos, world, n, l)) : best;
+                    }
+                }
+            }
+            return fa_ct_b.z > 0.5 ? fa_shadow_local(li, lpos, world, n, l) : 1.0;
+        }
+    }
+    return fa_shadow_local(li, lpos, world, n, l);
 }
 
 @include_block fa_env_funcs
@@ -1024,6 +1123,17 @@ vec3 fa_realtime_or_ambient(vec3 n) {
 vec3 fa_indirect_diffuse(vec3 n) {
     if (fa_lm.z > 0.5) {
         return textureLod(sampler2D(fa_lightmap, fa_env_smp), fa_lm.xy, 0.0).rgb;
+    }
+    if (fa_gi_px.x > 0.5) {
+        // The ray traced per-pixel GI (M79-P4b-1): the denoised irradiance / pi of the camera's image (view 26 holds it on a draw with no lightmap)
+        // at this fragment's pixel, in place of the probes and the ambient light below. It is bound only on opaque draws of the main camera's pass that the prepass drew
+        // and that have no baked light probes (fill_fs sets fa_gi_px).
+        vec4 pv = vec4(fa_world_pos, 1.0);
+        float w = max(dot(fa_ct_vpw, pv), 1e-4);
+        vec2 ndc = vec2(dot(fa_ct_vpx, pv), dot(fa_ct_vpy, pv)) / w;
+        vec2 uv = vec2(ndc.x * 0.5 + 0.5, fa_ct_a.y > 0.5 ? ndc.y * 0.5 + 0.5 : 0.5 - ndc.y * 0.5);
+        ivec2 px = clamp(ivec2(uv * fa_ct_a.zw), ivec2(0), ivec2(fa_ct_a.zw) - 1);
+        return texelFetch(sampler2D(fa_lightmap, fa_env_smp), px, 0).rgb;  // the image is RGBA16F, or RGBA32F on a device that filters it (main_pass); a new sampler pair would pass the 16 of WebGL2
     }
     if (fa_probe_sh[0].w > 0.0) {
         // Baked light probes (M73.4d): a mesh without a lightmap reads the SH its position got on the CPU, blended into the ambient
@@ -1516,6 +1626,15 @@ void main() {
 // mesh, a draw without a previous model, a point behind the previous camera). The renderer attaches a second image to the pass only
 // when a temporal effect, the debug view "motionVectors" or a test asks; without the attachment the output is dropped.
 // The normal is the one the main pass lights with (a normal map and surface() included); a cutout (alphaMode "clip") leaves holes.
+//
+// With FA_GBUFFER (the programs `gbuffer` of mesh.glsl, terrain.glsl and impostor.glsl, M79-P0c: the thin G-buffer the renderer draws only when
+// something asks for it, see docs/design/ARCHITECTURE_RENDERING_GBUFFER.md) the same vertex stage and the same surface() write other outputs:
+//   location 0 (RGBA8)  rgb = the albedo of the surface (the base colour times the texture and the vertex colour, linear, clamped to 0..1;
+//                       a metal's base colour is its albedo here too), a = 1 where a mesh was drawn
+//   location 1 (RGBA8)  r = the roughness (0.05..1), g = the metalness (0..1), b = 0 (spare), a = 1 where a mesh was drawn
+// With FA_GBUFFER_VIS (the mesh programs) a fragment that is not the surface the prepass kept at its pixel is dropped (the prepass is at view 28):
+// an alpha-tested cutout leaves its holes and a mesh behind another one writes nothing, so the engine's own program serves a material whose
+// surface() it does not run.
 @block fa_prepass_fs_main
 @include_block fa_fs_surface
 in float fa_pre_depth;
@@ -1524,8 +1643,13 @@ in vec3 fa_pre_r1;
 in vec3 fa_pre_r2;
 in vec3 fa_vel_cur;
 in vec3 fa_vel_prev;
+#ifdef FA_GBUFFER
+layout(location=0) out vec4 fa_frag_albedo;
+layout(location=1) out vec4 fa_frag_material;
+#else
 layout(location=0) out vec4 fa_frag_color;
 layout(location=1) out vec2 fa_frag_velocity;
+#endif
 void main() {
     fa_inst_load();
     SurfaceInput i;
@@ -1545,6 +1669,20 @@ void main() {
 #if defined(FA_LOD_DITHER) || defined(FA_ALPHA_CLIP)
     fa_lod_dither();
 #endif
+#ifdef FA_GBUFFER
+#ifdef FA_GBUFFER_VIS
+    {
+        // The pixel of this fragment in the image of the prepass (same size, same rows): the surface the camera sees there.
+        vec4 seen = texelFetch(sampler2D(fa_screen_tex, fa_shadow_smp), ivec2(gl_FragCoord.xy), 0);
+        if (seen.a < 0.5 || abs(fa_pre_depth - seen.r) > 0.02 + 0.01 * fa_pre_depth) { discard; }
+    }
+#endif
+    fa_frag_albedo = vec4(clamp(s.albedo, vec3(0.0), vec3(1.0)), 1.0);
+    // The spare channel is 0. It reads the varyings of the prepass's vertex stage (all finite) only so that this fragment stage declares the
+    // same inputs as that stage writes: on the backends that number the stage interface by position (HLSL, Metal) both must list the same.
+    fa_frag_material = vec4(clamp(s.roughness, 0.0, 1.0), clamp(s.metallic, 0.0, 1.0),
+                            0.0 * (fa_pre_r0.x + fa_pre_r1.x + fa_pre_r2.x + fa_vel_cur.x + fa_vel_prev.x), 1.0);
+#else
     vec3 n = normalize(s.normal);
     vec3 nv = normalize(vec3(dot(fa_pre_r0, n), dot(fa_pre_r1, n), dot(fa_pre_r2, n)));
     // Octahedral encoding: the sphere folded onto the square -1..1 (decode: n = (e.x, e.y, 1 - |e.x| - |e.y|); where n.z < 0,
@@ -1559,10 +1697,25 @@ void main() {
         motion = clamp(uv_prev - uv_cur, vec2(-4.0), vec2(4.0));
     }
     fa_frag_velocity = motion;
+#endif
 }
 @end
 
 @fs prepass_fs
+@include_block fa_prepass_fs_main
+@end
+
+// The thin G-buffer's fragment stage (M79-P0c): `gbuffer_fs` for the meshes (programs gbuffer and gbuffer_skin of mesh.glsl: they test their
+// fragment against the prepass, so an alpha-tested cutout leaves holes), `gbuffer_fs_plain` for the terrain and the impostors, which are opaque
+// by construction (their own alpha clip, when they have one, is in surface()) and whose fragment stage has no room for another texture.
+@fs gbuffer_fs
+#define FA_GBUFFER
+#define FA_GBUFFER_VIS
+@include_block fa_prepass_fs_main
+@end
+
+@fs gbuffer_fs_plain
+#define FA_GBUFFER
 @include_block fa_prepass_fs_main
 @end
 

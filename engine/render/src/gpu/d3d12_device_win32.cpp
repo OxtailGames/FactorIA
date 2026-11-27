@@ -199,6 +199,17 @@ Result<void> D3d12Device::init_adapter(const D3d12Options& options) {
                     "without it. Install the Windows optional feature 'Graphics Tools' to get it",
                     hr_text(hr));
         }
+        // DRED, with the debug layer: a removal the debug layer has no message for (a fault on the GPU, a driver or
+        // WARP that gives up mid-list) still says which command of which list the GPU was at. The settings belong to
+        // the process and hold for the devices made after this one too; the runtime has them without the Graphics
+        // Tools, so a debug device on a machine without the debug layer gets them as well.
+        Com<ID3D12DeviceRemovedExtendedDataSettings> dred;
+        if (SUCCEEDED(D3D12GetDebugInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings), dred.put_void())) &&
+            dred) {
+            dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            dred_ = true;
+        }
     }
     HRESULT hr = CreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory4), factory_.put_void());
     if (FAILED(hr) && factoryFlags != 0)  // the DXGI debug layer is missing: the D3D12 one still works
@@ -403,6 +414,7 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
     samplers_.init(in.samplerPoolSize);
     shaders_.init(in.shaderPoolSize);
     pipelines_.init(in.pipelinePoolSize);
+    accels_.init(in.bufferPoolSize);  // acceleration structures live in buffers: as many as buffers
     auto count = [](int option, int fallback) { return std::uint32_t(option > 0 ? option : std::max(fallback, 16)); };
     const struct {
         D3D12_DESCRIPTOR_HEAP_TYPE type;
@@ -427,6 +439,22 @@ Result<void> D3d12Device::init(const D3d12Options& options) {
                 "no bindless table (D3d12Options::bindlessDescriptors {} is taken as 0; set it to 0 to silence this)",
                 adapterName_, bindlessDescriptors_);
         bindlessDescriptors_ = 0;
+    }
+    // The tier is what the device says; whether its runtime takes the table is asked too, with the table itself: the
+    // D3D12 runtime of Windows Server 2022 (10.0.20348) with the WARP of the Microsoft.Direct3D.WARP NuGet package
+    // (1.0.22) says tier 2 or more and still refuses every root signature that holds an unbounded SRV range (debug
+    // layer message 699, CREATE_ROOT_SIGNATURE_NOT_SUPPORTED_ON_DEVICE). There the device makes no bindless table, so
+    // every root signature it makes is one the runtime takes.
+    if (bindlessDescriptors_ > 0) {
+        std::string why;
+        if (!bindless_table_accepted(why)) {
+            FA_WARN("render",
+                    "gpu d3d12: {} has resource binding tier {}, but its D3D12 runtime refuses the bindless table's "
+                    "unbounded SRV range ({}): the device makes no bindless table (D3d12Options::bindlessDescriptors "
+                    "{} is taken as 0; set it to 0 to silence this, or update Windows or the GPU driver)",
+                    adapterName_, bindingTier_, why, bindlessDescriptors_);
+            bindlessDescriptors_ = 0;
+        }
     }
     if (auto r = viewHeap_.init(device_.get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, bindlessDescriptors_,
                                 std::uint32_t(options.frameViewDescriptors), framesInFlight_, "fa-d3d12-shader-views");
@@ -556,6 +584,36 @@ void D3d12Device::init_caps() {
         }
         caps_[i] = c;
     }
+    init_ray_tracing();
+}
+
+// After the device hooks (init): a hook may have replaced device_, and these are its answers.
+void D3d12Device::init_ray_tracing() {
+    RtCaps caps;
+    caps.adapter = adapterName_;
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 o5{};
+    if (SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &o5, sizeof o5)))
+        caps.tier = int(o5.RaytracingTier);
+    // The highest shader model: asked from the newest known value down (a runtime answers E_INVALIDARG for one newer
+    // than it knows). None of them: shader model 5.1, which every D3D12 device has.
+    caps.shaderModel = 0x51;
+    for (int candidate : {0x6A, 0x69, 0x68, 0x67, 0x66, 0x65, 0x64, 0x63, 0x62, 0x61, 0x60}) {
+        D3D12_FEATURE_DATA_SHADER_MODEL model{};
+        model.HighestShaderModel = D3D_SHADER_MODEL(candidate);
+        if (SUCCEEDED(device_->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof model))) {
+            caps.shaderModel = int(model.HighestShaderModel);
+            break;
+        }
+    }
+    // The DXR interfaces only where the engine would use them.
+    if (caps.tier >= kRtTier1_1 && caps.shaderModel >= kShaderModel6_5) {
+        device5_ = device_.as<ID3D12Device5>();
+        caps.interfaces = bool(device5_);
+    }
+    rtCaps_ = caps;
+    if (!apply_rt_caps(caps, features_, limits_, rtWhy_)) device5_.reset();
+    FA_INFO("render", "gpu d3d12: DXR tier {}, shader model {}: {}", rt_tier_name(caps.tier),
+            shader_model_name(caps.shaderModel), rtWhy_.empty() ? std::string("inline ray query") : rtWhy_);
 }
 
 bool D3d12Device::storage_image_loadable(PixelFormat format, std::string* why) const {
@@ -758,9 +816,112 @@ void D3d12Device::drain_messages() {
     infoQueue_->ClearStoredMessages();
 }
 
-std::string D3d12Device::removed_reason() const {
+std::string D3d12Device::removed_reason(const std::string& during) const {
     const HRESULT r = device_->GetDeviceRemovedReason();
-    return r == S_OK ? std::string() : "; the device was removed: " + hr_text(r);
+    if (r == S_OK) return {};
+    if (dred_ && !dredLogged_.exchange(true)) log_dred();
+    std::lock_guard<std::mutex> lock(trailMutex_);
+    if (removedDuring_.empty()) removedDuring_ = during.empty() ? "an unnamed call" : during;
+    return d3d12_removal_text(hr_text(r), during, removedDuring_, lastPipeline_, lastList_);
+}
+
+void D3d12Device::note_removal(const std::string& during) {
+    if (removalNoted_.load(std::memory_order_relaxed)) return;
+    const std::string text = removed_reason(during);
+    if (text.empty() || removalNoted_.exchange(true)) return;
+    report("gpu d3d12: device lost" + text + " (hint: the GPU or its driver refused work it was given; " +
+           (dred_ ? "DRED's error above names the command, and the debug layer's messages the call"
+                  : "run with D3d12Options::debugLayer: its DRED error names the command and its messages the call") +
+           "; a failing shader is usually found by making its pipeline alone)");
+}
+
+namespace {
+
+const char* dred_op_name(D3D12_AUTO_BREADCRUMB_OP op) {
+    switch (op) {
+        case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT: return "BeginEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDEVENT: return "EndEvent";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT: return "ExecuteIndirect";
+        case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION: return "CopyBufferRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION: return "CopyTextureRegion";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE: return "CopyResource";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYTILES: return "CopyTiles";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE: return "ResolveSubresource";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW: return "ClearRenderTargetView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW: return "ClearUnorderedAccessView";
+        case D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW: return "ClearDepthStencilView";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOURCEBARRIER: return "ResourceBarrier";
+        case D3D12_AUTO_BREADCRUMB_OP_EXECUTEBUNDLE: return "ExecuteBundle";
+        case D3D12_AUTO_BREADCRUMB_OP_PRESENT: return "Present";
+        case D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA: return "ResolveQueryData";
+        case D3D12_AUTO_BREADCRUMB_OP_BEGINSUBMISSION: return "BeginSubmission";
+        case D3D12_AUTO_BREADCRUMB_OP_ENDSUBMISSION: return "EndSubmission";
+        case D3D12_AUTO_BREADCRUMB_OP_WRITEBUFFERIMMEDIATE: return "WriteBufferImmediate";
+        case D3D12_AUTO_BREADCRUMB_OP_BUILDRAYTRACINGACCELERATIONSTRUCTURE:
+            return "BuildRaytracingAccelerationStructure";
+        case D3D12_AUTO_BREADCRUMB_OP_COPYRAYTRACINGACCELERATIONSTRUCTURE: return "CopyRaytracingAccelerationStructure";
+        default: return nullptr;
+    }
+}
+
+}  // namespace
+
+void D3d12Device::log_dred() const {
+    Com<ID3D12DeviceRemovedExtendedData> dred = device_.as<ID3D12DeviceRemovedExtendedData>();
+    if (!dred) return;
+    std::string text = "gpu d3d12: DRED, what the GPU was doing when the device was removed:";
+    D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT crumbs{};
+    if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&crumbs))) {
+        // Only the lists the GPU had started and not finished: a list it finished (or never began) is not the cause.
+        // The node list is bounded by DRED itself; the count below is a safety net far above it.
+        int lists = 0;
+        for (const D3D12_AUTO_BREADCRUMB_NODE* n = crumbs.pHeadAutoBreadcrumbNode; n && lists < 64; n = n->pNext) {
+            const std::uint32_t done = n->pLastBreadcrumbValue ? *n->pLastBreadcrumbValue : 0;
+            if (n->BreadcrumbCount == 0 || done >= n->BreadcrumbCount) continue;
+            ++lists;
+            text += "\n  list '" +
+                    (n->pCommandListDebugNameW ? narrow(n->pCommandListDebugNameW) : std::string("unnamed")) +
+                    "' on queue '" +
+                    (n->pCommandQueueDebugNameW ? narrow(n->pCommandQueueDebugNameW) : std::string("unnamed")) +
+                    "': " + std::to_string(done) + " of " + std::to_string(n->BreadcrumbCount) +
+                    " commands finished; around the first unfinished one:";
+            const std::uint32_t from = done > 4 ? done - 4 : 0;
+            const std::uint32_t to = std::min<std::uint32_t>(n->BreadcrumbCount, done + 4);
+            for (std::uint32_t i = from; i < to && n->pCommandHistory; ++i) {
+                const char* name = dred_op_name(n->pCommandHistory[i]);
+                text += (i == done ? " [" : " ") +
+                        (name ? std::string(name) : "op " + std::to_string(int(n->pCommandHistory[i]))) +
+                        (i == done ? "]" : "");
+            }
+        }
+        if (lists == 0) text += "\n  no command list was unfinished (the removal came between lists)";
+    } else {
+        text += "\n  no breadcrumbs";
+    }
+    D3D12_DRED_PAGE_FAULT_OUTPUT fault{};
+    if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&fault)) && fault.PageFaultVA != 0) {
+        text += std::format("\n  page fault at GPU address 0x{:x}", std::uint64_t(fault.PageFaultVA));
+        int shown = 0;
+        for (const D3D12_DRED_ALLOCATION_NODE* a = fault.pHeadExistingAllocationNode; a && shown < 8;
+             a = a->pNext, ++shown)
+            text += std::string(shown == 0 ? "; live there: " : ", ") + (a->ObjectNameW   ? narrow(a->ObjectNameW)
+                                                                         : a->ObjectNameA ? std::string(a->ObjectNameA)
+                                                                                          : "unnamed");
+        shown = 0;
+        for (const D3D12_DRED_ALLOCATION_NODE* a = fault.pHeadRecentFreedAllocationNode; a && shown < 8;
+             a = a->pNext, ++shown)
+            text += std::string(shown == 0 ? "; freed there recently: " : ", ") +
+                    (a->ObjectNameW   ? narrow(a->ObjectNameW)
+                     : a->ObjectNameA ? std::string(a->ObjectNameA)
+                                      : "unnamed");
+    } else {
+        text += "\n  no page fault recorded";
+    }
+    FA_ERROR("render", "{}", text);
 }
 
 D3d12Counters D3d12Device::counters() const {
@@ -1050,7 +1211,8 @@ SyncToken D3d12Device::submit_token(CommandList& l, std::span<const QueueHandoff
             }
             if (m.to == kind) continue;  // stays on this queue
             // The destination queue type takes a texture from COMMON (buffers are COMMON between lists anyway).
-            if (!m.res->buffer) list->require(m.res, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+            if (!m.res->buffer)
+                list->require_plain(m.res, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
             moving.push_back(&m);
         }
         flush_prelude();  // the initial uploads of resources this list may use go first
@@ -1187,7 +1349,7 @@ void D3d12Device::execute(D3d12CommandList& list) {
             const std::shared_ptr<TrackedResource> t = list.uses_[i].res;
             if (t->owner == kind) continue;
             foreign[std::size_t(t->owner)] = true;
-            if (!t->buffer) list.require(t, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+            if (!t->buffer) list.require_plain(t, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
         }
     }
     list.flush_barriers();
@@ -1262,7 +1424,13 @@ void D3d12Device::execute(D3d12CommandList& list) {
         }
     }
     lists[n++] = list.list_.get();
+    {
+        std::lock_guard<std::mutex> lock(trailMutex_);
+        lastList_ = "'" + list.label_ + "' (" + queue_name(kind) + " queue)";
+    }
     queue_of(kind)->ExecuteCommandLists(n, lists);
+    note_removal("executing list '" + list.label_ + "' on the " + queue_name(kind) +
+                 " queue (checked right after ExecuteCommandLists)");
     // What the list leaves each resource in. Buffers decay to COMMON once the queue finished ExecuteCommandLists,
     // and so does everything a copy queue touched.
     Deferred held;

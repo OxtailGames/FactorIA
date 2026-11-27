@@ -34,6 +34,8 @@
 namespace fa::render {
 
 // The LUT strip the final pass binds (Assets::lut): the view and the layout of its slices.
+struct RtEffectImage;
+
 struct LutInfo {
     gpu::View view{};
     int size = 0, cols = 0, rows = 0;
@@ -105,6 +107,9 @@ struct SsaoSettings {
 SsaoSettings ssao_from_stack(const PostStack& stack);
 // The settings of the debug view ao: the stack's own when it has the effect on, else the defaults of the component; `view` set.
 SsaoSettings ssao_debug_settings(const SsaoSettings& own);
+// The radius and the intensity of the ray traced occlusion (M79-P2b, rt_ao): the stack's own when it has the effect on, else the defaults of the
+// component; always enabled, and `view` is the stack's (the debug view ao shows the ray traced result).
+SsaoSettings ssao_rt_settings(const SsaoSettings& own);
 
 // The stages of the final pass (post.glsl) in the order it runs them, for the cuts a custom pass at a display-referred
 // place makes (post_custom.h, post_slot_is_ldr): the place after stage `i` is PostSlot(int(PostSlot::AfterTonemap) +
@@ -166,6 +171,13 @@ struct PostPlan {
     // request_velocity(); the debug view and the test hook ask for the velocity alone.
     bool needsReactive = false;
     void request_reactive() { needsReactive = true; }
+    // M79-P0c, the thin G-buffer (docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): this camera asks for the albedo and the roughness / metalness of what the
+    // prepass kept (gbufferAlbedo / gbufferMaterial below, RGBA8 each). Nothing is made unless something calls request_gbuffer(): the DLSS Ray
+    // Reconstruction guides while that mode is on, the debug views "albedo" and "material", the test hook. It needs the prepass (the fragment
+    // stage keeps the surface the prepass kept), so it asks for the prepass without the depth, the normals or the velocity the prepass holds for
+    // other readers. The frame draws it when the GPU can make the images; the refs are invalid otherwise and whoever asked reads its constants.
+    bool needsGbuffer = false;
+    void request_gbuffer() { needsGbuffer = true; }
     std::uint32_t readMask =
         0;  // the effects (PostEffect bits) whose prepass bits those are: the frame drops the sun shafts' when no sun shows
     PrepassRef prepass;
@@ -193,12 +205,22 @@ struct PostPlan {
     Mat4 prevJitteredViewProj;
     // The camera's velocity image (VelocityRef), valid for the passes after the pass that writes it; invalid when none does.
     VelocityRef velocity;
+    // The thin G-buffer of this camera (M79-P0c), valid for the passes after the "gbuffer" pass; invalid when nothing asked, the GPU cannot make the images or the
+    // camera drew no prepass. Both have the size of the prepass and are only ever read by the pixel: gbufferAlbedo rgb = the albedo (linear 0..1),
+    // a = 1 where a mesh was drawn; gbufferMaterial r = roughness, g = metalness, b = 0, a = 1 where a mesh was drawn. RGBA8 (Gpu::gbuffer_format()).
+    PrepassRef gbufferAlbedo, gbufferMaterial;
     // The camera's reactive mask (M76-P1d, R8 at the size of the prepass, 0..1): where the 2D quads of the world that are not an opaque surface
     // (blended particles, the quads flagged reactive) are, so the temporal resolve trusts the current frame there (taa_resolve lowers the
     // weight of its history by it). Invalid when nothing asked, the GPU cannot make the image or no quad is reactive in the frame.
     PrepassRef reactive;
     // Screen-space reflections of this camera (renderer_ssr.h): drawn on the scene colour before the exposure and the bloom; empty when off.
     SsrPlan ssr;
+    // M79-P3a-1: the camera's ray traced reflections (rt_reflect.hlsl; null when none were declared this frame) and its imported resource: the
+    // reflections' trace pass reads it. Set by build_graph before the stack is declared.
+    const RtEffectImage* rtReflectImg = nullptr;
+    ResourceId rtReflectRes;
+    // M79-P3a-2: the denoised glossy reflections (invalid when the denoiser did not run) and the G-buffer's roughness, for the same trace pass.
+    SsrRtGlossy rtGlossy;
     // Depth of field and motion blur of this camera (renderer_dof.h): drawn on the scene colour before bloom; empty when neither is on.
     SceneFxPlan sceneFx;
     // Temporal antialiasing of this camera (renderer_taa.h): drawn after the sun shafts, before depth of field; off (taa.on false) when the stack has

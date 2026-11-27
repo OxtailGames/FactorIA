@@ -768,18 +768,23 @@ public:
     bool graphicsSupportStale_ = true;
     bool graphicsSupportPinned_ = false;
     std::string graphicsLatencyLine_, graphicsFrameGenLine_, graphicsFrameGenHint_, graphicsFrameGenState_;
+    std::string graphicsRayTracingLine_, graphicsRayTracingCannotShow_,
+        graphicsRayTracingPresetNote_;  // what the ray tracing group says (the autotest reads them)
 
     // Lightmap panel (lightmap_panel.cpp; View > Lightmap): the options of lightmap.bake_start, a progress bar with the phase of the job,
     // Cancel (lightmap.bake_cancel), the result of the last bake (pages, texels, time) and its errors with the hint. The bake runs on a
     // job thread; the panel polls lightmap.bake_status a few times a second (a cheap call, never a wait). The bake is started with
     // apply false and the panel sets SceneSettings.lightmaps itself through edit_command (one undo step, a dirty scene), only when the
-    // scene it was started on is still the open one and the game is not running. The autotest drives lightmap_start / lightmap_cancel.
+    // scene it was started on is still the open one and the game is not running. The Device choice (CPU, GPU, Auto) is the command's `device`
+    // (its tooltip is the command's own doc string); the editor has a graphics context, so on a Mac a GPU bake runs in a helper process of
+    // the engine and the finished panel says which device baked, where and why (result.device). The autotest drives lightmap_start / lightmap_cancel.
     struct LightmapUi {
         float texelsPerMeter = 16;
         int samples = 64;
         int shadowSamples = 16;
         int pageSizeIndex = 2;         // kLightmapPageSizes
         int skyIndex = 0;              // kLightmapSkies
+        int deviceIndex = 0;           // kLightmapDevices: cpu | gpu | auto (lightmap.bake_start `device`)
         std::string path;              // "" = next to the open scene
         std::string job;               // the running or last job's id ("" = none)
         std::string scene;             // the scene (scenePath_) the job was started on

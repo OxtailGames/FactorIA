@@ -79,6 +79,26 @@ struct MeshItem {
     std::uint32_t prevIdx = 0;
 };
 
+// The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
+// `authored` is set when the colour comes from materialColors (picked by eye, sRGB) rather than from the model (glTF: linear).
+// The draw (fill_fs) and the ray tracing scene (rt_scene.cpp) both ask it.
+inline Color part_base_color(const MeshRenderer& mr, const SubMesh& part, bool* authored = nullptr) {
+    if (authored) *authored = false;
+    if (!part.materialName.empty() && mr.materialColors.is_object()) {
+        auto it = mr.materialColors.find(part.materialName);
+        if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
+            float v[4] = {1, 1, 1, 1};
+            for (std::size_t i = 0; i < it->size(); ++i) {
+                if (!(*it)[i].is_number()) return part.baseColor;  // validate reports it; the part keeps its own colour
+                v[i] = (*it)[i].get<float>();
+            }
+            if (authored) *authored = true;
+            return Color{v[0], v[1], v[2], v[3]};
+        }
+    }
+    return part.baseColor;
+}
+
 // What the decal pass of the shader needs to know of a mesh (MeshRenderer.receiveDecals / decalLayer): 0 = it receives none, else
 // 1 + the layer (0..15). Part of every batch key: two meshes with different values never share a draw.
 inline int decal_recv(const MeshRenderer& mr) {
@@ -337,6 +357,11 @@ struct LightData {
     // Light.contactShadowLength (M73.2c) in metres when SceneSettings.contactShadows is on and the frame draws contact shadows; 0 = none.
     // Packed in the y of the light's texel of the shadow region of the light data texture (shaders/light_data.glsl).
     float contactLength = 0.0f;
+    // M79-P2a-3: the light's entity (Entity::bits()), what the ray traced local shadows keep a slot of the denoiser's history by; and the slot
+    // the frame traces its shadow in (0 = not traced, 1 .. 3 = the lights of RtLocalParams). Packed in the z of the light's texel of the
+    // shadow region (shaders/light_data.glsl).
+    std::uint64_t id = 0;
+    int rtSlot = 0;
 };
 
 // Orders the lights by relevance (the shadow caster first, then directional lights, then point and spot lights by
@@ -344,5 +369,10 @@ struct LightData {
 // Returns how many were dropped.
 int select_lights(std::vector<LightData>& lights, std::size_t maxCount,
                   std::size_t maxDirectional = std::size_t(kMaxDirectionalLights));
+
+// The sun the ray traced effects aim at: the shadow-casting directional light the lit pass draws its cascades for (rank 0) when it gives light,
+// else the brightest directional light (the largest colour component; the first one on a tie). It does not depend on the order of `lights`.
+// nullptr when there is no directional light. A caster that gives no light (an intensity of 0, a sun below the horizon) is not the sun.
+const LightData* pick_rt_sun(const std::vector<LightData>& lights);
 
 }  // namespace fa::render

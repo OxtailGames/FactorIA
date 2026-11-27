@@ -473,6 +473,11 @@ std::string DlssProvider::draw(const UpscaleInput& in, VendorFrame& frame, const
             kBufferSpecularAlbedo, frame.specularAlbedo, in.specularAlbedo, in.renderW, in.renderH, false};
         items[count++] = {
             kBufferNormalRoughness, frame.normalRoughness, in.normalRoughness, in.renderW, in.renderH, false};
+        // M79-P4b-2: the specular hit distance of the ray traced reflections, when the engine's denoiser left them to Ray Reconstruction. Optional
+        // (Ray Reconstruction works without it, with less to steer its reflection filtering by); the specular motion vectors are not given either.
+        if (frame.hitDistance.valid() && in.hitDistance.valid())
+            items[count++] = {
+                kBufferSpecularHitDistance, frame.hitDistance, in.hitDistance, in.renderW, in.renderH, false};
     }
     gpu::NativeUse uses[kMaxItems];
     for (int i = 0; i < count; ++i) {

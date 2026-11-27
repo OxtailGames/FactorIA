@@ -565,6 +565,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
                        : std::strcmp(dv, "cascades") == 0      ? DebugView::Cascades
                        : std::strcmp(dv, "occlusion") == 0     ? DebugView::Occlusion
                        : std::strcmp(dv, "motionVectors") == 0 ? DebugView::MotionVectors
+                       : std::strcmp(dv, "albedo") == 0        ? DebugView::Albedo
+                       : std::strcmp(dv, "material") == 0      ? DebugView::Material
                                                                : DebugView::None;
     // The device's backend (RendererDesc::backend). A sokol one runs on the sokol context; D3D12, Vulkan and Recording
     // make a device of their own and never touch the context.
@@ -662,6 +664,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     im.assets->set_shader_compiler(shaderCompiler_);
     Impl* impl = &im;
     im.assets->set_target_resolver([impl](const std::string& name) { return impl->resolve_target(name); });
+    im.assets->set_mesh_release_hook(
+        [impl](const MeshAsset* mesh) { impl->rtScene.forget(mesh); });  // its BLASes go with its buffers
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
     im.fonts->set_rich_style(richStyle_);
@@ -706,6 +710,13 @@ void Renderer::shutdown() {
         im.skyEnv.release();
         im.probes_release();
         im.hiz_release();
+        im.rtEffects.release(
+            im.gpu);  // the effects' shaders and images (the pass reads the scene's records buffer): before the scene's buffers go
+        im.rtGi.release(im.gpu);  // its band image and kernel (the pass reads the scene's records buffer too)
+        im.rtDenoiser.release();
+        im.rtScene
+            .release();  // its BLASes, TLAS and buffers, while the device is open and before the assets that its BLASes read
+        im.rt_release_skin_shader();
         im.physSky.release();
         im.hdriSky.release();
         im.sceneFx.release();
@@ -730,6 +741,8 @@ void Renderer::shutdown() {
             im.gpu.device(),
             im.velocityProbe);  // the test copy of the velocity image (RendererTestAccess::read_velocity), if a test made one
         destroy_target(im.gpu.device(), im.reactiveProbe);
+        destroy_target(im.gpu.device(), im.gbufferProbe[0]);
+        destroy_target(im.gpu.device(), im.gbufferProbe[1]);
         im.destroy_targets();
         im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
@@ -788,6 +801,7 @@ const render::UpscalerSettings& Renderer::upscaler() const { return impl_->upsca
 void Renderer::set_quality(const render::QualityLimits& limits) {
     impl_->quality = limits;
     impl_->qualityOn = limits != render::QualityLimits{};
+    set_ray_tracing(impl_->rtRequested);  // the preset's ray tracing caps follow (M79-P6a)
 }
 const render::QualityLimits& Renderer::quality() const { return impl_->quality; }
 ColorSpace Renderer::color_space() const { return impl_->gpu.linear() ? ColorSpace::Linear : ColorSpace::Gamma; }
@@ -855,6 +869,7 @@ void Renderer::begin_frame() {
     impl_->inFrame = true;
     impl_
         ->hiz_submit();  // before sokol's frame begins: the copy of the last depth pyramid is queued after the frame that made it
+    impl_->rt_begin_frame();  // the same: ray tracing on or off, the compaction answers of the frames before
     impl_->gpu.begin_frame();
     impl_->latency.mark(render::LatencyMarker::RenderSubmitStart);
 }
@@ -1390,6 +1405,38 @@ render::SkyBuilds RendererTestAccess::sky_builds(Renderer& r) {
     return {r.impl_->physSky.air_builds(), r.impl_->physSky.view_builds(0), r.impl_->physSky.view_builds(1)};
 }
 int RendererTestAccess::hiz_reduces(Renderer& r) { return r.impl_ ? r.impl_->hizReduces : 0; }
+render::RtScene* RendererTestAccess::rt_scene(Renderer& r) { return r.impl_ ? &r.impl_->rtScene : nullptr; }
+render::RtEffects* RendererTestAccess::rt_effects(Renderer& r) { return r.impl_ ? &r.impl_->rtEffects : nullptr; }
+render::RtGiProbes* RendererTestAccess::rt_gi(Renderer& r) { return r.impl_ ? &r.impl_->rtGi : nullptr; }
+std::vector<float> RendererTestAccess::gi_rt_bounce_flags(Renderer& r) {
+    return r.impl_ ? r.impl_->probes.gi.rtBounceLog : std::vector<float>{};
+}
+void RendererTestAccess::gi_log_rt_bounce(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->probes.gi.rtLogBounce = on;
+}
+bool RendererTestAccess::path_trace_set_failure(Renderer& r, const std::string& job, const std::string& why) {
+    if (!r.impl_) return false;
+    const auto it = r.impl_->ptState.jobs.find(job);
+    if (it == r.impl_->ptState.jobs.end()) return false;
+    it->second.failure = why;
+    return true;
+}
+void RendererTestAccess::gi_pixel_last_not_run(Renderer& r, bool on) {
+    if (r.impl_) r.impl_->testGiPixelLastNotRun = on;
+}
+std::size_t RendererTestAccess::path_trace_jobs(Renderer& r) { return r.impl_ ? r.impl_->ptState.jobs.size() : 0; }
+render::RtDenoiser* RendererTestAccess::rt_denoiser(Renderer& r) { return r.impl_ ? &r.impl_->rtDenoiser : nullptr; }
+RendererTestAccess::RtShadowDraws RendererTestAccess::rt_shadow_draws(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->rtShadowDraws.mask, r.impl_->rtShadowDraws.withCascades, r.impl_->rtShadowDraws.local};
+}
+RendererTestAccess::GiPixelDraws RendererTestAccess::rt_gi_pixel_draws(Renderer& r) {
+    if (!r.impl_) return {};
+    return {r.impl_->giPixelDraws.on, r.impl_->giPixelDraws.off};
+}
+std::string RendererTestAccess::rt_effect_failure(Renderer& r) {
+    return r.impl_ ? r.impl_->rtEffects.failure() : std::string();
+}
 int RendererTestAccess::hiz_cameras(Renderer& r) { return r.impl_ ? int(r.impl_->hizCams.size()) : 0; }
 std::uint64_t RendererTestAccess::origin_shifts(Renderer& r) { return r.impl_ ? r.impl_->originShifts : 0; }
 bool RendererTestAccess::origin_watched(Renderer& r, const World* world) {
@@ -1413,9 +1460,21 @@ bool RendererTestAccess::prev_jittered(Renderer& r, Entity camera, Mat4& jittere
 }
 bool RendererTestAccess::last_job_needs_velocity(Renderer& r) { return r.impl_ && r.impl_->lastJobNeedsVelocity; }
 bool RendererTestAccess::rr_guide_images(Renderer& r) {
-    return r.impl_ && (r.impl_->rrNormal.color.id != 0 || r.impl_->rrDiffuse.color.id != 0 ||
-                       r.impl_->rrSpecular.color.id != 0 || r.impl_->rrDepth.color.id != 0);
+    return r.impl_ &&
+           (r.impl_->rrNormal.color.id != 0 || r.impl_->rrDiffuse.color.id != 0 || r.impl_->rrSpecular.color.id != 0 ||
+            r.impl_->rrDepth.color.id != 0 || r.impl_->rrHit.color.id != 0);
 }
+bool RendererTestAccess::rr_hit_image(Renderer& r) { return r.impl_ && r.impl_->rrHit.color.id != 0; }
+std::uint32_t RendererTestAccess::rt_gi_pixel_signal_id() { return Renderer::Impl::kRtGiPixelSignalId; }
+std::uint32_t RendererTestAccess::rt_reflect_signal_id() { return Renderer::Impl::kRtReflectSignalId; }
+bool RendererTestAccess::rr_signals_lost(Renderer& r) { return r.impl_ && r.impl_->rrSignalsLost; }
+void RendererTestAccess::set_rr_signals_lost(Renderer& r, bool lost) {
+    if (!r.impl_) return;
+    r.impl_->rrSignalsLost = lost;
+    r.impl_->rrAgreeFrames = 0;
+}
+bool RendererTestAccess::rr_failed(Renderer& r) { return r.impl_ && r.impl_->rrFailed; }
+bool RendererTestAccess::rr_hit_program_failed(Renderer& r) { return r.impl_ && r.impl_->rrPrep.hit_failed(); }
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;
@@ -1423,6 +1482,36 @@ void RendererTestAccess::force_velocity(Renderer& r, bool on) {
         render::destroy_target(r.impl_->gpu.device(), r.impl_->velocityProbe);
         render::destroy_target(r.impl_->gpu.device(), r.impl_->reactiveProbe);
     }
+}
+bool RendererTestAccess::rr_guide_programs(Renderer& r) {
+    if (!r.impl_ || !r.impl_->gpu.has_device()) return false;
+    gpu::Device& dev = r.impl_->gpu.device();
+    if (!r.impl_->rrPrep.ready(dev)) return false;
+    TargetFormat normal;  // colour 0 = the normal and roughness, colour 1 = the hardware depth
+    normal.color = gpu::PixelFormat::Rgba16F;
+    normal.color1 = gpu::PixelFormat::R32F;
+    TargetFormat albedo;  // colour 0 = the diffuse albedo, colour 1 = the specular albedo
+    albedo.color = albedo.color1 = gpu::PixelFormat::Rgba8;
+    const bool ok = dev.state(r.impl_->rrPrep.pipeline(normal)) == gpu::ResourceState::Valid &&
+                    dev.state(r.impl_->rrPrep.albedo_pipeline(albedo)) == gpu::ResourceState::Valid;
+    r.impl_->rrPrep.release();
+    return ok;
+}
+void RendererTestAccess::force_gbuffer(Renderer& r, bool on) {
+    if (!r.impl_) return;
+    r.impl_->forceGbuffer = on;
+    if (!on) {
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->gbufferProbe[0]);
+        render::destroy_target(r.impl_->gpu.device(), r.impl_->gbufferProbe[1]);
+    }
+}
+bool RendererTestAccess::read_gbuffer(Renderer& r, int which, std::vector<float>& out, int& w, int& h,
+                                      std::string* error) {
+    if (!r.initialized()) {
+        if (error) *error = "Renderer is not initialized";
+        return false;
+    }
+    return r.impl_->read_gbuffer(which, out, w, h, error);
 }
 void RendererTestAccess::probe_camera(Renderer& r, Entity camera) {
     if (!r.impl_) return;
@@ -2203,6 +2292,7 @@ void Renderer::Impl::render(World& world, float dt) {
     probes_plan(
         world);  // after the cameras: a probe's faces do not take the sky's bake pass from the picture being drawn
     run_frame_graph();
+    rt_gi_pixel_finish();
     probes_finish();  // before release_unused_views(): the faces' images are read here
     update_editor_copy();
     graphFromCapture = false;

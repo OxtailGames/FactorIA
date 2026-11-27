@@ -111,6 +111,10 @@ struct UpscaleInput {
     // R32F: the hardware depth of `camera.proj` (clip z / clip w of the unjittered projection, 0..1, 1 for the sky). Ray Reconstruction is
     // told the projection and rebuilds the view position from this depth, so it reads it instead of `depth` (d / (d + 1)).
     gpu::View rrDepth{};
+    // M79-P4b-2, optional: R32F, the specular hit distance of the ray traced reflections (world units; 0 where there is none: a pixel that was not
+    // traced, or whose rays left the scene). Set only on a frame whose reflections go to Ray Reconstruction (the engine's denoiser is off for them);
+    // the DLSS provider tags it kBufferTypeSpecularHitDistance when it is there.
+    gpu::View hitDistance{};
 };
 
 }  // namespace fa::render

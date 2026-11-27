@@ -224,6 +224,27 @@ TEST_CASE("d3d12 pipeline cache: the leftovers of a crashed save are the old tem
     CHECK(d3d12_orphan_cache_temps({}, cache).empty());
 }
 
+TEST_CASE("d3d12: a device removal's text names what was going on and the last pipeline and list") {
+    const std::string reason = "DXGI_ERROR_DEVICE_REMOVED (0x887a0005)";
+    // The call that saw it first names itself, then the suspects.
+    const std::string at =
+        d3d12_removal_text(reason, "creating pipeline 'lit' (shader 'mesh')", "creating pipeline 'lit' (shader 'mesh')",
+                           "pipeline 'lit' (shader 'mesh')", "'frame' (graphics queue)");
+    CHECK(at == "; the device was removed while creating pipeline 'lit' (shader 'mesh'): " + reason +
+                    "; last pipeline made or loaded: pipeline 'lit' (shader 'mesh'); last list executed: 'frame' "
+                    "(graphics queue)");
+    // A later call that names nothing still says where the removal was first seen.
+    const std::string later = d3d12_removal_text(reason, "", "executing list 'frame'", "", "");
+    CHECK(later == "; the device was removed: " + reason + "; first seen while executing list 'frame'");
+    // A later call that names itself also says where it was first seen when that was elsewhere.
+    CHECK(contains(d3d12_removal_text(reason, "executing list 'b'", "creating pipeline 'a'", "", ""),
+                   "while executing list 'b': " + reason + "; first seen while creating pipeline 'a'"));
+    // The same place is not said twice.
+    CHECK(!contains(d3d12_removal_text(reason, "a", "a", "", ""), "first seen"));
+    // Nothing known: the plain text the callers always had.
+    CHECK(d3d12_removal_text(reason, "", "", "", "") == "; the device was removed: " + reason);
+}
+
 #if !defined(_WIN32)
 
 TEST_CASE("d3d12: make_d3d12_device off Windows is a teaching error") {
@@ -372,8 +393,9 @@ TEST_CASE("d3d12: a WARP device answers what it can do") {
     step = "resource binding tier";
     CHECK(dev->resource_binding_tier() >= 1);
     CHECK(dev->resource_binding_tier() <= 3);
-    if (dev->resource_binding_tier() >= 2)
-        CHECK(dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors));
+    if (dev->resource_binding_tier() >= 2)  // 0 too where the runtime refuses the unbounded range (and warned)
+        CHECK((dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors) ||
+               dev->bindless_descriptors() == 0));
     else
         CHECK(dev->bindless_descriptors() == 0);  // tier 1 has no unbounded ranges: no bindless table
     step = "the debug layer said nothing";
@@ -870,13 +892,15 @@ TEST_CASE("d3d12: a full descriptor heap fails a view with a teaching error, and
 
     step = "the shader-visible heap: a bindless range and 8 descriptors per frame";
     d3d12::ShaderVisibleHeap& heap = dev->view_heap();
-    CHECK(heap.reserved().count == 16);
+    // A device whose runtime refuses the unbounded range makes no bindless table, so nothing is reserved.
+    const std::uint32_t bindless = dev->features().bindless ? 16u : 0u;
+    CHECK(heap.reserved().count == bindless);
     CHECK(heap.alloc(8).ok());
     CHECK(!heap.alloc(1).ok());
     dev->commit();
     const d3d12::ShaderVisibleHeap::Span next = heap.alloc(8);
     CHECK(next.ok());
-    CHECK(next.index >= 16);  // never inside the bindless range
+    CHECK(next.index >= bindless);  // never inside the bindless range
 
     step = "the debug layer said nothing";
     CHECK_MESSAGE(layer_errors(*dev).empty(), layer_errors(*dev));
@@ -1467,7 +1491,9 @@ TEST_CASE("d3d12: equal descs share a PSO and a root signature; a root signature
     CHECK(lay->viewTable[1] == 1);
     CHECK(lay->samplerTable[0] == -1);
     CHECK(lay->samplerTable[1] == 2);
-    CHECK(lay->bindlessTable == 3);  // D3d12Options::bindlessDescriptors > 0: every root signature sees the table
+    // D3d12Options::bindlessDescriptors > 0: every root signature sees the table, unless the device made none (tier 1,
+    // or a runtime that refuses the unbounded range).
+    CHECK(lay->bindlessTable == (dev->features().bindless ? 3 : -1));
     CHECK(lay->viewCount[1] == 2);
     CHECK(lay->samplerCount[1] == 2);
     CHECK(lay->viewStage[1] == 1);
@@ -1517,7 +1543,7 @@ TEST_CASE("d3d12: make_shader and make_pipeline say what is wrong with a desc") 
     const char spirv[8] = {0x03, 0x02, 0x23, 0x07, 0, 0, 1, 0};
     sd.vertexFunc.source = nullptr;
     sd.vertexFunc.bytecode = Range{spirv, sizeof spirv};
-    CHECK(contains(shader_error(sd), "the vertex stage's bytecode is not DXBC"));
+    CHECK(contains(shader_error(sd), "the vertex stage's bytecode is neither DXBC nor DXIL"));
     sd = fill_shader_desc();
     sd.fragmentFunc.source = "float4 main() : SV_Target0 { return undeclared; }";
     std::string e = shader_error(sd);
@@ -1643,7 +1669,8 @@ TEST_CASE("d3d12: the command list says what is wrong, skips what depends on it 
     list.set_uniforms(0, Range{blitParams.data(), sizeof blitParams});
     list.set_uniforms(1, Range{blitParams.data(), sizeof blitParams});
     list.draw(0, 3);
-    CHECK(contains(last_error(*dev), "reads buffers, views or samplers and set_bindings was not called since"));
+    CHECK(contains(last_error(*dev),
+                   "reads buffers, views, samplers or acceleration structures and set_bindings was not called since"));
     Bindings b;
     list.set_bindings(b);
     CHECK(contains(last_error(*dev), "vertex buffer slot 0 is empty and pipeline 'test-pipeline' reads it"));
@@ -2839,7 +2866,8 @@ TEST_CASE("d3d12: every live texture view has its own bindless slot, which a sha
     auto dev = make_warp();
     if (!dev) return;
     if (!dev->features().bindless) {
-        MESSAGE("d3d12: skipped, resource binding tier 1 has no bindless table");
+        MESSAGE("d3d12: skipped, no bindless table (resource binding tier 1, or a runtime that refuses its unbounded "
+                "range)");
         return;
     }
     const View red = make_texture(*dev, 1, 1, {255, 0, 0, 255});

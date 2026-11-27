@@ -55,6 +55,7 @@
 #include <vector>
 
 #include "fa/core/types.h"
+#include "gpu/accel.h"
 #include "gpu/device_hooks.h"
 #include "gpu/types.h"
 
@@ -150,6 +151,53 @@ public:
     virtual Result<void> end_native(std::span<const NativeUse> leftIn);
     // The same with every resource left as declared.
     Result<void> end_native() { return end_native(std::span<const NativeUse>{}); }
+
+    // ---- ray tracing (M79; gpu/accel.h has the vocabulary, docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md the design)
+    // Every call below needs Features::accelerationStructure (a device without it, and a backend whose package has not
+    // landed, answer an error that says why: the package to come, or what the device lacks; and record nothing). All of
+    // them go outside a pass, on a Graphics or Compute list. An error records nothing.
+    //
+    // BARRIERS. The caller records none; the backend derives them from what each call reads and writes:
+    //  * before a build: the vertex, index and scratch buffers it reads or writes are in the build-input / scratch
+    //    state (D3D12: NON_PIXEL_SHADER_RESOURCE | ACCEL_STRUCT read for the BLASes a TLAS build reads; Vulkan: a
+    //    memory barrier from the earlier writes to ACCELERATION_STRUCTURE_BUILD_KHR);
+    //  * between two builds that share a scratch buffer, and between a BLAS build and the TLAS build that reads it: a
+    //    barrier from the acceleration structure write to the next build's read and scratch use (D3D12 UAV barrier on
+    //    the AS and scratch memory; Vulkan ACCELERATION_STRUCTURE_WRITE -> READ|WRITE with stage BUILD);
+    //  * after a build and before the next dispatch that traces: the structure's write is visible to a compute
+    //    shader's ray query (D3D12 UAV barrier; Vulkan ACCELERATION_STRUCTURE_WRITE -> ACCELERATION_STRUCTURE_READ with
+    //    COMPUTE_SHADER stage; Metal: the build is its own encoder, ordered before the compute encoder);
+    //  * before query_compacted_size / copy_accel_structure: the build that wrote the source has finished;
+    //  * before a build writes a structure (or a scratch buffer) that an earlier dispatch traced or an earlier build
+    //    read, the write waits for those reads (write after read: a TLAS rebuilt every frame while the frame before
+    //    still traces it; Vulkan ACCELERATION_STRUCTURE_READ with COMPUTE_SHADER or BUILD stage ->
+    //    ACCELERATION_STRUCTURE_WRITE with BUILD stage).
+    // Vulkan derives all of them from one state per resource (stage + access): a build's dst is AS_WRITE@BUILD
+    // (READ|WRITE for an in-place update), its scratch AS_READ|AS_WRITE@BUILD, its vertex, index and instance buffers
+    // SHADER_READ@BUILD, the BLASes a TLAS build names AS_READ@BUILD|COMPUTE, a TLAS bound for a dispatch
+    // AS_READ@COMPUTE, a copy's source AS_READ@BUILD and its destination AS_WRITE@BUILD; a change between two states
+    // with a write on either side is one barrier.
+    //
+    // Builds a BLAS from `build.geometries` into build.dst (or refits it with build.update). The checks (each names the
+    // call, the field and what to change): dst is a live Blas; 1 to Limits::maxAccelGeometries geometries; triangles
+    // in total at most Limits::maxAccelPrimitives; every vertex and index buffer is live with usage accelBuildInput
+    // and holds the range it names; scratch is live with usage accelScratch and holds AccelSizes::buildScratch (or
+    // updateScratch for a refit) bytes from scratchOffset; a refit needs a source built with allowUpdate and the same
+    // geometry counts as the build.
+    virtual Result<void> build_blas(const BlasBuild& build);
+    // Builds a TLAS from `build.instances` (copied during the call), or refits it. Every instance's BLAS must be a
+    // live, built Blas (a Tlas, a destroyed or an unbuilt one is an error naming instances[i]); the same scratch rules.
+    virtual Result<void> build_tlas(const TlasBuild& build);
+    // Asks the GPU for the size of `blas` once compacted and writes it as one little-endian uint64 into `dst` at
+    // `dstOffset` (a buffer with usage storageBuffer, 8-byte aligned): read it with Device::read_buffer or an
+    // asynchronous read after the frame, then make a smaller Blas and copy_accel_structure(Compact). `blas` must be
+    // built with allowCompaction.
+    virtual Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset);
+    // Copies a built Blas into another one made with kind Blas and a size large enough: Compact needs the source built
+    // with allowCompaction and dst.size >= the compacted size query_compacted_size answered; Clone needs a dst at least as large as src.
+    virtual Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode);
+    // The API behind this list (the errors above name it); the default is the RecordingDevice.
+    virtual Backend backend() const { return Backend::Recording; }
 };
 
 // What a backend knows of the resource a NativeUse names (check_native_use).
@@ -231,6 +279,15 @@ struct DeviceInit {
     Features recordingFeatures{};
     Limits recordingLimits{};
     bool recordingDefaultCaps = true;
+    // RecordingDevice (M79): add ray tracing to what it reports: Features::rayQuery, accelerationStructure,
+    // bufferDeviceAddress (a Vulkan or D3D12 like device; the calls do not need it) and rayTracingPipeline false (the
+    // engine never uses it), and the limits 4096 geometries,
+    // 1 << 20 instances, 1 << 28 triangles. With recordingDefaultCaps false the test sets recordingFeatures and
+    // recordingLimits itself and this is ignored. Off by default: a plain RecordingDevice has no ray tracing, like GL.
+    bool recordingRayTracing = false;
+    // RecordingDevice (M79-P4b-2): the 32-bit float formats (R32F, Rg32F, Rgba32F) filter, as they do on the desktop GPUs that trace rays (the NVIDIA, AMD and
+    // Intel ones on D3D12 and Vulkan). Off by default (the common subset of every backend, GL ES included: no filtering of 32-bit floats).
+    bool recordingFilterFloat32 = false;
     // Vendor SDKs' part in making the device and its swapchain (gpu/device_hooks.h): called by the D3D12 and Vulkan
     // backends only; make_device() adds the registered hooks (register_device_hook) and marks every hook unavailable
     // on a backend that calls none.
@@ -425,6 +482,38 @@ public:
     // is made and valid until it is destroyed. kNoBindlessIndex when the backend has no table (Features::bindless is
     // false), the table is full, or `view` is not a live sampled view. Never changes for a live view.
     virtual std::uint32_t bindless_index(View view) const;
+
+    // ---- ray tracing (M79; gpu/accel.h) ------------------------------------------------------------------------------
+    // Features::rayQuery and accelerationStructure say whether any of this works; the defaults below are the answer of a
+    // device without ray tracing (GL, GLES3, WebGL2, D3D11) or whose GPU or OS cannot trace (D3D12: no DXR tier 1.1 with
+    // shader model 6.5; Vulkan: ray_tracing_status names what the GPU lacks; Metal: SokolDevice::ray_tracing_status names
+    // the device and the OS): an error naming the backend, never a crash and never a silent no-op. Render thread only,
+    // like every make_*.
+    //
+    // Whether the engine can trace rays on this device (Features::rayQuery and accelerationStructure) and, when it
+    // cannot, one sentence for the player: "the d3d12 backend does not build acceleration structures yet (...)" or
+    // "this GPU lacks VK_KHR_ray_query". The default answers from features() and accel_unavailable_reason(backend()); a
+    // backend whose package has landed overrides it to say what its GPU lacks. renderer.supports("raytracing") shows it.
+    virtual bool ray_tracing_status(std::string* why) const;
+    // The size of the acceleration structure and of the scratch memory for these geometries / this many instances with
+    // these flags. The geometries are checked as build_blas checks them (counts, strides, offsets and limits); the
+    // buffers' handles and contents are not read (the sizes depend on the counts alone, so a caller can size its pools
+    // before the meshes upload; build_blas checks the handles). tlas_sizes takes no list of BLASes for the same reason:
+    // the instance count is all a TLAS's size depends on.
+    virtual Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags);
+    virtual Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags);
+    // Makes an acceleration structure (the memory only: build_blas / build_tlas fill it). The RecordingDevice also
+    // reports an error it answers.
+    virtual Result<AccelStructure> make_accel_structure(const AccelStructureDesc& desc);
+    // Destroying the invalid handle does nothing; a destroyed one is an error (RecordingDevice reports it). A TLAS that
+    // names the BLAS is not kept alive by it: destroy the TLAS first, or after the work that traces it has completed.
+    virtual void destroy_accel_structure(AccelStructure structure);
+    // Named apart from state(): an overload would hide the others in a derived class (-Woverloaded-virtual).
+    virtual ResourceState accel_structure_state(AccelStructure structure) const;
+    // The alignments a backend asks of a storage offset and a scratch offset, in bytes (powers of two; 256 is what
+    // D3D12 and Vulkan ask).
+    virtual std::uint32_t accel_alignment() const { return 256; }
+    virtual std::uint32_t accel_scratch_alignment() const { return 256; }
 
     // ---- statistics ------------------------------------------------------------------------------------------------
     virtual void enable_stats(bool on) = 0;

@@ -92,14 +92,32 @@ bool compile_hlsl(const ShaderFunction& fn, const char* target, const char* stag
 }
 
 // One stage's DXBC: the bytecode given, or the source compiled for `target`.
-bool stage_code(const ShaderFunction& fn, const char* target, const char* stage, std::vector<std::uint8_t>& out,
-                std::string& error) {
+// `shaderModel` is the highest shader model the device takes (RtCaps::shaderModel): DXIL (shader model 6, from DXC)
+// is accepted for a compute stage on a device that takes shader model 6.0 or more, DXBC (shader model 5.x) everywhere.
+bool stage_code(const ShaderFunction& fn, const char* target, const char* stage, int shaderModel,
+                std::vector<std::uint8_t>& out, std::string& error) {
     if (fn.bytecode.ptr) {
         if (fn.bytecode.size < 4 || std::memcmp(fn.bytecode.ptr, "DXBC", 4) != 0) {
             error = std::string("the ") + stage +
-                    " stage's bytecode is not DXBC (hint: D3D12 takes shader model 5.x DXBC, sokol-shdc's hlsl5 "
-                    "output, or HLSL source it compiles itself; DXIL (shader model 6) is not supported)";
+                    " stage's bytecode is neither DXBC nor DXIL (hint: D3D12 takes shader model 5.x DXBC, sokol-shdc's "
+                    "hlsl5 output, HLSL source it compiles itself, or a compute shader's DXIL from DXC)";
             return false;
+        }
+        if (is_dxil_container(fn.bytecode.ptr, fn.bytecode.size)) {
+            const bool compute = std::strcmp(stage, "compute") == 0;
+            if (!compute) {
+                error = std::string("the ") + stage +
+                        " stage's bytecode is DXIL (shader model 6), which the engine takes for compute shaders only "
+                        "(hint: give a render shader shader model 5.x DXBC, sokol-shdc's hlsl5 output, or HLSL "
+                        "source)";
+                return false;
+            }
+            if (shaderModel < 0x60) {
+                error = "the compute stage's bytecode is DXIL (shader model 6) and this device takes shader model " +
+                        shader_model_name(shaderModel) +
+                        " at most (hint: update the GPU driver, or give the shader as shader model 5.x DXBC)";
+                return false;
+            }
         }
         const auto* p = static_cast<const std::uint8_t*>(fn.bytecode.ptr);
         out.assign(p, p + fn.bytecode.size);
@@ -511,15 +529,23 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
     };
     auto code = [&](const ShaderFunction& fn, const char* target, const char* stage, std::vector<std::uint8_t>& out) {
         std::string e;
-        if (error.empty() && !stage_code(fn, target, stage, out, e)) fail(e);
+        if (error.empty() && !stage_code(fn, target, stage, rtCaps_.shaderModel, out, e)) fail(e);
     };
+    // What a ray-query kernel's compute stage is, when it is not DXIL: nothing at all, HLSL text, or bytecode of another
+    // compiler (DXBC, SPIR-V): the refusal says which, and what to give instead.
+    const bool rqNoStage = !desc.computeFunc.bytecode.ptr && !desc.computeFunc.source;
+    const bool rqNotDxil =
+        desc.usesRayQuery && !(desc.computeFunc.bytecode.ptr &&
+                               is_dxil_container(desc.computeFunc.bytecode.ptr, desc.computeFunc.bytecode.size));
     const bool hasRender = desc.vertexFunc.source || desc.vertexFunc.bytecode.ptr || desc.fragmentFunc.source ||
                            desc.fragmentFunc.bytecode.ptr;
     if (info->compute && hasRender) {
         fail("it has a compute stage and a vertex or fragment stage (hint: a compute shader sets computeFunc only, a "
              "render shader vertexFunc and fragmentFunc)");
     } else if (info->compute) {
-        code(desc.computeFunc, "cs_5_1", "compute", info->cs);
+        // A ray-query kernel is DXIL (cs_6_5): HLSL text would go through D3DCompile's cs_5_1, which has no RayQuery,
+        // so it is refused below with what to give instead rather than with that compiler's error.
+        if (!rqNotDxil) code(desc.computeFunc, "cs_5_1", "compute", info->cs);
     } else {
         code(desc.vertexFunc, "vs_5_1", "vertex", info->vs);
         code(desc.fragmentFunc, "ps_5_1", "fragment", info->fs);
@@ -588,6 +614,51 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
         }
         claim(what, s, 's', sm.binding.hlslRegister, sm.binding.hlslSpace);
     }
+    // Ray queries (M79): a compute kernel with usesRayQuery, its TLAS slots on t registers (root SRVs).
+    const std::string noRt = rtWhy_.empty() ? std::string("this device has no ray query") : rtWhy_;
+    if (desc.usesRayQuery) {
+        if (!info->compute)
+            fail("usesRayQuery on a render shader: ray queries run in compute shaders (hint: a kernel keeps "
+                 "ShaderStage::Compute; there are no ray tracing pipelines)");
+        else if (!features_.rayQuery)
+            fail("usesRayQuery on a device without ray query (Features::rayQuery is false: " + noRt +
+                 ") (hint: check Device::features().rayQuery before making a ray-query kernel)");
+        else if (rqNotDxil) {
+            const char* dxilHint = "(hint: give the DXC container as computeFunc.bytecode: the engine's kernels are "
+                                   "engine/render/shaders/rt/*.hlsl, compiled by tools/shaders/compile_rt_shaders.sh)";
+            if (rqNoStage)
+                fail(std::string("usesRayQuery on a shader with no compute stage: computeFunc has neither bytecode nor "
+                                 "source ") +
+                     dxilHint);
+            else if (!desc.computeFunc.bytecode.ptr)
+                fail(std::string("usesRayQuery on a compute stage given as HLSL text: RayQuery needs DXIL (cs_6_5), "
+                                 "and HLSL text is compiled for cs_5_1, which has no RayQuery ") +
+                     dxilHint);
+            else
+                fail(std::string("usesRayQuery on a compute stage whose bytecode is not a DXIL container (no \"DXBC\" "
+                                 "header with a DXIL part: DXBC from FXC and SPIR-V have no RayQuery either) ") +
+                     dxilHint);
+        }
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        const ShaderAccelStructure& a = desc.accelStructures[i];
+        if (a.stage == ShaderStage::None) continue;
+        const std::string what = "accelStructures[" + std::to_string(i) + "]";
+        if (a.stage != ShaderStage::Compute || !info->compute) {
+            fail(what + " has a stage other than Compute, or the shader is not a compute shader: only a compute "
+                        "shader traces rays (hint: ShaderStage::Compute on a shader with computeFunc)");
+            continue;
+        }
+        if (!desc.usesRayQuery)
+            fail(what + " is declared but usesRayQuery is false (hint: set it on a ray-query kernel)");
+        if (!features_.accelerationStructure)
+            fail(what + " on a device without acceleration structures (Features::accelerationStructure is false: " +
+                 noRt + ")");
+        info->accelDeclared[i] = true;
+        // Stage 0 is the compute stage (stage_index(Compute, true) == 0): the same stage the kernel's own views claim
+        // their registers in, so a TLAS on a t register a view uses is reported as the clash it is.
+        claim(what, 0, 't', a.binding.hlslRegister, a.binding.hlslSpace);
+    }
     for (int i = 0; i < kMaxVertexAttributes; ++i) {
         if (!desc.attrs[i].hlslSemName || !*desc.attrs[i].hlslSemName) continue;
         info->semName[i] = desc.attrs[i].hlslSemName;
@@ -627,6 +698,52 @@ Shader D3d12Device::make_shader(const ShaderDesc& desc) {
     return Shader{id};
 }
 
+bool D3d12Device::bindless_table_accepted(std::string& why) {
+    // The table exactly as root_layout adds it to every root signature, alone, with a render signature's flags.
+    D3D12_DESCRIPTOR_RANGE range{};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    range.NumDescriptors = UINT_MAX;  // unbounded
+    range.BaseShaderRegister = 0;
+    range.RegisterSpace = 1;
+    range.OffsetInDescriptorsFromTableStart = 0;
+    D3D12_ROOT_PARAMETER p{};
+    p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    p.DescriptorTable.NumDescriptorRanges = 1;
+    p.DescriptorTable.pDescriptorRanges = &range;
+    p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_SIGNATURE_DESC rd{};
+    rd.NumParameters = 1;
+    rd.pParameters = &p;
+    rd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    Com<ID3DBlob> blob, messages;
+    HRESULT hr = D3D12SerializeRootSignature(&rd, D3D_ROOT_SIGNATURE_VERSION_1, blob.put(), messages.put());
+    if (FAILED(hr) || !blob) {
+        why = "D3D12SerializeRootSignature failed with " + hr_text(hr);
+        return false;
+    }
+    // A refusal is the answer: the debug layer stores none of the messages this one call makes (the filter init
+    // pushed is back on top afterwards).
+    bool filtered = false;
+    if (infoQueue_) {
+        D3D12_MESSAGE_SEVERITY all[] = {D3D12_MESSAGE_SEVERITY_CORRUPTION, D3D12_MESSAGE_SEVERITY_ERROR,
+                                        D3D12_MESSAGE_SEVERITY_WARNING, D3D12_MESSAGE_SEVERITY_INFO,
+                                        D3D12_MESSAGE_SEVERITY_MESSAGE};
+        D3D12_INFO_QUEUE_FILTER filter{};
+        filter.DenyList.NumSeverities = UINT(sizeof all / sizeof all[0]);
+        filter.DenyList.pSeverityList = all;
+        filtered = SUCCEEDED(infoQueue_->PushStorageFilter(&filter));
+    }
+    Com<ID3D12RootSignature> signature;
+    hr = device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), __uuidof(ID3D12RootSignature),
+                                      signature.put_void());
+    if (filtered) infoQueue_->PopStorageFilter();
+    if (FAILED(hr) || !signature) {
+        why = "CreateRootSignature failed with " + hr_text(hr) + removed_reason();
+        return false;
+    }
+    return true;
+}
+
 std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& desc, const ShaderInfo& info,
                                                            std::string& error) {
     const bool compute = info.compute;
@@ -653,6 +770,13 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
         if (s.stage == ShaderStage::None) continue;
         for (std::uint64_t v : {std::uint64_t('s'), std::uint64_t(i), std::uint64_t(stage_index(s.stage, compute)),
                                 std::uint64_t(s.binding.hlslRegister), std::uint64_t(s.binding.hlslSpace)})
+            key.add(v);
+    }
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!info.accelDeclared[i]) continue;
+        const BackendBinding& b = desc.accelStructures[i].binding;
+        for (std::uint64_t v :
+             {std::uint64_t('a'), std::uint64_t(i), std::uint64_t(b.hlslRegister), std::uint64_t(b.hlslSpace)})
             key.add(v);
     }
     key.add(bindlessDescriptors_ > 0 ? "bindless" : "-");
@@ -682,6 +806,19 @@ std::shared_ptr<const RootLayout> D3d12Device::root_layout(const ShaderDesc& des
         p.Descriptor.RegisterSpace = b.binding.hlslSpace;
         p.ShaderVisibility = visibility[stage_index(b.stage, compute)];
         layout->cbvParam[i] = int(params.size());
+        params.push_back(p);
+    }
+    // A TLAS: a root SRV at the structure's GPU address (root signature 1.0 takes them; a descriptor table would need
+    // an SRV descriptor per build).
+    for (int i = 0; i < kMaxAccelStructureBindings; ++i) {
+        if (!info.accelDeclared[i]) continue;
+        const BackendBinding& b = desc.accelStructures[i].binding;
+        D3D12_ROOT_PARAMETER p{};
+        p.ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        p.Descriptor.ShaderRegister = b.hlslRegister;
+        p.Descriptor.RegisterSpace = b.hlslSpace;
+        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        layout->accelParam[i] = int(params.size());
         params.push_back(p);
     }
     for (int i = 0; i < kMaxViews; ++i) {
@@ -829,7 +966,8 @@ std::shared_ptr<const RootLayout> D3d12Device::shader_root_layout(Shader shader)
 // Pipelines
 // ---------------------------------------------------------------------------------------------------------------------
 
-Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
+Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const std::string& what,
+                                          const D3D12_GRAPHICS_PIPELINE_STATE_DESC* graphics,
                                           const D3D12_COMPUTE_PIPELINE_STATE_DESC* compute, std::string& error) {
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -852,6 +990,10 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
         return it->second;
     };
     Com<ID3D12PipelineState> made;
+    {
+        std::lock_guard<std::mutex> lock(trailMutex_);
+        lastPipeline_ = what;
+    }
     {
         std::lock_guard<std::mutex> lock(libraryMutex_);
         if (library_) {
@@ -886,6 +1028,7 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
                 add.libraryHits = 1;
                 d3d12_pipeline_cache_count(add);
                 made->SetName(L"fa-d3d12-pso");
+                note_removal("loading " + what + " from the pipeline library");
                 return keep(made);
             }
         }
@@ -897,12 +1040,13 @@ Com<ID3D12PipelineState> D3d12Device::pso(const std::string& key, const D3D12_GR
     if (FAILED(hr) || !made) {
         drain_messages();
         error = std::string(graphics ? "CreateGraphicsPipelineState" : "CreateComputePipelineState") + " failed with " +
-                hr_text(hr) + removed_reason() +
+                hr_text(hr) + removed_reason("creating " + what) +
                 " (hint: the debug layer's message before this one (D3d12Options::debugLayer) names the field; a "
                 "shader whose HLSL registers or vertex inputs differ from its ShaderDesc is refused here)";
         return {};
     }
     made->SetName(L"fa-d3d12-pso");
+    note_removal("creating " + what);  // made, and the device is gone already: the shader compiled for it killed it
     std::lock_guard<std::mutex> lock(libraryMutex_);
     // Another thread may have stored the same name meanwhile (E_INVALIDARG): the library has it either way.
     if (library_ && SUCCEEDED(library_->StorePipeline(name.c_str(), made.get()))) {
@@ -1302,7 +1446,8 @@ Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {
             c.pRootSignature = layout->signature.get();
             c.CS.pShaderBytecode = shader->cs.data();
             c.CS.BytecodeLength = shader->cs.size();
-            st->pso = pso("compute|" + shader->codeKey + "|" + layout->key, nullptr, &c, e);
+            st->pso = pso("compute|" + shader->codeKey + "|" + layout->key,
+                          "pipeline '" + label + "' (shader '" + shader->label + "')", nullptr, &c, e);
         } else {
             GraphicsBuild g;
             e = graphics_desc(desc, *shader, defaults_, caps_, *st, g);
@@ -1312,7 +1457,8 @@ Pipeline D3d12Device::make_pipeline(const PipelineDesc& desc) {
                 g.d.VS.BytecodeLength = shader->vs.size();
                 g.d.PS.pShaderBytecode = shader->fs.data();
                 g.d.PS.BytecodeLength = shader->fs.size();
-                st->pso = pso("render|" + shader->codeKey + "|" + layout->key + "|" + g.key.s, &g.d, nullptr, e);
+                st->pso = pso("render|" + shader->codeKey + "|" + layout->key + "|" + g.key.s,
+                              "pipeline '" + label + "' (shader '" + shader->label + "')", &g.d, nullptr, e);
             }
         }
         if (!st->pso) fail(e);

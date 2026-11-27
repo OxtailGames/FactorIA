@@ -1,0 +1,90 @@
+// Metal twin of rt_shadow.hlsl (MSL 2.4, inline `intersection_query`): the same algorithm, the bindings of the contract in the HLSL file
+// (the tlas is buffer(0), the output texture(0), the constants buffer(1), the prepass texture(1)). It is compiled at run time with
+// MTLDevice newLibraryWithSource (languageVersion 2_4), never by the build. tools/shaders/compile_rt_shaders.sh embeds this text in the
+// generated header.
+#include <metal_stdlib>
+#include <metal_raytracing>
+using namespace metal;
+using namespace metal::raytracing;
+
+// BEGIN RtEffectParams
+struct RtEffectParams {
+    float4 camera;
+    float4 lightDir;
+    float4 image;
+    uint4 frame;
+    float4 rayO0, rayOX, rayOY, rayD0, rayDX, rayDY;
+    float4 uRayO0, uRayOX, uRayOY, uRayD0, uRayDX, uRayDY;
+    float4 viewRight, viewUp, viewBack;
+    float4 viewProj0, viewProj1, viewProj2, viewProj3;
+    float4 user0, user1;
+};
+// END RtEffectParams
+
+constant float kRtNoMesh = 1.0e30;
+constant uint kRtMaskCastsShadow = 0x08;
+
+float3 oct_decode(float2 e) {
+    float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return normalize(n);
+}
+
+// The cone sampling of the soft shadow (user1.y = 1): the same as rt_shadow.hlsl (see its comment).
+float ign(float2 p, uint seed) {
+    p += 5.588238 * float(seed & 63u);
+    return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
+}
+
+float2 sun_disc_point(uint2 id, uint seed, uint k) {
+    const float2 shift = float2(ign(float2(id), seed), ign(float2(id) + float2(37.0, 17.0), seed ^ 0x9E3779B9u));
+    const float2 u = fract(shift + float(k + 1u) * float2(0.7548776662466927, 0.5698402909980532));
+    const float r = sqrt(u.x), a = 6.283185307179586 * u.y;
+    return r * float2(cos(a), sin(a));
+}
+
+kernel void rt_shadow(instance_acceleration_structure tlas [[buffer(0)]],
+                      texture2d<float, access::write> out_img [[texture(0)]],
+                      constant RtEffectParams& params [[buffer(1)]],
+                      texture2d<float, access::read> prepass [[texture(1)]],
+                      uint2 id [[thread_position_in_grid]]) {
+    if (id.x >= uint(params.image.x) || id.y >= uint(params.image.y)) return;
+    const bool soft = params.user1.y > 0.5;
+    const float4 pre = prepass.read(id);
+    if (pre.a < 0.5) {  // the sky: no surface, nothing to shadow
+        out_img.write(soft ? float4(1.0, kRtNoMesh, 0.0, 0.0) : float4(kRtNoMesh, 1.0, 0.0, 0.0), id);
+        return;
+    }
+    const float depth = pre.r;
+    const float2 ndc = float2((float(id.x) + 0.5) * params.image.z * 2.0 - 1.0, 1.0 - (float(id.y) + 0.5) * params.image.w * 2.0);
+    const float3 pos = params.rayO0.xyz + ndc.x * params.rayOX.xyz + ndc.y * params.rayOY.xyz +
+                       (params.rayD0.xyz + ndc.x * params.rayDX.xyz + ndc.y * params.rayDY.xyz) * depth;
+    const float3 nv = oct_decode(pre.gb);
+    const float3 n = normalize(params.viewRight.xyz * nv.x + params.viewUp.xyz * nv.y + params.viewBack.xyz * nv.z);
+    const float3 l = params.lightDir.xyz;
+    const float offset = params.user0.x + params.user0.y * depth;
+    const uint rays = soft ? clamp(params.frame.z, 1u, 64u) : 1u;
+    const float3 t = normalize(abs(l.y) < 0.99 ? cross(l, float3(0.0, 1.0, 0.0)) : cross(l, float3(1.0, 0.0, 0.0)));
+    const float3 b = cross(l, t);
+    float lit = 0.0;
+    for (uint k = 0u; k < rays; ++k) {
+        float3 dir = l;
+        if (soft) {
+            const float2 d = sun_disc_point(id, params.frame.y, k) * params.user1.x;
+            dir = normalize(l + t * d.x + b * d.y);
+        }
+        ray r;
+        r.origin = pos + n * offset;
+        r.min_distance = params.user0.z;
+        r.direction = dir;
+        r.max_distance = params.user0.w;
+        intersection_query<instancing, triangle_data> q;
+        intersection_params ip;
+        ip.accept_any_intersection(true);
+        q.reset(r, tlas, kRtMaskCastsShadow, ip);
+        while (q.next()) {}  // a non-opaque candidate (a cutout) is never committed here
+        lit += q.get_committed_intersection_type() == intersection_type::triangle ? 0.0 : 1.0;
+    }
+    const float visible = lit / float(rays);
+    out_img.write(soft ? float4(visible, depth, 0.0, 1.0) : float4(depth, visible, 0.0, 1.0), id);
+}

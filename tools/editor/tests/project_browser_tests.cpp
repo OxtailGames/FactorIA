@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "doctest.h"
+#include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/math.h"
 #include "project_browser_model.h"
@@ -97,8 +98,7 @@ TEST_CASE("project browser: sorting by name (case-insensitive), type and size, a
 
 TEST_CASE("project browser: scan_project skips hidden, build, node_modules, dist and export, and classifies files") {
     namespace stdfs = std::filesystem;
-    const stdfs::path dir = stdfs::temp_directory_path() / "fa_browser_scan_test";
-    stdfs::remove_all(dir);
+    const stdfs::path dir = fa::fs::make_temp_dir_until_exit("fa_browser_scan_test").value();
     auto touch = [&](const char* rel, const char* bytes = "x") {
         stdfs::create_directories((dir / rel).parent_path());
         std::ofstream(dir / rel, std::ios::binary) << bytes;
@@ -151,8 +151,7 @@ TEST_CASE("project browser: a prefab dropped in 3D lands on the ground plane, el
 
 TEST_CASE("project browser: made assets carry their recipe check; a saved source makes them stale") {
     namespace stdfs = std::filesystem;
-    const stdfs::path dir = stdfs::temp_directory_path() / "fa_browser_recipes";
-    stdfs::remove_all(dir);
+    const stdfs::path dir = fa::fs::make_temp_dir_until_exit("fa_browser_recipes").value();
     stdfs::create_directories(dir / "assets");
     auto write = [&](const char* rel, const std::string& text) { std::ofstream(dir / rel, std::ios::binary) << text; };
     write("assets/src.svg", "<svg>one</svg>");

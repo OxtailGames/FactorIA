@@ -133,6 +133,22 @@ std::vector<FeatureDef> build_table() {
         {"float32Targets", FeatureKind::Capability, kEveryGpu, "float32", nullptr,
          "Render targets of 32-bit float (R32F and RGBA32F) that can be sampled: what the shadow atlas of the "
          "lighting of M73 is drawn into (one depth value per texel): without them there is no cascaded shadow."});
+    // Ray tracing (M79, docs/RAY_TRACING.md): the answer is the device's (Features::rayQuery and accelerationStructure), not a column; the
+    // columns say where it can ever run (Metal here, D3D12 and Vulkan by the keys feature_report adds).
+    t.push_back(
+        {"raytracing", FeatureKind::Capability, bit(FeatureBackend::Metal), "", nullptr,
+         "Ray tracing with inline ray queries (render.rayTracing; docs/RAY_TRACING.md): the device builds acceleration "
+         "structures (a BLAS per mesh, a TLAS of instances) and a compute shader traces rays against them. Direct3D 12 "
+         "(DXR 1.1), Vulkan (VK_KHR_ray_query) and Metal on a GPU that has them; never OpenGL, GLES3, WebGL2 or D3D11. "
+         "The row is false where it cannot run, with the reason in render.supports. Today Direct3D 12 builds them "
+         "on a device with DXR tier 1.1 and shader model 6.5, Vulkan on one with VK_KHR_acceleration_structure "
+         "and VK_KHR_ray_query, and Metal on a GPU and OS with ray tracing. With render.rayTracing on, the engine "
+         "traces shadows, ambient occlusion, reflections, translucency and global illumination with them "
+         "(docs/RAY_TRACING.md)."});
+    t.push_back(
+        {"raytracingPipeline", FeatureKind::Capability, bit(FeatureBackend::Metal), "", nullptr,
+         "The GPU has ray tracing pipelines and shader binding tables (DXR 1.0 and VK_KHR_ray_tracing_pipeline). "
+         "Reported only: the engine traces with inline ray queries in compute shaders and never uses them."});
     // The engine features built on them.
     t.push_back(
         {"linearColor", FeatureKind::Engine, kEveryGpu, "", nullptr,
@@ -575,6 +591,11 @@ int latency_row_index(std::string_view name) {
     return name == "reflex" ? 0 : name == "antilag2" ? 1 : name == "xell" ? 2 : -1;
 }
 
+// The ray tracing rows: 0 raytracing, 1 raytracingPipeline; -1 any other.
+int raytracing_row_index(std::string_view name) {
+    return name == "raytracing" ? 0 : name == "raytracingPipeline" ? 1 : -1;
+}
+
 bool needs_met(const FeatureEnv& env, const char* needs, std::string* missing) {
     auto need = [&](const char* word, bool have, const char* what) {
         if (std::strstr(needs, word) && !have) {
@@ -679,6 +700,22 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
             *why = p.reason.empty() ? std::string("this latency mode is not available here") : p.reason;
         return p.available;
     }
+    if (const int rt = raytracing_row_index(f.name); rt >= 0) {
+        // Before the Headless check: D3D12 and Vulkan are Headless in the table's columns and are the backends that trace.
+        const bool yes = rt == 0 ? env.rayTracing : env.rayTracingPipeline;
+        if (!yes && why) {
+            if (rt == 1 && env.rayTracing)
+                *why =
+                    "this GPU has ray queries but no ray tracing pipelines (reported only: the engine never uses them)";
+            else if (!env.rayTracingWhy.empty())
+                *why = env.rayTracingWhy;
+            else if (env.backend == FeatureBackend::Headless && env.gpuBackend == gpu::Backend::Recording)
+                *why = "there is no GPU (the headless backend draws nothing)";
+            else
+                *why = gpu::accel_unavailable_reason(env.gpuBackend);
+        }
+        return yes;
+    }
     if (env.backend == FeatureBackend::Headless) {
         if (why) *why = "there is no GPU (the headless backend draws nothing)";
         return false;
@@ -752,6 +789,7 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
     using gpu::PixelFormat;
     FeatureEnv env;
     env.backend = feature_backend_of(backend);
+    env.gpuBackend = backend;
     env.maxTextureSize = limits.maxImageSize2d;
     env.maxArrayLayers = limits.maxImageArrayLayers;
     env.maxArrayTextureSize = limits.maxImageSizeArray;
@@ -776,6 +814,12 @@ FeatureEnv feature_env_from_queries(gpu::Backend backend, const gpu::Limits& lim
     return env;
 }
 
+void set_ray_tracing_env(FeatureEnv& env, const gpu::Features& features, const std::string& why) {
+    env.rayTracing = features.rayQuery && features.accelerationStructure;
+    env.rayTracingPipeline = features.rayTracingPipeline;
+    env.rayTracingWhy = env.rayTracing ? std::string() : why;
+}
+
 void set_latency_env(FeatureEnv& env, const std::array<VendorProbe, 3>& answers) {
     env.latency = answers;
     env.latencyAsked = true;
@@ -794,9 +838,13 @@ void set_vendor_upscalers_env(FeatureEnv& env, const std::array<VendorProbe, kVe
 }
 
 FeatureEnv feature_env_from_device(const gpu::Device& device) {
-    return feature_env_from_queries(
+    FeatureEnv env = feature_env_from_queries(
         device.backend(), device.limits(), device.features().compute,
         [&](gpu::PixelFormat f) { return device.pixel_format_caps(f); }, device.native().device);
+    std::string why;
+    device.ray_tracing_status(&why);
+    set_ray_tracing_env(env, device.features(), why);
+    return env;
 }
 
 Json feature_report(const FeatureEnv& env, const char* backendName) {
@@ -829,6 +877,9 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         } else if (const int fg = framegen_row_index(f.name); fg >= 0) {
             // XeSS frame generation: D3D12 only; whatever provider is registered, the slot's SDK says.
             sdkRuns = framegen_slot_backends(FrameGenSlot(fg + 1));
+        } else if (raytracing_row_index(f.name) >= 0) {
+            // Ray tracing runs on D3D12 and Vulkan (and Metal, the table's column) once their packages land (M79).
+            sdkRuns = (1u << unsigned(gpu::Backend::D3d12)) | (1u << unsigned(gpu::Backend::Vulkan));
         } else if (const int lat = latency_row_index(f.name); lat >= 0) {
             const LatencyProvider* provider = latency_provider(LatencyDriver(int(LatencyDriver::Reflex) + lat));
             sdkRuns = provider ? provider->backends() : 0u;

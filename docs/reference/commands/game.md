@@ -440,11 +440,11 @@ Capabilities: read, state
 
 A way to look at the data the depth-based post effects (ssao, depth of field, fog...) read: `depth` paints the prepass depth as a grey (10 / (10 + distance), white next to the camera), `normals` the view-space normal as colours (a surface that faces the camera is blue), black where no opaque mesh was drawn; `ao` paints the ambient occlusion alone as a grey (white = open or no mesh, dark = occluded) over the camera's rectangle, with the camera's own PostProcess ssao settings or, when it has none, the defaults; `cascades` tints every mesh by the cascade of the directional light's shadow it falls in (red, green, blue, yellow for the first to the fourth, grey past the last or with no shadow); `none` shows the game again. It is a look at the data for a person or an AI checking a scene, not an effect: it is not saved and a game does not set it. Without `view` it only reports the current one. Result: {view, previous}. The view shows from the next frame (game.step, then game.screenshot). Example: render.debug_view {"view":"depth"}
 
-`motionVectors` paints the per-pixel motion image the prepass writes for temporal antialiasing (the direction of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image on while it is shown. `occlusion` keeps the game picture and draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "Occlusion"; render.occlusion saves its depth buffer). The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao, cascades, occlusion or motionVectors (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
+`motionVectors` paints the per-pixel motion image the prepass writes for temporal antialiasing (the direction of the motion as a hue, its length as the brightness, black = still, grey = no object wrote a vector: the sky, blended or additive particles and sprites, a skinned mesh of more than 64 joints); it turns that image on while it is shown. `albedo` and `material` paint the thin G-buffer (M79) the renderer draws only when something asks for it: `albedo` the albedo of what the camera sees (linear colour), `material` the roughness as red and the metalness as green; black where no opaque mesh was drawn (a mesh with a custom or layered material shows its mesh renderer's own colour, roughness and metallic); they turn the images on while they are shown. `occlusion` keeps the game picture and draws the Occluder boxes green and the boxes of the meshes the occlusion culling left out red, with a line of counts (docs/BIG_WORLDS_LOD.md, "Occlusion"; render.occlusion saves its depth buffer). The environment variable FA_RENDER_DEBUG_VIEW sets the first view at start. The picture changes only on a frame that draws the prepass (a post effect that reads the depth is on, see docs/RENDERING.md, "Depth and normals"; `cascades` needs only a directional light with castShadows). Errors: `invalid_arguments` for a `view` that is not none, depth, normals, ao, cascades, occlusion, motionVectors, albedo or material (with a did-you-mean); `unavailable` without graphics (graphics=false). The same is Renderer::set_debug_view in C++.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `view` | string ["none","depth","normals","ao","cascades","occlusion","motionVectors"] | no | none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red) or motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector). Omitted: report the current view. |
+| `view` | string ["none","depth","normals","ao","cascades","occlusion","motionVectors","albedo","material"] | no | none (the game picture), depth, normals, ao (the ambient occlusion), cascades (the meshes tinted by the cascade of the sun's shadow they fall in), occlusion (wire boxes: Occluders green, meshes the occlusion culling hid red), motionVectors (the per-pixel motion of the opaque meshes: the direction as a hue, the length as brightness, grey where no mesh wrote a vector), albedo (the thin G-buffer's albedo) or material (its roughness as red and metalness as green). Omitted: report the current view. |
 
 ## `render.dynamic_resolution` (modifies state)
 
@@ -526,7 +526,7 @@ Capabilities: read
 
 Reads the state of the RealtimeGI grids after drawing a frame when none is current. Result: {frame, captures, capturesPerFrame (last 64 frames), probeLimit, atlas: {width, height, format, bytes, blocksUsed}, grids: [{entity, state, message?, probes, dimensions, spacing, origin, resolution, probesPerFrame, captured, progress (0..1), cycles, framesPerCycle, bytes, notCaptured, invalidProbes, invalid: [{index, position}] (up to 64)}]}. `state` is "updating" (probes not captured yet), "ready", "invalid" (`message` names the field and the fix), "noRoom" (more than `probeLimit` probes), "failed" (a capture could not be made: it is retried after 30 frames, and `state` and `message` stay until the next capture succeeds) or "unsupported" (no RGBA16F blending). `invalidProbes` counts the probes inside a mesh (back faces hit beyond `backfaceTolerance`), found by one atlas readback: call this to look, not every frame. `meshesRead` is true when the lit meshes read the grid (it is ready and the renderer supports it). {grids: [], atlas: null} while no RealtimeGI was drawn. Errors: `unavailable` without graphics. Example: render.gi_grid {} See docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
 
-Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock. A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
+Other result fields: passes, probesPerFrameLimit, capturesLastFrame, firstBlock, rtUpdates, rtProbesPerFrameLimit; per grid updatedBy, raysPerProbe, rtProbesPerFrame, rtUpdatesLastFrame. `updatedBy` is "rays" when the frame traced rays for the grid (render.rayTracing.gi "probes" on a device that traces), else "captures" (`framesPerCycle` follows it). A grid costs `probes` x 10 x 11 texels x 8 bytes of the probe atlas (1760 bytes for two probes) and `probesPerFrame` x 6 faces of `resolution` x `resolution` texels a frame; the atlas grows by 132 rows (about 1 MB) while any RealtimeGI exists. `ready` means every probe was captured once; the others are refreshed in turn, `framesPerCycle` frames for all.
 
 ## `render.inspect`
 
@@ -625,6 +625,48 @@ The window's swapchain switches to HDR when SceneSettings.hdrOutput is "auto", t
 
 `encoding` is "sdr" (8-bit sRGB), "edr" (macOS and iOS: 16-bit float in extended linear sRGB, 1.0 = the display's white), "scRGB" (Windows: 16-bit float, linear, 1.0 = 80 nits) or "hdr10" (Windows: 10-bit ST 2084 PQ in Rec.2020). Only the tonemap of a PostProcess goes above paper white; while the picture stays within it (no exposure or tonemap, a colour filter, an 8-bit GPU) `status` says so. `swapchainFormat` is "BGRA8", "RGBA16F" or "RGB10A2" ("" without a window or before the first frame). `requested`: the current scene's hdrOutput is auto. `headroom`: how many times brighter than paper white the output can go now (the screen's current EDR headroom; maxNits / paperWhiteNits in scRGB and HDR10; 1 in sdr), rounded to 2 decimals. `status`: one sentence, what is shown or why the window stays in the standard range (hdrOutput off, Windows' HDR switch off, a screen without EDR, the editor, a platform without HDR output). `display`: {known, hdr, name, offers: [encodings], maxNits, minNits, maxFullFrameNits, maxHeadroom, headroom, why}; nits are 0 where the platform does not report them (macOS, iOS), headrooms are 1 outside Apple. The answer is the one of the last frame the window presented (the display is asked once per frame: moving the window to another monitor or switching HDR in the OS settings shows on the next one). Headless runs, graphics=false, Linux, Android and the web answer sdr with display.known false or the platform's reason. The same answer is Renderer::output_info() in C++.
 
+## `render.path_tracer` (modifies state)
+
+Since 0.39.0.
+
+Reads or changes the path tracer: a path-traced reference picture that replaces the lit colour of the main camera.
+
+Capabilities: read, state
+
+The path tracer of M79 (docs/design/ARCHITECTURE_RT_PATHTRACER.md, docs/RAY_TRACING.md): `enabled` (default false), `maxBounces` (1 = direct light only, 1 to 32, default 4), `samplesPerFrame` (paths per pixel each frame adds, 1 to 64, default 1), `maxSamples` (the accumulation stops after this many samples per pixel; 0 = never), `fireflyClamp` (0 = off), `lights` (direct light from up to 8 point and spot lights, default true) and `seed` (changes the noise pattern). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, samples, width, height, resets, lastReset, reason, changed}: `samples` is the samples per pixel accumulated so far and `lastReset` why the accumulation restarted last ("start", "image" when the window was resized, "camera" when it moved, "scene" or "settings" when they changed; `resets` counts the restarts after the first). Example: render.path_tracer {"enabled":true,"maxBounces":6}
+
+The picture needs a GPU that traces rays (D3D12, Vulkan or Metal: choose it with graphics.backend; renderer.supports ("raytracing") says whether this one can). On any other device `active` is false, `reason` says so and the raster picture stays. Off it costs nothing. The post stack and the tonemap apply to the path-traced picture as to the raster one. To write a converged image use render.pathtrace. The start value is factoria.json "render": {"pathTracer": {...}}. A wrong name or type fails with `invalid_argument` and a JSON pointer and changes nothing. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | Draw the main camera's lit colour with the path tracer. Default false. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only, up to 32 (clamped). Russian roulette ends a dark path sooner. Default 4. |
+| `samplesPerFrame` | integer | no | Paths per pixel each frame adds to the accumulation, clamped to 1..64. Default 1. |
+| `maxSamples` | integer | no | The accumulation stops (the picture is kept) after this many samples per pixel; 0 = never. Default 0. |
+| `fireflyClamp` | number | no | Clamps the radiance of one path to this value (0 = off): fewer white dots for a little lost energy. Default 0. |
+| `lights` | boolean | no | Direct light from the point and spot lights (up to 8 of the frame); the sun is always sampled. Default true. |
+| `seed` | integer | no | Changes the noise pattern; the same seed gives the same picture on a device. Default 0. |
+
+## `render.pathtrace` (modifies state)
+
+Since 0.39.0.
+
+Renders the scene from the main camera with the path tracer until it converges and writes the image (PNG).
+
+Capabilities: read, state
+
+Accumulates `samples` paths per pixel (default 64) from the current camera at `scale` times the design size, then writes the picture as the engine shows it (the post stack and the tonemap apply, so the file is an 8-bit PNG: there is no EXR writer yet). `maxBounces` (default: the render.path_tracer setting) is the path length. `timeBudgetMs` (default 0 = none) stops early and returns `converged` false with the samples reached. The path tracer setting and the render scale are put back afterwards. Returns {path, samples, converged, timeMs, device, width, height, maxBounces}. Example: render.pathtrace {"samples":256,"path":"shots/ref.png"}
+
+Needs a GPU that traces rays: on any other device the command fails with `unavailable` and says to choose D3D12, Vulkan or Metal with graphics.backend (renderer.supports("raytracing") says whether this device can). The same camera, scene, `seed` and samples give the same picture on a device. The path tracer has no textures, hard sun shadows and treats area lights as points (docs/design/ARCHITECTURE_RT_PATHTRACER.md, "Limits"). `timeMs` is the wall time of the render and is not part of the picture.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Output PNG, inside the project (needs the writeProject capability; absolute paths need writeAnywhere). Omitted: a temporary picture under .factoria/screenshots/. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
+| `samples` | integer | no | Samples per pixel to accumulate. Default 64. |
+| `scale` | number | no | Image size = design size * scale, drawn natively. Default 1. |
+| `maxBounces` | integer | no | Path length: 1 = direct light only. Default: the render.path_tracer setting. |
+| `timeBudgetMs` | integer | no | Stop after this many milliseconds even if the samples are not reached (0 = no limit). A safety net: the result then has converged false. Default 0. |
+
 ## `render.pick`
 
 Since 0.4.0.
@@ -675,6 +717,29 @@ The first ask for a mesh draws one more frame (the renderer keeps the picks of t
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `entity` | string | no | A mesh entity (id or name): the result also says which probes it reflects. |
+
+## `render.ray_tracing` (modifies state)
+
+Since 0.39.0.
+
+Reads or changes the ray tracing setting: which effects the renderer traces with rays.
+
+Capabilities: read, state
+
+The ray tracing seam of M79 (docs/RAY_TRACING.md): `enabled` (the master switch, default false), `shadows` (off, hard, soft), `ao`, `reflections`, `translucency` (booleans), `gi` (off, probes, perPixel), `raysPerPixel` (a whole number of 1 to 16, clamped) and `maxInstances` (1 to 1048576, clamped). With no argument it returns the setting; with any key it changes those and keeps the rest. Returns the setting plus {supported, active, reason, localShadows, giProbes, giPixel, denoiser, presetCap, changed}: `supported` is renderer.supports("raytracing") of this device, `active` whether any effect is traced and `reason` says why not. Example: render.ray_tracing {"enabled":true,"shadows":"soft"}
+
+`localShadows` {cap, candidates, traced} counts the point, spot and area lights whose shadow the rays make: the cap per camera, the lights that asked in the last frame and how many of them were traced. `giProbes` {active, wanted, reason, grids, probesPerFrame, budget} says whether the realtime GI probes (gi "probes") were updated by rays in the last frame, why not, the grids and probes updated and the budget per frame. `giPixel` {active, wanted, reason} says the same for the per-pixel bounce (gi "perPixel"): whether the last frame's meshes read it, and why not. `denoiser` {reflections, gi, reason} says who denoises the traced reflections and the per-pixel bounce in the last frame: "rayReconstruction" (DLSS Ray Reconstruction does, the picture holds their noisy images), "engine" or "off" (the effect is not drawn); the ambient occlusion and the shadows always keep the engine's; `reason` says why Ray Reconstruction was asked for (render.upscaler) and does not take them. `presetCap` {preset, capped, effective} says what the graphics preset (graphics.preset: low and medium trace nothing, high hard shadows and ambient occlusion, ultra and custom no limit) allows: it caps the setting and never turns an effect on, `effective` is the setting after the caps and `active`, `reason`, `giProbes` and `giPixel` follow it. Ray tracing is off by default and free when off. This version has the shared interface (acceleration structures, ray queries in compute shaders, the supports rows) and, on Direct3D 12, Vulkan and Metal, a device that builds and traces them; so far `shadows` (the sun's shadow), `ao` (ambient occlusion), `reflections` (sharp mirror reflections), `translucency` (refraction through glass) and `gi` ("probes": the RealtimeGI grids updated with rays; "perPixel": a bounce per pixel) draw with rays, so `active` is true when one is on and the device traces, and `reason` says what is traced or why nothing is. A wrong name or type fails with `invalid_argument`, a JSON pointer and a "did you mean", and changes nothing. The start value is factoria.json "render": {"rayTracing": {...}}. Works with graphics=false too (the value is only remembered).
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | no | The master switch. Default false. |
+| `shadows` | string ["off","hard","soft"] | no | off (shadow maps), hard (one ray per light), soft (rays across the light's disc). Default off. |
+| `ao` | boolean | no | Ambient occlusion with rays. Default false. |
+| `reflections` | boolean | no | Reflections with rays. Default false. |
+| `translucency` | boolean | no | Refraction through glass and liquids traced with rays (a ray bent at every interface, tinted by the volume), instead of the screen-space refraction. Default false. |
+| `gi` | string ["off","probes","perPixel"] | no | Global illumination: off, probes (the RealtimeGI grids updated with rays instead of raster captures), or perPixel (one denoised bounce traced for every pixel of the main camera, in place of the probes' and the ambient light of the lit meshes; raysPerPixel rays per pixel). Default off. |
+| `raysPerPixel` | integer | no | Rays of each effect per pixel and frame, clamped to 1..16. Default 1. |
+| `maxInstances` | integer | no | The most instances the top-level structure holds, clamped to 1..1048576. Default 65536. |
 
 ## `render.reset_post_history` (modifies state)
 

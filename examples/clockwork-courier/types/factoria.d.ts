@@ -8255,7 +8255,7 @@ declare module "factoria" {
     showGizmo: boolean;
   }
   /**
-   * Realtime global illumination without ray tracing: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
+   * Realtime global illumination: a grid of probes over an axis-aligned box of the world (centred on the entity's world position + `offset`, `size` and `spacing` as LightProbeGroup) that the renderer captures a few at a time while the game runs. A capture is the scene seen from the probe in six small pictures (resolution 16 or 32 texels); each probe keeps the diffuse light that reaches it as nine spherical harmonics and how far the surfaces around it are (the mean distance and the mean squared distance of every direction, to stop the light of a room leaking through its walls). `probesPerFrame` probes are refreshed a frame in a fixed order, the longest ago refreshed first, and a new capture is blended with the old value (`hysteresis`) so the light does not flicker. A probe whose rays mostly hit the back of a surface is inside geometry and is flagged invalid. The grid costs nothing in a scene without this component. All data lives in the probe atlas on the GPU; nothing is read back to the CPU while the game runs. With ray tracing on (render.rayTracing.gi "probes", docs/RAY_TRACING.md) the probes are updated by rays instead of captures (`raysPerProbe`, `rtProbesPerFrame`); the lit meshes read the grid the same way. The lit meshes read the grid: where a ready grid covers a point, its diffuse light replaces the sky/ambient and reflection-probe light there (a lightmap or baked light probes still win); the commands render.gi_grid and render.probes show what it holds. A grid has at most 1224 probes in all (the scene shares them). docs/rendering/RENDERING_LIGHT_PROBES.md, "Realtime global illumination".
    * 
    * Category: 3D
    * @since 0.33.0
@@ -8318,6 +8318,16 @@ declare module "factoria" {
      * @since 0.33.0
      */
     backfaceTolerance: number;
+    /**
+     * 16..256: the rays a probe traces in one update when the project turns on ray traced GI (render.rayTracing.gi "probes", needs a GPU with ray tracing; the raster captures ignore this). The rays are a spherical Fibonacci set turned a little differently at every update, so the updates add up to more directions over time; more rays make a smoother probe per update and cost proportionally more. A value outside is clamped. Default 64.
+     * @since 0.39.0
+     */
+    raysPerProbe: number;
+    /**
+     * 1..64: how many probes of this grid the ray traced mode updates a frame (round robin, the longest ago updated first), a budget independent of `probesPerFrame`, which counts raster captures. All grids together update at most 64 a frame. Cost is probes x raysPerProbe rays a frame. A value outside is clamped. Default 16.
+     * @since 0.39.0
+     */
+    rtProbesPerFrame: number;
     /**
      * Culling mask, the allow list: an array of tag names, default [] = capture everything. When it is not empty a capture draws only the entities that have one of these tags or a parent that does. Returns a plain-object COPY; assign a new value to write.
      * @since 0.33.0
@@ -12589,7 +12599,7 @@ declare module "factoria" {
      */
     skyModel: "gradient" | "physical";
     /**
-     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical.
+     * Physical sky: angular diameter of the sun disc in degrees, 0.1..10. 0.53 (default) is the real sun; a larger disc is easier to see in a small window. Only used with skyModel physical. It is also the sun's size for the penumbra of the ray traced soft shadows (render.rayTracing shadows soft), whatever the skyModel.
      * @since 0.33.0
      */
     skySunSize: number;
@@ -12784,7 +12794,7 @@ declare module "factoria" {
     Decal: { albedo?: string; normal?: string; color?: ColorLike; opacity?: number; normalStrength?: number; angleFade?: number; sortOrder?: number; layers?: number };
     ReflectionProbe: { mode?: "baked" | "realtime"; boxSize?: Vec3Like; boxOffset?: Vec3Like; blendDistance?: number; importance?: number; resolution?: number; nearPlane?: number; farPlane?: number; clear?: "sky" | "color"; clearColor?: ColorLike; showTags?: any; hideTags?: any; update?: "everyFrame" | "timeSliced" | "onDemand"; bakedMap?: string; intensity?: number; boxProjection?: boolean };
     LightProbeGroup: { size?: Vec3Like; spacing?: number; offset?: Vec3Like; grid?: boolean; points?: any; showGizmo?: boolean };
-    RealtimeGI: { size?: Vec3Like; offset?: Vec3Like; spacing?: number; probesPerFrame?: number; resolution?: number; intensity?: number; bounce?: number; hysteresis?: number; nearExclusion?: number; maxDistance?: number; backfaceTolerance?: number; showTags?: any; hideTags?: any };
+    RealtimeGI: { size?: Vec3Like; offset?: Vec3Like; spacing?: number; probesPerFrame?: number; resolution?: number; intensity?: number; bounce?: number; hysteresis?: number; nearExclusion?: number; maxDistance?: number; backfaceTolerance?: number; raysPerProbe?: number; rtProbesPerFrame?: number; showTags?: any; hideTags?: any };
     Animator: { model?: string; clip?: string; clips?: any; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; layers?: any; events?: any; state?: string; time?: number; values?: any };
     IK3D: { enabled?: boolean; weight?: number; solvers?: any; pelvis?: string; rayUp?: number; rayDown?: number; groundMask?: number; pelvisSmooth?: number; maxPelvisDrop?: number; maxPelvisRise?: number };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };

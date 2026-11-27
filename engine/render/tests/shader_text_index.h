@@ -32,6 +32,8 @@
 #include "shaders/probe.glsl.h"
 #include "shaders/quad.glsl.h"
 #include "shaders/quad_motion.glsl.h"
+#include "shaders/rt_denoise.glsl.h"
+#include "shaders/rt_skin.glsl.h"
 #include "shaders/sky.glsl.h"
 #include "shaders/sky_physical.glsl.h"
 #include "shaders/ssao.glsl.h"
@@ -88,6 +90,9 @@ static const fa::shader_text::Texts* const kShaderTexts[] = {
     &quad_glsl430_pack_texts,
     &quad_motion_glsl300es_pack_texts,
     &quad_motion_glsl430_pack_texts,
+    &rt_denoise_glsl300es_pack_texts,
+    &rt_denoise_glsl430_pack_texts,
+    &rt_skin_glsl430_pack_texts,
     &sky_glsl300es_pack_texts,
     &sky_glsl430_pack_texts,
     &sky_physical_glsl300es_pack_texts,
@@ -146,10 +151,13 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &gi2d_seed_emit_shader_desc,
     &hdri_hdri_shader_desc,
     &hiz_hiz_shader_desc,
+    &impostor_gbuffer_shader_desc,
     &impostor_impostor_shader_desc,
     &impostor_prepass_shader_desc,
     &impostor_shadow_shader_desc,
     &light_light_shader_desc,
+    &mesh_gbuffer_shader_desc,
+    &mesh_gbuffer_skin_shader_desc,
     &mesh_mesh_shader_desc,
     &mesh_mesh_lod_shader_desc,
     &mesh_mesh_skin_shader_desc,
@@ -183,6 +191,14 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &quad_quad_plain_shader_desc,
     &quad_motion_quad_react_shader_desc,
     &quad_motion_quad_vel_shader_desc,
+    &rt_denoise_atrous_shader_desc,
+    &rt_denoise_debug_shader_desc,
+    &rt_denoise_down_shader_desc,
+    &rt_denoise_guide_shader_desc,
+    &rt_denoise_guidehalf_shader_desc,
+    &rt_denoise_temporal_shader_desc,
+    &rt_denoise_up_shader_desc,
+    &rt_skin_rt_skin_shader_desc,
     &sky_sky_shader_desc,
     &skyphys_multiscatter_shader_desc,
     &skyphys_sky_shader_desc,
@@ -200,12 +216,15 @@ static const sg_shader_desc* (*const kShaderDescs[])(sg_backend) = {
     &sun_shafts_rays_shader_desc,
     &taa_out_shader_desc,
     &taa_taa_shader_desc,
+    &terrain_gbuffer_shader_desc,
     &terrain_prepass_shader_desc,
     &terrain_shadow_shader_desc,
     &terrain_terrain_shader_desc,
     &ui2d_ui2d_shader_desc,
     &upscale_mfx_mfx_shader_desc,
     &upscale_rr_rr_shader_desc,
+    &upscale_rr_rr_albedo_shader_desc,
+    &upscale_rr_rr_hit_shader_desc,
     &upscale_spatial_spatial_edge_shader_desc,
     &upscale_spatial_spatial_sharpen_shader_desc,
     &volumetric_apply_shader_desc,

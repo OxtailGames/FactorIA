@@ -374,6 +374,9 @@ struct MeshAsset {
     std::vector<SubMesh> parts;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     bool placeholder = false;
+    // Counts the times the vertices or the buffers of the parts were replaced in place (a procedural mesh updated, a mesh loaded again): the
+    // acceleration structures of the ray tracing scene (rt_scene.h) built from an older count are built again.
+    std::uint64_t geometryVersion = 0;
     std::vector<std::string> untraced;  // as TextureAsset::untraced (its parts' textures are reported after it)
     std::unique_ptr<MeshLightmap>
         lightmap;  // built by Assets::lightmap_use for a mesh a manifest lists; dropped when the mesh reloads
@@ -726,6 +729,9 @@ enum MaterialProgramId : int {
     kProgShadowSkin,
     kProgPrepass,  // the depth and normal prepass (mesh_common.glsl prepass_vs / prepass_fs)
     kProgPrepassSkin,
+    // The thin G-buffer's program (M79-P0c, mesh_common.glsl fa_prepass_fs_main with FA_GBUFFER): made by the engine for its own terrain and impostor
+    // materials only, on first use; a material of the tooling has none (its twin has no such program), so the engine's gbuffer program draws it.
+    kProgGbuffer,
     kProgCount  // the programs of a mesh material; the other kinds name theirs in material_program_names()
 };
 // A full-shader mesh material (mode "full") keeps the programs of pass p >= 1 after kProgCount: pass p is
@@ -1311,6 +1317,14 @@ public:
     // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
     void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
+    // Ray tracing (M79): while on, the vertex and index buffers of every mesh uploaded are made with usage.accelBuildInput, so a BLAS can be
+    // built from them. Off (the default) changes nothing. Turning it on loads again the meshes already uploaded (in place: their pointers stay)
+    // and drops the buffers of the procedural ones, which the next use uploads again; the meshes of the next uploads are made with it.
+    void set_accel_input(bool on);
+    bool accel_input() const { return accelInput_; }
+    // Called with a mesh asset just before its buffers are destroyed (the asset goes, is loaded again, or a procedural mesh leaves the
+    // store): the ray tracing scene frees the BLASes it built from them. Main thread; empty = none.
+    void set_mesh_release_hook(std::function<void(const MeshAsset*)> hook) { meshRelease_ = std::move(hook); }
     void reload(const std::string& path);
     // Counts every reload(): the decal atlas (renderer_decals.cpp) holds copies of texture pixels and asks whether one of its own
     // textures was reloaded since a generation (`paths` are normalised keys). True too when the log of the last reloads no longer reaches
@@ -1388,6 +1402,8 @@ private:
     std::unique_ptr<LightmapSetAsset> lightmapSet_;
     std::string
         lightmapSetPath_;  // the path lightmapSet_ was asked for (kept when it failed, so a bad manifest is read once)
+    bool accelInput_ = false;                            // set_accel_input
+    std::function<void(const MeshAsset*)> meshRelease_;  // set_mesh_release_hook
     gpu::Buffer zeroUv1_{};
     std::size_t zeroUv1Vertices_ = 0;
     struct ProceduralMesh {
@@ -1718,6 +1734,19 @@ public:
     // Can the prepass write it: the prepass works and the GPU renders to and samples an RG16F image. False means no velocity image is made.
     bool velocity_ready();
     bool prepass_ready();
+    // The thin G-buffer (M79-P0c; docs/design/ARCHITECTURE_RENDERING_GBUFFER.md): two RGBA8 images drawn together by one pass over a depth buffer of
+    // its own: colour 0 = the albedo (rgb) and a = 1 where a mesh was drawn, colour 1 = the roughness (r), the metalness (g), 0 (b) and a = 1 where a
+    // mesh was drawn. RGBA8 renders and samples everywhere; two colour attachments are what the subsurface pass already needs, so every backend that
+    // draws the prepass draws this. gbuffer_ready() makes the engine's programs on first use (the meshes' and the skinned meshes') and is false
+    // (one log line, once) when the prepass is, or a program does not compile. The programs use the prepass's vertex stage, so the pipelines are
+    // the prepass's with this target format and `gbuffer_shader()` (prepass_pipeline).
+    static gpu::PixelFormat gbuffer_format() { return gpu::PixelFormat::Rgba8; }
+    static TargetFormat gbuffer_target_format() {
+        return {gbuffer_format(), gpu::PixelFormat::Depth, 1, gbuffer_format()};
+    }
+    bool gbuffer_ready();
+    gpu::Shader gbuffer_shader(bool skinned) const { return skinned ? gbufferSkinShader_ : gbufferShader_; }
+    const MaterialProgram& gbuffer_program(bool skinned) const { return gbufferProgram_[skinned ? 1 : 0]; }
     // The slots (uniform blocks, views, samplers) the built-in prepass program declares, for a draw that binds only those; after prepass_ready().
     const MaterialProgram& prepass_program(bool skinned) const { return prepassProgram_[skinned ? 1 : 0]; }
     // `shader` = a program of a custom material (its prepass or prepass_skin), default = the built-in one. The vertex layout is the
@@ -1725,11 +1754,14 @@ public:
     // shader cannot be made.
     // `cullFront`: the BACK faces are drawn instead of the front ones, double-sided or not (the realtime GI's distance pictures: a probe
     // whose first hit is a back face is inside geometry).
+    // `gbuffer`: the pipeline of the thin G-buffer pass (gbuffer_target_format()): the built-in program (no `shader`) is the G-buffer's
+    // (mesh_gbuffer / mesh_gbuffer_skin, never the dither variant: the program tests the prepass's depth, which the dither already cut), a
+    // `shader` is the G-buffer program of a terrain or an impostor; the vertex layout is the prepass's.
     // `lod`: the built-in program (no `shader`) of a draw that cross-fades between two levels of detail (prepass_lod / prepass_skin_lod,
     // the prepass with the dither); it declares the slots of prepass_program().
     gpu::Pipeline prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned = false,
                                    gpu::Shader shader = {}, MeshExtras extras = {}, bool cullFront = false,
-                                   bool lod = false);
+                                   bool lod = false, bool gbuffer = false);
     gpu::Pipeline prepass_pipeline(bool doubleSided, bool skinned = false, gpu::Shader shader = {},
                                    MeshExtras extras = {}) {
         return prepass_pipeline(prepass_target_format(), doubleSided, skinned, shader, extras);
@@ -1814,6 +1846,8 @@ public:
     // read back as the 8-bit picture the screen shows (Renderer::Impl::read_rgba8).
     gpu::Pipeline blit_keep_pipeline(const TargetFormat& format);
     gpu::Pipeline blit_keep_pipeline() { return blit_keep_pipeline(blit_keep_target_format()); }
+    // The same copy, blended over the target as a premultiplied image (One, OneMinusSrcAlpha): the path tracer's picture over the raster's.
+    gpu::Pipeline blit_keep_over_pipeline(const TargetFormat& format);
     static TargetFormat blit_keep_target_format() { return {gpu::PixelFormat::Rgba8, gpu::PixelFormat::None, 1}; }
     // The format of the game target, the CameraView and render-target images and the bloom and colour-filter passes. Gamma scene:
     // RGBA16F where the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white
@@ -1979,7 +2013,9 @@ public:
     bool shadows_supported() const { return shadowsSupported_; }
 
     gpu::Shader quad_shader_{}, quadPlainShader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{},
-        blitKeepShader_{};
+        blitKeepShader_{}, blitKeepOverShader_{};
+    bool blitKeepOverFailed_ =
+        false;  // the shader of blit_keep_over_pipeline could not be made: said once, not tried again
     gpu::Shader meshSkinShader_{}, shadowSkinShader_{};
     gpu::Shader meshLodShader_{}, meshSkinLodShader_{}, prepassLodShader_{},
         prepassSkinLodShader_{};  // made on the first fade
@@ -1990,6 +2026,7 @@ public:
     gpu::Shader ssao_shaders_[3]{};  // ao, blur, apply (SsaoStage::View uses the last)
     gpu::Shader prepassShader_{}, prepassSkinShader_{}, prepassViewShader_{};
     gpu::Shader sssShader_{}, sssSkinShader_{};
+    gpu::Shader gbufferShader_{}, gbufferSkinShader_{};
     gpu::Shader light_shader_{};
 
 private:
@@ -2035,6 +2072,8 @@ private:
     int ssaoState_ = 0;         // same meaning as bloomState_
     MaterialProgram prepassProgram_[2];
     MaterialProgram sssProgram_[2];
+    MaterialProgram gbufferProgram_[2];
+    int gbufferState_ = 0;      // same meaning as sssState_ (the built-in G-buffer programs)
     int sssState_ = 0;          // same meaning as bloomState_ (the built-in subsurface programs)
     int prepassState_ = 0;      // same meaning as bloomState_ (the built-in prepass programs)
     int prepassViewState_ = 0;  // same meaning as bloomState_ (the debug view)

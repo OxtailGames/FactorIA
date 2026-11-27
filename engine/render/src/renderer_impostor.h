@@ -83,6 +83,12 @@ public:
     std::size_t size() const { return entries_.size(); }
     // The program was built on this GPU (false before the first impostor is drawn).
     bool program_ok() const { return matState_ > 0; }
+    // The program of the thin G-buffer (M79-P0c, MaterialProgramId kProgGbuffer): made the first time a frame draws the G-buffer, never before, so
+    // a game that asks for none pays for no shader. False (said once) when the material is not built or the GPU rejects the program: the
+    // G-buffer then leaves the impostors out and their pixels keep the constants.
+    bool ensure_gbuffer(gpu::Device& device);
+    // Why the G-buffer program is missing (the shader that did not compile, said for the status): empty while it is built or never needed.
+    const std::string& gbuffer_failure() const { return gbufferWhy_; }
 
 private:
     struct Entry {
@@ -112,8 +118,10 @@ private:
     Entry* lastEntry_ = nullptr;
     std::unique_ptr<MeshAsset> quad_;
     std::unique_ptr<MaterialAsset> material_;
-    gpu::Shader shaders_[3]{};       // impostor, shadow, prepass
+    gpu::Shader shaders_[4]{};       // impostor, shadow, prepass, gbuffer (made by ensure_gbuffer)
     gpu::Device* device_ = nullptr;  // the device the card and the programs were made on (destroy() frees them there)
+    bool gbufferFailed_ = false;     // the G-buffer program was rejected (said once)
+    std::string gbufferWhy_;         // what the status says when the G-buffer program was rejected (empty otherwise)
     int matState_ = 0;               // 0 = not tried, 1 = built, -1 = failed (said once)
 };
 

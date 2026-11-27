@@ -8,6 +8,7 @@
 // own thread (the D3D12/Vulkan model); each list's stream joins the device stream at submit(), in submit order.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
@@ -49,6 +50,11 @@ enum class CommandKind : std::uint8_t {
     WaitList,  // a wait_list() of the list, emitted before the list's first command at submit()
     Handoff,  // a QueueHandoff of submit_token(): id the resource, args from queue, to queue, token value; before Signal
     WaitQueue,  // a wait_queue() (device level, between the commands of the frames, like the reads)
+    // Ray tracing (M79); `id` is the acceleration structure written (the handle's id).
+    BuildBlas,  // build_blas: args geometries, triangles, scratch bytes needed (each clamped to INT_MAX), update
+    BuildTlas,  // build_tlas: args instances, scratch bytes needed, update
+    QueryCompactedSize,  // query_compacted_size: id the BLAS, args destination offset
+    CopyAccelStructure,  // copy_accel_structure: id the destination, args mode (0 clone, 1 compact)
 };
 
 // The snake_case name of a command kind ("begin_pass"), as stream_text() prints it.
@@ -96,9 +102,19 @@ public:
     void pop_debug_group() override;
     void begin_timed_scope(const char* name) override;
     void end_timed_scope() override;
+    // Ray tracing (M79): checked like a strict D3D12 or Vulkan backend would (docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
+    // "RecordingDevice, with ray tracing"). A refused call records nothing and returns the error, which is also added to errors();
+    // without Features::accelerationStructure it returns the refusal alone (a probing caller is not a misuse).
+    Result<void> build_blas(const BlasBuild& build) override;
+    Result<void> build_tlas(const TlasBuild& build) override;
+    Result<void> query_compacted_size(AccelStructure blas, Buffer dst, std::size_t dstOffset) override;
+    Result<void> copy_accel_structure(AccelStructure src, AccelStructure dst, AccelCopyMode mode) override;
+    Backend backend() const override { return Backend::Recording; }
 
 private:
     friend class RecordingDevice;
+    // Reports a ray tracing misuse at the current command and returns it as the call's error (mutex_ held).
+    Error reject(const char* command, const std::string& what, const std::string& fix);
     // The pipeline facts a draw or dispatch checks against (copied at set_pipeline, so a later destroy does not
     // change what the list checks).
     struct BoundPipeline {
@@ -198,6 +214,16 @@ public:
     ResourceState state(Shader shader) const override;
     ResourceState state(Pipeline pipeline) const override;
 
+    // Ray tracing (M79; Features::accelerationStructure through DeviceInit::recordingRayTracing). The sizes are this
+    // device's own deterministic numbers (a function of the triangle or instance counts, rounded up to 256), not a
+    // real GPU's: tests compare them to what make_buffer and the builds are given. Every check names the call, the
+    // field and what to change, and goes to errors() as well as the returned Error.
+    Result<AccelSizes> blas_sizes(std::span<const AccelTriangles> geometries, const AccelBuildFlags& flags) override;
+    Result<AccelSizes> tlas_sizes(std::uint32_t instanceCount, const AccelBuildFlags& flags) override;
+    Result<AccelStructure> make_accel_structure(const AccelStructureDesc& desc) override;
+    void destroy_accel_structure(AccelStructure structure) override;
+    ResourceState accel_structure_state(AccelStructure structure) const override;
+
     CommandList& begin_commands(const char* label) override;
     void submit(CommandList& list) override;
     // Queues: with Features::asyncCompute (default caps) a Compute or Transfer list keeps its queue, which it checks
@@ -252,6 +278,21 @@ public:
     bool poll_buffer_read(ReadTicket, std::vector<std::uint8_t>&, bool) override { return false; }
     void release_buffer_read(ReadTicket) override {}
 
+    // Fault injection for tests of a caller's failure path: the next `count` make_buffer calls whose label is `label` ("" = any
+    // label) fail as a driver that is out of memory would (the handle is Failed, a "gpu: make_buffer" line goes to errors()).
+    // count 0 clears it. The faults are used up in call order.
+    void fail_next_make_buffer(const std::string& label, int count = 1);
+    // Fault injection (M79 POLISH-RB): while set, make_shader of a shader whose ShaderDesc::label is `label` fails as a driver that cannot compile it
+    // would (the shader is Failed, errors() says so). The label of a generated shader is its module and program ("upscale_rr_rr_hit_shader"). "" clears it.
+    void fail_shaders_labelled(const std::string& label);
+
+    // Test hooks (fault injection): while set, make_pipeline of a compute pipeline fails (the pipeline is Failed and errors() says so) and
+    // build_tlas is refused. A real driver does both on a device that lies about its features or runs out of memory.
+    void inject_faults(bool rejectComputePipelines, bool rejectTlasBuilds) {
+        rejectCompute_ = rejectComputePipelines;
+        rejectTlas_ = rejectTlasBuilds;
+    }
+
     struct State;  // the resource pools and the facts the checks need (recording_device.cpp)
 
 private:
@@ -279,11 +320,16 @@ private:
 
     DeviceInfo info_{};
     Features features_{};
+    bool filterFloat32_ = false;  // DeviceInit::recordingFilterFloat32
     Limits limits_{};
     EnvironmentDefaults defaults_{};
     std::unique_ptr<State> state_;
+    std::atomic<bool> rejectCompute_{false}, rejectTlas_{false};  // inject_faults
     mutable std::mutex mutex_;  // guards state_, the lists, the stream and the errors (lists record on any thread)
     std::vector<std::unique_ptr<RecordingCommandList>> lists_;
+    std::string failBufferLabel_;  // fail_next_make_buffer
+    int failBufferCount_ = 0;
+    std::string failShaderLabel_;  // fail_shaders_labelled
 };
 
 }  // namespace fa::gpu

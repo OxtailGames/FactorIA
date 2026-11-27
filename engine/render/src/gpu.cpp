@@ -459,9 +459,10 @@ void Gpu::shutdown() {
     pacerSrc_ = pacerDst_ = {};
     pacedFrame_ = pacerCopyFrame_ = 0;
     pacerFailed_ = false;
+    blitKeepOverFailed_ = false;
     for (gpu::Shader* s : {&quad_shader_, &quadPlainShader_, &mesh_shader_, &sky_shader_, &shadow_shader_,
-                           &blit_shader_, &blitKeepShader_, &meshSkinShader_, &shadowSkinShader_, &meshLodShader_,
-                           &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
+                           &blit_shader_, &blitKeepShader_, &blitKeepOverShader_, &meshSkinShader_, &shadowSkinShader_,
+                           &meshLodShader_, &meshSkinLodShader_, &prepassLodShader_, &prepassSkinLodShader_})
         drop_shader(*s);
     for (gpu::Shader& s : bloom_shaders_) {
         if (s.id) device_->destroy_shader(s);
@@ -495,6 +496,11 @@ void Gpu::shutdown() {
         *s = {};
     }
     sssState_ = 0;
+    for (gpu::Shader* s : {&gbufferShader_, &gbufferSkinShader_}) {
+        if (s->id) device_->destroy_shader(*s);
+        *s = {};
+    }
+    gbufferState_ = 0;
     if (light_shader_.id) device_->destroy_shader(light_shader_);
     light_shader_ = {};
     lightState_ = 0;
@@ -859,6 +865,39 @@ gpu::Pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
     return find_or_make(key, format, d);
 }
 
+// The same copy blended over what the target holds as a premultiplied image: One, OneMinusSrcAlpha (the path tracer's picture over the raster's).
+gpu::Pipeline Gpu::blit_keep_over_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x1100u};
+    gpu::PipelineDesc d{};
+    // The path tracer's image is RGBA32F, which no device filters: the same program, its texture declared unfilterable and its sampler
+    // non-filtering (the nearest one the caller binds), made on first use.
+    if (blitKeepOverFailed_) return {};
+    if (!blitKeepOverShader_.id) {
+        gpu::ShaderDesc sd = gpu::generated_shader_desc(*device_, blit_blit_keep_shader_desc);
+        sd.views[VIEW_blit_tex].texture.sampleType = gpu::ImageSampleType::UnfilterableFloat;
+        sd.samplers[SMP_blit_smp].samplerType = gpu::SamplerType::Nonfiltering;
+        blitKeepOverShader_ = make_shader(*device_, sd, "blit_blit_keep_over");
+    }
+    if (!shader_valid(blitKeepOverShader_)) {
+        blitKeepOverFailed_ = true;
+        FA_ERROR("render", "the shader that draws the path tracer's image over the picture could not be made; the "
+                           "raster picture stays");
+        return {};
+    }
+    d.shader = blitKeepOverShader_;
+    d.layout.attrs[ATTR_blit_blit_keep_pos].format = gpu::VertexFormat::Float2;
+    d.depth.compare = gpu::CompareFunc::Always;
+    d.depth.writeEnabled = false;
+    d.faceWinding = gpu::FaceWinding::Ccw;
+    d.colors[0].blend.enabled = true;
+    d.colors[0].blend.srcFactorRgb = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorRgb = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.colors[0].blend.srcFactorAlpha = gpu::BlendFactor::One;
+    d.colors[0].blend.dstFactorAlpha = gpu::BlendFactor::OneMinusSrcAlpha;
+    d.label = "blit-keep-over";
+    return find_or_make(key, format, d);
+}
+
 gpu::Pipeline Gpu::bloom_pipeline(BloomStage stage, const TargetFormat& format) {
     PipelineKey key{0x600u | std::uint32_t(stage)};
     gpu::PipelineDesc d{};
@@ -1006,14 +1045,17 @@ bool Gpu::prepass_ready() {
 }
 
 gpu::Pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided, bool skinned, gpu::Shader shader,
-                                    MeshExtras extras, bool cullFront, bool lod) {
-    if (!shader.id && !prepass_ready()) return {};
-    lod = lod && !shader.id;  // a custom material has no variant: its alphaMode "clip" program dithers
-    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u) | (lod ? 0x10u : 0u),
+                                    MeshExtras extras, bool cullFront, bool lod, bool gbuffer) {
+    if (!shader.id && !(gbuffer ? gbuffer_ready() : prepass_ready())) return {};
+    lod = lod && !shader.id && !gbuffer;  // a custom material has no variant: its alphaMode "clip" program dithers
+    PipelineKey key{0xC00u | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u) | (cullFront ? 8u : 0u) |
+                        (lod ? 0x10u : 0u) | (gbuffer ? 0x20u : 0u),
                     shader.id};
     gpu::PipelineDesc d{};
     if (shader.id)
         d.shader = shader;
+    else if (gbuffer)
+        d.shader = skinned ? gbufferSkinShader_ : gbufferShader_;
     else if (lod)
         d.shader =
             skinned ? builtin_shader(prepassSkinLodShader_, mesh_prepass_skin_lod_shader_desc, "mesh_prepass_skin_lod")
@@ -1036,7 +1078,7 @@ gpu::Pipeline Gpu::prepass_pipeline(const TargetFormat& format, bool doubleSided
     d.depth.writeEnabled = true;
     d.cullMode = cullFront ? gpu::CullMode::Front : (doubleSided ? gpu::CullMode::None : gpu::CullMode::Back);
     d.faceWinding = gpu::FaceWinding::Ccw;
-    d.label = "prepass";
+    d.label = gbuffer ? "gbuffer" : "prepass";
     return find_or_make(key, format, d);
 }
 
@@ -1080,6 +1122,34 @@ bool Gpu::sss_ready() {
     sssProgram_[1] =
         program_slots(sssSkinShader_, gpu::generated_shader_desc(*device_, mesh_mesh_skin_sss_shader_desc));
     sssState_ = 1;
+    return true;
+}
+
+// The thin G-buffer's programs (M79-P0c): the meshes' and the skinned meshes' (mesh.glsl, "gbuffer" / "gbuffer_skin"), made on first use.
+bool Gpu::gbuffer_ready() {
+    if (gbufferState_ != 0) return gbufferState_ > 0;
+    gbufferShader_ = make_builtin(mesh_gbuffer_shader_desc, "mesh_gbuffer");
+    gbufferSkinShader_ = make_builtin(mesh_gbuffer_skin_shader_desc, "mesh_gbuffer_skin");
+    const gpu::PixelFormatCaps fmt = caps(gbuffer_format());
+    if (!fmt.render || !fmt.sample || !shader_valid(gbufferShader_) || !shader_valid(gbufferSkinShader_)) {
+        for (gpu::Shader* s : {&gbufferShader_, &gbufferSkinShader_}) {
+            if (s->id) device_->destroy_shader(*s);
+            *s = {};
+        }
+        gbufferState_ = -1;
+        FA_ERROR("render", "The thin G-buffer (the albedo and the roughness / metalness images) is unavailable: the "
+                           "GPU cannot render to an "
+                           "RGBA8 image with two attachments or its shader failed to compile for this graphics backend "
+                           "(see the sokol log "
+                           "lines above). What asked for it (DLSS Ray Reconstruction guides, the debug views albedo "
+                           "and material) reads "
+                           "constants instead. Hint: update the graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1).");
+        return false;
+    }
+    gbufferProgram_[0] = program_slots(gbufferShader_, gpu::generated_shader_desc(*device_, mesh_gbuffer_shader_desc));
+    gbufferProgram_[1] =
+        program_slots(gbufferSkinShader_, gpu::generated_shader_desc(*device_, mesh_gbuffer_skin_shader_desc));
+    gbufferState_ = 1;
     return true;
 }
 

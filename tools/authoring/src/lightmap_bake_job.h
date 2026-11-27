@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -28,11 +29,16 @@ namespace lightmap_job {
 // Which light the bake gives the surfaces from outside the scene.
 enum class SkyChoice { Auto, Environment, Gradient, Ambient, None };
 
+// What traces the texels: the CPU baker (bit-exact, the reference), the GPU (a fast preview: rays on the graphics card, fa/render/lightmap_gpu_bake.h),
+// or Auto (the GPU when this machine has one that traces rays, else the CPU, with a note saying why).
+enum class DeviceChoice { Cpu, Gpu, Auto };
+
 // What the caller asks for (the arguments of the commands, checked).
 struct Options {
     double texelsPerMeter = 16;  // the scene's density; MeshRenderer.lightmapScale multiplies it
     int maxPageSize = 2048;      // the largest side of a page, 16..8192
     SkyChoice sky = SkyChoice::Auto;
+    DeviceChoice device = DeviceChoice::Cpu;
     BakeSettings settings;  // maxAtlasSize follows maxPageSize
 };
 
@@ -76,9 +82,41 @@ Result<Plan> make_plan(World& world, const std::string& scene, const Options& op
 using ReportFn = std::function<void(const std::string& phase, double progress, std::uint64_t rays)>;
 
 // Runs the bake and writes the files. The result: {manifest, pages: [{file, width, height, bakedTexels}], entities, texels, rays, triangles,
-// settingsHash, skipped: [{id, reason}], warnings}. A cancelled bake returns the error "cancelled" and has written nothing (the cancel is
+// settingsHash, device: {requested, used, name, note, process}, skipped: [{id, reason}], warnings}. A cancelled bake returns the error "cancelled" and has written nothing (the cancel is
 // not looked at once the files are being written: a half-written set is worse than a finished bake).
+//
+// device.process is "here" (this process traced the texels) or "helper": a process that already has a graphics context on a Mac (the editor, a
+// session with graphics) cannot open the GPU tracer's own context (LightmapGpuTracer::open_needs_helper_process), so a device "gpu" or "auto"
+// bake runs in a child `factoria session --no-graphics --no-scene` that is given the Plan (plan_to_json), streams its progress back, is cancelled
+// by the same flag and writes the files with this same code. A helper that cannot start or that dies (a driver crash, a GPU reset) never takes this
+// process down: "auto" bakes on the CPU with the reason in device.note, "gpu" fails with it.
 Result<Json> execute(const Plan& plan, const ReportFn& report);
+
+// execute without ever starting a helper: what the helper itself runs (and what `execute` does in this process when no helper is needed).
+Result<Json> execute_here(const Plan& plan, const ReportFn& report);
+
+// A Plan as plain JSON and back (what the helper process is given). plan_from_json checks every field and says where it is wrong (a JSON pointer).
+Json plan_to_json(const Plan& plan);
+Result<Plan> plan_from_json(const Json& json);
+
+// How the GPU tracer is opened: a handle to the tracer and the name of its device. Tests replace it (set_tracer_opener) to give the job a
+// tracer of their own (one that fails after N texels, say); the default opens render::LightmapGpuTracer.
+struct TracerHandle {
+    std::unique_ptr<BakeTexelTracer> tracer;
+    std::string deviceName;
+};
+using TracerOpener = std::function<Result<TracerHandle>(bool allowSoftware)>;
+void set_tracer_opener(TracerOpener opener);  // an empty one restores the default
+
+// Whether a bake on the GPU runs in a helper process: Auto (when the tracer cannot open in this process but a helper could), Always or Never.
+// Tests force it with this; the environment variable FA_LIGHTMAP_HELPER=always|never does the same for a whole process
+// (docs/rendering/RENDERING_LIGHTMAPS.md).
+enum class HelperUse { Auto, Always, Never };
+void set_helper_use(HelperUse use);
+
+// The program a helper process runs: the UTF-8 path of `factoria` ($FA_FACTORIA_EXE, else this program when it is factoria, else the factoria
+// next to it), empty when none is found (lightmap_bake_helper.cpp).
+std::string helper_executable();
 
 // The sky of a Plan as it would be baked, for the tests: the equirect rotation the baker needs for SceneSettings.environmentRotation.
 float baker_rotation_for_environment(float environmentRotationDegrees);

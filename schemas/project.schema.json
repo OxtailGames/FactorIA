@@ -277,6 +277,118 @@
             }
           }
         },
+        "rayTracing": {
+          "type": "object",
+          "description": "Ray tracing (M79, docs/RAY_TRACING.md): which effects the renderer traces with rays on a GPU that can (D3D12, Vulkan or Metal; renderer.supports(\"raytracing\") says whether this one can). A game-wide setting that the command render.ray_tracing reads and changes at run time. Off by default and free when off: no acceleration structure is made, no pass is added to the frame. In this version the renderer builds the scene's acceleration structures when an effect is on, and the shadow of the directional light that casts shadows (shadows hard) is traced with rays, and so are the ambient occlusion (ao, in place of the screen-space one), the sharp reflections (reflections) and the refraction through glass and liquids (translucency, in place of the screen-space one); global illumination does not draw with rays yet.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "The master switch. false = nothing below is read and nothing is paid. Default false."
+            },
+            "shadows": {
+              "type": "string",
+              "enum": [
+                "off",
+                "hard",
+                "soft"
+              ],
+              "default": "off",
+              "description": "off = the shadow maps of the lighting; hard = one ray per pixel towards the sun (a sharp edge); soft = raysPerPixel rays towards points of the sun's disc, denoised (the edge softens with the distance to the caster; the disc is the scene setting skySunSize). The directional light that casts shadows is traced, and so are the point, spot and area lights that cast shadows: the 3 most important ones of each camera (by brightness, range and distance to the camera), the rest keep their shadow maps. Default off."
+            },
+            "ao": {
+              "type": "boolean",
+              "default": false,
+              "description": "Ambient occlusion traced with rays instead of the screen-space one, on the main camera of a device that traces: raysPerPixel rays in a hemisphere around each surface, denoised, applied as the screen-space occlusion is (the radius and intensity are the camera's PostProcess ssaoRadius and ssaoIntensity, else their defaults). Default false."
+            },
+            "reflections": {
+              "type": "boolean",
+              "default": false,
+              "description": "Reflections traced with rays: a surface smoother than roughness 0.25 gets one mirror ray per pixel; one from 0.25 to 0.65 gets raysPerPixel rays spread by its roughness, denoised, fading into the screen-space reflections and the probes towards 0.65; a rougher surface, a ray that leaves the scene and a device that cannot trace keep the screen-space reflections and the probes. Default false."
+            },
+            "translucency": {
+              "type": "boolean",
+              "default": false,
+              "description": "Refraction through glass and liquids traced with rays instead of the screen-space refraction: a ray bent by the material's ior at every interface of the closed mesh (up to six), tinted by its attenuation colour and distance. Glass casts a solid shadow; coloured shadows are not made. Default false."
+            },
+            "gi": {
+              "type": "string",
+              "enum": [
+                "off",
+                "probes",
+                "perPixel"
+              ],
+              "default": "off",
+              "description": "Global illumination: off = the engine's own (light probes and the ambient); probes = the probes of the RealtimeGI grids updated with rays instead of raster captures (raysPerProbe and rtProbesPerFrame of the component set the cost); perPixel = one bounce traced for every pixel of the main camera, denoised, in place of the probes' and the ambient light of the lit meshes (the most expensive: raysPerPixel rays per pixel). Default off."
+            },
+            "raysPerPixel": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "default": 1,
+              "description": "Rays of each effect per pixel and frame; the denoiser makes up the rest. A value outside 1 to 16 is clamped. Default 1."
+            },
+            "maxInstances": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576,
+              "default": 65536,
+              "description": "The most instances the top-level acceleration structure holds; the nearest to the camera come first. A value outside 1 to 1048576 is clamped. Default 65536."
+            }
+          }
+        },
+        "pathTracer": {
+          "type": "object",
+          "description": "The path traced reference mode (M79, docs/RAY_TRACING.md, \"The path tracer\"): instead of the raster's lit colour the main camera shows a progressive unidirectional path trace of the same scene (the same materials, the sun and up to 8 point or spot lights sampled directly, the sky as the environment), accumulated over frames while nothing changes; the post stack and the tonemap apply. For comparing the raster against a converged picture, not for play. It needs a device that traces rays (D3D12, Vulkan or Metal) and builds the scene's acceleration structures by itself. Off by default and free when off. The command render.path_tracer reads and changes it at run time; render.pathtrace writes a converged image to a file.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "true shows the path traced picture in place of the lit one. false (default) traces nothing and costs nothing."
+            },
+            "maxBounces": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32,
+              "default": 4,
+              "description": "The longest path in segments: 1 = the direct light only, 2 adds one bounce, and so on; Russian roulette ends a dark path sooner. Default 4."
+            },
+            "samplesPerFrame": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "default": 1,
+              "description": "Paths per pixel that each frame adds to the accumulation. More converges faster per frame and costs more per frame. Default 1."
+            },
+            "maxSamples": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16777216,
+              "default": 0,
+              "description": "The accumulation stops, and the picture is kept without tracing more, after this many samples per pixel. 0 (default) = never."
+            },
+            "fireflyClamp": {
+              "type": "number",
+              "minimum": 0,
+              "default": 0,
+              "description": "The largest luminance one path may carry (0 = no clamp): trades a little energy for fewer white dots. 5 to 20 is usual. Default 0."
+            },
+            "lights": {
+              "type": "boolean",
+              "default": true,
+              "description": "Direct light from the point and spot lights (the 8 strongest of the frame; an area light counts as a point). The sun is always sampled. Default true."
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1073741824,
+              "default": 0,
+              "description": "Changes the noise pattern; the same seed on the same device gives the same picture. Never the wall clock. Default 0."
+            }
+          }
+        },
         "dynamicResolution": {
           "type": "object",
           "description": "Dynamic resolution (M76, docs/UPSCALING.md, \"Dynamic resolution\"): the render scale follows the frame time so the game holds a target. Off by default (the picture is the fixed render scale). It multiplies into window.renderScale and the upscaler's quality, in steps, at most twice a second. Scripts change it with window.dynamicResolution and the command render.dynamic_resolution.",

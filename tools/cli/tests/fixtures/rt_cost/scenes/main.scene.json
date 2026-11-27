@@ -1,0 +1,1803 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [
+      0.3,
+      0.33,
+      0.4,
+      1.0
+    ],
+    "skyColor": [
+      0.35,
+      0.55,
+      0.9,
+      1.0
+    ],
+    "horizonColor": [
+      0.85,
+      0.85,
+      0.9,
+      1.0
+    ]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            6,
+            16
+          ],
+          "rotation": [
+            -18,
+            0,
+            0
+          ]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "fov": 55,
+          "primary": true
+        }
+      }
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            10,
+            0
+          ],
+          "rotation": [
+            -50,
+            -35,
+            0
+          ]
+        },
+        "Light": {
+          "type": "directional",
+          "intensity": 3.0,
+          "castShadows": true,
+          "color": [
+            1,
+            0.96,
+            0.88,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "lamp0",
+      "name": "Lamp 0",
+      "components": {
+        "Transform": {
+          "position": [
+            -7,
+            3.0,
+            2
+          ]
+        },
+        "Light": {
+          "type": "point",
+          "intensity": 25.0,
+          "range": 14,
+          "castShadows": true,
+          "color": [
+            1,
+            0.7,
+            0.45,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "lamp1",
+      "name": "Lamp 1",
+      "components": {
+        "Transform": {
+          "position": [
+            7,
+            3.0,
+            2
+          ]
+        },
+        "Light": {
+          "type": "point",
+          "intensity": 25.0,
+          "range": 14,
+          "castShadows": true,
+          "color": [
+            1,
+            0.7,
+            0.45,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "lamp2",
+      "name": "Lamp 2",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            3.0,
+            -6
+          ]
+        },
+        "Light": {
+          "type": "point",
+          "intensity": 25.0,
+          "range": 14,
+          "castShadows": true,
+          "color": [
+            1,
+            0.7,
+            0.45,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            40,
+            1,
+            40
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "plane",
+          "color": [
+            0.55,
+            0.55,
+            0.5,
+            1
+          ],
+          "roughness": 0.8
+        }
+      }
+    },
+    {
+      "id": "wall",
+      "name": "Back wall",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            3,
+            -12
+          ],
+          "scale": [
+            30,
+            6,
+            0.5
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.7,
+            0.45,
+            0.35,
+            1
+          ],
+          "roughness": 0.7
+        }
+      }
+    },
+    {
+      "id": "gi",
+      "name": "Realtime GI",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            3,
+            -2
+          ]
+        },
+        "RealtimeGI": {
+          "size": [
+            24,
+            6,
+            20
+          ],
+          "spacing": 3.0
+        }
+      }
+    },
+    {
+      "id": "obj0",
+      "name": "Object 0",
+      "components": {
+        "Transform": {
+          "position": [
+            -10.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            0.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj1",
+      "name": "Object 1",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            17.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj2",
+      "name": "Object 2",
+      "components": {
+        "Transform": {
+          "position": [
+            -4.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            34.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj3",
+      "name": "Object 3",
+      "components": {
+        "Transform": {
+          "position": [
+            -1.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            51.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj4",
+      "name": "Object 4",
+      "components": {
+        "Transform": {
+          "position": [
+            1.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            68.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj5",
+      "name": "Object 5",
+      "components": {
+        "Transform": {
+          "position": [
+            4.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            85.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj6",
+      "name": "Object 6",
+      "components": {
+        "Transform": {
+          "position": [
+            7.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            102.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj7",
+      "name": "Object 7",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0.75,
+            -9.0
+          ],
+          "rotation": [
+            0,
+            119.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj8",
+      "name": "Object 8",
+      "components": {
+        "Transform": {
+          "position": [
+            -10.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            136.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj9",
+      "name": "Object 9",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            153.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj10",
+      "name": "Object 10",
+      "components": {
+        "Transform": {
+          "position": [
+            -4.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            170.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj11",
+      "name": "Object 11",
+      "components": {
+        "Transform": {
+          "position": [
+            -1.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            187.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj12",
+      "name": "Object 12",
+      "components": {
+        "Transform": {
+          "position": [
+            1.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            204.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj13",
+      "name": "Object 13",
+      "components": {
+        "Transform": {
+          "position": [
+            4.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            221.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj14",
+      "name": "Object 14",
+      "components": {
+        "Transform": {
+          "position": [
+            7.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            238.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj15",
+      "name": "Object 15",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0.75,
+            -6.0
+          ],
+          "rotation": [
+            0,
+            255.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj16",
+      "name": "Object 16",
+      "components": {
+        "Transform": {
+          "position": [
+            -10.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            272.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj17",
+      "name": "Object 17",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            289.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj18",
+      "name": "Object 18",
+      "components": {
+        "Transform": {
+          "position": [
+            -4.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            306.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj19",
+      "name": "Object 19",
+      "components": {
+        "Transform": {
+          "position": [
+            -1.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            323.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj20",
+      "name": "Object 20",
+      "components": {
+        "Transform": {
+          "position": [
+            1.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            340.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj21",
+      "name": "Object 21",
+      "components": {
+        "Transform": {
+          "position": [
+            4.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            357.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj22",
+      "name": "Object 22",
+      "components": {
+        "Transform": {
+          "position": [
+            7.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            374.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj23",
+      "name": "Object 23",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0.75,
+            -3.0
+          ],
+          "rotation": [
+            0,
+            391.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj24",
+      "name": "Object 24",
+      "components": {
+        "Transform": {
+          "position": [
+            -10.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            408.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj25",
+      "name": "Object 25",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            425.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj26",
+      "name": "Object 26",
+      "components": {
+        "Transform": {
+          "position": [
+            -4.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            442.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj27",
+      "name": "Object 27",
+      "components": {
+        "Transform": {
+          "position": [
+            -1.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            459.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj28",
+      "name": "Object 28",
+      "components": {
+        "Transform": {
+          "position": [
+            1.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            476.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj29",
+      "name": "Object 29",
+      "components": {
+        "Transform": {
+          "position": [
+            4.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            493.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj30",
+      "name": "Object 30",
+      "components": {
+        "Transform": {
+          "position": [
+            7.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            510.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj31",
+      "name": "Object 31",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0.75,
+            0.0
+          ],
+          "rotation": [
+            0,
+            527.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj32",
+      "name": "Object 32",
+      "components": {
+        "Transform": {
+          "position": [
+            -10.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            544.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj33",
+      "name": "Object 33",
+      "components": {
+        "Transform": {
+          "position": [
+            -7.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            561.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj34",
+      "name": "Object 34",
+      "components": {
+        "Transform": {
+          "position": [
+            -4.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            578.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.7,
+            0.3,
+            0.5,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj35",
+      "name": "Object 35",
+      "components": {
+        "Transform": {
+          "position": [
+            -1.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            595.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "color": [
+            0.8,
+            0.6000000000000001,
+            0.4,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj36",
+      "name": "Object 36",
+      "components": {
+        "Transform": {
+          "position": [
+            1.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            612.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.3,
+            0.3,
+            0.3,
+            1
+          ],
+          "roughness": 0.1,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "obj37",
+      "name": "Object 37",
+      "components": {
+        "Transform": {
+          "position": [
+            4.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            629.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [
+            0.4,
+            0.6000000000000001,
+            0.8,
+            1
+          ],
+          "roughness": 0.35,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj38",
+      "name": "Object 38",
+      "components": {
+        "Transform": {
+          "position": [
+            7.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            646.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "capsule",
+          "color": [
+            0.5,
+            0.3,
+            0.7,
+            1
+          ],
+          "roughness": 0.5,
+          "metallic": 0.0
+        }
+      }
+    },
+    {
+      "id": "obj39",
+      "name": "Object 39",
+      "components": {
+        "Transform": {
+          "position": [
+            10.5,
+            0.75,
+            3.0
+          ],
+          "rotation": [
+            0,
+            663.0,
+            0
+          ],
+          "scale": [
+            1.2,
+            1.5,
+            1.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cone",
+          "color": [
+            0.6000000000000001,
+            0.6000000000000001,
+            0.6000000000000001,
+            1
+          ],
+          "roughness": 0.9,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "glass0",
+      "name": "Glass 0",
+      "components": {
+        "Transform": {
+          "position": [
+            -6,
+            1.2,
+            5
+          ],
+          "scale": [
+            2.2,
+            2.2,
+            2.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.9,
+            0.97,
+            1,
+            1
+          ],
+          "roughness": 0.0,
+          "transmission": 1.0,
+          "thickness": 0.6,
+          "ior": 1.5,
+          "attenuationColor": [
+            0.6,
+            0.9,
+            0.8,
+            1
+          ],
+          "attenuationDistance": 2.0,
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "glass1",
+      "name": "Glass 1",
+      "components": {
+        "Transform": {
+          "position": [
+            -2,
+            1.2,
+            5
+          ],
+          "scale": [
+            2.2,
+            2.2,
+            2.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.9,
+            0.97,
+            1,
+            1
+          ],
+          "roughness": 0.0,
+          "transmission": 1.0,
+          "thickness": 0.6,
+          "ior": 1.5,
+          "attenuationColor": [
+            0.6,
+            0.9,
+            0.8,
+            1
+          ],
+          "attenuationDistance": 2.0,
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "glass2",
+      "name": "Glass 2",
+      "components": {
+        "Transform": {
+          "position": [
+            2,
+            1.2,
+            5
+          ],
+          "scale": [
+            2.2,
+            2.2,
+            2.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.9,
+            0.97,
+            1,
+            1
+          ],
+          "roughness": 0.0,
+          "transmission": 1.0,
+          "thickness": 0.6,
+          "ior": 1.5,
+          "attenuationColor": [
+            0.6,
+            0.9,
+            0.8,
+            1
+          ],
+          "attenuationDistance": 2.0,
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "glass3",
+      "name": "Glass 3",
+      "components": {
+        "Transform": {
+          "position": [
+            6,
+            1.2,
+            5
+          ],
+          "scale": [
+            2.2,
+            2.2,
+            2.2
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.9,
+            0.97,
+            1,
+            1
+          ],
+          "roughness": 0.0,
+          "transmission": 1.0,
+          "thickness": 0.6,
+          "ior": 1.5,
+          "attenuationColor": [
+            0.6,
+            0.9,
+            0.8,
+            1
+          ],
+          "attenuationDistance": 2.0,
+          "castShadows": false
+        }
+      }
+    },
+    {
+      "id": "mirror",
+      "name": "Mirror sphere",
+      "components": {
+        "Transform": {
+          "position": [
+            -9,
+            1.5,
+            6
+          ],
+          "scale": [
+            3,
+            3,
+            3
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.95,
+            0.95,
+            0.95,
+            1
+          ],
+          "roughness": 0.02,
+          "metallic": 1.0
+        }
+      }
+    },
+    {
+      "id": "gloss",
+      "name": "Glossy sphere",
+      "components": {
+        "Transform": {
+          "position": [
+            9,
+            1.5,
+            6
+          ],
+          "scale": [
+            3,
+            3,
+            3
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "color": [
+            0.9,
+            0.4,
+            0.2,
+            1
+          ],
+          "roughness": 0.4,
+          "metallic": 1.0
+        }
+      }
+    }
+  ]
+}

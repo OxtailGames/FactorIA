@@ -184,3 +184,5 @@ void surface(in SurfaceInput i, inout Surface s) {
 @program impostor vs fs
 @program shadow shadow_vs shadow_fs
 @program prepass prepass_vs prepass_fs
+// The thin G-buffer (M79-P0c, mesh_common.glsl, fa_prepass_fs_main): the albedo and the roughness / metalness, drawn only when something asks.
+@program gbuffer prepass_vs gbuffer_fs_plain

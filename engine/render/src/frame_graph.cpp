@@ -80,6 +80,16 @@ int FrameGraph::add_pass(GraphPass pass) {
     return int(passes_.size() - 1);
 }
 
+bool FrameGraph::add_after(const std::string& pass, const std::string& before) {
+    for (GraphPass& p : passes_) {
+        if (p.name != pass) continue;
+        if (std::find(p.after.begin(), p.after.end(), before) == p.after.end()) p.after.push_back(before);
+        compiled_ = false;
+        return true;
+    }
+    return false;
+}
+
 void FrameGraph::clear() {
     resources_.clear();
     passes_.clear();

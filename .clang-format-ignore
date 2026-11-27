@@ -11,3 +11,5 @@ engine/render/tests/shader_text_index.h
 **/tests/fixtures/
 # Written by tools/ltc (fa_ltc_gen).
 engine/render/src/ltc_tables.h
+# Written by tools/shaders/compile_rt_shaders.sh (DXC output as byte arrays).
+engine/render/src/shaders/rt/*.rt.h
