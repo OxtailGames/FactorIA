@@ -76,7 +76,10 @@ struct Rig {
     std::vector<render::RtInstanceRecord> records;
     std::vector<Mesh*> meshes;  // each distinct mesh of the places, its BLAS is built once
     gpu::View recordsView{}, atlasView{}, outView{};
-    gpu::Image outImage{};
+    gpu::Image outImage{}, atlasImage{};
+    gpu::Shader shader{};
+    std::vector<gpu::Buffer> recordBuffers;  // the buffers behind make_records' views
+    std::vector<gpu::View> recordViews;
     bool blasBuilt = false;
 
     // Opens the device of this build. False with `skip` saying why: no GPU, a backend that is not `only` (when given), no ray tracing. A
@@ -156,10 +159,13 @@ struct Rig {
         rbd.label = label;
         rbd.data = gpu::Range{data.data(), rbd.size};
         const gpu::Buffer buffer = dev->make_buffer(rbd);
+        recordBuffers.push_back(buffer);
         gpu::ViewDesc rvd;
         rvd.storageBuffer.buffer = buffer;
         rvd.label = label;
-        return dev->make_view(rvd);
+        const gpu::View view = dev->make_view(rvd);
+        recordViews.push_back(view);
+        return view;
     }
 
     // The meshes, their structures, the instances and records (one per place, customIndex = its index), the TLAS, the zero atlas (meta.g = 0:
@@ -219,7 +225,7 @@ struct Rig {
         ad.pixelFormat = gpu::PixelFormat::Rgba16F;
         ad.data.mipLevels[0] = gpu::Range{atlasData.data(), atlasData.size() * sizeof(std::uint16_t)};
         ad.label = "rt gi atlas";
-        const gpu::Image atlasImg = dev->make_image(ad);
+        const gpu::Image atlasImg = atlasImage = dev->make_image(ad);
         gpu::ViewDesc atv;
         atv.texture.image = atlasImg;
         atv.label = "rt gi atlas view";
@@ -249,11 +255,45 @@ struct Rig {
         sampler = dev->make_sampler(sd);
         gpu::PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(render::rt_effect_shader_desc(*k, *spec, backend));
+        shader = dev->make_shader(render::rt_effect_shader_desc(*k, *spec, backend));
+        pd.shader = shader;
         pd.label = "rt_gi";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == gpu::ResourceState::Valid);
         REQUIRE(dev->state(pipeline) == gpu::ResourceState::Valid);
+    }
+
+    // Frees everything the rig made, the meshes' buffers and structures included (the way rt_reflect_metal_tests.cpp's Rig::release does). Call it
+    // while the meshes of the places still live; the rig has no destructor for it because the test's meshes are declared after the rig.
+    void release() {
+        if (!dev) return;
+        for (const gpu::View v : recordViews) dev->destroy_view(v);
+        for (const gpu::Buffer b : recordBuffers) dev->destroy_buffer(b);
+        recordViews.clear();
+        recordBuffers.clear();
+        if (atlasView.id) dev->destroy_view(atlasView);
+        if (outView.id) dev->destroy_view(outView);
+        if (atlasImage.id) dev->destroy_image(atlasImage);
+        if (outImage.id) dev->destroy_image(outImage);
+        if (tlas.id) dev->destroy_accel_structure(tlas);
+        if (tlasScratch.id) dev->destroy_buffer(tlasScratch);
+        for (Mesh* m : meshes) {
+            if (m->blas.id) dev->destroy_accel_structure(m->blas);
+            dev->destroy_buffer(m->vb);
+            dev->destroy_buffer(m->ib);
+            if (m->scratch.id) dev->destroy_buffer(m->scratch);
+        }
+        meshes.clear();
+        if (pipeline.id) dev->destroy_pipeline(pipeline);
+        if (shader.id) dev->destroy_shader(shader);
+        if (sampler.id) dev->destroy_sampler(sampler);
+        atlasView = outView = {};
+        atlasImage = outImage = {};
+        tlas = {};
+        tlasScratch = {};
+        pipeline = {};
+        shader = {};
+        sampler = {};
     }
 
     // Records the builds of the structures (the BLASes only the first time) onto `cl`.
@@ -315,8 +355,8 @@ struct Rig {
 };
 
 // The hit constants the two tests use for the sun, the sky and the shadow offsets.
-inline render::RtHitParams make_hit(Vec3 sunDir, Vec3 sunColor, Vec3 ambient, Vec3 sky, Vec3 horizon, float shadowOffset,
-                                    float shadowOffsetPerMetre) {
+inline render::RtHitParams make_hit(Vec3 sunDir, Vec3 sunColor, Vec3 ambient, Vec3 sky, Vec3 horizon,
+                                    float shadowOffset, float shadowOffsetPerMetre) {
     render::RtHitParams hit{};
     const Vec3 v[5] = {sunDir, sunColor, ambient, sky, horizon};
     float* dst[5] = {hit.sunDir, hit.sunColor, hit.ambient, hit.sky, hit.horizon};

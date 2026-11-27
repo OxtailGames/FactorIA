@@ -221,6 +221,7 @@ void RtScene::release() {
     freeSlots_.clear();
     reading_.clear();
     items_.clear();
+    lastTraceable_ = 0;
     frame_.clear();
     previous_.clear();
     readTicket_ = {};
@@ -658,6 +659,7 @@ void RtScene::collect(const std::vector<MeshItem>& opaque, const std::vector<Mes
         ++out;
     }
     items_.resize(out);
+    lastTraceable_ = std::uint32_t(items_.size());
     prepare_skinned(camera);
     untracedCollected_ = stats_.untracedCasters;  // record_frame adds the instances whose BLAS is not ready
     stats_.blasLive = std::uint32_t(blas_.size());

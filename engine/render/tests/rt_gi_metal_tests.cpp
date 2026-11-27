@@ -413,6 +413,7 @@ TEST_CASE("rt gi on Metal: the probes' SH, depth and back-face texels are what a
     CHECK(other.px != first.px);
     const Band bounced = trace(make_params(0x1234u, 1.0f), nullptr);
     CHECK(bounced.px == first.px);
+    rig.release();
 }
 
 #else

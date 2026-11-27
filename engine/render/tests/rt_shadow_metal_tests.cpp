@@ -119,6 +119,7 @@ struct Rig {
     gpu::Image out{};
     View outView{};
     Pipeline pipeline{};
+    Shader shader{};
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -222,7 +223,8 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = shader;
         pd.label = "rt_shadow";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
@@ -233,6 +235,7 @@ struct Rig {
     gpu::Image aux{}, packOut{};
     View auxView{}, srcView{}, packOutView{};
     Pipeline packPipeline{};
+    Shader packShader{};
 
     void make_pack(const std::vector<float>& auxData) {
         ImageDesc ad;
@@ -267,11 +270,33 @@ struct Rig {
         REQUIRE(spec != nullptr);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        packShader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = packShader;
         pd.label = "rt_shadow_pack";
         packPipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
         REQUIRE(dev->state(packPipeline) == ResourceState::Valid);
+    }
+
+    // Everything the rig made that the test body does not destroy itself (as rt_reflect_metal_tests.cpp's Rig::release): a mesh's buffers
+    // and the scratch of its BLAS, then the images, views, pipelines, shaders and the sampler.
+    void release(Mesh& m) {
+        dev->destroy_buffer(m.vb);
+        dev->destroy_buffer(m.ib);
+        dev->destroy_buffer(m.scratch);
+    }
+    void release_images() {
+        for (const View v : {prepassView, outView, auxView, srcView, packOutView}) {
+            if (v.id) dev->destroy_view(v);
+        }
+        for (const gpu::Image im : {prepass, out, aux, packOut}) {
+            if (im.id) dev->destroy_image(im);
+        }
+        if (packPipeline.id) dev->destroy_pipeline(packPipeline);
+        if (packShader.id) dev->destroy_shader(packShader);
+        dev->destroy_pipeline(pipeline);
+        dev->destroy_shader(shader);
+        dev->destroy_sampler(nearestSampler);
     }
 
     std::vector<float> pack(const fa::render::RtEffectParams& params) {
@@ -688,6 +713,10 @@ TEST_CASE("rt shadow on Metal: the hard shadow of the sun matches a CPU ray cast
     dev.destroy_accel_structure(tlas);
     dev.destroy_accel_structure(ground.blas);
     dev.destroy_accel_structure(box.blas);
+    dev.destroy_buffer(tlasScratch);
+    rig.release(ground);
+    rig.release(box);
+    rig.release_images();
 }
 
 #else

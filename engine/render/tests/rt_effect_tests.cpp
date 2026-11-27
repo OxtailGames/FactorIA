@@ -2065,6 +2065,9 @@ TEST_CASE("rt pathtrace: a frame whose pass is declared but cannot run (no mesh 
     const std::vector<std::string> traced = r.lines();
     CHECK(count_labels(traced, "rt-pathtrace") >= 1);
     CHECK(count_labels(traced, "begin_pass 'ssao-") == 0);
+    INFO(r.errors());
+    CHECK(r.errors()
+              .empty());  // no view is bound where a shader declares nothing (the SSAO search stage declares one slot)
 }
 
 TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whatever another camera does in the frame") {
@@ -2087,15 +2090,21 @@ TEST_CASE("rt pathtrace: a camera's refusal brings back its own occlusion, whate
     CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);  // the working path tracer replaces it
     // Another camera's refusal (a name that has no state) changes nothing for this one.
     CHECK_FALSE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:9", "x"));
-    // This camera's refusal: its frame draws the raster occlusion again, the other camera's job being drawn after it does not clear it.
+    // This camera's refusal (a test's: the device would accept the pass): the frame tries the pass again and it is accepted, so the frame is
+    // the path traced one with no occlusion passes under it (one decision a frame: no SSAO drawn and then covered), the other camera's job
+    // being drawn after it does not change that.
     REQUIRE(RendererTestAccess::path_trace_set_failure(r.renderer, "camera:0", "the device refused the kernel"));
     r.dev->clear_commands();
     r.frame(w);
-    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") >= 1);
-    // The next frame's declaration was accepted (the refusal was a test's): the path tracer takes the frame back.
+    CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
+    CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);
+    // The next frame's declaration was accepted too: the same frame.
     r.dev->clear_commands();
     r.frame(w);
+    CHECK(count_labels(r.lines(), "rt-pathtrace") >= 1);
     CHECK(count_labels(r.lines(), "begin_pass 'ssao-") == 0);
+    INFO(r.errors());
+    CHECK(r.errors().empty());
 }
 
 TEST_CASE("rt pathtrace: the state of a camera that no frame draws any more is forgotten after two frames") {

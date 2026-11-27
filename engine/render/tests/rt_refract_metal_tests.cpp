@@ -340,6 +340,7 @@ struct Rig {
     std::unique_ptr<Device> owner;
     Device* dev = nullptr;
     Pipeline pipeline{};
+    Shader shader{};
     Sampler nearestSampler{};
 
     bool open(std::string& skip) {
@@ -433,11 +434,24 @@ struct Rig {
         nearestSampler = dev->make_sampler(sd);
         PipelineDesc pd;
         pd.compute = true;
-        pd.shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        shader = dev->make_shader(fa::render::rt_effect_shader_desc(*k, *spec, Backend::Metal));
+        pd.shader = shader;
         pd.label = "rt_refract";
         pipeline = dev->make_pipeline(pd);
         REQUIRE(dev->state(pd.shader) == ResourceState::Valid);
         REQUIRE(dev->state(pipeline) == ResourceState::Valid);
+    }
+
+    // What the test body does not destroy itself, as rt_reflect_metal_tests.cpp's Rig::release: a mesh's buffers and BLAS scratch, then the pipeline.
+    void release(Mesh& m) {
+        dev->destroy_buffer(m.vb);
+        dev->destroy_buffer(m.ib);
+        dev->destroy_buffer(m.scratch);
+    }
+    void release_pipeline() {
+        dev->destroy_pipeline(pipeline);
+        dev->destroy_shader(shader);
+        dev->destroy_sampler(nearestSampler);
     }
 };
 
@@ -844,6 +858,9 @@ TEST_CASE(
     dev.destroy_accel_structure(ground.blas);
     dev.destroy_accel_structure(box.blas);
     dev.destroy_accel_structure(slab.blas);
+    dev.destroy_buffer(tlasScratch);
+    for (Mesh* m : {&ground, &box, &slab}) rig.release(*m);
+    rig.release_pipeline();
 }
 
 #else

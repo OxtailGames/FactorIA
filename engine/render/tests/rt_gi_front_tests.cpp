@@ -135,4 +135,5 @@ TEST_CASE("rt gi front face: the sense of the hardware's front flag is measured,
     // A two-sided instance never counts as a back face, whatever the sense.
     const Fractions twoSided = trace(measured != 0.0f ? measured : 1.0f, twoSidedView);
     CHECK(twoSided.inside == 0.0f);
+    rig.release();
 }

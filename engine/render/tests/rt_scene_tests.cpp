@@ -318,6 +318,23 @@ TEST_CASE("rt scene: one BLAS per submesh, built once, compacted, and freed when
     CHECK(rig.dev->errors().empty());  // nothing destroyed twice, nothing built from a freed structure
 }
 
+TEST_CASE("rt scene: traceable_items counts the last collect for a job planned before this frame's collect") {
+    Rig rig;
+    REQUIRE(rig.scene.configure(rig.dev, true, 1000));
+    render::MeshAsset* a = rig.mesh("a", 1);
+    CHECK(rig.scene.traceable_items() == 0);  // nothing collected yet
+    rig.frame({rig.item(a, {0, 0, 0}, 1), rig.item(a, {2, 0, 0}, 2)});
+    CHECK(rig.scene.traceable_items() == 2);
+    rig.scene.begin_graph();  // a new frame graph: a job planned now, before the main camera's collect
+    CHECK_FALSE(rig.scene.collected());
+    CHECK(rig.scene.traceable_items() == 2);  // the scene of the frame before, never 0
+    rig.scene.begin_frame(true, [&] { rig.dev->commit(); });
+    rig.scene.collect({rig.item(a, {0, 0, 0}, 1)}, {}, {0, 0, 0}, true);
+    CHECK(rig.scene.traceable_items() == 1);
+    rig.scene.release();
+    CHECK(rig.scene.traceable_items() == 0);
+}
+
 TEST_CASE("rt scene: a BLAS is built again when the asset's geometry is replaced") {
     Rig rig;
     REQUIRE(rig.scene.configure(rig.dev, true, 1000));
