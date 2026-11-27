@@ -6,10 +6,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
+#include "fa/core/log.h"
 #include "fa/render/raytracing.h"
 #include "fa/render/renderer.h"
+#include "renderer_test_access.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -76,6 +81,29 @@ Image frame_picture(Gfx& g, World& w) {
     return img;
 }
 
+// The errors logged while the object lives.
+struct ErrorLog {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> lines;
+    };
+    std::shared_ptr<Lines> shared = std::make_shared<Lines>();
+    int id;
+    ErrorLog()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level < LogLevel::Error) return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
+    ~ErrorLog() { remove_log_sink(id); }
+    ErrorLog(const ErrorLog&) = delete;
+    ErrorLog& operator=(const ErrorLog&) = delete;
+    std::vector<std::string> messages() const {
+        std::lock_guard<std::mutex> lk(shared->mu);
+        return shared->lines;
+    }
+};
+
 }  // namespace
 
 TEST_CASE("rt gi pixel picture: a floor beside a red wall takes the wall's colour when the rays are per pixel, and the "
@@ -129,5 +157,49 @@ TEST_CASE("rt gi pixel picture: a floor beside a red wall takes the wall's colou
     for (int i = 0; i < 3; ++i) back = frame_picture(g, w);
     CHECK(back.rgba == off.rgba);
     CHECK_FALSE(g.renderer.ray_tracing_gi_pixel_status().active);
+    g.renderer.set_ray_tracing(render::RayTracingSettings{});
+}
+
+// M79 POLISH-RB: a part with a full shader that keeps out of the prepass ("prepass": false in its twin, here materials/full_flat) is no receiver of the per-pixel
+// GI: its own fragment stage has no fa_gi_px block and the image holds no value for it (the prepass did not draw it), so it draws its own colour whole and with no error,
+// while the meshes beside it read the rays. The real device draws it; a machine that does not trace rays skips the counts (the RecordingDevice cases of rt_gi_pixel_tests.cpp cover that).
+TEST_CASE("rt gi pixel picture: a full material that keeps out of the prepass is drawn whole and is no receiver, the "
+          "meshes beside it are") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    World w;
+    red_room(w);
+    Entity cube = make(w, "flat", {2.0f, 0.6f, 0.0f});
+    w.get<Transform>(cube)->scale = {1.2f, 1.2f, 1.2f};
+    auto& m = w.add<MeshRenderer>(cube);
+    m.mesh = "cube";
+    m.material = "materials/full_flat.material.json";
+    render::RayTracingSettings s;
+    s.enabled = true;
+    s.gi = render::RtGi::PerPixel;
+    s.raysPerPixel = 2;
+    g.renderer.set_ray_tracing(s);
+    ErrorLog log;
+    Image img;
+    for (int i = 0; i < 12; ++i) img = frame_picture(g, w);
+    const render::RtGiPixelStatus st = g.renderer.ray_tracing_gi_pixel_status();
+    INFO("giPixel: wanted " << st.wanted << " active " << st.active << " reason " << st.reason);
+    CHECK(log.messages().empty());
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    // The full shader's own colour (0.2, 0.8, 0.4) is in the middle of the picture, where the camera looks: nothing of the rays touches it.
+    const Color c = patch(img, img.width / 2, img.height / 2, 2);
+    INFO("cube " << c.r << " " << c.g << " " << c.b);
+    CHECK(c.g > c.b);
+    CHECK(c.b > c.r);
+    if (!st.active) {
+        MESSAGE("this device does not trace rays (" << st.reason << "): the draw counts are not checked");
+        g.renderer.set_ray_tracing(render::RayTracingSettings{});
+        return;
+    }
+    const RendererTestAccess::GiPixelDraws d = RendererTestAccess::rt_gi_pixel_draws(g.renderer);
+    CHECK(
+        d.on >=
+        2);  // the floor and the wall read the image; the full material has its own fragment stage, which has no such block
     g.renderer.set_ray_tracing(render::RayTracingSettings{});
 }

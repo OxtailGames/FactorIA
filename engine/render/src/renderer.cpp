@@ -1450,6 +1450,14 @@ bool RendererTestAccess::rr_guide_images(Renderer& r) {
 bool RendererTestAccess::rr_hit_image(Renderer& r) { return r.impl_ && r.impl_->rrHit.color.id != 0; }
 std::uint32_t RendererTestAccess::rt_gi_pixel_signal_id() { return Renderer::Impl::kRtGiPixelSignalId; }
 std::uint32_t RendererTestAccess::rt_reflect_signal_id() { return Renderer::Impl::kRtReflectSignalId; }
+bool RendererTestAccess::rr_signals_lost(Renderer& r) { return r.impl_ && r.impl_->rrSignalsLost; }
+void RendererTestAccess::set_rr_signals_lost(Renderer& r, bool lost) {
+    if (!r.impl_) return;
+    r.impl_->rrSignalsLost = lost;
+    r.impl_->rrAgreeFrames = 0;
+}
+bool RendererTestAccess::rr_failed(Renderer& r) { return r.impl_ && r.impl_->rrFailed; }
+bool RendererTestAccess::rr_hit_program_failed(Renderer& r) { return r.impl_ && r.impl_->rrPrep.hit_failed(); }
 void RendererTestAccess::force_velocity(Renderer& r, bool on) {
     if (!r.impl_) return;
     r.impl_->forceVelocity = on;

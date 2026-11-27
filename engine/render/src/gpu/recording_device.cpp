@@ -449,6 +449,11 @@ void RecordingDevice::fail_next_make_buffer(const std::string& label, int count)
     failBufferCount_ = std::max(0, count);
 }
 
+void RecordingDevice::fail_shaders_labelled(const std::string& label) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    failShaderLabel_ = label;
+}
+
 Buffer RecordingDevice::make_buffer(const BufferDesc& d) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string what;
@@ -644,6 +649,8 @@ Shader RecordingDevice::make_shader(const ShaderDesc& d) {
     ShaderInfo info;
     info.compute = d.compute();
     std::string what;
+    if (!failShaderLabel_.empty() && d.label && failShaderLabel_ == d.label)
+        add(what, "injected fault (RecordingDevice::fail_shaders_labelled): the shader does not compile");
     if (info.compute && (present(d.vertexFunc) || present(d.fragmentFunc)))
         add(what, "a compute shader has only computeFunc (vertexFunc or fragmentFunc is set too)");
     if (!info.compute && (!present(d.vertexFunc) || !present(d.fragmentFunc)))

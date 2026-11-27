@@ -15,15 +15,12 @@ bool RrGuidesPrep::ready(gpu::Device& dev) {
     shader_ = make_shader(dev, gpu::generated_shader_desc(dev, upscale_rr_rr_shader_desc), "upscale_rr");
     albedoShader_ =
         make_shader(dev, gpu::generated_shader_desc(dev, upscale_rr_rr_albedo_shader_desc), "upscale_rr_albedo");
-    hitShader_ = make_shader(dev, gpu::generated_shader_desc(dev, upscale_rr_rr_hit_shader_desc), "upscale_rr_hit");
-    if (dev.state(shader_) != gpu::ResourceState::Valid || dev.state(albedoShader_) != gpu::ResourceState::Valid ||
-        dev.state(hitShader_) != gpu::ResourceState::Valid) {
+    // The hit distance shader (an optional guide) is made by hit_pipeline, on the first frame that has reflections to hand over.
+    if (dev.state(shader_) != gpu::ResourceState::Valid || dev.state(albedoShader_) != gpu::ResourceState::Valid) {
         if (shader_.id) dev.destroy_shader(shader_);
         if (albedoShader_.id) dev.destroy_shader(albedoShader_);
-        if (hitShader_.id) dev.destroy_shader(hitShader_);
         shader_ = {};
         albedoShader_ = {};
-        hitShader_ = {};
         state_ = -1;
         FA_ERROR("render", "The DLSS Ray Reconstruction guides shader failed to compile (see the sokol log lines "
                            "above); DLSS draws with Super "
@@ -60,10 +57,29 @@ gpu::Pipeline RrGuidesPrep::albedo_pipeline(const TargetFormat& format) {
 gpu::Pipeline RrGuidesPrep::hit_pipeline(const TargetFormat& format) {
     for (const Entry& e : hitPipelines_)
         if (e.format == format) return e.pipeline;
-    if (state_ <= 0 || !device_) return {};
+    if (state_ <= 0 || !device_ || hitFailed_) return {};
+    if (!hitShader_.id) {
+        // Made now, not in ready(): a frame with no ray traced reflections never needs it, and a shader that does not compile only leaves the
+        // hit distance guide out (Ray Reconstruction works without it), so the rest of the guides stay.
+        hitShader_ = make_shader(*device_, gpu::generated_shader_desc(*device_, upscale_rr_rr_hit_shader_desc),
+                                 "upscale_rr_hit");
+        if (device_->state(hitShader_) != gpu::ResourceState::Valid) {
+            if (hitShader_.id) device_->destroy_shader(hitShader_);
+            hitShader_ = {};
+            hitFailed_ = true;
+            FA_WARN("render", "The DLSS Ray Reconstruction hit distance shader failed to compile (see the sokol log "
+                              "lines above): Ray Reconstruction goes on without the reflections' hit distance guide, "
+                              "which is optional. Hint: update the graphics driver.");
+            return {};
+        }
+    }
     const gpu::Pipeline p = make_triangle_pipeline(*device_, hitShader_, format, "upscale-rr-hit");
-    if (device_->state(p) != gpu::ResourceState::Valid)
+    if (device_->state(p) != gpu::ResourceState::Valid) {
         FA_ERROR("render", "failed to create pipeline 'upscale-rr-hit'");
+        if (p.id) device_->destroy_pipeline(p);
+        hitFailed_ = true;
+        return {};
+    }
     hitPipelines_.push_back({format, p});
     return p;
 }
@@ -86,6 +102,7 @@ void RrGuidesPrep::release() {
     shader_ = {};
     albedoShader_ = {};
     hitShader_ = {};
+    hitFailed_ = false;
     state_ = 0;
     device_ = nullptr;
 }

@@ -152,6 +152,9 @@ struct Renderer::Impl::DrawContext {
     // M79-P0c, the thin G-buffer: plan_prepass decided the job draws it (PostPlan::needsGbuffer, the GPU made the images); build_graph declares the
     // "gbuffer" pass and the images (PostPlan::gbufferAlbedo / gbufferMaterial).
     bool doGbuffer = false;
+    // The G-buffer programs of the terrain and of the impostor cards exist (plan_prepass makes them when the job's opaque batches hold such a draw, so
+    // that none is made while the frame graph runs); gbuffer_pass draws their batches only when set.
+    bool gbufferTerrainOk = false, gbufferImpostorOk = false;
     // M76 motion vectors: cull_and_batch keeps the previous model of every drawn instance (`prevMats`, uploaded to `prevInst`) when the camera
     // asks for the velocity image (collectPrev); plan_prepass decides whether the prepass writes it (doVelocity, build_graph makes the image).
     bool collectPrev = false, doVelocity = false;
@@ -3225,7 +3228,7 @@ static bool gi_pixel_receiver_for(const MeshItem& mi, const SubMesh& part, const
 
 // The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, or ctx.fuBlend for a blended part, ctx.doShadows).
 mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
-                                                 const PartDraw& d, bool blended) {
+                                                 const PartDraw& d, const MeshBufferUse& mbu, bool blended) {
     const mesh_fa_mesh_fs_params_t& fuScene = blended ? ctx.fuBlend : ctx.fuScene;
     const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
@@ -3317,7 +3320,7 @@ mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshIte
     // light keeps its priority, docs/RAY_TRACING.md). Only a draw the prepass drew is a receiver: the image holds the surface of the prepass at each
     // pixel, and a draw it skipped would read the one behind it (or the sky).
     fu.fa_gi_px[0] = (ctx.giPixel.view.id && !blended && !d.lightmap.id && !(fu.fa_probe_sh[0][3] > 0.0f) &&
-                      gi_pixel_receiver_for(mi, part, d, resolve_mesh_buffers(*assets, compute, mi), ctx.sssOn))
+                      gi_pixel_receiver_for(mi, part, d, mbu, ctx.sssOn))
                          ? 1.0f
                          : 0.0f;
     if (ctx.giPixel.view.id && !blended) {
@@ -3837,7 +3840,7 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
                         apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
                     if (prog) {
                         if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) {
-                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd);
+                            mesh_fa_mesh_fs_params_t fu = fill_fs(ctx, rep, p, pd, mbu);
                             fu.fa_env_horizon[3] =
                                 0.0f;  // a shadow map is not the jittered picture: no texture LOD bias
                             apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fu);
@@ -3869,6 +3872,7 @@ void Renderer::Impl::shadow_views(DrawContext& ctx, gpu::CommandList& cl, int vi
 bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
     const PostPlan& pp = ctx.postPlan;
     ctx.doPrepass = ctx.debugPrepass = ctx.doVelocity = ctx.doGbuffer = false;
+    ctx.gbufferTerrainOk = ctx.gbufferImpostorOk = false;
     if ((ctx.plan.view && !ctx.plan.customPost && !ctx.plan.gi) || !ctx.fr.wantWorld || ctx.camPx.w < 1 ||
         ctx.camPx.h < 1)
         return false;
@@ -3932,6 +3936,17 @@ bool Renderer::Impl::plan_prepass(DrawContext& ctx) {
         if (ha) transient_targets().pool.release(ha);
         if (ha && hb) {
             ctx.doGbuffer = true;
+            // The programs of the terrain and the impostor cards are made now (a frame graph pass makes nothing): one that does not build leaves
+            // its draws out of the images, with one logged error.
+            bool anyTerrain = false, anyImpostor = false;
+            for (const MeshBatch& batch : ctx.opaqueBatches) {
+                if (batch.mainCount == 0) continue;
+                const MeshItem& mi = ctx.opaque[batch.rep];
+                anyTerrain = anyTerrain || mi.terrain;
+                anyImpostor = anyImpostor || mi.impostor;
+            }
+            ctx.gbufferTerrainOk = anyTerrain && terrains.ensure_gbuffer(gpu.device());
+            ctx.gbufferImpostorOk = anyImpostor && impostors.ensure_gbuffer(gpu.device());
         } else if (!gbufferWarned) {
             gbufferWarned = true;
             FA_ERROR("render",
@@ -4240,7 +4255,7 @@ void Renderer::Impl::prepass_pass(DrawContext& ctx, const Target& t, bool backFa
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0, mbu));
             if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
             apply_material_params(cl, *prog, inputs);
             cl.draw(0, part.indexCount, mbu.active ? mbu.instances : int(batch.mainCount));
@@ -4269,16 +4284,7 @@ void Renderer::Impl::gbuffer_pass(DrawContext& ctx, const Target& albedo, const 
     pd.colorStore = gpu::StoreAction::Store;
     pd.depthLoad = gpu::LoadAction::Clear;
     pd.clearDepth = 1.0f;
-    // The programs of the terrain and the impostor cards are made now, before the pass (nothing is made inside one).
-    bool anyTerrain = false, anyImpostor = false;
-    for (const MeshBatch& batch : ctx.opaqueBatches) {
-        if (batch.mainCount == 0) continue;
-        const MeshItem& mi = ctx.opaque[batch.rep];
-        anyTerrain = anyTerrain || mi.terrain;
-        anyImpostor = anyImpostor || mi.impostor;
-    }
-    const bool terrainOk = anyTerrain && terrains.ensure_gbuffer(gpu.device());
-    const bool impostorOk = anyImpostor && impostors.ensure_gbuffer(gpu.device());
+    // The programs of the terrain and the impostor cards were made by plan_prepass (ctx.gbufferTerrainOk, ctx.gbufferImpostorOk).
     gpu::CommandList& cl = gpu.commands();
     cl.begin_pass(pd);
     mesh_fa_mesh_vs_params_t vu = ctx.vuScene;
@@ -4289,7 +4295,7 @@ void Renderer::Impl::gbuffer_pass(DrawContext& ctx, const Target& albedo, const 
         if (batch.mainCount == 0) continue;
         const MeshItem& mi = ctx.opaque[batch.rep];
         const bool own = mi.terrain || mi.impostor;  // a program of its own, or nothing: the engine's cannot place it
-        if (own && !(mi.terrain ? terrainOk : impostorOk)) continue;
+        if (own && !(mi.terrain ? ctx.gbufferTerrainOk : ctx.gbufferImpostorOk)) continue;
         vu.fa_uv_scale[0] = mi.mr->uvScale.x;
         vu.fa_uv_scale[1] = mi.mr->uvScale.y;
         MaterialAsset* mat = mi.material && mi.material->ok ? mi.material : nullptr;
@@ -4342,7 +4348,7 @@ void Renderer::Impl::gbuffer_pass(DrawContext& ctx, const Target& albedo, const 
             if (skinned && prog->has_ub(UB_mesh_fa_skin))
                 apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0));
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd0, mbu));
             if (prog->has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
             apply_material_params(cl, *prog, inputs);
             cl.draw(0, part.indexCount, int(batch.mainCount));
@@ -4413,7 +4419,7 @@ void Renderer::Impl::sss_draw_pass(DrawContext& ctx, const Target& a, const Targ
             if (skinned && prog.has_ub(UB_mesh_fa_skin))
                 apply_uniforms(cl, UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
             if (prog.has_ub(UB_mesh_fa_mesh_fs_params))
-                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d));
+                apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, d, mbu));
             if (prog.has_ub(UB_mesh_fa_shadows)) apply_uniforms(cl, UB_mesh_fa_shadows, ctx.shadowU);
             if (prog.has_ub(UB_mesh_fa_sss_params)) apply_uniforms(cl, UB_mesh_fa_sss_params, su);
             cl.draw(0, part.indexCount, int(batch.mainCount));
@@ -5149,7 +5155,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx, const PassContext& pc) {
                         }
                         if (declares(prog, UB_mesh_fa_mesh_fs_params)) {
                             if (!fragmentMade) {
-                                fragmentParams = fill_fs(ctx, mi, part, pd, isBlend);
+                                fragmentParams = fill_fs(ctx, mi, part, pd, mbu, isBlend);
                                 fragmentMade = true;
                             }
                             apply_uniforms(cl, UB_mesh_fa_mesh_fs_params, fragmentParams);
@@ -5946,6 +5952,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (out.valid) {
             ctx.postPlan.rtReflectImg = out.out;
             ctx.postPlan.rtReflectRes = out.res;
+            rtReflectFrameImg = out.out;
             // The glossy pixels (roughness from the sharp cutoff up) are denoised: the radiance (with the hit distance, which steers the virtual-motion
             // reprojection) and, as a second signal, where the rays ended on a surface, so the hand-off to the screen-space march and the probes has
             // no seam. The sharp pixels read the raw image. A denoiser that cannot run leaves both invalid: the composite reads the raw image.
