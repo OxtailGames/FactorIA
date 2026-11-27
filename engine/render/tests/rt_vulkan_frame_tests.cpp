@@ -1,11 +1,11 @@
 // M79 POLISH-RK-2: the renderer on the engine's own Vulkan backend with ray traced shadows of a point light, drawn at
 // the full render scale and at the low ones a dynamic resolution picks. The lit shader reads the traced mask of a
-// local light through fa_shadow_local_rt (mesh_common.glsl): the texel of the fragment first, then the darkest of the 3 x 3
-// block around it that shows the same surface. At a low render scale the mask is smaller than the design size, so that
-// block covers a larger part of the picture; the shadow must stay and nothing may appear in the lit part. Runs where the
-// machine's Vulkan device traces rays (lavapipe of Mesa 24.1 or later on the Linux CI job); a machine without Vulkan or
-// without ray tracing says so and passes, unless FA_VULKAN_REQUIRE=1 / FA_VULKAN_REQUIRE_RT=1 (the CI job) turn the skip
-// into a failure.
+// local light through fa_shadow_local_rt (mesh_common.glsl): the texel of the fragment first, then the darkest of the
+// 3 x 3 block around it that shows the same surface. At a low render scale the mask is smaller than the design size, so
+// that block covers a larger part of the picture; the shadow must stay and nothing may appear in the lit part. Runs
+// where the machine's Vulkan device traces rays (lavapipe of Mesa 24.1 or later on the Linux CI job); a machine without
+// Vulkan or without ray tracing says so and passes, unless FA_VULKAN_REQUIRE=1 / FA_VULKAN_REQUIRE_RT=1 (the CI job)
+// turn the skip into a failure.
 #include "test_util.h"
 
 #include <cstdlib>
@@ -106,7 +106,11 @@ struct VkRig {
 }  // namespace
 
 TEST_CASE("vulkan renderer: the shadow of a ray traced point light stays at low render scales") {
-    gfx();  // the window environment of the fixture
+    if (!gfx().ok) {  // the window environment of the fixture
+        if (env_is_one("FA_VULKAN_REQUIRE")) FAIL("no GPU here (" << gfx().error << ") but FA_VULKAN_REQUIRE=1");
+        MESSAGE("no GPU here (" << gfx().error << "): the Vulkan frame test is skipped");
+        return;
+    }
     VkRig rig;
     if (!rig.ok) {
         if (cannot_run_vulkan_here(rig.error) && !env_is_one("FA_VULKAN_REQUIRE")) {
