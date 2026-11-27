@@ -596,9 +596,9 @@ struct ViewDesc {
         int offset = 0;  // bytes (a multiple of 256 for portability)
         // 0: a raw view (the shader declares a ByteAddressBuffer or a sokol-shdc storage buffer). More than 0: a
         // structured view of elements of this many bytes (a multiple of 4, at most 2048 as D3D12 allows), for a shader
-        // that declares StructuredBuffer<T> / RWStructuredBuffer<T>: D3D12 needs the view's kind to match the declaration (the debug
-        // layer reports a raw view read as structured). `offset` is then a multiple of it too. The other backends bind
-        // the same bytes either way and ignore it.
+        // that declares StructuredBuffer<T> / RWStructuredBuffer<T>: D3D12 needs the view's kind to match the
+        // declaration (the debug layer reports a raw view read as structured). `offset` is then a multiple of it too.
+        // The other backends bind the same bytes either way and ignore it.
         int structureStride = 0;
     };
     struct ImageView {

@@ -360,10 +360,10 @@ Shader VulkanDevice::make_shader(const ShaderDesc& desc) {
     // The slots: each in a stage the shader has, uniform blocks in set 0 and the rest in set 1, each on a binding of its
     // own.
     const char* kind = info->compute ? "a compute shader" : "a render shader";
-    // M79: a compute kernel of the ray tracing effects (DXC's SPIR-V, with or without a TLAS: the packing and denoising
-    // kernels trace nothing) may declare its bindings in any set; they move into the engine's sets 0 and 1
-    // (move_descriptor_sets), the binding numbers kept. A sokol-shdc compute shader has them there already (the move
-    // changes nothing). A render shader is laid out as sokol-shdc does.
+    // M79: a compute shader may declare its bindings in any set: the kernels from DXC (traced or not: the packing and
+    // denoising kernels trace nothing) do, a sokol-shdc compute shader has them in sets 0 and 1 already (the move
+    // changes nothing). They move into the engine's sets 0 and 1 (move_descriptor_sets), the binding numbers kept. A
+    // render shader is laid out as sokol-shdc does.
     const bool moveSets = info->compute;
     if (desc.usesRayQuery && !info->compute)
         fail("usesRayQuery on a render shader: ray queries run in compute shaders (hint: a kernel keeps "

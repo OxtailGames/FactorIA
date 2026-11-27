@@ -7,9 +7,9 @@
 // Vulkan or without ray tracing says so and passes, unless FA_VULKAN_REQUIRE=1 / FA_VULKAN_REQUIRE_RT=1 (the CI job)
 // turn the skip into a failure.
 // Time (M79 POLISH-RK-3; Mesa 25.2.8 lavapipe, validation layer, Release build, xvfb-run, FA_VULKAN_REQUIRE=1
-// FA_VULKAN_REQUIRE_RT=1): about 2 s with every core and about 2 s limited to one (`taskset -c 0`), for the three scales
-// with a renderer of its own for each picture. Far below the 20 s that would ask for a ctest entry of its own, so it
-// stays in `render`.
+// FA_VULKAN_REQUIRE_RT=1): about 2 s with every core and about 2 s limited to one (`taskset -c 0`), for the three
+// scales with a renderer of its own for each picture. Far below the 20 s that would ask for a ctest entry of its own,
+// so it stays in `render`.
 #include "test_util.h"
 
 #include <cstdlib>
@@ -87,8 +87,8 @@ struct VkRig {
     VkRig(const VkRig&) = delete;
     VkRig& operator=(const VkRig&) = delete;
 
-    // `frames` frames of `world` at render scale `scale` (the denoiser needs a few to settle), the last one read back at
-    // the design size.
+    // `frames` frames of `world` at render scale `scale` (the denoiser needs a few to settle), the last one read back
+    // at the design size.
     fa::Image draw(World& world, float scale, int frames) {
         renderer.set_upscale_stage(true);  // the picture is drawn small and brought back to the design size
         renderer.set_render_scale(scale, 1.0f);
@@ -109,8 +109,8 @@ struct VkRig {
 
 }  // namespace
 
-// Starts `rig` on Vulkan with the ray traced hard shadows of a point light. Returns its device, or null when this machine
-// cannot run the test (said, and a pass) or the renderer did not start (a failure already reported).
+// Starts `rig` on Vulkan with the ray traced hard shadows of a point light. Returns its device, or null when this
+// machine cannot run the test (said, and a pass) or the renderer did not start (a failure already reported).
 static gpu::vk::VulkanDevice* start_rig(VkRig& rig) {
     if (!rig.ok) {
         if (cannot_run_vulkan_here(rig.error) && !env_is_one("FA_VULKAN_REQUIRE")) {
