@@ -569,6 +569,10 @@ View RecordingDevice::make_view(const ViewDesc& d) {
         else if (d.storageBuffer.offset < 0 || std::size_t(d.storageBuffer.offset) >= b->info.size)
             add(what, "offset " + std::to_string(d.storageBuffer.offset) + " is outside the buffer (" +
                           std::to_string(b->info.size) + " bytes)");
+        else if (d.storageBuffer.structureStride > 2048)
+            add(what, "structureStride " + std::to_string(d.storageBuffer.structureStride) +
+                          " is above 2048, the most D3D12 allows for the element of a structured buffer (hint: split "
+                          "the element, or use a raw view with structureStride 0 and read the words yourself)");
         else if (d.storageBuffer.structureStride < 0 || d.storageBuffer.structureStride % 4 != 0 ||
                  (d.storageBuffer.structureStride > 0 && d.storageBuffer.offset % d.storageBuffer.structureStride != 0))
             add(what, "structureStride " + std::to_string(d.storageBuffer.structureStride) +
