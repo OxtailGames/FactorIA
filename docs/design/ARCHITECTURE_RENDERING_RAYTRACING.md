@@ -269,7 +269,9 @@ flags, the size rounding, the geometry checks, the DXIL test) is in `gpu/d3d12_a
   its own ctest, where nothing loaded a WARP before. In the whole-suite ctest `render` an earlier D3D12 case may have loaded
   the system's WARP: the case then skips there (CI does not set `FA_D3D12_REQUIRE_RT` for that run), and says so. Under
   `FA_D3D12_REQUIRE_RT=1` a WARP that was defeated that way is a failure too, which names the earlier WARP: the dedicated
-  ctest runs the file alone, so nothing can have loaded one before it.
+  ctest runs the file alone, so nothing can have loaded one before it. In the Windows CI job that ctest runs the file as
+  `fa_test_render_d3d12_rt`, on the D3D12 Agility SDK runtime (the case prints the `D3D12Core.dll` it ran on; "What CI runs"
+  in ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md says why).
 
 ## Vulkan (`vulkan_raytracing.cpp`)
 

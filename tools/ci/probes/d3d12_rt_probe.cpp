@@ -53,6 +53,15 @@ std::string file_version(const std::wstring& path) {
 
 }  // namespace
 
+#ifdef FA_PROBE_AGILITY_SDK
+// The Agility SDK's way to choose D3D12 runtime: the program exports the SDK version and the folder (relative to the
+// program, with the trailing backslash) of the D3D12Core.dll of that version.
+extern "C" {
+__declspec(dllexport) extern const UINT D3D12SDKVersion = FA_PROBE_AGILITY_SDK;
+__declspec(dllexport) extern const char* D3D12SDKPath = ".\\D3D12\\";
+}
+#endif
+
 int main() {
     IDXGIFactory4* factory = nullptr;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
@@ -127,6 +136,15 @@ int main() {
         std::printf("warpDll=%s\nwarpVersion=%s\n", narrow(path).c_str(), file_version(path).c_str());
     } else {
         std::printf("warpDll=not loaded\nwarpVersion=unknown\n");
+    }
+    // The D3D12 runtime this process runs on: D3D12Core.dll beside the program under FA_PROBE_AGILITY_SDK (the Agility
+    // SDK's), else the system's (D3D12.dll is its loader, and D3D12Core.dll in System32 is the in-box core).
+    if (HMODULE m = GetModuleHandleW(L"D3D12Core.dll")) {
+        wchar_t path[MAX_PATH]{};
+        GetModuleFileNameW(m, path, MAX_PATH);
+        std::printf("d3d12Core=%s\nd3d12CoreVersion=%s\n", narrow(path).c_str(), file_version(path).c_str());
+    } else {
+        std::printf("d3d12Core=not loaded\nd3d12CoreVersion=unknown\n");
     }
     device->Release();
     warp->Release();

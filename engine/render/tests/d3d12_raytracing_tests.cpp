@@ -240,15 +240,22 @@ bool env_is_1(const wchar_t* name) {
     return n == 1 && v[0] == L'1';
 }
 
-// The file of the d3d10warp.dll this process has loaded, in UTF-8 ("none" when there is none).
-std::string loaded_warp() {
-    const HMODULE m = GetModuleHandleW(L"d3d10warp.dll");
+// The file of the DLL `name` this process has loaded, in UTF-8 ("none" when there is none).
+std::string loaded_module(const wchar_t* name) {
+    const HMODULE m = GetModuleHandleW(name);
     if (!m) return "none";
     wchar_t file[4096];
     const DWORD n = GetModuleFileNameW(m, file, DWORD(std::size(file)));
-    if (n == 0 || n >= std::size(file)) return "a d3d10warp.dll whose path does not fit";
+    if (n == 0 || n >= std::size(file)) return "a DLL whose path does not fit";
     return fa::fs::path_to_utf8(std::filesystem::path(std::wstring(file, n)));
 }
+
+// The d3d10warp.dll this process has loaded (WARP's own library).
+std::string loaded_warp() { return loaded_module(L"d3d10warp.dll"); }
+
+// The D3D12Core.dll this process has loaded: the system's, or the Agility SDK's of D3D12\ beside the program
+// (fa_test_render_d3d12_rt, which is what ci.yml runs this file with).
+std::string loaded_d3d12_core() { return loaded_module(L"D3D12Core.dll"); }
 
 // What load_nuget_warp did: a sentence, and whether an earlier WARP of the process kept FA_WARP_DIR's from loading.
 struct WarpLoad {
@@ -409,7 +416,8 @@ TEST_CASE(
         bd.usage.accelStorage = true;
         bd.label = "no-rt";
         CHECK(dev->state(dev->make_buffer(bd)) == ResourceState::Failed);
-        const std::string which = "the d3d10warp.dll loaded: " + loaded_warp() + " (" + load.what + ")";
+        const std::string which = "the d3d10warp.dll loaded: " + loaded_warp() + " (" + load.what +
+                                  "), the D3D12Core.dll loaded: " + loaded_d3d12_core();
         if (requireRt)
             // The dedicated ctest (render_d3d12_raytracing) runs this file alone, so `defeated` (an earlier device of
             // the process loaded another WARP first) is a failure there too: nothing ran before this case.
@@ -423,7 +431,8 @@ TEST_CASE(
             MESSAGE("d3d12 ray tracing: skipped, this WARP cannot trace rays: " << why << "; " << which);
         return;
     }
-    MESSAGE("d3d12 ray tracing: the d3d10warp.dll loaded: " << loaded_warp());
+    MESSAGE("d3d12 ray tracing: the d3d10warp.dll loaded: " << loaded_warp()
+                                                            << ", the D3D12Core.dll loaded: " << loaded_d3d12_core());
     const fa::rt_kernels::RtKernel* kernel = fa::rt_kernels::find_rt_kernel("rt_probe");
     REQUIRE(kernel != nullptr);
     std::string step = "the rt_probe kernel and its pipeline";

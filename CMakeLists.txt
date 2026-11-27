@@ -74,6 +74,9 @@ option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives 
 option(FA_TEST_WINDOWS_FILE_RULES "Run the tests with the Windows file rules emulation (not on Windows)" ON)
 # Windows CI: ctest's render_d3d12_raytracing fails instead of skipping when WARP has no DXR tier 1.1 (ci.yml sets it).
 option(FA_D3D12_REQUIRE_RT "Windows: the ctest render_d3d12_raytracing fails (instead of skipping) when its WARP cannot trace rays (the CI job)" OFF)
+# Windows CI: ctest's render_d3d12_raytracing runs on the D3D12 Agility SDK runtime (ci.yml sets both; engine/render/CMakeLists.txt).
+set(FA_D3D12_AGILITY_DIR "" CACHE PATH "Windows: folder with D3D12Core.dll and d3d12SDKLayers.dll (x64) of the NuGet package Microsoft.Direct3D.D3D12; render_d3d12_raytracing runs on them")
+set(FA_D3D12_AGILITY_SDK_VERSION "" CACHE STRING "Windows: the D3D12SDKVersion of FA_D3D12_AGILITY_DIR's D3D12Core.dll (package 1.620.2 is 620)")
 # The release packages set it (.github/workflows/release.yml): their editor offers the updates published there.
 set(FA_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose Releases the editor updates from (empty: no updates)")
 
