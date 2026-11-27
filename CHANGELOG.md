@@ -2,9 +2,13 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
-Older versions, one file per minor version with its patch releases: [0.37](changelog/0.37.md), [0.36](changelog/0.36.md), [0.35](changelog/0.35.md), [0.34](changelog/0.34.md), [0.33](changelog/0.33.md), [0.32](changelog/0.32.md), [0.31](changelog/0.31.md), [0.30](changelog/0.30.md), [0.29](changelog/0.29.md), [0.28](changelog/0.28.md), [0.27](changelog/0.27.md), [0.26](changelog/0.26.md), [0.25](changelog/0.25.md), [0.24](changelog/0.24.md), [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
+Older versions, one file per minor version with its patch releases: [0.38](changelog/0.38.md), [0.37](changelog/0.37.md), [0.36](changelog/0.36.md), [0.35](changelog/0.35.md), [0.34](changelog/0.34.md), [0.33](changelog/0.33.md), [0.32](changelog/0.32.md), [0.31](changelog/0.31.md), [0.30](changelog/0.30.md), [0.29](changelog/0.29.md), [0.28](changelog/0.28.md), [0.27](changelog/0.27.md), [0.26](changelog/0.26.md), [0.25](changelog/0.25.md), [0.24](changelog/0.24.md), [0.23](changelog/0.23.md), [0.22](changelog/0.22.md), [0.21](changelog/0.21.md), [0.20](changelog/0.20.md), [0.19](changelog/0.19.md), [0.18](changelog/0.18.md), [0.17](changelog/0.17.md), [0.16](changelog/0.16.md), [0.15](changelog/0.15.md), [0.14](changelog/0.14.md), [0.13](changelog/0.13.md), [0.12](changelog/0.12.md), [0.11](changelog/0.11.md), [0.10](changelog/0.10.md), [0.9](changelog/0.9.md), [0.8](changelog/0.8.md), [0.7](changelog/0.7.md), [0.6](changelog/0.6.md), [0.5](changelog/0.5.md), [0.4](changelog/0.4.md), [0.3](changelog/0.3.md), [0.2](changelog/0.2.md), [0.1](changelog/0.1.md).
 
 ## Unreleased
+
+## 0.39.0
+
+Ray tracing (M79): the scene keeps its acceleration structures (BLAS per mesh, refit for skinned meshes, one TLAS per frame) on Direct3D 12 (DXR), Vulkan (ray query) and Metal, and inline ray query kernels compiled with DXC (`factoria setup dxc`) trace them for hard and soft shadows of the sun and of point, spot and area lights, ambient occlusion, sharp and glossy reflections, translucency and global illumination (probes updated by rays, then per pixel), each denoised and each falling back to its raster technique per pixel or per device. DLSS Ray Reconstruction takes the reflections and the per-pixel GI; a path tracer is a reference mode for screenshots and for checking the raster look; lightmaps bake on the GPU as a fast preview from the editor, MCP and `factoria call`. Ray tracing reaches the graphics presets, the editor's Graphics window and the menu kit, and docs/RAY_TRACING.md says what each effect costs and when to use it.
 
 - **D3D12 and ray tracing kernel leftovers (M79 POLISH-RK-1):** the instance records buffer is a structured view (`ViewDesc::BufferView::structureStride`, the stride of `RtInstanceRecord`) on D3D12 instead of a raw one the kernels read as structured (the debug layer flagged it), and the recording device refuses a stride that is negative, not a multiple of 4 or that does not divide the view's offset; every `require()` of the D3D12 command list is `[[nodiscard]]` (the sites that cannot fail say so with `require_plain`, the copy of a buffer's initial data and the user buffers that may be acceleration structures are handled); a BLAS build or refit on one command list followed by a trace on another needs no barrier (the lists run in the order of `ExecuteCommandLists`; a test records the build and the trace on separate lists and the doc comment says why); the `aux` image of the shadow pack has its own binding 9 (it shared 7 with `RtHitParams`, so a pass can bind the reflection hit parameters and the aux image together, and only a pass that reads both local parameters and hit parameters is refused); the GI kernel computes the ray directions of a probe once per group (in groupshared / threadgroup memory) and not once per thread; the local light shadows stop `kRtLocalStopMetres` (3 cm) before the light, at most `kRtLocalStopCap` (a quarter) of the distance, instead of 2 % of it (kernel, Metal kernel, C++ and docs); the Windows MSVC `C4702` of `bones2d.cpp` and `imgui_backend.cpp` are fixed, and the 3D allocation test does not compare counts in an MSVC Debug build (its checked iterators allocate a proxy per container), which is why the PC failed it and the Release CI job did not. The DXIL and SPIR-V headers of six kernels are regenerated.
 - **D3D12 and Vulkan leftovers of the ray tracing kernels (M79 POLISH-RK-3):** the views of the lightmap GPU bake (`rt_bake.hlsl`'s scene, texel and sky buffers) are structured views of 16 byte elements on D3D12, as the instance records already were; `ViewDesc::BufferView::structureStride` above 2048 (D3D12's maximum) is a teaching error on the recording device and on D3D12 (test in `gpu_interface_tests.cpp`); the Vulkan frame test starts each picture from a renderer of its own (no denoiser history shared between scales or worlds), and a new Vulkan test checks that a compute shader with no TLAS whose bindings are in other sets (as DXC emits them) is accepted, moved and runs.
@@ -294,107 +298,3 @@ Older versions, one file per minor version with its patch releases: [0.37](chang
   the Linux CI job, where `FA_VULKAN_REQUIRE_RT=1` makes a missing feature a failure. docs/design/ARCHITECTURE_RENDERING_RAYTRACING.md,
   "Vulkan".
 
-## 0.38.0
-
-Vendor upscaling, frame generation and low latency (M78): `render.upscaler` modes `dlss` (NVIDIA DLSS Super Resolution through
-Streamline, with opt-in Ray Reconstruction), `fsr` (AMD FSR 3.1) and `xess` (Intel XeSS) draw with the vendor SDKs on D3D12 and
-Vulkan, `render.frameGeneration` runs DLSS frame generation, FSR 3 frame generation and XeSS-FG behind one seam, and
-`render.latency` runs NVIDIA Reflex, AMD Anti-Lag 2 and Intel XeLL next to the engine's own frame pacing. `factoria setup
-streamline`, `setup xess` and `setup fidelityfx` fetch the SDKs, device hooks let them take part in the engine's own D3D12 and
-Vulkan devices, `render.supports` says why a vendor path cannot run, and the editor's Graphics window and the menu kit's options
-offer all of it to players. The vendor paths are tested with stand-in runtimes; they were not run on NVIDIA, AMD or Intel
-hardware.
-
-- **Intel XeSS frame generation (M78):** mode `xess` (and `auto` on an Intel GPU) of `render.frameGeneration` now runs XeSS-FG's proxy
-  swapchain on Windows, Direct3D 12, an Intel Arc GPU, with `libxess_fg.dll` and `libxell.dll` of `factoria setup xess`. XeLL runs with it
-  even when `render.latency` is off (one shared context; a missing `libxell.dll` is refused with the fix), `render.supports` has real reasons
-  in `xessFrameGen`, and an SDK failure while it runs is logged once and keeps it off for the run. Not tested on Intel hardware.
-  docs/FRAME_GENERATION.md, "XeSS Frame Generation".
-- **Frame generation in the editor and the menu kit (M78):** the editor's Graphics window has a Frame generation group (mode combo with
-  the unsupported modes greyed out and their reason, minimum base fps slider, the latency advice, the profiler's state) and
-  `project.graphics` takes `frameGeneration {mode, minBaseFps}`; the menu kit's options page has a fourth Graphics page with the same
-  rows, saved as `settings.graphics.frameGeneration` and applied at each start. The Graphics window reads `render.supports` again only
-  when it opens, on Revert and every 10 seconds (it was every 3). The low-latency page has room for longer translations and its
-  layout test also runs with every mode unsupported. FRAME_GENERATION.md, MENUS.md.
-- **Frame generation seam (M78):** `render.frameGeneration` (project key `render.frameGeneration {mode, minBaseFps}` and the command
-  `render.frame_generation`): `mode` off, auto (the GPU maker's SDK), dlss, fsr or xess, and the base frame rate below which generation
-  switches off (default 60, back on at 10% above). This package is the seam and no vendor SDK yet: a provider interface with one empty slot
-  per SDK (each says which package fills it), the controller (provider choice, refusals that say what to fix, the `minBaseFps` hysteresis),
-  and the output stage's hand-off: the picture before the screen-space items is copied, the items are drawn, then the provider is given the
-  frame with the depth, motion, camera and jitter of the temporal upscaler. `render.supports` has the rows `dlssFrameGen`, `fsrFrameGen`
-  and `xessFrameGen`; the profiler (`perf.profile`, editor Profiler) reports base fps, presented fps, generated frames and the provider or
-  the reason (`profile.frameGeneration`). FRAME_GENERATION.md.
-- **DLSS Ray Reconstruction, opt-in (M78):** `render.upscaler` has a new `rayReconstruction` flag (project, `render.upscaler`,
-  `window.upscaler`; default off). With mode `dlss` on an NVIDIA RTX GPU where Streamline's Ray Reconstruction plugin is installed, the
-  renderer draws with DLSS Ray Reconstruction in place of Super Resolution, giving it world-space normals, roughness and albedo guides
-  (approximations: the renderer has no ray-traced signals yet, M79 adds them) and the camera's matrices. A machine or frame that
-  cannot draw it falls back to Super Resolution with the reason; `render.supports` has the new row `dlssRayReconstruction`.
-  docs/UPSCALING_VENDORS.md, "DLSS Ray Reconstruction". Not tested on hardware.
-- **DLSS frame generation (M78):** `render.frameGeneration` modes `dlss` and `auto` (on an NVIDIA GPU) now run NVIDIA DLSS frame generation
-  through Streamline on D3D12 and Vulkan (RTX 40 series or newer, Windows, hardware-accelerated GPU scheduling on, `factoria setup
-  streamline`). The engine tags the depth, the motion vectors and, only when screen-space items are drawn, the picture before them, sets the
-  camera constants of each frame and generates one frame between two rendered ones; `generatedFrames` and `presentedFps` come from Streamline's
-  own counter. DLSS-G needs Reflex's markers, so Reflex runs while it does, whatever `render.latency` says (the player's mode is not changed).
-  A machine that cannot run it says why in `render.supports` and `render.frame_generation` (a GPU or driver Streamline refuses, no plugin, a
-  game started with frame generation `off`); an orthographic camera is refused. Verified with a fake Streamline only; needs a check on an
-  RTX 40 series machine. FRAME_GENERATION.md, LATENCY.md.
-- **FSR 3 frame generation (M78):** `render.frameGeneration` mode `fsr` (also `auto` on an AMD GPU) now generates frames through AMD
-  FidelityFX on D3D12 and Vulkan (Windows, any GPU, after `factoria setup fidelityfx`). FidelityFX makes the window's swapchain when the game
-  starts with the setting on (`RendererDesc::frameGenerationMode` tells each provider's hook whether to take part); the engine hands it the
-  picture before the screen-space items and the depth, motion, camera and jitter of the temporal upscaler, and the swapchain interpolates when
-  it presents. Every FidelityFX failure is a refusal with its result code and what to do; the `render.supports` row `fsrFrameGen` is true
-  where it can run. FRAME_GENERATION.md, "AMD FSR 3 frame generation".
-- **FSR 3.1 upscaler (M78):** the `fsr` upscaler mode now runs AMD FidelityFX Super Resolution on D3D12 and Vulkan (any GPU; `auto` picks it on
-  an AMD GPU) once `factoria setup fidelityfx` has installed the SDK. One FSR context per device, made again only when the sizes, quality or
-  flags change; the five qualities are FSR's five modes; `render.supports` says why it is unavailable and lists its D3D12 and Vulkan backends.
-  docs/UPSCALING.md, "Vendor upscalers".
-- **Vendor SDKs for upscaling, frame generation and low latency (M78):** `factoria setup streamline`, `setup xess` and `setup fidelityfx`
-  download the redistributable x64 DLLs of NVIDIA Streamline (DLSS, DLSS Frame Generation, Reflex), Intel XeSS (with XeLL) and the
-  AMD FidelityFX SDK (FSR) when you ask, pinned by SHA-256, into `~/.factoria/tools/<id>/<version>/` (older versions are removed;
-  nothing of them is committed to the repository or bundled). Each shows the vendor's license first and installs only after you accept
-  it (`--accept-licenses`, the terminal's `[y/N]`, the editor's license dialog; without it `setup.install` fails with
-  `license_required`). A Windows export copies the installed SDKs the project can use next to the game, with their license texts in
-  `licenses/<id>/`, as the new `export.pack.vendorSdks` says (`"auto"` by default, `"none"`, or a list of ids; a listed SDK that is
-  not installed fails the export naming `factoria setup <id>`). The export's next steps repeat NVIDIA's obligations (notify NVIDIA before
-  a commercial release, credits). EXPORTING_SETUP.md, "Vendor SDK licences".
-- **Device hooks for vendor SDKs (M78, engine side):** the engine's D3D12 and Vulkan devices let an SDK take part in making the
-  device and the swapchain (Vulkan instance and device extensions, feature structs, queues and wrapped functions; D3D12 factory,
-  device and queue replaced by wrappers; a swapchain made or wrapped by the SDK; callbacks around every present with a frame id).
-  What the machine lacks makes that SDK unavailable with a reason, never the device. The Vulkan swapchain's images now report
-  their usage and format to native access, and D3D11's `end_native` clears the context's state. ARCHITECTURE_RENDERING_HOOKS.md.
-- **NVIDIA DLSS Super Resolution through Streamline (M78):** `render.upscaler` mode `dlss` now draws with DLSS when Streamline is
-  installed (`factoria setup streamline`) on an NVIDIA RTX GPU, on Direct3D 12 and Vulkan (Windows). The engine starts Streamline
-  before the device exists (its own declarations of the C interface; no NVIDIA header or binary is in the repository), picks the
-  DLSS mode nearest to the quality's upscale ratio, sets the options only when they change and tells DLSS the jitter, depth, motion and
-  exposure each frame. What the machine lacks (the GPU, a driver, the library) makes `dlss` unavailable with Streamline's own reason in
-  `render.supports`, never the device; `auto` picks DLSS on an NVIDIA GPU; a failing frame turns the mode off for the run and the
-  temporal upscaler draws. NVIDIA asks a game to notify it before a commercial release and to credit it. UPSCALING_VENDORS.md,
-  "NVIDIA DLSS Super Resolution"; ARCHITECTURE_RENDERING_HOOKS.md, "Streamline runtime core".
-- **Intel XeSS Super Resolution (M78):** `render.upscaler` mode `xess` now draws with XeSS 3.x when `libxess.dll` is installed
-  (`factoria setup xess`): D3D12 and Vulkan on any GPU, Direct3D 11 on Intel Arc, and `auto` picks it on an Intel GPU. One context is made
-  per device and initialised again only when the size, quality or input format changes; a call that fails turns the mode off for the
-  run, with XeSS's own reason, and the temporal upscaler draws. The depth and motion XeSS reads come from the preparation pass MetalFX
-  uses, now on every GPU backend. UPSCALING_VENDORS.md, "Intel XeSS".
-- **Low latency (M78):** `render.latency` (project key `render.latency {mode, boost}` and command) sleeps before the input is read so a
-  press reaches the screen sooner: AMD Anti-Lag 2 (Direct3D 12 and Vulkan, Windows), Intel XeLL (Direct3D 12, `factoria setup xess`),
-  NVIDIA Reflex (Direct3D 12 and Vulkan, through Streamline), or the engine's own pacing where no SDK runs. `auto` picks the maker's SDK. An
-  SDK that cannot start reports why and the pacing runs instead, never a device failure. The profiler (`perf.profile`, editor
-  Profiler) shows the input-to-present time, and `render.supports` has the rows `reflex`, `antilag2` and `xell`. LATENCY.md.
-- **NVIDIA Reflex (M78):** `render.latency` mode `reflex` (and `auto` on an NVIDIA GPU) now runs NVIDIA Reflex through the Streamline
-  runtime of DLSS: Low Latency or, with `boost`, Low Latency Boost, `slReflexSleep` once per frame before the input is read and the PC
-  latency markers of the frame, on Direct3D 12 and Vulkan after `factoria setup streamline`. DLSS and Reflex share one frame token;
-  the report has Reflex's own simulation-to-present time. A GPU, a driver or a backend without Reflex says why in `render.supports` and the
-  engine's own pacing runs. The engine ships no NVIDIA code (its own declarations of the C interface of Streamline 2.14.16). LATENCY.md,
-  "NVIDIA Reflex".
-- **Low-latency settings in the editor and the menu kit (M78):** the editor's View > Graphics window has a **Low latency** group (mode combo,
-  Boost checkbox, a line saying what the mode does on this machine; a mode `render.supports` says cannot run is greyed out with its reason as
-  the tooltip) that Saves `render.latency`, and `project.graphics` takes `latency {mode, boost}`. The menu kit's Graphics tab (third page, "Low latency") has
-  a Low latency row of mode buttons and a boost switch, hidden or greyed out by `render.supports` like the upscaler modes, saved in
-  `settings.graphics.latency` and applied at start. LATENCY.md, "Where to set it".
-
-### Rendering
-
-- **Smaller web, Android and Linux players:** the GLSL text of the built-in shaders (GLSL ES 3.00 and GLSL 4.30, spirv-cross output) is kept
-  as one zstd frame per header and dialect, made with the engine's own encoder, and decoded the first time a shader is made: 941,595 bytes
-  of GLSL ES text became 158,753 (GLSL 4.30: 889,035 to 157,544). The driver gets the same bytes as before. `compile_shaders.sh` builds the
-  packer (`tools/shaders/shader_pack`) itself. The Vulkan probe of the start-up (`gpu_probe.cpp`) names the Vulkan backend only in a build that has it (`FA_VULKAN_BACKEND`).
