@@ -356,12 +356,12 @@ struct Rig {
         d.headless = true;
         d.backend = GpuBackend::Recording;
         std::string error;
-        const bool ok = renderer.init(d, gfx().gpu.environment(), &error);
+        const bool initOk = renderer.init(d, gfx().gpu.environment(), &error);
         RendererDeviceAccess::set_next_device(nullptr);
         if (pipelinePool > 0) {
-            this->ok = ok;
+            this->ok = initOk;
         } else {
-            REQUIRE_MESSAGE(ok, error);
+            REQUIRE_MESSAGE(initOk, error);
         }
     }
     ~Rig() {
