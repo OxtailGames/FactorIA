@@ -587,10 +587,42 @@ jobs:
         shell: bash
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
+      # M79 (docs/design/ARCHITECTURE_RENDERING_RAYTRACING_SHADERS.md, "What CI runs"): the ctest render_d3d12_raytracing runs on
+      # the D3D12 Agility SDK runtime, not on the in-box one of Windows Server 2022 (10.0.20348): the NuGet WARP below is built
+      # for a newer runtime and, under the in-box one, refuses the engine's bindless root signature and misses every ray. The
+      # pinned NuGet package Microsoft.Direct3D.D3D12 gives D3D12Core.dll and d3d12SDKLayers.dll (SHA-256 checked, cached);
+      # CMake copies them beside fa_test_render_d3d12_rt alone (-DFA_D3D12_AGILITY_DIR), so every other test keeps the in-box
+      # runtime a game has on a player's machine. CI-only: nothing of the package reaches a game, the editor or a release.
+      # Every shard: it builds fa_test_render_d3d12_rt and ctest_shard.py may put the test on any of the three.
+      - name: Restore the NuGet Agility SDK package
+        id: agility-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/agility-nupkg
+          key: agility-nupkg-${{ runner.os }}-1.620.2-70489669
+
+      - name: D3D12 Agility SDK runtime (pinned NuGet Microsoft.Direct3D.D3D12 1.620.2)
+        id: agility
+        shell: pwsh
+        run: >
+          ./tools/ci/agility/fetch_agility.ps1 -Version 1.620.2
+          -Sha256 70489669c2bbeaf318b62d72b0ac3e753d521387bfc848c9763791c4e920bfcc
+          -Cache "$HOME/agility-nupkg/agility.nupkg" -Out "$env:RUNNER_TEMP/agility"
+
+      # Saved as soon as the file's SHA-256 matched (the script deletes a wrong one), before a later step can fail; a push
+      # that cancels the round never saves a half-written file.
+      - name: Save the NuGet Agility SDK package
+        if: ${{ !cancelled() && steps.agility.outcome == 'success' && steps.agility-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/agility-nupkg
+          key: agility-nupkg-${{ runner.os }}-1.620.2-70489669
+
       - name: Configure (windows-release)
         # -DFA_D3D12_REQUIRE_RT=ON: only the ctest render_d3d12_raytracing gets FA_D3D12_REQUIRE_RT=1 (a WARP without DXR
-        # tier 1.1 fails it); the other tests of a shard never see the variable.
-        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_D3D12_REQUIRE_RT=ON
+        # tier 1.1 fails it); the other tests of a shard never see the variable. -DFA_D3D12_AGILITY_DIR/_SDK_VERSION: that
+        # ctest runs fa_test_render_d3d12_rt, the same file on the Agility SDK runtime (engine/render/CMakeLists.txt).
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON -DFA_D3D12_REQUIRE_RT=ON "-DFA_D3D12_AGILITY_DIR=$env:FA_AGILITY_DIR" "-DFA_D3D12_AGILITY_SDK_VERSION=$env:FA_AGILITY_SDK_VERSION"
 
       - name: Build (windows-release)
         id: build
@@ -777,6 +809,24 @@ jobs:
             if ($ntier -ge 11) { Write-Host "::notice title=WARP DXR::$summary" }
             else { Write-Host "::warning title=WARP DXR::${summary}: neither WARP runs inline ray queries, render_d3d12_raytracing will fail (FA_D3D12_REQUIRE_RT=1)" }
           }
+          # The same probe on the Agility SDK runtime the ctest render_d3d12_raytracing runs on (the program exports D3D12SDKVersion and
+          # D3D12SDKPath, D3D12\ beside it has the runtime), with the NuGet WARP beside it when there is one: the log shows
+          # whether the runtime is what lets that WARP take the unbounded SRV range (on the in-box runtime of Windows Server 2022
+          # it said `refused`).
+          $agility = Join-Path $dir 'D3D12'
+          New-Item -ItemType Directory -Force $agility | Out-Null
+          Copy-Item "$env:FA_AGILITY_DIR\D3D12Core.dll", "$env:FA_AGILITY_DIR\d3d12SDKLayers.dll" $agility -Force
+          $buildAgility = Join-Path $dir 'build_probe_agility.cmd'
+          @('@echo off',
+            "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul || exit /b 1",
+            "cd /d `"$dir`"",
+            "cl /nologo /EHsc /O1 /DFA_PROBE_AGILITY_SDK=$env:FA_AGILITY_SDK_VERSION /Fo:d3d12_rt_probe_agility.obj /Fe:d3d12_rt_probe_agility.exe d3d12_rt_probe.cpp /link d3d12.lib dxgi.lib") | Set-Content -Encoding ascii $buildAgility
+          & cmd.exe /d /c $buildAgility
+          if ($LASTEXITCODE -ne 0) { throw 'the Agility probe did not compile' }
+          $ag = & "$dir\d3d12_rt_probe_agility.exe" | ForEach-Object { $_.ToString() }
+          $ag | ForEach-Object { "Agility SDK runtime: $_" }
+          $summary = "$summary; on the Agility SDK runtime ($(($ag | Select-String '^d3d12CoreVersion=').Line), $(($ag | Select-String '^warpVersion=').Line)): DXR tier $(Tier $ag), $(($ag | Select-String '^unboundedSrvTable=').Line)"
+          if ((Tier $ag) -lt 0) { Write-Host "::warning title=Agility probe::the probe found no WARP device on the Agility SDK runtime: render_d3d12_raytracing will fail" }
           $summary | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       # The nupkg is in the cache folder only once its SHA-256 matched (a mismatch deletes it), so saving it is safe even

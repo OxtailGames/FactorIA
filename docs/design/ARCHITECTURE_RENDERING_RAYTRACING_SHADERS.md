@@ -89,6 +89,21 @@ is the only writer of the headers; `scripts/ci-preflight.sh` reminds you when a 
   WARP has no tier 1.1 (scripts/ctest_shard.py may put that test on any shard). The package's licence permits testing only and forbids
   redistribution: it is CI-only and nothing in a game, the editor or a release ever carries it. Measured on the Windows 11 development PC: the OS's WARP reports tier 11;
   the NuGet WARP 1.0.22 reports tier 12. The `windows-2022` runner's own tier is the number this step adds to every run.
+  **The Agility SDK runtime, for that one test.** The `windows-2022` runner's in-box D3D12 runtime is 10.0.20348, older than the
+  NuGet WARP 1.0.22 is built for: under it the WARP refuses the engine's bindless root signature (an unbounded SRV range,
+  `E_INVALIDARG`; the probe prints `unboundedSrvTable=refused`) and, with the device's bindless table dropped on that refusal
+  (`D3d12Device::bindless_table_accepted`), still misses every ray of `rt_probe`. So every shard downloads the NuGet package
+  **Microsoft.Direct3D.D3D12 1.620.2** (pinned by SHA-256, cached; `tools/ci/agility/fetch_agility.ps1`) before the Configure step,
+  and configures with `-DFA_D3D12_AGILITY_DIR=<its D3D12Core.dll and d3d12SDKLayers.dll>` and `-DFA_D3D12_AGILITY_SDK_VERSION=620`.
+  CMake then builds `fa_test_render_d3d12_rt` (`d3d12_raytracing_tests.cpp` and `tools/ci/agility/d3d12_agility_exports.cpp`, which
+  exports `D3D12SDKVersion` and `D3D12SDKPath = ".\\D3D12\\"`), copies the two DLLs to `D3D12\` beside it, and `render_d3d12_raytracing`
+  runs that program. The exports make D3D12 load that folder or fail device creation (there is no fallback to the system's runtime),
+  which is why it is a program of its own: `fa_test_render` and every other test keep the in-box runtime, the one a game has on a
+  player's machine. The test prints the `D3D12Core.dll` it ran on, and the probe step runs the probe a second time with the same
+  exports and prints `unboundedSrvTable` (and the tier) of the NuGet WARP on the Agility runtime next to the in-box result, so the
+  CI log shows what the runtime changed. The package's licence allows the runtime to be distributed, but it is CI-only here: nothing
+  in a game, the editor or a release carries it. Measured on the Windows 11 development PC (runtime 10.0.26100): the NuGet WARP
+  passes the test on its in-box runtime and on Agility 1.620.2; it was not measured on Windows Server 2022.
   By hand (never in CI), `FA_D3D12_RT_HARDWARE=1 FA_D3D12_REQUIRE_RT=1` makes `render_d3d12_raytracing` trace on the machine's hardware adapter instead of WARP.
 
 ## What a contributor does
