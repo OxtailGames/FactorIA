@@ -534,6 +534,7 @@ TEST_CASE("rt gi: the retry frame and the frames after a miss update the grids b
                 ++idle;
                 MESSAGE("frame " << i << " updated no probe");
             }
+            CHECK(captures - last <= double(render::kGiInsuredMaxProbes));  // the insured captures are capped
         }
         last = captures;
     }
