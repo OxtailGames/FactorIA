@@ -526,6 +526,10 @@ View D3d12Device::make_view(const ViewDesc& desc) {
             fail("its buffer " + std::to_string(desc.storageBuffer.buffer.id) + " is not a live buffer");
         else if (!b->usage.storageBuffer)
             fail("buffer '" + b->label + "' was not made with BufferUsage::storageBuffer");
+        else if (desc.storageBuffer.structureStride > 2048)
+            fail("structureStride " + std::to_string(desc.storageBuffer.structureStride) +
+                 " is above 2048, the most D3D12 allows for the element of a structured buffer (hint: split the "
+                 "element, or use a raw view with structureStride 0 and read the words yourself)");
         else if (desc.storageBuffer.structureStride < 0 || desc.storageBuffer.structureStride % 4 != 0 ||
                  (desc.storageBuffer.structureStride > 0 && offset % desc.storageBuffer.structureStride != 0))
             fail("structureStride " + std::to_string(desc.storageBuffer.structureStride) +
