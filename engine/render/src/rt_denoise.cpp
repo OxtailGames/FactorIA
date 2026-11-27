@@ -30,8 +30,8 @@ static_assert(VIEW_rt_denoise_tex_n == 0 && VIEW_rt_denoise_tex_p == 1 && VIEW_r
 static_assert(SMP_rt_denoise_smp_pt == 0, "the denoise sampler slot");
 
 constexpr gpu::PixelFormat kColorFormat = gpu::PixelFormat::Rgba16F;
-// The a-trous filter of the iterations from kWideFrom on is a 3x3 (the steps are 4, 8 and 16 pixels there: the taps are far apart, the
-// B3 spline's outer ring adds little), the first ones a 5x5. From kCalmFrom on (the input of those iterations is already filtered, its
+// The a-trous filter is a 3x3 [1 2 1] except in the second iteration, a 5x5 B3 spline (the steps from kWideFrom on are 4, 8 and 16 pixels:
+// the taps are far apart, the spline's outer ring adds little). From kCalmFrom on (the input of those iterations is already filtered, its
 // variance is a neighbourhood's, not one pixel's) a pixel whose standard deviation is under kCalmSd of its own brightness (+ 0.25) is
 // left as it is: less than one level of an 8-bit picture. The first iteration never skips: a pixel whose own history has no spread yet
 // (a Bernoulli signal that was 0 every frame so far) still takes its value from the neighbours.
@@ -213,12 +213,6 @@ bool RtDenoiser::ready(gpu::Device& dev) {
     device_ = &dev;
     shaders_[int(Prog::Guide)] =
         make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_guide_shader_desc), "rt_denoise_guide");
-    shaders_[int(Prog::GuideHalf)] =
-        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_guidehalf_shader_desc), "rt_denoise_guidehalf");
-    shaders_[int(Prog::Down)] =
-        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_down_shader_desc), "rt_denoise_down");
-    shaders_[int(Prog::Up)] =
-        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_up_shader_desc), "rt_denoise_up");
     shaders_[int(Prog::Temporal)] =
         make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_temporal_shader_desc), "rt_denoise_temporal");
     shaders_[int(Prog::Atrous)] =
@@ -226,7 +220,10 @@ bool RtDenoiser::ready(gpu::Device& dev) {
     shaders_[int(Prog::Debug)] =
         make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_debug_shader_desc), "rt_denoise_debug");
     bool ok = true;
-    for (gpu::Shader sh : shaders_) ok = ok && dev.state(sh) == gpu::ResourceState::Valid;
+    for (int i = 0; i < int(Prog::Count);
+         ++i)  // the half size programs are made when a half size signal asks (half_ready)
+        if (i != int(Prog::GuideHalf) && i != int(Prog::Down) && i != int(Prog::Up))
+            ok = ok && dev.state(shaders_[i]) == gpu::ResourceState::Valid;
     const gpu::PixelFormatCaps f16 = dev.pixel_format_caps(kColorFormat);
     if (ok && !(f16.render && f16.sample)) {
         ok = false;
@@ -251,6 +248,35 @@ bool RtDenoiser::ready(gpu::Device& dev) {
     }
     state_ = 1;
     return true;
+}
+
+// The three programs of a half size chain, made when the first half size signal asks: a backend that cannot compile them (only Metal has
+// them for now) still denoises every signal at full size.
+bool RtDenoiser::half_ready(gpu::Device& dev) {
+    if (halfState_ != 0) return halfState_ > 0;
+    if (state_ <= 0) return false;
+    shaders_[int(Prog::GuideHalf)] =
+        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_guidehalf_shader_desc), "rt_denoise_guidehalf");
+    shaders_[int(Prog::Down)] =
+        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_down_shader_desc), "rt_denoise_down");
+    shaders_[int(Prog::Up)] =
+        make_shader(dev, gpu::generated_shader_desc(dev, rt_denoise_up_shader_desc), "rt_denoise_up");
+    bool ok = true;
+    for (Prog p : {Prog::GuideHalf, Prog::Down, Prog::Up})
+        ok = ok && dev.state(shaders_[int(p)]) == gpu::ResourceState::Valid;
+    if (!ok) {
+        for (Prog p : {Prog::GuideHalf, Prog::Down, Prog::Up}) {
+            gpu::Shader& sh = shaders_[int(p)];
+            if (sh.id) dev.destroy_shader(sh);
+            sh = {};
+        }
+        FA_WARN("render",
+                "The ray tracing denoiser's half resolution shaders failed to compile for this graphics backend (see "
+                "the log lines above): the signals that ask for half resolution (the AO, the per-pixel GI) are "
+                "denoised at full resolution, which costs more. Hint: update the graphics driver.");
+    }
+    halfState_ = ok ? 1 : -1;
+    return ok;
 }
 
 gpu::Pipeline RtDenoiser::pipeline(Prog prog, const TargetFormat& format) {
@@ -293,6 +319,7 @@ void RtDenoiser::destroy(SignalSlot& s) {
     s.wrote = false;
     s.frameSerial = 0;
     s.frameGraph = nullptr;
+    s.guideSerial = 0;
 }
 
 std::uint64_t RtDenoiser::guide_bytes_of(const GuideSlot& g) { return g.w > 0 ? image_bytes(g.w, g.h, 8, 2) : 0; }
@@ -406,6 +433,7 @@ void RtDenoiser::release() {
     pipelines_.clear();
     for (gpu::Shader& sh : shaders_) sh = {};
     state_ = 0;
+    halfState_ = 0;
     forget_targets();
     device_ = nullptr;
 }
@@ -474,7 +502,10 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
     const gpu::PixelFormatCaps f32 = device_->pixel_format_caps(gpu::PixelFormat::Rgba32F);
     const bool momentsF32 = !forceF16_ && f32.render && f32.sample;
     const gpu::PixelFormat momFormat = momentsF32 ? gpu::PixelFormat::Rgba32F : gpu::PixelFormat::Rgba16F;
-    const DenoisePlan plan = make_denoise_plan(signal, w, h, momentsF32);
+    // A half size signal runs at full size on a backend that did not compile the half size programs (said once, by half_ready).
+    DenoiseSignal asked = signal;
+    if (asked.halfRes && !half_ready(*device_)) asked.halfRes = false;
+    const DenoisePlan plan = make_denoise_plan(asked, w, h, momentsF32);
     if (!plan.on) return fail("nothing to do");
     const DenoiseSettings& st = plan.settings;
     const bool half = plan.halfRes;
@@ -806,11 +837,14 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
         world_columns(cam.view, u.wx, u.wy, u.wz);
         set4(u.sv, st.depthTolerance, kMinNormalDot, 0.0f, 0.0f);
         set4(u.rr, plan.roughMin, plan.roughMax, useRough ? 1.0f : 0.0f, 0.0f);
+        set4(u.hf, half ? 1.0f : 0.0f, fw, fh, 0.0f);
         std::vector<ResourceId> reads{chainGuideRes};
-        if (half)
+        if (half) {
             reads.push_back(downRes);
-        else
+            reads.push_back(guideRes);  // the full guide: the velocity texel of a block is the one the half guide took
+        } else {
             push_if(reads, noisy);
+        }
         push_if(reads, velocity);
         if (useRough) push_if(reads, roughness);
         if (histValid) {
@@ -837,6 +871,9 @@ DenoiseOutput RtDenoiser::add_passes(FrameGraph& graph, TransientTargets& target
             a.views[VIEW_rt_denoise_tex_hg] = hgt && (half || guideRead >= 0) ? hgt->texView : gnow->texView;
             const gpu::View rough = useRough ? roughness.get(c) : gpu::View{};
             a.views[VIEW_rt_denoise_tex_r] = rough.id ? rough : gnow->texView;
+            const Target* fullGuide = half ? guide_now() : nullptr;
+            if (half && (!fullGuide || !fullGuide->texView.id)) return;
+            a.views[VIEW_rt_denoise_tex_c] = fullGuide ? fullGuide->texView : gnow->texView;
             a.params = &u;
             a.paramBytes = sizeof(u);
             a.paramSlot = UB_rt_denoise_rtd_temporal_params;

@@ -431,8 +431,8 @@ thin line. The kernel is described in docs/design/ARCHITECTURE_RT_PATHTRACER.md 
 
 ## What it costs
 
-Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build of the M79 POLISH-denoise-2 branch, with the denoiser of docs/design/ARCHITECTURE_DENOISE.md, "Cost", repository only, not in the binary), the project
-`tools/cli/tests/perf/rt_cost` (repository only, not in the binary; a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
+Measured on one Mac, an **Apple M5 on Metal** (macOS, a Release build of version 0.39.0, with the denoiser of docs/design/ARCHITECTURE_DENOISE.md, "Cost", repository only, not in the binary), the project
+`tools/cli/tests/fixtures/rt_cost` (repository only, not in the binary; a courtyard: a sun and three point lights that cast shadows, 54 entities, about 112000 triangles, 40 boxes,
 spheres, cylinders and cones of every roughness, four glass spheres, a mirror, a `RealtimeGI` grid), drawn at **1920 x 1080** with vsync off. Each
 row is one effect on top of the raster frame; `raysPerPixel` is 1 unless the row says more. The numbers are the **frame time**, the wall clock
 per frame with the GPU kept busy (the median of three runs of 300 frames, the start-up taken out; the three runs of each row alternate with the other rows, and the Mac was shared with other builds, so each figure can be off by a millisecond or two): `factoria call perf.measure` (a headless engine with the GPU renderer, at the
@@ -460,7 +460,7 @@ a 16 ms frame", and as the order of magnitude, not a promise: another scene, siz
 What the table says:
 
 - **The rays are cheap, the denoiser is the larger part of most of the rest.** `shadows: "hard"` and `translucency` have no denoiser and cost 1 to 4
-  ms. A denoised effect costs 3.5 to 9 ms at 1080p with one ray, and going from 1 to 4 rays adds 2 to 6 ms (soft shadows the most). A
+  ms. A denoised effect costs 3.5 to 9 ms at 1080p with one ray, and going from 1 to 4 rays adds 1.5 to 6 ms (soft shadows the most, reflections the least). A
   temporary GPU timestamp per pass (not in the engine; docs/design/ARCHITECTURE_DENOISE.md, "Cost"; repository only, not in the binary) puts the denoiser at about 6 of the 8 ms of the soft shadows, 2 of
   the 3.5 of the ambient occlusion and 5 of the 6 of the reflections; the per-pixel GI is the exception (its rays are about 6 of 9 ms, the
   denoiser under 3). The ambient occlusion and the per-pixel GI are denoised at half the resolution. Pick the rays a look needs, not the fewest. (There
