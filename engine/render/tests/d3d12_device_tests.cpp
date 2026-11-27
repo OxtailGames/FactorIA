@@ -372,8 +372,9 @@ TEST_CASE("d3d12: a WARP device answers what it can do") {
     step = "resource binding tier";
     CHECK(dev->resource_binding_tier() >= 1);
     CHECK(dev->resource_binding_tier() <= 3);
-    if (dev->resource_binding_tier() >= 2)
-        CHECK(dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors));
+    if (dev->resource_binding_tier() >= 2)  // 0 too where the runtime refuses the unbounded range (and warned)
+        CHECK((dev->bindless_descriptors() == std::uint32_t(D3d12Options{}.bindlessDescriptors) ||
+               dev->bindless_descriptors() == 0));
     else
         CHECK(dev->bindless_descriptors() == 0);  // tier 1 has no unbounded ranges: no bindless table
     step = "the debug layer said nothing";
@@ -2840,7 +2841,8 @@ TEST_CASE("d3d12: every live texture view has its own bindless slot, which a sha
     auto dev = make_warp();
     if (!dev) return;
     if (!dev->features().bindless) {
-        MESSAGE("d3d12: skipped, resource binding tier 1 has no bindless table");
+        MESSAGE("d3d12: skipped, no bindless table (resource binding tier 1, or a runtime that refuses its unbounded "
+                "range)");
         return;
     }
     const View red = make_texture(*dev, 1, 1, {255, 0, 0, 255});

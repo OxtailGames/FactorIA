@@ -63,8 +63,9 @@ struct D3d12Options {
     int cpuSamplerDescriptors = 0;
     // The shader-visible CBV/SRV/UAV heap: a range reserved for the bindless table (every root signature sees it as
     // an unbounded SRV range at t0, space1; 0 = no bindless table), then one segment per frame in flight that the
-    // bindings of that frame are copied into. A GPU of resource binding tier 1 has no unbounded ranges: there the
-    // device makes no bindless table, whatever this asks (D3d12Device::bindless_descriptors() says what it made).
+    // bindings of that frame are copied into. A GPU of resource binding tier 1 has no unbounded ranges, and some
+    // runtimes refuse them on a higher tier: there the device makes no bindless table, whatever this asks
+    // (D3d12Device::bindless_descriptors() says what it made).
     int bindlessDescriptors = 32768;
     int frameViewDescriptors = 32768;
     // The shader-visible sampler heap: one segment per frame in flight (D3D12 allows 2048 samplers in all).
@@ -1123,6 +1124,10 @@ private:
     Result<void> init(const D3d12Options& options);
     Result<void> init_adapter(const D3d12Options& options);
     void init_caps();
+    // Whether the runtime takes a root signature that holds only the bindless table (an unbounded SRV range at t0,
+    // space1), made once by init with the debug layer's messages held back: a refusal is the answer, not an error.
+    // False sets `why` (the HRESULT). Defined in d3d12_pipelines_win32.cpp, beside the root signatures it stands for.
+    bool bindless_table_accepted(std::string& why);
     // The ray tracing tier and shader model, ID3D12Device5, and the Features, Limits and reason they give (init_caps).
     void init_ray_tracing();
     // The refusal of a ray tracing call on a device without it: "gpu d3d12: <call>: <rtWhy_>" (and errors()).
@@ -1203,7 +1208,12 @@ private:
     std::shared_ptr<const PipelineState> pipeline_state(Pipeline pipeline) const;
     // Moves the debug layer's messages into errors_ / warnings_.
     void drain_messages();
+    // "; the device was removed: <reason>", or "" while the device lives. The first call that sees a removal on a
+    // device with DRED (dred_) logs what DRED recorded, once (log_dred).
     std::string removed_reason() const;
+    // Logs DRED's breadcrumbs (per command list: its name, its queue, how many of its commands the GPU finished and
+    // the ones around the first it did not) and its page fault (the address and the allocations at it) as one error.
+    void log_dred() const;
     void count_make(ResourceTotals& t, bool ok);
     void count_destroy(ResourceTotals& t);
     std::shared_ptr<TrackedResource> buffer_tracked(Buffer b, std::size_t* size, std::string* label) const;
@@ -1275,6 +1285,10 @@ private:
     bool warp_ = false;
     bool debugLayer_ = false;
     bool gpuValidation_ = false;
+    // DRED (Device Removed Extended Data) was switched on with the debug layer: a removal is logged once with the
+    // last commands each list ran and, where the driver tells, the GPU address that faulted (log_dred).
+    bool dred_ = false;
+    mutable std::atomic<bool> dredLogged_{false};
     int framesInFlight_ = kInflightFrames;
 
     // What the device can do
