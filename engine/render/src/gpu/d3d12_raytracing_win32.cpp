@@ -316,7 +316,8 @@ std::string D3d12CommandList::accel_list_problem() const {
 
 void D3d12CommandList::accel_access(const std::shared_ptr<TrackedResource>& t, AccelAccess access) {
     if (!t) return;
-    require(t, 0, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);  // no barrier: it never leaves that state
+    require_plain(t, 0,
+                  D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);  // no barrier: it never leaves that state
     AccelAccess& last = accelLast_[t.get()];
     const bool barrier = (access == AccelAccess::Write && last != AccelAccess::None) ||
                          (access == AccelAccess::Read && last == AccelAccess::Write);
@@ -466,9 +467,9 @@ Result<void> D3d12CommandList::build_blas(const BlasBuild& b) {
     // The barriers: the inputs in the build-input state, the scratch in the UAV state after the last build that used
     // it, the source and the destination after the commands of this list that touched them.
     for (const std::shared_ptr<TrackedResource>& t : inputs)
-        require(t, 0, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        require_plain(t, 0, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     uav_barrier_if_written(scratchT);
-    require(scratchT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    require_plain(scratchT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (srcT && srcAddress != dstAddress) accel_access(srcT, AccelAccess::Read);
     accel_access(dstT, AccelAccess::Write);
     flush_barriers();
@@ -631,7 +632,7 @@ Result<void> D3d12CommandList::build_tlas(const TlasBuild& b) {
     // and the destination after the commands that touched them (a dispatch that traced the TLAS: write after read).
     for (const std::shared_ptr<TrackedResource>& t : blases) accel_access(t, AccelAccess::Read);
     uav_barrier_if_written(scratchT);
-    require(scratchT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    require_plain(scratchT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (srcT && srcAddress != dstAddress) accel_access(srcT, AccelAccess::Read);
     accel_access(dstT, AccelAccess::Write);
     flush_barriers();
@@ -703,7 +704,7 @@ Result<void> D3d12CommandList::query_compacted_size(AccelStructure blas, Buffer 
                           "an 8-byte aligned offset");
     accel_access(srcT, AccelAccess::Read);  // after the build that wrote it
     uav_barrier_if_written(dstT);
-    require(dstT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    require_plain(dstT, 0, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     flush_barriers();
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC info{};
     info.DestBuffer = dstAddress;

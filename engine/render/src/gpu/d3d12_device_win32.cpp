@@ -1081,7 +1081,8 @@ SyncToken D3d12Device::submit_token(CommandList& l, std::span<const QueueHandoff
             }
             if (m.to == kind) continue;  // stays on this queue
             // The destination queue type takes a texture from COMMON (buffers are COMMON between lists anyway).
-            if (!m.res->buffer) list->require(m.res, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+            if (!m.res->buffer)
+                list->require_plain(m.res, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
             moving.push_back(&m);
         }
         flush_prelude();  // the initial uploads of resources this list may use go first
@@ -1218,7 +1219,7 @@ void D3d12Device::execute(D3d12CommandList& list) {
             const std::shared_ptr<TrackedResource> t = list.uses_[i].res;
             if (t->owner == kind) continue;
             foreign[std::size_t(t->owner)] = true;
-            if (!t->buffer) list.require(t, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
+            if (!t->buffer) list.require_plain(t, D3d12CommandList::kAllSubresources, D3D12_RESOURCE_STATE_COMMON);
         }
     }
     list.flush_barriers();

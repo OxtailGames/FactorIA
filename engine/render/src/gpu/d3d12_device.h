@@ -599,10 +599,19 @@ public:
     static D3D12_RESOURCE_STATES native_state(NativeState state, QueueKind queue);
     // Returns false, after reporting, when the resource cannot be put in `state` (an acceleration structure buffer never
     // leaves its state): the caller must not record the command that wanted it. A null resource is true (nothing to do).
-    bool require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state);
+    [[nodiscard]] bool require(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub,
+                               D3D12_RESOURCE_STATES state);
+    // require() for a resource that cannot hold acceleration structures, the only thing that makes it fail: a texture,
+    // the swap chain's image, a list's own scratch buffer, or a buffer the caller already refused when it holds
+    // acceleration structures. There is no command to refuse, so the result has nothing to say (require itself reports
+    // an engine bug that asks for it anyway).
+    void require_plain(const std::shared_ptr<TrackedResource>& t, std::uint32_t sub, D3D12_RESOURCE_STATES state) {
+        static_cast<void>(require(t, sub, state));
+    }
     // The same for mips [mip, mip + mipCount) of layers [layer, layer + layerCount), every plane.
-    bool require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip, std::uint32_t mipCount,
-                       std::uint32_t layer, std::uint32_t layerCount, D3D12_RESOURCE_STATES state);
+    [[nodiscard]] bool require_range(const std::shared_ptr<TrackedResource>& t, std::uint32_t mip,
+                                     std::uint32_t mipCount, std::uint32_t layer, std::uint32_t layerCount,
+                                     D3D12_RESOURCE_STATES state);
     // Records the barriers require() collected (before every command that needs them).
     void flush_barriers();
     ID3D12GraphicsCommandList* native() const { return list_.get(); }

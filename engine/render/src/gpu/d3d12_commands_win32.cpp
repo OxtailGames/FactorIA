@@ -349,13 +349,13 @@ void D3d12CommandList::begin_pass(const PassDesc& pass) {
     UINT rtvCount = 0;
     for (const Attachment* a : {&color, &color1}) {
         if (!a->bound) continue;
-        require(a->t, a->t->subresource(a->mip, a->layer, 0), D3D12_RESOURCE_STATE_RENDER_TARGET);
+        require_plain(a->t, a->t->subresource(a->mip, a->layer, 0), D3D12_RESOURCE_STATE_RENDER_TARGET);
         rtvs[rtvCount++] = a->handle;
     }
     const bool stencil = depth.bound && format_info(depth.format).planes > 1;
     if (depth.bound)
         for (std::uint32_t p = 0; p < depth.t->planes; ++p)
-            require(depth.t, depth.t->subresource(depth.mip, depth.layer, p), D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            require_plain(depth.t, depth.t->subresource(depth.mip, depth.layer, p), D3D12_RESOURCE_STATE_DEPTH_WRITE);
     flush_barriers();
     list_->OMSetRenderTargets(rtvCount, rtvCount ? rtvs : nullptr, FALSE, depth.bound ? &depth.handle : nullptr);
     if (color.bound && clears(pass.colorLoad)) {
@@ -430,8 +430,8 @@ void D3d12CommandList::end_pass() {
         return;
     }
     if (passState_ == PassState::Render && !passFailed_ && resolveSrc_ && resolveDst_) {
-        require(resolveSrc_, resolveSrcSub_, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
-        require(resolveDst_, resolveDstSub_, D3D12_RESOURCE_STATE_RESOLVE_DEST);
+        require_plain(resolveSrc_, resolveSrcSub_, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+        require_plain(resolveDst_, resolveDstSub_, D3D12_RESOURCE_STATE_RESOLVE_DEST);
         flush_barriers();
         list_->ResolveSubresource(resolveDst_->resource.get(), resolveDstSub_, resolveSrc_->resource.get(),
                                   resolveSrcSub_, resolveFormat_);
@@ -937,7 +937,9 @@ bool D3d12CommandList::ready_to_run(const char* what, bool compute) {
     }
     // A dispatch that traces runs after every build, refit and copy of this list: a UAV barrier over all resources (a
     // null pResource), because the BLASes a TLAS points at are no binding of the dispatch (a BLAS refit after the TLAS
-    // build, then a trace, has no per-resource barrier to hang on).
+    // build, then a trace, has no per-resource barrier to hang on). A build or refit in an EARLIER list needs none:
+    // every list is its own ExecuteCommandLists call (D3d12Device::submit), and D3D12 finishes the work of one call
+    // before the next call's work starts (frame 5 of the d3d12_raytracing test refits in one list and traces in the next).
     if (tracesRays && accelWritten_) {
         D3D12_RESOURCE_BARRIER b{};
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -1309,7 +1311,7 @@ void D3d12CommandList::copy_placed(ID3D12Resource* src, std::uint64_t offset, st
     to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     if (is3d) {
         to.SubresourceIndex = t->subresource(mip, 0, 0);
-        require(t, to.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_DEST);
+        require_plain(t, to.SubresourceIndex, D3D12_RESOURCE_STATE_COPY_DEST);
         flush_barriers();
         from.PlacedFootprint.Offset = offset;
         from.PlacedFootprint.Footprint.Depth = count;
@@ -1317,7 +1319,7 @@ void D3d12CommandList::copy_placed(ID3D12Resource* src, std::uint64_t offset, st
     } else {
         from.PlacedFootprint.Footprint.Depth = 1;
         for (std::uint32_t i = 0; i < count; ++i)
-            require(t, t->subresource(mip, layer + i, 0), D3D12_RESOURCE_STATE_COPY_DEST);
+            require_plain(t, t->subresource(mip, layer + i, 0), D3D12_RESOURCE_STATE_COPY_DEST);
         flush_barriers();
         for (std::uint32_t i = 0; i < count; ++i) {
             to.SubresourceIndex = t->subresource(mip, layer + i, 0);
@@ -1493,13 +1495,13 @@ void D3d12CommandList::copy_buffer_to_image(const BufferImageCopy& c) {
     // Named as the errors name a resource ("buffer 'x'", "an unnamed buffer"): the copy's own rows buffer.
     scratch->label = "the scratch buffer of copy_buffer_to_image";
     scratch->owner = kind_;  // this list's own, on whichever queue it runs
-    require(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
+    require_plain(scratch, 0, D3D12_RESOURCE_STATE_COPY_DEST);
     flush_barriers();
     for (std::uint32_t i = 0; i < r.count; ++i)
         for (std::uint32_t row = 0; row < r.rows; ++row)
             list_->CopyBufferRegion(raw.get(), slice * i + std::uint64_t(pitch) * row, src->resource.get(),
                                     c.srcOffset + r.slicePitch * i + r.rowPitch * row, r.rowBytes);
-    require(scratch, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    require_plain(scratch, 0, D3D12_RESOURCE_STATE_COPY_SOURCE);
     copy_placed(raw.get(), 0, pitch, slice, im.tracked, im.format, is3d, r.mip, r.layer, r.count, r.x, r.y, r.width,
                 r.height);
     keep_until_done(std::move(raw));

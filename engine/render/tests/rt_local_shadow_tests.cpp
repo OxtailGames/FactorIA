@@ -318,7 +318,8 @@ TEST_CASE("rt local shadows: the constants block has the lights in their slots a
     pick.traced = 2;
     const RtLocalParams p = render::make_rt_local_params(table, pick);
     CHECK(p.header[0] == 3.0f);
-    CHECK(p.header[1] == doctest::Approx(0.02f));
+    CHECK(p.header[1] == doctest::Approx(render::kRtLocalStopMetres));
+    CHECK(p.header[2] == doctest::Approx(render::kRtLocalStopCap));
     CHECK(p.lights[0].posReach[3] == 7.0f);
     CHECK(p.lights[1].posReach[3] == 0.0f);  // the kernel skips a light that reaches nowhere
     CHECK(p.lights[2].posReach[3] == 5.0f);
@@ -363,6 +364,10 @@ TEST_CASE("rt local shadows: RtLocalLight is the same struct in C++, HLSL and MS
     CHECK(k->msl.find("constant RtLocalParams& local [[buffer(3)]]") != std::string_view::npos);
     CHECK(hlsl.find("[[vk::binding(7, 0)]] ConstantBuffer<RtLocalParams> g_local : register(b1);") !=
           std::string::npos);
+    CHECK(read_repo_file("engine/render/shaders/rt/rt_shadow_local_pack.hlsl")
+              .find("[[vk::binding(9, 0)]] Texture2D<float4> g_aux : register(t5);") != std::string::npos);
+    CHECK(read_repo_file("engine/render/shaders/rt/rt_shadow_pack.hlsl")
+              .find("[[vk::binding(9, 0)]] Texture2D<float4> g_aux : register(t5);") != std::string::npos);
     // One ray query call site per kernel (Metal's compiler unrolls a second one into a very long compile).
     std::size_t calls = 0;
     for (std::size_t at = k->msl.find(".reset("); at != std::string_view::npos; at = k->msl.find(".reset(", at + 1))
@@ -430,7 +435,7 @@ TEST_CASE("rt local shadows: the two kernels declare the bindings of the contrac
         CHECK(p.views[1].texture.binding.hlslRegister == 1);
         CHECK(p.views[5].texture.binding.hlslRegister == 5);  // the visibilities: the aux image
         CHECK(p.views[5].texture.binding.mslIndex == 4);
-        CHECK(p.views[5].texture.binding.spirvBinding == 7);
+        CHECK(p.views[5].texture.binding.spirvBinding == 9);  // not 7: the hit and local constants' binding
         if (backend == gpu::Backend::Metal) CHECK(std::string(p.computeFunc.entry) == "rt_shadow_local_pack");
         if (backend == gpu::Backend::D3d12) CHECK(d.computeFunc.bytecode.size == k->dxil.size());
         if (backend == gpu::Backend::Vulkan) CHECK(d.computeFunc.bytecode.size == k->spirv.size());

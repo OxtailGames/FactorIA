@@ -104,6 +104,11 @@ inline constexpr std::string_view kRtLightParamNames[] = {"count", "pos", "color
 // M79-P2a-3: the lights the local shadow kernel (rt_shadow_local) traces. At most kRtLocalMaxLights per frame: the three visibilities share one
 // image (r, g, b), one denoiser signal and the three bytes of one float of the lit pass's image (docs/design/ARCHITECTURE_RT_SHADOWS.md).
 inline constexpr int kRtLocalMaxLights = kRtLocalShadowMaxLights;  // raytracing.h
+// A local light's shadow ray stops kRtLocalStopMetres short of its target (a light inside a mesh's skin does not shadow itself), at most
+// kRtLocalStopCap of the ray's length (a light 10 cm from a surface still shadows it): the same few centimetres for a light 1 m or 20 m
+// away, not a share of the distance (RtLocalParams::header y and z).
+inline constexpr float kRtLocalStopMetres = 0.03f;
+inline constexpr float kRtLocalStopCap = 0.25f;
 // What the kernel needs of one light (5 float4, 80 bytes; rt_shadow_local.hlsl / .metal have the same struct between `// BEGIN RtLocalLight` and
 // `// END RtLocalLight`). Kinds: 1 point, 2 spot, 3 rectangle, 4 disc, 5 tube.
 struct RtLocalLight {
@@ -120,7 +125,8 @@ struct RtLocalLight {
 // The constants block of rt_shadow_local at uniform slot RtEffectBindings::kUniformHit: 16 float4, 256 bytes (the header, then the lights).
 struct RtLocalParams {
     float header
-        [4];  // x: how many lights are traced (0 .. kRtLocalMaxLights); y: the ray's pull back from the light, a fraction of its length
+        [4];  // x: how many lights are traced (0 .. kRtLocalMaxLights); y: how many metres short of the light the ray stops (kRtLocalStopMetres), z: the most of its length that
+    // may be (kRtLocalStopCap)
     RtLocalLight lights[kRtLocalMaxLights];
 };
 static_assert(sizeof(RtLocalLight) == 5 * 16 && sizeof(RtLocalParams) == 16 * 16,
@@ -167,11 +173,10 @@ struct RtEffectBindings {
     static constexpr int kSampler =
         0;  // Bindings::samplers: the nearest sampler Sokol wants beside the texture views (rt_effect_needs_sampler)
     // HLSL registers (D3D12): t0 TLAS, u0 out, b0 params, t1 prepass, t2 records, t3 albedo, t4 material, t5 aux.
-    // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material, 7 aux.
+    // Vulkan bindings (set 0): 0 TLAS, 1 out, 2 params, 3 prepass, 4 records, 5 albedo, 6 material, 7 hit or local constants, 8 lights, 9 aux.
     // Metal: buffer(0) TLAS, texture(0) out, buffer(1) params, texture(1) prepass, buffer(8) records (Sokol: storage buffers are 8 .. 23),
     // texture(2) albedo, texture(3) material, texture(4) aux.
-    // The hit constants (usesHit): b1 / binding 7 / buffer(3). Vulkan binding 7 is the aux image of a kernel with usesAux and the hit constants of
-    // one with usesHit: no kernel has both (add_pass refuses a spec that does).
+    // The hit constants (usesHit): b1 / binding 7 / buffer(3). The aux image has its own Vulkan binding, 9, so a kernel may have both.
     // The numbers of the sun shadow's own constants (RtEffectParams::user0, user1) are in rt_shadow_params below.
 };
 
@@ -185,10 +190,9 @@ struct RtEffectKernelSpec {
         false;  // the kernel shades what its rays hit (rt_hit.hlsli): RtHitParams at b1 / binding 7 / buffer(3); it needs usesRecords
     bool usesTlas =
         true;  // the TLAS (t0 / binding 0 / buffer(0)); false: a kernel that only moves pixels, no ray query
-    bool usesAux =
-        false;  // RtEffectRequest::aux as the second input image (t5 / binding 7 / texture(4)); not with usesHit
+    bool usesAux = false;  // RtEffectRequest::aux as the second input image (t5 / binding 9 / texture(4))
     bool usesLocal =
-        false;  // RtEffectRequest::local (RtLocalParams) at b1 / binding 7 / buffer(3), like usesHit; not with usesHit or usesAux
+        false;  // RtEffectRequest::local (RtLocalParams) at b1 / binding 7 / buffer(3), like usesHit; not with usesHit
     // M79-P5a (the path tracer): the kernel reads the image it writes (a running mean over the frames: the output is a read and write storage
     // image, which needs a device that reads RGBA32F storage images) and the RtLightParams block of the request.
     bool readsOut = false;

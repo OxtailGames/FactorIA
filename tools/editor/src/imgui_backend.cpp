@@ -295,10 +295,10 @@ void setup(const char* iniFile) {
     ImFontConfig cfg;
     cfg.FontDataOwnedByAtlas = false;
     ImFont* font = nullptr;
-    for (const auto& f : fa_editor_fonts::files()) {
-        font = io.Fonts->AddFontFromMemoryTTF(const_cast<char*>(f.data.data()), int(f.data.size()), 16.0f, &cfg);
-        break;
-    }
+    const auto fonts = fa_editor_fonts::files();
+    if (!fonts.empty())  // the first face is the editor's font
+        font = io.Fonts->AddFontFromMemoryTTF(const_cast<char*>(fonts.front().data.data()),
+                                              int(fonts.front().data.size()), 16.0f, &cfg);
     if (!font) io.Fonts->AddFontDefault();
     apply_theme();
 
