@@ -343,6 +343,11 @@ const render::VendorProbe& Renderer::Impl::rr_probe() {
     return rrProbe;
 }
 
+std::string Renderer::Impl::vendor_failed_text(int index) const {
+    return std::string(render::vendor_provider(index).name()) + " failed a frame earlier in this run (" +
+           vendorFailedWhy[index] + ")";
+}
+
 // The providers' answers for render.supports: a provider that refused a frame is off, with that reason.
 void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
     std::array<render::VendorProbe, render::kVendorUpscalerCount> answers;
@@ -350,9 +355,7 @@ void Renderer::Impl::set_vendor_env(render::FeatureEnv& env) {
         answers[std::size_t(i)] = vendor_probe(i);
         if (vendorFailed[i]) {
             answers[std::size_t(i)].available = false;
-            answers[std::size_t(i)].reason = std::string(render::vendor_provider(i).name()) +
-                                             " failed a frame earlier in this run (" + vendorFailedWhy[i] +
-                                             "); the temporal upscaler draws instead.";
+            answers[std::size_t(i)].reason = vendor_failed_text(i) + "; the temporal upscaler draws instead.";
         }
     }
     // Ray Reconstruction: the machine's answer; off after a frame DLSS refused with it, or when DLSS itself is off. The linear frame it needs
@@ -428,11 +431,10 @@ Renderer::Impl::RrSignals Renderer::Impl::rr_signals(bool upscaleCamera, bool po
     if (!upscaler.rayReconstruction || !(wantReflect || wantGi) || !gpu.has_device()) return s;
     s.asked = true;
     if (vendorFailed[0]) {  // Ray Reconstruction is DLSS's: after its failure no camera is the one it resolves
-        s.why = "DLSS failed a frame earlier in this run (" + vendorFailedWhy[0] +
-                "): the engine denoises the signals for the rest of the run";
+        s.why = vendor_failed_text(0) + ": the engine denoises the signals for the rest of the run";
         return s;
     }
-    if (!upscaleCamera || render::vendor_impl_index(upscaleImpl) != 0 || vendorFailed[0]) {
+    if (!upscaleCamera || render::vendor_impl_index(upscaleImpl) != 0) {
         s.why = "this camera is not the one DLSS resolves (a split screen or several cameras, a frame the renderer did "
                 "not jitter, or another upscaler: render.upscaler mode)";
         return s;

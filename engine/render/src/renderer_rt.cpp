@@ -188,6 +188,8 @@ void Renderer::Impl::rt_begin_frame() {
 // declared and did not run is counted: a reason it declared (the driver refused the kernel) falls back to the probe and ambient term at once, a pass
 // with none (the traced scene had no instance yet) gets kGiRtMissFrames frames; the term then holds for kGiRtRetryFrames frames before the next try.
 void Renderer::Impl::rt_gi_pixel_finish() {
+    // Tests: a second camera whose kernel did not run, declared after the first (only the main camera traces today, so no scene makes two).
+    if (testGiPixelLastNotRun && rtGiPixelFrame.declared) rtGiPixelFrame.imgs.push_back(&testGiPixelNotRunImage);
     render::RtGiPixelStatus st;
     st.wanted = rtSettings.enabled && rtSettings.gi == render::RtGi::PerPixel;
     if (!st.wanted) {  // turned off (and on again later): the next try starts clean

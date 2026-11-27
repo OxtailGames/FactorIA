@@ -87,6 +87,8 @@ struct RendererTestAccess {
     // M79 POLISH-last-A: sets the refusal the next frame's plan reads for one camera's path tracer pass (PathTraceJobState::failure; the frame's own
     // declaration of a pass that is accepted clears it again). False when the camera has no accumulation state.
     static bool path_trace_set_failure(Renderer& r, const std::string& job, const std::string& why);
+    // M79 POLISH-last-F: adds a later camera's per-pixel GI image that did not run (ran=false) to each frame's, so the one that ran is not the last: tells the status's OR from "the last camera" (only the main camera traces, so no scene makes two).
+    static void gi_pixel_last_not_run(Renderer& r, bool on);
     // M79-P2a-2: the draws of the last frame that read the sun's shadow from the ray traced image, and those that took min(image, cascades).
     struct RtShadowDraws {
         int mask = 0, withCascades = 0, local = 0;
