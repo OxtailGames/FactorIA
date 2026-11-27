@@ -1203,11 +1203,12 @@ void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
     const bool ptRefused = ptJob != ptState.jobs.end() && !ptJob->second.failure.empty();
     const bool ptExpected =
         wantPathTrace && ctx.doPrepass && rtScene.active() && !ptRefused && rtScene.traceable_items() > 0;
-    // The frame that tries the pass again after a refusal (`retry`) is treated like an expected one: if the retry is accepted the frame pays for the path
-    // tracer only (one decision a frame), and if it is refused the next frame brings the occlusion back.
+    // The frame that tries the pass again after a refusal (`retry`) keeps the ray traced occlusion: the decision is late (build_graph), so no
+    // frame can know the retry is accepted, and dropping the occlusion for it would make the technique flicker (ray traced, screen space, ray traced)
+    // every few frames while the pass stays refused. A retry that is accepted pays for the occlusion and the path tracer for that one frame.
     const bool ptRetry =
         wantPathTrace && ctx.doPrepass && rtScene.active() && ptRefused && rtScene.traceable_items() > 0;
-    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected && !ptRetry;
+    ctx.rtAo.want = wantRtAo && ctx.doPrepass && !ptExpected;
     ctx.giPixel = {};
     if (wantRtGiPixel) {
         // A fallback is running (the kernel was refused, or did not run for a few frames): the probe and ambient term lights the surfaces until the retry.
