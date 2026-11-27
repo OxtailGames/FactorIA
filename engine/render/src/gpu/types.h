@@ -629,8 +629,9 @@ struct BackendBinding {
     std::uint8_t hlslSpace = 0;    // D3D12: register space (space0 for every shader sokol-shdc writes)
     std::uint8_t mslIndex = 0;     // Metal: [[buffer(n)]], [[texture(n)]] or [[sampler(n)]]
     std::uint8_t wgslBinding = 0;  // WebGPU: binding in its group (0 for uniform blocks, 1 for the rest)
-    std::uint8_t spirvSet =
-        0;  // Vulkan: descriptor set where the SPIR-V declares it (sokol-shdc: 0 for uniform blocks, 1 for the rest; a compute shader may name any set, the backend moves it)
+    // Vulkan: descriptor set where the SPIR-V declares it (sokol-shdc: 0 for uniform blocks, 1 for the rest; a compute
+    // shader may name any set, the backend moves it)
+    std::uint8_t spirvSet = 0;
     std::uint8_t spirvBinding = 0;  // Vulkan: binding in that set
     std::uint8_t glslBinding = 0;   // GL: binding point (storage buffers and storage images)
 };
