@@ -32,7 +32,28 @@ using render::FrameGenSlot;
 using render::GpuVendor;
 namespace abi = fa::render::ffx_abi;
 
+// The Vulkan headers' names for the handles of vkDestroySwapchainKHR, as render_framegen_fsr.cpp declares them: a
+// function called through PFN_vkDestroySwapchainKHR (or FidelityFX's destroy function, the same plus a context) must
+// have exactly that type, and the fake's must match what the hook calls it through (clang's -fsanitize=function).
+struct VkDevice_T;
+struct VkSwapchainKHR_T;
+struct VkAllocationCallbacks;
+
 namespace {
+
+#if defined(__LP64__) || defined(_WIN64) || defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__) ||          \
+    defined(__ia64) || defined(_M_IA64) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
+using VkSwapchainKHR = VkSwapchainKHR_T*;
+VkSwapchainKHR swapchain_handle(std::uint64_t bits) { return reinterpret_cast<VkSwapchainKHR>(std::uintptr_t(bits)); }
+void* swapchain_ptr(VkSwapchainKHR h) { return h; }
+#else
+using VkSwapchainKHR = std::uint64_t;
+VkSwapchainKHR swapchain_handle(std::uint64_t bits) { return bits; }
+void* swapchain_ptr(VkSwapchainKHR h) { return reinterpret_cast<void*>(std::uintptr_t(h)); }
+#endif
+// vkDestroySwapchainKHR as the engine calls it (PFN_vkDestroySwapchainKHR).
+using VkDestroyFn = void (*)(VkDevice_T*, VkSwapchainKHR, const VkAllocationCallbacks*);
+VkDevice_T* device_handle(const void* device) { return static_cast<VkDevice_T*>(const_cast<void*>(device)); }
 
 // ---- the fake library ---------------------------------------------------------------------------------------------------------------
 
@@ -77,10 +98,11 @@ Fk fk;
 abi::Context swap_ctx() { return reinterpret_cast<abi::Context>(&fk.swapToken); }
 abi::Context fg_ctx() { return reinterpret_cast<abi::Context>(&fk.fgToken); }
 
-void fake_vk_destroy(void*, void* swapchain, const void*, void* context) {
+// FidelityFX's destroy function of a swapchain it made: vkDestroySwapchainKHR's type plus a context it does not use.
+void fake_vk_destroy(VkDevice_T*, VkSwapchainKHR swapchain, const VkAllocationCallbacks*, void* context) {
     ++fk.vkDestroyCalls;
-    fk.lastVkDestroy = swapchain;
-    fk.vkDestroyed.push_back(swapchain);
+    fk.lastVkDestroy = swapchain_ptr(swapchain);
+    fk.vkDestroyed.push_back(swapchain_ptr(swapchain));
     CHECK(context == nullptr);  // the SDK's replacement takes a context it does not use: the hook passes none
     fk.events.push_back("vk destroy");
 }
@@ -907,7 +929,6 @@ TEST_CASE("fsr frame generation hook, Vulkan: Auto asks for queues on an AMD GPU
 }
 
 namespace {
-using VkDestroyFn = void (*)(void*, void*, const void*);  // vkDestroySwapchainKHR: VkDevice is not const
 // What the engine does after a hook made a swapchain over `old` (vulkan_swapchain.cpp): tells the hooks the old one goes, then calls the destroy
 // function the old swapchain was made with.
 void engine_retires(Rig& r, std::uint64_t old, gpu::VulkanSwapchainFunctions oldFns) {
@@ -915,8 +936,8 @@ void engine_retires(Rig& r, std::uint64_t old, gpu::VulkanSwapchainFunctions old
     e.backend = gpu::Backend::Vulkan;
     e.vkSwapchain = old;
     r.hook->swapchain_destroying(e);
-    reinterpret_cast<VkDestroyFn>(oldFns.destroySwapchain)(const_cast<void*>(r.vkSc.device),
-                                                           reinterpret_cast<void*>(std::uintptr_t(old)), nullptr);
+    reinterpret_cast<VkDestroyFn>(oldFns.destroySwapchain)(device_handle(r.vkSc.device), swapchain_handle(old),
+                                                           nullptr);
 }
 std::size_t destroyed_count(std::uint64_t handle) {
     return std::size_t(
@@ -1049,9 +1070,8 @@ TEST_CASE("fsr frame generation hook, Vulkan: destroying the swapchain takes the
     r.hook->swapchain_destroying(e);
     REQUIRE(r.count("destroy fg") == 1);
     CHECK(r.index("destroy fg") < r.index("destroy swapchain"));
-    using DestroyFn = void (*)(void*, void*, const void*);  // vkDestroySwapchainKHR: VkDevice is not const
-    reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain)(
-        const_cast<void*>(r.vkSc.device), reinterpret_cast<void*>(std::uintptr_t(handle)), nullptr);
+    reinterpret_cast<VkDestroyFn>(r.vkSc.functions.destroySwapchain)(device_handle(r.vkSc.device),
+                                                                     swapchain_handle(handle), nullptr);
     CHECK(fk.vkDestroyCalls == 1);
     CHECK(fk.lastVkDestroy == reinterpret_cast<void*>(std::uintptr_t(handle)));
     CHECK(r.index("destroy swapchain") < r.index("vk destroy"));
@@ -1758,20 +1778,18 @@ TEST_CASE(
 
 TEST_CASE(
     "fsr frame generation hook, Vulkan: the destroy function of a swapchain that outlives its provider does nothing") {
-    using DestroyFn = void (*)(void*, void*, const void*);  // vkDestroySwapchainKHR: VkDevice is not const
-    DestroyFn destroy = nullptr;
+    VkDestroyFn destroy = nullptr;
     std::uint64_t handle = 0;
     {
         Rig r(gpu::Backend::Vulkan);
         make_ready_vk(r);
-        destroy = reinterpret_cast<DestroyFn>(r.vkSc.functions.destroySwapchain);
+        destroy = reinterpret_cast<VkDestroyFn>(r.vkSc.functions.destroySwapchain);
         handle = fk.vkHandle;
         r.hook.reset();
         r.fsr.reset();  // the swapchain functions are plain pointers: the engine can still hold them
         fk.vkDestroyCalls = 0;
         REQUIRE(destroy != nullptr);
-        destroy(reinterpret_cast<void*>(std::uintptr_t(0x1000)), reinterpret_cast<void*>(std::uintptr_t(handle)),
-                nullptr);
+        destroy(reinterpret_cast<VkDevice_T*>(std::uintptr_t(0x1000)), swapchain_handle(handle), nullptr);
         CHECK(fk.vkDestroyCalls == 0);
     }
 }
